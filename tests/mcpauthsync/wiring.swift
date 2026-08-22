@@ -104,8 +104,18 @@ func checkTheWiring() {
                 && inOrder("guard !stale.isEmpty else { return }", "keychainSecret(", in: grants),
                "…and a launch where nothing moved returns without reading a single one")
         expect(inOrder("keychainSecret(service: service, account: account)",
-                       "observed[probe.home] = modifiedAt", in: grants),
+                       "observed[probe.home] = mcpSeedRecordedDate(", in: grants),
                "a sibling is recorded only after its secret actually came back")
+        // THE SAME-SECOND CLAMP, which is an order as much as a rule: the clock is read once, before
+        // the reads, and what goes into the RECORD is the clamped date while what goes into the
+        // MERGE is the raw one. Swap those two and the gate either shuts for ever on a home written
+        // in the same second, or starts lying to the merge about which document is newer.
+        expect(inOrder("let readingAt = Date()", "for probe in stale", in: grants),
+               "the clock is read before the secret reads, not once per sibling afterwards")
+        expect(grants.contains("observed[probe.home] = mcpSeedRecordedDate(modifiedAt, readingAt: readingAt)"),
+               "…and the record gets the clamped date")
+        expect(grants.contains("sources.append((data, probe.modifiedAt))"),
+               "…while the merge gets the date the probe actually returned")
         // The record may only move where the pass CONCLUDED: nothing to adopt, or a write that
         // verified. A pass that gave up, or one whose write was rolled back, has to be tried again.
         expect(grants.components(separatedBy: "recordMCPSeed(observed, for: home)").count - 1 == 2,
@@ -121,33 +131,19 @@ func checkTheWiring() {
     }
 
     do {
-        // The record lives in the app's own document (`~/.tally/state.json`), which has another
-        // writer. So it is patched onto the file AS IT IS at the moment of writing rather than onto
-        // the copy the gate read minutes earlier, and it is replaced in one step: a rewrite of the
-        // stale copy would put a pinned account back to what it was before the user changed it.
+        // The record is the CLI's OWN file, and that is load-bearing rather than tidy: kept in the
+        // app's `~/.tally/state.json`, a read before the Keychain work and a write after it would
+        // revert whatever the app stored in between, which is the user's pinned account.
         let recorder = body(of: "private func recordMCPSeed(", in: sync)
-        expect(recorder.contains("stateDocumentSettingMCPSeedRecord"),
-               "the harness really read the recorder")
-        expect(inOrder("Data(contentsOf: stateURL)", "stateDocumentSettingMCPSeedRecord",
-                       in: recorder),
-               "the record is patched onto the state file as it is NOW, not onto an older reading")
-        expect(recorder.contains("options: .atomic"),
-               "…and the file it shares with the app is replaced in one step")
-        expect(!recorder.contains("createDirectory") && !recorder.contains("StateFile("),
-               "…and a document the app has never published is left absent rather than invented")
-    }
-
-    do {
-        // The app end of the same key: that store writes the whole document from one struct, so a
-        // key missing from it is a key deleted at the next settings change.
-        let store = source("Tally/Stores/LaunchPolicyStore.swift")
-        expect(store.contains("var mcpSeed: [String: [String: Double]]?"),
-               "the app's state document declares the CLI's seeding record, so its writes keep it")
-        expect(store.contains("mcpSeed: seedRecord"),
-               "…and hands it back on every persist")
-        expect(inOrder("Data(contentsOf: Self.fileURL)", "mcpSeed: seedRecord",
-                       in: body(of: "private func persist(", in: store)),
-               "…read off the disk at that moment rather than from a copy taken at app start")
+        expect(recorder.contains("mcpSeedDocument("), "the harness really read the recorder")
+        expect(!sync.contains("stateURL"),
+               "the seeding does not read or write the document the app publishes")
+        expect(inOrder("Data(contentsOf: mcpSeedURL)", "mcpSeedDocument(", in: recorder),
+               "the record is patched onto the file as it is NOW, not onto an older reading of it, "
+                   + "so a launch seeding another home at the same moment is not forgotten")
+        expect(recorder.contains("options: .atomic"), "…and replaced in one step")
+        expect(recorder.contains("createDirectory"),
+               "…and created when it is not there, this file having no other program's shape to keep")
     }
 
     do {

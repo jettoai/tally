@@ -1,7 +1,7 @@
 import Foundation
 
 // WHETHER A HOME HAS TO BE READ AT ALL: which siblings' credentials SECRETS a launch reads, decided
-// from attribute probes that read none of them (TallyCLI/MCPAuthMerge.swift).
+// from attribute probes that read none of them (TallyCLI/MCPSeedGate.swift).
 //
 // Getting it wrong in one direction costs a Keychain read, and a consent dialog, at every launch for
 // ever; in the other it costs a grant that never arrives, on a home that has just been handed a
@@ -63,28 +63,20 @@ func checkTheFreshnessGate() {
     // MARK: - Where the record is kept
 
     do {
-        // A state file as the app publishes it, with the two blocks that are already in it and a key no
-        // build of this repo has ever heard of standing in for the ones later builds will add.
-        let state: [String: Any] = [
-            "version": 1,
-            "launch": ["claude": ["mode": "manual", "pinnedHome": "/Users/someone/.claude"]],
-            "artifactAccount": "/Users/someone/.claude2",
-            "somethingNewerTallyWrote": ["kept": true],
-        ]
+        // The record document as the CLI keeps it: target home, to sibling home, to epoch seconds.
+        // Another home's entry stands in for the whole rest of the machine's fleet, because the one
+        // thing a write here may not do is forget a home it was not about.
         let home = "/Users/someone/.claude"
-        let next = stateDocumentSettingMCPSeedRecord(state, for: home, record: [sibling2: recent])
+        let existing: [String: Any] = [sibling3: [sibling2: old.timeIntervalSince1970]]
+        let next = mcpSeedDocument(existing, setting: [sibling2: recent], for: home)
 
-        expect(canonical(next["launch"] as Any) == canonical(state["launch"] as Any)
-                && next["artifactAccount"] as? String == "/Users/someone/.claude2"
-                && next["version"] as? Int == 1
-                && canonical(next["somethingNewerTallyWrote"] as Any)
-                    == canonical(state["somethingNewerTallyWrote"] as Any),
-               "recording a merge carries every other key of the app's document through untouched")
+        expect(canonical(next[sibling3] as Any) == canonical(existing[sibling3] as Any),
+               "recording one home's merge carries every other home's record through untouched")
         expect(mcpSeedRecord(in: next, for: home) == [sibling2: recent],
                "…and the record reads back as the dates that went into it")
-        expect(mcpSeedRecord(in: next, for: sibling3).isEmpty, "…for that home and for no other")
-        // What is written has to survive the encoder that writes it: a Date left in the block would not
-        // encode at all, which is why it holds epoch seconds.
+        expect(mcpSeedRecord(in: next, for: sibling2).isEmpty, "…for that home and for no other")
+        // What is written has to survive the encoder that writes it: a Date left in the document
+        // would not encode at all, which is why it holds epoch seconds.
         expect(JSONSerialization.isValidJSONObject(next), "…and what is handed to the encoder is JSON")
         let stored = document((try? JSONSerialization.data(withJSONObject: next)) ?? Data())
         expect(mcpSeedRecord(in: stored, for: home) == [sibling2: recent],
@@ -92,10 +84,37 @@ func checkTheFreshnessGate() {
     }
 
     do {
-        expect(mcpSeedRecord(in: ["launch": [:]], for: "/Users/someone/.claude").isEmpty,
-               "a state file written before this feature existed records nothing, rather than failing")
-        expect(mcpSeedRecord(in: ["mcpSeed": ["/Users/someone/.claude": ["/x": "yesterday"]]],
+        expect(mcpSeedRecord(in: [:], for: "/Users/someone/.claude").isEmpty,
+               "a machine that has never recorded anything records nothing, rather than failing")
+        expect(mcpSeedRecord(in: ["/Users/someone/.claude": ["/x": "yesterday"]],
                              for: "/Users/someone/.claude").isEmpty,
                "…and an entry that is not a number is skipped rather than read as a date")
+    }
+
+    // MARK: - The same-second trap
+
+    // The one way this gate could fail PERMANENTLY rather than for one launch: an item written again
+    // inside the second it was read carries the date that was just recorded, and strictly greater
+    // then says "unchanged" for ever, because only another write moves the date on.
+
+    do {
+        let read = Date(timeIntervalSince1970: 1_800_000_000)
+        expect(mcpSeedRecordedDate(read, readingAt: read) == read.addingTimeInterval(-1),
+               "an item written in the second this pass is running in is recorded a second early, "
+                   + "so the next launch is made to read it again")
+        expect(mcpSeedRecordedDate(read, readingAt: read.addingTimeInterval(0.9))
+                == read.addingTimeInterval(-1),
+               "…and so is one whose second has not yet elapsed when the record is written")
+        expect(mcpSeedRecordedDate(read, readingAt: read.addingTimeInterval(1))
+                == read,
+               "an item from a second that is already over is recorded as it stands")
+        expect(mcpSeedRecordedDate(old, readingAt: recent) == old,
+               "…and so is every older one, which is nearly all of them")
+        // The clamp has to actually reopen the gate, which is the thing it is for: the recorded date
+        // must lose to the date the next launch's probe returns.
+        let clamped = mcpSeedRecordedDate(read, readingAt: read)
+        let probe = MCPSeedProbe(home: sibling2, modifiedAt: read)
+        expect(mcpSeedSourcesToRead(probed: [probe], record: [sibling2: clamped]) == [probe],
+               "…and the next launch really does read it, on the same date the probe returned")
     }
 }

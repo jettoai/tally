@@ -1,6 +1,7 @@
 #!/bin/bash
-# Compiles the MCP authorization merge (TallyCLI/MCPAuthMerge.swift) together with a small assertion
-# harness and runs it. No Xcode target is needed; exits non-zero on failure.
+# Compiles the MCP authorization merge (TallyCLI/MCPAuthMerge.swift) and the freshness gate in front
+# of it (TallyCLI/MCPSeedGate.swift) together with a small assertion harness and runs it. No Xcode
+# target is needed; exits non-zero on failure.
 #
 # ONE SOURCE FILE OF RULES, and that is the point of the split it reflects: every rule this feature
 # has about what may be copied, what supersedes what, which item a home may be addressed by, and what
@@ -20,6 +21,6 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/mcpauthsync/main.swift tests/mcpauthsync/gate.swift \
     tests/mcpauthsync/wiring.swift \
-    TallyCLI/MCPAuthMerge.swift \
+    TallyCLI/MCPAuthMerge.swift TallyCLI/MCPSeedGate.swift \
     Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/ClaudeStatePath.swift
 "$out"

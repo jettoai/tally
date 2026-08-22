@@ -191,7 +191,7 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
                                    modifiedAt: KeychainReader.modifiedAt(service: service,
                                                                          account: account)))
     }
-    // THE FRESHNESS GATE (MCPAuthMerge.swift states the rule, what it cannot see, and what it
+    // THE FRESHNESS GATE (MCPSeedGate.swift states the rule, what it cannot see, and what it
     // changes). A launch where no sibling's item has been written since this home last merged from
     // it stops HERE, having read no secret and asked nobody anything, which is the ordinary case and
     // the whole point of the gate.
@@ -200,14 +200,23 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
 
     var sources: [(data: Data, writtenAt: Date?)] = []
     var observed: MCPSeedRecord = [:]
+    // Sampled BEFORE the reads rather than beside each one, because of what the clamp below asks:
+    // "can this item still be written inside the second this record is about". A second that had
+    // not elapsed when the pass began is the whole of that risk, and a later reading of the clock
+    // would only shrink it (`mcpSeedRecordedDate`).
+    let readingAt = Date()
     for probe in stale {
         guard let service = services[probe.home],
               let data = keychainSecret(service: service, account: account) else { continue }
+        // The merge gets the date the probe returned, unclamped: there it is evidence of which
+        // document is newer, and the clamp is about what may be trusted at the NEXT launch.
         sources.append((data, probe.modifiedAt))
         // Recorded only where the secret ACTUALLY CAME BACK, and only where the probe gave a date to
         // record. A read that was declined, or an item macOS would not describe, leaves no record, so
         // the next launch asks again rather than treating a home it never merged as merged.
-        if let modifiedAt = probe.modifiedAt { observed[probe.home] = modifiedAt }
+        if let modifiedAt = probe.modifiedAt {
+            observed[probe.home] = mcpSeedRecordedDate(modifiedAt, readingAt: readingAt)
+        }
     }
     guard !sources.isEmpty else { return }
 
@@ -250,44 +259,54 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     _ = updateKeychainSecret(service: targetService, account: account, data: targetData)
 }
 
-// MARK: - The record (~/.tally/state.json)
+// MARK: - The record (~/.tally/mcp-seed.json)
+
+/// Which of a config home's siblings this launcher has already merged MCP grants from, and what
+/// each of those items' modification dates was when it did (MCPSeedGate.swift holds the shape and
+/// every rule over it).
+///
+/// A FILE OF ITS OWN, which is the whole reason it is not a block of `~/.tally/state.json` where it
+/// first lived. That document is the app's: `LaunchPolicyStore` rewrites it WHOLE from its own model
+/// whenever somebody changes a launch setting. A record kept in it would have to be read here before
+/// the Keychain work and written back after, and a pin or a model default the user chose in between
+/// would be reverted by that write - a lost update, on the user's own intent, to save a Keychain
+/// read. One writer per file; this file's writer is the CLI, and the app never reads it.
+let mcpSeedURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/mcp-seed.json")
 
 /// What this target home last merged from each of its siblings.
 ///
-/// A missing or unreadable state file reads as NO RECORD AT ALL, which is fail-open in the same
+/// A missing or unreadable document reads as NO RECORD AT ALL, which is fail-open in the same
 /// direction as everything else here: every sibling is then read, exactly as this feature behaved
 /// before the gate existed.
 private func loadMCPSeedRecord(for home: String) -> MCPSeedRecord {
-    guard let data = try? Data(contentsOf: stateURL),
-          let state = mcpJSONDocument(from: data) else { return [:] }
-    return mcpSeedRecord(in: state, for: home)
+    guard let data = try? Data(contentsOf: mcpSeedURL),
+          let document = mcpJSONDocument(from: data) else { return [:] }
+    return mcpSeedRecord(in: document, for: home)
 }
 
 /// Write down what this pass read, so the next launch can skip it.
 ///
-/// THE FILE IS READ AGAIN HERE rather than patched onto the copy the gate read, for the reason the
-/// header gives about the credentials item and one more besides. Everything between the two readings
-/// is an unbounded wait on consent dialogs; and this document has ANOTHER WRITER - the app rewrites
-/// it whole whenever somebody changes a launch setting (`LaunchPolicyStore.persist`). Patching the
-/// stale copy would put a pinned account back to what it was before the user changed it. Patching
-/// the document as it is NOW leaves a window of the microseconds between this read and the atomic
-/// replace, which is as small as it can be made without a lock the other writer does not take
-/// either, and the thing at stake in that window is one launch's worth of a saved read.
+/// READ AGAIN HERE rather than patched onto the copy the gate read, because two launches can be
+/// seeding two different homes at once and the one that writes second would otherwise publish a
+/// document that has forgotten the first. Created when it is absent: this is the CLI's own document,
+/// with no other program's schema to guess at.
 ///
-/// IT NEVER CREATES THE FILE. `launch` is not optional on the app's side of this contract, so a
-/// document invented here would be one the app refuses to decode. A machine whose app has never
-/// published a state file is simply not gated, which is the behaviour from before this existed.
+/// A document that will not parse is REPLACED rather than refused, which is the opposite of what
+/// `loadProjectPoliciesForWrite` does with its file and for a reason worth stating: what is lost
+/// there is profiles the user typed, and what is lost here is the knowledge that some Keychain items
+/// were already read. Refusing would leave the gate switched off for good on a machine whose file
+/// got truncated once; overwriting costs one launch its saved reads.
 private func recordMCPSeed(_ observed: MCPSeedRecord, for home: String) {
     guard !observed.isEmpty else { return }
-    guard let data = try? Data(contentsOf: stateURL),
-          let state = mcpJSONDocument(from: data) else { return }
-    let merged = mcpSeedRecord(in: state, for: home).merging(observed) { _, fresh in fresh }
-    let next = stateDocumentSettingMCPSeedRecord(state, for: home, record: merged)
-    // The app's own formatting, so a file this rewrote reads like the file it published.
-    guard let bytes = try? JSONSerialization.data(withJSONObject: next,
-                                                  options: [.prettyPrinted, .sortedKeys])
-    else { return }
-    try? bytes.write(to: stateURL, options: .atomic)
+    let document = (try? Data(contentsOf: mcpSeedURL)).flatMap(mcpJSONDocument(from:)) ?? [:]
+    let merged = mcpSeedRecord(in: document, for: home).merging(observed) { _, fresh in fresh }
+    guard let bytes = try? JSONSerialization.data(
+        withJSONObject: mcpSeedDocument(document, setting: merged, for: home),
+        options: [.prettyPrinted, .sortedKeys]) else { return }
+    try? FileManager.default.createDirectory(at: mcpSeedURL.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    try? bytes.write(to: mcpSeedURL, options: .atomic)
 }
 
 // MARK: - The registration (.claude.json)

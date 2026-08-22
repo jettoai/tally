@@ -105,7 +105,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/PickPanelMetrics.swift Tally/Core/PickPalette.swift Tally/Core/PickKeyboard.swift Tally/Core/PanelGeometry.swift TallyCLI/PromptHookBackstop.swift \
   Tally/Core/PickClaimGate.swift Tally/Core/CaptureLaunch.swift \
   Tally/Core/PromptHookInput.swift \
-  TallyCLI/MCPAuthSync.swift TallyCLI/MCPAuthMerge.swift TallyCLI/KeychainSecret.swift \
+  TallyCLI/MCPAuthSync.swift TallyCLI/MCPAuthMerge.swift TallyCLI/MCPSeedGate.swift TallyCLI/KeychainSecret.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift Tally/Core/PathIdentity.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \

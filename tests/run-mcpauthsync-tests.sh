@@ -7,8 +7,8 @@
 # has about what may be copied, what supersedes what, which item a home may be addressed by, and what
 # must survive a rewrite lives in that file with no Keychain and no filesystem behind it, so the
 # suite states the decision rather than a fixture of the machine it runs on. MCPAuthSync.swift is the
-# other half (which items to read, in what order, where to write, what to restore when a verification
-# fails) and is asserted against the real Keychain by hand, because a suite cannot create another
+# other half (which items to read, in what order, where to write, and a failed verification writes
+# nothing) and is asserted against the real Keychain by hand, because a suite cannot create another
 # program's item to be refused by - and asserted here, off its source, for the parts that are an
 # ORDER rather than a value.
 #

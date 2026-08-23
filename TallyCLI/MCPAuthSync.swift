@@ -137,12 +137,19 @@ func launchProvider(_ provider: Provider, args: [String], home: String,
 ///
 /// SAID OUT LOUD, unlike everything else this file does, because an item being rewritten is a thing
 /// somebody may want to know happened to their Keychain - and because a launch that silently touched
-/// a credential would be the harder thing to explain afterwards. One line per item, no value, and
-/// nothing at all on the ordinary launch where every item is healthy.
+/// a credential would be the harder thing to explain afterwards. One line per item repaired, no
+/// value, and nothing at all on the ordinary launch where every item is healthy.
+///
+/// A SCAN THAT COULD NOT RUN SAYS NOTHING HERE, which is the one place that answer is right. The verb
+/// reports it and exits 1, because somebody asked; a launch may not, because it is fail-open like
+/// everything else in this file - a locked keychain is not a reason to hold up `claude`, and a line
+/// about it on the way into a session is noise the person did not ask for. The next launch asks
+/// again.
 func repairClaudeKeychain(provider: Provider, interactive: Bool) {
     guard provider.id == "claude" else { return }
-    for repaired in repairClaudeKeychainPartitions(interactive: interactive)
-        where repaired.outcome == .repaired {
+    guard case let .scanned(results) = repairClaudeKeychainPartitions(interactive: interactive)
+    else { return }
+    for repaired in results where repaired.outcome == .repaired {
         warn("repaired Keychain item \(repaired.service) (partition list damaged by Tally 0.64.0)")
     }
 }

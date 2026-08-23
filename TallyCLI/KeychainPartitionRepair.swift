@@ -284,29 +284,66 @@ func repairKeychainPartitions(service: String, account: String,
 
 // MARK: - Repairing every Claude Code item
 
-/// Every `Claude Code-credentials*` item of this login user, with what the repair did to each.
+/// What became of one item.
+struct KeychainRepairResult: Equatable {
+    let service: String
+    let outcome: KeychainPartitionOutcome
+}
+
+/// What became of a whole pass over the machine.
+///
+/// A SCAN THAT COULD NOT RUN IS NOT AN EMPTY SCAN, and keeping the two apart is the whole reason
+/// this is an enum rather than an array. A locked keychain, an unlock the user cancelled, any error
+/// at all from the enumeration: every one of those used to arrive as `[]`, which the verb read as
+/// "nothing is damaged here" and reported with a zero exit. That is the worst answer available - it
+/// tells somebody whose items ARE damaged that they are fine.
+enum KeychainRepairSweep: Equatable {
+    /// The enumeration ran. The rows are every item it accepted, and an empty list means this
+    /// machine has no Claude Code credentials items at all, which is a real and healthy answer.
+    case scanned([KeychainRepairResult])
+    /// The enumeration itself failed, with the status macOS gave. Nothing was looked at.
+    case scanFailed(OSStatus)
+}
+
+/// Every Claude Code credentials item of this login user, with what the repair did to each.
 ///
 /// ENUMERATED BY ATTRIBUTES ONLY (`kSecMatchLimitAll` with `kSecReturnAttributes`), which returns no
 /// secret and raises no prompt, and filtered down to two things before anything is touched: a
-/// service name in Claude Code's own family, and this user's account. Nothing else on the machine is
-/// looked at, let alone written - somebody's mail password is not this feature's business, and an
-/// item belonging to another login user is not this process's to read.
+/// service name the generator in ClaudeKeychainService.swift could have produced, and this user's
+/// account. Nothing else on the machine is looked at, let alone written - somebody's mail password
+/// is not this feature's business, and an item belonging to another login user is not this process's
+/// to read.
+///
+/// THE NAME TEST IS `isClaudeCredentialsService` AND NOT A PREFIX, which is a narrower door than it
+/// looks: `Claude Code-credentials-backup` wears the same first 23 characters and is somebody's own
+/// item, and what this function does to an item it accepts is read its secret and write it back.
+/// That rule lives next to the generator it is the inverse of, so the two cannot drift apart.
+///
+/// `errSecItemNotFound` IS A SUCCESSFUL EMPTY SCAN rather than a failure: it is what a machine with
+/// no generic-password items at all answers, and there is nothing wrong with such a machine.
 ///
 /// Sorted by service name so that the verb's output is the same list in the same order every time.
-func repairClaudeKeychainPartitions(interactive: Bool)
-    -> [(service: String, outcome: KeychainPartitionOutcome)] {
+func repairClaudeKeychainPartitions(interactive: Bool) -> KeychainRepairSweep {
     let account = NSUserName()
     var found: CFTypeRef?
-    guard SecItemCopyMatching([
+    let status = SecItemCopyMatching([
         kSecClass as String: kSecClassGenericPassword,
         kSecMatchLimit as String: kSecMatchLimitAll,
         kSecReturnAttributes as String: true,
-    ] as CFDictionary, &found) == errSecSuccess,
-        let items = found as? [[String: Any]] else { return [] }
+    ] as CFDictionary, &found)
+    if status == errSecItemNotFound { return .scanned([]) }
+    guard status == errSecSuccess, let items = found as? [[String: Any]] else {
+        // A success that did not answer with a list of attribute dictionaries is a shape nobody can
+        // act on, so it is reported as a failed scan rather than as an empty one for the reason the
+        // enum gives. `errSecSuccess` is carried through as the status because that is what macOS
+        // actually said, and inventing a different one would be a worse report than a surprising
+        // one.
+        return .scanFailed(status)
+    }
 
     let services = items.compactMap { attributes -> String? in
         guard let service = attributes[kSecAttrService as String] as? String,
-              service.hasPrefix(claudeBaseKeychainService),
+              isClaudeCredentialsService(service),
               attributes[kSecAttrAccount as String] as? String == account else { return nil }
         return service
     }
@@ -316,26 +353,28 @@ func repairClaudeKeychainPartitions(interactive: Bool)
     // item that fails it is handed to the repair, which reads the list again for itself - a second
     // ACL read on the rare path, in exchange for one function that can be called on its own and
     // still tell "I cannot read this item's value" from "there was nothing wrong with it".
-    return Set(services).sorted().map { service in
+    return .scanned(Set(services).sorted().map { service in
         guard keychainPartitionsAreDamaged(service: service, account: account) else {
-            return (service, KeychainPartitionOutcome.healthy)
+            return KeychainRepairResult(service: service, outcome: .healthy)
         }
-        return (service, repairKeychainPartitions(service: service, account: account,
-                                                  interactive: interactive))
-    }
+        return KeychainRepairResult(service: service,
+                                    outcome: repairKeychainPartitions(service: service,
+                                                                      account: account,
+                                                                      interactive: interactive))
+    })
 }
 
 // MARK: - `tally keychain-repair`
 
 /// What one item's outcome is called on the verb's output. English, like every other line this
 /// binary prints, and never a value.
-func keychainRepairLine(service: String, outcome: KeychainPartitionOutcome) -> String {
-    switch outcome {
-    case .healthy: return "\(service): healthy"
-    case .repaired: return "\(service): repaired"
-    case let .unreadable(status): return "\(service): unreadable (status \(status))"
-    case .writeFailed: return "\(service): write failed"
-    case .verifyFailed: return "\(service): verify failed"
+func keychainRepairLine(_ result: KeychainRepairResult) -> String {
+    switch result.outcome {
+    case .healthy: return "\(result.service): healthy"
+    case .repaired: return "\(result.service): repaired"
+    case let .unreadable(status): return "\(result.service): unreadable (status \(status))"
+    case .writeFailed: return "\(result.service): write failed"
+    case .verifyFailed: return "\(result.service): verify failed"
     }
 }
 
@@ -358,8 +397,17 @@ func keychainRepairLeftDamage(_ outcome: KeychainPartitionOutcome) -> Bool {
 /// Exit 0 when nothing is left damaged, which includes a machine with no such items at all: "there
 /// is nothing wrong here" and "there was something and it is fixed" are the same answer to whoever
 /// or whatever ran this.
+///
+/// AND EXIT 1 WHEN THE SCAN COULD NOT RUN, on one line saying so. A locked keychain answers this
+/// command with a question it could not put, and the one thing that must never come back from it is
+/// the same silence a clean machine gives (`KeychainRepairSweep`).
 func runKeychainRepair() -> Int32 {
-    let outcomes = repairClaudeKeychainPartitions(interactive: true)
-    for outcome in outcomes { print(keychainRepairLine(service: outcome.service, outcome: outcome.outcome)) }
-    return outcomes.contains { keychainRepairLeftDamage($0.outcome) } ? 1 : 0
+    switch repairClaudeKeychainPartitions(interactive: true) {
+    case let .scanFailed(status):
+        print("keychain scan failed (status \(status))")
+        return 1
+    case let .scanned(results):
+        for result in results { print(keychainRepairLine(result)) }
+        return results.contains { keychainRepairLeftDamage($0.outcome) } ? 1 : 0
+    }
 }

@@ -83,7 +83,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: break
             }
         }
-        UsageStore.shared.start()
+        // THE FIRST USAGE READING WAITS FOR THE KEYCHAIN REPAIR, and that ordering is the whole of
+        // why these two lines share a task. A refresh runs the `claude` CLI, which reads its
+        // credentials through `/usr/bin/security`, so on a machine Tally 0.64.0 damaged the app's
+        // own first reading is one of the things that raises the "security" panel the repair exists
+        // to remove - and started beside the repair it would race the rewrite as well
+        // (KeychainRepairLaunch.swift; codex review, 2026-08-23).
+        //
+        // NOTHING ELSE WAITS. The repair suspends rather than blocking, so everything below is on
+        // screen while it is in flight, and on a build that may not touch shared state it returns
+        // without doing anything at all.
+        Task {
+            await KeychainRepairLaunch.run()
+            UsageStore.shared.start()
+        }
         // The native picker behind `/tally`: listen for the CLI's
         // knock for the life of the process, the way the update check's observer does. Not
         // listening is not an error anywhere - the CLI waits a second and a half for a claim
@@ -105,11 +118,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // And keep them there: the sync above runs once, while the file it writes into is the
         // user's and can be rewritten by anything (IntegrationsSelfHeal.swift).
         IntegrationsStore.shared.refreshSettingsWatcher()
-        // The one piece of upkeep that is not about an install at all: the Keychain items Tally
-        // 0.64.0 left needing a consent dialog, healed once per launch and off this thread
-        // (KeychainRepairLaunch.swift). Nothing downstream waits on it, and nothing reads its
-        // answer.
-        KeychainRepairLaunch.runAtStartup()
         // The upkeep the two above cannot do, because it is not about an install going stale: a hook
         // this version ADDED to a settings.json the user has already let Tally manage. Opt-in is
         // right for the first press and invisible for every one after it, so the new row follows the

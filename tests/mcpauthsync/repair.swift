@@ -94,9 +94,11 @@ func checkTheKeychainRepair() {
         // somebody's mail password, another user's item - is out of the query's reach by
         // construction rather than by care.
         let sweep = body(of: "func repairClaudeKeychainPartitions(", in: repair)
-        expect(sweep.contains("service.hasPrefix(claudeBaseKeychainService)"),
-               "the sweep looks only at Claude Code's own credentials items, under the constant "
-                   + "that spells their names rather than a second copy of the words")
+        expect(sweep.contains("isClaudeCredentialsService(service)")
+                && !sweep.contains("hasPrefix(claudeBaseKeychainService)"),
+               "the sweep asks whether a name is one the generator could have PRODUCED, not whether "
+                   + "it starts with the same words: what it does to an item it accepts is read and "
+                   + "rewrite the secret")
         expect(sweep.contains("attributes[kSecAttrAccount as String] as? String == account")
                 && sweep.contains("let account = NSUserName()"),
                "…and only at this login user's, which is the account attribute Claude Code writes")
@@ -105,6 +107,78 @@ func checkTheKeychainRepair() {
                 && !sweep.contains("kSecReturnData"),
                "the enumeration asks for attributes and never for data, so listing the machine's "
                    + "items reads no secret and can raise no panel")
+    }
+
+    do {
+        // A SCAN THAT COULD NOT RUN IS NOT AN EMPTY SCAN. A locked keychain used to arrive as `[]`,
+        // which the verb reported as a clean machine with a zero exit - the one answer that is worse
+        // than no answer, because it tells somebody whose items ARE damaged that they are fine
+        // (codex review, 2026-08-23). Asserted off the source: a locked keychain is not a state a
+        // suite can put this machine into.
+        let sweep = body(of: "func repairClaudeKeychainPartitions(", in: repair)
+        expect(sweep.contains("if status == errSecItemNotFound { return .scanned([]) }"),
+               "a machine with no generic-password items at all is an empty scan and not a failure, "
+                   + "which is what `errSecItemNotFound` from the enumeration means")
+        expect(sweep.contains("return .scanFailed(status)")
+                && !sweep.contains("else { return [] }"),
+               "…while every other way the enumeration can fail carries its status out, rather than "
+                   + "being flattened into the same silence a clean machine gives")
+        let verb = body(of: "func runKeychainRepair(", in: repair)
+        expect(verb.contains("case let .scanFailed(status):")
+                && verb.contains("print(\"keychain scan failed (status \\(status))\")"),
+               "the verb says so on one line…")
+        expect(inOrder("case let .scanFailed(status):", "return 1", in: verb),
+               "…and exits non-zero, because the question it was asked went unanswered")
+        // The launch path is the one place that answer is right to swallow: fail-open, like
+        // everything else the launcher does with the Keychain.
+        let healer = body(of: "func repairClaudeKeychain(", in: sync)
+        expect(healer.contains("guard case let .scanned(results) = repairClaudeKeychainPartitions("),
+               "a launch treats a failed scan as nothing repaired and says nothing, because a "
+                   + "locked keychain is not a reason to hold up `claude`")
+    }
+
+    do {
+        // THE NAME TEST ITSELF, which is a real function with no Keychain behind it, so it is asked
+        // rather than read. Every row is a name that either IS or IS NOT one
+        // `claudeKeychainService(forConfigDir:)` could have printed.
+        expect(isClaudeCredentialsService(claudeBaseKeychainService),
+               "the bare stem is `~/.claude`'s own item")
+        expect(isClaudeCredentialsService(claudeBaseKeychainService + "-deadbeef"),
+               "…and the stem with eight lowercase hex digits is every other config home")
+        expect(isClaudeCredentialsService(
+                claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/someone/.claude3"))),
+               "…which is asserted against what the generator actually prints, not against a "
+                   + "hand-written example of it")
+        // The four refusals, and the first is the one that made this a defect: an item somebody
+        // called `-backup` is theirs, and accepting it means reading and rewriting their secret.
+        for refused in ["-backup", "-deadbee", "-DEADBEEF", "-deadbeef0"] {
+            expect(!isClaudeCredentialsService(claudeBaseKeychainService + refused),
+                   "`\(claudeBaseKeychainService)\(refused)` is not a name that generator prints")
+        }
+    }
+
+    do {
+        // THE APP'S FIRST USAGE READING WAITS FOR THE REPAIR. A refresh runs the `claude` CLI, which
+        // reads its credentials through `security`, so a poll started before the rewrite raises the
+        // very panel the repair removes and races the write besides (codex review, 2026-08-23).
+        // Asserted off the source because no harness compiles the app's delegate.
+        let delegate = source("Tally/App/AppDelegate.swift")
+        expect(delegate.contains("func applicationDidFinishLaunching"),
+               "the harness really read the app delegate")
+        expect(delegate.contains("await KeychainRepairLaunch.run()"),
+               "the repair is awaited rather than left to run beside everything else")
+        // ADJACENCY RATHER THAN ORDER, because "after it" is not the property: a start in a task of
+        // its own is after this line and races it anyway. The two statements have to be the two
+        // statements of one task, which is what a search for them back to back says.
+        expect(delegate.contains("await KeychainRepairLaunch.run()\n            UsageStore.shared.start()"),
+               "…and the usage store is started by the next statement of that same task, so the "
+                   + "reading cannot begin until the rewrite has finished or timed out")
+        // ONCE, so that a second start somewhere above cannot quietly restore the race the ordering
+        // above was added to close.
+        expect(delegate.components(separatedBy: "UsageStore.shared.start()").count == 2,
+               "and the store is started in exactly one place")
+        expect(!delegate.contains("KeychainRepairLaunch.runAtStartup()"),
+               "the fire-and-forget form is gone rather than left beside the awaited one")
     }
 
     do {

@@ -337,7 +337,8 @@ func runSessionStateChecks() {
     var watcher = TranscriptWatcher(projectDir: dir, since: t0)
     writeUserNotice(UserNotice(message: "answered", at: t0), pid: "9106", dir: dir)
     syncSessionState(&replaced, pid: "9106", project: PickProject(name: "p", path: dir.path),
-                     accountID: "claude:.claude", childPid: nil, model: nil, watcher: &watcher,
+                     accountID: "claude:.claude", childPid: nil, model: nil,
+                     supervisorVersion: nil, watcher: &watcher,
                      keyboardBurstAt: t0.addingTimeInterval(10),
                      dir: dir, now: t0.addingTimeInterval(20))
     check("a tick that finds the wait answered takes it away",
@@ -346,7 +347,8 @@ func runSessionStateChecks() {
     writeUserNotice(UserNotice(message: "standing", at: t0.addingTimeInterval(60)), pid: "9106",
                     dir: dir)
     syncSessionState(&replaced, pid: "9106", project: PickProject(name: "p", path: dir.path),
-                     accountID: "claude:.claude", childPid: nil, model: nil, watcher: &watcher,
+                     accountID: "claude:.claude", childPid: nil, model: nil,
+                     supervisorVersion: nil, watcher: &watcher,
                      keyboardBurstAt: t0.addingTimeInterval(10),
                      dir: dir, now: t0.addingTimeInterval(70))
     check("a tick that finds it still open leaves it standing",
@@ -407,7 +409,8 @@ func runSessionStateChecks() {
                                         since: t0)
         syncSessionState(&writer, pid: pid,
                          project: PickProject(name: "p", path: file.deletingLastPathComponent().path),
-                         accountID: "claude:.claude", childPid: nil, model: nil, watcher: &watcher,
+                         accountID: "claude:.claude", childPid: nil, model: nil,
+                         supervisorVersion: nil, watcher: &watcher,
                          keyboardBurstAt: nil, dir: dir, now: realNow)
         return readSessionState(pid: pid, dir: dir)
     }

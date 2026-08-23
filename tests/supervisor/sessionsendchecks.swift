@@ -457,6 +457,7 @@ func runSessionSendChecks() {
     let published = syncSessionState(&writer, pid: "9210",
                                      project: PickProject(name: "p", path: statedir.path),
                                      accountID: "claude:.claude", childPid: nil, model: nil,
+                                     supervisorVersion: nil,
                                      watcher: &watcher, keyboardBurstAt: nil, dir: statedir,
                                      now: Date().addingTimeInterval(sessionStateQuietSeconds + 5))
     check("the state a tick publishes is the state it hands the input gate",
@@ -480,6 +481,7 @@ func runSessionSendChecks() {
     let withAgents = syncSessionState(&runningWriter, pid: "9211",
                                       project: PickProject(name: "p", path: running.dir.path),
                                       accountID: "claude:.claude", childPid: nil, model: nil,
+                                      supervisorVersion: nil,
                                       watcher: &runningWatcher, keyboardBurstAt: nil,
                                       dir: dispatchDir)
     check("a head with an agent still writing publishes `working`, as the board should show it",
@@ -512,6 +514,7 @@ func runSessionSendChecks() {
     let deepInShadow = syncSessionState(&staleWriter, pid: "9212",
                                         project: PickProject(name: "p", path: stale.dir.path),
                                         accountID: "claude:.claude", childPid: nil, model: nil,
+                                        supervisorVersion: nil,
                                         watcher: &staleWatcher, keyboardBurstAt: nil,
                                         dir: dispatchDir)
     check("a head at the far edge of the 600s relaunch shadow is still only its subagents writing",

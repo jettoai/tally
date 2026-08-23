@@ -61,7 +61,10 @@ func runDemoSessionBoardChecks() {
         [row.title, row.directory ?? "", row.accountID ?? "", row.providerID ?? "",
          row.model ?? "", row.effort ?? "", row.reason ?? "", row.state.rawValue,
          String(row.contextTokens ?? 0), String(describing: row.since),
-         String(describing: row.lastActivity), String(row.isReporting)]
+         String(describing: row.lastActivity), String(row.isReporting),
+         // The badge the card actually draws is a function of this one and the installed version
+         // (`outdatedSupervisorBuild`), so the raw field is the whole leak surface.
+         row.supervisorVersion ?? ""]
     }
 
     let scan = (1 ... 8).map { realRow(String($0)) }
@@ -126,6 +129,37 @@ func runDemoSessionBoardChecks() {
     // The figure the README quotes about this board.
     check("the waiting card is the one carrying a 142k conversation",
           board.first { $0.state == .blocked }?.contextTokens == 142_000)
+
+    // MARK: the card that is a build behind
+
+    // THE SECOND STATE A CAPTURE CANNOT POSE FOR. A supervisor only reads as outdated in the window
+    // between an app update landing and its own next idle moment, so the badge would otherwise
+    // never appear on a screenshot - and the fixture cannot carry a literal version either, because
+    // one that caught up with the app would draw NOTHING rather than something wrong.
+    check("the lagging version is this build's own, one component back",
+          DemoUsage.laggingVersion("0.64.2") == "0.64.1")
+    check("…taking the last MOVING component, so a fresh minor does not come back unchanged",
+          DemoUsage.laggingVersion("0.64.0") == "0.63.0"
+              && DemoUsage.laggingVersion("1.0.0") == "0.0.0")
+    check("…and nothing at all when there is nothing to take back, which draws no badge",
+          DemoUsage.laggingVersion("0.0.0") == nil && DemoUsage.laggingVersion(nil) == nil)
+
+    // Handed an installed version explicitly: `Bundle.main` in this harness is the test binary and
+    // carries none, so a board built off the default would have no badge on it and every assertion
+    // below would be green about nothing.
+    // The badge is asked for the way a card asks, except that the installed side is handed in too:
+    // `SessionRow.outdatedSupervisorVersion` reads it off `Bundle.main`, which is this test binary.
+    let updating = DemoUsage.sessions(scan, installed: "9.9.9")
+    let badges = updating.compactMap { outdatedSupervisorBuild($0.supervisorVersion,
+                                                              installed: "9.9.9") }
+    check("exactly one fixture card is watched by a build other than the installed one",
+          badges.count == 1)
+    check("…and it is the one the badge names, by ITS version rather than the app's",
+          badges.first == "9.9.8")
+    check("…while every other card says nothing at all, which is the ordinary board",
+          updating.filter { $0.supervisorVersion == nil }.count == updating.count - 1)
+    check("…and no field of the machine's own session reached that board either",
+          updating.flatMap { drawn($0) }.allSatisfy { !$0.contains(sentinel) })
 
     // MARK: the states a capture cannot wait for
 
@@ -212,7 +246,8 @@ func runDemoSessionBoardChecks() {
     // own right, `DemoUsage.footprint`), and `childPid` is the terminal the click jumps to.
     let covered: Set<String> = ["title", "state", "since", "reason", "model", "effort",
                                 "contextTokens", "lastActivity", "directory", "accountName",
-                                "providerID", "isReporting", "accountID", "id", "childPid"]
+                                "providerID", "isReporting", "accountID", "id", "childPid",
+                                "outdatedSupervisorVersion"]
     check("every field the cards read off a row is one this file replaces or keeps on purpose",
           asked.subtracting(covered).isEmpty)
 }

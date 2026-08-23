@@ -89,7 +89,7 @@ struct SessionCardView: View {
                         // at, so it turns inside the line rather than setting the card's height.
                         ProgressView().controlSize(.mini)
                     } else {
-                        sessionStats
+                        sessionStatsRow
                     }
                 }
                 // WHAT THIS SESSION IS DOING TO THE MACHINE: a line of its own, because it answers a
@@ -300,6 +300,40 @@ struct SessionCardView: View {
                 .map { settings.displayLabel(accountID: id, fallback: $0.accountLabel) }
         }
         return joined([account, row.model, row.effort])
+    }
+
+    /// The stats slot: what this session has spent, and - on the one card that has it - which build
+    /// is still watching it.
+    ///
+    /// THE BADGE IS NORMALLY NOT THERE AT ALL, which is the whole design (Albert, 2026-08-23). An
+    /// app update lands under every live supervisor at once and each replaces itself at its own next
+    /// idle moment (SelfUpdate.swift), so for that window the board is the only place the difference
+    /// is visible - and for the rest of the week there is nothing here. A resident version on every
+    /// card would spend a segment for a reading that is worth acting on for minutes a week.
+    ///
+    /// IT NAMES THE VERSION AND THEN SAYS NOTHING IS BEING ASKED FOR, in that order, because it is
+    /// an explanation rather than an instruction: the replacement happens on its own, and the note
+    /// that used to say "restart after update" was telling somebody to do by hand what was already
+    /// under way (`SupervisionStatus.note` made the same correction inside the terminal).
+    ///
+    /// ON THIS LINE RATHER THAN ON THE IDENTITY ONE ABOVE, which is where it was first put and where
+    /// it does not fit: that row already gives its slack to the ports, and on a compact card the
+    /// sentence squeezed the account and the model out of the line and was then truncated itself.
+    /// This slot carries one short figure and a duration, and has the room the sentence needs.
+    ///
+    /// HELD AT ITS OWN WIDTH, exactly as the ports one row up are and for the same reason: a
+    /// truncated version is a WRONG version, while a stats line that gives up its tail still says
+    /// how big the conversation is. It is only ever drawn on the card somebody came for.
+    private var sessionStatsRow: some View {
+        HStack(spacing: 4) {
+            sessionStats
+            if let outdated = row.outdatedSupervisorVersion {
+                Spacer(minLength: 6)
+                Text(String(format: L("%@ → updates when idle"), outdated))
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).fixedSize()
+            }
+        }
     }
 
     /// What this session has spent, and when it was last true of it, drawn on the cards that are not

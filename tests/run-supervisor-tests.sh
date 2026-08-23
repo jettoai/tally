@@ -17,6 +17,10 @@
 # is the shared effort enumeration both targets compile, and ResuperviseContract is the exec
 # contract the self-update tests already assert (it was split out of SelfUpdate.swift).
 #
+# SessionRosterFreshness is the board's "which supervisor build is watching this" reading, split off
+# the store on size; BuildVariant comes with it, being where the installed version it compares
+# against is read from (and where the demo fixtures' lagging version is derived from).
+#
 # DemoSessions.swift is the session board's capture fixtures (demoboardchecks.swift); DemoUsage and
 # the five files after it are what IT needs to compile: the enum those fixtures extend, the usage
 # model its account fixtures are built from, the fleet rate and the token sample it fabricates, and
@@ -44,6 +48,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/sessionorderchecks.swift \
+  tests/supervisor/supervisorfreshnesschecks.swift \
   tests/supervisor/demoboardchecks.swift \
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/processtreecensuschecks.swift \
@@ -111,6 +116,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/ClaudeStatePath.swift Tally/Core/PathIdentity.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
+  Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SessionSidecar.swift \
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \

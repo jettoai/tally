@@ -217,6 +217,14 @@ extension PopoverRootView {
                          colour: roster.blockedCount > 0 ? TallyColor.critical : .secondary)
             summaryCount(roster.idleCount, L("idle"), colour: .secondary)
             summaryCount(roster.notReporting, L("not reporting"), colour: .secondary)
+            // THE ONE SLOT THAT IS NOT ALWAYS THERE, and the exception is the point: the four
+            // above are the states a session is always in one of, so they keep their places and a
+            // zero steps back rather than disappearing. This one is normally zero on a machine
+            // where nothing has changed, and a permanent "0 updating" would spend a slot on the
+            // reading's uninteresting answer for ever (Albert, 2026-08-23).
+            if roster.updatingCount > 0 {
+                summaryCount(roster.updatingCount, L("updating"), colour: .secondary)
+            }
             Spacer(minLength: 0)
         }
         .lineLimit(1)

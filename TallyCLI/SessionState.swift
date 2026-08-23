@@ -107,6 +107,24 @@ struct SessionStateRecord: Codable, Equatable, Sendable {
     /// (`readSupervisorChild`), so this names a running Claude Code rather than a number that was
     /// one.
     var childPid: Int?
+    /// The app build this supervisor is RUNNING, which is not always the one that is installed: an
+    /// app update replaces the binary under every live supervisor, and each of them goes on with
+    /// the logic it was launched with until the next idle moment replaces it (SelfUpdate.swift).
+    /// Until this was published, the only way to tell one of those sessions from the rest was to
+    /// read its status line inside its own terminal.
+    ///
+    /// THE VERSION CAPTURED AT STARTUP, never a fresh read: `supervisorBuildVersion()` resolves the
+    /// bundle's plist every time it is called, so a supervisor asking it after the update would
+    /// report the build it is about to become rather than the one it is running - which is exactly
+    /// the session this field exists to find. `syncSessionState` takes it as an argument for that
+    /// reason, and the supervisor hands over the same `let` its self-update compares against.
+    ///
+    /// nil on a record from a supervisor older than this field, and that is NOT the same reading as
+    /// "out of date": it says the version cannot be compared, which is what every session on the
+    /// machine looks like on the day this ships and for as long as one of them keeps running. A
+    /// surface that drew nil as outdated would name a version it does not have and raise the badge
+    /// on every card at once.
+    var supervisorVersion: String?
 
     /// The state this record names, with anything unfamiliar read as `unknown` (see above).
     var supervised: SupervisedState { SupervisedState(rawValue: state) ?? .unknown }

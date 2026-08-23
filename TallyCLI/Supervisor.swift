@@ -573,6 +573,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 accountID: account.id, childPid: Int(childPID),
                 model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
                     .map(shortModelName),
+                // The stamp this process was LAUNCHED with, the same `let` the self-update fold
+                // compares against; a fresh read would report the build installed under this
+                // supervisor rather than the one it runs (SessionState.swift states the rule).
+                supervisorVersion: supervisorVersion,
                 watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
 
             // The two PREVENTIVE movers, lowest priority of the account moves because every block

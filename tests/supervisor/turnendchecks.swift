@@ -248,6 +248,7 @@ func runTurnEndChecks() {
         return syncSessionState(&writer, pid: pid,
                                 project: PickProject(name: "p", path: project.path),
                                 accountID: "claude:.claude", childPid: nil, model: nil,
+                                supervisorVersion: nil,
                                 watcher: &watcher, keyboardBurstAt: nil, dir: state)
     }
     /// One tick of the input gate with a request already waiting, answering what was typed.

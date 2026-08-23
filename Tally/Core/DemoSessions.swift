@@ -60,6 +60,12 @@ extension DemoUsage {
         /// exactly what a real record carries (`UserNotice.message`).
         var reason: String?
         var noticeType: String?
+        /// Whether this is the card whose supervisor is a build behind, which is the board's one
+        /// exceptional badge (`SessionRosterStore.SessionRow.outdatedSupervisorVersion`). A flag
+        /// rather than a version, because the version cannot be written down here: it has to be one
+        /// step behind whatever THIS bundle is, or a capture taken after the next release would
+        /// quietly draw no badge at all (`laggingVersion`).
+        var lagging = false
     }
 
     /// THE BOARD A CAPTURE SHOWS, one fixture per card, in `fixtureOrder`'s own order.
@@ -88,7 +94,13 @@ extension DemoUsage {
         SessionFixture(project: "atlas", worktree: "feat-search",
                        directory: "/Users/you/workspace/atlas-feat-search",
                        account: "claude:demo-Claude 2", model: "claude-opus-5", effort: "high",
-                       context: 61_000, state: .working, since: 12 * 60, activity: 20),
+                       context: 61_000, state: .working, since: 12 * 60, activity: 20,
+                       // AND THE CARD THAT IS A BUILD BEHIND, which is the badge's own fixture: a
+                       // real board only has one for the few minutes after an update lands, and a
+                       // capture cannot sit and wait for that any more than it can wait for the
+                       // blocked card. Second rather than first, so the single-card shot stays the
+                       // waiting one (`sessionFixtures` states why that one leads).
+                       lagging: true),
         // The one on the other provider, and the one with no effort to report: the identity line
         // drops the segment rather than drawing a placeholder (`sessionIdentityLine`), and this is
         // the card that shows it doing so.
@@ -133,11 +145,36 @@ extension DemoUsage {
     /// invents no sessions, and every card on a demo board is a supervisor really running here. The
     /// pid and the Claude Code it spawned are kept for that reason too - a demo card is still the
     /// way to its own terminal - and they are the two fields nothing on a card ever prints.
-    static func sessions(_ rows: [SessionRosterStore.SessionRow])
+    /// `installed` is what the lagging card is drawn one step behind, and it is a parameter only so
+    /// the assertion harness can state the badge without an app bundle around it: `Bundle.main` in
+    /// a test binary carries no marketing version, so a fixture derived from it there would be nil
+    /// and the check would be green for a board with no badge on it at all.
+    static func sessions(_ rows: [SessionRosterStore.SessionRow],
+                         installed: String? = BuildVariant.version)
         -> [SessionRosterStore.SessionRow] {
         guard isActive else { return rows }
         let order = fixtureOrder(of: rows.map(\.id))
-        return rows.map { session($0, at: order[$0.id] ?? 0) }
+        return rows.map { session($0, at: order[$0.id] ?? 0, installed: installed) }
+    }
+
+    /// The build a LAGGING supervisor is drawn with: this bundle's own version with its last moving
+    /// component taken back one. Derived rather than written down for the reason `BuildVariant`
+    /// gives about the footer's version - a literal here would be a second version number, wrong
+    /// for exactly as long as nobody notices - and here it would fail SILENTLY, since a fixture
+    /// version that has caught up with the app draws no badge rather than a wrong one.
+    ///
+    /// THE LAST NON-ZERO COMPONENT rather than the last one, which is the whole of the arithmetic:
+    /// "0.64.2" reads "0.64.1", and "0.64.0" reads "0.63.0" instead of coming back unchanged.
+    /// nil when there is nothing to take back (a bundle carrying no version, or 0.0.0), which draws
+    /// no badge - the same answer an ordinary card gives.
+    static func laggingVersion(_ installed: String?) -> String? {
+        guard let installed else { return nil }
+        var parts = installed.split(separator: ".", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard let index = parts.lastIndex(where: { (Int($0) ?? 0) > 0 }),
+              let value = Int(parts[index]) else { return nil }
+        parts[index] = String(value - 1)
+        return parts.joined(separator: ".")
     }
 
     /// One card's identity, state and figures replaced by the fixture at this index.
@@ -148,7 +185,8 @@ extension DemoUsage {
     /// whoever is running the capture. The record and the sidecar are therefore BUILT rather than
     /// edited - a copy with some fields overwritten would carry every field this table forgot.
     private static func session(_ real: SessionRosterStore.SessionRow,
-                                at index: Int) -> SessionRosterStore.SessionRow {
+                                at index: Int,
+                                installed: String?) -> SessionRosterStore.SessionRow {
         let fixture = sessionFixtures[index % sessionFixtures.count]
         let moved = captureStarted.addingTimeInterval(-fixture.activity)
         var sidecar = SessionSidecar()
@@ -168,7 +206,13 @@ extension DemoUsage {
                                // record's own writer trims the id before it writes it, and the
                                // sidecar's is the raw one (`SessionRow.model`).
                                model: fixture.model.map(displayModelName),
-                               childPid: real.childPid)
+                               childPid: real.childPid,
+                               // Nothing at all on every card but one, which is what an ordinary
+                               // board says: a version equal to the app's would draw no badge, but
+                               // it would also be a sentence about this machine's own build on a
+                               // card that is otherwise entirely fictional.
+                               supervisorVersion: fixture.lagging
+                                   ? laggingVersion(installed) : nil)
         }
         return SessionRosterStore.SessionRow(id: real.id, record: record, session: sidecar,
                                              cwd: fixture.directory, child: real.child)

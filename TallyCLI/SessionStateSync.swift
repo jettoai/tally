@@ -89,6 +89,12 @@ struct SessionIdentity: Equatable {
     var worktree: String?
     var model: String?
     var childPid: Int?
+    /// Which BUILD is watching this session, which is the one field here that names the supervisor
+    /// rather than the conversation - and it is here for the reason the group exists: it is carried
+    /// on every write, it never changes for the life of the process, and a caller that had to pass
+    /// it beside the state word is a caller that can forget to
+    /// (`SessionStateRecord.supervisorVersion` states why a forgotten one is invisible).
+    var supervisorVersion: String?
 }
 
 /// Keeps the state file in step with the session, writing only when something in it actually
@@ -130,7 +136,8 @@ struct SessionStateWriter {
             updatedAt: now, reason: reason, noticeType: noticeType, quiet: quiet,
             accountID: identity.accountID,
             directory: identity.directory, project: identity.project, worktree: identity.worktree,
-            model: identity.model, childPid: identity.childPid)
+            model: identity.model, childPid: identity.childPid,
+            supervisorVersion: identity.supervisorVersion)
         // WHOLE-VALUE, with `updatedAt` normalised away: that field moves on every tick by
         // construction, so comparing it would make every tick a write. Written this way rather than
         // as a chain of field comparisons so a field added to the record LATER joins this test for
@@ -173,9 +180,15 @@ struct SessionStateWriter {
 /// as of the file: `applySessionInput` (SessionInput.swift) gates on it, and reading the file back
 /// would be reading a record this call may have just declined to rewrite. Discardable because every
 /// other caller is here to publish, not to ask.
+///
+/// `supervisorVersion` HAS NO DEFAULT, and the missing default is the whole guard on it: it is the
+/// build the caller CAPTURED at startup, this file must never read a fresh one (the record's own
+/// field says why), and a defaulted nil would publish "cannot say" for the life of a session with
+/// nothing going red. The same reason `appendHandoffLine` names no default sink.
 @discardableResult
 func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: PickProject,
                       accountID: String, childPid: Int?, model: String?,
+                      supervisorVersion: String?,
                       watcher: inout TranscriptWatcher, keyboardBurstAt: Date?,
                       dir: URL = supervisorStateDir, now: Date = Date()) -> SessionTick {
     let quietness = watcher.quietness(sessionStateQuietSeconds)
@@ -215,7 +228,8 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     writer.sync(state, reason: spoken, noticeType: waiting ? notice?.type : nil, quiet: quiet,
                 identity: SessionIdentity(accountID: accountID, directory: project.path,
                                           project: project.name, worktree: project.worktree,
-                                          model: model, childPid: childPid),
+                                          model: model, childPid: childPid,
+                                          supervisorVersion: supervisorVersion),
                 pid: pid, dir: dir, now: now)
     return SessionTick(state: state, quiet: quietness, wait: wait)
 }

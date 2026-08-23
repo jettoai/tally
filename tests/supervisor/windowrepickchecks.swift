@@ -814,6 +814,7 @@ func runWindowRepickChecks() {
         let board = syncSessionState(&writer, pid: pid,
                                      project: PickProject(name: "p", path: boardDir.path),
                                      accountID: "claude:.claude", childPid: nil, model: nil,
+                                     supervisorVersion: nil,
                                      watcher: &watcher, keyboardBurstAt: nil, dir: boardDir)
         let asked = Date().addingTimeInterval(-age)
         return sessionInputDecision(

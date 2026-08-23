@@ -135,6 +135,7 @@ func runRebalanceChecks() {
         return syncSessionState(&writer, pid: pid,
                                 project: PickProject(name: "p", path: projectDir.path),
                                 accountID: "claude:.claude", childPid: nil, model: nil,
+                                supervisorVersion: nil,
                                 watcher: &watcher, keyboardBurstAt: nil, dir: stateDir)
     }
     let publishedIdle = published("idle_prompt")

@@ -141,6 +141,12 @@ func claudeSeedingHomes(excluding target: String) -> [String] {
 
 private func seedMCPGrants(into home: String, from siblings: [String], defaultHome: URL,
                            interactive: Bool) {
+    // OFF UNLESS OPTED IN (v0.64.1 hotfix, 2026-08-23): on a real machine v0.64.0 raised a Keychain
+    // dialog for every sibling item at every launch, from the security tool this time, which the
+    // probe that preceded d6619b7 did not reproduce. Until the difference between that probe and a
+    // real launch is understood, this face stays off; the registration sync below it needs no
+    // Keychain and keeps running. TALLY_MCP_GRANT_SEEDING=1 turns it back on for investigation.
+    guard ProcessInfo.processInfo.environment["TALLY_MCP_GRANT_SEEDING"] == "1" else { return }
     // Unattended: turn this process's Keychain consent off before any of the work below, and GIVE UP
     // ENTIRELY if that switch cannot be thrown (KeychainSecret.swift, which states how far it now
     // reaches: the write and the attribute probes, not the secret read, which is another process). A

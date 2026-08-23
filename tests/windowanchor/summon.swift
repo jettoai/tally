@@ -252,8 +252,24 @@ func checkPanelSummon() {
     check("…which is the whole point: the height it was is taller than the display it went to",
           onTall > shortVisible)
     check("a display too short even for the margin still leaves a window worth having",
-          near(ResizeAnchor.fittedWindowHeight(reported: 40, chrome: chrome, visibleHeight: 300),
+          near(ResizeAnchor.fittedWindowHeight(reported: 40, chrome: chrome, visibleHeight: 200),
                ResizeAnchor.minimumWindowHeight))
+    // THE FLOOR UNDER THE CONTENT, which is the case the shortest pane produces: About measures a
+    // hair over its sidebar, and fitted to that alone the window came out a 200pt sliver. Stated
+    // as the content height (the title bar is not content), because that is what the number means.
+    let floored = ResizeAnchor.fittedWindowHeight(reported: 200, chrome: chrome,
+                                                  visibleHeight: tallVisible)
+    check("a pane shorter than the floor is given the floor, in content",
+          near(floored - chrome, ResizeAnchor.minimumContentHeight))
+    check("…and a pane taller than it is left alone",
+          near(ResizeAnchor.fittedWindowHeight(reported: ResizeAnchor.minimumContentHeight + 100,
+                                               chrome: chrome, visibleHeight: tallVisible) - chrome,
+               ResizeAnchor.minimumContentHeight + 100))
+    // Floor first, cap second, and the cap wins: a floor honoured past the screen edge would put
+    // the window's own bottom rows out of reach, which is what the cap is for.
+    check("…and a display too short for the floor caps below it rather than overhanging",
+          near(ResizeAnchor.fittedWindowHeight(reported: 40, chrome: chrome, visibleHeight: 300),
+               300 - ResizeAnchor.screenMargin))
     check("…and a summon between displays of the same height recomputes to the height it already has",
           near(ResizeAnchor.fittedWindowHeight(reported: reported, chrome: chrome,
                                                visibleHeight: tallVisible), onTall))
@@ -305,11 +321,28 @@ func checkPanelSummon() {
     //      all of them - because the old one is invisible once it works: a ZStack of five panes
     //      still SHOWS the right pane, it only sizes the window to the wrong one.
     let settingsView = code(of: "Tally/Views/SettingsView.swift")
-    check("the settings view puts exactly one pane in front, which is what it measures",
-          settingsView.contains("private var pane: some View {\n        paneContent(section)\n    }"))
-    check("…and no longer lays the other four out beside it",
-          !settingsView.contains("ZStack(alignment: .top)")
-              && !settingsView.contains(".opacity(section == item ? 1 : 0)"))
+    check("the settings view gives a height to the selected pane and none to the rest",
+          settingsView.contains(".frame(height: section == item ? nil : 0, alignment: .top)")
+              && settingsView.contains(".clipped()"))
+    // COLLAPSED, NOT REMOVED. Building only the selected pane measures just as well and destroys
+    // every pane the user leaves - and a pane here can be holding work (see the implication below).
+    check("…keeping the other four alive behind it, seen by nothing",
+          settingsView.contains("ZStack(alignment: .top)")
+              && settingsView.contains(".opacity(section == item ? 1 : 0)")
+              && settingsView.contains(".allowsHitTesting(section == item)")
+              && settingsView.contains(".accessibilityHidden(section != item)")
+              && !settingsView.contains(
+                  "private var pane: some View {\n        paneContent(section)\n    }"))
+    // AND THE REASON, AS AN IMPLICATION rather than a fact, so that doing the other right thing
+    // later (lifting the staged pair out of the row) does not fail this suite for being right:
+    // WHILE the launch defaults are staged in view state, the view holding them may not be one the
+    // window throws away. A model picked, a glance at another pane and a click back would put the
+    // committed model on screen with nothing said (found by review of 5e9e03d).
+    let launchRows = code(of: "Tally/Views/SettingsLaunchRows.swift")
+    let stagedIsViewState = launchRows.contains("@State private var stagedModel: String?")
+        && launchRows.contains("@State private var stagedEffort: String?")
+    check("staged, unapplied launch defaults are not thrown away by a visit to another pane",
+          !stagedIsViewState || settingsView.contains("paneContent(item)"))
     // The floor under a short pane is the sidebar, MEASURED. A constant here is only ever wrong on
     // the shortest pane, which is exactly where nobody looks - and it goes stale on a new section.
     check("…with the sidebar measured as the floor rather than allowed for with a number",
@@ -317,8 +350,13 @@ func checkPanelSummon() {
               && !settingsView.contains("max(height, 250)"))
     // And the sidebar's measurement stops before the spacer that fills the window: measuring that
     // one would be measuring the window's height and reporting it back as the content's.
+    // Adjacency rather than order, because `Spacer(minLength: 0)` is written twice in this file
+    // with two meanings - the one inside a sidebar ROW pushes its label left, and the one being
+    // asserted here fills the column. An assertion that matched whichever came first matched the
+    // wrong one the moment the rows were inlined into the sidebar.
     check("…measuring the sidebar's rows, never the spacer that fills whatever the window becomes",
-          precedes("heightProbe { sidebarHeight = $0 }", "Spacer(minLength: 0)", in: settingsView))
+          settingsView.contains(".background(heightProbe { sidebarHeight = $0 })\n"
+              + "            Spacer(minLength: 0)"))
 
     // 9bc. THE CHANGE IS ANIMATED, AND ONLY WHEN SOMEBODY IS WATCHING IT. A content report is a
     //      pane the user clicked to; the first fit of an opening window is a placeholder becoming

@@ -77,10 +77,25 @@ enum ResizeAnchor {
     /// new answer without any report arriving at all (the content did not change, so none will).
     ///
     /// Pure so the enumeration can be asserted: fits / capped / floored / unchanged.
+    ///
+    /// THE ORDER IS FLOOR, THEN CAP. The floor is a claim about the CONTENT
+    /// (`minimumContentHeight`) and the cap is a claim about the DISPLAY, so a display too short
+    /// for the floor still wins: a window that respected the floor past the screen edge would put
+    /// its own bottom rows out of reach, which is the failure the cap exists to prevent.
     static func fittedWindowHeight(reported: CGFloat, chrome: CGFloat,
                                    visibleHeight: CGFloat) -> CGFloat {
-        max(minimumWindowHeight, min(reported + chrome, visibleHeight - screenMargin))
+        let wanted = max(reported, minimumContentHeight) + chrome
+        return max(minimumWindowHeight, min(wanted, visibleHeight - screenMargin))
     }
+
+    /// THE SMALLEST CONTENT A SETTINGS WINDOW IS WORTH DRAWING, title bar excluded.
+    ///
+    /// A window fitted to its content alone has no size of its own, and the shortest pane made
+    /// that visible: About measured a hair over its sidebar and came out a 200pt sliver, which
+    /// reads as a window that failed to open rather than as a short pane (Albert, 2026-08-23).
+    /// The sidebar is a floor of its own, measured by the view and arriving here inside `reported`;
+    /// this is the one under both of them.
+    static let minimumContentHeight: CGFloat = 320
 
     /// The breathing room left under a window that had to be capped, so a capped window still reads
     /// as a window on a desktop rather than as one wedged between two edges.

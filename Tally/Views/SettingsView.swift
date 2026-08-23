@@ -7,20 +7,16 @@ import SwiftUI
 /// those are lazy, expose no intrinsic height, and made "open the window exactly content-fit"
 /// unsolvable (a short window keeps rows unbuilt, so the measured height stays short - a
 /// self-locking loop). Plain stacks lay out everything at once, so the measured height below IS
-/// the true content height, reported to the window controller the same way the pinned panel
-/// sizes itself (`onContentSize` pattern).
+/// the true content height, reported to the window controller the way the pinned panel sizes
+/// itself (`onContentSize` pattern).
 struct SettingsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
     /// Reports the content's full natural height so the host window can fit itself exactly.
     var onContentHeight: (CGFloat) -> Void = { _ in }
 
-    /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER: the pane in front, and the sidebar beside
-    /// it. Kept apart because they move on different occasions - every tab switch changes the
-    /// first, and only a new section changes the second - and reported as their maximum, which is
-    /// the one height at which nothing is cut off. The sidebar is measured rather than allowed for
-    /// with a constant: a number here would be a floor that goes stale the first time a section is
-    /// added, and it would go stale silently, since it is only ever too small on the shortest pane.
+    /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER, reported as their maximum. The sidebar is
+    /// measured, not guessed at: a constant would go stale on a new section, and go stale silently.
     @State private var paneHeight: CGFloat = 0
     @State private var sidebarHeight: CGFloat = 0
 
@@ -80,9 +76,7 @@ struct SettingsView: View {
             rows
                 .padding(10)
                 .background(heightProbe { sidebarHeight = $0 })
-            // Outside the measurement on purpose: this one fills whatever the window turns out to
-            // be, so measuring it would be measuring the answer with the question.
-            Spacer(minLength: 0)
+            Spacer(minLength: 0)   // outside the probe: it fills the window being measured for
         }
     }
 
@@ -113,8 +107,7 @@ struct SettingsView: View {
         }
     }
 
-    /// A height probe: the natural height of whatever it is put behind, taken once and then only
-    /// when it changes, with the window told the new maximum in the same breath.
+    /// The natural height of whatever it is put behind, taken once and then only when it changes.
     private func heightProbe(_ take: @escaping (CGFloat) -> Void) -> some View {
         GeometryReader { proxy in
             Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
@@ -124,19 +117,29 @@ struct SettingsView: View {
         }
     }
 
-    /// ONE PANE AT A TIME, which is what lets the window follow the sidebar: the height measured
-    /// above is the height of the pane in front, so the window fits THAT one.
+    /// ONLY THE SELECTED PANE HAS A HEIGHT, which is what lets the window follow the sidebar. All
+    /// five used to lay out at full height, so every pane stood in the TALLEST one's window
+    /// (Albert, 2026-08-23). The objection on record against fitting each pane was that the window
+    /// jumped under the cursor mid-click; what answers it is WHERE the change happens - the top
+    /// edge is held (`SettingsWindowController.fitHeight`), and the change is animated.
     ///
-    /// All five used to lay out together in a ZStack so the measurement was the tallest pane's and
-    /// a tab switch never resized the window. That bought stability at the price the tallest pane
-    /// charges every other one: the window stood at the Launch pane's height whatever was in front
-    /// of it, and About sat in a window that was mostly empty (Albert, 2026-08-23). The objection
-    /// recorded against fitting each pane was that the window jumped under the cursor mid-click,
-    /// and what answers it is not one height for everything but WHERE the change happens: the
-    /// window holds its top edge (`SettingsWindowController.fitHeight`), so the sidebar rows the
-    /// cursor is on do not move, and the height is animated rather than switched.
+    /// COLLAPSED RATHER THAN REMOVED. Building only the selected pane measures just as well and
+    /// destroys every pane the user leaves - and a pane here can be holding work: the launch
+    /// defaults are STAGED against an explicit Apply (`StagedModelEffortRow`), so a model picked,
+    /// a glance at another pane and a click back put the committed model on screen with nothing
+    /// said (found by review of 5e9e03d). A waiting pane keeps its state and adds no height; the
+    /// three lines above the frame keep it unseen, unhittable and unread.
     private var pane: some View {
-        paneContent(section)
+        ZStack(alignment: .top) {
+            ForEach(Section.allCases, id: \.self) { item in
+                paneContent(item)
+                    .opacity(section == item ? 1 : 0)
+                    .allowsHitTesting(section == item)
+                    .accessibilityHidden(section != item)
+                    .frame(height: section == item ? nil : 0, alignment: .top)
+                    .clipped()
+            }
+        }
     }
 
     @ViewBuilder

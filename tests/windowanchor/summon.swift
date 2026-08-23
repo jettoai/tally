@@ -223,12 +223,12 @@ func checkPanelSummon() {
     }
 
     // 9b. AND A SUMMONED WINDOW HAS TO BE THE HEIGHT THE NEW DISPLAY ALLOWS, which is the half the
-    //     first round of this fix missed (found by review of 8cdafad). The settings window fits its
-    //     tallest pane whole and lets only the display overrule it, and that answer is a different
-    //     number on a different display - while the CONTENT is the same, so the report that would
-    //     recompute it never arrives. Moving such a window without re-fitting leaves it at the tall
-    //     display's height on a short one, where a clamp can only save the title bar: everything
-    //     below the screen's bottom edge, the buttons included, stays unreachable.
+    //     first round of this fix missed (found by review of 8cdafad). The settings window fits the
+    //     pane in front of it whole and lets only the display overrule it, and that answer is a
+    //     different number on a different display - while the CONTENT is the same, so the report
+    //     that would recompute it never arrives. Moving such a window without re-fitting leaves it
+    //     at the tall display's height on a short one, where a clamp can only save the title bar:
+    //     everything below the screen's bottom edge, the buttons included, stays unreachable.
     //
     //     Enumerated on the arithmetic, which is why it is arithmetic: fits / capped / floored /
     //     unchanged are the whole set of things a display can do to a reported height.
@@ -287,8 +287,9 @@ func checkPanelSummon() {
           settingsSource.contains("private var reportedHeight: CGFloat = 0")
               && settingsSource.contains("reportedHeight = height"))
     check("…through the one function that writes this window's height, not a second frame write",
-          settingsSource.components(separatedBy: "window.setFrame(frame, display: true)").count == 2
-              && settingsSource.contains("private func fitHeight(on screen: NSScreen?)"))
+          settingsSource.components(separatedBy: "writer.setFrame(frame, display: true)").count == 2
+              && settingsSource.contains(
+                  "private func fitHeight(on screen: NSScreen?, animate: Bool = false)"))
     check("…and the cap itself is the shared arithmetic rather than numbers inline here",
           settingsSource.contains("ResizeAnchor.fittedWindowHeight(reported: reportedHeight,")
               && !settingsSource.contains("- 40") && !settingsSource.contains("max(200,"))
@@ -296,6 +297,54 @@ func checkPanelSummon() {
     // against the height the window already has: without it, every summon writes a frame.
     check("…with no write at all when the fitted height is the height it already is",
           settingsSource.contains("guard abs(target - window.frame.height) > 1 else { return }"))
+
+    // 9bb. AND THE HEIGHT IT FITS IS THE PANE IN FRONT, not the tallest of the five. All five used
+    //      to lay out together so a tab switch never resized the window, which stood every pane in
+    //      the Launch pane's window and left About mostly empty (Albert, 2026-08-23). Asserted on
+    //      both sides - the shape that fits one pane, and the absence of the shape that laid out
+    //      all of them - because the old one is invisible once it works: a ZStack of five panes
+    //      still SHOWS the right pane, it only sizes the window to the wrong one.
+    let settingsView = code(of: "Tally/Views/SettingsView.swift")
+    check("the settings view puts exactly one pane in front, which is what it measures",
+          settingsView.contains("private var pane: some View {\n        paneContent(section)\n    }"))
+    check("…and no longer lays the other four out beside it",
+          !settingsView.contains("ZStack(alignment: .top)")
+              && !settingsView.contains(".opacity(section == item ? 1 : 0)"))
+    // The floor under a short pane is the sidebar, MEASURED. A constant here is only ever wrong on
+    // the shortest pane, which is exactly where nobody looks - and it goes stale on a new section.
+    check("…with the sidebar measured as the floor rather than allowed for with a number",
+          settingsView.contains("onContentHeight(max(paneHeight, sidebarHeight))")
+              && !settingsView.contains("max(height, 250)"))
+    // And the sidebar's measurement stops before the spacer that fills the window: measuring that
+    // one would be measuring the window's height and reporting it back as the content's.
+    check("…measuring the sidebar's rows, never the spacer that fills whatever the window becomes",
+          precedes("heightProbe { sidebarHeight = $0 }", "Spacer(minLength: 0)", in: settingsView))
+
+    // 9bc. THE CHANGE IS ANIMATED, AND ONLY WHEN SOMEBODY IS WATCHING IT. A content report is a
+    //      pane the user clicked to; the first fit of an opening window is a placeholder becoming
+    //      the real thing, and a summon is a window being moved and fitted at once. The last two
+    //      animated would be a window that assembles itself on screen, and one that travels and
+    //      grows in the same breath.
+    check("a content report is what asks for the animation",
+          settingsSource.contains("fitHeight(on: self?.window?.screen, animate: true)"))
+    check("…and the callers that place the window take the default, which is not to animate",
+          settingsSource.contains("animate: Bool = false")
+              && !settingsSource.contains("fitHeight(on: NSScreen.pointerScreen, animate: true)"))
+    check("…with the first fit of a window instant however it was asked for",
+          settingsSource.contains("let animated = animate && hasFitted && window.isVisible"))
+    // Recorded BEFORE the no-op guard: a first measurement that needed no change is still a fit,
+    // and counting it as never having happened animates the next one from a height nobody saw.
+    check("…which is recorded before the guard that can return without writing a frame",
+          precedes("hasFitted = true",
+                   "guard abs(target - window.frame.height) > 1 else { return }",
+                   in: settingsSource))
+    check("…and the resize holds the top edge, so the sidebar row under the cursor does not move",
+          settingsSource.contains("frame.origin.y = top - target"))
+    // The autosaved frames of the previous name are tallest-pane heights. Restoring one would open
+    // the window too tall and leave it there until the first tab switch re-fitted it.
+    check("…and the autosave name moved past the heights the old rule saved",
+          settingsSource.contains("TallySettingsWindow.v6")
+              && !settingsSource.contains("TallySettingsWindow.v5"))
 
     // 9c. THE DASHBOARD DOES NOT NEED ANY OF THAT, and the reason is a mechanism rather than luck:
     //     its cap does not live in its controller at all. The content reads the cap off its own host

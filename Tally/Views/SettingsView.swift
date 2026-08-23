@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Preferences as a System Settings-style split: a fixed section sidebar on the left, one
-/// section's grouped card on the right, window height fitting the visible pane.
+/// section's grouped card on the right, window height fitting the pane in front.
 ///
 /// Both columns are hand-built over NON-LAZY stacks - deliberately not SwiftUI's `Form`/`List`:
 /// those are lazy, expose no intrinsic height, and made "open the window exactly content-fit"
@@ -14,6 +14,15 @@ struct SettingsView: View {
     @Bindable var settings: SettingsStore
     /// Reports the content's full natural height so the host window can fit itself exactly.
     var onContentHeight: (CGFloat) -> Void = { _ in }
+
+    /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER: the pane in front, and the sidebar beside
+    /// it. Kept apart because they move on different occasions - every tab switch changes the
+    /// first, and only a new section changes the second - and reported as their maximum, which is
+    /// the one height at which nothing is cut off. The sidebar is measured rather than allowed for
+    /// with a constant: a number here would be a floor that goes stale the first time a section is
+    /// added, and it would go stale silently, since it is only ever too small on the shortest pane.
+    @State private var paneHeight: CGFloat = 0
+    @State private var sidebarHeight: CGFloat = 0
 
     enum Section: String, CaseIterable {
         case accounts, launch, display, integrations, about
@@ -56,14 +65,7 @@ struct SettingsView: View {
             ScrollView {
                 pane
                     .padding(16)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
-                                // The window must also fit the sidebar's five rows.
-                                onContentHeight(max(height, 250))
-                            }
-                        }
-                    )
+                    .background(heightProbe { paneHeight = $0 })
             }
             .frame(width: 500)
         }
@@ -74,6 +76,17 @@ struct SettingsView: View {
     }
 
     private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            rows
+                .padding(10)
+                .background(heightProbe { sidebarHeight = $0 })
+            // Outside the measurement on purpose: this one fills whatever the window turns out to
+            // be, so measuring it would be measuring the answer with the question.
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Section.allCases, id: \.self) { item in
                 Button {
@@ -97,24 +110,33 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Spacer(minLength: 0)
         }
-        .padding(10)
     }
 
-    /// ALL panes are laid out in a ZStack (the inactive ones fully transparent and inert) so the
-    /// measured height is the TALLEST pane's: switching tabs then never resizes the window.
-    /// A per-pane fit made the window jump on every sidebar click - bad to watch, and worse when
-    /// the row under the cursor moved away mid-click.
-    private var pane: some View {
-        ZStack(alignment: .top) {
-            ForEach(Section.allCases, id: \.self) { item in
-                paneContent(item)
-                    .opacity(section == item ? 1 : 0)
-                    .allowsHitTesting(section == item)
-                    .accessibilityHidden(section != item)
+    /// A height probe: the natural height of whatever it is put behind, taken once and then only
+    /// when it changes, with the window told the new maximum in the same breath.
+    private func heightProbe(_ take: @escaping (CGFloat) -> Void) -> some View {
+        GeometryReader { proxy in
+            Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                take(height)
+                onContentHeight(max(paneHeight, sidebarHeight))
             }
         }
+    }
+
+    /// ONE PANE AT A TIME, which is what lets the window follow the sidebar: the height measured
+    /// above is the height of the pane in front, so the window fits THAT one.
+    ///
+    /// All five used to lay out together in a ZStack so the measurement was the tallest pane's and
+    /// a tab switch never resized the window. That bought stability at the price the tallest pane
+    /// charges every other one: the window stood at the Launch pane's height whatever was in front
+    /// of it, and About sat in a window that was mostly empty (Albert, 2026-08-23). The objection
+    /// recorded against fitting each pane was that the window jumped under the cursor mid-click,
+    /// and what answers it is not one height for everything but WHERE the change happens: the
+    /// window holds its top edge (`SettingsWindowController.fitHeight`), so the sidebar rows the
+    /// cursor is on do not move, and the height is animated rather than switched.
+    private var pane: some View {
+        paneContent(section)
     }
 
     @ViewBuilder

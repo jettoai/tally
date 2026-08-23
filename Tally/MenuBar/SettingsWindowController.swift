@@ -5,10 +5,11 @@ import SwiftUI
 /// SwiftUI `Settings` scene. The scene's `showSettingsWindow:` action is unreliable for an LSUIElement
 /// accessory app (and the selector name is OS-version-sensitive), which made the gear appear to hang.
 ///
-/// Sizing: the view measures its own full content height (non-lazy layout, so the measurement is
-/// the truth) and reports it here; the window follows, exactly content-fit. Same proven pattern as
-/// the pinned panel (`onContentSize`): `sizingOptions = []` keeps this the ONLY size authority -
-/// two authorities recursed the layout engine into a stack overflow once (see PinnedPanelController).
+/// Sizing: the view measures the pane in front of it (non-lazy layout, so the measurement is the
+/// truth) and reports it here; the window follows, exactly content-fit, holding its top edge and
+/// animating the change the way System Settings does. Same proven pattern as the pinned panel
+/// (`onContentSize`): `sizingOptions = []` keeps this the ONLY size authority - two authorities
+/// recursed the layout engine into a stack overflow once (see PinnedPanelController).
 /// Fixed-size window (macOS HIG for settings): with an exact fit there is nothing to resize.
 @MainActor
 final class SettingsWindowController {
@@ -23,6 +24,17 @@ final class SettingsWindowController {
     /// was - and the report that would recompute it never comes, precisely because nothing changed.
     /// Also the echo guard: a report of the height already reported is not a resize.
     private var reportedHeight: CGFloat = 0
+
+    /// Whether a height has been applied to this window yet, which is the only thing that tells a
+    /// TAB SWITCH from the first measurement of a window that is opening. The first one has to land
+    /// instantly: it travels from the placeholder below to whatever the opening pane measures, and
+    /// animating that is a window that visibly assembles itself. Every one after it is a pane
+    /// change under the user's own click, which is exactly what the animation is for.
+    private var hasFitted = false
+
+    /// How long the window takes to become the next pane's height. System Settings is in this
+    /// neighbourhood; longer reads as the window lagging the click that caused it.
+    private static let paneResizeDuration: TimeInterval = 0.18
 
     /// Restore-on-launch flag, mirroring MainWindowController: an update relaunch is quit +
     /// launch, and Settings is the LIKELIEST open window then (the update button lives in it).
@@ -104,9 +116,14 @@ final class SettingsWindowController {
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report
-            // Autosave keeps the size stable across launches; the position is re-derived on
-            // every summon below (pointer's screen), so a stale saved origin never wins.
-            window.setFrameAutosaveName("TallySettingsWindow.v5")
+            // Autosave carries the POSITION across launches, for the restore path that does not
+            // re-derive one (a launch-time restore keeps where the user left the window); every
+            // ordinary summon re-derives it below (pointer's screen), so a stale saved origin never
+            // wins there. The height it saves along with it is never read as the truth - the first
+            // content report re-fits it - but v5's saved frames are heights of the TALLEST pane,
+            // from before this window fitted the pane in front of it, so the name moves on rather
+            // than opening the window too tall for the turn it takes to be corrected.
+            window.setFrameAutosaveName("TallySettingsWindow.v6")
             ActivationPolicy.track(window)
             NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
@@ -163,10 +180,16 @@ final class SettingsWindowController {
     /// Follow the view's reported content height (deferred a runloop turn so the window never
     /// resizes from inside the SwiftUI update that reported it - the pinned panel's lesson).
     /// Continuous but self-quieting: the ±1pt dead band stops echo, and equal heights no-op.
+    ///
+    /// A report is the one caller that asks for the animation: it means the CONTENT changed, which
+    /// on this window is a pane the user just clicked to. (`fitHeight` still refuses to animate the
+    /// first one - see `hasFitted`.)
     private func applyContentHeight(_ height: CGFloat) {
         guard height.isFinite, height > 1, abs(height - reportedHeight) > 1 else { return }
         reportedHeight = height
-        DispatchQueue.main.async { [weak self] in self?.fitHeight(on: self?.window?.screen) }
+        DispatchQueue.main.async { [weak self] in
+            self?.fitHeight(on: self?.window?.screen, animate: true)
+        }
     }
 
     /// Apply the last reported height against `screen`, which is the ONE place this window's size is
@@ -177,22 +200,38 @@ final class SettingsWindowController {
     /// where the window is ABOUT to be - and a summon that fitted against the display the window is
     /// leaving would compute the height it already has.
     ///
-    /// Reported height = the TALLEST pane (they lay out together for tab-switch stability). Fit it
-    /// whole - the workhorse pane must never need a scrollbar; short panes trading some empty space
-    /// for that is the right side of the tradeoff (Albert's call, 2026-07-19). The display is the
-    /// only cap, and the arithmetic of that is `ResizeAnchor.fittedWindowHeight`.
-    private func fitHeight(on screen: NSScreen?) {
+    /// Reported height = the pane in front, or the sidebar when that is the taller of the two
+    /// (`SettingsView.heightProbe`). Fit it whole - a pane must never need a scrollbar for want of
+    /// window - and let only the display overrule that, which is what makes a pane taller than the
+    /// screen the one case that scrolls. The cap's arithmetic is `ResizeAnchor.fittedWindowHeight`.
+    ///
+    /// `animate`: whether this change is one the user is watching. Defaults to false so that the
+    /// callers who are placing the window (below) cannot animate by omission - a summon animating
+    /// its height while the window is also being moved to another display is two motions at once.
+    private func fitHeight(on screen: NSScreen?, animate: Bool = false) {
         guard let window, reportedHeight > 1 else { return }
         let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
         let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
         let target = ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
                                                      visibleHeight: visible)
+        // Recorded before the no-op guard below: a first measurement that happened to need no
+        // change is still the window having been fitted, and treating it as though it never
+        // happened would animate the next one from a height nobody saw arrive.
+        let animated = animate && hasFitted && window.isVisible
+        hasFitted = true
         guard abs(target - window.frame.height) > 1 else { return }
         var frame = window.frame
         let top = frame.maxY
         frame.size.height = target
         frame.origin.y = top - target   // keep the title bar where the user sees it
-        window.setFrame(frame, display: true)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? Self.paneResizeDuration : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            // ONE frame write either way: `animator()` is the same call through a proxy, so an
+            // animated resize and an instant one cannot drift into two different frames.
+            let writer: NSWindow = animated ? window.animator() : window
+            writer.setFrame(frame, display: true)
+        }
     }
 }
 

@@ -69,8 +69,8 @@ enum ResizeAnchor {
 
     /// THE HEIGHT A REPORTED CONTENT HEIGHT LANDS ON, ON A NAMED DISPLAY.
     ///
-    /// The settings window fits its tallest pane whole - a workhorse pane must never need a
-    /// scrollbar (Albert's call, 2026-07-19) - and the display is the only thing that overrules
+    /// The settings window fits the pane in front of it whole - a pane must never need a scrollbar
+    /// for want of window (Albert, 2026-08-23) - and the display is the only thing that overrules
     /// that. Which display therefore has to be an ARGUMENT rather than something read at the moment
     /// a report happens to arrive: the same content is a different window height on a 1440pt display
     /// than on a 1152pt one, and a window summoned from the first to the second has to be told the

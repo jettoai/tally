@@ -39,9 +39,10 @@ import Security
 // write. Which is why the target's own document is read as LATE as it can be: after every sibling
 // has been read, so that what is merged and stored is the item as it was milliseconds ago rather
 // than as it was before a row of subprocess reads. What is left is a window of a few milliseconds
-// that can be kept small and not closed. The same reading is the base for the merge, for the
-// verification after the write and for the restore, because a restore that put back an older copy
-// than the one it verified against would be the very damage this is about.
+// that can be kept small and not closed. The same reading is the base for the merge and for the
+// verification after the write, and WHEN THAT VERIFICATION FAILS THE ITEM IS LEFT AS IT IS: what
+// cannot be closed is the window, so what gets decided is who gives way inside it, and it is this
+// process (`seedMCPGrants` argues it where the check is).
 //
 // NEITHER FACE OF THE KEYCHAIN WORK IS A FRAMEWORK CALL ANY MORE, and the write is the half that
 // had to be dragged there by an incident. Reading another program's Keychain item from this binary
@@ -277,8 +278,9 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
 
     // THE TARGET'S OWN DOCUMENT, AND IT IS READ HERE FOR THE REASON THE HEADER GIVES: everything
     // above this line is one subprocess per stale sibling, and everything below it is arithmetic and
-    // one write. So this reading is the freshest one that can be had, and it is the base of all three
-    // things that follow - the merge, the check afterwards, and the restore if that check fails.
+    // one write. So this reading is the freshest one that can be had, and it is the base of both
+    // things that follow - the merge, and the check afterwards. It is deliberately NOT written back
+    // when that check fails; the end of this function says why.
     // Every way this can come back empty is a home that cannot be seeded: a locked keychain, a read
     // that ran out of time, a truncated document, an item that has gone.
     guard let targetData = keychainSecret(service: targetService, account: account),
@@ -300,18 +302,28 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     // about this process's arithmetic and this one is about what macOS now holds. The re-read costs
     // one more subprocess and about 80 ms, and asks nobody anything, exactly like the one above.
     //
-    // Anything short of "everything but the grants is still the same" puts back the bytes read just
-    // above, which is a restore of the document EXACTLY as it was read rather than a rebuild of it,
-    // and exactly the document this check compared against rather than an older reading of it.
+    // ANYTHING SHORT OF "EVERYTHING BUT THE GRANTS IS STILL THE SAME" WRITES NOTHING, and this is
+    // the one place in the file where doing nothing has to be argued for rather than assumed.
+    //
+    // The three refusals inside `seededCredentialData` already prove that the bytes this process
+    // stored decode back to a document that passes this comparison, so a failure here is very nearly
+    // never our own write coming back wrong. What is left is the millisecond window the header
+    // describes: a Claude Code that wrote this same item between the store above and the read here,
+    // which in practice is a login refresh or an authorization it has just been granted.
+    //
+    // So putting the pre-merge snapshot back would be a rollback of precisely that: having seen the
+    // evidence of somebody else's write, overwrite it with a document read before it happened. That
+    // is the one outcome this feature promises never to produce, and it costs a login. A missed merge
+    // costs one authorization prompt the CLI knows how to ask for. The seeding gives way.
+    //
+    // NOTHING IS RECORDED WHEN THE CHECK FAILS: the grants may or may not be in the item, so the pass
+    // counts as not done, and the next launch reads the siblings again and merges into whatever the
+    // item holds by then.
     if let data = keychainSecret(service: targetService, account: account),
        let blob = mcpJSONDocument(from: data),
        credentialBlobIsIntactApartFromGrants(before: targetBlob, after: blob) {
         recordMCPSeed(observed, for: home)
-        return
     }
-    // Nothing is recorded on the way out of here: what this path leaves behind is the document as it
-    // was before, so the merge did not happen and the next launch has to try it again.
-    _ = updateKeychainSecret(service: targetService, account: account, data: targetData)
 }
 
 // MARK: - The record (~/.tally/mcp-seed.json)

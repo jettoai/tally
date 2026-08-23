@@ -87,12 +87,16 @@ func checkTheWiring() {
         expect(inOrder("let targetData = keychainSecret(service: targetService",
                        "seededCredentialData(target: targetData", in: grants),
                "…and that reading is what the merge is computed from")
-        // The restore is the half that turns the defect into damage rather than a missed merge, so
-        // it has to put back the reading the check compared against and not an older one.
-        let restore = grants.components(separatedBy: "credentialBlobIsIntactApartFromGrants").last ?? ""
-        expect(restore.contains(
-                "updateKeychainSecret(service: targetService, account: account, data: targetData)"),
-               "…and what a failed verification puts back, which is the same document it checked")
+        // AND A FAILED VERIFICATION WRITES NOTHING, which is the half that decides whether this
+        // feature can cost somebody a login: the realistic way that check fails is a Claude Code
+        // that wrote the item inside the millisecond window, so a restore would roll back a login
+        // refresh (the seeding's own comment argues it). Asserted from both sides because the defect
+        // reappears as a WRITE, whatever the snapshot is spelled as by then.
+        let afterCheck = grants.components(separatedBy: "credentialBlobIsIntactApartFromGrants").last ?? ""
+        expect(!afterCheck.contains("updateKeychainSecret"),
+               "a failed verification stores nothing, so a third party's write stands")
+        expect(!grants.contains("data: targetData)"),
+               "…and the seed-time snapshot is never written back under any spelling")
         expect(grants.components(separatedBy: "keychainSecret(service: targetService, account: account)")
                 .count - 1 == 2,
                "the target's secret is read exactly twice: once as the base, once to check the write")
@@ -125,12 +129,14 @@ func checkTheWiring() {
         expect(grants.contains("sources.append((data, probe.modifiedAt))"),
                "…while the merge gets the date the probe actually returned")
         // The record may only move where the pass CONCLUDED: nothing to adopt, or a write that
-        // verified. A pass that gave up, or one whose write was rolled back, has to be tried again.
+        // verified. A pass that gave up, or one whose check failed, has to be tried again - and the
+        // failed check is now the path that leaves the item alone rather than the one that rolled it
+        // back, so the record staying put is the whole of what marks it unfinished.
         expect(grants.components(separatedBy: "recordMCPSeed(observed, for: home)").count - 1 == 2,
                "the record is written on exactly the two paths that reached a conclusion")
-        let afterRestore = grants.components(separatedBy: "data: targetData)").last ?? ""
-        expect(!afterRestore.contains("recordMCPSeed"),
-               "…and never on the one that put the target's own document back")
+        expect(grants.contains("credentialBlobIsIntactApartFromGrants(before: targetBlob, after: blob) {\n"
+                                + "        recordMCPSeed(observed, for: home)\n    }"),
+               "…the second of them INSIDE the verified branch, so a failed check records nothing")
         // Both faces refuse a home whose item name would be a guess rather than a rule.
         expect(grants.contains("claudeSeedingKeychainService(forConfigDir: URL(fileURLWithPath: home)"),
                "the target is addressed through the guarded name, not the bare shortcut")

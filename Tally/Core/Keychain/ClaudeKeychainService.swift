@@ -9,8 +9,13 @@ import CryptoKit
 // derivations of one string is a silent failure waiting to happen - a drifted hash finds nothing,
 // which reads exactly like "not logged in" and never raises an error anywhere.
 
-/// The bare service name, used by the default config dir.
-private let claudeBaseKeychainService = "Claude Code-credentials"
+/// The bare service name, used by the default config dir - AND the prefix every other one starts
+/// with, which is a second job it acquired rather than a coincidence of spelling. The CLI's Keychain
+/// repair sweeps the whole family by this prefix (TallyCLI/KeychainPartitionRepair.swift), and it
+/// asks for the constant rather than writing the words again for the reason the header gives: two
+/// spellings of a Keychain name is a silent failure, and this one would be a sweep that quietly
+/// matches nothing.
+let claudeBaseKeychainService = "Claude Code-credentials"
 
 /// Keychain service name for a given config dir. `~/.claude` -> bare; others -> hashed suffix.
 ///

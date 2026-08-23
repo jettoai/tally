@@ -218,6 +218,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // for the same reason: an app update is not somebody typing. The seeding's secret reads no
         // longer raise a panel on any path (MCPAuthSync.swift); what this flag still covers is the
         // write and the attribute probes.
+        // The same Keychain repair the plain exec runs, on the same axis and for the same reason
+        // (MCPAuthSync.swift: `repairClaudeKeychain`), and it is NOT inside the `launchHome` branch
+        // below: the items it heals belong to config homes rather than to this launch, and a session
+        // whose home the snapshot cannot name still spawns a `claude` that will read one of them.
+        repairClaudeKeychain(provider: provider, interactive: !relaunching)
         if let seedHome = account.launchHome {
             seedMCPAuthorization(provider: provider, home: seedHome, interactive: !relaunching)
         }

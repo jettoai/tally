@@ -47,10 +47,11 @@ func checkTheSecretRead() {
     let secret = source("TallyCLI/KeychainSecret.swift")
 
     do {
-        // THE READ IS THE SUBPROCESS AND THE WRITE IS NOT, which is the whole shape of the file and
-        // the half of it a test cannot reach: a write moved to the same tool would carry the login
-        // token in a command line, and a read moved back to the framework would put the panel back
-        // on the user's screen at every launch.
+        // BOTH DIRECTIONS ARE THE SUBPROCESS NOW, and the write only joined the read after it had
+        // shipped damage: `SecItemUpdate` from a binary that is not `security` silently rewrites the
+        // item's partition list to the writer's own identity, which locks Apple's tool - and with it
+        // Claude Code, this launcher and the app's usage polling - out of the item behind a consent
+        // panel (repair.swift reproduces it end to end).
         expect(secret.contains("func keychainSecret("), "the harness really read the secret reader")
         let reader = body(of: "func keychainSecret(", in: secret)
         expect(reader.contains("URL(fileURLWithPath: \"/usr/bin/security\")")
@@ -63,11 +64,26 @@ func checkTheSecretRead() {
         expect(!reader.contains("kSecReturnData"),
                "…so the read carries none of the query that call needs either")
         let writer = body(of: "func updateKeychainSecret(", in: secret)
-        expect(writer.contains("SecItemUpdate("),
-               "the write stays on the framework call, which has never needed consent")
-        expect(!writer.contains("Process(") && !writer.contains("-w"),
-               "…and never becomes a command line, which is where a secret would be readable by "
-                   + "every process on the machine")
+        expect(!secret.contains("SecItemUpdate("),
+               "NO path in this file writes through the framework any more, which is the call that "
+                   + "damaged two of this machine's items")
+        expect(writer.contains("writeKeychainSecretAsSecurityTool("),
+               "…the write runs as the same tool the read borrows, so the partition list it leaves "
+                   + "behind is the one `security` writes")
+        let tool = body(of: "func writeKeychainSecretAsSecurityTool(", in: secret)
+        expect(tool.contains("URL(fileURLWithPath: \"/usr/bin/security\")")
+                && tool.contains("\"add-generic-password\", \"-a\", account, \"-s\", service, \"-U\","),
+               "…through `add-generic-password -U`, with the service and the account as arguments "
+                   + "rather than through a shell")
+        expect(tool.contains("\"-X\""), "…and the value as hex, because a document may hold a NUL "
+                   + "that `-w`'s C string would truncate")
+        expect(tool.contains("process.terminationReason == .exit && process.terminationStatus == 0"),
+               "…with a signalled exit refused as a write, the way the read refuses it as a reading")
+        expect(writer.contains("KeychainReader.exists(service: service, account: account)")
+                && writer.contains("return errSecItemNotFound"),
+               "and the one thing `SecItemUpdate` gave for free is bought back explicitly: `-U` "
+                   + "would CREATE an item for a config home that has no login, so existence is "
+                   + "asked first, by attributes")
     }
 
     do {

@@ -105,6 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // And keep them there: the sync above runs once, while the file it writes into is the
         // user's and can be rewritten by anything (IntegrationsSelfHeal.swift).
         IntegrationsStore.shared.refreshSettingsWatcher()
+        // The one piece of upkeep that is not about an install at all: the Keychain items Tally
+        // 0.64.0 left needing a consent dialog, healed once per launch and off this thread
+        // (KeychainRepairLaunch.swift). Nothing downstream waits on it, and nothing reads its
+        // answer.
+        KeychainRepairLaunch.runAtStartup()
         // The upkeep the two above cannot do, because it is not about an install going stale: a hook
         // this version ADDED to a settings.json the user has already let Tally manage. Opt-in is
         // right for the first press and invisible for every one after it, so the new row follows the

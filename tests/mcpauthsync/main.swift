@@ -453,5 +453,10 @@ checkTheWiring()
 // throwaway item this suite creates, reads back through the product, and removes (secret.swift).
 checkTheSecretRead()
 
+// And the write beside it, which turned out to be doing damage nobody had looked for: what
+// `SecItemUpdate` does to an item's ACL, what that costs every program that reads it afterwards, and
+// the repair that puts it back (repair.swift, on an item of this suite's own).
+checkTheKeychainRepair()
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all mcp-auth-sync tests passed")

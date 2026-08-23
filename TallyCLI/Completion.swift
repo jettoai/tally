@@ -390,6 +390,7 @@ _tally() {
     "model:run THIS conversation on another model and depth, for the rest of its life"
     "session:send a line into a supervised session, or clear its context window"
     "reload:restart every supervised session at its next idle moment"
+    "keychain-repair:heal the Claude Code Keychain items Tally 0.64.0 left needing a dialog"
     "update:check for app updates now"
     "completion:print the shell completion script"
     "help:print the list of commands"

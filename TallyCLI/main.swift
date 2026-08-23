@@ -442,6 +442,11 @@ case "add":
 // What `add` does for an account it creates, done to one that is already here (ShareCommand.swift).
 case "share":
     exit(runShare(args: Array(arguments.dropFirst())))
+// The one act of repair this binary performs on somebody else's data, and it is repair of damage
+// this binary did (KeychainPartitionRepair.swift). Run by hand, by every launch, and once by the app
+// at startup; the exit code is what the last of those would read if it read anything.
+case "keychain-repair":
+    exit(runKeychainRepair())
 // ASKED FOR, so it is an answer rather than a complaint: stdout and a zero exit, which is what a
 // shell pipeline and a person typing `tally help | less` both read. The default branch below
 // prints the very same text on stderr with exit 2, because a word this binary does not know is an

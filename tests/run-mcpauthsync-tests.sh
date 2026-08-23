@@ -16,11 +16,19 @@
 # `claudeStateFile`): leaves with nothing behind them either, compiled in rather than restated,
 # because the whole point of the guard being tested is that it agrees with them about one directory
 # and refuses to guess about the rest.
+#
+# AND THE THIRD SUBJECT, which has a real Keychain behind it rather than a fixture: the partition
+# list the v0.64.0 write path damaged and the repair that undoes it (repair.swift, against
+# TallyCLI/KeychainPartitionRepair.swift and the attribute probe it leans on). What that pair asserts
+# is what MACOS does to an ACL, which nothing in this process can state, so the suite creates an item
+# of its own, damages it, heals it and removes it. It never calls the sweep over the machine's real
+# `Claude Code-credentials*` items - that filter is asserted off the source.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/mcpauthsync/main.swift tests/mcpauthsync/gate.swift \
-    tests/mcpauthsync/wiring.swift tests/mcpauthsync/secret.swift \
+    tests/mcpauthsync/wiring.swift tests/mcpauthsync/secret.swift tests/mcpauthsync/repair.swift \
     TallyCLI/MCPAuthMerge.swift TallyCLI/MCPSeedGate.swift TallyCLI/KeychainSecret.swift \
+    TallyCLI/KeychainPartitionRepair.swift Tally/Core/Keychain/KeychainReader.swift \
     Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/ClaudeStatePath.swift
 "$out"

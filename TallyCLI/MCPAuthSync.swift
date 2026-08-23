@@ -43,22 +43,29 @@ import Security
 // verification after the write and for the restore, because a restore that put back an older copy
 // than the one it verified against would be the very damage this is about.
 //
-// NO PATH THROUGH THIS ASKS THE USER ANYTHING ANY MORE, and that is a correction of what this
-// header used to say rather than a new property. Reading another program's Keychain item from this
-// binary DOES raise the macOS consent panel and DOES block on it: the ACL of a `Claude Code-*`
-// credentials item names the program that created it, which is `/usr/bin/security`, and never this
-// one. The header of KeychainSecret.swift has the measurements. What changed is that the secret read
-// is now performed BY `/usr/bin/security`, the program already in that entry, so it returns in about
-// 80 ms and draws nothing, on every path, on the first launch as much as the thousandth.
+// NEITHER FACE OF THE KEYCHAIN WORK IS A FRAMEWORK CALL ANY MORE, and the write is the half that
+// had to be dragged there by an incident. Reading another program's Keychain item from this binary
+// DOES raise the macOS consent panel and DOES block on it: the ACL of a `Claude Code-*` credentials
+// item names the program that created it, which is `/usr/bin/security`, and never this one. So the
+// read was moved to that tool, and it returns in about 80 ms and draws nothing.
+//
+// THE WRITE LOOKED HARMLESS AND WAS NOT. `SecItemUpdate` answers status 0 from this binary with no
+// dialog and no ACL check, and this file used to say so approvingly. What it does not say is that
+// macOS rewrites the item's PARTITION LIST to the writing process's own identity, which takes
+// `apple-tool:` out of it - and from that moment `/usr/bin/security -w` stops on a consent panel for
+// everybody who borrows the tool, Claude Code included. That is what Tally 0.64.0 did to two of this
+// machine's items (KeychainSecret.swift has the measurements, KeychainPartitionRepair.swift undoes
+// it), and it is why the write below now runs as `security` too.
 //
 // The version of this feature that shipped before assumed the panel was a once-per-item price:
 // answer it with "Always Allow" and the binary joins the ACL. That did not hold in practice - the
 // panel came back at every launch, in every project - and it cost a dialog per config home per
 // launch until it was replaced.
 //
-// THE `interactive` AXIS SURVIVES THAT and is worth strictly less than it was: what it decides is
-// whether this process turns its own Keychain consent off, and KeychainSecret.swift states how far
-// that now reaches rather than saying it twice here.
+// THE `interactive` AXIS SURVIVES ALL OF THAT and is worth strictly less than it was: what it
+// decides is whether this process turns its own Keychain consent off, and KeychainSecret.swift
+// states how far that now reaches rather than saying it twice here. The repair in front of the
+// launch runs on the same axis, for the same reason.
 //
 // The registration face below is plain file I/O and raises nothing, so it runs on every path.
 
@@ -107,9 +114,37 @@ func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
 /// meant `true`, and a site that meant `true` is one that leaves this process able to stop and ask.
 func launchProvider(_ provider: Provider, args: [String], home: String,
                     env: (key: String, value: String)?) -> Never {
+    repairClaudeKeychain(provider: provider, interactive: isatty(STDOUT_FILENO) == 1)
     seedMCPAuthorization(provider: provider, home: home,
                          interactive: isatty(STDOUT_FILENO) == 1)
     exec(provider.cli, args: args, env: env)
+}
+
+/// Heal any `Claude Code-credentials*` item a previous Tally left unreadable, in front of a launch,
+/// saying so on stderr for each one it healed and nothing at all otherwise
+/// (KeychainPartitionRepair.swift holds the mechanism and the measurements).
+///
+/// IN FRONT OF THE LAUNCH BECAUSE THAT IS WHERE THE DAMAGE IS PAID FOR: the next thing to happen is
+/// a `claude` that reads its own credentials through `/usr/bin/security`, and a damaged item stops
+/// it on a consent panel. Ahead of the seeding as well, which reads through the same tool.
+///
+/// NOT BEHIND THE SEEDING'S OPT-IN (`TALLY_MCP_GRANT_SEEDING`), deliberately: that flag is off
+/// because the seeding is the face under investigation, and leaving the repair behind it would mean
+/// the damage that face already did stays on the machine.
+///
+/// Claude-only, like the seeding, and for the same reason: these are Claude Code's items, and codex
+/// keeps nothing of the sort.
+///
+/// SAID OUT LOUD, unlike everything else this file does, because an item being rewritten is a thing
+/// somebody may want to know happened to their Keychain - and because a launch that silently touched
+/// a credential would be the harder thing to explain afterwards. One line per item, no value, and
+/// nothing at all on the ordinary launch where every item is healthy.
+func repairClaudeKeychain(provider: Provider, interactive: Bool) {
+    guard provider.id == "claude" else { return }
+    for repaired in repairClaudeKeychainPartitions(interactive: interactive)
+        where repaired.outcome == .repaired {
+        warn("repaired Keychain item \(repaired.service) (partition list damaged by Tally 0.64.0)")
+    }
 }
 
 /// The other config homes this machine has a Claude account in.
@@ -149,9 +184,10 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     guard ProcessInfo.processInfo.environment["TALLY_MCP_GRANT_SEEDING"] == "1" else { return }
     // Unattended: turn this process's Keychain consent off before any of the work below, and GIVE UP
     // ENTIRELY if that switch cannot be thrown (KeychainSecret.swift, which states how far it now
-    // reaches: the write and the attribute probes, not the secret read, which is another process). A
-    // safety switch that silently did nothing would leave a 3am cap handoff able to stop on a panel
-    // with nobody at the machine, so its absence fails closed rather than falling through.
+    // reaches: the attribute probes only, since both the read and the write are `security` children
+    // of their own). A safety switch that silently did nothing would leave a 3am cap handoff able to
+    // stop on a panel with nobody at the machine, so its absence fails closed rather than falling
+    // through.
     //
     // Not turned back on afterwards, and that is deliberate rather than an oversight: the switch is
     // process-global, this process is a supervisor whose remaining Keychain work is this same seeding
@@ -160,9 +196,10 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     if !interactive, !setKeychainInteractionAllowed(false) { return }
     // The Keychain account attribute every Claude Code credentials item carries: the login name,
     // which is what the CLI writes and what this machine's five items were all observed under
-    // (2026-08-21). Asked for exactly, rather than matching on the service alone, because
-    // `SecItemUpdate` has no match limit: a service that somehow held two items would have both of
-    // them overwritten by a query that named only it.
+    // (2026-08-21). Asked for exactly, rather than matching on the service alone, because neither
+    // spelling of the write has a match limit: `security add-generic-password -s <service>` with no
+    // account names every item under that service, exactly as the `SecItemUpdate` it replaced did,
+    // so a service that somehow held two items would have both of them overwritten.
     let account = NSUserName()
     // Nil when the name would be a guess rather than a rule, which is a home this feature declines
     // to write to at all rather than writing to whichever item the guess landed on

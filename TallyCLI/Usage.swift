@@ -115,6 +115,12 @@ usage:
                             hooks, skills, and instructions take effect everywhere without
                             visiting each terminal (--now waits only for a 5s quiet gap, so it
                             may land closer to an active turn)
+  tally keychain-repair     heal the Claude Code Keychain items Tally 0.64.0 left needing a
+                            consent dialog: it rewrote their partition list, so `security`
+                            (which Claude Code, this launcher and the app's usage polling all
+                            read through) started asking. Every launch does this too; the
+                            command is here for a machine you want to fix without one. Prints
+                            one line per item and never prints a value
   tally update              check for app updates now (opens the update window)
   tally completion zsh      print the zsh tab-completion script: add
                             `eval "$(tally completion zsh)"` to ~/.zshrc, or write it to a

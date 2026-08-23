@@ -19,7 +19,10 @@
 #
 # SessionRosterFreshness is the board's "which supervisor build is watching this" reading, split off
 # the store on size; BuildVariant comes with it, being where the installed version it compares
-# against is read from (and where the demo fixtures' lagging version is derived from).
+# against is read from (and where the demo fixtures' lagging version is derived from), and
+# SupervisorVersionStamp is where that reading comes FROM on a live machine: the build stamped into
+# the supervisor's child at spawn, which is the half that reaches supervisors older than the state
+# record's own field.
 #
 # DemoSessions.swift is the session board's capture fixtures (demoboardchecks.swift); DemoUsage and
 # the five files after it are what IT needs to compile: the enum those fixtures extend, the usage
@@ -117,6 +120,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
+  Tally/Core/SupervisorVersionStamp.swift \
   Tally/Core/SessionSidecar.swift \
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \

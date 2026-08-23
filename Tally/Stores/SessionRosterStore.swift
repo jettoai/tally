@@ -137,6 +137,10 @@ final class SessionRosterStore {
         /// The Claude Code this supervisor spawned (`<pid>.child`), used only as the fallback the
         /// state record's own `childPid` normally provides.
         var child: Int?
+        /// The build this supervisor stamped into that child when it spawned it, read off the child
+        /// process itself and carried here so no view body ever asks the kernel
+        /// (`SupervisorVersionStamp.swift`, which is also where the case for reading it at all is).
+        var childSupervisorVersion: String?
 
         /// Whether this session can say what it is doing. The board's fourth group and its quietest
         /// kind of card.
@@ -343,10 +347,16 @@ final class SessionRosterStore {
     /// a card that knows only that it is running.
     private static func row(_ live: LiveSessionState) -> SessionRow {
         let pid = String(live.supervisorPid)
-        return SessionRow(id: pid, record: live.record,
-                          session: SessionSidecar.read(pid: pid),
-                          cwd: SessionSidecar.readCwd(pid: pid),
-                          child: SessionSidecar.readChildPid(pid: pid))
+        var row = SessionRow(id: pid, record: live.record,
+                             session: SessionSidecar.read(pid: pid),
+                             cwd: SessionSidecar.readCwd(pid: pid),
+                             child: SessionSidecar.readChildPid(pid: pid))
+        // ONCE PER ROW PER SCAN, here rather than in the accessor the card reads: the stamp is a
+        // sysctl and a card's body runs on every render, while the child it is read off cannot
+        // change its environment for as long as it lives. Off the row's OWN answer for which child
+        // that is, rather than a second spelling of the same precedence.
+        row.childSupervisorVersion = row.childPid.flatMap(supervisorVersionStamp(ofProcess:))
+        return row
     }
 
     /// The board's order: what needs somebody first, then what is moving, then what is not, then

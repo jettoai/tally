@@ -23,6 +23,14 @@ import Foundation
 //   - nil IS READ AS OUTDATED. Every supervisor predating the field publishes nil, which is the
 //     whole machine on the day this ships, so a comparison that treats "cannot say" as "not equal"
 //     raises the badge on every card at once.
+//
+// AND THE ONE THAT ACTUALLY HAPPENED, which is the first of those three wearing a different face.
+// The record's field is written from 0.64.3 onwards and by nothing older, so the first changeover
+// after it shipped - four supervisors left on 0.64.2, which is precisely the board this feature
+// exists for - drew nothing at all, correctly, on every card. The reading that reaches back is the
+// stamp the supervisor puts in its CHILD's environment (`supervisorVersionStamp`), written by every
+// build since v0.26, and the record's field is now the fallback behind it. So this file states two
+// more things: what that buffer means, and which of the two sources wins.
 
 func runSupervisorFreshnessChecks() {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -104,6 +112,114 @@ func runSupervisorFreshnessChecks() {
     // one direction a badge must never appear in is "we could not tell".
     check("a harness with no bundle version around it raises no badge on any of them",
           [behind, current, silent].allSatisfy { $0.outdatedSupervisorVersion == nil })
+
+    // MARK: the reading that reaches back
+
+    /// A `KERN_PROCARGS2` buffer, assembled the way the kernel lays one out: the argument count,
+    /// the path the program was executed from, the padding that follows it, then that many
+    /// arguments and the environment after them.
+    func procargs(_ path: String, argv: [String], env: [String]) -> Data {
+        var data = withUnsafeBytes(of: Int32(argv.count)) { Data($0) }
+        data.append(contentsOf: Array(path.utf8) + [0, 0, 0])
+        for field in argv + env { data.append(contentsOf: Array(field.utf8) + [0]) }
+        return data
+    }
+    let key = supervisorVersionEnvKey
+    check("a stamp is read out of the environment half of the buffer",
+          parseSupervisorVersion(procargs: procargs(
+              "/usr/local/bin/claude", argv: ["claude", "--resume"],
+              env: ["PATH=/usr/bin", "\(key)=0.64.2", "TALLY_LAUNCHED=1"])) == "0.64.2")
+    check("…and a child spawned by a supervisor too old to stamp one says nothing",
+          parseSupervisorVersion(procargs: procargs(
+              "/usr/local/bin/claude", argv: ["claude"],
+              env: ["PATH=/usr/bin", "TALLY_LAUNCHED=1"])) == nil)
+    // THE ARGUMENT COUNT IS WHAT SEPARATES THE TWO HALVES. Arguments and environment entries are
+    // the same shape of string in one run - `env VAR=value cmd` is literally an argument spelled
+    // like an environment entry - so a scan that skipped the walk would read a command line as an
+    // environment. The argument here is written the way `env` takes one for exactly that reason: a
+    // fixture that merely MENTIONED the variable would be green under either implementation, which
+    // is what the first draft of this check was.
+    check("…and an argument spelled like an environment entry is not a stamp",
+          parseSupervisorVersion(procargs: procargs(
+              "/usr/bin/env", argv: ["env", "\(key)=1.2.3", "sleep", "30"],
+              env: ["PATH=/usr/bin"])) == nil)
+    check("…nor is a name exported with nothing behind it",
+          parseSupervisorVersion(procargs: procargs("/bin/sh", argv: ["sh"],
+                                                    env: ["\(key)="])) == nil)
+    check("…and a buffer too short to hold a count says nothing rather than reading past itself",
+          parseSupervisorVersion(procargs: Data([1, 2])) == nil)
+
+    // OFF A REAL PROCESS, because every check above states what a buffer MEANS and none of them
+    // states that the kernel writes one this shape - which is the whole of what stands between this
+    // reading and the silence it was written to end.
+    //
+    // A COPY OF `/bin/sleep` RATHER THAN `/bin/sleep`, and the copying is the finding: macOS
+    // withholds the environment half of the buffer for a PLATFORM BINARY, so a system tool comes
+    // back with its arguments and nothing after them (`ps -E` is refused the same way). Measured
+    // here: 34 bytes for /bin/sleep against 724 for a copy of the same executable launched with the
+    // same environment. It costs this suite a file and it costs the feature nothing - the process
+    // this actually reads is Claude Code, which no version of macOS protects - and the failure it
+    // would have caused is silence rather than a wrong reading, which is what the badge treats
+    // every unreadable process as.
+    let sleeperDir = dir.appendingPathComponent("sleeper")
+    try? FileManager.default.createDirectory(at: sleeperDir, withIntermediateDirectories: true)
+    let sleeper = sleeperDir.appendingPathComponent("sleeper")
+    try? FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: sleeper)
+    func launch(_ executable: URL, _ environment: [String: String]) -> Process {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["30"]
+        process.environment = environment
+        try? process.run()
+        return process
+    }
+    let stampedChild = launch(sleeper, ["PATH": "/usr/bin:/bin", key: "9.9.9"])
+    let bareChild = launch(sleeper, ["PATH": "/usr/bin:/bin"])
+    let protectedChild = launch(URL(fileURLWithPath: "/bin/sleep"),
+                                ["PATH": "/usr/bin:/bin", key: "9.9.9"])
+    check("the stamp is read off a live process this suite launched",
+          supervisorVersionStamp(ofProcess: Int(stampedChild.processIdentifier)) == "9.9.9")
+    check("…and a live process launched without one is silent rather than wrong",
+          supervisorVersionStamp(ofProcess: Int(bareChild.processIdentifier)) == nil)
+    check("…as is one whose environment the system withholds, stamp or no stamp",
+          supervisorVersionStamp(ofProcess: Int(protectedChild.processIdentifier)) == nil)
+    check("…and a pid nothing is running under is silent too",
+          supervisorVersionStamp(ofProcess: 0) == nil)
+    for child in [stampedChild, bareChild, protectedChild] { child.terminate() }
+
+    // THE TWO ENDS OF THE CONTRACT, asked of the writer and read back with the reader's own key: a
+    // renamed variable would leave the board silent for ever, on a machine where every supervisor
+    // is stamping its build correctly.
+    check("the key this reads is the one the supervisor's spawn writes",
+          supervisedChildEnvironment(provider: providers[0], home: "/tmp/A",
+                                     supervisorVersion: "9.9.9", supervisorPID: "1",
+                                     base: [:])[key] == "9.9.9")
+
+    // MARK: which of the two sources the card believes
+
+    /// What the badge would say about a row, on a machine with 0.64.3 installed.
+    func badge(stamp: String?, published: String?) -> String? {
+        let row = SessionRosterStore.SessionRow(
+            id: "9500", record: published.map {
+                SessionStateRecord(state: "idle", since: t0, updatedAt: t0, supervisorVersion: $0)
+            }, childSupervisorVersion: stamp)
+        return outdatedSupervisorBuild(row.supervisorVersion, installed: "0.64.3")
+    }
+    // THE CASE THE FIELD ALONE CANNOT ANSWER, and the one this whole reading is for: a supervisor
+    // from before the field publishes no version at all, and its child carries the stamp.
+    check("a session whose supervisor predates the record's field is named by its child's stamp",
+          badge(stamp: "0.64.2", published: nil) == "0.64.2")
+    check("…while a session whose child is gone is still named by what it published",
+          badge(stamp: nil, published: "0.64.1") == "0.64.1")
+    check("…and one that says neither is still not accused of anything",
+          badge(stamp: nil, published: nil) == nil)
+    // THE ORDER ITSELF, which the three checks above cannot state: each of them has exactly one
+    // source to answer from, so all three stay green under either precedence. Both sources are one
+    // supervisor's own captured version and a machine should never see them differ - which is
+    // precisely why the order has to be asserted rather than observed, and why it is asserted in
+    // the direction that reaches the older builds.
+    check("the child's stamp outranks the record's field when they disagree",
+          badge(stamp: "0.64.2", published: "0.64.3") == "0.64.2")
 
     // MARK: the wiring, off the source
 

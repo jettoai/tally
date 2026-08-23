@@ -21,10 +21,20 @@ import Foundation
 // and the action it prompts is nothing, since the update happens on its own.
 
 extension SessionRosterStore.SessionRow {
-    /// The build this session's supervisor is running, as it published it. nil from a supervisor
-    /// older than the field, which says "cannot compare" rather than "out of date"
-    /// (`SessionStateRecord.supervisorVersion`).
-    var supervisorVersion: String? { record?.supervisorVersion }
+    /// The build this session's supervisor is running.
+    ///
+    /// THE CHILD'S STAMP FIRST, and the state record's field only behind it. Both are written by
+    /// the supervisor and both say the same thing, but they reach back different distances: the
+    /// stamp is in the environment of every child spawned since v0.26, while the field on the
+    /// record arrived in 0.64.3 - and a supervisor that is BEHIND is, by construction, one of the
+    /// older ones. Reading only the field made the badge silent on exactly the fleet it was built
+    /// to describe (`SupervisorVersionStamp.swift` carries the measurement and the argument).
+    ///
+    /// The field is kept rather than replaced because it answers where the stamp cannot: a session
+    /// whose child has ended, or whose child pid was never published.
+    ///
+    /// nil from both is "cannot compare" rather than "out of date".
+    var supervisorVersion: String? { childSupervisorVersion ?? record?.supervisorVersion }
 
     /// The version to SAY on this card, or nil when there is nothing to say - which is what an
     /// ordinary card answers and what most cards answer even on the day of an update.
@@ -41,9 +51,10 @@ extension SessionRosterStore.SessionRow {
 /// app does not compile, and would buy nothing a person acts on: a supervisor that does not match
 /// what is installed is running other code either way.
 ///
-/// BOTH ENDS MUST BE KNOWN. A record from before the field carries nil, and an app bundle can carry
-/// no version at all (`BuildVariant.version`); either way there is no comparison to make, and
-/// drawing one anyway would light the badge on every card on the machine the day this ships.
+/// BOTH ENDS MUST BE KNOWN. A session can publish no version at all (neither a stamp on its child
+/// nor a field on its record), and an app bundle can carry no version either
+/// (`BuildVariant.version`); either way there is no comparison to make, and drawing one anyway
+/// would light the badge on every card on the machine at once.
 func outdatedSupervisorBuild(_ published: String?, installed: String?) -> String? {
     guard let published, let installed, published != installed else { return nil }
     return published

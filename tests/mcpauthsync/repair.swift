@@ -206,11 +206,13 @@ func checkTheKeychainRepair() {
                "and so does the supervised launch, on the same axis the seeding beside it runs on")
         expect(inOrder("repairClaudeKeychain", "guard let childPID = spawnChild(", in: supervisor),
                "…before the child it is protecting is spawned")
-        // NOT BEHIND THE SEEDING'S OPT-IN: that flag is off because the seeding is the face under
-        // investigation, and the damage it already did has to come off the machine either way.
+        // NOT GATED ON THE SEEDING'S SWITCH, IN EITHER DIRECTION. What the repair undoes is damage
+        // v0.64.0 already did to items on this machine, and that is on the disk whether this launch
+        // seeds anything or not, so `TALLY_MCP_GRANT_SEEDING=0` turns the writing off without taking
+        // the healing with it.
         let healer = body(of: "func repairClaudeKeychain(", in: sync)
         expect(!healer.contains("TALLY_MCP_GRANT_SEEDING"),
-               "the repair is not gated on the seeding's opt-in, which is off")
+               "the repair is not gated on the seeding's switch, in either direction")
     }
 
     // THE BEHAVIOURAL HALF. A failure to create the item is a FAILURE and not a skip, for the reason

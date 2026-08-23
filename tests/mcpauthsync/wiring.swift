@@ -68,6 +68,14 @@ func checkTheWiring() {
     do {
         let grants = body(of: "private func seedMCPGrants(", in: sync)
         expect(grants.contains("for sibling in siblings"), "the harness really read the grant seeding")
+        // THE DEFAULT, WHICH HAS BEEN BOTH WAYS INSIDE ONE DAY (the guard's own comment has the
+        // history and the measurement that settled it). What has to hold here is the direction: an
+        // opt-OUT, so a launch with nothing set in its environment seeds, and the one spelling that
+        // silently gives the feature back to nobody is the opt-in this replaced.
+        expect(grants.contains("environment[\"TALLY_MCP_GRANT_SEEDING\"] != \"0\""),
+               "grant seeding is on by default, TALLY_MCP_GRANT_SEEDING=0 opts out")
+        expect(!grants.contains("environment[\"TALLY_MCP_GRANT_SEEDING\"] == \"1\""),
+               "…and the opt-in spelling is gone rather than left beside it")
         // THE READ-MODIFY-WRITE WINDOW. Reading a sibling raises a consent dialog and blocks on it,
         // so a target document read BEFORE that loop is a picture of the item as it was before an
         // unbounded wait - and writing it back would roll back a login refresh, or an authorization

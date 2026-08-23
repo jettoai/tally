@@ -128,9 +128,11 @@ func launchProvider(_ provider: Provider, args: [String], home: String,
 /// a `claude` that reads its own credentials through `/usr/bin/security`, and a damaged item stops
 /// it on a consent panel. Ahead of the seeding as well, which reads through the same tool.
 ///
-/// NOT BEHIND THE SEEDING'S OPT-IN (`TALLY_MCP_GRANT_SEEDING`), deliberately: that flag is off
-/// because the seeding is the face under investigation, and leaving the repair behind it would mean
-/// the damage that face already did stays on the machine.
+/// NOT GATED ON `TALLY_MCP_GRANT_SEEDING` IN EITHER DIRECTION, deliberately. What the repair undoes
+/// is damage Tally 0.64.0 already did to items on this machine, and that damage is on the disk
+/// whether today's launch seeds anything or not, so the seeding's switch has no business over it:
+/// somebody who sets `TALLY_MCP_GRANT_SEEDING=0` is turning off the writing, not asking to keep an
+/// older version's damage.
 ///
 /// Claude-only, like the seeding, and for the same reason: these are Claude Code's items, and codex
 /// keeps nothing of the sort.
@@ -183,12 +185,20 @@ func claudeSeedingHomes(excluding target: String) -> [String] {
 
 private func seedMCPGrants(into home: String, from siblings: [String], defaultHome: URL,
                            interactive: Bool) {
-    // OFF UNLESS OPTED IN (v0.64.1 hotfix, 2026-08-23): on a real machine v0.64.0 raised a Keychain
-    // dialog for every sibling item at every launch, from the security tool this time, which the
-    // probe that preceded d6619b7 did not reproduce. Until the difference between that probe and a
-    // real launch is understood, this face stays off; the registration sync below it needs no
-    // Keychain and keeps running. TALLY_MCP_GRANT_SEEDING=1 turns it back on for investigation.
-    guard ProcessInfo.processInfo.environment["TALLY_MCP_GRANT_SEEDING"] == "1" else { return }
+    // ON BY DEFAULT, WITH `TALLY_MCP_GRANT_SEEDING=0` AS THE WAY OUT. The default has been both ways
+    // inside one day, so the history is worth stating: v0.64.0 wrote the target item with
+    // `SecItemUpdate`, which rewrote the item's partition list, took `apple-tool:` out of it and left
+    // `/usr/bin/security -w` stopping on a consent panel for every later reader (the header tells
+    // that story in full). 922a57e put this face behind an opt-in while the cause was still open,
+    // and 59dadec moved the write to `security add-generic-password -U -X`, which is the tool the
+    // items already name in their ACL and therefore leaves the partition list alone.
+    //
+    // MEASURED ON A REAL MACHINE, 2026-08-23, seeding two config homes back to back: each launch
+    // returned in about a second with no dialog, `tally keychain-repair` afterwards called all 7
+    // items healthy with `apple-tool:` still in every partition list, and the next launch read the
+    // freshly written item silently. The opt-in was there to buy that measurement and it has been
+    // bought; what stays is a kill switch for an incident, not a gate on the feature.
+    guard ProcessInfo.processInfo.environment["TALLY_MCP_GRANT_SEEDING"] != "0" else { return }
     // Unattended: turn this process's Keychain consent off before any of the work below, and GIVE UP
     // ENTIRELY if that switch cannot be thrown (KeychainSecret.swift, which states how far it now
     // reaches: the attribute probes only, since both the read and the write are `security` children

@@ -449,5 +449,9 @@ checkTheFreshnessGate()
 // because neither entrance can be called from here (wiring.swift says what and why).
 checkTheWiring()
 
+// …and the secret read itself, which is the one thing here with a real Keychain behind it: a
+// throwaway item this suite creates, reads back through the product, and removes (secret.swift).
+checkTheSecretRead()
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all mcp-auth-sync tests passed")

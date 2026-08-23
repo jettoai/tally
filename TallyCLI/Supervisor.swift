@@ -210,12 +210,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // home it cannot seed is a home Claude Code will ask about, exactly as it does today.
         //
         // INTERACTIVE ONLY ON THE FIRST PASS, read off the same flag the terminal drain above reads:
-        // this pass happens in the same second as the command the user typed, so a Keychain consent
-        // dialog here is the ordinary macOS "first time you use this" moment. Every pass after it is
-        // something this supervisor decided to do on its own - a cap handoff, a settings follow, a
-        // resupervise after an app update - and one of those stopping on a dialog would hang a
-        // session with nobody at the machine. A resumed supervisor starts with `relaunching` already
-        // true, which is right for the same reason: an app update is not somebody typing.
+        // this pass happens in the same second as the command the user typed, so this process is
+        // allowed to keep its own Keychain consent on. Every pass after it is something this
+        // supervisor decided to do on its own - a cap handoff, a settings follow, a resupervise after
+        // an app update - and one of those stopping on a panel would hang a session with nobody at
+        // the machine. A resumed supervisor starts with `relaunching` already true, which is right
+        // for the same reason: an app update is not somebody typing. The seeding's secret reads no
+        // longer raise a panel on any path (MCPAuthSync.swift); what this flag still covers is the
+        // write and the attribute probes.
         if let seedHome = account.launchHome {
             seedMCPAuthorization(provider: provider, home: seedHome, interactive: !relaunching)
         }

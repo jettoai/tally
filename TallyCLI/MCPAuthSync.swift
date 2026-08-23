@@ -37,36 +37,28 @@ import Security
 // the item is still what I read" cannot be expressed. A Claude Code writing that same item in
 // between - a login refresh, an authorization it has just been given - would be rolled back by the
 // write. Which is why the target's own document is read as LATE as it can be: after every sibling
-// has been read and every consent dialog answered, so that what is merged and stored is the item as
-// it was milliseconds ago rather than as it was before somebody spent a minute deciding about a
-// stack of dialogs. What is left is a window of a few milliseconds that can be kept small and not
-// closed. The same reading is the base for the merge, for the verification after the write and for
-// the restore, because a restore that put back an older copy than the one it verified against would
-// be the very damage this is about.
+// has been read, so that what is merged and stored is the item as it was milliseconds ago rather
+// than as it was before a row of subprocess reads. What is left is a window of a few milliseconds
+// that can be kept small and not closed. The same reading is the base for the merge, for the
+// verification after the write and for the restore, because a restore that put back an older copy
+// than the one it verified against would be the very damage this is about.
 //
-// KNOWN, MEASURED, AND ACCEPTED (2026-08-21, this machine, Release-signed binary): reading another
-// program's Keychain item raises the macOS consent dialog and the read BLOCKS until it is answered
-// or the process dies, while WRITING one is silent and needs no consent (SecItemUpdate returned 0
-// and the item's modification date moved). Which is the wrong way round for a launcher: the cost
-// lands on the read, and the read is the first thing this does.
+// NO PATH THROUGH THIS ASKS THE USER ANYTHING ANY MORE, and that is a correction of what this
+// header used to say rather than a new property. Reading another program's Keychain item from this
+// binary DOES raise the macOS consent panel and DOES block on it: the ACL of a `Claude Code-*`
+// credentials item names the program that created it, which is `/usr/bin/security`, and never this
+// one. The header of KeychainSecret.swift has the measurements. What changed is that the secret read
+// is now performed BY `/usr/bin/security`, the program already in that entry, so it returns in about
+// 80 ms and draws nothing, on every path, on the first launch as much as the thousandth.
 //
-// SO THE DIALOG IS ALLOWED ON EXACTLY ONE KIND OF PATH: the ones where a person just typed a command
-// and is looking at the screen. That is a `tally claude` or `tally resume` WHOSE OUTPUT IS A
-// TERMINAL, and the supervisor's FIRST spawn, which happens in the same second as the command that
-// started it. Everything else runs with this process's Keychain dialogs turned OFF
-// (`setKeychainInteractionAllowed`, KeychainSecret.swift), so an ungranted home fails in 9 ms
-// instead of hanging something nobody is watching: every later spawn the supervisor makes (a cap
-// handoff at 3am, a relaunch after a settings change, a self-update resupervise), and every launch
-// whose stdout is a pipe or a file, which is a command that produces output for a program rather
-// than for a person and never reaches a supervisor at all (LaunchFlags.swift will not supervise
-// one).
+// The version of this feature that shipped before assumed the panel was a once-per-item price:
+// answer it with "Always Allow" and the binary joins the ACL. That did not hold in practice - the
+// panel came back at every launch, in every project - and it cost a dialog per config home per
+// launch until it was replaced.
 //
-// WHY THAT STILL CONVERGES, which is the part worth checking rather than believing: the dialog is a
-// once-per-item event ("Always Allow" adds this binary to the item's ACL and the signature is stable
-// across rebuilds), and the interactive paths are the ordinary way sessions start. So the grants are
-// picked up the first time a person launches onto a home, and every unattended relaunch afterwards
-// reads them without asking anybody. A machine that only ever relaunched, never launched, would
-// never seed - and would behave exactly as it does today, which is the whole fail-open contract.
+// THE `interactive` AXIS SURVIVES THAT and is worth strictly less than it was: what it decides is
+// whether this process turns its own Keychain consent off, and KeychainSecret.swift states how far
+// that now reaches rather than saying it twice here.
 //
 // The registration face below is plain file I/O and raises nothing, so it runs on every path.
 
@@ -75,9 +67,9 @@ import Security
 ///
 /// `interactive` is whether a PERSON IS WATCHING: true when this runs in the same second as a command
 /// somebody typed, false for every spawn the supervisor makes later on its own. It is not a verbosity
-/// setting and nothing here prints either way - it decides whether the Keychain may stop and ask, and
-/// therefore whether this call can take an unbounded amount of time (the header says why, and why the
-/// grants still converge with the unattended paths declining to ask).
+/// setting and nothing here prints either way - it decides whether this process leaves its own
+/// Keychain consent on, which since the secret read moved to `/usr/bin/security` covers the write and
+/// the attribute probes and nothing else (the header says how much less that is than it was).
 func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
     // Claude Code only: the Keychain naming, the blob layout and the state file rule below are all
     // that CLI's, and codex keeps none of them.
@@ -105,13 +97,14 @@ func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
 /// WHETHER A PERSON IS WATCHING is a question about the shell line, not about the subcommand, and
 /// this used to be written down as `true` on the strength of "somebody typed it". Somebody also typed
 /// `tally claude -p … | jq` and `tally claude > log`, and those produce output for a program rather
-/// than for a person - nobody sees a consent dialog, and nobody dismisses it either. They arrive here
-/// exactly like an interactive launch, too: a launch whose stdout is not a terminal is the one the
-/// supervisor declines to take (LaunchFlags.swift), so it falls through to this plain exec.
+/// than for a person - nobody would see a consent panel, and nobody would dismiss it either. They
+/// arrive here exactly like an interactive launch, too: a launch whose stdout is not a terminal is
+/// the one the supervisor declines to take (LaunchFlags.swift), so it falls through to this plain
+/// exec.
 ///
 /// Asked here rather than passed in by each of the eight call sites, because it is a property of this
 /// process and of none of them: a site that forgot to pass it would look exactly like a site that
-/// meant `true`, and the difference between those two is a piped command hanging on a dialog.
+/// meant `true`, and a site that meant `true` is one that leaves this process able to stop and ask.
 func launchProvider(_ provider: Provider, args: [String], home: String,
                     env: (key: String, value: String)?) -> Never {
     seedMCPAuthorization(provider: provider, home: home,
@@ -130,7 +123,7 @@ func launchProvider(_ provider: Provider, args: [String], home: String,
 ///
 /// The target is excluded by both spellings of "the same place": the path as written, and the object
 /// it arrives at (PathIdentity.swift), because a home reached through an alias would otherwise be
-/// read a second time and cost a second consent dialog to merge with itself.
+/// read a second time and spend a second secret read merging with itself.
 func claudeSeedingHomes(excluding target: String) -> [String] {
     let (snapshot, _) = loadSnapshot()
     guard let snapshot else { return [] }
@@ -148,10 +141,11 @@ func claudeSeedingHomes(excluding target: String) -> [String] {
 
 private func seedMCPGrants(into home: String, from siblings: [String], defaultHome: URL,
                            interactive: Bool) {
-    // Unattended: turn this process's Keychain dialogs off before the first read, and REFUSE TO READ
-    // AT ALL if that switch cannot be thrown (KeychainSecret.swift). A safety switch that silently
-    // did nothing would leave a 3am cap handoff hanging on a dialog with nobody at the machine, which
-    // is the one outcome this whole axis exists to prevent, so its absence fails closed.
+    // Unattended: turn this process's Keychain consent off before any of the work below, and GIVE UP
+    // ENTIRELY if that switch cannot be thrown (KeychainSecret.swift, which states how far it now
+    // reaches: the write and the attribute probes, not the secret read, which is another process). A
+    // safety switch that silently did nothing would leave a 3am cap handoff able to stop on a panel
+    // with nobody at the machine, so its absence fails closed rather than falling through.
     //
     // Not turned back on afterwards, and that is deliberate rather than an oversight: the switch is
     // process-global, this process is a supervisor whose remaining Keychain work is this same seeding
@@ -169,14 +163,15 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     // (MCPAuthMerge.swift: `claudeSeedingKeychainService`).
     guard let targetService = claudeSeedingKeychainService(forConfigDir: URL(fileURLWithPath: home),
                                                            defaultHome: defaultHome) else { return }
-    // Whether there is anything to merge INTO, asked by ATTRIBUTES so it costs no dialog and reads
-    // no secret (KeychainReader.swift). Asked before the siblings rather than after, because the
-    // siblings are what dialogs get raised for: a home with no login has no item, and N consent
-    // prompts to build a merge with nowhere to go is the one thing this ordering could get wrong.
+    // Whether there is anything to merge INTO, asked by ATTRIBUTES so it reads no secret at all
+    // (KeychainReader.swift) and costs no subprocess. Asked before the siblings rather than after,
+    // because the siblings are what the secret reads are spent on: a home with no login has no item,
+    // and N reads to build a merge with nowhere to go is the one thing this ordering could get
+    // wrong.
     guard KeychainReader.exists(service: targetService, account: account) else { return }
 
     // THE ATTRIBUTE PASS, and it is a separate loop from the secret reads below for one reason: an
-    // attribute query returns no secret and raises no dialog (KeychainReader.swift), so everything
+    // attribute query returns no secret and needs no subprocess (KeychainReader.swift), so everything
     // that can be decided without paying for a read is decided here.
     var probes: [MCPSeedProbe] = []
     var services: [String: String] = [:]
@@ -184,7 +179,7 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
         guard let service = claudeSeedingKeychainService(
             forConfigDir: URL(fileURLWithPath: sibling), defaultHome: defaultHome) else { continue }
         // Asked BEFORE the secret, and by attributes only: a home whose item is not there at all is
-        // skipped without ever raising a dialog for it (KeychainReader.swift).
+        // skipped without ever spending a read on it (KeychainReader.swift).
         guard KeychainReader.exists(service: service, account: account) else { continue }
         services[sibling] = service
         probes.append(MCPSeedProbe(home: sibling,
@@ -193,8 +188,8 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     }
     // THE FRESHNESS GATE (MCPSeedGate.swift states the rule, what it cannot see, and what it
     // changes). A launch where no sibling's item has been written since this home last merged from
-    // it stops HERE, having read no secret and asked nobody anything, which is the ordinary case and
-    // the whole point of the gate.
+    // it stops HERE, having read no secret at all, which is the ordinary case and the whole point of
+    // the gate.
     let stale = mcpSeedSourcesToRead(probed: probes, record: loadMCPSeedRecord(for: home))
     guard !stale.isEmpty else { return }
 
@@ -221,11 +216,11 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
     guard !sources.isEmpty else { return }
 
     // THE TARGET'S OWN DOCUMENT, AND IT IS READ HERE FOR THE REASON THE HEADER GIVES: everything
-    // above this line can take as long as a person takes to answer a stack of consent dialogs, and
-    // everything below it is arithmetic and one write. So this reading is the freshest one that can
-    // be had, and it is the base of all three things that follow - the merge, the check afterwards,
-    // and the restore if that check fails. Every way this can come back empty is a home that cannot
-    // be seeded: a locked keychain, a declined dialog, a truncated document, an item that has gone.
+    // above this line is one subprocess per stale sibling, and everything below it is arithmetic and
+    // one write. So this reading is the freshest one that can be had, and it is the base of all three
+    // things that follow - the merge, the check afterwards, and the restore if that check fails.
+    // Every way this can come back empty is a home that cannot be seeded: a locked keychain, a read
+    // that ran out of time, a truncated document, an item that has gone.
     guard let targetData = keychainSecret(service: targetService, account: account),
           let targetBlob = mcpJSONDocument(from: targetData) else { return }
     let targetWrittenAt = KeychainReader.modifiedAt(service: targetService, account: account)
@@ -243,7 +238,7 @@ private func seedMCPGrants(into home: String, from siblings: [String], defaultHo
                                data: seeded.data) == errSecSuccess else { return }
     // And once more from the Keychain itself, because the refusals inside `seededCredentialData` are
     // about this process's arithmetic and this one is about what macOS now holds. The re-read costs
-    // no second dialog: consent granted for the read just above holds for the rest of the process.
+    // one more subprocess and about 80 ms, and asks nobody anything, exactly like the one above.
     //
     // Anything short of "everything but the grants is still the same" puts back the bytes read just
     // above, which is a restore of the document EXACTLY as it was read rather than a rebuild of it,

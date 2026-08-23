@@ -212,8 +212,8 @@ func mergedMCPOAuth(target: MCPAuthSource, sources: [MCPAuthSource]) -> MCPOAuth
                 // the document carrying it is. Without this the ages decide on their own, and the
                 // ages move for reasons that have nothing to do with these entries: Claude Code
                 // rewrites the whole item every time it refreshes the LOGIN token beside them. Every
-                // launch would then rewrite a sibling's identical copy over the target's, which is a
-                // Keychain write, and on a home whose consent has not been granted yet, a dialog.
+                // launch would then rewrite a sibling's identical copy over the target's, which is
+                // a Keychain write nothing asked for, at every launch, for ever.
                 guard mcpEntryCanonical(candidate) != mcpEntryCanonical(existing) else { continue }
                 guard mcpEntrySupersedes(source: candidate, sourceWrittenAt: source.writtenAt,
                                          target: existing,

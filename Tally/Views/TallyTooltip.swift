@@ -61,6 +61,11 @@ enum TallyTooltip {
     enum PreviewTarget: String {
         case fleet
         case identity
+        /// The session board's update badge (`SessionCardView.supervisorBadge`). No card has to be
+        /// named alongside it, unlike the identity one: exactly one fixture session is watched by a
+        /// build other than the installed one, so the board draws exactly one of these badges and
+        /// there is nothing for a second forced callout to race with (`DemoSessions`).
+        case supervisor
     }
 
     static func previewForced(_ target: PreviewTarget) -> Bool {

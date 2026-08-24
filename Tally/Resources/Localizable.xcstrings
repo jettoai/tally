@@ -12116,31 +12116,60 @@
         }
       }
     },
-    "%@ → updates when idle": {
+    "Supervisor %@ is watching this session": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ → 閒置時更新"
+            "value": "這個工作階段由 %@ 版監督中"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ → 闲置时更新"
+            "value": "这个会话由 %@ 版监督中"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ → アイドル時に更新"
+            "value": "このセッションは %@ が監視中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ → 유휴 시 업데이트"
+            "value": "이 세션은 %@ 버전이 감독 중"
+          }
+        }
+      }
+    },
+    "It updates to the installed build at the next idle moment.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置時就會更新到已安裝的版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "闲置时就会更新到已安装的版本。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドルになった時点でインストール済みのビルドに更新されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 상태가 되면 설치된 빌드로 업데이트됩니다."
           }
         }
       }

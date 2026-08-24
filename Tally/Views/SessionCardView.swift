@@ -311,15 +311,21 @@ struct SessionCardView: View {
     /// is visible - and for the rest of the week there is nothing here. A resident version on every
     /// card would spend a segment for a reading that is worth acting on for minutes a week.
     ///
-    /// IT NAMES THE VERSION AND THEN SAYS NOTHING IS BEING ASKED FOR, in that order, because it is
-    /// an explanation rather than an instruction: the replacement happens on its own, and the note
+    /// IT NAMES THE VERSION AND NOTHING ELSE, in the panel header's own update vocabulary (`↻` and
+    /// the build, `PopoverHeaderView`). The line it replaces spelled the whole reading out on the
+    /// card, "0.64.3 → updates when idle", which is a sentence of standing ink for an answer that
+    /// amounts to "nothing to do". The words are not lost: they are one hover away, in the app's own
+    /// callout rather than a third tooltip mechanism (`tallyTooltip`, which this surface hosts).
+    ///
+    /// QUIET, AND NOT A CONTROL. The header's chip is filled and installs on a click; this one is
+    /// `.secondary` text that takes no press, because the replacement happens on its own - the note
     /// that used to say "restart after update" was telling somebody to do by hand what was already
     /// under way (`SupervisionStatus.note` made the same correction inside the terminal).
     ///
     /// ON THIS LINE RATHER THAN ON THE IDENTITY ONE ABOVE, which is where it was first put and where
     /// it does not fit: that row already gives its slack to the ports, and on a compact card the
     /// sentence squeezed the account and the model out of the line and was then truncated itself.
-    /// This slot carries one short figure and a duration, and has the room the sentence needs.
+    /// This slot carries one short figure and a duration, and has the room the badge needs.
     ///
     /// HELD AT ITS OWN WIDTH, exactly as the ports one row up are and for the same reason: a
     /// truncated version is a WRONG version, while a stats line that gives up its tail still says
@@ -329,11 +335,32 @@ struct SessionCardView: View {
             sessionStats
             if let outdated = row.outdatedSupervisorVersion {
                 Spacer(minLength: 6)
-                Text(String(format: L("%@ → updates when idle"), outdated))
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .lineLimit(1).fixedSize()
+                supervisorBadge(outdated)
             }
         }
+    }
+
+    /// The badge itself. The glyph and the bare build are the same pair the header's update chip
+    /// draws, so a reader who has seen one recognises the other; a dotted version is a token and is
+    /// not localized, exactly as the header's is not.
+    ///
+    /// THE CALLOUT CARRIES WHAT THE CHIP CANNOT, in two lines: which supervisor this is, and that it
+    /// updates itself. The first line is also the accessibility label, because "↻ 0.64.3" spoken
+    /// aloud is the glyph's name followed by three numbers, and the sentence this badge replaced
+    /// read perfectly well to VoiceOver.
+    ///
+    /// Forcible for a capture, which is how the words above get looked at without synthesizing a
+    /// hover onto somebody's desktop (`TallyTooltip.previewForced`, `-TallyTooltipPreview
+    /// supervisor`).
+    private func supervisorBadge(_ version: String) -> some View {
+        let owner = String(format: L("Supervisor %@ is watching this session"), version)
+        return Text(verbatim: "↻ \(version)")
+            .font(.caption2).foregroundStyle(.secondary)
+            .lineLimit(1).fixedSize()
+            .accessibilityLabel(Text(owner))
+            .tallyTooltip(owner,
+                          detail: L("It updates to the installed build at the next idle moment."),
+                          forced: TallyTooltip.previewForced(.supervisor))
     }
 
     /// What this session has spent, and when it was last true of it, drawn on the cards that are not

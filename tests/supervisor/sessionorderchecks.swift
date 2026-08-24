@@ -483,19 +483,23 @@ func runSessionBoardOrderChecks() {
         .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
         .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("///") }
         .joined(separator: "\n")
-    // EXACTLY ONE HOVER, WHICH IS THE RULE THAT REPLACED "NONE" (Albert, 2026-08-17). The board was
-    // given no callouts at all because the pointer waits here between jumps, and a layer opening
-    // under a resting hand covers the cards beside it; what earned the exception is a sentence
-    // written by a hook, of any length, which the card had been drawing clipped into a 236pt line.
-    // A ban is not what is being asserted any more, a BUDGET is: one target, and the count is the
-    // assertion, so a second callout arriving anywhere on the card turns this red.
+    // EXACTLY TWO HOVERS, WHICH IS THE RULE THAT REPLACED "ONE" (Albert, 2026-08-24) and "NONE"
+    // before it (2026-08-17). The board was given no callouts at all because the pointer waits here
+    // between jumps, and a layer opening under a resting hand covers the cards beside it. Each
+    // exception is a sentence too long to stand on a card: the hook's own words for what a blocked
+    // session is waiting for, and what the supervisor badge would have to say to explain itself
+    // (`SessionCardView.supervisorBadge`, a chip of a glyph and a build). A ban is not what is being
+    // asserted, a BUDGET is - the count and BOTH names, so a third callout arriving anywhere on the
+    // card turns this red, and so does either of these two quietly becoming something else.
     check("the card tells VoiceOver what a click does without an NSToolTip to say it",
           cardCode.contains(
               ".accessibilityHint(Text(L(\"Click to bring its terminal to the front\")))")
               && !cardCode.contains(".help("))
-    check("…and answers exactly one hover, the waiting card's state word",
-          cardCode.components(separatedBy: "tallyTooltip").count - 1 == 1
+    check("…and answers exactly two hovers, the waiting card's state word",
+          cardCode.components(separatedBy: "tallyTooltip").count - 1 == 2
               && cardCode.contains("if let reason = sessionReason { word.tallyTooltip(reason) }"))
+    check("…and the badge that has to name a version the chip only numbers",
+          cardCode.contains(".tallyTooltip(owner,"))
     // A session that published no directory cannot be lifted at all (`orderKey`), so offering it a
     // grip would promise a gesture that does nothing. One answer, asked at the grab and at the draw.
     check("only a card there is something to arrange by carries a grip",

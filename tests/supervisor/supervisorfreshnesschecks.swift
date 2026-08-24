@@ -240,7 +240,7 @@ func runSupervisorFreshnessChecks() {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
     }
-    let loopCode = code(loop), syncCode = code(sync)
+    let loopCode = code(loop), syncCode = code(sync), cardCode = code(card)
 
     /// THE BOARD PUBLISH ALONE, cut out of the tick rather than searched for across the whole file:
     /// the same `let` is handed to the child's environment two hundred lines up, under the same
@@ -272,9 +272,42 @@ func runSupervisorFreshnessChecks() {
     // would spend a segment of the identity line for a reading that is worth acting on for minutes
     // a week, and a resident "0 updating" would spend a summary slot on the uninteresting answer.
     check("the card draws the badge only when there is a version to name",
-          code(card).contains("if let outdated = row.outdatedSupervisorVersion {"))
-    check("…in the sentence that says the update is already under way",
-          card.contains(#"L("%@ → updates when idle")"#))
+          cardCode.contains("if let outdated = row.outdatedSupervisorVersion {"))
+    // A CHIP RATHER THAN A SENTENCE (Albert, 2026-08-24), in the panel header's own update
+    // vocabulary: the badge names the build and the callout says the rest. Both halves are pinned,
+    // because either one alone is a defect - a bare `↻ 0.64.3` nobody can expand says nothing about
+    // what is going to happen, and a hover with no visible chip has no target to be found on.
+    check("…as the glyph and the build the header's update chip already spells",
+          cardCode.contains(#"Text(verbatim: "↻ \(version)")"#))
+    check("…and the sentence that says the update is already under way moved into the callout",
+          cardCode.contains(#"L("Supervisor %@ is watching this session")"#)
+              && cardCode.contains(#"L("It updates to the installed build at the next idle "#))
+    /// The BADGE alone, cut out of the card for the same reason the board publish is cut out of the
+    /// tick: this card draws several buttons of its own, so "no Button here" asked of the whole file
+    /// would be red for every one of them and could never be green.
+    let cardBadge = (cardCode.components(separatedBy: "private func supervisorBadge(")
+        .dropFirst().first ?? "").components(separatedBy: "\n    }").first ?? ""
+    check("the harness really cut out the badge", !cardBadge.isEmpty)
+    // NOT A CONTROL: the header's chip installs on a click, this one has nothing to press for. A
+    // button here would promise an action the supervisor takes on its own.
+    check("…drawn as quiet text rather than as something to press",
+          cardBadge.contains(".foregroundStyle(.secondary)")
+              && !cardBadge.contains("Button") && !cardBadge.contains("onTapGesture"))
+    // EVERY WORD OF THE CALLOUT IS IN THE CATALOGUE, in all four translations: the app ships five
+    // languages, and a hover that answers in English on a Japanese machine is a missing translation
+    // nobody notices until they see it (the same check the panel-width suite makes of its sentence).
+    let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
+        "Tally/Resources/Localizable.xcstrings")))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+    let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
+    check("the string catalogue is readable from this suite", !catalogueStrings.isEmpty)
+    for word in ["Supervisor %@ is watching this session",
+                 "It updates to the installed build at the next idle moment."] {
+        let entry = catalogueStrings[word] as? [String: Any]
+        let localizations = entry?["localizations"] as? [String: Any] ?? [:]
+        check("\(word.prefix(28)) is translated into every language Tally ships",
+              ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { localizations[$0] != nil })
+    }
     check("the summary counts them only when there are any",
           code(board).contains("if roster.updatingCount > 0 {"))
 }

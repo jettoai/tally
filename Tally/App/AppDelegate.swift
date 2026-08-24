@@ -96,12 +96,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await KeychainRepairLaunch.run()
             UsageStore.shared.start()
+            // The morning schedule's two punctuality nudges (a wall-clock timer and the wake
+            // notification), inside the same task and after the reading for the same reason the
+            // reading is here at all. Both nudges do nothing but ask for a refresh, and a refresh
+            // runs the `claude` CLI against the credentials the repair is rewriting: an app opened
+            // at 06:59:40 arms a timer that fires twenty seconds later, which is inside the time an
+            // ACL dialog can hold the repair open. Started behind it, the morning's first reading
+            // is the repaired one. Nothing is sent until the one-time notice has been read
+            // (EarlyStartStore.swift).
+            EarlyStartStore.shared.start()
         }
-        // The morning schedule's two punctuality nudges (a wall-clock timer and the wake
-        // notification). Not behind the repair above: neither of them does anything but ask the
-        // store for a refresh, and the decision itself rides that refresh's tail
-        // (EarlyStartStore.swift). Nothing is sent until the one-time notice has been read.
-        EarlyStartStore.shared.start()
         // The native picker behind `/tally`: listen for the CLI's
         // knock for the life of the process, the way the update check's observer does. Not
         // listening is not an error anywhere - the CLI waits a second and a half for a claim

@@ -25,8 +25,9 @@ struct EarlyStartCandidate: Equatable {
     var home: String?
     /// Whether the user has this account (and its provider) switched on.
     var isEnabled: Bool
-    /// Whether the latest poll for this account SUCCEEDED. A held-over reading cannot answer the
-    /// window question, and a wrong answer here spends a message rather than saving one.
+    /// Whether the latest poll for this account SUCCEEDED (`EarlyStartLogic.readingIsUsable`). A
+    /// held-over reading cannot answer the window question, and a wrong answer here spends a
+    /// message rather than saving one.
     var readingIsUsable: Bool
     /// Whether the 5-hour window is already counting down (`EarlyStartLogic.windowIsOpen`).
     var windowIsOpen: Bool
@@ -63,6 +64,30 @@ enum EarlyStartSkip: String, Equatable {
         switch self {
         case .otherProvider, .accountOff, .daySuppressed, .alreadyStarted: return false
         case .notLaunchable, .unreadable, .windowOpen: return true
+        }
+    }
+
+    /// Whether this pass FINISHED the account's morning, so no later refresh may start it today.
+    ///
+    /// A DIFFERENT AXIS FROM `countsAsSkip`, and the two disagree about every case they share:
+    /// that one asks whether the user would recognise the pass as a skip, this one asks whether
+    /// anything is still owed. `windowOpen` is both - it is reported, and it is done.
+    ///
+    /// Only `windowOpen` finishes anything. The feature promises one decision per account per
+    /// morning ("Each morning at 07:00"), and an account that was already working at 07:00 has had
+    /// its decision: without a stamp the window it was running closes at 09:00 and the next refresh
+    /// starts a fresh one on its behalf, hours after the morning it was for.
+    ///
+    /// The two passes that must NOT finish the day are the two the catch-up exists for: an account
+    /// signed out at 07:00 and signed back in at 08:00 (`notLaunchable`), and one whose poll failed
+    /// at 07:00 and succeeded at 08:00 (`unreadable`). Both are "not known yet", not "not today".
+    /// The remaining four are already terminal through some other part of the state, or were never
+    /// in scope, so a stamp would say nothing and only enlarge the payload.
+    var completesDay: Bool {
+        switch self {
+        case .windowOpen: return true
+        case .otherProvider, .accountOff, .notLaunchable, .unreadable, .alreadyStarted,
+             .daySuppressed: return false
         }
     }
 }
@@ -211,6 +236,22 @@ enum EarlyStartLogic {
         return resetsAt > now && session.usedPercent > 0
     }
 
+    /// Whether this account's latest reading may be used to decide anything this morning.
+    ///
+    /// BOTH HALVES, because a failed round does not announce itself as an error straight away. The
+    /// fold that runs after every poll keeps the last good numbers on a failure and leaves `error`
+    /// nil until a streak of them makes the account stale, publishing the failure on the first
+    /// round through `lastRefreshFailed` instead (`foldLastGood`, Core/LastGoodFold.swift, which
+    /// spells out why the badge and the machine need opposite answers). Reading `error` alone would
+    /// hand this morning a set of numbers from an earlier poll wearing the face of a fresh one: a
+    /// window that has since closed still reads as open, and a window that has since opened still
+    /// reads as closed, and the second of those spends a message on somebody already working.
+    ///
+    /// This is the same question `AccountPick` asks before believing a zero, for the same reason.
+    static func readingIsUsable(_ usage: AccountUsage) -> Bool {
+        usage.error == nil && !usage.lastRefreshFailed
+    }
+
     /// Why this account is not being started, or nil to start it.
     static func pass(_ candidate: EarlyStartCandidate, state: EarlyStartState,
                      now: Date, calendar: Calendar) -> EarlyStartSkip? {
@@ -262,8 +303,15 @@ enum EarlyStartLogic {
         return next
     }
 
-    /// Fold a finished run into the state: every account a message was ATTEMPTED for is stamped
-    /// with today, and the run is recorded only if it was one (`EarlyStartPlan.isReportable`).
+    /// Fold a finished run into the state: every account whose morning is OVER is stamped with
+    /// today, and the run is recorded only if it was one (`EarlyStartPlan.isReportable`).
+    ///
+    /// Two kinds of account are over. One is every account a message was attempted for. The other
+    /// is every account passed over for a reason that finished its day (`EarlyStartSkip
+    /// .completesDay`), which today means the one that was already working: stamping it is what
+    /// keeps the promise on the Settings row - one decision per account per morning - when the
+    /// window it was running closes at lunchtime and the next refresh would otherwise open a new
+    /// one on its behalf.
     ///
     /// STAMPED ON THE ATTEMPT, not on the success, because the promise is "at most one message per
     /// account per morning" and a retry ladder cannot keep it: a lid opened twenty times on a day
@@ -279,6 +327,9 @@ enum EarlyStartLogic {
         var next = state
         let today = dayKey(now, calendar: calendar)
         for accountID in attempted { next.startedDays[accountID] = today }
+        for entry in plan.passed where entry.reason.completesDay {
+            next.startedDays[entry.accountID] = today
+        }
         if plan.isReportable {
             next.lastRun = EarlyStartRun(at: now, started: max(0, attempted.count - failed),
                                          skipped: plan.skippedCount, failed: failed)

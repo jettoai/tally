@@ -36,10 +36,11 @@ func metric(_ kind: MetricKind, used: Double, resetsAt: Date?) -> UsageMetric {
                 isActive: false)
 }
 
-func usage(_ id: String, session: UsageMetric?, error: String? = nil) -> AccountUsage {
+func usage(_ id: String, session: UsageMetric?, error: String? = nil,
+           lastRefreshFailed: Bool = false) -> AccountUsage {
     AccountUsage(id: id, providerID: "claude", accountLabel: id, planName: nil,
                  metrics: [session].compactMap { $0 }, refreshedAt: at("2026-08-24 07:00"),
-                 error: error)
+                 error: error, lastRefreshFailed: lastRefreshFailed)
 }
 
 func candidate(_ id: String, provider: String = "claude", home: String? = "/Users/tester/.claude2",
@@ -148,7 +149,35 @@ do {
         "a spent WEEKLY window is not an open session window")
 }
 
-// 6. WHO IS PASSED OVER, and in which order. The order matters: a signed-out account also reports
+// 6. IS THE LATEST READING USABLE - both halves, because a failed poll does not announce itself as
+//    an error on the round it happens. `foldLastGood` republishes the last good numbers and sets
+//    `lastRefreshFailed` alone; `error` arrives only once a streak has made the account stale. A
+//    check on `error` would therefore decide this morning on numbers fetched before it.
+do {
+    let now = at("2026-08-24 07:30")
+    let open = metric(.session, used: 12, resetsAt: at("2026-08-24 11:00"))
+
+    expect(EarlyStartLogic.readingIsUsable(usage("a", session: open)),
+           "a poll that succeeded is usable")
+    expect(!EarlyStartLogic.readingIsUsable(usage("a", session: open, lastRefreshFailed: true)),
+           "a held-over reading is NOT usable, though it carries no error yet (the first failure)")
+    expect(!EarlyStartLogic.readingIsUsable(
+        usage("a", session: open, error: "boom", lastRefreshFailed: true)),
+        "…nor once the streak has added the error the badge reads")
+    expect(!EarlyStartLogic.readingIsUsable(usage("a", session: open, error: "boom")),
+           "…nor a bare error with the flag somehow unset")
+
+    // What that produces. The held-over numbers say the window is closed, which is the answer that
+    // SENDS a message, and this morning may not act on it: they are not this morning's numbers.
+    let held = usage("a", session: metric(.session, used: 0, resetsAt: nil), lastRefreshFailed: true)
+    let stale = candidate("a", readable: EarlyStartLogic.readingIsUsable(held),
+                          windowOpen: EarlyStartLogic.windowIsOpen(held, now: now))
+    expect(EarlyStartLogic.pass(stale, state: EarlyStartState(), now: now, calendar: taipei)
+             == .unreadable,
+           "an account on a held-over reading is passed over rather than started")
+}
+
+// 7. WHO IS PASSED OVER, and in which order. The order matters: a signed-out account also reports
 //    an unusable reading, and "no credential here" is the better of the two answers.
 do {
     let now = at("2026-08-24 07:30")
@@ -194,9 +223,12 @@ do {
            "yesterday's message does not stand in for today's")
 }
 
-// 7. WHICH PASSES COUNT AS SKIPS. The three that do not are the three that are not about this
-//    morning, and getting `alreadyStarted` wrong is what would let a 9am wake overwrite the 7am
-//    run's record with a true sentence about the wrong event (see 9).
+// 8. WHICH PASSES COUNT AS SKIPS, and which FINISH the account's day. Two axes over the same seven
+//    reasons, and they disagree about every case they share. The first is what the row reports, and
+//    getting `alreadyStarted` wrong there is what would let a 9am wake overwrite the 7am run's
+//    record with a true sentence about the wrong event (see 10). The second is what stops a later
+//    refresh from acting (see 11), and getting `unreadable` wrong there would silently delete the
+//    catch-up this feature is most obviously for.
 do {
     expect(EarlyStartSkip.windowOpen.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip
              && EarlyStartSkip.notLaunchable.countsAsSkip,
@@ -205,9 +237,18 @@ do {
              && !EarlyStartSkip.daySuppressed.countsAsSkip
              && !EarlyStartSkip.alreadyStarted.countsAsSkip,
            "the four out-of-scope ones do not")
+
+    expect(EarlyStartSkip.windowOpen.completesDay,
+           "an account that was already working has had its morning")
+    expect(!EarlyStartSkip.unreadable.completesDay && !EarlyStartSkip.notLaunchable.completesDay,
+           "…while 'not known yet' is not 'not today': both stay retryable all day")
+    expect(!EarlyStartSkip.otherProvider.completesDay && !EarlyStartSkip.accountOff.completesDay
+             && !EarlyStartSkip.alreadyStarted.completesDay
+             && !EarlyStartSkip.daySuppressed.completesDay,
+           "the other four are terminal elsewhere in the state, or were never in scope")
 }
 
-// 8. ONE MORNING'S PLAN over a mixed fleet.
+// 9. ONE MORNING'S PLAN over a mixed fleet.
 do {
     let now = at("2026-08-24 07:30")
     let plan = EarlyStartLogic.plan(
@@ -240,7 +281,7 @@ do {
     expect(!none.isReportable, "a fleet with nothing in scope is not a run")
 }
 
-// 9. THE WAKE THAT MUST NOT OVERWRITE THE MORNING. 07:00 starts two accounts; the lid opens at
+// 10. THE WAKE THAT MUST NOT OVERWRITE THE MORNING. 07:00 starts two accounts; the lid opens at
 //    09:00 and every account reports `alreadyStarted`, which is not a run.
 do {
     let morning = at("2026-08-24 07:00")
@@ -265,7 +306,39 @@ do {
            "…so the 7am record survives it untouched")
 }
 
-// 10. ARMING NEVER BACKFILLS THE DAY SOMEBODY CHANGED THEIR MIND ON, and never suppresses a day
+// 11. THE ACCOUNT THAT WAS ALREADY WORKING AT 07:00 gets nothing later the same day. Its window
+//     closes at lunchtime, and without a stamp the next refresh reads a closed window and opens a
+//     new one on its behalf, hours after the morning the Settings row promises.
+do {
+    let morning = at("2026-08-24 07:00")
+    let noon = at("2026-08-24 12:00")
+
+    let plan = EarlyStartLogic.plan(
+        candidates: [candidate("idle"), candidate("busy", windowOpen: true)],
+        state: EarlyStartState(), now: morning, calendar: taipei)
+    expect(plan.skippedCount == 1, "the busy account is still counted in the row's 'N skipped'")
+    let after = EarlyStartLogic.recording(EarlyStartState(), plan: plan, attempted: ["idle"],
+                                          failed: 0, now: morning, calendar: taipei)
+    expect(after.startedDays["busy"] == "2026-08-24",
+           "…and its morning is stamped, though no message was sent on its behalf")
+    expect(EarlyStartLogic.pass(candidate("busy"), state: after, now: noon, calendar: taipei)
+             == .alreadyStarted,
+           "so noon, with that window since closed, starts nothing for it")
+
+    // THE CONTRAST, and the reason this is a property of the reason rather than of every pass: an
+    // account whose poll failed at 07:00 is the case the catch-up exists for, and must not be
+    // stamped by the same code path.
+    let hazy = EarlyStartLogic.plan(candidates: [candidate("hazy", readable: false)],
+                                    state: EarlyStartState(), now: morning, calendar: taipei)
+    let afterHazy = EarlyStartLogic.recording(EarlyStartState(), plan: hazy, attempted: [],
+                                              failed: 0, now: morning, calendar: taipei)
+    expect(afterHazy.startedDays["hazy"] == nil, "an unreadable account is not stamped")
+    expect(EarlyStartLogic.pass(candidate("hazy"), state: afterHazy, now: at("2026-08-24 08:00"),
+                                calendar: taipei) == nil,
+           "…so 08:00, with the poll succeeding again, still opens its window")
+}
+
+// 12. ARMING NEVER BACKFILLS THE DAY SOMEBODY CHANGED THEIR MIND ON, and never suppresses a day
 //     that is still going to happen.
 do {
     let early = at("2026-08-24 06:00")
@@ -300,7 +373,7 @@ do {
            "arming leaves the run record and the day stamps alone")
 }
 
-// 11. RECORDING: stamps, counts and the prune.
+// 13. RECORDING: stamps, counts and the prune.
 do {
     let now = at("2026-08-24 07:00")
     let plan = EarlyStartLogic.plan(candidates: [candidate("a"), candidate("b"),
@@ -329,16 +402,21 @@ do {
     expect(withFailure.startedDays["a"] == "2026-08-24" && withFailure.startedDays["b"] == "2026-08-24",
            "…and BOTH are still stamped: the promise is one attempt per account per morning")
 
-    // No claude on the machine: nothing attempted, nothing stamped, and the row says so.
+    // No claude on the machine: nothing was attempted, so nothing that WOULD have been started is
+    // stamped, and the row says so.
     let missing = EarlyStartLogic.recording(EarlyStartState(), plan: plan, attempted: [],
                                             failed: plan.start.count, now: now, calendar: taipei)
     expect(missing.lastRun?.started == 0 && missing.lastRun?.failed == 2,
            "a missing CLI records two that could not start")
-    expect(missing.startedDays.isEmpty,
-           "…and stamps nothing, so an install that lands later still gets its morning")
+    expect(missing.startedDays["a"] == nil && missing.startedDays["b"] == nil,
+           "…and stamps neither of them, so an install that lands later still gets its morning")
+    // The busy account is stamped all the same: whether a CLI exists has nothing to do with it,
+    // its morning was over before the question came up (see 11).
+    expect(missing.startedDays["c"] == "2026-08-24",
+           "…while the account that was already working is finished with or without a CLI")
 }
 
-// 12. THE PERSISTED STATE READS BACK, including a payload written before a field existed. The
+// 14. THE PERSISTED STATE READS BACK, including a payload written before a field existed. The
 //     store treats a decode failure as "no state at all", which would re-send every message
 //     already sent today, so a throwing decoder is the expensive kind of wrong.
 do {
@@ -364,7 +442,7 @@ do {
            "a run record written before the failure count reads it as zero")
 }
 
-// 13. THE SPAWN'S SHAPE. Asserted exactly rather than by "contains", so a flag that goes missing
+// 15. THE SPAWN'S SHAPE. Asserted exactly rather than by "contains", so a flag that goes missing
 //     goes red instead of being covered by the ones that remain.
 do {
     expect(EarlyStartCommand.arguments
@@ -385,7 +463,7 @@ do {
            "…which is not inside any repository")
 }
 
-// 14. THE CONFIG HOME, which is the one thing that decides WHICH account a message is sent from.
+// 16. THE CONFIG HOME, which is the one thing that decides WHICH account a message is sent from.
 do {
     let userHome = URL(fileURLWithPath: "/Users/tester")
 
@@ -410,7 +488,7 @@ do {
            "the default home is recognised through a non-standardized spelling of it")
 }
 
-// 15. THE WHOLE FLEET THROUGH A FAKE RUNNER. It stands in for CLIRunner: every invocation the
+// 17. THE WHOLE FLEET THROUGH A FAKE RUNNER. It stands in for CLIRunner: every invocation the
 //     morning would have made, recorded instead of spawned.
 final class FakeProcessRunner {
     struct Call: Equatable {

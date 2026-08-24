@@ -148,7 +148,7 @@ final class EarlyStartStore {
                 // is the same one wherever the list came from.
                 isEnabled: settings.isEnabled(usage.providerID)
                     && settings.isAccountEnabled(usage.id),
-                readingIsUsable: usage.error == nil,
+                readingIsUsable: EarlyStartLogic.readingIsUsable(usage),
                 windowIsOpen: EarlyStartLogic.windowIsOpen(usage, now: now))
         }
 

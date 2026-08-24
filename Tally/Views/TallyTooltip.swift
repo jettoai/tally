@@ -61,10 +61,13 @@ enum TallyTooltip {
     enum PreviewTarget: String {
         case fleet
         case identity
-        /// The session board's update badge (`SessionCardView.supervisorBadge`). No card has to be
-        /// named alongside it, unlike the identity one: exactly one fixture session is watched by a
-        /// build other than the installed one, so the board draws exactly one of these badges and
-        /// there is nothing for a second forced callout to race with (`DemoSessions`).
+        /// The session board's update badge (`SessionCardView.supervisorBadge`), which forces itself
+        /// only while the FIXTURES are on: exactly one demo session is watched by a build other than
+        /// the installed one, so the demo board draws exactly one of these badges and there is
+        /// nothing for a second forced callout to race with (`DemoSessions`). A dev build watching
+        /// real sessions can have several behind at once, which is a race rather than a preview, so
+        /// the card asks `DemoUsage.isActive` alongside this. Same guarantee the identity target
+        /// buys by naming one fixture account, bought by a different means.
         case supervisor
     }
 

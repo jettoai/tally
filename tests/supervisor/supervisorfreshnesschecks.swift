@@ -293,6 +293,30 @@ func runSupervisorFreshnessChecks() {
     check("…drawn as quiet text rather than as something to press",
           cardBadge.contains(".foregroundStyle(.secondary)")
               && !cardBadge.contains("Button") && !cardBadge.contains("onTapGesture"))
+    // BOTH SENTENCES REACH A LISTENER, not just the one naming the version. The card is a single
+    // `Button`, so the only channel out of a child is its LABEL - a child hint belongs to an element
+    // nothing can land on, and the card's own hint and value are already spent on what a click does
+    // and on what a blocked session is waiting for (`SessionCardView.body`, `SessionWaitSpoken`).
+    // This card has lost a sentence to that trap twice (dc39003, 22e9dcd), so the label carrying the
+    // WHOLE callout is the rule, and the count is the assertion: a label built from `owner` alone
+    // would leave "it updates itself" as a pointer-only fact.
+    check("the badge speaks both callout lines through the one channel a child element has",
+          cardBadge.contains(".accessibilityLabel(Text(TallyTooltipContent.lines([owner, update])")
+              && !cardBadge.contains("accessibilityHint")
+              && !cardBadge.contains("accessibilityValue"))
+    check("…from the same two strings the pointer is shown, so the two cannot drift",
+          cardBadge.contains(".tallyTooltip(owner, detail: update,"))
+    // ONE FORCED TARGET, WHICH IS THE PREVIEW FLAG'S WHOLE CONTRACT: every forcible callout publishes
+    // into a single preference slot, so two held open at once race for it. A dev build watching real
+    // sessions can be behind on several at a time; the demo board is exactly one lagging card by
+    // construction, which is why the fixtures are what the badge asks about rather than the flag
+    // alone (`TallyTooltip.PreviewTarget.supervisor`).
+    // The premise that makes the fixtures a sufficient guarantee is pinned where the fixtures are:
+    // "exactly one fixture card is watched by a build other than the installed one"
+    // (`demoboardchecks.swift`, same binary). A second copy of that count here would be one more
+    // place to forget rather than one more thing that cannot break.
+    check("the badge forces its callout only where exactly one of them can exist",
+          cardBadge.contains("DemoUsage.isActive && TallyTooltip.previewForced(.supervisor)"))
     // EVERY WORD OF THE CALLOUT IS IN THE CATALOGUE, in all four translations: the app ships five
     // languages, and a hover that answers in English on a Japanese machine is a missing translation
     // nobody notices until they see it (the same check the panel-width suite makes of its sentence).

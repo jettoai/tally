@@ -345,22 +345,37 @@ struct SessionCardView: View {
     /// not localized, exactly as the header's is not.
     ///
     /// THE CALLOUT CARRIES WHAT THE CHIP CANNOT, in two lines: which supervisor this is, and that it
-    /// updates itself. The first line is also the accessibility label, because "↻ 0.64.3" spoken
-    /// aloud is the glyph's name followed by three numbers, and the sentence this badge replaced
-    /// read perfectly well to VoiceOver.
+    /// updates itself. Both of them are the LABEL, not just the first: the chip's own text is a glyph
+    /// and three numbers, and the sentence this badge replaced said the whole thing to a listener, so
+    /// a label naming only the version would keep the identification and drop the one part that
+    /// answers "do I have to do something about it".
+    ///
+    /// ON THE LABEL BECAUSE THE LABEL IS THE ONLY CHANNEL OUT OF HERE. The whole card is one
+    /// `Button`, so a listener gets nothing from this element except what composes into the card's:
+    /// child labels do, a child's HINT does not (it belongs to an element nothing can land on), and
+    /// the card's own hint and value are both already spoken for - by what a click does and by what
+    /// a blocked session is waiting for (`body`, `SessionWaitSpoken`). This card has lost a sentence
+    /// twice by leaving it on something inside the button (dc39003, 22e9dcd); this is the same trap,
+    /// one badge over. Composed through the callout's own spelling of two lines as one utterance, so
+    /// the pointer's copy and the listener's cannot drift.
     ///
     /// Forcible for a capture, which is how the words above get looked at without synthesizing a
     /// hover onto somebody's desktop (`TallyTooltip.previewForced`, `-TallyTooltipPreview
-    /// supervisor`).
+    /// supervisor`). UNDER THE FIXTURES ONLY, which is what keeps that flag's one-target contract
+    /// true: a dev build watching real sessions can have several supervisors behind at once, and
+    /// every badge on that board would publish into the single preference slot the preview reads,
+    /// leaving the capture to whichever the layout traversal reached last. The demo board has
+    /// exactly one lagging card by construction (`DemoSessions`), which is the same guarantee the
+    /// identity preview buys by naming one fixture account (`AccountFacts.forcesIdentityTooltip`).
     private func supervisorBadge(_ version: String) -> some View {
         let owner = String(format: L("Supervisor %@ is watching this session"), version)
+        let update = L("It updates to the installed build at the next idle moment.")
         return Text(verbatim: "↻ \(version)")
             .font(.caption2).foregroundStyle(.secondary)
             .lineLimit(1).fixedSize()
-            .accessibilityLabel(Text(owner))
-            .tallyTooltip(owner,
-                          detail: L("It updates to the installed build at the next idle moment."),
-                          forced: TallyTooltip.previewForced(.supervisor))
+            .accessibilityLabel(Text(TallyTooltipContent.lines([owner, update]).spoken))
+            .tallyTooltip(owner, detail: update,
+                          forced: DemoUsage.isActive && TallyTooltip.previewForced(.supervisor))
     }
 
     /// What this session has spent, and when it was last true of it, drawn on the cards that are not

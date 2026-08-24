@@ -182,7 +182,10 @@ struct AccountCardView: View {
             // the layout traversal reached last (TallyTooltip.previewForced).
             .tallyTooltip(facts.identityEmail, detail: facts.identityDetail,
                           forced: facts.forcesIdentityTooltip)
-            if usage.isStale {
+            // Not while the login is the reason: the expiry chip at the foot of this card already
+            // says why the numbers stopped, and "Outdated" up here is only its symptom
+            // (`AccountFacts.showsStaleMark`, shared with the compact row so the two agree).
+            if facts.showsStaleMark {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
                     .foregroundStyle(TallyColor.warning)

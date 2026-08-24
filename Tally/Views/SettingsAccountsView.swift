@@ -236,7 +236,7 @@ struct SettingsAccountsView: View {
                     // the chip is the one actionable thing on the row, and all three together
                     // truncated each other in a 500pt window (measured 2026-08-04).
                     if signIn != .signedIn {
-                        signInState(signIn, item)
+                        signInState(signIn, item, usage: usage)
                     } else if !enabled {
                         Text(L("Disabled")).font(.caption2).foregroundStyle(.tertiary)
                     } else if let usage {
@@ -343,7 +343,7 @@ struct SettingsAccountsView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 16)
-            .help(L("Account actions"))
+            .tallyTooltip(L("Account actions"))
             // The rename field lives outside the row layout entirely (AccountRenamePopover),
             // on the button that opens it.
             .popover(isPresented: Binding(
@@ -432,7 +432,7 @@ struct SettingsAccountsView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(email)
+                .tallyTooltip(email)
         }
     }
 }

@@ -341,8 +341,12 @@ check("the switch is dead exactly when the layout is pooled",
       rowStatusSource.contains("let pooled = settings.menuBarLayout == .pooled")
           && memberBody(rowStatusSource, from: "func menuBarToggle").contains(".disabled(pooled)"))
 // NOT SILENTLY: a greyed control with no explanation is the same dead end one step later.
+// AROUND the control rather than on it, since 2026-08-24: this pane answers hovers in Tally's own
+// callout now, and SwiftUI routes no hover into a disabled control - so a `tallyTooltip` on the
+// switch itself would go silent in the one state that has something to say. The system `.help` it
+// replaced did not have that problem, which is why the wrapper is the assertion.
 check("…and says why, with the way back in it",
-      rowStatusSource.contains(".help(pooled")
+      rowStatusSource.contains(".tallyTooltipAroundControl(pooled")
           && rowStatusSource.contains("Set Menu bar shows to Accounts in Display to pick which ones appear."))
 check("the label greys with the control it labels",
       memberBody(rowStatusSource, from: "func menuBarToggle")

@@ -411,6 +411,30 @@ expect(!rowUsageMarks.isEmpty
         && !rowUsageMarks.contains("facts.isRenewingLogin")
         && !rowUsageMarks.contains("facts.isLoginExpired"),
        "and the gated marks are about the reading only: stale numbers and banked resets")
+// AND THE LOGIN MARK IS THE ONE THAT SPEAKS (owner's report, 2026-08-24). An expired login is why
+// the numbers went stale, so both marks lit at once, two triangles a few points apart, saying one
+// thing in two colours. The rule lives in the facts, so the card cannot answer it differently.
+let staleMarkRule = factsSource.components(separatedBy: "var showsStaleMark: Bool ")
+    .last?.components(separatedBy: "\n").first ?? ""
+expect(staleMarkRule.contains("usage.isStale") && staleMarkRule.contains("!isLoginExpired")
+        && staleMarkRule.contains("!isRenewingLogin"),
+       "the stale mark stands down while an expired or renewing login is the reason for it")
+expect(rowUsageMarks.contains("if facts.showsStaleMark {") && !rowUsageMarks.contains("usage.isStale")
+        && cardSource.contains("if facts.showsStaleMark {") && !cardSource.contains("if usage.isStale {"),
+       "…and both surfaces ask that one rule instead of lighting a triangle of their own")
+// A glyph in a list of eight rows cannot say "this account" and be understood, so each callout
+// names the login it belongs to on its FIRST line and qualifies it on the second - the two-line
+// shape every other callout in the panel already has, rather than one prefixed sentence.
+expect(rowUsageMarks.contains("tallyTooltip(facts.markOwner, detail: usage.error ?? L(\"Outdated\"))")
+        && rowLoginMarks.contains("tallyTooltipAroundControl(facts.markOwner,"),
+       "both of the row's marks name their account on the callout's first line")
+expect(factsSource.contains("var markOwner: String { identityEmail.isEmpty ? label : identityEmail }"),
+       "…by the signed-in address where there is one, and the row's own name otherwise")
+// AND THE EXPIRY SAYS WHAT PRESSING IT DOES. The card writes "Login expired" on a chip; the row
+// has a 9pt triangle that happens to be a button, so the callout is the only place the click can
+// be offered at all (owner's report, 2026-08-24).
+expect(rowLoginMarks.contains("detail: L(\"Login expired. Click to sign in again.\")"),
+       "and the row's expiry mark offers the sign-in the click actually starts")
 // The identity chain (live probe answer first, this round's poll next, the remembered address
 // last) lives in the STORE, because two surfaces render it now - the card's tooltip and the
 // Settings row. The ordering itself is `AccountIdentity.email`, asserted behaviourally in the
@@ -422,6 +446,20 @@ expect(factsSource.contains("LoginStatusStore.shared.identityEmail(usage)")
         && settingsSource.contains("LoginStatusStore.shared.identityEmail(accountID: item.id,")
         && !surfaceSource.contains("usage.accountEmail"),
        "and both surfaces ask that one chain instead of each reaching past it to the fallback")
+// THE SETTINGS CHIP ANSWERS IN TALLY'S OWN CALLOUT TOO (owner's report, 2026-08-24): it was handing
+// back the system's yellow box, which is a different application's chrome in the middle of a pane
+// full of Tally's. Two things have to be true for that, and the second one fails SILENTLY - a target
+// with no host takes the system fallback and looks exactly like it did before.
+let rowStatusSource = readSource("Tally/Views/SettingsAccountRowStatus.swift")
+let settingsRootSource = readSource("Tally/Views/SettingsView.swift")
+expect(!rowStatusSource.isEmpty && !settingsRootSource.isEmpty,
+       "the Settings row's status strip and the window root are readable from this suite")
+expect(rowStatusSource.contains(".tallyTooltipAroundControl(rowOwner(item, usage: usage),")
+        && rowStatusSource.contains("detail: L(\"Login expired. Click to sign in again.\")")
+        && !rowStatusSource.contains(".help("),
+       "the Settings sign-in chip answers in Tally's callout, naming the account then the click")
+expect(settingsRootSource.contains(".tallyTooltipLayer()"),
+       "…and the Settings window hosts one, without which that callout is the system box again")
 // The Settings row asks by account id rather than off a usage row, because the row that most needs
 // an address is the one with no usage row at all: a disabled account is never polled.
 expect(!settingsSource.contains("usage.flatMap({ LoginStatusStore.shared.identityEmail"),

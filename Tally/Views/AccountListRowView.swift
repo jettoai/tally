@@ -115,15 +115,20 @@ struct AccountListRowView: View {
 
     /// The states a card spells out in words about this account's READING, as glyphs: numbers that
     /// have gone stale, and banked resets waiting to be spent. Each keeps its card sentence as a
-    /// tooltip, so nothing is lost, only folded. A row that never loaded shows none of them, which
-    /// is what the error branch in the body decides.
+    /// tooltip, under a first line naming the account, because a glyph in a list of eight rows is
+    /// the one place a sentence cannot say "this account" and be understood. A row that never
+    /// loaded shows none of them, which is what the error branch in the body decides.
+    ///
+    /// The stale mark also stands down while the login is the reason (`AccountFacts.showsStaleMark`),
+    /// so this row never lights two triangles that mean one thing. Asked of the facts rather than
+    /// spelled out here, so the card answers it identically.
     @ViewBuilder
     private var usageMarks: some View {
-        if usage.isStale {
+        if facts.showsStaleMark {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 9))
                 .foregroundStyle(TallyColor.warning)
-                .tallyTooltip(usage.error ?? L("Outdated"))
+                .tallyTooltip(facts.markOwner, detail: usage.error ?? L("Outdated"))
                 .accessibilityLabel(L("Outdated"))
         }
         if let outcome = redeemOutcome {
@@ -137,7 +142,10 @@ struct AccountListRowView: View {
 
     /// The login's own two states, at row scale: renewing right now, or expired and offering the
     /// renewal. One either/or, exactly like the card's, so the row shows one login state at a time.
-    /// Shown whatever the reading says, for the reason spelled out where the body places it.
+    /// Shown whatever the reading says, for the reason spelled out where the body places it. The
+    /// expiry names its account on the callout's first line, the same way the stale mark above
+    /// does: this is the mark that asks for a sign-in, and which login to sign back into is the
+    /// whole question.
     @ViewBuilder
     private var loginMarks: some View {
         if facts.isRenewingLogin {
@@ -155,7 +163,12 @@ struct AccountListRowView: View {
             }
             .buttonStyle(.plain)
             .disabled(!facts.canRenewLogin)
-            .tallyTooltipAroundControl(L("Sign in again to bring this account's usage back."))
+            // Says what PRESSING IT does, not just what happened: on a card the same state is a
+            // chip with "Login expired" written on it, and here it is a 9pt triangle that happens
+            // to be a button. If the callout does not say the click signs you back in, nothing on
+            // the row does.
+            .tallyTooltipAroundControl(facts.markOwner,
+                                       detail: L("Login expired. Click to sign in again."))
             .accessibilityLabel(L("Login expired"))
         }
     }

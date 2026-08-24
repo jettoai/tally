@@ -40,6 +40,16 @@ struct AccountFacts {
     /// tooltip, and an absent one is what "nothing to say" looks like there.
     var identityEmail: String { LoginStatusStore.shared.identityEmail(usage) ?? "" }
 
+    /// WHOSE MARK THIS IS, for the first line of a status mark's callout: a triangle hovered in a
+    /// list of eight rows has to answer that before its sentence means anything, and the identity
+    /// it belongs to is at the far end of the row. The signed-in address when there is one, because
+    /// two accounts can share a nickname and never a login; the row's own name otherwise (a demo
+    /// fixture, or an account no probe has named yet).
+    ///
+    /// The line ABOVE the sentence rather than glued to its front, which is the shape every other
+    /// callout in the panel already has (`tallyTooltip(_:detail:)`).
+    var markOwner: String { identityEmail.isEmpty ? label : identityEmail }
+
     /// The second line of that tooltip: the plan and the config home, which is what tells two cards
     /// apart when the address cannot (one ChatGPT address in two workspaces answers with the same
     /// email on both - see `AccountIdentity.detail`, which owns the rule and the reason).
@@ -96,6 +106,16 @@ struct AccountFacts {
     /// account (a failed refresh over previously-good numbers) keeps its metrics readable - the
     /// "Outdated" badge carries the state, so the numbers aren't dimmed away.
     var isHardError: Bool { usage.error != nil && !usage.isStale }
+
+    /// Whether the "Outdated" mark is this account's to show. An expired login, or one being renewed
+    /// right now, is WHY the numbers stopped moving, and it already carries a mark of its own beside
+    /// this one: drawing both puts a cause and its own symptom side by side, in two shades of the
+    /// same warning, and leaves the reader to work out they are one thing (owner's report,
+    /// 2026-08-24). The login mark wins; this one stands down and comes back with the login.
+    ///
+    /// Here rather than in either surface, like every other answer in this file: a card that spelled
+    /// out "Outdated" while the row beside it did not would be two answers to one question.
+    var showsStaleMark: Bool { usage.isStale && !isLoginExpired && !isRenewingLogin }
 
     /// The plan exposes only a single weekly window (e.g. Codex on ChatGPT Plus) - worth noting so a
     /// missing session/model row doesn't read as a bug.

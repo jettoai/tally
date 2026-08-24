@@ -17,7 +17,8 @@ extension SettingsAccountsView {
     /// wins is decided in AccountSignIn.swift, so the two surfaces cannot disagree about whether an
     /// account needs signing in.
     @ViewBuilder
-    func signInState(_ state: AccountSignIn.State, _ item: ProviderAccount) -> some View {
+    func signInState(_ state: AccountSignIn.State, _ item: ProviderAccount,
+                     usage: AccountUsage?) -> some View {
         let renew = RenewLoginStore.shared
         switch state {
         case .signedIn:
@@ -47,8 +48,24 @@ extension SettingsAccountsView {
             // chip must never look more able than the action it starts.
             .disabled(!renew.canRenew(accountID: item.id, providerID: item.providerID,
                                       home: item.launchHome))
-            .help(L("Sign in again to bring this account's usage back."))
+            // Tally's own callout rather than the system box this row used to hand back: the panel
+            // answers every hover in the app's own chip, and one native tooltip in the middle of a
+            // pane full of them reads as a different application (owner's report, 2026-08-24). Two
+            // lines, in the shape the panel's marks use: whose login it is, then what the click
+            // does. The word "expired" is on the second line here rather than in the button, which
+            // says "Sign in again" instead of naming the state.
+            .tallyTooltipAroundControl(rowOwner(item, usage: usage),
+                                       detail: L("Login expired. Click to sign in again."))
         }
+    }
+
+    /// Whose row this is, in the words the row itself shows: the signed-in address when the store
+    /// knows one, the display name otherwise. The first line of every callout in this list, and the
+    /// same answer the panel's marks put there (`AccountFacts.markOwner`), asked of the one shared
+    /// identity chain so the two surfaces cannot name an account differently.
+    func rowOwner(_ item: ProviderAccount, usage: AccountUsage?) -> String {
+        LoginStatusStore.shared.identityEmail(accountID: item.id, polled: usage?.accountEmail)
+            ?? settings.displayLabel(accountID: item.id, fallback: item.label)
     }
 
     /// "● 98% · ● 71%" - session then weekly, dot coloured by the window's severity. Compact
@@ -63,7 +80,7 @@ extension SettingsAccountsView {
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                .help("\(L(metric.label)) \(UsageFormat.percent(metric, mode: settings.displayMode)) \(UsageFormat.modeWord(settings.displayMode))")
+                .tallyTooltip("\(L(metric.label)) \(UsageFormat.percent(metric, mode: settings.displayMode)) \(UsageFormat.modeWord(settings.displayMode))")
             }
         }
     }
@@ -88,7 +105,9 @@ extension SettingsAccountsView {
             .controlSize(.mini)
             .disabled(pooled)
         }
-        .help(pooled
+        // Around the control, not on it: pooled greys the switch out, and a disabled control stops
+        // routing hover, which is precisely the state whose hover carries the way back.
+        .tallyTooltipAroundControl(pooled
               ? L("The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.")
               : L("Show in menu bar"))
     }

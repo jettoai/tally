@@ -69,6 +69,12 @@ struct SettingsView: View {
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every
         // label (see PopoverRootView for why a bare read isn't enough).
         .id(settings.languageOverride ?? "system")
+        // This window answers hovers in the app's own chip too, which is what a `tallyTooltip` in
+        // here needs to reach: without a host every target in this tree silently takes the system
+        // fallback, and the accounts pane then showed a native yellow box in the middle of a panel
+        // that never does (owner's report, 2026-08-24). At the root and outside the ScrollView, per
+        // `tallyTooltipLayer`: a host inside the scroll would clip the callout at the pane's edge.
+        .tallyTooltipLayer()
     }
 
     private var sidebar: some View {

@@ -204,8 +204,12 @@ extension View {
     /// explain itself ("signed out: renew the login first"). So the hover target is a wrapper AROUND
     /// the control rather than the control, which is never itself disabled and therefore always
     /// answers. Enabled controls do not need it and pay nothing for it either way.
-    func tallyTooltipAroundControl(_ text: String) -> some View {
-        ZStack { self }.tallyTooltip(text)
+    ///
+    /// - Parameter detail: the same quieter second line the plain callout takes, so a control's
+    ///   answer can be built in two lines rather than one run-on sentence (the row's expiry mark
+    ///   names its account first, then says what pressing it does).
+    func tallyTooltipAroundControl(_ text: String, detail: String? = nil) -> some View {
+        ZStack { self }.tallyTooltip(text, detail: detail)
     }
 
     /// The same callout, answering with labelled figures instead of a sentence (see

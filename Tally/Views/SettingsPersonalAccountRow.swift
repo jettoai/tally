@@ -16,7 +16,10 @@ extension SettingsAccountsView {
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
             .fixedSize()   // a badge must never wrap
-            .help(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its weekly quota free for you."))
+            // Tally's own callout, like every other hover on this row since 2026-08-24: the badge
+            // sits on the account's name line, and one native box among the row's own chips is the
+            // seam the owner spotted on the sign-in chip.
+            .tallyTooltip(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its weekly quota free for you."))
     }
 
     /// "Keep at least 30% of the week for web use", and the ten-cell strip that sets it.

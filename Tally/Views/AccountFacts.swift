@@ -107,15 +107,22 @@ struct AccountFacts {
     /// "Outdated" badge carries the state, so the numbers aren't dimmed away.
     var isHardError: Bool { usage.error != nil && !usage.isStale }
 
-    /// Whether the "Outdated" mark is this account's to show. An expired login, or one being renewed
-    /// right now, is WHY the numbers stopped moving, and it already carries a mark of its own beside
-    /// this one: drawing both puts a cause and its own symptom side by side, in two shades of the
-    /// same warning, and leaves the reader to work out they are one thing (owner's report,
-    /// 2026-08-24). The login mark wins; this one stands down and comes back with the login.
+    /// Whether the "Outdated" mark is this account's to show. An EXPIRED LOGIN is why the numbers
+    /// stopped moving, and it already carries a mark of its own beside this one: drawing both puts a
+    /// cause and its own symptom side by side, in two shades of the same warning, and leaves the
+    /// reader to work out they are one thing (owner's report, 2026-08-24). The login mark wins; this
+    /// one stands down and comes back with the login.
+    ///
+    /// A RENEWAL IN FLIGHT IS NOT THAT, and deliberately does not suppress it (codex review,
+    /// 2026-08-24). "Renew login…" is offered on every account with a config home
+    /// (`AccountCardMenu`), so a renewal running says nothing about why a reading went stale: a rate
+    /// limit or a dropped network is not the login, and hiding the only warning about it would be
+    /// hiding a second, unrelated fact. A spinner and a warning triangle side by side is then
+    /// exactly right, because two things really are true.
     ///
     /// Here rather than in either surface, like every other answer in this file: a card that spelled
     /// out "Outdated" while the row beside it did not would be two answers to one question.
-    var showsStaleMark: Bool { usage.isStale && !isLoginExpired && !isRenewingLogin }
+    var showsStaleMark: Bool { usage.isStale && !isLoginExpired }
 
     /// The plan exposes only a single weekly window (e.g. Codex on ChatGPT Plus) - worth noting so a
     /// missing session/model row doesn't read as a bug.

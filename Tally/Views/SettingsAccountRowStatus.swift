@@ -52,10 +52,12 @@ extension SettingsAccountsView {
             // answers every hover in the app's own chip, and one native tooltip in the middle of a
             // pane full of them reads as a different application (owner's report, 2026-08-24). Two
             // lines, in the shape the panel's marks use: whose login it is, then what the click
-            // does. The word "expired" is on the second line here rather than in the button, which
-            // says "Sign in again" instead of naming the state.
+            // does. The word for the state is on the second line rather than in the button, which
+            // says "Sign in again" either way, and WHICH word is `AccountSignIn`'s answer rather
+            // than this row's: an expired credential and a signed-out home are one offer and two
+            // sentences, and the panel's own expiry mark has to tell the same one.
             .tallyTooltipAroundControl(rowOwner(item, usage: usage),
-                                       detail: L("Login expired. Click to sign in again."))
+                                       detail: L(AccountSignIn.detailKey(isDormant: item.isDormant)))
         }
     }
 

@@ -119,9 +119,10 @@ struct AccountListRowView: View {
     /// the one place a sentence cannot say "this account" and be understood. A row that never
     /// loaded shows none of them, which is what the error branch in the body decides.
     ///
-    /// The stale mark also stands down while the login is the reason (`AccountFacts.showsStaleMark`),
-    /// so this row never lights two triangles that mean one thing. Asked of the facts rather than
-    /// spelled out here, so the card answers it identically.
+    /// The stale mark also stands down while an EXPIRED login is the reason
+    /// (`AccountFacts.showsStaleMark`), so this row never lights two triangles that mean one thing.
+    /// A renewal merely running does not suppress it, for the reason spelled out there. Asked of the
+    /// facts rather than spelled out here, so the card answers it identically.
     @ViewBuilder
     private var usageMarks: some View {
         if facts.showsStaleMark {
@@ -167,8 +168,14 @@ struct AccountListRowView: View {
             // chip with "Login expired" written on it, and here it is a 9pt triangle that happens
             // to be a button. If the callout does not say the click signs you back in, nothing on
             // the row does.
-            .tallyTooltipAroundControl(facts.markOwner,
-                                       detail: L("Login expired. Click to sign in again."))
+            //
+            // WHICH sentence comes from `AccountSignIn`, shared with the Settings row: this mark
+            // lights on the probe's verdict, the probe asks every account that has a config home,
+            // so a home the user signed out of lights it too and must not be told its login expired
+            // (codex review, 2026-08-24).
+            .tallyTooltipAroundControl(
+                facts.markOwner,
+                detail: L(AccountSignIn.detailKey(isDormant: facts.isDormant)))
             .accessibilityLabel(L("Login expired"))
         }
     }

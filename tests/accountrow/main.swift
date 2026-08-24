@@ -33,6 +33,20 @@ check("dormancy alone raises it",
 check("both agreeing is still one answer",
       AccountSignIn.state(isRenewing: false, isExpired: true, isDormant: true) == .needsSignIn)
 
+// ONE OFFER, TWO SENTENCES (codex review, 2026-08-24). The click is identical, so one state is
+// right; the words are not. A dormant home is one the user signed out of, and telling them their
+// login expired names an event that did not happen.
+check("a rejected credential is the one called expired",
+      AccountSignIn.detailKey(isDormant: false) == "Login expired. Click to sign in again.")
+check("…and a home with no credential left is told it is not signed in",
+      AccountSignIn.detailKey(isDormant: true) == "Not signed in. Click to sign in.")
+// THE ORDERING THAT MATTERS: the probe runs against every account that HAS a config home, so a
+// dormant one answers "signed out" as well. A rule that asked the expiry verdict first would hand
+// it the expiry sentence, which is the whole defect - dormancy has to decide.
+check("dormancy decides even when the probe also calls it signed out",
+      AccountSignIn.state(isRenewing: false, isExpired: true, isDormant: true) == .needsSignIn
+          && AccountSignIn.detailKey(isDormant: true) == "Not signed in. Click to sign in.")
+
 // MARK: - A renewal in flight outranks both
 
 // Offering to start a sign-in that is already running is the bug this ordering exists to prevent:

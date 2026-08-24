@@ -32,6 +32,21 @@ enum AccountSignIn {
         return isExpired || isDormant ? .needsSignIn : .signedIn
     }
 
+    /// WHICH SENTENCE that offer tells, which the state above deliberately does not decide (codex
+    /// review, 2026-08-24). The click is identical either way, so one state is right; the words are
+    /// not. An EXPIRED credential is one the provider stopped accepting. A DORMANT home is one whose
+    /// credential is gone from disk entirely (`KnownAccounts`), which is what signing yourself out
+    /// looks like, and calling that an expiry names an event that did not happen.
+    ///
+    /// Dormancy decides, rather than the expiry verdict: the probe runs against every account that
+    /// has a config home (`LoginStatusStore.evaluate`), so a dormant one answers "signed out" as
+    /// well, and a rule that asked the verdict first would hand it the expiry sentence anyway.
+    ///
+    /// Returns the catalogue KEY rather than the localized string, so this file stays Foundation
+    /// only and both surfaces localize it the one way (`L`).
+    static func detailKey(isDormant: Bool) -> String {
+        isDormant ? "Not signed in. Click to sign in." : "Login expired. Click to sign in again."
+    }
 }
 
 /// The accounts whose renewal reported success while discovery still had them signed out.

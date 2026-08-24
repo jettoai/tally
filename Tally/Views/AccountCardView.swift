@@ -182,9 +182,10 @@ struct AccountCardView: View {
             // the layout traversal reached last (TallyTooltip.previewForced).
             .tallyTooltip(facts.identityEmail, detail: facts.identityDetail,
                           forced: facts.forcesIdentityTooltip)
-            // Not while the login is the reason: the expiry chip at the foot of this card already
-            // says why the numbers stopped, and "Outdated" up here is only its symptom
-            // (`AccountFacts.showsStaleMark`, shared with the compact row so the two agree).
+            // Not while an EXPIRED login is the reason: the expiry chip at the foot of this card
+            // already says why the numbers stopped, and "Outdated" up here is only its symptom
+            // (`AccountFacts.showsStaleMark`, shared with the compact row so the two agree). A
+            // renewal in flight is not a reason and leaves this standing, as that rule explains.
             if facts.showsStaleMark {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)

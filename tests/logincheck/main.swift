@@ -416,9 +416,14 @@ expect(!rowUsageMarks.isEmpty
 // thing in two colours. The rule lives in the facts, so the card cannot answer it differently.
 let staleMarkRule = factsSource.components(separatedBy: "var showsStaleMark: Bool ")
     .last?.components(separatedBy: "\n").first ?? ""
-expect(staleMarkRule.contains("usage.isStale") && staleMarkRule.contains("!isLoginExpired")
-        && staleMarkRule.contains("!isRenewingLogin"),
-       "the stale mark stands down while an expired or renewing login is the reason for it")
+expect(staleMarkRule.contains("usage.isStale") && staleMarkRule.contains("!isLoginExpired"),
+       "the stale mark stands down while an expired login is the reason for it")
+// AND ONLY THEN. A renewal is startable on any account with a config home (AccountCardMenu), so one
+// running says nothing about why a reading went stale - a rate limit or a dropped network is not
+// the login, and suppressing there would hide the only warning about a second, unrelated fact
+// (codex review, 2026-08-24).
+expect(!staleMarkRule.contains("isRenewingLogin"),
+       "…and not merely because a renewal is running, which is not a reason for stale numbers")
 expect(rowUsageMarks.contains("if facts.showsStaleMark {") && !rowUsageMarks.contains("usage.isStale")
         && cardSource.contains("if facts.showsStaleMark {") && !cardSource.contains("if usage.isStale {"),
        "…and both surfaces ask that one rule instead of lighting a triangle of their own")
@@ -426,14 +431,16 @@ expect(rowUsageMarks.contains("if facts.showsStaleMark {") && !rowUsageMarks.con
 // names the login it belongs to on its FIRST line and qualifies it on the second - the two-line
 // shape every other callout in the panel already has, rather than one prefixed sentence.
 expect(rowUsageMarks.contains("tallyTooltip(facts.markOwner, detail: usage.error ?? L(\"Outdated\"))")
-        && rowLoginMarks.contains("tallyTooltipAroundControl(facts.markOwner,"),
+        && rowLoginMarks.contains("tallyTooltipAroundControl(")
+        && rowLoginMarks.contains("facts.markOwner,"),
        "both of the row's marks name their account on the callout's first line")
 expect(factsSource.contains("var markOwner: String { identityEmail.isEmpty ? label : identityEmail }"),
        "…by the signed-in address where there is one, and the row's own name otherwise")
 // AND THE EXPIRY SAYS WHAT PRESSING IT DOES. The card writes "Login expired" on a chip; the row
 // has a 9pt triangle that happens to be a button, so the callout is the only place the click can
-// be offered at all (owner's report, 2026-08-24).
-expect(rowLoginMarks.contains("detail: L(\"Login expired. Click to sign in again.\")"),
+// be offered at all (owner's report, 2026-08-24). Both sentences it can carry end in that offer,
+// which the accountrow suite asserts on the rule itself; here it is the wiring.
+expect(rowLoginMarks.contains("detail: L(AccountSignIn.detailKey("),
        "and the row's expiry mark offers the sign-in the click actually starts")
 // The identity chain (live probe answer first, this round's poll next, the remembered address
 // last) lives in the STORE, because two surfaces render it now - the card's tooltip and the
@@ -455,11 +462,22 @@ let settingsRootSource = readSource("Tally/Views/SettingsView.swift")
 expect(!rowStatusSource.isEmpty && !settingsRootSource.isEmpty,
        "the Settings row's status strip and the window root are readable from this suite")
 expect(rowStatusSource.contains(".tallyTooltipAroundControl(rowOwner(item, usage: usage),")
-        && rowStatusSource.contains("detail: L(\"Login expired. Click to sign in again.\")")
         && !rowStatusSource.contains(".help("),
        "the Settings sign-in chip answers in Tally's callout, naming the account then the click")
 expect(settingsRootSource.contains(".tallyTooltipLayer()"),
        "…and the Settings window hosts one, without which that callout is the system box again")
+// AND BOTH SURFACES NAME THE RIGHT STATE, from one rule. An expired credential and a home the user
+// signed out of are one offer and two sentences (`AccountSignIn.detailKey`, asserted behaviourally
+// in the accountrow suite); what this suite pins is that neither surface writes a sentence of its
+// own. The panel's mark needs it as much as the Settings chip does: it lights on the probe's
+// verdict, and the probe asks every account that has a config home, dormant ones included (codex
+// review, 2026-08-24).
+expect(rowStatusSource.contains("detail: L(AccountSignIn.detailKey(isDormant: item.isDormant))")
+        && rowLoginMarks.contains("detail: L(AccountSignIn.detailKey(isDormant: facts.isDormant))"),
+       "and both the Settings chip and the panel's expiry mark ask that one rule for the wording")
+expect(!rowStatusSource.contains("L(\"Login expired. Click to sign in again.\")")
+        && !rowSource.contains("L(\"Login expired. Click to sign in again.\")"),
+       "…rather than either of them hard-coding the expiry sentence a dormant home must not get")
 // The Settings row asks by account id rather than off a usage row, because the row that most needs
 // an address is the one with no usage row at all: a disabled account is never polled.
 expect(!settingsSource.contains("usage.flatMap({ LoginStatusStore.shared.identityEmail"),

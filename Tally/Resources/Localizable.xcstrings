@@ -12202,6 +12202,267 @@
           }
         }
       }
+    },
+    "Early start": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提早開始"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提早开始"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早めのスタート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이른 시작"
+          }
+        }
+      }
+    },
+    "Opens each Claude account's 5-hour window in the morning, so it resets earlier in your day. Tally sends one short message per account and skips any account whose window is already open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早上為每個 Claude 帳號開啟 5 小時額度視窗，讓它在一天中更早重置。Tally 會為每個帳號送出一則簡短訊息，視窗已經開啟的帳號則略過。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早上为每个 Claude 账号开启 5 小时额度窗口，让它在一天中更早重置。Tally 会为每个账号发送一条简短消息，窗口已经开启的账号则跳过。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎朝、各 Claude アカウントの 5 時間ウィンドウを開始し、リセットが一日の早い時間に来るようにします。Tally はアカウントごとに短いメッセージを 1 通送り、すでにウィンドウが開いているアカウントはスキップします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아침에 각 Claude 계정의 5시간 창을 열어 하루 중 더 이른 시각에 초기화되게 합니다. Tally는 계정마다 짧은 메시지를 한 번 보내고, 이미 창이 열린 계정은 건너뜁니다."
+          }
+        }
+      }
+    },
+    "Time": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時刻"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시각"
+          }
+        }
+      }
+    },
+    "Has not run yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未執行過。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未执行过。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ実行されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 실행된 적이 없습니다."
+          }
+        }
+      }
+    },
+    "Last run %1$@: %2$d started, %3$d skipped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次執行 %1$@：已開啟 %2$d 個，略過 %3$d 個。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次执行 %1$@：已开启 %2$d 个，跳过 %3$d 个。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の実行 %1$@：%2$d 件を開始、%3$d 件をスキップ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 실행 %1$@: %2$d개 시작, %3$d개 건너뜀."
+          }
+        }
+      }
+    },
+    "Last run %1$@: %2$d started, %3$d skipped, %4$d could not start.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次執行 %1$@：已開啟 %2$d 個，略過 %3$d 個，%4$d 個無法開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次执行 %1$@：已开启 %2$d 个，跳过 %3$d 个，%4$d 个无法开启。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の実行 %1$@：%2$d 件を開始、%3$d 件をスキップ、%4$d 件は開始できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 실행 %1$@: %2$d개 시작, %3$d개 건너뜀, %4$d개 시작 실패."
+          }
+        }
+      }
+    },
+    "Early start is on": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提早開始已啟用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提早开始已启用"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早めのスタートは有効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이른 시작이 켜져 있습니다"
+          }
+        }
+      }
+    },
+    "Each morning at %@, Tally opens each Claude account's 5-hour window with one short message, so the window resets earlier in your day. Accounts already working are left alone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天早上 %@，Tally 會用一則簡短訊息為每個 Claude 帳號開啟 5 小時額度視窗，讓視窗在一天中更早重置。正在使用中的帳號不會被打擾。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天早上 %@，Tally 会用一条简短消息为每个 Claude 账号开启 5 小时额度窗口，让窗口在一天中更早重置。正在使用中的账号不会被打扰。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎朝 %@ に、Tally が短いメッセージを 1 通送って各 Claude アカウントの 5 時間ウィンドウを開始し、リセットが一日の早い時間に来るようにします。すでに稼働中のアカウントはそのままにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매일 아침 %@에 Tally가 짧은 메시지 한 통으로 각 Claude 계정의 5시간 창을 열어, 하루 중 더 이른 시각에 초기화되게 합니다. 이미 작업 중인 계정은 그대로 둡니다."
+          }
+        }
+      }
+    },
+    "Got it": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知道了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知道了"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "了解"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

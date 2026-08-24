@@ -37,6 +37,13 @@ enum AppLocale {
         date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(current))
     }
 
+    /// Clock time alone, in the app's language for the reason above. For an instant whose DATE
+    /// carries no information: "every morning at 7:00 AM" is about the hour, and a date beside it
+    /// would name one particular morning.
+    static func shortTime(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(current))
+    }
+
     /// The bundle to resolve translations from, matching the effective language by progressively
     /// stripping subtags ("zh-Hant-TW" → "zh-Hant" → "zh"), falling back to the main bundle.
     static var bundle: Bundle {

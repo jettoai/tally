@@ -488,8 +488,8 @@ check("every flag spelled in the source is classified",
       scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
 check("and every flag classified is spelled in the source",
       Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-check("which comes to twenty-five, in three buckets",
-      CaptureLaunch.allFlagKeys.count == 25 && scanned.count == 25)
+check("which comes to twenty-six, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 26 && scanned.count == 26)
 check("with nothing counted twice",
       Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",
@@ -508,9 +508,17 @@ check("the login-item state preview is a member of the family",
 check("the interactive CLI overrides are not members, they exist to be driven",
       CaptureLaunch.interactiveKeys.allSatisfy {
           CaptureLaunch.mayTakeForeground(activeKeys: [$0]) })
-check("and there are three of them: the two stand-in chains and the pick claim override",
+check("and there are four of them: the three stand-in chains and the pick claim override",
       Set(CaptureLaunch.interactiveKeys)
-        == ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyPickClaim"])
+        == ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI", "TallyPickClaim"])
+// The newest stand-in is the one that does not merely REDIRECT a spawn: without it an unshipped
+// build refuses to send a morning message at all (`EarlyStartStore.mayRun`), because what it would
+// otherwise spend is a real subscription's 5-hour window rather than a stub's exit code. Classified
+// here rather than in the family for the bucket's own reason: a developer watching that chain run
+// is working the app.
+check("…and the early-start stand-in is not a capture flag",
+      !CaptureLaunch.backgroundKeys.contains("TallyEarlyStartCLI")
+        && !CaptureLaunch.modifierKeys.contains("TallyEarlyStartCLI"))
 // The newest of the three, which is in this bucket rather than the family for the family's own
 // reason: it exists so the pick panel can be ANSWERED by hand on a build that has stood down
 // (`pickMayBeClaimed`), and answering means being in front of it. Classified as a capture flag it

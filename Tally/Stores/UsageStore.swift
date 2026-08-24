@@ -362,6 +362,12 @@ final class UsageStore {
             // never redeems.
             ResetHintNotifier.shared.evaluate(accounts: labeled)
         }
+        // And the morning schedule, which reads this round's windows to decide whether any account
+        // still needs its 5-hour window opened (EarlyStartStore says why the decision rides the
+        // refresh rather than a timer). OUTSIDE the installed-app gate above because it keeps its
+        // own, one clause wider: a dev build pointed at a stand-in CLI spends nothing and is how
+        // the whole path gets reviewed (`EarlyStartStore.mayRun`).
+        EarlyStartStore.shared.evaluate(accounts: labeled, launchHomes: launchHomes)
         let now = Date()
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in

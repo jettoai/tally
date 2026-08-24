@@ -99,15 +99,22 @@ enum CaptureLaunch {
     /// are not the family, and that is a statement about purpose rather than about cost (a plain
     /// `open` activates either way).
     ///
-    /// Two of them point a chain at a stand-in binary: probe, verdict, chip, click, renewal. The
-    /// third hands a stood-down build back a capability instead of substituting anything, and it is
-    /// here on the same test: a developer answering the pick panel to see what a real request does
-    /// is working the app, not observing it.
+    /// Three of them point a chain at a stand-in binary: probe, verdict, chip, click, renewal, and
+    /// the morning message the early-start schedule sends. The fourth hands a stood-down build back
+    /// a capability instead of substituting anything, and it is here on the same test: a developer
+    /// answering the pick panel to see what a real request does is working the app, not observing
+    /// it.
+    ///
+    /// The stand-ins are also the one bucket that can UNLOCK behaviour rather than just redirect it:
+    /// early start refuses to run at all on a build nobody installed unless its stand-in is set
+    /// (`EarlyStartStore.mayRun`), because the thing it would otherwise spend is a real
+    /// subscription's window.
     ///
     /// The first two were missed by a scan for `forKey:`, because both reach the defaults through a
     /// named constant instead. That is why the completeness check now scans for the LITERALS rather
     /// than for any particular way of looking one up.
-    static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", pickClaimOverride]
+    static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI",
+                                  pickClaimOverride]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without

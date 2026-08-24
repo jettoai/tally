@@ -97,6 +97,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await KeychainRepairLaunch.run()
             UsageStore.shared.start()
         }
+        // The morning schedule's two punctuality nudges (a wall-clock timer and the wake
+        // notification). Not behind the repair above: neither of them does anything but ask the
+        // store for a refresh, and the decision itself rides that refresh's tail
+        // (EarlyStartStore.swift). Nothing is sent until the one-time notice has been read.
+        EarlyStartStore.shared.start()
         // The native picker behind `/tally`: listen for the CLI's
         // knock for the life of the process, the way the update check's observer does. Not
         // listening is not an error anywhere - the CLI waits a second and a half for a claim

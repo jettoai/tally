@@ -117,6 +117,9 @@ struct PopoverRootView: View {
                 ZStack(alignment: .topLeading) {
                     if tab == .usage {
                         VStack(spacing: 0) {
+                            // Above everything, and only once: the gate in front of the very first
+                            // morning message (EarlyStartNoticeStrip.swift).
+                            earlyStartNotice
                             launchSummaryStrip
                             fleetStrip
                             advisorStrip

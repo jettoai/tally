@@ -24,6 +24,13 @@ struct SettingsLaunchView: View {
     var body: some View {
         let descriptors = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
         SettingsLaunchAtLoginRow(isVisible: visible)
+        // The morning schedule, beside the login item because both are about something happening
+        // with nobody at the machine. Only while Claude is on: it is the one provider whose limits
+        // work this way, so with Claude off the row would be a switch over nothing.
+        if settings.isEnabled(EarlyStartLogic.providerID) {
+            rowDivider
+            SettingsEarlyStartRow(store: EarlyStartStore.shared, isVisible: visible)
+        }
         rowDivider
         if descriptors.isEmpty {
             Text(L("Enable a provider in Accounts to configure launches."))

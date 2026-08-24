@@ -23,7 +23,13 @@ struct EarlyStartInvocation: Equatable {
 enum EarlyStartCommand {
     /// The message. Deliberately trivial and deliberately not a question: the point is to spend the
     /// smallest turn that counts as the window's first message.
-    static let prompt = "Good morning"
+    ///
+    /// It names the reply it wants because the reply is thrown away unread, so every word past the
+    /// first is quota spent on nothing. A greeting invites a greeting back plus an offer to help;
+    /// asking for one word gets one word. This is politeness about somebody's quota rather than a
+    /// correctness requirement: the window opens on the message being SENT, so the run counts as a
+    /// success however the model chooses to answer.
+    static let prompt = "Reply with exactly: pong"
 
     /// The config-home variable for Claude. The same spelling `IntegrationsStore.Shim.claude.envKey`
     /// and `ClaudeUsageCLI` use; written out here because this file compiles alone (both of those
@@ -64,16 +70,29 @@ enum EarlyStartCommand {
     /// nothing accumulates one file per account per morning for the life of the install. The usage
     /// probe, which predates the flag, prunes its own instead.
     ///
+    /// `--model haiku` pins the run to the cheapest tier, and leaving it off is the expensive
+    /// mistake this list exists to prevent. Without it the CLI takes whatever model that config
+    /// home defaults to, which on most of these accounts is the flagship, so a throwaway greeting
+    /// would be billed against the one window the account most wants kept whole. Nothing about the
+    /// 5-hour window depends on which model answers: it opens on the first message being sent, so
+    /// the cheapest tier buys exactly the same thing the flagship would.
+    ///
+    /// The alias rather than a full model ID (`claude-haiku-4-5` and the like) on purpose: an alias
+    /// follows the newest model of that tier, while a pinned ID ages into a name the CLI no longer
+    /// resolves, and this argument list runs unattended every morning with nobody reading its exit
+    /// code. `--help` documents the aliases as the supported spelling (2.1.241).
+    ///
     /// `--bare` was the obvious candidate and is unusable: it reads auth strictly from
     /// ANTHROPIC_API_KEY or an apiKeyHelper and never touches OAuth or the keychain, which is
     /// exactly the credential this feature has to spend (verified against 2.1.241's own help text).
     ///
-    /// All three flags were confirmed to PARSE rather than merely to appear in `--help`: run with a
+    /// Every flag here was confirmed to PARSE rather than merely to appear in `--help`: run with a
     /// nonsense flag appended, 2.1.241 names only the nonsense one, and misspelling any of these
     /// makes it name that one instead. `--help` alone proves nothing here, because it prints and
     /// exits before options are validated (the mistake `RenewLoginCommand` records).
     static let arguments: [String] = [
         "-p", prompt, "--strict-mcp-config", "--safe-mode", "--no-session-persistence",
+        "--model", "haiku",
     ]
 
     /// The one environment entry, with the default-home rule the whole app shares: `~/.claude` runs

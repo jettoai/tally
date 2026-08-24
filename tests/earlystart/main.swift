@@ -442,15 +442,27 @@ do {
            "a run record written before the failure count reads it as zero")
 }
 
+/// Whether an option and its value stand next to each other. Asking `contains` about each word on
+/// its own would pass a list that names the option and hands it somebody else's value.
+func pins(_ arguments: [String], _ option: String, _ value: String) -> Bool {
+    zip(arguments, arguments.dropFirst()).contains { $0 == option && $1 == value }
+}
+
 // 15. THE SPAWN'S SHAPE. Asserted exactly rather than by "contains", so a flag that goes missing
 //     goes red instead of being covered by the ones that remain.
 do {
     expect(EarlyStartCommand.arguments
-             == ["-p", "Good morning", "--strict-mcp-config", "--safe-mode",
-                 "--no-session-persistence"],
-           "the argument list is exactly the five words it is meant to be")
+             == ["-p", "Reply with exactly: pong", "--strict-mcp-config", "--safe-mode",
+                 "--no-session-persistence", "--model", "haiku"],
+           "the argument list is exactly the seven words it is meant to be")
     expect(EarlyStartCommand.arguments.contains("--strict-mcp-config"),
            "…and carries the MCP isolation flag, which is the one that is not negotiable")
+    // Pinning the tier is the difference between a throwaway greeting costing the cheapest model
+    // and costing the flagship window: with no --model the CLI falls back to whatever that config
+    // home defaults to, which on most accounts is the flagship. The window itself opens on the
+    // message being sent, not on which model answers.
+    expect(pins(EarlyStartCommand.arguments, "--model", "haiku"),
+           "the cheapest model tier is pinned, and by alias so it survives a model generation")
     expect(EarlyStartCommand.prompt.count <= 32, "the prompt stays short")
     expect(EarlyStartCommand.timeout == 120, "a wedged CLI is terminated the same morning")
 
@@ -523,6 +535,8 @@ do {
            "the busy Claude account and the Codex one are never spawned for")
     expect(runner.calls.allSatisfy { $0.invocation.arguments.contains("--strict-mcp-config") },
            "every spawn carries --strict-mcp-config")
+    expect(runner.calls.allSatisfy { pins($0.invocation.arguments, "--model", "haiku") },
+           "every spawn is pinned to the cheapest model tier, whichever account it is for")
     expect(runner.calls.allSatisfy { $0.invocation.currentDirectory == scratch },
            "every spawn runs in the scratch directory")
     expect(runner.calls.allSatisfy { $0.invocation.timeout == 120 },
@@ -538,6 +552,37 @@ do {
              .count == 1,
            "…and only one of the two spells a home at all (the other is the unset default)")
     expect(runner.calls.count == 2, "one spawn per account started, and no more")
+}
+
+// 18. THE READINESS GATE, wired rather than merely present. The store is @MainActor AppKit and
+//     cannot be compiled into this harness, so its source is read: the launch-time Keychain repair
+//     rewrites the credentials the `claude` CLI reads, and AppDelegate ordering only holds back the
+//     ONE entrance that goes through `start()`. The notice's button, the Settings switch and the
+//     time picker all reach the schedule without it, so each live path carries the flag. Both
+//     halves are needed - a flag nobody reads, or a read with nothing that ever opens it, is the
+//     defect back with a nicer shape.
+do {
+    let store = (try? String(contentsOfFile: "Tally/Stores/EarlyStartStore.swift",
+                             encoding: .utf8)) ?? ""
+    expect(!store.isEmpty, "the store's source is readable from these checks")
+    expect(store.contains("private var started = false"),
+           "the store starts out not ready")
+    expect(store.components(separatedBy: "started = true").count - 1 == 1,
+           "…and exactly one place opens the gate")
+    expect(store.contains("""
+        func start() {
+                started = true
+        """),
+           "…which is start(), the call AppDelegate makes behind the repair")
+
+    expect(store.contains("guard started, Self.mayRun, isArmed, !isRunning else { return }"),
+           "a refresh landing inside the repair window sends nothing (evaluate)")
+    expect(store.contains("guard started, Self.mayRun, isArmed else { return }"),
+           "a nudge inside it asks for no refresh either")
+    expect(store.contains("guard started, Self.mayRun, isArmed,\n"),
+           "and no timer is armed before the repair is done (scheduleTimer)")
+    expect(store.components(separatedBy: "guard started").count - 1 == 3,
+           "…which is every live path there is: the other entrances all end at one of these three")
 }
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")

@@ -49,6 +49,22 @@ final class EarlyStartStore {
 
     private var timer: DispatchSourceTimer?
     private var wakeObserver: NSObjectProtocol?
+    /// Whether `start()` has run, which is the app saying the launch-time Keychain repair is done
+    /// with (AppDelegate orders the two). Nothing this store does that reaches a credential may
+    /// happen before it: the repair rewrites the very keychain items the `claude` CLI reads, and
+    /// both a refresh and a spawn go straight at them.
+    ///
+    /// THE ORDERING IN AppDelegate ONLY COVERS THE LAUNCH PATH, and this flag is the rest of it.
+    /// The schedule has three other entrances that all reach `scheduleTimer`, and every one of them
+    /// is a thing the user can do in the seconds an ACL dialog holds the repair open: pressing "Got
+    /// it" on the notice, moving the Settings switch, changing the time. An app opened at 06:59:40
+    /// and acknowledged at 06:59:45 would otherwise arm a timer that fires at 07:00 into the middle
+    /// of the repair. `evaluate` carries it too, because a refresh asked for by anything at all
+    /// (the panel opening, the menu's Refresh) ends by asking this store whether to send.
+    ///
+    /// The preference writes themselves are NOT gated: they persist immediately, and `start()`
+    /// schedules from the values it finds, so an early change is honoured rather than lost.
+    private var started = false
     /// True while a morning's spawns are in flight. A run can outlast several refreshes (the CLI
     /// gets two minutes), and every one of those refreshes would otherwise evaluate a state that
     /// has not been written yet and send the same message again.
@@ -69,8 +85,16 @@ final class EarlyStartStore {
 
     // MARK: Lifetime
 
-    /// Install the punctuality nudges. Called once at launch.
+    /// Install the punctuality nudges. Called once at launch, behind the Keychain repair.
+    ///
+    /// Opening the gate is the FIRST thing it does, because everything below it is gated on it.
+    /// Scheduling here rather than arming: `EarlyStartLogic.arming` marks today as spent when the
+    /// trigger has gone by, which is right for somebody changing their mind and wrong for a launch.
+    /// An app opened at 8am is the case this feature is most obviously for, so the catch-up has to
+    /// survive the gate, and it does because a preference changed before this point has already
+    /// written its own arming through `rearm`.
     func start() {
+        started = true
         scheduleTimer()
         guard wakeObserver == nil else { return }
         // A machine asleep through 7am has no fire to catch: the schedule below is set on the wall
@@ -133,7 +157,7 @@ final class EarlyStartStore {
     /// Fold one refresh's accounts into the schedule, and send this morning's messages if this is
     /// the refresh that finds the trigger passed. Called at the tail of every refresh.
     func evaluate(accounts: [AccountUsage], launchHomes: [String: String]) {
-        guard Self.mayRun, isArmed, !isRunning else { return }
+        guard started, Self.mayRun, isArmed, !isRunning else { return }
         let now = Date()
         let calendar = Calendar.current
         guard EarlyStartLogic.triggerHasPassed(now: now, hour: hour, minute: minute,
@@ -231,14 +255,16 @@ final class EarlyStartStore {
     /// come through here, so neither of them can grow a second copy of the rule.
     private func nudge() {
         scheduleTimer()
-        guard Self.mayRun, isArmed else { return }
+        guard started, Self.mayRun, isArmed else { return }
         Task { await UsageStore.shared.refresh(userInitiated: false) }
     }
 
     private func scheduleTimer() {
         timer?.cancel()
         timer = nil
-        guard Self.mayRun, isArmed,
+        // `started` sits with the other conditions rather than above the cancel, so a schedule can
+        // only ever be taken down by a path that could also put one back up.
+        guard started, Self.mayRun, isArmed,
               let next = EarlyStartLogic.nextTrigger(after: Date(), hour: hour, minute: minute,
                                                      calendar: Calendar.current) else { return }
         // WALL CLOCK, not the uptime clock every other timer in this app uses. `DispatchTime` stops
@@ -257,6 +283,10 @@ final class EarlyStartStore {
     /// backfilling today (`EarlyStartLogic.arming` says why), then set the timer to the new next
     /// trigger. One function because three callers doing two things in order is three chances to do
     /// one of them.
+    ///
+    /// Its two halves answer to different gates. The arming is bookkeeping in the defaults and runs
+    /// whenever somebody changes their mind, launch or no launch; the timer is a live thing that
+    /// ends in a refresh, so it waits for `started` like every other entrance.
     private func rearm() {
         if isArmed {
             Self.saveState(EarlyStartLogic.arming(Self.loadState(), now: Date(), hour: hour,

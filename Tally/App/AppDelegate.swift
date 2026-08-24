@@ -104,6 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // ACL dialog can hold the repair open. Started behind it, the morning's first reading
             // is the repaired one. Nothing is sent until the one-time notice has been read
             // (EarlyStartStore.swift).
+            //
+            // This call ORDERS ONE ENTRANCE. Acknowledging the notice or moving the Settings
+            // switch during those same seconds arms the schedule without coming through here, so
+            // the store gates those on a readiness flag that this line is what opens.
             EarlyStartStore.shared.start()
         }
         // The native picker behind `/tally`: listen for the CLI's

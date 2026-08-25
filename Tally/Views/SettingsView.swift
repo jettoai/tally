@@ -51,6 +51,18 @@ struct SettingsView: View {
         ? .launch
         : (SettingsCaptureLaunch.openingSection ?? .accounts)
 
+    /// Which page of the Integrations pane is in front (SettingsIntegrationsPane.swift). Held here
+    /// with `section` because a `@State` is a stored property and an extension cannot add one; not
+    /// private for the same reason `displayRows` is not - the pane it belongs to is another file.
+    ///
+    /// Deliberately NOT remembered across launches. The window opens on a pane, and a pane opening
+    /// on whichever page was last read is a second remembered position nobody asked for. A capture
+    /// launch that named a page is the exception, for the reason `SettingsCaptureLaunch` gives about
+    /// naming a pane: a flag whose job is putting one row on screen has not done it if the row is on
+    /// a page the launch left behind.
+    @State var integrationsGroup: IntegrationsGroup =
+        SettingsCaptureLaunch.openingIntegrationsGroup ?? .commandLine
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             sidebar
@@ -159,8 +171,7 @@ struct SettingsView: View {
                                                        visible: section == item,
                                                        showIntegrations: { section = .integrations }) }
         case .display: sectionCard { displayRows }
-        // Disabled on exactly what the hard gate refuses (`guardNotDev`, IntegrationsStore).
-        case .integrations: sectionCard { integrationsRows.disabled(BuildVariant.isUnshipped) }
+        case .integrations: sectionCard { integrationsRows }
         case .about: sectionCard { aboutRows }
         }
     }
@@ -194,269 +205,6 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-    }
-
-    // MARK: Integrations - everything Tally installs outside its bundle (tracked & reversible).
-
-    @ViewBuilder
-    private var integrationsRows: some View {
-        let integrations = IntegrationsStore.shared
-        // A build nobody installed observes but never mutates the shared integrations (hard-gated in
-        // IntegrationsStore too); say so instead of offering buttons that refuse.
-        if BuildVariant.isUnshipped {
-            Text(L("Integrations are managed by the installed release app."))
-                .font(.caption).foregroundStyle(TallyColor.warning)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-            rowDivider
-        }
-        autoFollowNotices(integrations)
-        allIntegrationsRow(integrations)
-        rowDivider
-        integrationRow(
-            title: L("Command line tool"),
-            caption: integrations.cliToolCaption,
-            status: integrations.cliToolStatus,
-            install: integrations.installCLITool,
-            remove: integrations.removeCLITool,
-            // The one row whose broken state is not always ours to undo: a `tally` somebody else
-            // put in /usr/local/bin reads broken here, and Remove would delete their program
-            // (`IntegrationsStore.CLIToolPresence`). The store refuses that press whatever this
-            // says; leaving the button off is how the row stops offering it in the first place.
-            removable: integrations.cliToolPresence.mayBeRemoved)
-        // Absent rather than empty on a one-account machine: this row's whole subject is the other
-        // accounts, and a permanently grey button is a worse answer than no row (`detectSharedHarness`).
-        if let sharedHarness = integrations.sharedHarnessStatus {
-            rowDivider
-            integrationRow(
-                title: L("Shared harness"),
-                caption: L("Points your other accounts at the main account's instructions, skills, hooks, agents, settings and conversation record, so one setup serves them all. Nothing is deleted: conversations, inboxes and memory notes merge into the main account, anything else in the way is renamed to <name>.local-<date> beside it, and Remove unlinks without touching those backups. Every account can then read every account's conversations."),
-                status: sharedHarness,
-                install: integrations.installSharedHarness,
-                remove: integrations.removeSharedHarness)
-        }
-        rowDivider
-        integrationRow(
-            title: L("Claude shell integration"),
-            caption: L("Routes bare claude commands through your launch policy. Installs one small script and one PATH line; both are removed cleanly."),
-            status: integrations.shimStatus(.claude),
-            install: { integrations.installShim(.claude) },
-            remove: { integrations.removeShim(.claude) })
-        rowDivider
-        integrationRow(
-            title: L("Codex shell integration"),
-            caption: L("Routes bare codex commands through your launch policy. Installs one small script and one PATH line; both are removed cleanly."),
-            status: integrations.shimStatus(.codex),
-            install: { integrations.installShim(.codex) },
-            remove: { integrations.removeShim(.codex) })
-        rowDivider
-        integrationRow(
-            title: L("Claude status line"),
-            caption: L("Shows the active account at the bottom of every claude session, with its remaining quota when Tally is the only status line. An existing custom status line keeps running with the signal appended, and is restored exactly on removal."),
-            status: integrations.statusLineStatus,
-            install: integrations.installStatusLine,
-            remove: integrations.removeStatusLine)
-        rowDivider
-        integrationRow(
-            title: L("Claude session board"),
-            caption: L("Lets the panel show which sessions are working, waiting on you, or idle, and puts a red dot in the menu bar while one is waiting. Installs one Notification hook entry per Claude account; anything already registered for that event keeps running, and only Tally's entry is removed."),
-            status: integrations.notificationHookStatus,
-            install: integrations.installNotificationHook,
-            remove: integrations.removeNotificationHook)
-        rowDivider
-        integrationRow(
-            title: L("Claude subagent count"),
-            caption: L("Adds the number of subagents working under each session to its card, which nothing on this machine can see from the outside. Installs three hook entries per Claude account (SubagentStart, SubagentStop and Stop); anything already registered for those events keeps running, and only Tally's entries are removed."),
-            status: integrations.agentHookStatus,
-            install: integrations.installAgentHooks,
-            remove: integrations.removeAgentHooks)
-        rowDivider
-        integrationRow(
-            title: L("Claude quota warning"),
-            caption: L("Tells a session that the account under it is running low, in its own context, at the moment it next submits a prompt or calls a tool. Without this the same sentence has to be typed into the terminal, which cannot happen while the session is mid-turn. Installs two hook entries per Claude account (UserPromptSubmit and PostToolUse); anything already registered for those events keeps running, and only Tally's entries are removed."),
-            status: integrations.knockHookStatus,
-            install: integrations.installKnockHooks,
-            remove: integrations.removeKnockHooks)
-        rowDivider
-        integrationRow(
-            title: L("Artifact publishing account"),
-            caption: L("Holds a Claude Code session back from publishing an artifact under an account other than the one you browse with, since a published page is private to the account that published it and opens as Page not found for everyone else. Installs one PreToolUse hook entry per Claude account, matched to the Artifact tool alone; anything already registered for that event keeps running, and only Tally's entry is removed."),
-            status: integrations.artifactHookStatus,
-            install: integrations.installArtifactHook,
-            remove: integrations.removeArtifactHook)
-        SettingsArtifactAccountRow(store: store, settings: settings)
-        rowDivider
-        integrationRow(
-            title: L("Claude Code skill"),
-            caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds one command: /tally moves a session to another account or runs it on a different model, without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly."),
-            status: integrations.skillStatus,
-            install: integrations.installSkill,
-            remove: integrations.removeSkill)
-        rowDivider
-        toggleRow(L("Full quota in status line"),
-                  subtitle: L("Adds a quota line (bars, percents, resets) even under a custom status line. Turn on if you drop your own quota rendering and rely on Tally's."),
-                  isOn: $settings.statuslineFullQuota)
-        rowDivider
-        // An ACTION, not an install: it sits after the install/remove set so that group stays
-        // whole, and here rather than in the panel footer, where a second circular-arrow control
-        // next to the quota refresh would read as the same thing.
-        SettingsReloadRow()
-        if let error = integrations.lastError {
-            rowDivider
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(TallyColor.warning)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-        }
-    }
-
-    /// What the app did without being asked, said once, with the way back beside it
-    /// (IntegrationsAutoFollow.swift).
-    ///
-    /// A ROW AT THE TOP OF THIS PANE rather than a window, an alert or a badge somewhere else: this
-    /// is where the thing it is about lives, so the sentence sits above the row it names and the
-    /// Undo beside it is the row's own Remove. It stands until it is dismissed or undone, launches
-    /// included, because nobody was at the machine when the install happened and a notice they were
-    /// not there for is not a notice.
-    @ViewBuilder
-    private func autoFollowNotices(_ integrations: IntegrationsStore) -> some View {
-        ForEach(integrations.autoFollowNotices, id: \.self) { key in
-            if let component = IntegrationsStore.autoFollowComponent(key) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        // The name is an ARGUMENT, never spelled into the key: a message built by
-                        // interpolation has a catalog key that only exists for whatever it was
-                        // built from that day (localizationchecks.swift).
-                        Text(String(format: L("Tally enabled %@ for your Claude accounts."),
-                                    component.title()))
-                            .font(.subheadline)
-                        Text(L("Your other Claude integrations were already installed, so this one followed. Undo removes it again, and Tally will not put it back."))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Button(L("Undo")) { integrations.undoAutoFollow(component) }
-                        .controlSize(.small)
-                    Button(L("Dismiss")) { integrations.dismissAutoFollowNotice(key) }
-                        .controlSize(.small)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                rowDivider
-            }
-        }
-    }
-
-    /// One-click whole-set control: install everything missing, or remove everything installed.
-    /// Buttons appear only when they have work to do, so the row doubles as an at-a-glance
-    /// "is everything on?" answer.
-    ///
-    /// THE SHARED HARNESS IS DELIBERATELY NOT IN THIS SET. Every entry below writes files of its
-    /// own - a symlink, a shell block, a key in settings.json - and one press putting them all in
-    /// place is a small promise. That one moves the user's conversations between config homes, and
-    /// leaves a backup behind for whatever it could not merge; it is the same act only in the sense
-    /// that both are reversible. A press meaning "turn everything on" may not also mean that.
-    private func allIntegrationsRow(_ integrations: IntegrationsStore) -> some View {
-        let entries: [(IntegrationsStore.Status, () -> Void, () -> Void)] = [
-            (integrations.cliToolStatus, integrations.installCLITool, integrations.removeCLITool),
-            (integrations.shimStatus(.claude), { integrations.installShim(.claude) },
-             { integrations.removeShim(.claude) }),
-            (integrations.shimStatus(.codex), { integrations.installShim(.codex) },
-             { integrations.removeShim(.codex) }),
-            (integrations.statusLineStatus, integrations.installStatusLine,
-             integrations.removeStatusLine),
-            (integrations.notificationHookStatus, integrations.installNotificationHook,
-             integrations.removeNotificationHook),
-            (integrations.agentHookStatus, integrations.installAgentHooks,
-             integrations.removeAgentHooks),
-            (integrations.knockHookStatus, integrations.installKnockHooks,
-             integrations.removeKnockHooks),
-            (integrations.artifactHookStatus, integrations.installArtifactHook,
-             integrations.removeArtifactHook),
-            (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
-        ]
-        let missing = entries.filter { $0.0 != .installed }
-        let installed = entries.filter { $0.0 == .installed }
-        return HStack {
-            Text(L("All integrations")).font(.subheadline.weight(.semibold))
-            Spacer()
-            if !missing.isEmpty {
-                Button(L("Install all")) { missing.forEach { $0.1() } }
-                    .controlSize(.small)
-            }
-            if !installed.isEmpty {
-                Button(L("Remove all")) { installed.forEach { $0.2() } }
-                    .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    /// - Parameter removable: whether what is installed is this app's to take away. True for every
-    ///   integration that only ever writes files of its own; the command line tool is the exception
-    ///   (it links into a shared directory that another `tally` may already own).
-    private func integrationRow(title: String, caption: String, status: IntegrationsStore.Status,
-                                install: @escaping () -> Void,
-                                remove: @escaping () -> Void,
-                                removable: Bool = true) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(title).font(.subheadline)
-                    statusBadge(status)
-                }
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            // Both answers, whenever both apply. A broken row used to offer the repair alone, which
-            // reads as the only thing worth doing and is not: what makes a row broken can be a
-            // registration in a home the app can no longer reach, and the pass that clears one is
-            // behind Remove (`Status.offersRemoval`).
-            //
-            // REMOVE SAYS THIS IS OURS, which is why it takes a second answer as well as the
-            // status. Both have to hold: the status says there is something to take back, and
-            // `removable` says the something is this app's (see the parameter's note).
-            if status.offersInstall {
-                Button(status == .notInstalled ? L("Install") : L("Reinstall"), action: install)
-                    .controlSize(.small)
-            }
-            if status.offersRemoval, removable {
-                Button(L("Remove"), action: remove).controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    @ViewBuilder
-    private func statusBadge(_ status: IntegrationsStore.Status) -> some View {
-        switch status {
-        case .installed:
-            // Green, not gray: scanning the badges alone should answer "what's on".
-            Text(L("Installed"))
-                .font(.caption2)
-                .foregroundStyle(TallyColor.normal)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(TallyColor.normal.opacity(0.15)))
-        case .notInstalled:
-            Text(L("Not installed"))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(.quaternary))
-        case .broken(let reason):
-            Text(L("Needs attention"))
-                .font(.caption2)
-                .foregroundStyle(TallyColor.warning)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
-                .help(reason)
-        }
     }
 
     // MARK: About - brand + version (brand names stay unlocalized).

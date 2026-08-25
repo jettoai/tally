@@ -104,8 +104,10 @@ func runCLIToolChecks(tmp: URL) throws {
 
     // The store refuses whatever the view does, but a button offered and then refused is a worse
     // row than one that never offered it: the press has to be off the screen as well as off.
+    // The pane moved into a file of its own when SettingsView.swift reached the repo's 500-line cap,
+    // the way the Display pane did before it.
     let settings = (try? String(contentsOf: root.appendingPathComponent(
-        "Tally/Views/SettingsView.swift"), encoding: .utf8)) ?? ""
+        "Tally/Views/SettingsIntegrationsPane.swift"), encoding: .utf8)) ?? ""
     check("the settings source is readable from this suite", !settings.isEmpty)
     check("the Remove button needs the status AND the row's ownership answer",
           settings.contains("if status.offersRemoval, removable {"))

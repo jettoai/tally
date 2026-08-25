@@ -75,11 +75,29 @@ func writeLastConversation(_ id: String, cwd: String, dir: URL = lastConversatio
 /// this directory - the last conversation had here is still the last conversation had here - and
 /// blanking the record on that would take the answer away for exactly as long as the new session
 /// has nothing to say.
+///
+/// THE FIRST TICK OF A PROCESS ASKS THE FILE, because in-memory state is not the same age as the
+/// process's knowledge. A self-update replaces the image with `execv` (SelfUpdate.swift): the pid,
+/// the session and the conversation all survive it, and this struct does not - the new image starts
+/// with `current` at nil and so wrote the record again on its next tick, over whatever a SIBLING
+/// session in the same directory had published in the meantime (codex review of fcf2037). Reading
+/// first makes that write happen only when it would say something new.
+///
+/// WHAT IT DOES NOT FIX, stated rather than implied: two live sessions in one directory genuinely
+/// disagree about which conversation was watched here last, and this record has one slot. Whichever
+/// of them changes conversation most recently wins it, which is the right answer to the question the
+/// slot asks ("the last one watched here") and is unaffected by this. What is removed is the write
+/// that says nothing - a restart re-announcing an id the file already carries, purely because the
+/// process behind the pid is new.
 struct LastConversationWriter {
     private var current: String?
 
     mutating func sync(_ id: String?, cwd: String, dir: URL = lastConversationDir) {
         guard let id, id != current else { return }
+        if current == nil, readLastConversation(cwd: cwd, dir: dir) == id {
+            current = id
+            return
+        }
         current = id
         writeLastConversation(id, cwd: cwd, dir: dir)
     }

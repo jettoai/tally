@@ -115,6 +115,12 @@ func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
 /// meant `true`, and a site that meant `true` is one that leaves this process able to stop and ask.
 func launchProvider(_ provider: Provider, args: [String], home: String,
                     env: (key: String, value: String)?) -> Never {
+    // EVERY LAUNCH THAT REACHES HERE IS UNSUPERVISED - the supervised path returns from
+    // `runSupervised` and never arrives - so this is the one place all four of them pass through, and
+    // therefore where they announce themselves to the next launch in this directory
+    // (UnmanagedLaunch.swift). Ahead of the exec because the exec does not return, and ahead of the
+    // keychain work because neither of those touches this.
+    registerUnmanagedLaunch(providerID: provider.id, args: args)
     repairClaudeKeychain(provider: provider, interactive: isatty(STDOUT_FILENO) == 1)
     seedMCPAuthorization(provider: provider, home: home,
                          interactive: isatty(STDOUT_FILENO) == 1)

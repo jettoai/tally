@@ -117,8 +117,19 @@ func runStatusline(args: [String]) -> Never {
     // that is true on almost every render (nothing changed), and it cannot fail loudly: everything
     // behind this call is best-effort over small files, it prints nothing, and it returns before any
     // work at all when this session is not supervised. The line below is drawn either way.
-    reportTranscriptIdentity(sessionID: sessionJSON?["session_id"] as? String,
-                             cwd: sessionJSON?["cwd"] as? String)
+    //
+    // TWO CHANNELS, ONE WALK. Both reports need to know which Claude Code ran this status line, and
+    // that answer costs a short climb of the process tree done twice over (`claudeCodeThatRanUs`);
+    // asking for it once and handing it to both is the difference between paying that per render and
+    // paying it twice. The second channel is for the launches with no supervisor to report TO - an
+    // `--account` pin, an exported config home, `--no-handoff` - which were invisible to the next
+    // launch in this directory until they registered themselves (UnmanagedLaunch.swift). Exactly one
+    // of the two ever writes anything: a session has a supervisor or it does not.
+    let ranBy = claudeCodeThatRanUs()
+    let reportedSession = sessionJSON?["session_id"] as? String
+    reportTranscriptIdentity(sessionID: reportedSession, cwd: sessionJSON?["cwd"] as? String,
+                             claudeCode: ranBy)
+    reportUnmanagedConversation(sessionID: reportedSession, claudeCode: ranBy)
 
     var quota: [String] = []
     /// Identity slot 3: the model this session is running, with the depth it runs at beside it -

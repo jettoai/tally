@@ -210,6 +210,63 @@ func runConversationChecks() {
               "{\"type\":\"user\",\"isSidechain\":false,\"timestamp\":\"2026-08-25T10:00:00Z\"}\n"))?
               .interactive == true)
 
+    // A FINAL LINE BIGGER THAN THE WINDOW. `transcriptTail` answers nil when its window lands inside
+    // one line, and the reading here used to fall back on the HEAD: the conversation was then dated
+    // by the newest stamp in its first 64 KB - the oldest thing in the file - so a long conversation
+    // that ended on a large tool result ranked as the most ancient in the directory and a launch
+    // resumed something else. Exactly the walking-backwards this file exists to end, arriving through
+    // the reader instead of through the flag.
+    //
+    // Asserted twice: once through a SMALL window, which is the mechanism, and once through the real
+    // 64 KB one, which is the size the launcher actually runs with.
+    // TWO SHAPES, because the old reading failed differently in each and only one of them was
+    // visible as a wrong ORDER. A file ending with a newline gave an empty tail, so the conversation
+    // went undated and unranked; a file ending without one gave nil, which `?? head` turned into the
+    // oldest stamp in the file - the conversation ranked as the most ancient in the directory.
+    func endingOnABigLine(_ padding: Int, head: String, tail: String,
+                          newlineTerminated: Bool = true) -> String {
+        turnTranscript(at: head)
+            + "{\"type\":\"user\",\"isSidechain\":false,\"timestamp\":\"\(tail)\","
+            + "\"message\":{\"content\":\"\(String(repeating: "x", count: padding))\"}}"
+            + (newlineTerminated ? "\n" : "")
+    }
+    let bigTail = file("bigtail.jsonl", endingOnABigLine(4_096, head: "2026-08-25T09:00:00.000Z",
+                                                         tail: "2026-08-25T18:00:00.000Z"))
+    check("a final line longer than the window is still what dates the conversation",
+          conversationCandidate(at: bigTail, scan: 512)?.lastEventAt
+              == parseISO("2026-08-25T18:00:00.000Z"))
+    // The unterminated shape is the one that used to produce a WRONG ORDER rather than no order:
+    // `?? head` answered with the newest stamp in the file's first window, which is its oldest event.
+    let bigTailUnterminated = file("bigtailraw.jsonl",
+                                   endingOnABigLine(4_096, head: "2026-08-25T09:00:00.000Z",
+                                                    tail: "2026-08-25T18:00:00.000Z",
+                                                    newlineTerminated: false))
+    check("a file that ends mid-line on a big record is dated by that record too",
+          conversationCandidate(at: bigTailUnterminated, scan: 512)?.lastEventAt
+              == parseISO("2026-08-25T18:00:00.000Z"))
+    check("…and specifically not by the oldest stamp in the file, which is what the head says",
+          conversationCandidate(at: bigTailUnterminated, scan: 512)?.lastEventAt
+              != parseISO("2026-08-25T09:00:00.000Z"))
+    let bigTailReal = file("bigtailreal.jsonl",
+                           endingOnABigLine(70_000, head: "2026-08-25T09:00:00.000Z",
+                                            tail: "2026-08-25T18:00:00.000Z"))
+    check("the same holds at the window the launcher really runs",
+          conversationCandidate(at: bigTailReal)?.lastEventAt
+              == parseISO("2026-08-25T18:00:00.000Z"))
+    // The widening is bounded, and past the bound the honest answer is that this file cannot be
+    // dated: a candidate with no timestamp is not ranked at all, which is a conversation this launch
+    // does not offer rather than one it offers as ancient.
+    check("a final line past the limit leaves the conversation undated",
+          conversationCandidate(at: bigTail, scan: 512, limit: 1_024)?.lastEventAt == nil)
+    check("…and the reading behind it says so",
+          transcriptRankingTail(of: bigTail, bytes: 512, limit: 1_024) == nil)
+    // The ordinary case still costs one read of one window: a file whose tail holds a boundary is
+    // answered by the first window, and a file smaller than it is returned whole.
+    check("a tail with a line boundary in it is answered as it always was",
+          transcriptRankingTail(of: file("small.jsonl",
+                                         turnTranscript(at: "2026-08-25T10:00:00Z")))?
+              .contains("\"type\":\"user\"") == true)
+
     check("a file that is not a transcript is not a candidate",
           conversationCandidate(at: file("notes.txt", "hello")) == nil)
     // A file claude has moved aside keeps the extension and gains a segment; its stem names nothing
@@ -259,6 +316,34 @@ func runConversationChecks() {
     check("…and publishes the next change",
           readLastConversation(cwd: here, dir: records) == "second-one")
 
+    // A SELF-UPDATE REPLACES THE IMAGE AND KEEPS THE PID (SelfUpdate.swift): the session and the
+    // conversation survive it, this struct does not. The new image started with nothing in hand and
+    // wrote the record again on its next tick, over whatever a SIBLING session in this directory had
+    // published in the meantime. So the first tick of a process asks the file.
+    //
+    // The witness is the file's BYTES rather than its absence: removing it would let the "is there a
+    // record at all" path answer this check instead. The padding parses to the same id and is exactly
+    // what a rewrite would canonicalise away.
+    let padded = "after-update   \n"
+    write(padded, to: lastConversationFile(cwd: here, dir: records))
+    var restarted = LastConversationWriter()
+    restarted.sync("after-update", cwd: here, dir: records)
+    check("a new process adopts a record that already says what it would",
+          (try? String(contentsOf: lastConversationFile(cwd: here, dir: records),
+                       encoding: .utf8)) == padded)
+    // …and having adopted it, it is in step: the next unchanged tick writes nothing either.
+    try? FileManager.default.removeItem(at: lastConversationFile(cwd: here, dir: records))
+    restarted.sync("after-update", cwd: here, dir: records)
+    check("…and is in step with it from then on",
+          readLastConversation(cwd: here, dir: records) == nil)
+    // The adopting is only for a record that AGREES. A new process watching a different conversation
+    // still publishes, which is the whole point of the record.
+    var moved = LastConversationWriter()
+    write("somebody-elses\n", to: lastConversationFile(cwd: here, dir: records))
+    moved.sync("ours", cwd: here, dir: records)
+    check("a new process watching something else publishes it",
+          readLastConversation(cwd: here, dir: records) == "ours")
+
     // MARK: - Where the transcripts are
     //
     // NOT a hardcoded `~/.claude/projects`: Anthropic's documented macOS default is
@@ -272,12 +357,32 @@ func runConversationChecks() {
                                                      withIntermediateDirectories: true)
             return claudeProjectsDir(home: home.path, caches: caches)
                 == home.appendingPathComponent("projects") }())
+    // THE FALLBACK IS FOR ONE HOME AND NOT FOR ANY HOME. `~/Library/Caches/claude` answers "where
+    // does claude put transcripts when nobody told it where", which only the launches that export
+    // nothing are asking. An EXPLICIT `CLAUDE_CONFIG_DIR` is claude being told, and it keeps its
+    // transcripts under that directory whether or not the directory exists yet - a home whose
+    // projects link was deliberately unshared (`--no-share`) or an account added moments ago has
+    // none of its own, and those are exactly the homes this used to redirect onto somebody else's
+    // conversations.
+    // The two spellings of claude's own home are pinned together rather than trusted to stay in
+    // step: this reading decides whether a launch may read somebody else's transcripts, and the
+    // launcher hands it homes that come from `defaultHome`.
+    check("the platform default is the home a launch that exports nothing runs under",
+          defaultClaudeHome == defaultHome(providers.first { $0.id == "claude" }!))
     let bare = root.appendingPathComponent("bare-home")
-    check("a home without one falls back to the platform default",
-          claudeProjectsDir(home: bare.path, caches: caches)
+    check("the default home with no projects directory falls back to the platform default",
+          claudeProjectsDir(home: bare.path, platformDefault: bare.path, caches: caches)
+              == caches.appendingPathComponent("projects"))
+    check("an explicit home with no projects directory answers with its own",
+          claudeProjectsDir(home: bare.path, platformDefault: home.path, caches: caches)
+              == bare.appendingPathComponent("projects"))
+    // A trailing slash or a `..` in an exported value is the same home, not a different one.
+    check("the default home is recognised however it is spelled",
+          claudeProjectsDir(home: bare.path + "/", platformDefault: bare.path, caches: caches)
               == caches.appendingPathComponent("projects"))
     check("and with neither in place it still names the home's own",
-          claudeProjectsDir(home: bare.path, caches: root.appendingPathComponent("nowhere"))
+          claudeProjectsDir(home: bare.path, platformDefault: bare.path,
+                            caches: root.appendingPathComponent("nowhere"))
               == bare.appendingPathComponent("projects"))
 
     try? FileManager.default.removeItem(at: root)

@@ -471,7 +471,16 @@ func runTranscriptIdentityChecks() {
     let statusline = (try? String(contentsOfFile: "TallyCLI/Statusline.swift", encoding: .utf8)) ?? ""
     check("the statusline source is readable from the suite", !statusline.isEmpty)
     check("the status line reports what Claude Code told it",
-          statusline.contains("reportTranscriptIdentity(sessionID: sessionJSON?[\"session_id\"]"))
+          statusline.contains("let reportedSession = sessionJSON?[\"session_id\"] as? String")
+              && statusline.contains("reportTranscriptIdentity(sessionID: reportedSession"))
+    // The unsupervised half of the same job (UnmanagedLaunch.swift), wired from the same render and
+    // handed the same walk up the process tree: asking twice would pay for that climb twice on a
+    // path that runs on every interaction.
+    check("…and tells an unsupervised launch's own record as well",
+          statusline.contains("reportUnmanagedConversation(sessionID: reportedSession"))
+    check("…off one reading of which Claude Code ran it",
+          statusline.contains("let ranBy = claudeCodeThatRanUs()")
+              && statusline.contains("claudeCode: ranBy)"))
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the identity checks", !loop.isEmpty)
     if let adopt = loop.range(of: "adoptReportedTranscript("),

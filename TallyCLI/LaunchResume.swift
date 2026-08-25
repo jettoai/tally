@@ -77,6 +77,20 @@ import Foundation
 /// once, unlike the supervisor's scans, which run every two seconds.
 let conversationScanBytes = 1 << 16
 
+/// How far back a ranking read will widen before it gives up on finding a line boundary.
+///
+/// The window above is a first guess, not a limit, because ONE RECORD CAN BE BIGGER THAN IT. A tool
+/// result is a transcript's largest line by far (up to 7 MB on this machine, 1,567 of them above
+/// 256 KB - measured with the numbers `openTurnTailBytes` states), and a session that ends right
+/// after one leaves a final line the 64 KB window lands entirely inside. 8 MB covers every line this
+/// machine has ever written, and past it the read gives up rather than pulling an unbounded file
+/// through memory on a launch.
+///
+/// Measured 2026-08-25 over all 957 transcripts here: not one has a final line above the 64 KB
+/// window, so this costs nothing today and is the difference between a right answer and a badly
+/// wrong one the first time one does.
+let conversationTailMaxBytes = 1 << 23
+
 /// What one transcript in a project directory offers a launch.
 struct ConversationCandidate: Equatable {
     /// Claude Code's own id for the conversation, which is the transcript's basename.
@@ -189,30 +203,51 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
 
 // MARK: - Reading the directory
 
+/// Claude Code's own default config home: the one a launch that exports `CLAUDE_CONFIG_DIR` at all
+/// is NOT running under, and the only home the platform fallback below may answer for.
+let defaultClaudeHome = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".claude").path
+
 /// Where a config home keeps its transcripts.
 ///
 /// NOT a hardcoded `~/.claude/projects`, which is what every reader here used to assume. Anthropic's
 /// documented default on macOS is `~/Library/Caches/claude`, with `~/.claude` used only where it
 /// already exists, so a machine that met Claude Code after that change keeps its transcripts
-/// somewhere this repo had never looked. Tally's own accounts always run under an explicit
-/// `CLAUDE_CONFIG_DIR` and so answer on the first line; the fallbacks are for the launches that set
-/// none (the bare-CLI paths in main.swift) on a machine laid out the new way.
-func claudeProjectsDir(home: String,
+/// somewhere this repo had never looked.
+///
+/// THE FALLBACK IS FOR ONE HOME AND NOT FOR ANY HOME, which is the correction (codex review of
+/// fcf2037). What `~/Library/Caches/claude` answers is "where does claude put transcripts when
+/// nobody told it where" - a question only the launches that export nothing are asking (the bare-CLI
+/// paths in main.swift, which run under `defaultHome`). An EXPLICIT `CLAUDE_CONFIG_DIR` is claude
+/// being told, and it keeps its transcripts under that directory whether or not the directory exists
+/// yet; reading the platform default for it would answer about somebody else's transcripts entirely.
+/// That is not hypothetical: a home whose `projects` link was deliberately unshared (`--no-share`,
+/// AddAccount.swift) or an account added moments ago has none of its own, and those are exactly the
+/// homes this used to redirect. So an explicit home answers with its own directory, empty or absent,
+/// and a launch there starts fresh rather than picking up a stranger's conversation.
+func claudeProjectsDir(home: String, platformDefault: String = defaultClaudeHome,
                        caches: URL = FileManager.default.homeDirectoryForCurrentUser
                            .appendingPathComponent("Library/Caches/claude")) -> URL {
     let own = URL(fileURLWithPath: home).appendingPathComponent("projects")
     if FileManager.default.fileExists(atPath: own.path) { return own }
+    // Standardized rather than compared as typed, so a trailing slash or a `..` in an exported value
+    // does not read as a different home; NOT resolved through symlinks, because the comparison is
+    // about which STRING claude was handed (its Keychain item is namespaced by that exact string,
+    // `launchEnv`) rather than about which directory it lands in. Compared as PATHS, since a URL
+    // keeps the trailing slash the path drops.
+    guard URL(fileURLWithPath: home).standardizedFileURL.path
+        == URL(fileURLWithPath: platformDefault).standardizedFileURL.path else { return own }
     let shipped = caches.appendingPathComponent("projects")
     return FileManager.default.fileExists(atPath: shipped.path) ? shipped : own
 }
 
 /// Every transcript in `projectDir`, as candidates. An unreadable directory is an empty one, which
 /// the caller starts fresh on - the same thing it does for a directory that is genuinely empty.
-func conversationCandidates(in projectDir: URL,
-                            scan: Int = conversationScanBytes) -> [ConversationCandidate] {
+func conversationCandidates(in projectDir: URL, scan: Int = conversationScanBytes,
+                            limit: Int = conversationTailMaxBytes) -> [ConversationCandidate] {
     let files = (try? FileManager.default.contentsOfDirectory(
         at: projectDir, includingPropertiesForKeys: nil)) ?? []
-    return files.compactMap { conversationCandidate(at: $0, scan: scan) }
+    return files.compactMap { conversationCandidate(at: $0, scan: scan, limit: limit) }
 }
 
 /// One transcript read, or nil when the file is not one.
@@ -220,7 +255,8 @@ func conversationCandidates(in projectDir: URL,
 /// The name is checked as well as the extension: a file claude has moved aside keeps the `.jsonl`
 /// suffix and gains a middle segment (`<id>.orphaned-<stamp>-<rand>.jsonl`), and the stem of that is
 /// not an id anything can be resumed by.
-func conversationCandidate(at url: URL, scan: Int = conversationScanBytes) -> ConversationCandidate? {
+func conversationCandidate(at url: URL, scan: Int = conversationScanBytes,
+                           limit: Int = conversationTailMaxBytes) -> ConversationCandidate? {
     guard url.pathExtension == "jsonl" else { return nil }
     let id = url.deletingPathExtension().lastPathComponent
     guard isTranscriptSessionID(id) else { return nil }
@@ -228,7 +264,18 @@ func conversationCandidate(at url: URL, scan: Int = conversationScanBytes) -> Co
     // A file shorter than the window gives the same text twice, which is right: both questions are
     // then being asked of the whole of it. Each end is split into lines ONCE and the readings share
     // it - three questions of one block is three passes only if you let it be.
-    let tail = transcriptTail(of: url, bytes: scan) ?? head
+    //
+    // AND THE TAIL NEVER FALLS BACK ON THE HEAD, which is what this used to do. `transcriptTail`
+    // cannot answer when its window lands inside a SINGLE LINE - a session that ended on a large
+    // tool result leaves one - and it fails in two shapes: nil where the file ends without a
+    // newline, "" where it ends with one. `?? head` turned the first into the newest stamp in the
+    // file's FIRST 64 KB, which is the oldest thing in it, so a long conversation ranked as the most
+    // ancient in the directory and a launch here resumed something else - precisely the
+    // walking-backwards this file exists to end, arriving through the reader instead of through the
+    // flag (codex review of fcf2037). The widening read below answers for every line this machine has
+    // ever written, and when even it cannot, the honest answer is that this file cannot be dated: a
+    // candidate with no timestamp is not ranked at all, rather than ranked as the oldest.
+    let tail = transcriptRankingTail(of: url, bytes: scan, limit: limit) ?? ""
     let headLines = head.split(separator: "\n")
     let tailLines = tail.split(separator: "\n")
     return ConversationCandidate(id: id, lastEventAt: newestEventTime(tailLines),
@@ -314,6 +361,45 @@ func isInteractiveConversation(_ lines: [Substring]) -> Bool {
         if entrypoint == nil { entrypoint = object["entrypoint"] as? String }
     }
     return entrypoint == nil || entrypoint == "cli"
+}
+
+/// The tail of `url` as complete lines, widening the window until it holds a line boundary.
+///
+/// `transcriptTail` (OpenTurn.swift) reads a FIXED window and answers nil when that window lands
+/// inside one line, which is right for the question it was written for: the supervisor is asking
+/// whether the last turn is still open, and a window with no boundary in it simply has not reached an
+/// event yet. Ranking asks a different question - when was this conversation last touched - and there
+/// nil is not an answer, it is the whole file being mis-dated. So this widens instead.
+///
+/// AN EMPTY TAIL IS NOT AN ANSWER EITHER, and that is the shape the defect actually takes most of the
+/// time. A window landing inside one line answers nil only when the file ends WITHOUT a newline; when
+/// it ends with one - which is how every record is written - the trailing newline is the only
+/// boundary in the window, and everything "after" it is nothing at all. So the two failures look
+/// different (nil dated the conversation by its oldest event, "" left it undated and unranked) and
+/// are the same miss, and both are answered by widening rather than by choosing between them.
+///
+/// IT TERMINATES ON THE FILE, not only on the limit: a window at least as large as the file starts at
+/// offset zero, where nothing is dropped in front, so the last read returns the whole file unless it
+/// cannot be read at all. The doubling is what keeps the ordinary case at ONE read - the first window
+/// either holds a boundary or the file is smaller than it - and the limit is what keeps the
+/// pathological case bounded (`conversationTailMaxBytes`), answering nil so the caller leaves the
+/// conversation undated instead of mis-dating it.
+///
+/// Left as a wrapper rather than folded into `transcriptTail`: that function has a second caller with
+/// its own window and its own reading of nil (the open-turn check reads 256 KB and treats a
+/// boundary-less window as "not open", which is the behaviour that stood before it existed), and
+/// widening underneath it would change what that answer means.
+func transcriptRankingTail(of url: URL, bytes: Int = conversationScanBytes,
+                           limit: Int = conversationTailMaxBytes) -> String? {
+    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
+    guard let size, size > 0 else { return transcriptTail(of: url, bytes: bytes) }
+    let ceiling = min(size, limit)
+    var window = min(bytes, ceiling)
+    while true {
+        if let tail = transcriptTail(of: url, bytes: window), !tail.isEmpty { return tail }
+        guard window < ceiling else { return nil }
+        window = min(window * 2, ceiling)
+    }
 }
 
 /// The head of `url` as complete lines, or nil when it cannot be read.

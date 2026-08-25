@@ -313,14 +313,23 @@ func supervisorsInDirectory(_ cwd: String, dir: URL = supervisorStateDir) -> [St
 /// the same stamp comparison `adoptReportedTranscript` makes and it matters here for the opposite
 /// reason: over-naming a conversation as live would push this launch onto an older one, which is the
 /// very regression the caller exists to end.
-func liveConversations(in cwd: String, dir: URL = supervisorStateDir) -> Set<String> {
+///
+/// A THIRD WITNESS, AND IT IS NOT A SUPERVISOR'S. Both readings above are keyed by a supervisor pid,
+/// and four launch paths never get a supervisor at all - an exported `CLAUDE_CONFIG_DIR`, an
+/// `--account` pin, `--no-handoff`, a denormalized pin - so the sessions they start were invisible
+/// here however plainly they were writing (codex review of fcf2037). Those launches register
+/// themselves before they exec (UnmanagedLaunch.swift), out of a directory of their own, and this is
+/// a UNION with the supervised witnesses for the same reason those two are a union with each other:
+/// an id anybody names is one somebody is writing.
+func liveConversations(in cwd: String, dir: URL = supervisorStateDir,
+                       unmanagedDir: URL = unmanagedLaunchDir) -> Set<String> {
     var ids: Set<String> = []
     for pid in supervisorsInDirectory(cwd, dir: dir) {
         if let id = readSessionContext(pid: pid, dir: dir)?.transcriptSessionID { ids.insert(id) }
         if let report = readTranscriptIdentity(pid: pid, dir: dir),
            processStamp(report.claudeCode.pid) == report.claudeCode { ids.insert(report.id) }
     }
-    return ids
+    return ids.union(unmanagedConversations(in: cwd, dir: unmanagedDir))
 }
 
 /// The account a supervised session is running on RIGHT NOW, or nil when nothing can say.

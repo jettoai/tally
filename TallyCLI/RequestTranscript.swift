@@ -40,18 +40,9 @@ import Foundation
 // positional-shifted, so an older reader takes the lines it knows and ignores the rest, and a newer
 // reader given a file without the field behaves exactly as it always has.
 
-/// Whether `id` can be used to name a transcript inside a project directory.
-///
-/// A REQUEST FILE IS UNTRUSTED INPUT even though the user owns it: this value is turned into a path,
-/// so anything carrying a separator or a dot segment could name a file outside the directory the
-/// watcher is allowed to bind. Claude Code's ids are UUIDs, so letters, digits, dash and underscore
-/// is a bound that fits every real one and admits no traversal at all. Refusing here is not a parse
-/// failure: an unusable id simply reads as ABSENT, and the request it rides on is still a perfectly
-/// good instruction about an account or a model.
-func isTranscriptSessionID(_ id: String) -> Bool {
-    guard !id.isEmpty, id.count <= 128 else { return false }
-    return id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
-}
+// `isTranscriptSessionID`, the guard every reader on this track puts an id through, lives in
+// TranscriptSignals.swift beside the other small readings: the launcher validates ids too and must
+// compile without the supervisor.
 
 /// The line a request file carries for the conversation it came from: the id where there is a usable
 /// one, and an empty line where there is not.

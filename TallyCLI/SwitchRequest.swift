@@ -299,6 +299,30 @@ func supervisorsInDirectory(_ cwd: String, dir: URL = supervisorStateDir) -> [St
         .sorted()
 }
 
+/// The conversations being written in `cwd` right now, which is what a launch must not resume into
+/// (LaunchResume.swift): two processes on one transcript is how turns get orphaned, and Claude Code
+/// does not refuse it for you.
+///
+/// TWO WITNESSES, and each covers what the other cannot. The supervisor's own publish follows a
+/// `/clear` and a fork but only exists once the conversation has had a turn with a usage reading in
+/// it; the status line's report (TranscriptIdentity.swift) lands within a render of the session
+/// starting, long before that. Taken together rather than ranked, because this is a UNION and not a
+/// choice: an id either witness names is one somebody is writing.
+///
+/// The report is admitted only while the Claude Code that filed it is still that process, which is
+/// the same stamp comparison `adoptReportedTranscript` makes and it matters here for the opposite
+/// reason: over-naming a conversation as live would push this launch onto an older one, which is the
+/// very regression the caller exists to end.
+func liveConversations(in cwd: String, dir: URL = supervisorStateDir) -> Set<String> {
+    var ids: Set<String> = []
+    for pid in supervisorsInDirectory(cwd, dir: dir) {
+        if let id = readSessionContext(pid: pid, dir: dir)?.transcriptSessionID { ids.insert(id) }
+        if let report = readTranscriptIdentity(pid: pid, dir: dir),
+           processStamp(report.claudeCode.pid) == report.claudeCode { ids.insert(report.id) }
+    }
+    return ids
+}
+
 /// The account a supervised session is running on RIGHT NOW, or nil when nothing can say.
 ///
 /// The supervisor publishes it beside its presence entry, rewritten by every handoff

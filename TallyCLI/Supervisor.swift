@@ -84,6 +84,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// How big this session's conversation has grown, published on the same track for `tally status`
     /// (SessionContext.swift). Outside the loop, like the notice: the session survives its children.
     var sessionContext = SessionContextWriter()
+    /// Which conversation this directory last held, published for the NEXT launch here rather than
+    /// for this one (LastConversation.swift). Outside the loop for the same reason as the reading
+    /// above: the session survives its children, and so does the record.
+    var lastConversation = LastConversationWriter()
     /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
@@ -701,6 +705,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
                                 pin: manualMoves.sessionPin, axes: axes,
                                 transcript: watcher.transcriptSessionID, pid: supervisorPID)
+            // AND THE SAME ANSWER FILED BY DIRECTORY, which is what the NEXT launch here reads
+            // instead of guessing which account's private pointer to believe (LaunchResume.swift).
+            // Fed from the same value on the same tick rather than from a reading of its own, so the
+            // record and the publish above cannot come to name different conversations.
+            lastConversation.sync(watcher.transcriptSessionID, cwd: cwd)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,

@@ -150,10 +150,17 @@ func withoutPositionals(_ args: [String]) -> [String] {
 /// The launch args a relaunch runs with. A known session id resumes that conversation. With no id
 /// (the child has not written a transcript yet, so the watcher located nothing) it depends on where
 /// the relaunch lands: a move to ANOTHER account drops `--continue`/`--resume` so it cannot pull up
-/// an unrelated old conversation there, but a relaunch on the SAME account keeps the original
-/// `--continue` - stripping it would open an EMPTY session instead of the one the user resumed
-/// (`tally claude --continue` restarted before its first turn, 2026-07-25). On the same home
-/// `--continue` can only reach that same latest conversation.
+/// an unrelated old conversation there, but a relaunch on the SAME account keeps THE START MODE THE
+/// LAUNCH WAS GIVEN - stripping it would open an EMPTY session instead of the one the user resumed
+/// (`tally claude --continue` restarted before its first turn, 2026-07-25).
+///
+/// "The start mode it was given" is both spellings now, and that is not symmetry for its own sake.
+/// Tally's own injection used to be `--continue` and is now `--resume <id>` (LaunchResume.swift), so
+/// the flag this branch has to hand back is the one it used to throw away: keeping only `--continue`
+/// would blank every session whose first tick relaunched before the watcher had bound a file. The id
+/// is the safer of the two to re-add, being a name for one conversation rather than for "whichever
+/// is newest here"; it is still gated on the same account, because a cross-account move with nothing
+/// located is `tally session clear`'s path as well, and that one asked for an empty window.
 ///
 /// EVERY relaunch loses the positionals, which is where the initial prompt lives (see
 /// `withoutPositionals` above): the conversation being resumed already contains it, and re-passing
@@ -169,9 +176,10 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
     let next = removingFlagPairs(options, ["--resume", "-r"])
         .filter { !continueFlags.contains($0) }
     if let sessionID { return ["--resume", sessionID] + next }
-    guard sameAccount, options.contains(where: { continueFlags.contains($0) })
-    else { return next }
-    return ["--continue"] + next
+    guard sameAccount else { return next }
+    if options.contains(where: { continueFlags.contains($0) }) { return ["--continue"] + next }
+    guard let asked = flagValue(options, "--resume") ?? flagValue(options, "-r") else { return next }
+    return ["--resume", asked] + next
 }
 
 /// The two halves of `sessionFlags` (Snapshot.swift), partitioned rather than listed again so a flag

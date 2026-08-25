@@ -30,8 +30,23 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
           == ["--model", "fable"])
     check("nothing is invented when the launch never asked to continue",
           relaunchArgs(["--model", "fable"], sessionID: nil, sameAccount: true) == ["--model", "fable"])
-    check("a dangling --resume value is not left behind",
+    // THE OTHER SPELLING OF THE SAME RULE, and it changed when Tally's own injection did: the
+    // launcher now hands the child `--resume <id>` rather than `--continue` (LaunchResume.swift), so
+    // the flag a same-account relaunch has to give back is that one. It used to be dropped, which
+    // was invisible while nothing but a handoff ever put a `--resume` in these args and is a blank
+    // session now that every continue launch carries one. An id is the safer of the two to re-add,
+    // naming one conversation rather than "whichever is newest here".
+    check("a same-account relaunch with no transcript keeps the resume it was given",
           relaunchArgs(["--resume", "old", "--verbose"], sessionID: nil, sameAccount: true)
+          == ["--resume", "old", "--verbose"])
+    check("a located id still replaces it rather than joining it",
+          relaunchArgs(["--resume", "old", "--verbose"], sessionID: "new", sameAccount: true)
+          == ["--resume", "new", "--verbose"])
+    // A MOVE still drops it whole, value and all - no stray word left to be read as a prompt. That
+    // is what `tally session clear` rides on: it asks for an empty window by relaunching with
+    // `sameAccount` false.
+    check("a move with no transcript drops the resume and leaves no dangling value",
+          relaunchArgs(["--resume", "old", "--verbose"], sessionID: nil, sameAccount: false)
           == ["--verbose"])
 
     // MARK: - 21. A pending cap across a relaunch

@@ -156,6 +156,37 @@ func lineStartsTurn(_ line: Substring) -> Bool {
     line.contains("\"type\":\"user\"") && !line.contains("\"tool_result\"")
 }
 
+/// Whether `id` can be used to name a transcript inside a project directory.
+///
+/// A REQUEST FILE IS UNTRUSTED INPUT even though the user owns it: this value is turned into a path,
+/// so anything carrying a separator or a dot segment could name a file outside the directory the
+/// watcher is allowed to bind. Claude Code's ids are UUIDs, so letters, digits, dash and underscore
+/// is a bound that fits every real one and admits no traversal at all. Refusing here is not a parse
+/// failure: an unusable id simply reads as ABSENT, and the request it rides on is still a perfectly
+/// good instruction about an account or a model.
+///
+/// Moved here from RequestTranscript.swift when the launcher gained ids of its own to validate
+/// (LaunchResume.swift, LastConversation.swift): that file reaches into the supervisor's world, and
+/// a launch has to be able to ask this question without compiling one.
+func isTranscriptSessionID(_ id: String) -> Bool {
+    guard !id.isEmpty, id.count <= 128 else { return false }
+    return id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+}
+
+/// The event timestamp of one transcript line, without a full JSON parse.
+///
+/// A free function beside the other line readers rather than a method on the watcher, because the
+/// watcher is no longer the only reader: a launch asks the same question of files it has never
+/// tailed, to find out which conversation in a project directory is the newest
+/// (LaunchResume.swift). Moved rather than copied - two extractions of one field is how they come
+/// to disagree about which spellings of an ISO stamp count.
+func lineTimestamp(_ line: Substring) -> Date? {
+    guard let key = line.range(of: "\"timestamp\":\"") else { return nil }
+    let rest = line[key.upperBound...]
+    guard let quote = rest.firstIndex(of: "\"") else { return nil }
+    return parseISO(String(rest[..<quote]))
+}
+
 /// The `message.content` of a line, when it is a plain string. nil for a content list (tool_result,
 /// meta expansions, assistant blocks), which is what makes this a cheap shape test as well as an
 /// accessor.

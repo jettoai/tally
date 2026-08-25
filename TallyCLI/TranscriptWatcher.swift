@@ -220,14 +220,6 @@ struct TranscriptWatcher {
         return recentUserExcerpts[uuid]
     }
 
-    /// The event timestamp of one transcript line, without a full JSON parse.
-    func lineTimestamp(_ line: Substring) -> Date? {
-        guard let key = line.range(of: "\"timestamp\":\"") else { return nil }
-        let rest = line[key.upperBound...]
-        guard let quote = rest.firstIndex(of: "\"") else { return nil }
-        return parseISO(String(rest[..<quote]))
-    }
-
     /// The top-level `uuid` of one transcript line, without a full parse. `"uuid":"` never appears
     /// inside `"parentUuid":"` (the leading quote guards it), so the first match is the event's own.
     func lineUUID(_ line: Substring) -> String? {

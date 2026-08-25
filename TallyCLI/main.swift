@@ -89,13 +89,22 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     passthrough = removingOption(passthrough, "--new")
     passthrough = applyLaunchDefaults(passthrough, policy: policy, providerID: provider.id)
 
-    // The start mode is the one launch default that cannot be decided up here: `--continue` is
-    // resolved by claude against the config home it runs under, so whether injecting it produces a
-    // session or "No conversation found to continue" depends on the account this launch lands on -
-    // known only below. Every exec path therefore finalizes its args through this.
+    // The start mode is the one launch default that cannot be decided up here: it needs the config
+    // home this launch lands on to know where the transcripts are, and that is settled only below.
+    // Every exec path therefore finalizes its args through this.
+    //
+    // What it injects is `--resume <id>` rather than a bare `--continue`, because that flag answers
+    // out of a pointer private to whichever account was picked - which walked the conversation
+    // backwards a launch at a time (LaunchResume.swift). The live set is read HERE, once, so the
+    // decision is made against the sessions running in this directory at this instant.
     func startModeArgs(_ args: [String], home: String) -> [String] {
         guard provider.id == "claude" else { return args }
-        let (next, note) = applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home)
+        // One reading of the working directory for both halves of the question, rather than two: the
+        // chdir a worktree launch performs has already happened by here (above), and a decision made
+        // about one directory must not be filtered by the sessions running in another.
+        let here = FileManager.default.currentDirectoryPath
+        let (next, note) = applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home,
+                                          live: liveConversations(in: here), cwd: here)
         if let note { warn(note) }
         return next
     }

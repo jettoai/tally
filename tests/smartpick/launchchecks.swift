@@ -17,78 +17,115 @@ private let continuePolicy: LaunchPolicy = {
 }()
 
 func runLaunchChecks() {
-    // MARK: - Start mode: `--continue` is only injected where claude could resolve it
+    runConversationChecks()
+
+    // MARK: - Start mode: which conversation the injection names
     //
-    // `claude --continue` in a directory the launch home has never held a session for prints "No
-    // conversation found to continue" and exits, so a first launch in a new project directory used to
-    // die on tally's own injected flag.
+    // The injection is `--resume <id>` and never a bare `--continue`: that flag answers out of a
+    // pointer private to the config home the launch lands on, so picking accounts by headroom walked
+    // the conversation backwards one launch at a time (LaunchResume.swift carries the measurements).
     let startModeRoot = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-startmode-\(UUID().uuidString)")
     let withSession = startModeRoot.appendingPathComponent("home-used")
     let withoutSession = startModeRoot.appendingPathComponent("home-fresh")
     let workingDir = startModeRoot.appendingPathComponent("project")
+    let records = startModeRoot.appendingPathComponent("records")
     try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true)
-    try? FileManager.default.createDirectory(at: withoutSession, withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(
+        at: withoutSession.appendingPathComponent("projects"), withIntermediateDirectories: true)
     let sessionDir = withSession
         .appendingPathComponent("projects/\(projectSlug(forCwd: workingDir.path))")
     try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
-    try? "{}".write(to: sessionDir.appendingPathComponent("abc.jsonl"), atomically: true, encoding: .utf8)
+    write(turnTranscript(at: "2026-08-25T09:00:00.000Z"),
+          to: sessionDir.appendingPathComponent("abc.jsonl"))
 
     func startMode(_ args: [String], home: URL, policy: LaunchPolicy = continuePolicy,
-                   wantsNew: Bool = false) -> (args: [String], note: String?) {
-        applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home.path, cwd: workingDir.path)
+                   wantsNew: Bool = false, live: Set<String> = []) -> (args: [String], note: String?) {
+        applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home.path, live: live,
+                       cwd: workingDir.path, recordDir: records)
     }
 
-    check("this home has a transcript for the directory", hasConversation(home: withSession.path,
-                                                                         cwd: workingDir.path))
-    check("a home that has never run here has none", !hasConversation(home: withoutSession.path,
-                                                                      cwd: workingDir.path))
     let used = startMode([], home: withSession)
-    check("a directory with a session keeps the injected continue", used.args == ["--continue"])
+    check("a directory with a conversation is resumed by id", used.args == ["--resume", "abc"])
     check("and says nothing about it", used.note == nil)
     let fresh = startMode([], home: withoutSession)
-    check("a directory with no session suppresses the injection", fresh.args.isEmpty)
-    check("and says so once", fresh.note == "no conversation in this directory yet - starting fresh")
+    check("a directory with no conversation injects nothing", fresh.args.isEmpty)
+    check("and says so once",
+          fresh.note == "no conversation to pick up in this directory - starting fresh")
     // A missing home is the same situation as an empty one, not a crash.
-    check("a home that does not exist suppresses it too",
+    check("a home that does not exist injects nothing too",
           startMode([], home: startModeRoot.appendingPathComponent("absent")).args.isEmpty)
-    // The transcript check is per launch home: another account having the conversation does not let
-    // claude find it, so the prediction stays exact.
-    check("a sibling home's transcript does not count",
-          !hasConversation(home: withoutSession.path, cwd: workingDir.path))
+    // THE DEFECT, at the injection: the conversation another live session is writing is not this
+    // launch's to take, and taking it would put two writers on one transcript.
+    check("a live conversation is not resumed",
+          startMode([], home: withSession, live: ["abc"]).args.isEmpty)
 
     // A hand-typed flag is the user's own choice: never removed, never doubled, and never explained
-    // away with our note (they get the CLI's own error if it cannot be resolved).
+    // away with our note (they get the CLI's own behaviour, whatever it is).
     let typed = startMode(["--continue"], home: withoutSession)
     check("a hand-typed --continue survives in a fresh directory", typed.args == ["--continue"])
     check("and is not commented on", typed.note == nil)
+    check("a hand-typed --continue is never rewritten into a resume",
+          startMode(["--continue"], home: withSession).args == ["--continue"])
     check("a hand-typed --resume is left alone",
-          startMode(["--resume", "abc"], home: withoutSession).args == ["--resume", "abc"])
+          startMode(["--resume", "xyz"], home: withoutSession).args == ["--resume", "xyz"])
     check("a hand-typed -c is not doubled",
           startMode(["-c"], home: withSession).args == ["-c"])
     check("--print is not a session to continue",
           startMode(["-p", "hi"], home: withSession).args == ["-p", "hi"])
-    // The other two ways to say no, unchanged by the transcript check.
+    // The other two ways to say no, unchanged by the lookup.
     check("--new (wantsNew) still suppresses the injection",
           startMode([], home: withSession, wantsNew: true).args.isEmpty)
     check("a policy that does not continue injects nothing",
           startMode([], home: withSession, policy: LaunchPolicy()).args.isEmpty)
 
-    // Injection lands where the flag will be READ: before the first `--`, never appended after the
-    // prompt. Appended, claude would never parse it (past the marker it is prompt text) and Tally could
-    // not see it either, so the launch would run without the default it believed it had applied.
-    check("an injected --continue goes in front of the prompt",
+    // Injection lands where the flags will be READ: before the first `--`, never appended after the
+    // prompt. Appended, claude would never parse them (past the marker they are prompt text) and
+    // Tally could not see them either, so the launch would run without the default it believed it
+    // had applied. Both words go together, which is what a value-taking flag needs.
+    check("an injected resume goes in front of the prompt",
           startMode(["--", "summarise this"], home: withSession).args
-          == ["--continue", "--", "summarise this"])
+          == ["--resume", "abc", "--", "summarise this"])
     check("and the prompt itself is untouched",
           startMode(["--", "--continue"], home: withSession).args
-          == ["--continue", "--", "--continue"])
+          == ["--resume", "abc", "--", "--continue"])
     // Which is also why the suppression check reads only the options: a prompt that mentions the flag
     // is not the user choosing it.
     check("a session flag inside the prompt does not suppress the injection",
-          startMode(["--", "-p", "hi"], home: withSession).args == ["--continue", "--", "-p", "hi"])
+          startMode(["--", "-p", "hi"], home: withSession).args
+          == ["--resume", "abc", "--", "-p", "hi"])
     check("with no marker the injection still simply appends",
-          startMode(["--verbose"], home: withSession).args == ["--verbose", "--continue"])
+          startMode(["--verbose"], home: withSession).args == ["--verbose", "--resume", "abc"])
+
+    // MARK: - The record outranks the directory, at the injection
+    //
+    // What this machine last watched here is a fact reported by the process writing it; the ranking
+    // below it is a guess. A record naming a conversation that is still there wins even when another
+    // file in the directory sorts newer.
+    write(turnTranscript(at: "2026-08-25T11:00:00.000Z"),
+          to: sessionDir.appendingPathComponent("newer.jsonl"))
+    check("with no record the newest conversation is taken",
+          startMode([], home: withSession).args == ["--resume", "newer"])
+    writeLastConversation("abc", cwd: workingDir.path, dir: records)
+    check("a record takes precedence over the newest file",
+          startMode([], home: withSession).args == ["--resume", "abc"])
+    check("…and it round-trips through the file",
+          readLastConversation(cwd: workingDir.path, dir: records) == "abc")
+    // A cleared conversation nobody typed into: resumed by nothing, and NEVER a reason to fall back
+    // onto what came before it (owner ruling, 2026-08-25).
+    write(startupOnlyTranscript(at: "2026-08-25T12:00:00.000Z"),
+          to: sessionDir.appendingPathComponent("cleared.jsonl"))
+    writeLastConversation("cleared", cwd: workingDir.path, dir: records)
+    let cleared = startMode([], home: withSession)
+    check("a recorded conversation with no turn starts fresh", cleared.args.isEmpty)
+    check("…and says which one it means",
+          cleared.note == "the last conversation here was cleared and never used - starting fresh")
+    // A record naming a conversation that is GONE is a miss rather than an answer: the directory
+    // still has the truth, and refusing to look would strand the launch.
+    writeLastConversation("deleted-one", cwd: workingDir.path, dir: records)
+    check("a record naming nothing on disk falls back to the directory",
+          startMode([], home: withSession).args == ["--resume", "newer"])
+    try? FileManager.default.removeItem(at: records)
 
     // The two helpers on their own, including the no-marker case that must stay a plain append.
     check("injecting with no marker appends",

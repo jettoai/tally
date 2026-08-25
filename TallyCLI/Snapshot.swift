@@ -318,17 +318,6 @@ func defaultHome(_ provider: Provider) -> String {
         .appendingPathComponent(provider.id == "claude" ? ".claude" : ".codex").path
 }
 
-/// Whether `home` holds a Claude session for `cwd`: exactly the directory the `claude` CLI
-/// resolves `--continue` against (`<home>/projects/<cwd-slug>/*.jsonl`). Scoped to ONE home on
-/// purpose - a sibling account having a transcript for this directory does not help, because
-/// claude would not find it either.
-func hasConversation(home: String, cwd: String = FileManager.default.currentDirectoryPath) -> Bool {
-    let dir = URL(fileURLWithPath: home)
-        .appendingPathComponent("projects/\(projectSlug(forCwd: cwd))")
-    let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-    return files.contains { $0.hasSuffix(".jsonl") }
-}
-
 /// Session flags that mean the user already chose how this launch starts. Tally's own injection
 /// stands down for any of them; `--print`/`-p` is here because a one-shot run is not a session.
 let sessionFlags: Set<String> = ["--continue", "-c", "--resume", "-r", "--print", "-p"]
@@ -456,27 +445,11 @@ func applyLaunchDefaults(_ args: [String], policy: LaunchPolicy, providerID: Str
     return next
 }
 
-/// Applies the app's "continue by default" start mode to a launch, given the home it will run
-/// under. Returns the args to launch with, plus the one line to print when the injection was
-/// suppressed (nil = nothing to say).
-///
-/// The check is against the launch account's own transcripts because `claude --continue` in a
-/// directory that home has never held a session for prints "No conversation found to continue"
-/// and exits, turning the first launch in any new project directory into a retype. A hand-typed
-/// flag is left exactly as typed: the worktree path strips one, but that is a launch into a
-/// directory the user just asked to create, whereas here someone who typed `--continue` deserves
-/// the CLI's own error rather than a silently dropped flag.
-func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home: String,
-                    cwd: String = FileManager.default.currentDirectoryPath)
-    -> (args: [String], note: String?) {
-    guard policy.startMode == "continue", !wantsNew,
-          !optionsOnly(args).contains(where: { sessionFlags.contains($0) })
-    else { return (args, nil) }
-    guard hasConversation(home: home, cwd: cwd) else {
-        return (args, "no conversation in this directory yet - starting fresh")
-    }
-    return (injectingOptions(args, ["--continue"]), nil)
-}
+// The start mode - which CONVERSATION a launch picks up, and the `--resume <id>` it injects to
+// say so - lives in LaunchResume.swift. It reads this file (the policy, the flag vocabulary,
+// the injection helpers) and this file must not read it back: every small test runner compiles
+// Snapshot.swift, and a dependency pointing the other way would drag the transcript readers
+// into all of them (the rule LaunchFlags.swift already states).
 
 func fmt(_ value: Double?) -> String {
     value.map { "\(Int($0.rounded()))%" } ?? "—"

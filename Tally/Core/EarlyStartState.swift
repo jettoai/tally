@@ -13,12 +13,19 @@ import Foundation
 /// One account's suppression: when it was last acted on, and whether its window has been seen open
 /// since.
 ///
-/// THE TWO HALVES ANSWER DIFFERENT QUESTIONS and both are needed. `attemptedAt` bounds the worst
-/// case - whatever else is true, an account gets at most one message per `EarlyStartLogic
-/// .retryInterval`. `sawWindowOpen` is what makes the ordinary case correct: an attempt that worked
-/// opened a window, and the moment that window closes the account is owed another one, which is the
-/// relay the feature is. Without it a successful attempt and a failed one would be indistinguishable
-/// and the schedule would be a five-hourly alarm clock rather than a relay.
+/// THE TWO HALVES ANSWER DIFFERENT QUESTIONS and both are needed. `attemptedAt` bounds the cost, and
+/// bounds it absolutely: whatever else is true, an account gets at most one message per
+/// `EarlyStartLogic.retryInterval`. `sawWindowOpen` releases the suppression that has no cost behind
+/// it - the one the arming stamp puts on an account no message was ever sent for
+/// (`EarlyStartState.armedAt`) - because a window seen open and then closed is the provider's own
+/// numbers saying that episode is over, and waiting out five hours for a message nobody sent buys
+/// nothing.
+///
+/// IT IS RECORDED ON ATTEMPTED ACCOUNTS TOO, where it is a record rather than a release, and saying
+/// otherwise was wrong for as long as this comment did: a window one of these messages opens is
+/// itself `retryInterval` long, so it closes at the moment the floor lifts, and the floor is the one
+/// that answers. A window that closes EARLIER than that was somebody else's, joined rather than
+/// opened, and acting on it is how "at most one per five hours" would have stopped being true.
 struct EarlyStartMark: Codable, Equatable {
     /// When a message was last attempted for this account, or nil when the suppression comes from
     /// the schedule being armed mid-episode rather than from an attempt (`EarlyStartState.armedAt`).
@@ -49,8 +56,17 @@ struct EarlyStartToday: Codable, Equatable {
     var day: String = ""
     /// Messages that went through.
     var started: Int = 0
-    /// Attempts that did not, or that could not be made at all (no CLI installed).
+    /// Attempts that were made and did not go through.
     var failed: Int = 0
+    /// Accounts no attempt could be made for AT ALL, because there is no `claude` on the machine,
+    /// deduplicated.
+    ///
+    /// A SET RATHER THAN A COUNT, for the reason `skipped` gives below and a sharper version of it.
+    /// Nothing is marked when there is no CLI, deliberately, so that an install landing later is
+    /// served by the very next evaluation - which means the same accounts are chosen again at every
+    /// refresh, forever. As a counter this read "1,440 could not start" by the end of a day on which
+    /// two accounts were never once tried.
+    var couldNotStart: [String] = []
     /// Accounts passed over today for a reason that BLOCKED work (`EarlyStartSkip.countsAsSkip`),
     /// deduplicated.
     ///
@@ -64,6 +80,11 @@ struct EarlyStartToday: Codable, Equatable {
     var lastAttemptAt: Date?
 
     var skippedCount: Int { skipped.count }
+    /// Everything the row reports as "could not start": the attempts that were made and failed, plus
+    /// the accounts no attempt could be made for. One number because the two are the same news to a
+    /// reader (this account got nothing and it was not on purpose); two fields underneath because
+    /// only one of them is bounded by the number of attempts.
+    var couldNotStartTotal: Int { failed + couldNotStart.count }
 }
 
 extension EarlyStartToday {
@@ -72,6 +93,7 @@ extension EarlyStartToday {
         day = try container.decodeIfPresent(String.self, forKey: .day) ?? ""
         started = try container.decodeIfPresent(Int.self, forKey: .started) ?? 0
         failed = try container.decodeIfPresent(Int.self, forKey: .failed) ?? 0
+        couldNotStart = try container.decodeIfPresent([String].self, forKey: .couldNotStart) ?? []
         skipped = try container.decodeIfPresent([String].self, forKey: .skipped) ?? []
         lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
     }

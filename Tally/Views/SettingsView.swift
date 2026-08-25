@@ -167,9 +167,17 @@ struct SettingsView: View {
         // The sharing row reports a state whose switch lives on another pane; it is handed the way
         // there rather than describing it, because a reader who has to be told where a control is
         // has already lost the time this saves them.
+        //
+        // THE PAGE TOO, NOT JUST THE PANE. Integrations has held three pages since it was split,
+        // and the shared harness row is on the first of them; a link that lands on whichever page
+        // was last read has delivered somebody to a pane where the row they pressed for is not on
+        // screen, which is the state this link exists to end.
         case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings,
                                                        visible: section == item,
-                                                       showIntegrations: { section = .integrations }) }
+                                                       showIntegrations: {
+                                                           section = .integrations
+                                                           integrationsGroup = .commandLine
+                                                       }) }
         case .display: sectionCard { displayRows }
         case .integrations: sectionCard { integrationsRows }
         case .about: sectionCard { aboutRows }

@@ -190,6 +190,7 @@ final class EarlyStartStore {
                 isEnabled: settings.isEnabled(usage.providerID)
                     && settings.isAccountEnabled(usage.id),
                 readingIsUsable: EarlyStartLogic.readingIsUsable(usage),
+                readingKeepsFailing: EarlyStartLogic.readingKeepsFailing(usage),
                 windowIsOpen: EarlyStartLogic.windowIsOpen(usage, now: now))
         }
 
@@ -211,8 +212,13 @@ final class EarlyStartStore {
         guard Self.devStandIn != nil || CLIRunner.resolve("claude") != nil else {
             // Nothing is marked, so an install that arrives later gets the next evaluation; the row
             // says the accounts could not be started rather than that they were skipped.
-            record(state, plan: plan, attempted: [], failed: plan.start.count, now: now,
-                   calendar: calendar)
+            //
+            // NAMED, NOT COUNTED, and that follows from the line above rather than being a second
+            // decision: unmarked accounts are chosen again at every refresh, so a count would have
+            // climbed by one per account per minute for as long as the CLI stayed missing
+            // (`EarlyStartToday.couldNotStart`).
+            record(state, plan: plan, attempted: [], failed: 0,
+                   couldNotStart: plan.start.map(\.accountID), now: now, calendar: calendar)
             return
         }
         isRunning = true
@@ -318,9 +324,10 @@ final class EarlyStartStore {
     // MARK: State
 
     private func record(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
-                        failed: Int, now: Date, calendar: Calendar) {
+                        failed: Int, couldNotStart: [String] = [], now: Date, calendar: Calendar) {
         apply(EarlyStartLogic.recording(state, plan: plan, attempted: attempted, failed: failed,
-                                        now: now, calendar: calendar))
+                                        couldNotStart: couldNotStart, now: now,
+                                        calendar: calendar))
     }
 
     /// Carry the spawns' answers into the tally that was written before they were made.

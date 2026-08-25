@@ -43,17 +43,18 @@ func metric(_ kind: MetricKind, used: Double, resetsAt: Date?) -> UsageMetric {
 }
 
 func usage(_ id: String, session: UsageMetric?, error: String? = nil,
-           lastRefreshFailed: Bool = false) -> AccountUsage {
+           lastRefreshFailed: Bool = false, isStale: Bool = false) -> AccountUsage {
     AccountUsage(id: id, providerID: "claude", accountLabel: id, planName: nil,
                  metrics: [session].compactMap { $0 }, refreshedAt: at("2026-08-24 07:00"),
-                 error: error, lastRefreshFailed: lastRefreshFailed)
+                 error: error, isStale: isStale, lastRefreshFailed: lastRefreshFailed)
 }
 
 func candidate(_ id: String, provider: String = "claude", home: String? = "/Users/tester/.claude2",
-               enabled: Bool = true, readable: Bool = true,
+               enabled: Bool = true, readable: Bool = true, keepsFailing: Bool = false,
                windowOpen: Bool = false) -> EarlyStartCandidate {
     EarlyStartCandidate(accountID: id, providerID: provider, home: home,
-                        isEnabled: enabled, readingIsUsable: readable, windowIsOpen: windowOpen)
+                        isEnabled: enabled, readingIsUsable: readable,
+                        readingKeepsFailing: keepsFailing, windowIsOpen: windowOpen)
 }
 
 /// Quiet hours switched off, which is the shipping default and the state most of these checks want.
@@ -61,8 +62,9 @@ let loud = EarlyStartQuietHours()
 
 /// Every reason there is, so the two truth tables below can be shown to cover the enum rather than
 /// to cover the cases somebody remembered.
-let everyReason: [EarlyStartSkip] = [.otherProvider, .accountOff, .notLaunchable, .unreadable,
-                                     .windowOpen, .alreadyStarted, .armedMidEpisode, .quietHours]
+let everyReason: [EarlyStartSkip] = [.otherProvider, .accountOff, .notLaunchable, .pollMissed,
+                                     .unreadable, .windowOpen, .alreadyStarted, .armedMidEpisode,
+                                     .quietHours]
 
 // 1. THE FIRST-RUN GATE. The feature ships on, so the switch alone must not be enough: nothing may
 //    be sent before the one-time notice has been answered. All four rows, because the interesting

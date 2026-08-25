@@ -60,11 +60,29 @@ func runRelayChecks() {
         // What that produces. The held-over numbers say the window is closed, which is the answer that
         // SENDS a message, and nothing may act on it: they are not this moment's numbers.
         let held = usage("a", session: metric(.session, used: 0, resetsAt: nil), lastRefreshFailed: true)
-        let stale = candidate("a", readable: EarlyStartLogic.readingIsUsable(held),
-                              windowOpen: EarlyStartLogic.windowIsOpen(held, now: now))
-        expect(EarlyStartLogic.pass(stale, state: EarlyStartState(), quietHours: loud, now: now,
-                                    calendar: taipei) == .unreadable,
+        let missed = candidate("a", readable: EarlyStartLogic.readingIsUsable(held),
+                               keepsFailing: EarlyStartLogic.readingKeepsFailing(held),
+                               windowOpen: EarlyStartLogic.windowIsOpen(held, now: now))
+        expect(EarlyStartLogic.pass(missed, state: EarlyStartState(), quietHours: loud, now: now,
+                                    calendar: taipei) == .pollMissed,
                "an account on a held-over reading is passed over rather than started")
+
+        // …AND THE OTHER HALF OF THE SAME FOLD DECIDES WHAT IS SAID ABOUT IT. `isStale` waits for a
+        // second consecutive failure, which is the question a person reading "N skipped" is asking:
+        // the day's list is a set that stands until midnight, so reporting the first miss would name
+        // every account that ever lost a poll to a token rotation and go on naming it all day.
+        let keptFailing = usage("a", session: metric(.session, used: 0, resetsAt: nil),
+                                error: "boom", lastRefreshFailed: true, isStale: true)
+        expect(!EarlyStartLogic.readingKeepsFailing(held),
+               "one missed round is not an account whose polls keep failing")
+        expect(EarlyStartLogic.readingKeepsFailing(keptFailing),
+               "…and a streak long enough for the badge to say so is")
+        let sustained = candidate("a", readable: EarlyStartLogic.readingIsUsable(keptFailing),
+                                  keepsFailing: EarlyStartLogic.readingKeepsFailing(keptFailing),
+                                  windowOpen: EarlyStartLogic.windowIsOpen(keptFailing, now: now))
+        expect(EarlyStartLogic.pass(sustained, state: EarlyStartState(), quietHours: loud, now: now,
+                                    calendar: taipei) == .unreadable,
+               "…which is the pass that gets reported, while the single miss is not")
     }
 
     // 8. WHO IS PASSED OVER, and in which order. Two orderings are load-bearing: a signed-out account
@@ -89,8 +107,10 @@ func runRelayChecks() {
                "an account with nothing to launch with is passed")
         expect(pass(candidate("a", home: nil, readable: false)) == .notLaunchable,
                "…and that answer wins over the unreadable one it also produces")
-        expect(pass(candidate("a", readable: false)) == .unreadable,
+        expect(pass(candidate("a", readable: false)) == .pollMissed,
                "an account whose latest poll failed is passed: the window state is not known")
+        expect(pass(candidate("a", readable: false, keepsFailing: true)) == .unreadable,
+               "…and one whose polls keep failing is passed for the reason that gets reported")
         expect(pass(candidate("a", windowOpen: true)) == .windowOpen,
                "an account already working is left alone")
 
@@ -124,12 +144,12 @@ func runRelayChecks() {
     }
 
     // 9. WHICH PASSES COUNT AS SKIPS, and which are EVIDENCE the window opened. Two axes over the same
-    //    eight reasons, listed exhaustively from `everyReason` so a reason added later cannot slip past
+    //    nine reasons, listed exhaustively from `everyReason` so a reason added later cannot slip past
     //    both tables. They now share no case at all: one asks what the user should be told, the other
     //    what the provider's numbers proved.
     do {
-        expect(everyReason.count == 8 && Set(everyReason.map(\.rawValue)).count == 8,
-               "all eight reasons are named here, once each")
+        expect(everyReason.count == 9 && Set(everyReason.map(\.rawValue)).count == 9,
+               "all nine reasons are named here, once each")
 
         expect(EarlyStartSkip.notLaunchable.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip,
                "the two that mean an account gets nothing while the switch reads on are reported")
@@ -144,6 +164,11 @@ func runRelayChecks() {
         expect(!EarlyStartSkip.quietHours.countsAsSkip && !EarlyStartSkip.alreadyStarted.countsAsSkip
                  && !EarlyStartSkip.armedMidEpisode.countsAsSkip,
                "…and neither is silence somebody asked for, nor a stretch already dealt with")
+        // The debounce, as a truth-table row: one missed poll is not news, a streak of them is. The
+        // list this feeds is a set that only clears at midnight, so the difference is between a row
+        // that reads wrong until tomorrow and one that reads wrong for a minute.
+        expect(!EarlyStartSkip.pollMissed.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip,
+               "…nor is a single missed poll, though the streak it may become is")
 
         expect(EarlyStartSkip.windowOpen.observesOpenWindow,
                "an open window is evidence the window opened")
@@ -181,6 +206,27 @@ func runRelayChecks() {
         expect(!allBusy.isReportable, "…and puts nothing on the row")
         expect(allBusy.needsRecording,
                "…but is still written down: the observation is what makes the relay a relay")
+
+        // A fleet where one account blinked and another has been failing for a while. Neither is
+        // started - the window state is not known for either - and only the sustained one is put on
+        // the day's row, which is what keeps a token rotation from leaving a mark until midnight.
+        let flaky = EarlyStartLogic.plan(
+            candidates: [candidate("blinked", readable: false),
+                         candidate("failing", readable: false, keepsFailing: true)],
+            state: EarlyStartState(), quietHours: loud, now: now, calendar: taipei)
+        expect(flaky.start.isEmpty, "neither unreadable account is started")
+        expect(flaky.passed.map(\.reason) == [.pollMissed, .unreadable],
+               "…and they are passed over for different reasons")
+        expect(flaky.skippedCount == 1 && flaky.isReportable,
+               "…of which only the sustained one reaches the row")
+
+        // A fleet whose only content is one missed poll writes nothing at all: no row, and no state,
+        // so the account is asked again on the next refresh with nothing carried over.
+        let blink = EarlyStartLogic.plan(candidates: [candidate("blinked", readable: false)],
+                                         state: EarlyStartState(), quietHours: loud, now: now,
+                                         calendar: taipei)
+        expect(!blink.isReportable && !blink.needsRecording,
+               "a fleet whose only news is one missed poll writes nothing")
 
         // A fleet with nothing in scope at all: neither reported nor recorded.
         let none = EarlyStartLogic.plan(
@@ -273,10 +319,21 @@ func runRelayChecks() {
                "…which is five hours: the length of the window that message would have opened")
     }
 
-    // 13. …AND THE OBSERVATION CANNOT BE FORGED BY THE CLOCK. An account seen open and then closed
-    //     inside the retry interval IS started again, because Anthropic's own numbers say a window ran.
-    //     This is the pair to 12: same elapsed time, opposite answer, and the only difference is
-    //     whether a window was actually observed.
+    // 13. …AND THE OBSERVATION DOES NOT LIFT THE ATTEMPT'S FLOOR. This is the pair to 12: same
+    //     elapsed time, and now the SAME answer, because "at most one message per account every 5
+    //     hours" is stated three times in the shipping app (EarlyStart.swift, the Settings row and
+    //     the panel notice) and nothing may override it.
+    //
+    //     The reasoning is arithmetic, and it is why the observation looks safe here and is not: a
+    //     window one of these messages opens is exactly `retryInterval` long, so it cannot close
+    //     EARLY. A window that closes an hour after the message was somebody else's, joined rather
+    //     than opened, which is what happens whenever the reading that sent the message read a live
+    //     window as closed (`windowIsOpen` names the 0%-rounding edge that does it). Acting on that
+    //     close is a second message inside the hour.
+    //
+    //     What the observation DOES release is the suppression with no message behind it, and no
+    //     cost to bound: the arming stamp. Both halves are asserted here so that neither the
+    //     unconditional release this replaced nor a bare deletion of it can pass.
     do {
         let tried = at("2026-08-24 09:00")
         var withWindow = EarlyStartState()
@@ -285,11 +342,33 @@ func runRelayChecks() {
         withoutWindow.marks["a"] = EarlyStartMark(attemptedAt: tried, sawWindowOpen: false)
         let soon = at("2026-08-24 10:00")
 
-        expect(EarlyStartLogic.pass(candidate("a"), state: withWindow, quietHours: loud, now: soon,
-                                    calendar: taipei) == nil,
-               "an observed window that has closed lets the next message through at once")
-        expect(EarlyStartLogic.pass(candidate("a"), state: withoutWindow, quietHours: loud, now: soon,
-                                    calendar: taipei) == .alreadyStarted,
-               "…while the same hour with no window observed waits")
+        func held(_ state: EarlyStartState, at when: Date) -> EarlyStartSkip? {
+            EarlyStartLogic.pass(candidate("a"), state: state, quietHours: loud, now: when,
+                                 calendar: taipei)
+        }
+
+        expect(held(withWindow, at: soon) == .alreadyStarted,
+               "an observed window closing an hour after the message does NOT let a second one out")
+        expect(held(withoutWindow, at: soon) == .alreadyStarted,
+               "…and the same hour with no window observed waits too: it is one floor, not two")
+        expect(held(withWindow, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval - 1))
+                 == .alreadyStarted,
+               "…one second short of the interval, an observed window still changes nothing")
+        expect(held(withWindow, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval)) == nil,
+               "…and at the interval exactly it goes, which is when the window it opened closes")
+
+        // THE OBSERVATION'S OWN CASE: a mark with no attempt behind it. Nothing was sent, so there
+        // is no cost to bound, and a window seen open and then closed ends the episode the arming
+        // stamp was holding. Deleting the observation outright rather than qualifying it would
+        // answer `.armedMidEpisode` here and decay the relay into a five-hourly alarm.
+        var armedAndSeen = EarlyStartState()
+        armedAndSeen.armedAt = tried
+        armedAndSeen.marks["a"] = EarlyStartMark(attemptedAt: nil, sawWindowOpen: true)
+        expect(held(armedAndSeen, at: soon) == nil,
+               "an account held by the arming stamp alone IS released by the window it was seen in")
+        var armedUnseen = EarlyStartState()
+        armedUnseen.armedAt = tried
+        expect(held(armedUnseen, at: soon) == .armedMidEpisode,
+               "…while the same stamp with no window observed still holds it")
     }
 }

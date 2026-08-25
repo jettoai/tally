@@ -37,6 +37,10 @@ struct EarlyStartCandidate: Equatable {
     /// held-over reading cannot answer the window question, and a wrong answer here spends a
     /// message rather than saving one.
     var readingIsUsable: Bool
+    /// Whether those failures have been SUSTAINED rather than a single missed round
+    /// (`EarlyStartLogic.readingKeepsFailing`). It decides only what the day's row reports, never
+    /// whether a message goes out: an unusable reading blocks the send either way.
+    var readingKeepsFailing: Bool
     /// Whether the 5-hour window is already counting down (`EarlyStartLogic.windowIsOpen`).
     var windowIsOpen: Bool
 }
@@ -50,7 +54,12 @@ enum EarlyStartSkip: String, Equatable {
     case accountOff
     /// Signed out, or otherwise with no home to launch with.
     case notLaunchable
-    /// The latest poll failed, so whether the window is open is not known right now.
+    /// The latest poll failed, so whether the window is open is not known right now, and this is the
+    /// first miss or two. One-minute polling produces these routinely: the brief window while a CLI
+    /// rotates an OAuth token is exactly the kind it catches (`foldLastGood`).
+    case pollMissed
+    /// …and the polls have gone on failing long enough for the account to read as stale
+    /// (`AccountUsage.isStale`), which is the version of that news worth showing somebody.
     case unreadable
     /// The window is already counting down. The commonest pass by far, and the one the feature is
     /// for: somebody who is working gets nothing sent on their behalf. It is also the OBSERVATION
@@ -75,10 +84,15 @@ enum EarlyStartSkip: String, Equatable {
     /// What is left is the pair a user would want to see a number for and could not learn any other
     /// way: an account with no credential to launch with, and one whose polls keep failing. Both
     /// mean the switch reads "on" while that account gets nothing.
+    ///
+    /// KEEP FAILING, NOT FAILED ONCE, which is why the unreadable reason is two cases. The day's
+    /// list is a set that only clears at midnight, so one missed poll would pin an account there
+    /// until then and leave the row saying something is wrong hours after it stopped being. That is
+    /// `pollMissed`, and it reports nothing.
     var countsAsSkip: Bool {
         switch self {
-        case .otherProvider, .accountOff, .windowOpen, .alreadyStarted, .armedMidEpisode,
-             .quietHours: return false
+        case .otherProvider, .accountOff, .pollMissed, .windowOpen, .alreadyStarted,
+             .armedMidEpisode, .quietHours: return false
         case .notLaunchable, .unreadable: return true
         }
     }
@@ -89,12 +103,14 @@ enum EarlyStartSkip: String, Equatable {
     /// A DIFFERENT AXIS FROM `countsAsSkip` and, since that one narrowed, they now share no case at
     /// all: this asks what the pass proves about the provider's side, that one asks what the user
     /// should be told. Only `windowOpen` proves anything - it is read from Anthropic's own numbers,
-    /// which is a stronger fact than a spawn's exit code, and it is the reason a message that failed
-    /// silently does not unlock a second one before `EarlyStartLogic.retryInterval`.
+    /// which is a stronger fact than a spawn's exit code, and it is what releases an account the
+    /// arming stamp is holding without waiting out `EarlyStartLogic.retryInterval`. It does NOT
+    /// release an account that has had a message: that one owes the interval whatever is seen
+    /// during it (`EarlyStartLogic.pass`).
     var observesOpenWindow: Bool {
         switch self {
         case .windowOpen: return true
-        case .otherProvider, .accountOff, .notLaunchable, .unreadable, .alreadyStarted,
+        case .otherProvider, .accountOff, .notLaunchable, .pollMissed, .unreadable, .alreadyStarted,
              .armedMidEpisode, .quietHours: return false
         }
     }
@@ -145,8 +161,11 @@ enum EarlyStartLogic {
     /// goes wrong, and however often the app refreshes, one account cannot be sent more than one
     /// message per five hours.
     ///
-    /// The ordinary path is much quicker than this and does not use it: a window seen OPEN and then
-    /// closed ends the episode on the provider's own numbers (`EarlyStartSkip.observesOpenWindow`).
+    /// NOTHING OVERRIDES IT, which is what makes it a guarantee rather than a default, and the
+    /// ordinary path does not have to wait past it either: the window one of these messages opens is
+    /// itself exactly this long, so it closes at the moment the floor lifts and the relay hands over
+    /// on time. What the observation (`EarlyStartSkip.observesOpenWindow`) releases early is the
+    /// suppression that has no message behind it, and so no cost to bound (`EarlyStartState.armedAt`).
     static let retryInterval: TimeInterval = 5 * 60 * 60
 
     /// Which telling of this feature the one-time notice has to have delivered. Bumped when the
@@ -211,32 +230,56 @@ enum EarlyStartLogic {
         usage.error == nil && !usage.lastRefreshFailed
     }
 
+    /// Whether this account's polls have been failing long enough to be worth a line on the day's
+    /// row, rather than having missed a single round.
+    ///
+    /// THE DEBOUNCED HALF OF THE FOLD `readingIsUsable` READS THE UNDEBOUNCED HALF OF, and the two
+    /// readers need opposite answers for the reason `foldLastGood` spells out. The decision needs
+    /// the first failure, because a held-over reading cannot answer the window question. A person
+    /// reading "N skipped" needs the second, because that list is a set that stands until midnight:
+    /// on the first failure it would name every account that ever lost a poll to a token rotation
+    /// and go on naming it all day.
+    static func readingKeepsFailing(_ usage: AccountUsage) -> Bool { usage.isStale }
+
     /// Why this account is not being started, or nil to start it.
     ///
-    /// THE ORDER IS LOAD-BEARING IN TWO PLACES. `notLaunchable` comes before `unreadable` because a
-    /// signed-out account also reports an unusable reading, and "there is no credential here" is the
-    /// more useful of the two answers. And the window check comes before the dedup checks, which is
-    /// the opposite of the order the morning schedule used: an account that already had its message
-    /// is exactly the account whose reopened window has to be SEEN, because seeing it is what ends
-    /// the episode and lets the next message through. Put the dedup first and the relay never
-    /// advances - it decays into a five-hourly alarm.
+    /// THE ORDER IS LOAD-BEARING IN TWO PLACES. `notLaunchable` comes before the reading check
+    /// because a signed-out account also reports an unusable reading, and "there is no credential
+    /// here" is the more useful of the two answers. And the window check comes before the
+    /// suppression checks, which is the opposite of the order the morning schedule used: a
+    /// suppressed account is exactly the one whose open window has to be SEEN, because the
+    /// observation is read off the pass reason (`EarlyStartSkip.observesOpenWindow`) and it is what
+    /// releases an account the arming stamp is holding. Put the suppression first and an account
+    /// armed mid-episode is answered `.armedMidEpisode` every time - no observation is ever recorded
+    /// for it, and the relay decays into the five-hourly alarm it replaced.
     static func pass(_ candidate: EarlyStartCandidate, state: EarlyStartState,
                      quietHours: EarlyStartQuietHours, now: Date, calendar: Calendar)
         -> EarlyStartSkip? {
         if candidate.providerID != providerID { return .otherProvider }
         if !candidate.isEnabled { return .accountOff }
         if candidate.home == nil { return .notLaunchable }
-        if !candidate.readingIsUsable { return .unreadable }
+        if !candidate.readingIsUsable {
+            return candidate.readingKeepsFailing ? .unreadable : .pollMissed
+        }
         if candidate.windowIsOpen { return .windowOpen }
         if quietHours.contains(now, calendar: calendar) { return .quietHours }
 
         let mark = state.marks[candidate.accountID]
-        // The window was seen open after this account's suppression began and is closed now: that is
-        // a whole episode, ended by the provider's own numbers. Nothing is owed to the clock.
-        if mark?.sawWindowOpen == true { return nil }
+        // THE ATTEMPT'S FLOOR FIRST, AND NOTHING GETS PAST IT: an account that has had a message
+        // owes the five hours whatever is observed during them, which is the promise three places
+        // in this app make in those words. A window seen open and then closed INSIDE the interval
+        // cannot be the one this feature opened, since that one is exactly the interval long; it
+        // was somebody else's, joined rather than started, because the reading that sent the
+        // message read a live window as closed (`windowIsOpen` names the 0%-rounding edge that
+        // does it). Releasing on that close is a second message inside the hour.
         if let attemptedAt = mark?.attemptedAt {
             return now.timeIntervalSince(attemptedAt) >= retryInterval ? nil : .alreadyStarted
         }
+        // No attempt of its own, so there is no cost to bound: this account is held by the arming
+        // stamp alone (`arming` says why that stamp cannot name accounts), and a window seen open
+        // and then closed is the provider's own numbers saying that episode is over. THIS is what
+        // the observation is for, and the only place it decides anything.
+        if mark?.sawWindowOpen == true { return nil }
         if let armedAt = state.armedAt {
             return now.timeIntervalSince(armedAt) >= retryInterval ? nil : .armedMidEpisode
         }
@@ -301,8 +344,14 @@ enum EarlyStartLogic {
     /// - Parameters:
     ///   - attempted: account ids a spawn was made for, whatever its outcome.
     ///   - failed: how many of those did not go through.
+    ///   - couldNotStart: account ids no spawn could be made for at all, because there is no CLI on
+    ///     the machine. NAMED RATHER THAN COUNTED, like `skipped` and for a sharper version of the
+    ///     same reason: no attempt is made, so nothing is marked, so the very same accounts are
+    ///     chosen again at the next refresh and every one after it. A counter would describe the
+    ///     refresh loop (a thousand a day at the shipping interval) rather than the fleet.
     static func recording(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
-                          failed: Int, now: Date, calendar: Calendar) -> EarlyStartState {
+                          failed: Int, couldNotStart: [String] = [], now: Date,
+                          calendar: Calendar) -> EarlyStartState {
         var next = state
         // A fresh mark, not an edit: an attempt begins a new episode, so whatever was observed about
         // the last one stops counting here.
@@ -327,6 +376,9 @@ enum EarlyStartLogic {
                 skipped.insert(entry.accountID)
             }
             report.skipped = skipped.sorted()
+            var blocked = Set(report.couldNotStart)
+            blocked.formUnion(couldNotStart)
+            report.couldNotStart = blocked.sorted()
             if !attempted.isEmpty { report.lastAttemptAt = now }
             next.today = report
         }

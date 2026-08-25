@@ -74,10 +74,19 @@ struct SettingsEarlyStartRow: View {
             Toggle(isOn: Binding(
                 get: { store.quietHours.isEnabled },
                 // Turning it ON adopts the suggested overnight stretch rather than a range of zero
-                // length, which would read as a control that does nothing.
+                // length, which `EarlyStartQuietHours.contains` reads as no quiet time at all and
+                // would present as a control that does nothing.
+                //
+                // ASKED OF THE RANGE, NOT OF THE SWITCH. Reading "off" as "has no range" is wrong
+                // on the only machine where the difference shows: the range survives the switch
+                // being turned off (`EarlyStartStore.setQuietHours` writes all five defaults
+                // whatever `isEnabled` says), so somebody who set 22:30 to 06:30, turned this off
+                // and turned it back on the next day got 23:00 to 07:00 and no way back. A fresh
+                // install already holds the suggested range, so the old test bought nothing there
+                // either.
                 set: { on in
-                    var next = store.quietHours.isEnabled ? store.quietHours
-                                                          : EarlyStartQuietHours.suggested
+                    var next = store.quietHours
+                    if on, next.startMinutes == next.endMinutes { next = .suggested }
                     next.isEnabled = on
                     store.setQuietHours(next)
                 })) {
@@ -157,24 +166,28 @@ struct SettingsEarlyStartRow: View {
     /// What today has done, or an honest blank. Never a made-up number: a day with nothing on it
     /// says so, and a day whose only content is a failure says that rather than reading as idle.
     private var tallyText: String {
+        // One number for "could not start", from two fields: an attempt that failed and an account
+        // no attempt could be made for read the same way here, and only one of them is a count
+        // (`EarlyStartToday.couldNotStartTotal`).
         guard let today = store.today,
               today.day == EarlyStartLogic.dayKey(Date(), calendar: Calendar.current),
-              today.started > 0 || today.failed > 0 || today.skippedCount > 0 else {
+              today.started > 0 || today.couldNotStartTotal > 0 || today.skippedCount > 0 else {
             return L("Nothing sent today yet.")
         }
+        let blocked = today.couldNotStartTotal
         guard let at = today.lastAttemptAt else {
             // No message went out at all, so there is no time to name - what there is, is the
             // reason: an account that could not be reached, or a CLI that is not installed.
-            if today.failed > 0 {
+            if blocked > 0 {
                 return String(format: L("Today: %1$d skipped, %2$d could not start."),
-                              today.skippedCount, today.failed)
+                              today.skippedCount, blocked)
             }
             return String(format: L("Today: %1$d skipped."), today.skippedCount)
         }
         let stamp = AppLocale.shortTime(at)
-        if today.failed > 0 {
+        if blocked > 0 {
             return String(format: L("Today: %1$d started, %2$d skipped, %3$d could not start. Last message at %4$@."),
-                          today.started, today.skippedCount, today.failed, stamp)
+                          today.started, today.skippedCount, blocked, stamp)
         }
         return String(format: L("Today: %1$d started, %2$d skipped. Last message at %3$@."),
                       today.started, today.skippedCount, stamp)

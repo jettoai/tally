@@ -147,22 +147,58 @@ func runStateChecks() {
                "…and rebuilds its own skipped list rather than inheriting yesterday's counts")
 
         // No CLI on the machine: nothing was attempted, so nothing is marked, and the row says the
-        // accounts could not be started rather than that they were skipped.
+        // accounts could not be started rather than that they were skipped. NAMED, not counted, for
+        // the reason asserted three assertions down.
+        let blockedIDs = plan.start.map(\.accountID)
         let missing = EarlyStartLogic.recording(EarlyStartState(), plan: plan, attempted: [],
-                                                failed: plan.start.count, now: morning,
+                                                failed: 0, couldNotStart: blockedIDs, now: morning,
                                                 calendar: taipei)
-        expect(missing.today?.started == 0 && missing.today?.failed == 2,
+        expect(missing.today?.started == 0 && missing.today?.couldNotStartTotal == 2,
                "a missing CLI records two that could not start")
+        expect(missing.today?.couldNotStart == ["a", "b"] && missing.today?.failed == 0,
+               "…by name, and not as attempts that were made and answered")
         expect(missing.today?.lastAttemptAt == nil,
                "…and names no time, because no message was sent")
         expect(missing.marks["a"] == nil && missing.marks["b"] == nil,
                "…and marks neither of them, so an install that lands later is served at once")
+
+        // THE SAME EVALUATION AGAIN, which is exactly what the line above buys and pays for. Nothing
+        // was marked, so the next refresh chooses the same two accounts, and so does the one after
+        // it: at the shipping interval of one minute that is 1,440 evaluations a day describing two
+        // accounts that were never once tried. The set holds at two.
+        var repeated = missing
+        for minute in 1...5 {
+            repeated = EarlyStartLogic.recording(
+                repeated, plan: plan, attempted: [], failed: 0, couldNotStart: blockedIDs,
+                now: morning.addingTimeInterval(Double(minute) * 60), calendar: taipei)
+        }
+        expect(repeated.today?.couldNotStartTotal == 2,
+               "…and five more refreshes with the CLI still missing leave it at two, not seven")
+
+        // A real spawn failure is the other half of the same number and DOES accumulate: it counts
+        // attempts, and one was made each time.
+        let answered = EarlyStartLogic.recording(EarlyStartState(), plan: plan, attempted: ["a"],
+                                                 failed: 1, now: morning, calendar: taipei)
+        expect(answered.today?.failed == 1 && answered.today?.couldNotStart == [],
+               "an attempt that failed is counted rather than named: it happened once")
+
+        // A single missed poll leaves no trace on the day it recovers in, while a sustained failure
+        // is what the skipped column is for.
+        let flaky = EarlyStartLogic.plan(candidates: [candidate("blinked", readable: false),
+                                                      candidate("failing", readable: false,
+                                                                keepsFailing: true)],
+                                         state: EarlyStartState(), quietHours: loud, now: morning,
+                                         calendar: taipei)
+        let flakyRecorded = EarlyStartLogic.recording(EarlyStartState(), plan: flaky, attempted: [],
+                                                      failed: 0, now: morning, calendar: taipei)
+        expect(flakyRecorded.today?.skipped == ["failing"],
+               "one missed poll is not written to a list that stands until midnight")
         // The observation about the busy account is recorded whether or not a CLI exists - shown here
         // against an arming stamp, which is the state where that observation has something to unlock.
         var armed = EarlyStartState()
         armed.armedAt = at("2026-08-24 08:30")
-        let missingArmed = EarlyStartLogic.recording(armed, plan: plan, attempted: [],
-                                                     failed: plan.start.count, now: morning,
+        let missingArmed = EarlyStartLogic.recording(armed, plan: plan, attempted: [], failed: 0,
+                                                     couldNotStart: blockedIDs, now: morning,
                                                      calendar: taipei)
         expect(missingArmed.marks["busy"]?.sawWindowOpen == true,
                "…while the observation about the busy account is recorded either way")
@@ -213,7 +249,8 @@ func runStateChecks() {
         var state = EarlyStartState()
         state.marks = ["a": EarlyStartMark(attemptedAt: at("2026-08-24 09:00"), sawWindowOpen: true)]
         state.armedAt = at("2026-08-24 08:00")
-        state.today = EarlyStartToday(day: "2026-08-24", started: 2, failed: 1, skipped: ["gone"],
+        state.today = EarlyStartToday(day: "2026-08-24", started: 2, failed: 1,
+                                      couldNotStart: ["nocli"], skipped: ["gone"],
                                       lastAttemptAt: at("2026-08-24 09:00"))
         let data = try! JSONEncoder().encode(state)
         expect((try? JSONDecoder().decode(EarlyStartState.self, from: data)) == state,
@@ -241,7 +278,16 @@ func runStateChecks() {
 
         let partialDay = Data(#"{"day":"2026-08-24","started":2}"#.utf8)
         let decodedDay = try? JSONDecoder().decode(EarlyStartToday.self, from: partialDay)
-        expect(decodedDay?.failed == 0 && decodedDay?.skipped == [] && decodedDay?.lastAttemptAt == nil,
+        expect(decodedDay?.failed == 0 && decodedDay?.skipped == [] && decodedDay?.lastAttemptAt == nil
+                 && decodedDay?.couldNotStart == [],
                "a tally written before the later columns reads them as empty")
+
+        // THE PAYLOAD THE BUILD BEFORE THIS ONE WROTE, where "could not start" was a single counter
+        // that the missing-CLI path drove: the count has to survive as what it is, and the new list
+        // has to read empty rather than throwing (`EarlyStartState`'s fields-are-only-added rule).
+        let counterEra = Data(#"{"day":"2026-08-24","started":1,"failed":2,"skipped":["gone"]}"#.utf8)
+        let decodedCounter = try? JSONDecoder().decode(EarlyStartToday.self, from: counterEra)
+        expect(decodedCounter?.couldNotStart == [] && decodedCounter?.couldNotStartTotal == 2,
+               "a tally from before the list reads its count unchanged and its list empty")
     }
 }

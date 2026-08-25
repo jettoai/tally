@@ -189,6 +189,14 @@ subscriptions at once:
   fresh window to the account with the most room when the one it is on is nearly dry. The
   trigger is a fact, not a guess: Claude Code's own status line reports the new conversation id,
   so a `/clear` swallowed by a prompt moves nothing.
+- **Early start.** A 5-hour window only starts counting when you send something, so the day's
+  first reset lands five hours after you sit down, and every pause pushes the next one later.
+  Whenever a Claude account's window is closed, Tally opens it with one short message through the
+  official CLI, pinned to the cheapest model, so the clock runs while you sleep and resets land
+  earlier in your day. At most one message per account every 5 hours, an account already working
+  is left alone, and optional quiet hours keep it silent overnight. It never touches credentials,
+  tells you once before the first message ever goes out, and the settings row keeps the day's
+  honest tally: how many accounts started, were skipped on purpose, or could not start.
 - **The account that is running out says so.** When an account's binding window drops under 15%,
   Tally types one line into the composer of every session on it, naming the bottleneck window,
   when it refills, how many sessions are sharing it, and which sibling account still has room:

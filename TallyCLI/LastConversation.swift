@@ -16,11 +16,21 @@ import Foundation
 // the same mistake in Tally's own handwriting; a conversation belongs to the directory it was had
 // in, and any account can resume it by id.
 //
-// WHAT IT CANNOT SEE, and why that is the right blindness. Only supervised sessions report, and
-// `shouldSupervise` (LaunchFlags.swift) already refuses one-shot runs, so a `claude -p` can never
-// land here. Background agents are not supervised either. Those are exactly the sessions Claude
-// Code's own `--continue` skips, so the exclusion arrives for free rather than as a filter that
-// could drift out of step with theirs.
+// WHAT IT CANNOT SEE, said plainly rather than justified. ONLY SUPERVISED SESSIONS REPORT, so this
+// record is blind to every session that has no supervisor: one launched with an `--account` pin or
+// `--no-handoff`, one started through the PATH shim, one from a `claude` typed by hand. An earlier
+// version of this note called that blindness "the right blindness" on the grounds that the excluded
+// set was "exactly the sessions Claude Code's own `--continue` skips" - which is true of a `claude
+// -p` run and of a background agent (`shouldSupervise`, LaunchFlags.swift, refuses both) and false
+// of all the rest, which are ordinary interactive conversations `--continue` would happily pick up
+// (codex review of fc26083).
+//
+// WHAT THAT COSTS, exactly: a directory whose most recent conversation was had in an unsupervised
+// session has no record naming it, so the launch after it falls through to channel 2 and RANKS the
+// directory. That is the behaviour every build before this record had, and the ranking is filtered
+// hard - so the cost is a good answer instead of a certain one, never a wrong one. It is not a
+// safety question either: whether a live conversation may be resumed is asked of the live set, which
+// does see those sessions (UnmanagedLaunch.swift).
 //
 // STALENESS IS SELF-CORRECTING and never silent: a record naming a conversation whose transcript is
 // gone simply does not match anything in the directory, and the launch falls back to reading it
@@ -76,21 +86,36 @@ func writeLastConversation(_ id: String, cwd: String, dir: URL = lastConversatio
 /// blanking the record on that would take the answer away for exactly as long as the new session
 /// has nothing to say.
 ///
-/// THE FIRST TICK OF A PROCESS ASKS THE FILE, because in-memory state is not the same age as the
-/// process's knowledge. A self-update replaces the image with `execv` (SelfUpdate.swift): the pid,
-/// the session and the conversation all survive it, and this struct does not - the new image starts
-/// with `current` at nil and so wrote the record again on its next tick, over whatever a SIBLING
-/// session in the same directory had published in the meantime (codex review of fcf2037). Reading
-/// first makes that write happen only when it would say something new.
+/// A SELF-UPDATE HANDS THIS WRITER'S MEMORY OVER, because the session outlives the image. `execv`
+/// keeps the pid, the child and the conversation; it does not keep this struct, so the new image
+/// used to start with nothing in hand and re-announce an unchanged conversation on its first tick -
+/// over whatever a SIBLING session in the same directory had published in the meantime. The first
+/// version of this guard read the FILE instead and only skipped the write when the file still said
+/// what we would say, which is precisely the case where the sibling had NOT written: the one it was
+/// added to fix went straight through it (codex review of fc26083, with a unit-level reproduction).
+/// So the memory rides the exec, in the argv beside the fuse and the pinned account
+/// (`resuperviseLastConversationFlag`), and the new image knows on tick one that nothing changed.
 ///
-/// WHAT IT DOES NOT FIX, stated rather than implied: two live sessions in one directory genuinely
+/// THE FILE IS STILL READ, for a different case the memory cannot answer: a FRESH process whose
+/// first conversation is the one the record already names - a launch that just resumed by id off
+/// this very record. Announcing it back would be a write that says nothing.
+///
+/// WHAT NEITHER FIXES, stated rather than implied: two live sessions in one directory genuinely
 /// disagree about which conversation was watched here last, and this record has one slot. Whichever
-/// of them changes conversation most recently wins it, which is the right answer to the question the
-/// slot asks ("the last one watched here") and is unaffected by this. What is removed is the write
-/// that says nothing - a restart re-announcing an id the file already carries, purely because the
-/// process behind the pid is new.
+/// of them actually CHANGES conversation most recently wins it, which is the right answer to the
+/// question the slot asks. What is removed is the write that carries no news.
 struct LastConversationWriter {
     private var current: String?
+
+    /// `current` is seeded across a self-update, and only there: `runSupervised` hands over what the
+    /// supervisor this process replaced had published (SelfUpdate.swift). A fresh session seeds
+    /// nothing, which is what makes its first binding news.
+    init(current: String? = nil) {
+        self.current = current
+    }
+
+    /// What this writer has published, for the exec that hands this session to a new image.
+    var published: String? { current }
 
     mutating func sync(_ id: String?, cwd: String, dir: URL = lastConversationDir) {
         guard let id, id != current else { return }

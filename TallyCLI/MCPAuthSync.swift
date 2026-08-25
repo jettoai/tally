@@ -116,10 +116,14 @@ func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
 func launchProvider(_ provider: Provider, args: [String], home: String,
                     env: (key: String, value: String)?) -> Never {
     // EVERY LAUNCH THAT REACHES HERE IS UNSUPERVISED - the supervised path returns from
-    // `runSupervised` and never arrives - so this is the one place all four of them pass through, and
-    // therefore where they announce themselves to the next launch in this directory
-    // (UnmanagedLaunch.swift). Ahead of the exec because the exec does not return, and ahead of the
-    // keychain work because neither of those touches this.
+    // `runSupervised` and never arrives - so each of them announces itself to the next launch in this
+    // directory (UnmanagedLaunch.swift). NOT every unsupervised session on the machine, which is what
+    // an earlier version of this comment claimed: the PATH shim execs the real binary without
+    // entering this program at all (IntegrationsShim.swift), and a hand-typed `claude` never comes
+    // near it. Those are caught by the session's own status line instead; what this call adds is the
+    // window before its first render, and the config homes where Tally's status line is not
+    // installed. Ahead of the exec because the exec does not return, and ahead of the keychain work
+    // because neither of those touches this.
     registerUnmanagedLaunch(providerID: provider.id, args: args)
     repairClaudeKeychain(provider: provider, interactive: isatty(STDOUT_FILENO) == 1)
     seedMCPAuthorization(provider: provider, home: home,

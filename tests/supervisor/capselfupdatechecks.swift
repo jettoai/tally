@@ -131,6 +131,46 @@ func runCapSelfUpdateChecks() {
           crowded.recoveries == [capT0] && crowded.sessionPin == "acct-2"
               && crowded.pendingCap?.cappedAccountID == pending.cappedAccountID
               && crowded.childArgs == ["--resume", "abc"])
+    // WHAT THIS SUPERVISOR HAS ALREADY PUBLISHED AS THE LAST CONVERSATION WATCHED HERE rides along
+    // for the same reason the fuse does: it is memory about this session's own history, it lives
+    // nowhere but in the writer, and the new image that cannot re-derive it re-announces an
+    // unchanged conversation on its first tick - over whatever a SIBLING session in the directory
+    // published in the meantime (LastConversation.swift).
+    let withRecord = parseResuperviseArgs(Array(selfUpdateArgv(
+        binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h", follow: true,
+        recoveries: [capT0], sessionPin: "acct-2", pendingCap: pending,
+        lastConversation: "conv-abc", args: ["--resume", "abc"]).dropFirst(2)))
+    check("the published conversation survives the argv round trip",
+          withRecord.lastConversation == "conv-abc")
+    check("…alongside everything else that rides",
+          withRecord.recoveries == [capT0] && withRecord.sessionPin == "acct-2"
+              && withRecord.pendingCap?.cappedAccountID == pending.cappedAccountID
+              && withRecord.childArgs == ["--resume", "abc"])
+    check("a supervisor that has published nothing writes no flag at all",
+          !selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                          follow: true, args: []).contains(resuperviseLastConversationFlag))
+    // Re-validated on the way in: the value crossed a process boundary from a build we cannot see,
+    // and it is about to name a file. Anything that is not an id is no memory, which is the
+    // behaviour of every build that never wrote the flag.
+    check("a value that cannot be a transcript id is no memory",
+          parseResuperviseArgs([resuperviseLastConversationFlag, "../../etc/passwd"])
+              .lastConversation == nil)
+    check("an argv from a build predating the flag parses as no memory",
+          parseResuperviseArgs(["--id", "a", "--home", "/h", "--follow"]).lastConversation == nil)
+    // BOTH ENDS ARE ACTUALLY WIRED, asserted from the source the way the transcript identity's two
+    // ends are: the loop needs a live child to run, so nothing here can call it. A flag that rides
+    // an argv nobody fills in and nobody reads back would round-trip perfectly and fix nothing.
+    let supervisorLoop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
+                                      encoding: .utf8)) ?? ""
+    check("the supervisor source is readable from the self-update checks", !supervisorLoop.isEmpty)
+    check("an upgrading supervisor hands on what it has published",
+          supervisorLoop.contains("lastConversation: lastConversation.published"))
+    check("…and the image it hands to starts holding it",
+          supervisorLoop.contains("LastConversationWriter(current: lastConversation)"))
+    let entry = (try? String(contentsOfFile: "TallyCLI/SelfUpdate.swift", encoding: .utf8)) ?? ""
+    check("…which the resupervise entry point takes off the argv",
+          entry.contains("lastConversation: parsed.lastConversation"))
+
     // Optional by construction: nothing pending writes no flag, which is what every build before
     // this one wrote, and an absent flag has to keep meaning "nothing pending".
     check("a session with no pending cap writes no flag at all",

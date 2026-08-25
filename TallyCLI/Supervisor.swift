@@ -34,7 +34,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false,
                    sessionPin: String? = nil, pinOverride: String? = nil,
                    pendingCap: PendingCapRecovery? = nil,
-                   sessionModel: SessionModelPin? = nil) -> Never {
+                   sessionModel: SessionModelPin? = nil,
+                   lastConversation: String? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -86,8 +87,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var sessionContext = SessionContextWriter()
     /// Which conversation this directory last held, published for the NEXT launch here rather than
     /// for this one (LastConversation.swift). Outside the loop for the same reason as the reading
-    /// above: the session survives its children, and so does the record.
-    var lastConversation = LastConversationWriter()
+    /// above: the session survives its children, and so does the record - and seeded from the
+    /// supervisor this process replaced in a self-update, so an upgrade does not re-announce an
+    /// unchanged conversation over a sibling session's newer one.
+    var lastConversation = LastConversationWriter(current: lastConversation)
     /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
@@ -966,7 +969,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       sessionPin: manualMoves.sessionPin,
                                       pinOverride: manualMoves.overriddenPin,
                                       pendingCap: carriedCap,
-                                      sessionModel: sessionModelState.pin, args: launchArgs)
+                                      sessionModel: sessionModelState.pin,
+                                      lastConversation: lastConversation.published,
+                                      args: launchArgs)
                 return .childReplaced
             }
             return .keepPolling

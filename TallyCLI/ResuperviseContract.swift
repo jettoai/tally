@@ -81,6 +81,21 @@ let resupervisePinOverrideFlag = "--pin-override"
 /// reading an argv it does not recognise skips the flag and its value as two unknown words.
 let resupervisePendingCapFlag = "--pending-cap"
 
+/// The flag carrying the conversation this session has already published as the last one watched in
+/// its directory (LastConversation.swift), for the same reason the fuse rides along: it is what this
+/// supervisor knows about its OWN history, it lives in memory only, and the new image cannot
+/// re-derive it from anywhere. Without it the first tick after an upgrade re-announces an unchanged
+/// conversation, and in a directory where a SIBLING session has published since, that write silently
+/// takes the sibling's newer answer back off - which is the whole failure the record exists to
+/// prevent, arriving from inside.
+///
+/// A plain string, not JSON: the value is one transcript id, and it is re-validated on the way in
+/// because it crossed a process boundary and the build that wrote it is one we cannot see. Optional
+/// by construction, like every flag here - a session that has published nothing writes none, which
+/// is also what every build predating this one wrote, and an absent flag means "no memory", which is
+/// exactly the behaviour those builds had.
+let resuperviseLastConversationFlag = "--last-conversation"
+
 /// The flag carrying the model and effort a `tally model` pinned this session to (SessionModel.swift).
 ///
 /// ONE flag for the pair, not one per axis, and that is a decision about this family rather than
@@ -226,7 +241,7 @@ private func decodeResuperviseFields(_ raw: String) -> [String: Any]? {
 func selfUpdateArgv(binary: String, id: String, label: String, home: String, follow: Bool,
                     recoveries: [Date] = [], sessionPin: String? = nil,
                     pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
-                    sessionModel: SessionModelPin? = nil,
+                    sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                     args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow ? "--follow" : "--no-follow"]
@@ -242,6 +257,9 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
     }
     if let sessionModel, let encoded = encodeSessionModel(sessionModel) {
         argv += [resuperviseSessionModelFlag, encoded]
+    }
+    if let lastConversation, isTranscriptSessionID(lastConversation) {
+        argv += [resuperviseLastConversationFlag, lastConversation]
     }
     return argv + ["--"] + args
 }
@@ -259,6 +277,7 @@ struct ResuperviseArgs {
     var pinOverride: String?
     var pendingCap: PendingCapRecovery?
     var sessionModel: SessionModelPin?
+    var lastConversation: String?
     var childArgs: [String] = []
 }
 
@@ -271,8 +290,9 @@ struct ResuperviseArgs {
 /// recoveries, which is the fresh-fuse behaviour this contract had all along; an absent
 /// `--session-pin` means the session was never pinned by hand, an absent `--pin-override` means it
 /// never overrode a pin, an absent `--pending-cap` means the session was not waiting on a cap, and
-/// an absent `--session-model` means it pinned no model or effort of its own - which is what every
-/// build before each flag effectively said too.
+/// an absent `--session-model` means it pinned no model or effort of its own, and an absent
+/// `--last-conversation` means this supervisor has published no record of its own yet - which is
+/// what every build before each flag effectively said too.
 func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
     var parsed = ResuperviseArgs()
     var index = 0
@@ -297,6 +317,12 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
             index += 2
         case resupervisePendingCapFlag: parsed.pendingCap = decodePendingCap(value()); index += 2
         case resuperviseSessionModelFlag: parsed.sessionModel = decodeSessionModel(value()); index += 2
+        // Re-validated rather than trusted: this value crossed a process boundary from a build we
+        // cannot see, and it is about to name a file. Anything that is not an id is no memory, which
+        // is the behaviour of every build that never wrote the flag.
+        case resuperviseLastConversationFlag:
+            parsed.lastConversation = isTranscriptSessionID(value()) ? value() : nil
+            index += 2
         case "--follow": parsed.follow = true; index += 1
         case "--no-follow": parsed.follow = false; index += 1
         case "--":

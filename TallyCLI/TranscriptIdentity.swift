@@ -282,14 +282,22 @@ func nonShellAncestor(of start: pid_t, limit: Int,
 /// injects its inputs: a test of the addressing must not read the suite's own environment, where
 /// `TALLY_SUPERVISOR_PID` names the very real session running it. The defaults are the real ones, so
 /// the status line reads exactly as it would without them.
+///
+/// RETURNS WHETHER A SUPERVISOR OWNS THIS SESSION, which is the one question the status line's other
+/// channel has to ask before it acts (UnmanagedLaunch.swift): a session with no supervisor to report
+/// to records itself instead, and asking that question a second way here would be a second copy of an
+/// addressing rule that already has exactly one. True means this report reached a supervisor, or
+/// found it had already said this; false means there is nobody to tell - no live marker, or a marker
+/// inherited from the session this one was started from, which the corroboration below refuses.
+@discardableResult
 func reportTranscriptIdentity(sessionID: String?, cwd: String?,
                               claudeCode: ProcessStamp? = claudeCodeThatRanUs(),
                               marker: String? = liveSessionMarker(),
-                              dir: URL = supervisorStateDir) {
+                              dir: URL = supervisorStateDir) -> Bool {
     guard let sessionID, isTranscriptSessionID(sessionID), let marker, let claudeCode
-    else { return }
+    else { return false }
     let identity = TranscriptIdentity(id: sessionID, claudeCode: claudeCode)
-    guard readTranscriptIdentity(pid: marker, dir: dir) != identity else { return }
+    guard readTranscriptIdentity(pid: marker, dir: dir) != identity else { return true }
     // The same rule every second-hand surface uses, and for the same reason: a marker is inherited
     // by everything a session ever starts, so a `claude` launched from inside another supervised
     // session carries a marker that has nothing to do with it. Process ancestry settles it here
@@ -307,8 +315,9 @@ func reportTranscriptIdentity(sessionID: String?, cwd: String?,
         here: supervisorsInDirectory(cwd ?? FileManager.default.currentDirectoryPath, dir: dir),
         published: { readSessionContext(pid: $0, dir: dir)?.transcriptSessionID },
         childOf: { readSupervisorChild(pid: $0, dir: dir) })
-    else { return }
+    else { return false }
     writeTranscriptIdentity(identity, pid: key, dir: dir)
+    return true
 }
 
 // MARK: - The supervisor's side

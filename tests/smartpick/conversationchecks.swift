@@ -316,10 +316,37 @@ func runConversationChecks() {
     check("…and publishes the next change",
           readLastConversation(cwd: here, dir: records) == "second-one")
 
-    // A SELF-UPDATE REPLACES THE IMAGE AND KEEPS THE PID (SelfUpdate.swift): the session and the
-    // conversation survive it, this struct does not. The new image started with nothing in hand and
-    // wrote the record again on its next tick, over whatever a SIBLING session in this directory had
-    // published in the meantime. So the first tick of a process asks the file.
+    // A SELF-UPDATE REPLACES THE IMAGE AND KEEPS THE PID (SelfUpdate.swift): the session, the child
+    // and the conversation survive it, this struct does not. The new image started with nothing in
+    // hand and re-announced an unchanged conversation on its next tick, over whatever a SIBLING
+    // session in this directory had published in the meantime.
+    //
+    // THE FIRST FIX FOR THIS READ THE FILE and skipped the write only where the file still said what
+    // we would say - which is precisely the case where the sibling had NOT written, so the defect it
+    // was added for went straight through it (codex review of fc26083, reproduced at this level).
+    // The memory rides the exec instead (`resuperviseLastConversationFlag`), and this is that repro.
+    write("sibling-b\n", to: lastConversationFile(cwd: here, dir: records))
+    var upgraded = LastConversationWriter(current: "conv-a")
+    upgraded.sync("conv-a", cwd: here, dir: records)
+    check("a self-updated writer does not reannounce over a sibling's newer record",
+          readLastConversation(cwd: here, dir: records) == "sibling-b")
+    check("…and it says what it is holding, so the next exec can hand it on again",
+          upgraded.published == "conv-a")
+    // A genuine change still publishes: the seed suppresses the re-announcement, not the news.
+    upgraded.sync("conv-c", cwd: here, dir: records)
+    check("…while a conversation that really changed is published over the sibling",
+          readLastConversation(cwd: here, dir: records) == "conv-c")
+    // AND A FRESH PROCESS SEEDS NOTHING, so its first binding is news even where a sibling has
+    // written: it just started watching this conversation, which is what the record answers.
+    write("somebody-elses\n", to: lastConversationFile(cwd: here, dir: records))
+    var moved = LastConversationWriter()
+    moved.sync("ours", cwd: here, dir: records)
+    check("a fresh process watching something else publishes it",
+          readLastConversation(cwd: here, dir: records) == "ours")
+
+    // THE FILE IS STILL READ, for the case the memory cannot answer: a fresh process whose first
+    // conversation is the one the record already names - a launch that just resumed by id off this
+    // very record. Announcing it back would be a write that says nothing.
     //
     // The witness is the file's BYTES rather than its absence: removing it would let the "is there a
     // record at all" path answer this check instead. The padding parses to the same id and is exactly
@@ -336,13 +363,6 @@ func runConversationChecks() {
     restarted.sync("after-update", cwd: here, dir: records)
     check("…and is in step with it from then on",
           readLastConversation(cwd: here, dir: records) == nil)
-    // The adopting is only for a record that AGREES. A new process watching a different conversation
-    // still publishes, which is the whole point of the record.
-    var moved = LastConversationWriter()
-    write("somebody-elses\n", to: lastConversationFile(cwd: here, dir: records))
-    moved.sync("ours", cwd: here, dir: records)
-    check("a new process watching something else publishes it",
-          readLastConversation(cwd: here, dir: records) == "ours")
 
     // MARK: - Where the transcripts are
     //

@@ -120,6 +120,7 @@ func consumeSelfUpdateAttempt() -> String? {
 func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: Bool,
                     recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
                     pendingCap: PendingCapRecovery? = nil, sessionModel: SessionModelPin? = nil,
+                    lastConversation: String? = nil,
                     args: [String], binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
@@ -127,7 +128,8 @@ func execSelfUpdate(to target: String, id: String, label: String, home: String, 
     let argv = selfUpdateArgv(binary: binary, id: id, label: label, home: home, follow: follow,
                               recoveries: recoveries, sessionPin: sessionPin,
                               pinOverride: pinOverride, pendingCap: pendingCap,
-                              sessionModel: sessionModel, args: args)
+                              sessionModel: sessionModel, lastConversation: lastConversation,
+                              args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -182,19 +184,23 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
 /// what makes a failed exec and a successful one leave the session in the same place, since the
 /// respawn the caller falls through to reads that same variable. `sessionModel` is the pair a
 /// `tally model` pinned, on the same terms as the account pin: an upgrade that dropped it would put
-/// the session back on the fleet default a minute after the user chose otherwise. Returns normally
-/// only when there was nothing to do or the exec failed, leaving the caller to respawn.
+/// the session back on the fleet default a minute after the user chose otherwise. `lastConversation`
+/// is what this supervisor has already published as the last conversation watched in its directory,
+/// on the same terms again: an upgrade that dropped it would have the new image re-announce an
+/// unchanged conversation over a sibling's newer one (LastConversation.swift). Returns normally only
+/// when there was nothing to do or the exec failed, leaving the caller to respawn.
 func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: String)?,
                            attempted: inout String?, target: Snapshot.Account,
                            follow: Bool, recoveries: [Date], sessionPin: String? = nil,
                            pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
-                           sessionModel: SessionModelPin? = nil, args: [String]) {
+                           sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
+                           args: [String]) {
     guard let upgrade else { return }
     attempted = upgrade.target
     execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
                    follow: follow, recoveries: recoveries, sessionPin: sessionPin,
                    pinOverride: pinOverride, pendingCap: pendingCap, sessionModel: sessionModel,
-                   args: args, binary: upgrade.binary)
+                   lastConversation: lastConversation, args: args, binary: upgrade.binary)
 }
 
 /// The upgrade a relaunch ALREADY happening this tick should carry, or nil to come back on the build
@@ -221,7 +227,8 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?,
 
 /// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
 /// [--fuse <epochs>] [--session-pin <accountID>] [--pin-override <accountID>]
-/// [--pending-cap <json>] [--session-model <json>] -- <args...>`: the other side of the exec.
+/// [--pending-cap <json>] [--session-model <json>] [--last-conversation <id>] -- <args...>`: the
+/// other side of the exec.
 /// Rebuilds the account from what the previous supervisor passed rather than from the snapshot
 /// (which may be stale, or missing the account entirely at that instant) and resumes supervision,
 /// with the recovery fuse, the pins, and any cap this session is still waiting out continuing where
@@ -247,5 +254,5 @@ func runResupervise(args: [String]) -> Never {
     runSupervised(provider, account: account, args: parsed.childArgs, follow: parsed.follow,
                   recoveries: parsed.recoveries, resumed: true, sessionPin: parsed.sessionPin,
                   pinOverride: parsed.pinOverride, pendingCap: parsed.pendingCap,
-                  sessionModel: parsed.sessionModel)
+                  sessionModel: parsed.sessionModel, lastConversation: parsed.lastConversation)
 }

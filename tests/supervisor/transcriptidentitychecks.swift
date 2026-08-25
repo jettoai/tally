@@ -184,9 +184,15 @@ func runTranscriptIdentityChecks() {
     writeSupervisorCwd(projectCwd.path, pid: supervisor, dir: writeDir)
     writeSupervisorChild(claudeCodePID, pid: supervisor, dir: writeDir)
 
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
-                             marker: supervisor, dir: writeDir)
-    check("a render publishes the conversation it drew for",
+    // THE ANSWER IS A CONTRACT, not a convenience: the status line's other channel records the
+    // session ITSELF when this one reports false (UnmanagedLaunch.swift), so every shape below is
+    // asserted for what it returns as well as for what it writes. Over-naming a session on both
+    // channels would be harmless (the live set is a union of ids); a supervised session answering
+    // false would put a second witness track on a session that already has one.
+    check("a render publishes the conversation it drew for, and says a supervisor has it",
+          reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
+                                   claudeCode: claudeCode, marker: supervisor, dir: writeDir))
+    check("…and that is what landed",
           readTranscriptIdentity(pid: supervisor, dir: writeDir)
               == TranscriptIdentity(id: "conv-1", claudeCode: claudeCode))
 
@@ -197,10 +203,11 @@ func runTranscriptIdentityChecks() {
     let ageMark = Date(timeIntervalSince1970: 1_800_000_000)
     try! FileManager.default.setAttributes([.modificationDate: ageMark],
                                            ofItemAtPath: published.path)
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
-                             marker: supervisor, dir: writeDir)
+    check("a render that would say the same thing still reports a supervisor has this session",
+          reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
+                                   claudeCode: claudeCode, marker: supervisor, dir: writeDir))
     let unchanged = (try? FileManager.default.attributesOfItem(atPath: published.path))?[.modificationDate] as? Date
-    check("a render that would say the same thing does not write at all", unchanged == ageMark)
+    check("…and does not write at all", unchanged == ageMark)
     // …and one that has something new to say does.
     reportTranscriptIdentity(sessionID: "conv-2", cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: writeDir)
@@ -226,10 +233,10 @@ func runTranscriptIdentityChecks() {
     // line has no marker, and that is where this path stops - before it touches the disk at all.
     let bare = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-bare-\(UUID().uuidString)")
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
-                             marker: nil, dir: bare)
-    check("an unsupervised session publishes nothing",
-          !FileManager.default.fileExists(atPath: bare.path))
+    check("an unsupervised session reports that nobody has it",
+          !reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
+                                    claudeCode: claudeCode, marker: nil, dir: bare))
+    check("…and publishes nothing", !FileManager.default.fileExists(atPath: bare.path))
     reportTranscriptIdentity(sessionID: nil, cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: bare)
     check("a payload with no session id publishes nothing either",
@@ -470,17 +477,13 @@ func runTranscriptIdentityChecks() {
     // returning entry point and the supervisor's loop needs a live child to run.
     let statusline = (try? String(contentsOfFile: "TallyCLI/Statusline.swift", encoding: .utf8)) ?? ""
     check("the statusline source is readable from the suite", !statusline.isEmpty)
-    check("the status line reports what Claude Code told it",
-          statusline.contains("let reportedSession = sessionJSON?[\"session_id\"] as? String")
-              && statusline.contains("reportTranscriptIdentity(sessionID: reportedSession"))
-    // The unsupervised half of the same job (UnmanagedLaunch.swift), wired from the same render and
-    // handed the same walk up the process tree: asking twice would pay for that climb twice on a
-    // path that runs on every interaction.
-    check("…and tells an unsupervised launch's own record as well",
-          statusline.contains("reportUnmanagedConversation(sessionID: reportedSession"))
-    check("…off one reading of which Claude Code ran it",
-          statusline.contains("let ranBy = claudeCodeThatRanUs()")
-              && statusline.contains("claudeCode: ranBy)"))
+    // BOTH CHANNELS, THROUGH THE ONE COMPOSITION the suite can call with injected inputs
+    // (`publishConversationIdentity`, UnmanagedLaunch.swift): the status line hands it what Claude
+    // Code reported and nothing else, so the rule about which channel runs is asserted there rather
+    // than read off this entry point.
+    check("the status line publishes what Claude Code told it",
+          statusline.contains("publishConversationIdentity(sessionID: sessionJSON?[\"session_id\"]")
+              && statusline.contains("cwd: sessionJSON?[\"cwd\"] as? String)"))
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the identity checks", !loop.isEmpty)
     if let adopt = loop.range(of: "adoptReportedTranscript("),

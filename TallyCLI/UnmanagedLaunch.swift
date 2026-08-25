@@ -54,6 +54,12 @@ import Foundation
 // there to keep this directory tidy, not to keep it correct, and the one direction that must never
 // fail is the one where nobody records the session at all.
 //
+// THE RECORD NAMES ITS OWN FORMAT, because the layout of it has already changed once and neither
+// side of that change could tell: reading a record across the swap is silent corruption rather than
+// a parse failure, and one of its two directions ends with a live session missing from the live set
+// - the Critical this file exists to prevent, arriving through the reader. The tag on line 1 makes
+// both directions refuse the record instead (`unmanagedLaunchFormat` has the whole of it).
+//
 // WHAT IT STILL CANNOT SEE, said rather than left to be found:
 //
 //   - A session under a config home with NO Tally status line, started by something that is not this
@@ -88,17 +94,43 @@ func unmanagedLaunchFile(pid: pid_t, dir: URL = unmanagedLaunchDir) -> URL {
     dir.appendingPathComponent(String(pid))
 }
 
-/// The file body: the start time on line 1, the conversation on line 2, the DIRECTORY on the rest.
+/// The tag on line 1 of every record, and the whole of what a reader accepts.
+///
+/// THE LAYOUT HAS ALREADY CHANGED ONCE UNDER READERS THAT COULD NOT TELL. The conversation and the
+/// directory swapped places (the path moved last, for the reason `formatUnmanagedLaunch` states),
+/// and both directions of that change are silent corruption rather than a parse failure: a new
+/// reader on an old record takes `/Users/a/project` as the conversation - it fails
+/// `isTranscriptSessionID`, so the session reads as UNNAMED and vanishes from the live set, which is
+/// the very Critical this file exists to prevent - and an old reader on a new record takes the
+/// conversation as the directory. Neither is detectable from the fields themselves, because a
+/// directory is opaque by definition and every shape is a legal one.
+///
+/// So line 1 is a name rather than data. A reader from before this tag existed wants an `Int64`
+/// there, does not get one, and refuses the whole record; a reader after it wants exactly this
+/// string, and refuses everything else - an older layout, a newer one, a half-written file. Both
+/// directions therefore fail SAFE, to no record at all, which is the behaviour every build before
+/// this channel existed had.
+///
+/// NAMED RATHER THAN "v2", because this is the first VERSIONED format and the second LAYOUT: a
+/// numeral on line 1 would be off by one against the layouts for anybody counting later. Nothing
+/// migrates an older record - fc26083 and ea8816e never shipped, so the unversioned layouts exist
+/// only on the machines that built them, and migration code would be a permanent cost paid to a
+/// window that closes on its own.
+let unmanagedLaunchFormat = "tally-unmanaged-1"
+
+/// The file body: the format tag on line 1, the start time on line 2, the conversation on line 3,
+/// the DIRECTORY on the rest.
 ///
 /// THE PATH GOES LAST BECAUSE IT IS THE ONLY OPAQUE FIELD. The other two are constrained - digits,
 /// and the charset `isTranscriptSessionID` admits - while a directory name on this platform may
 /// contain anything but a NUL, newlines and trailing spaces included. Putting it in the middle of a
 /// line-delimited format made the record depend on the path being well behaved, which is a premise
 /// about the user's disk that nothing here is entitled to; putting it last makes "everything after
-/// line two" its value and the shape stops mattering (codex review of fc26083, which found the
-/// trailing-space half of it).
+/// the id" its value and the shape stops mattering (codex review of fc26083, which found the
+/// trailing-space half of it). That move is also what the tag above is for: it is the change no
+/// reader on either side of it could have noticed.
 func formatUnmanagedLaunch(_ launch: UnmanagedLaunch) -> String {
-    "\(launch.claudeCode.startedAt)\n\(launch.id ?? "")\n\(launch.cwd)\n"
+    "\(unmanagedLaunchFormat)\n\(launch.claudeCode.startedAt)\n\(launch.id ?? "")\n\(launch.cwd)\n"
 }
 
 /// Parse one, or nil when the file says nothing usable. Anything unparseable is NO record rather than
@@ -111,17 +143,24 @@ func formatUnmanagedLaunch(_ launch: UnmanagedLaunch) -> String {
 /// may be normalised.
 ///
 /// The id is validated on the way out as well as on the way in, because a file in a state directory
-/// is only ever as trustworthy as the last thing that wrote it - and an empty second line is a
-/// session that has not been named yet, which is a record rather than a rejection.
+/// is only ever as trustworthy as the last thing that wrote it - and an empty id line is a session
+/// that has not been named yet, which is a record rather than a rejection.
+///
+/// THE DIRECTORY IS CHECKED FOR THE ONE THING EVERY REAL ONE HAS. It is opaque, so there is nothing
+/// to validate about its shape - except that every path written here went through `realpathString`
+/// first and is therefore ABSOLUTE. A value that does not begin with a separator was not written by
+/// this program, which makes it a corrupt record rather than a directory, and the record is refused.
+/// This is the second of the two guards and it is not the tag's understudy: the tag catches a whole
+/// record from another layout, this catches a field that arrived from anywhere else.
 func parseUnmanagedLaunch(_ raw: String, pid: pid_t) -> UnmanagedLaunch? {
     let body = raw.hasSuffix("\n") ? String(raw.dropLast()) : raw
     let lines = body.split(separator: "\n", omittingEmptySubsequences: false)
-    guard lines.count >= 3,
-          let started = Int64(lines[0].trimmingCharacters(in: .whitespaces)), started > 0
+    guard lines.count >= 4, lines[0] == unmanagedLaunchFormat,
+          let started = Int64(lines[1].trimmingCharacters(in: .whitespaces)), started > 0
     else { return nil }
-    let named = String(lines[1]).trimmingCharacters(in: .whitespaces)
-    let cwd = lines.dropFirst(2).joined(separator: "\n")
-    guard !cwd.isEmpty else { return nil }
+    let named = String(lines[2]).trimmingCharacters(in: .whitespaces)
+    let cwd = lines.dropFirst(3).joined(separator: "\n")
+    guard cwd.hasPrefix("/") else { return nil }
     return UnmanagedLaunch(claudeCode: ProcessStamp(pid: pid, startedAt: started), cwd: cwd,
                            id: isTranscriptSessionID(named) ? named : nil)
 }

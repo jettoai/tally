@@ -152,7 +152,11 @@ func runSessionInventoryChecks() {
     // an address nothing is behind once Claude Code moves where it listens.
     check("no socket on disk, no address published",
           trunk?.messagingSocket == nil && line?.messagingSocket == nil)
-    bindTestSocket(at: "\(socketDir)/\(child).sock")
+    // THE FIXTURE ANSWERS FOR ITSELF FIRST. Everything below asserts what the inventory does with a
+    // socket that is really there, so "there is no socket" has to fail as a fixture rather than as
+    // the publisher: `sun_path` is 104 bytes and a temporary directory spends most of them.
+    check("the fixture bound a real socket for the session to publish",
+          bindTestSocket(at: "\(socketDir)/\(child).sock"))
     let addressed = inventory(sockets: socketDir)
     check("a socket that is really there is published, whole",
           addressed.first { $0.directory == "/x/repo" }?.messagingSocket
@@ -241,18 +245,32 @@ func runSessionInventoryChecks() {
 
 /// A real listening socket, because what is under test is a file TYPE check: a stand-in regular file
 /// would pass a check that only asked whether something is there.
-func bindTestSocket(at path: String) {
+///
+/// WHETHER IT WORKED IS RETURNED RATHER THAN DROPPED. `bind` can fail for reasons that have nothing
+/// to do with the code under test - `sun_path` is 104 bytes and a temporary directory eats most of
+/// them, a sandbox may refuse the family - and the rc used to be assigned to `_`. The two checks
+/// that follow the call then went red saying "a socket that is really there is not published",
+/// which reads as a defect in the publisher and is a missing PRECONDITION: the fixture never built
+/// the thing those checks are about. Same rule as every other read whose result decides a verdict
+/// (`docs` on producer rcs): a fixture that did not happen must be told apart from a rule that did
+/// not hold.
+func bindTestSocket(at path: String) -> Bool {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return false }
+    defer { close(fd) }
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let room = MemoryLayout.size(ofValue: addr.sun_path)
+    // Refused rather than truncated: a path silently cut to 104 bytes binds a socket at a DIFFERENT
+    // address, and the check downstream would then compare the name it asked for against a file
+    // that is not there and report the publisher.
+    guard strlen(path) < room else { return false }
     withUnsafeMutablePointer(to: &addr.sun_path) { field in
         field.withMemoryRebound(to: CChar.self, capacity: room) { _ = strlcpy($0, path, room) }
     }
-    _ = withUnsafePointer(to: &addr) {
+    return withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
             bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
         }
-    }
-    close(fd)
+    } == 0
 }

@@ -4,10 +4,18 @@ import Foundation
 // behind it, who is allowed to fill in the conversation, and the half of the live set it becomes.
 //
 // THE DEFECT BEHIND IT. `liveConversations` refuses to hand a launch a conversation somebody is
-// already writing, and every witness it had was keyed by a SUPERVISOR pid. Four launch paths never
-// get one - an exported `CLAUDE_CONFIG_DIR`, an `--account` pin, `--no-handoff`, a denormalized pin
-// - so those sessions were invisible to it in both directions, and two writers on one transcript is
+// already writing, and every witness it had was keyed by a SUPERVISOR pid. A session with no
+// supervisor was therefore invisible to it in both directions, and two writers on one transcript is
 // how about three hours of turns were orphaned here on 2026-07-29.
+//
+// WHICH SESSIONS THOSE ARE IS NOT A LIST OF LAUNCH PATHS, and the fixtures below are written that
+// way on purpose. The first version of this channel enumerated the paths inside the CLI that exec
+// `claude` outright and called that the whole of it, which is a claim about EVERY launch made by
+// counting only the launches it could see: `claude` also starts from the PATH shim, which execs the
+// real binary without entering this program at all, and from somebody typing `claude` on a machine
+// with no shim. So the answer is asked where the session answers for itself, the status line, and
+// the process that ran it is the process writing the transcript. Nothing here asserts anything
+// about how a session was started, because that is the premise the source rejects.
 
 func runUnmanagedLaunchChecks() {
     let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -42,24 +50,75 @@ func runUnmanagedLaunchChecks() {
     check("a record with no conversation yet is still a record",
           parseUnmanagedLaunch(formatUnmanagedLaunch(unnamed), pid: mine.pid) == unnamed)
     check("a record naming something that is not an id reads as unnamed",
-          parseUnmanagedLaunch("\(mine.startedAt)\n../../etc/passwd\n\(hereResolved)\n",
-                               pid: mine.pid)?.id == nil)
+          parseUnmanagedLaunch(
+              "\(unmanagedLaunchFormat)\n\(mine.startedAt)\n../../etc/passwd\n\(hereResolved)\n",
+              pid: mine.pid) == UnmanagedLaunch(claudeCode: mine, cwd: hereResolved, id: nil))
     check("a record with no start time is no record",
-          parseUnmanagedLaunch("\nconv-one\n\(hereResolved)\n", pid: mine.pid) == nil)
+          parseUnmanagedLaunch("\(unmanagedLaunchFormat)\n\nconv-one\n\(hereResolved)\n",
+                               pid: mine.pid) == nil)
     check("…and one with no directory is no record either",
-          parseUnmanagedLaunch("\(mine.startedAt)\nconv-one\n\n", pid: mine.pid) == nil)
+          parseUnmanagedLaunch("\(unmanagedLaunchFormat)\n\(mine.startedAt)\nconv-one\n\n",
+                               pid: mine.pid) == nil)
+
+    // MARK: - The format tag, and the two directions of reading across a layout change
+    //
+    // THE LAYOUT ALREADY CHANGED ONCE UNDER READERS THAT COULD NOT TELL: the conversation and the
+    // directory swapped places, and neither direction of that swap is a parse failure on its own. A
+    // reader of the current layout takes an OLD record's path as the conversation, does not
+    // recognise it as one, and reports the session as unnamed - so it drops out of the live set and
+    // the next launch here may resume the transcript it is writing, which is the Critical this whole
+    // file exists to prevent, arriving through the reader (codex review of ea8816e). The tag on line
+    // 1 is what makes both directions refuse instead.
+    //
+    // ASSERTED AS THE WHOLE RECORD, not as `?.id`: this fixture is exactly the shape the old layout
+    // wrote, and a reader that mangled only the directory would satisfy an id-only assertion while
+    // filing the session under a directory nothing will ever ask about.
+    check("a record in the layout before the tag is no record",
+          parseUnmanagedLaunch("\(mine.startedAt)\n\(hereResolved)\nconv-abc\n", pid: mine.pid)
+              == nil)
+    check("…and neither is the current layout with the tag missing",
+          parseUnmanagedLaunch("\(mine.startedAt)\nconv-abc\n\(hereResolved)\n", pid: mine.pid)
+              == nil)
+    check("…nor a tag this build does not know",
+          parseUnmanagedLaunch("tally-unmanaged-9\n\(mine.startedAt)\nconv-abc\n\(hereResolved)\n",
+                               pid: mine.pid) == nil)
+    // THE OTHER DIRECTION, which no assertion here can run because that reader is in a build that
+    // has shipped: a reader from before the tag reads line 1 as an `Int64` start time. So what makes
+    // it refuse a record written today is that line 1 cannot BE one, and that is a property of the
+    // bytes this writer emits rather than of any code in this tree.
+    check("every record written today names its format on line 1",
+          formatUnmanagedLaunch(record).hasPrefix("\(unmanagedLaunchFormat)\n"))
+    check("…and that line is not a number, so a reader from before it refuses the record",
+          Int64(unmanagedLaunchFormat) == nil)
+
+    // THE DIRECTORY IS ABSOLUTE OR THE RECORD IS CORRUPT. Every path written here went through
+    // `realpathString`, so a value that does not start with a separator did not come from this
+    // program - the id line of some other layout, or a half-written file. Opaque does not mean
+    // unconstrained.
+    check("a record whose directory is not an absolute path is no record",
+          parseUnmanagedLaunch("\(unmanagedLaunchFormat)\n\(mine.startedAt)\nconv-abc\nconv-def\n",
+                               pid: mine.pid) == nil)
+    check("…including one that is merely relative",
+          parseUnmanagedLaunch("\(unmanagedLaunchFormat)\n\(mine.startedAt)\nconv-abc\n../repo\n",
+                               pid: mine.pid) == nil)
 
     // THE PATH IS BYTES, NOT A FIELD TO TIDY. Every line used to be trimmed, so a directory whose
     // name ends in a space came back as a DIFFERENT directory and the session in it stayed invisible
     // to the live set - the failure the record exists to prevent, arriving through the reader. A
     // newline is the same class, which is why the path is written last and read as everything after
-    // line two rather than as one line among three.
+    // the id rather than as one line among three.
     // Named rather than derived from the path, so an assertion that goes red is greppable and does
     // not change its own name with the temporary directory it ran in.
+    //
+    // THE WHITESPACE IS INSIDE THE PATH, not in front of it: the leading-space case used to be a
+    // space before the separator, which is a RELATIVE path and no longer a record at all now that
+    // the reader requires an absolute one. What it was actually asserting - that the reader does not
+    // trim the path the way it trims the two constrained fields - is unchanged by moving the space
+    // one character to the right, where a real directory whose name begins with a space puts it.
     for (shape, odd) in [("a trailing space", "\(hereResolved)/project "),
                          ("an interior tab", "\(hereResolved)/tab\tstop"),
                          ("an embedded newline", "\(hereResolved)/two\nlines"),
-                         ("a leading space", " \(hereResolved)/leading")] {
+                         ("a leading space in its last component", "\(hereResolved)/ leading")] {
         let awkward = UnmanagedLaunch(claudeCode: mine, cwd: odd, id: "conv-odd")
         check("a directory name with \(shape) round-trips exactly",
               parseUnmanagedLaunch(formatUnmanagedLaunch(awkward), pid: mine.pid) == awkward)
@@ -203,7 +262,7 @@ func runUnmanagedLaunchChecks() {
     // The file is left in place and marked instead of being taken away: removing it would make the
     // "is there a record at all" guard answer for this check, and the two would be indistinguishable.
     // The padding parses to the same record and is exactly what a rewrite would canonicalise away.
-    let padded = "\(mine.startedAt)\nsteady   \n\(hereResolved)\n"
+    let padded = "\(unmanagedLaunchFormat)\n\(mine.startedAt)\nsteady   \n\(hereResolved)\n"
     try? FileManager.default.createDirectory(at: reportDir, withIntermediateDirectories: true)
     try? padded.write(to: unmanagedLaunchFile(pid: mine.pid, dir: reportDir), atomically: true,
                       encoding: .utf8)

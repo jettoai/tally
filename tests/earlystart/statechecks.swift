@@ -198,26 +198,40 @@ func runStateChecks() {
         expect(installed.today?.couldNotStartTotal == 2,
                "…while the ROW says two, not four: it counts accounts, and there are two")
 
-        // …AND THE OTHER HALF OF THAT DAY, which is the same two accounts with the attempt going
-        // THROUGH. The row is about what the fleet has now, so a machine holding two accounts that
-        // both recovered by lunchtime says so; as pure unions the sets only grew, and this read
-        // "2 started, 2 could not start" until midnight.
-        let recovered = EarlyStartLogic.recording(missing, plan: plan, attempted: ["a", "b"],
-                                                  failed: [], now: noon, calendar: taipei)
+        // …AND THE OTHER HALF OF THAT DAY, IN THE ORDER PRODUCTION PLAYS IT. The store writes the
+        // attempt BEFORE the spawn and hands `recording` an empty `failed` (EarlyStartStore.swift
+        // says why: an auto-update relaunch inside the two minutes a CLI gets would otherwise
+        // resend everything), so `installed` above measures a call shape only a test can make. What
+        // the machine really does is these two folds, and the first of them is the crash window.
+        let spawnWritten = EarlyStartLogic.recording(missing, plan: plan, attempted: ["a", "b"],
+                                                     failed: [], now: noon, calendar: taipei)
+        expect(spawnWritten.today?.started == 2,
+               "the attempts are counted at once, which is what bounds the cost of a relaunch")
+        // THE CRASH WINDOW IS THAT STATE, asserted rather than assumed: an app replaced between the
+        // write and the answers never runs the fold below, so what it leaves behind has to be the
+        // SAFE reading. Clearing the lists in `recording` made that leftover "both accounts have
+        // their message" for a batch that may have sent nothing at all.
+        expect(spawnWritten.today?.couldNotStart == ["a", "b"]
+                 && spawnWritten.today?.couldNotStartTotal == 2,
+               "…while nothing leaves the lists yet: an app dying here still reports them unserved")
+
+        // The answers land: both went through, so both leave the lists and the row is empty of
+        // them. As pure unions the sets only grew, and this read "2 could not start" on a machine
+        // holding two accounts that were both working, until midnight.
+        let recovered = EarlyStartLogic.correcting(spawnWritten, attempted: ["a", "b"], failed: [],
+                                                   now: at("2026-08-24 13:02"), calendar: taipei)
         expect(recovered.today?.started == 2 && recovered.today?.couldNotStartTotal == 0,
                "two accounts blocked all morning and served at noon: two started, none left blocked")
         expect(recovered.today?.couldNotStart == [] && recovered.today?.attemptFailed == [],
                "…by leaving both lists, which is what naming rather than counting them buys")
 
-        // THE SHAPE PRODUCTION ACTUALLY PRODUCES, which the overlapping fold above is not. The store
-        // never hands `recording` a non-empty `failed`: it writes the attempt optimistically and the
-        // answers land at `correcting` minutes later (EarlyStartStore.swift), so that day is really
-        // the three folds here, and `installed` measures a call shape only a test can make. `failed`
-        // stays on `recording` for the day a caller does have the answers in hand.
-        let landed = EarlyStartLogic.correcting(recovered, failed: ["a", "b"],
-                                                now: at("2026-08-24 13:02"), calendar: taipei)
+        // …and the same day with the answers coming back the other way, which is the production
+        // shape of `installed`: three folds, and the row still says two rather than four.
+        let landed = EarlyStartLogic.correcting(spawnWritten, attempted: ["a", "b"],
+                                                failed: ["a", "b"], now: at("2026-08-24 13:02"),
+                                                calendar: taipei)
         expect(landed.today?.started == 0 && landed.today?.couldNotStartTotal == 2,
-               "…and the answers put both back on the row: two accounts, not four")
+               "…and a batch that failed keeps both accounts on the row: two accounts, not four")
         expect(landed.today?.failed == 2,
                "…with two messages counted, because two were sent for and lost")
 
@@ -228,12 +242,13 @@ func runStateChecks() {
         let soloMorning = EarlyStartLogic.correcting(
             EarlyStartLogic.recording(EarlyStartState(), plan: solo, attempted: ["a"], failed: [],
                                       now: morning, calendar: taipei),
-            failed: ["a"], now: at("2026-08-24 09:02"), calendar: taipei)
+            attempted: ["a"], failed: ["a"], now: at("2026-08-24 09:02"), calendar: taipei)
         expect(soloMorning.today?.started == 0 && soloMorning.today?.couldNotStartTotal == 1,
                "the lone account's morning message failed: nothing started, one could not start")
-        let soloAfternoon = EarlyStartLogic.recording(soloMorning, plan: solo, attempted: ["a"],
-                                                      failed: [], now: at("2026-08-24 14:00"),
-                                                      calendar: taipei)
+        let soloAfternoon = EarlyStartLogic.correcting(
+            EarlyStartLogic.recording(soloMorning, plan: solo, attempted: ["a"], failed: [],
+                                      now: at("2026-08-24 14:00"), calendar: taipei),
+            attempted: ["a"], failed: [], now: at("2026-08-24 14:02"), calendar: taipei)
         expect(soloAfternoon.today?.started == 1 && soloAfternoon.today?.couldNotStartTotal == 0,
                "…and the afternoon's went through: one started, and nothing is still waiting")
         expect(soloAfternoon.today?.failed == 1,
@@ -274,28 +289,31 @@ func runStateChecks() {
                                                    calendar: taipei)
         expect(optimistic.today?.started == 2, "both attempts are counted before the answers land")
 
-        let answered = EarlyStartLogic.correcting(optimistic, failed: ["a"],
+        let answered = EarlyStartLogic.correcting(optimistic, attempted: ["a", "b"], failed: ["a"],
                                                   now: at("2026-08-24 09:02"), calendar: taipei)
         expect(answered.today?.started == 1 && answered.today?.failed == 1,
                "one failure of two moves one account out of the started column")
+        expect(answered.today?.attemptFailed == ["a"],
+               "…and the one that went through is not on the list beside the one that did not")
         expect(answered.marks == optimistic.marks,
                "…and the marks are untouched: an attempt costs its five hours whatever the CLI said")
 
-        expect(EarlyStartLogic.correcting(optimistic, failed: [], now: now, calendar: taipei)
-                 == optimistic,
-               "no failures corrects nothing")
+        expect(EarlyStartLogic.correcting(optimistic, attempted: [], failed: [], now: now,
+                                          calendar: taipei) == optimistic,
+               "an answer about no accounts at all corrects nothing")
         // A batch that started before midnight and answered after it would otherwise describe messages
         // the new day never sent.
-        expect(EarlyStartLogic.correcting(optimistic, failed: ["a"], now: at("2026-08-25 00:01"),
-                                          calendar: taipei) == optimistic,
+        expect(EarlyStartLogic.correcting(optimistic, attempted: ["a", "b"], failed: ["a"],
+                                          now: at("2026-08-25 00:01"), calendar: taipei) == optimistic,
                "an answer that lands on the next day leaves both days alone")
-        expect(EarlyStartLogic.correcting(EarlyStartState(), failed: ["a"], now: now, calendar: taipei)
-                 == EarlyStartState(),
+        expect(EarlyStartLogic.correcting(EarlyStartState(), attempted: ["a"], failed: ["a"], now: now,
+                                          calendar: taipei) == EarlyStartState(),
                "…and a correction with no tally to correct is a no-op rather than a crash")
         // A double correction cannot drive the column negative.
         let twice = EarlyStartLogic.correcting(
-            EarlyStartLogic.correcting(optimistic, failed: ["a", "b"], now: now, calendar: taipei),
-            failed: ["a", "b"], now: now, calendar: taipei)
+            EarlyStartLogic.correcting(optimistic, attempted: ["a", "b"], failed: ["a", "b"],
+                                       now: now, calendar: taipei),
+            attempted: ["a", "b"], failed: ["a", "b"], now: now, calendar: taipei)
         expect(twice.today?.started == 0, "the started column never goes below zero")
         // …and the ROW does not double either, which the counter beside it does: the same two
         // accounts corrected twice are still two accounts that got nothing, whatever the message

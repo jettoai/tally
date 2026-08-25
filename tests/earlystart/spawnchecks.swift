@@ -131,8 +131,9 @@ func runSpawnChecks() {
         expect(asleep.start.isEmpty, "the same fleet at 3am with quiet hours on spawns nothing")
     }
 
-    // 22. THE READINESS GATE, wired rather than merely present. The store is @MainActor AppKit and
-    //     cannot be compiled into this harness, so its source is read: the launch-time Keychain repair
+    // 22. THE READINESS GATE, wired rather than merely present, and the answers coming back from a
+    //     batch. The store is @MainActor AppKit and cannot be compiled into this harness, so both
+    //     are read from its source: the launch-time Keychain repair
     //     rewrites the credentials the `claude` CLI reads, and AppDelegate ordering only holds back the
     //     ONE entrance that goes through `start()`. The notice's button, the Settings switch and the
     //     quiet-hours pickers all reach the schedule without it, so each live path carries the flag.
@@ -160,6 +161,16 @@ func runSpawnChecks() {
                "and no timer is armed before the repair is done (scheduleTimer)")
         expect(store.components(separatedBy: "guard started").count - 1 == 3,
                "…which is every live path there is: the other entrances all end at one of these three")
+
+        // THE ANSWERS ALWAYS COME BACK, read from the same source and for the same reason: the day's
+        // two account lists are cleared by `correcting` and by nothing else, so a spawn task that
+        // returns early when nothing failed leaves every account it just served on "could not
+        // start" until midnight. The batch that goes through entirely is the one this store used to
+        // say nothing about, and it is the ordinary case.
+        expect(store.contains("self.correct(attempted: ids, failed: failures,"),
+               "the spawn task carries both halves of the answer back: who was tried, and who failed")
+        expect(!store.contains("guard !failures.isEmpty"),
+               "…with nothing standing between an all-successful batch and the tally")
     }
 
     // 23. EVERY WORD THIS FEATURE SHOWS IS IN THE CATALOGUE, in all four translations. The keys are

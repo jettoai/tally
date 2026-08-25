@@ -234,11 +234,15 @@ final class EarlyStartStore {
             let failures = await Self.send(to: starting)
             guard let self else { return }
             self.isRunning = false
-            guard !failures.isEmpty else { return }
+            // UNCONDITIONALLY, success included. The batch that goes through entirely is the only
+            // evidence this feature ever gets that those accounts were served, and the row's two
+            // account lists have no other way to lose an entry before midnight. Returning early
+            // when nothing failed is what used to leave them on it all day.
+            //
             // Re-read: the refresh loop has been running while the CLIs were out, and a state
             // written from the copy captured above would discard whatever it wrote. A correction
             // rather than a replay, because the tally accumulates (`EarlyStartLogic.correcting`).
-            self.correct(failed: failures, now: Date(), calendar: calendar)
+            self.correct(attempted: ids, failed: failures, now: Date(), calendar: calendar)
         }
     }
 
@@ -336,10 +340,11 @@ final class EarlyStartStore {
                                         calendar: calendar))
     }
 
-    /// Carry the spawns' answers into the tally that was written before they were made.
-    private func correct(failed: [String], now: Date, calendar: Calendar) {
-        apply(EarlyStartLogic.correcting(Self.loadState(), failed: failed, now: now,
-                                         calendar: calendar))
+    /// Carry the spawns' answers into the tally that was written before they were made: which of
+    /// them failed, and, just as load-bearing, which of them did not.
+    private func correct(attempted: [String], failed: [String], now: Date, calendar: Calendar) {
+        apply(EarlyStartLogic.correcting(Self.loadState(), attempted: attempted, failed: failed,
+                                         now: now, calendar: calendar))
     }
 
     /// Persist a new state and republish what the Settings row reads off it. The one place either

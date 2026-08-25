@@ -365,17 +365,15 @@ enum EarlyStartLogic {
     ///     same reason: no attempt is made, so nothing is marked, so the very same accounts are
     ///     chosen again at the next refresh and every one after it. A counter would describe the
     ///     refresh loop (a thousand a day at the shipping interval) rather than the fleet. Being
-    ///     named is also what lets an account LEAVE the list, which is the rule below.
+    ///     named is also what lets an account LEAVE the list, which `correcting` does.
     ///
-    /// A ROUND THAT GETS THROUGH TAKES ITS ACCOUNTS BACK OFF BOTH LISTS. The row answers "how many
-    /// accounts have got nothing today" (`EarlyStartToday.couldNotStartTotal`), and an account
-    /// blocked at nine and served at two belongs in neither list by two: it has its message. Left
-    /// as pure unions, the two sets only ever grew, so a machine holding two accounts that both
-    /// recovered by lunchtime read "2 started, 2 could not start" for the rest of the day - the
-    /// same reader confusion the union was introduced to end, in a different arithmetic.
-    ///
-    /// Only the SETS move. `failed` is left alone because it counts messages, and a message that
-    /// failed this morning really was sent for and really did fail.
+    /// NOTHING IS TAKEN OFF EITHER LIST HERE, and that is the point of the split. This fold runs
+    /// BEFORE the spawn, so what it knows is that a message is about to be tried, not that one
+    /// arrived; an app replaced mid-run (an auto-update relaunch is the ordinary way it happens)
+    /// leaves whatever this wrote as the day's last word. Clearing the lists here made that word
+    /// "both accounts have their message" for a batch that may have sent nothing at all. The lists
+    /// are cleared where the answers are (`correcting`), so the crash window degrades towards the
+    /// safe reading - an account stays on the row until something says it was served.
     static func recording(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
                           failed: [String], couldNotStart: [String] = [], now: Date,
                           calendar: Calendar) -> EarlyStartState {
@@ -403,14 +401,8 @@ enum EarlyStartLogic {
                 skipped.insert(entry.accountID)
             }
             report.skipped = skipped.sorted()
-            // Accounts this round reached: attempted, and not among the ones that came back failed.
-            // They come off both lists, which is what keeps the row's number a statement about what
-            // the fleet has NOW rather than a log of everything that went wrong since midnight.
-            let served = Set(attempted).subtracting(failed)
-            report.attemptFailed = Set(report.attemptFailed).union(failed)
-                .subtracting(served).sorted()
-            report.couldNotStart = Set(report.couldNotStart).union(couldNotStart)
-                .subtracting(served).sorted()
+            report.attemptFailed = Set(report.attemptFailed).union(failed).sorted()
+            report.couldNotStart = Set(report.couldNotStart).union(couldNotStart).sorted()
             if !attempted.isEmpty { report.lastAttemptAt = now }
             next.today = report
         }
@@ -428,8 +420,13 @@ enum EarlyStartLogic {
         return next
     }
 
-    /// Move `failed` messages from today's "started" column to its "could not start" one, once the
-    /// spawns have answered.
+    /// Carry the spawns' answers into today's tally: move `failed` messages out of the "started"
+    /// column, and take the ones that DID go through off the row's two account lists.
+    ///
+    /// CALLED WHETHER OR NOT ANYTHING FAILED, which is what makes the second half possible. An
+    /// all-successful batch has nothing to move between columns and is still the only proof this
+    /// feature ever gets that an account was served; skipping the call on success left accounts on
+    /// "could not start" with no way off it before midnight.
     ///
     /// A SEPARATE RULE FROM `recording` BECAUSE THE TALLY ACCUMULATES. The attempt is written
     /// optimistically before the spawn (the store says why: an auto-update relaunch inside the two
@@ -441,15 +438,23 @@ enum EarlyStartLogic {
     /// The marks are deliberately untouched: an attempt suppresses its account for `retryInterval`
     /// whatever the CLI answered, which is the promise this feature makes about cost.
     ///
-    /// This is also the half that puts an account BACK on the failed list after `recording` took it
-    /// off: the attempt is written before the spawn answers, so every account in a batch is treated
-    /// as served for the minutes in between, and the ones that did not go through are named here.
-    ///
     /// A batch that started before midnight and answered after it is left alone rather than
     /// corrected into the new day's column, where it would describe messages that day never sent.
-    static func correcting(_ state: EarlyStartState, failed: [String], now: Date,
-                           calendar: Calendar) -> EarlyStartState {
-        guard !failed.isEmpty, var report = state.today,
+    ///
+    /// WHAT THE CRASH WINDOW LEAVES BEHIND, stated rather than papered over: `recording` has
+    /// already added the attempt to `started`, so an app that dies before the answers land reads
+    /// "1 started, 1 could not start" on a one-account machine for the rest of the day. That pair
+    /// is the deliberate trade. The alternative is announcing a success nobody saw happen, and
+    /// between a row that over-reports the trouble and a row that hides it, this feature exists to
+    /// surface the trouble.
+    ///
+    /// - Parameters:
+    ///   - attempted: every account id the batch spawned for, failures included. What is NOT in
+    ///     `failed` was served, and is taken off both lists.
+    ///   - failed: the ids that did not go through.
+    static func correcting(_ state: EarlyStartState, attempted: [String], failed: [String],
+                           now: Date, calendar: Calendar) -> EarlyStartState {
+        guard !attempted.isEmpty || !failed.isEmpty, var report = state.today,
               report.day == dayKey(now, calendar: calendar) else { return state }
         var next = state
         report.started = max(0, report.started - failed.count)
@@ -458,7 +463,14 @@ enum EarlyStartLogic {
         // because it is the partner of `started` and the pair describes messages; the row describes
         // ACCOUNTS, and only a set can be merged with the other one without counting an account
         // that was blocked this morning and failed this afternoon twice.
-        report.attemptFailed = Set(report.attemptFailed).union(failed).sorted()
+        //
+        // The served ids come off both lists in the same breath: an account blocked all morning for
+        // want of a CLI and sent to at noon has its message, and a list that only ever grew said
+        // "2 could not start" on a machine holding two accounts that were both working.
+        let served = Set(attempted).subtracting(failed)
+        report.attemptFailed = Set(report.attemptFailed).union(failed)
+            .subtracting(served).sorted()
+        report.couldNotStart = Set(report.couldNotStart).subtracting(served).sorted()
         next.today = report
         return next
     }

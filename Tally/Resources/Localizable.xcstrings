@@ -12261,151 +12261,6 @@
         }
       }
     },
-    "Opens each Claude account's 5-hour window in the morning, so it resets earlier in your day. Tally sends one short message per account and skips any account whose window is already open.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "早上為每個 Claude 帳號開啟 5 小時額度視窗，讓它在一天中更早重置。Tally 會為每個帳號送出一則簡短訊息，視窗已經開啟的帳號則略過。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "早上为每个 Claude 账号开启 5 小时额度窗口，让它在一天中更早重置。Tally 会为每个账号发送一条简短消息，窗口已经开启的账号则跳过。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "毎朝、各 Claude アカウントの 5 時間ウィンドウを開始し、リセットが一日の早い時間に来るようにします。Tally はアカウントごとに短いメッセージを 1 通送り、すでにウィンドウが開いているアカウントはスキップします。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아침에 각 Claude 계정의 5시간 창을 열어 하루 중 더 이른 시각에 초기화되게 합니다. Tally는 계정마다 짧은 메시지를 한 번 보내고, 이미 창이 열린 계정은 건너뜁니다."
-          }
-        }
-      }
-    },
-    "Time": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時間"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "时间"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時刻"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시각"
-          }
-        }
-      }
-    },
-    "Has not run yet.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚未執行過。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚未执行过。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだ実行されていません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 실행된 적이 없습니다."
-          }
-        }
-      }
-    },
-    "Last run %1$@: %2$d started, %3$d skipped.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上次執行 %1$@：已開啟 %2$d 個，略過 %3$d 個。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上次执行 %1$@：已开启 %2$d 个，跳过 %3$d 个。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前回の実行 %1$@：%2$d 件を開始、%3$d 件をスキップ。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "마지막 실행 %1$@: %2$d개 시작, %3$d개 건너뜀."
-          }
-        }
-      }
-    },
-    "Last run %1$@: %2$d started, %3$d skipped, %4$d could not start.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上次執行 %1$@：已開啟 %2$d 個，略過 %3$d 個，%4$d 個無法開啟。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上次执行 %1$@：已开启 %2$d 个，跳过 %3$d 个，%4$d 个无法开启。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前回の実行 %1$@：%2$d 件を開始、%3$d 件をスキップ、%4$d 件は開始できませんでした。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "마지막 실행 %1$@: %2$d개 시작, %3$d개 건너뜀, %4$d개 시작 실패."
-          }
-        }
-      }
-    },
     "Early start is on": {
       "extractionState": "manual",
       "localizations": {
@@ -12435,35 +12290,6 @@
         }
       }
     },
-    "Each morning at %@, Tally opens each Claude account's 5-hour window with one short message, so the window resets earlier in your day. Accounts already working are left alone.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每天早上 %@，Tally 會用一則簡短訊息為每個 Claude 帳號開啟 5 小時額度視窗，讓視窗在一天中更早重置。正在使用中的帳號不會被打擾。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每天早上 %@，Tally 会用一条简短消息为每个 Claude 账号开启 5 小时额度窗口，让窗口在一天中更早重置。正在使用中的账号不会被打扰。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "毎朝 %@ に、Tally が短いメッセージを 1 通送って各 Claude アカウントの 5 時間ウィンドウを開始し、リセットが一日の早い時間に来るようにします。すでに稼働中のアカウントはそのままにします。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "매일 아침 %@에 Tally가 짧은 메시지 한 통으로 각 Claude 계정의 5시간 창을 열어, 하루 중 더 이른 시각에 초기화되게 합니다. 이미 작업 중인 계정은 그대로 둡니다."
-          }
-        }
-      }
-    },
     "Got it": {
       "extractionState": "manual",
       "localizations": {
@@ -12489,6 +12315,354 @@
           "stringUnit": {
             "state": "translated",
             "value": "확인"
+          }
+        }
+      }
+    },
+    "Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Leaving this on costs very little and always moves the reset earlier.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每當某個 Claude 帳號的 5 小時額度視窗關閉，Tally 就用一則簡短訊息把它開起來，讓下一次重置落在一天中更早的時間。每個帳號每 5 小時最多一則，正在使用中的帳號不會被打擾。保持開啟的成本極低，而且一定讓重置更早到來。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每当某个 Claude 账号的 5 小时额度窗口关闭，Tally 就用一条简短消息把它打开，让下一次重置落在一天中更早的时间。每个账号每 5 小时最多一条，正在使用中的账号不会被打扰。保持开启的成本极低，而且一定让重置更早到来。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントの 5 時間ウィンドウが閉じるたびに、Tally が短いメッセージを 1 通送って開き直し、次のリセットが一日の早い時間に来るようにします。1 アカウントにつき 5 時間あたり最大 1 通で、すでに稼働中のアカウントはそのままにします。オンのままでもコストはごくわずかで、リセットは必ず早まります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정의 5시간 창이 닫힐 때마다 Tally가 짧은 메시지 한 통으로 창을 열어, 다음 초기화가 하루 중 더 이른 시각에 오게 합니다. 계정당 5시간에 최대 한 통이며, 이미 작업 중인 계정은 그대로 둡니다. 켜 두어도 비용은 매우 적고 초기화는 항상 앞당겨집니다."
+          }
+        }
+      }
+    },
+    "Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Set quiet hours in Settings to keep it silent overnight.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每當某個 Claude 帳號的 5 小時額度視窗關閉，Tally 就用一則簡短訊息把它開起來，讓下一次重置落在一天中更早的時間。每個帳號每 5 小時最多一則，正在使用中的帳號不會被打擾。想讓它整夜安靜，可在設定裡指定安靜時段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每当某个 Claude 账号的 5 小时额度窗口关闭，Tally 就用一条简短消息把它打开，让下一次重置落在一天中更早的时间。每个账号每 5 小时最多一条，正在使用中的账号不会被打扰。想让它整夜安静，可在设置里指定安静时段。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントの 5 時間ウィンドウが閉じるたびに、Tally が短いメッセージを 1 通送って開き直し、次のリセットが一日の早い時間に来るようにします。1 アカウントにつき 5 時間あたり最大 1 通で、すでに稼働中のアカウントはそのままにします。夜間は静かにしておきたい場合は、設定で静かな時間帯を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정의 5시간 창이 닫힐 때마다 Tally가 짧은 메시지 한 통으로 창을 열어, 다음 초기화가 하루 중 더 이른 시각에 오게 합니다. 계정당 5시간에 최대 한 통이며, 이미 작업 중인 계정은 그대로 둡니다. 밤새 조용하기를 원하면 설정에서 방해 금지 시간을 지정하세요."
+          }
+        }
+      }
+    },
+    "Quiet hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安靜時段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安静时段"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静かな時間帯"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방해 금지 시간"
+          }
+        }
+      }
+    },
+    "Nothing is sent between these times.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這段時間內不會送出任何訊息。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段时间内不会发送任何消息。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この時間帯には何も送信しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 시간대에는 아무것도 보내지 않습니다."
+          }
+        }
+      }
+    },
+    "Off, so windows are opened at any hour. Turn this on to keep Tally silent overnight.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未啟用，因此任何時間都可能開啟視窗。開啟後可讓 Tally 整夜保持安靜。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未启用，因此任何时间都可能开启窗口。开启后可让 Tally 整夜保持安静。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのため、どの時間帯でもウィンドウを開きます。オンにすると夜間は静かになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "꺼져 있어 어느 시간대에도 창을 엽니다. 켜면 밤새 조용하게 유지됩니다."
+          }
+        }
+      }
+    },
+    "From": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时段"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시간"
+          }
+        }
+      }
+    },
+    "to": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "〜"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~"
+          }
+        }
+      }
+    },
+    "Nothing sent today yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天尚未送出任何訊息。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天尚未发送任何消息。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日はまだ何も送信していません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘은 아직 보낸 것이 없습니다."
+          }
+        }
+      }
+    },
+    "Today: %1$d skipped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：略過 %1$d 個。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：跳过 %1$d 个。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本日：%1$d 件をスキップ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘: %1$d개 건너뜀."
+          }
+        }
+      }
+    },
+    "Today: %1$d skipped, %2$d could not start.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：略過 %1$d 個，%2$d 個無法開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：跳过 %1$d 个，%2$d 个无法开启。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本日：%1$d 件をスキップ、%2$d 件は開始できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘: %1$d개 건너뜀, %2$d개 시작 실패."
+          }
+        }
+      }
+    },
+    "Today: %1$d started, %2$d skipped. Last message at %3$@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：已開啟 %1$d 個，略過 %2$d 個。最近一則於 %3$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：已开启 %1$d 个，跳过 %2$d 个。最近一条于 %3$@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本日：%1$d 件を開始、%2$d 件をスキップ。最後のメッセージは %3$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘: %1$d개 시작, %2$d개 건너뜀. 마지막 메시지 %3$@."
+          }
+        }
+      }
+    },
+    "Today: %1$d started, %2$d skipped, %3$d could not start. Last message at %4$@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：已開啟 %1$d 個，略過 %2$d 個，%3$d 個無法開啟。最近一則於 %4$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天：已开启 %1$d 个，跳过 %2$d 个，%3$d 个无法开启。最近一条于 %4$@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本日：%1$d 件を開始、%2$d 件をスキップ、%3$d 件は開始できませんでした。最後のメッセージは %4$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘: %1$d개 시작, %2$d개 건너뜀, %3$d개 시작 실패. 마지막 메시지 %4$@."
           }
         }
       }

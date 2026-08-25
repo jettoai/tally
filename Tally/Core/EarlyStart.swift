@@ -1,18 +1,26 @@
 import Foundation
 
-/// Early start: opening each Claude account's 5-hour window in the morning, so the window resets
-/// earlier in the day rather than whenever the first prompt happens to be typed.
+/// Early start: keeping each Claude account's 5-hour window turning over, so a reset lands as early
+/// in the day as it can rather than whenever the first prompt happens to be typed.
 ///
 /// Claude's 5-hour window begins at the FIRST message of a stretch, not at a fixed hour, so a day
 /// that begins at 10am carries its reset until 3pm and the one after that until 8pm. One short
-/// message sent at 7am moves the whole ladder into working hours. That is the entire feature: it
-/// starts a window the user was going to start anyway, a few hours earlier.
+/// message sent the moment a window closes moves the whole ladder earlier and keeps it there. That
+/// is the entire feature: it starts a window the user was going to start anyway, sooner.
+///
+/// IT USED TO BE A MORNING ALARM (one message per account per day, at 07:00) and became a relay on
+/// 2026-08-25. The reasoning is arithmetic: the message costs a haiku turn, and the window it opens
+/// always resets earlier than the one the user would have opened themselves, so there is no hour of
+/// the day where waiting is the better answer. What replaces the clock is `EarlyStartQuietHours`,
+/// which is off by default and exists for the preference the arithmetic cannot speak to.
 ///
 /// Everything in this file is a pure function of values, Foundation only (no AppKit, no timers, no
-/// Process), so `tests/earlystart` compiles it standalone. The scheduling and the spawn live in
-/// `Tally/Stores/EarlyStartStore.swift`; what a spawn actually IS lives in `EarlyStartCommand.swift`.
+/// Process), so `tests/earlystart` compiles it standalone. The persisted shapes live in
+/// `EarlyStartState.swift`, the silence window in `EarlyStartQuietHours.swift`; the scheduling and
+/// the spawn live in `Tally/Stores/EarlyStartStore.swift`, and what a spawn IS in
+/// `EarlyStartCommand.swift`.
 
-/// One account as the morning run sees it: everything the decision needs, and nothing it does not.
+/// One account as an evaluation sees it: everything the decision needs, and nothing it does not.
 ///
 /// Assembled from two sources the store holds separately (usage rows carry the window, discovery
 /// carries the home), which is exactly why it exists: the rule below reads one value type and can
@@ -33,10 +41,8 @@ struct EarlyStartCandidate: Equatable {
     var windowIsOpen: Bool
 }
 
-/// Why one account was passed over. A value rather than a bare Bool because the Settings line
-/// counts only the passes a user would recognise as skips, and the two kinds that mean "there was
-/// no work this morning at all" must not be counted or the record would be overwritten by every
-/// later wake (see `EarlyStartPlan.isReportable`).
+/// Why one account was passed over. A value rather than a bare Bool because two different questions
+/// are asked of it afterwards, and they disagree about most of these cases.
 enum EarlyStartSkip: String, Equatable {
     /// Not a Claude account. v1 acts on Claude alone: Codex's own limits do not work this way.
     case otherProvider
@@ -44,50 +50,52 @@ enum EarlyStartSkip: String, Equatable {
     case accountOff
     /// Signed out, or otherwise with no home to launch with.
     case notLaunchable
-    /// The latest poll failed, so whether the window is open is not known this morning.
+    /// The latest poll failed, so whether the window is open is not known right now.
     case unreadable
-    /// The window is already counting down. The commonest pass, and the one the feature is for:
-    /// somebody who was already working gets nothing sent on their behalf.
+    /// The window is already counting down. The commonest pass by far, and the one the feature is
+    /// for: somebody who is working gets nothing sent on their behalf. It is also the OBSERVATION
+    /// the relay runs on (`observesOpenWindow`).
     case windowOpen
-    /// This account already had its message today.
+    /// This account's current closed-window stretch has already had its message.
     case alreadyStarted
-    /// The schedule was armed after today's trigger had gone by, so today is not its day.
-    case daySuppressed
+    /// The schedule was armed part way through this account's current closed-window stretch, so the
+    /// relay starts from the next one rather than from the moment somebody moved a switch.
+    case armedMidEpisode
+    /// The user asked for silence at this hour.
+    case quietHours
 
     /// Whether this pass belongs in the "N skipped" the Settings row reports.
     ///
-    /// The three that do not are the three that are not about this morning: two of them say the
-    /// account was never in scope, and `alreadyStarted` says the morning already happened. Counting
-    /// that last one would let a wake at 9am record "0 started, 2 skipped" over the 7am run's
-    /// "2 started", which is the true sentence about the wrong event.
+    /// ONLY THE TWO THAT MEAN SOMETHING IS WRONG. This narrowed when the feature became a relay:
+    /// under the old one-decision-per-morning schedule, "the window was already open at 07:00" was
+    /// news, and it was reported. Under a relay it is the steady state - every account this feature
+    /// successfully starts reads that way for the next five hours - so counting it would put the
+    /// whole fleet in the skipped column on a day when everything worked.
+    ///
+    /// What is left is the pair a user would want to see a number for and could not learn any other
+    /// way: an account with no credential to launch with, and one whose polls keep failing. Both
+    /// mean the switch reads "on" while that account gets nothing.
     var countsAsSkip: Bool {
         switch self {
-        case .otherProvider, .accountOff, .daySuppressed, .alreadyStarted: return false
-        case .notLaunchable, .unreadable, .windowOpen: return true
+        case .otherProvider, .accountOff, .windowOpen, .alreadyStarted, .armedMidEpisode,
+             .quietHours: return false
+        case .notLaunchable, .unreadable: return true
         }
     }
 
-    /// Whether this pass FINISHED the account's morning, so no later refresh may start it today.
+    /// Whether this pass is EVIDENCE that the account's window opened, which is what ends one
+    /// episode and starts the next (`EarlyStartMark.sawWindowOpen`).
     ///
-    /// A DIFFERENT AXIS FROM `countsAsSkip`, and the two disagree about every case they share:
-    /// that one asks whether the user would recognise the pass as a skip, this one asks whether
-    /// anything is still owed. `windowOpen` is both - it is reported, and it is done.
-    ///
-    /// Only `windowOpen` finishes anything. The feature promises one decision per account per
-    /// morning ("Each morning at 07:00"), and an account that was already working at 07:00 has had
-    /// its decision: without a stamp the window it was running closes at 09:00 and the next refresh
-    /// starts a fresh one on its behalf, hours after the morning it was for.
-    ///
-    /// The two passes that must NOT finish the day are the two the catch-up exists for: an account
-    /// signed out at 07:00 and signed back in at 08:00 (`notLaunchable`), and one whose poll failed
-    /// at 07:00 and succeeded at 08:00 (`unreadable`). Both are "not known yet", not "not today".
-    /// The remaining four are already terminal through some other part of the state, or were never
-    /// in scope, so a stamp would say nothing and only enlarge the payload.
-    var completesDay: Bool {
+    /// A DIFFERENT AXIS FROM `countsAsSkip` and, since that one narrowed, they now share no case at
+    /// all: this asks what the pass proves about the provider's side, that one asks what the user
+    /// should be told. Only `windowOpen` proves anything - it is read from Anthropic's own numbers,
+    /// which is a stronger fact than a spawn's exit code, and it is the reason a message that failed
+    /// silently does not unlock a second one before `EarlyStartLogic.retryInterval`.
+    var observesOpenWindow: Bool {
         switch self {
         case .windowOpen: return true
         case .otherProvider, .accountOff, .notLaunchable, .unreadable, .alreadyStarted,
-             .daySuppressed: return false
+             .armedMidEpisode, .quietHours: return false
         }
     }
 }
@@ -98,76 +106,59 @@ struct EarlyStartPass: Equatable {
     var reason: EarlyStartSkip
 }
 
-/// What one morning evaluation decided.
+/// What one evaluation decided.
 struct EarlyStartPlan: Equatable {
     var start: [EarlyStartCandidate] = []
     var passed: [EarlyStartPass] = []
 
-    /// Whether this evaluation is worth writing down as a run. A morning that started nothing and
-    /// passed over nothing IN SCOPE did not happen, and must not replace the record of the one that
-    /// did (see `EarlyStartSkip.countsAsSkip`).
+    /// Whether this evaluation has anything to WRITE DOWN - either an action, or an observation the
+    /// next evaluation depends on.
+    ///
+    /// The observation half is why this is not the same question as `isReportable`, and having them
+    /// be the same by coincidence is how the relay would quietly stop relaying: the store returns
+    /// early when there is nothing to record, and an evaluation whose only content is "these three
+    /// accounts are working now" reports nothing while carrying the fact that ends their episodes.
+    var needsRecording: Bool {
+        !start.isEmpty || passed.contains { $0.reason.countsAsSkip || $0.reason.observesOpenWindow }
+    }
+
+    /// Whether this evaluation belongs in the day's tally. An evaluation that started nothing and
+    /// blocked on nothing is the ordinary quiet case, hundreds of times a day, and must not touch
+    /// the record (see `EarlyStartSkip.countsAsSkip`).
     var isReportable: Bool { !start.isEmpty || passed.contains { $0.reason.countsAsSkip } }
 
     var skippedCount: Int { passed.filter { $0.reason.countsAsSkip }.count }
 }
 
-/// What the Settings row reports about the last morning.
-struct EarlyStartRun: Codable, Equatable {
-    var at: Date
-    var started: Int
-    var skipped: Int
-    /// Accounts whose message was attempted and did not go through (the CLI exited non-zero, or
-    /// never ran). Reported rather than retried: a feature that fails every morning has to SAY so
-    /// on the row somebody would look at, or it is a switch that reads "on" and does nothing.
-    var failed: Int = 0
-}
-
-/// Decoded key by key for the reason `EarlyStartState` gives about its own payload: a record
-/// written by a build without one of these fields has to read rather than throw, because the
-/// state around it is what stops a morning from happening twice.
-extension EarlyStartRun {
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        at = try container.decode(Date.self, forKey: .at)
-        started = try container.decodeIfPresent(Int.self, forKey: .started) ?? 0
-        skipped = try container.decodeIfPresent(Int.self, forKey: .skipped) ?? 0
-        failed = try container.decodeIfPresent(Int.self, forKey: .failed) ?? 0
-    }
-}
-
-/// Persisted bookkeeping (UserDefaults), so a restart, a sleep or an auto-update cannot turn one
-/// morning into several.
-struct EarlyStartState: Codable, Equatable {
-    /// Account id to the day key of the morning it was last started on. Per account rather than
-    /// per run: an account that was signed out at 7am and signed back in at 8am should still get
-    /// its window opened when the machine next wakes.
-    var startedDays: [String: String] = [:]
-    /// A day the schedule may not act on, because it was armed after that day's trigger had passed.
-    var suppressedDay: String?
-    var lastRun: EarlyStartRun?
-}
-
-/// Decoded key by key so a payload written by a build without one of these fields still reads.
-/// Synthesized `Decodable` throws on a missing key rather than falling back to the property
-/// default, and the store reads a decode failure as "no state at all", which would re-send every
-/// message already sent today. Declared in an extension so the memberwise init survives.
-extension EarlyStartState {
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        startedDays = try container.decodeIfPresent([String: String].self, forKey: .startedDays) ?? [:]
-        suppressedDay = try container.decodeIfPresent(String.self, forKey: .suppressedDay)
-        lastRun = try container.decodeIfPresent(EarlyStartRun.self, forKey: .lastRun)
-    }
-}
-
-/// The trigger, window-reading and dedup rules. Pure.
+/// The window-reading, silence and dedup rules. Pure.
 enum EarlyStartLogic {
     /// The one provider v1 acts on.
     static let providerID = "claude"
-    /// 7am local: before a working day starts, late enough that the second window of the day lands
-    /// inside it. Editable in Settings.
-    static let defaultHour = 7
-    static let defaultMinute = 0
+
+    /// How long an attempt suppresses its account when nothing else has happened.
+    ///
+    /// EXACTLY THE LENGTH OF THE WINDOW THE MESSAGE WOULD HAVE OPENED, which is what makes it the
+    /// right number rather than a tuning knob. If the attempt worked, the window it opened has
+    /// itself expired by now and the account is owed another message anyway; if it did not work,
+    /// five hours is the longest a retry can be withheld without the feature falling behind the
+    /// schedule it replaced. It is also the guarantee anybody worried about cost is owed: whatever
+    /// goes wrong, and however often the app refreshes, one account cannot be sent more than one
+    /// message per five hours.
+    ///
+    /// The ordinary path is much quicker than this and does not use it: a window seen OPEN and then
+    /// closed ends the episode on the provider's own numbers (`EarlyStartSkip.observesOpenWindow`).
+    static let retryInterval: TimeInterval = 5 * 60 * 60
+
+    /// Which telling of this feature the one-time notice has to have delivered. Bumped when the
+    /// behaviour it describes changes, which is what re-shows it to somebody who already answered
+    /// the previous one.
+    ///
+    /// 1 was "each morning at 07:00". 2 is the relay, which sends at hours the first notice
+    /// promised it would not, so consent given to 1 is not consent to 2.
+    static let noticeVersion = 2
+
+    /// Whether the notice the user has answered is the current one.
+    static func noticeIsCurrent(seen: Int) -> Bool { seen >= noticeVersion }
 
     /// THE FIRST-RUN GATE. The feature ships on, so the very first message it would ever send is
     /// one nobody asked for; it waits until the one-time notice has been read (dismissed on the
@@ -180,43 +171,11 @@ enum EarlyStartLogic {
         enabled && noticeAcknowledged
     }
 
-    /// The day a moment belongs to, in the user's own calendar. The dedup key: "one message per
-    /// account per morning" is a statement about local days, so a machine carried across a time
-    /// zone gets the new zone's morning rather than the old one's.
+    /// The day a moment belongs to, in the user's own calendar. The key the Settings row's tally is
+    /// kept under, so a machine carried across a time zone gets the new zone's day.
     static func dayKey(_ date: Date, calendar: Calendar) -> String {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
-    }
-
-    /// The trigger instant on the day `date` falls in.
-    ///
-    /// Nil only when the calendar cannot build that instant at all. A clock hour that a daylight
-    /// saving jump removed is not that case: `Calendar` resolves it to the moment the jump lands
-    /// on, which is the correct reading of "7am on the day the clocks went forward".
-    static func trigger(onDayOf date: Date, hour: Int, minute: Int, calendar: Calendar) -> Date? {
-        var parts = calendar.dateComponents([.year, .month, .day], from: date)
-        parts.hour = hour
-        parts.minute = minute
-        parts.second = 0
-        return calendar.date(from: parts)
-    }
-
-    /// The next trigger strictly after `now`, which is what the timer is set to.
-    static func nextTrigger(after now: Date, hour: Int, minute: Int, calendar: Calendar) -> Date? {
-        calendar.nextDate(after: now,
-                          matching: DateComponents(hour: hour, minute: minute, second: 0),
-                          matchingPolicy: .nextTime, direction: .forward)
-    }
-
-    /// Whether today's trigger has already gone by, which is the question a wake (or a launch)
-    /// asks: a machine asleep at 7am has no timer fire to catch, so the moment it comes back it
-    /// checks the clock instead. What stops that from re-sending is the per-account day key, not
-    /// this.
-    static func triggerHasPassed(now: Date, hour: Int, minute: Int, calendar: Calendar) -> Bool {
-        guard let today = trigger(onDayOf: now, hour: hour, minute: minute, calendar: calendar) else {
-            return false
-        }
-        return now >= today
     }
 
     /// Whether an account's 5-hour window is already counting down, read from the usage the app
@@ -229,21 +188,21 @@ enum EarlyStartLogic {
     ///
     /// The honest edge: a window opened moments ago by somebody else, with too little spent to
     /// round above 0%, reads as closed here and costs one extra short message. The alternative,
-    /// trusting a reset stamp alone, costs a morning where nothing is opened at all.
+    /// trusting a reset stamp alone, costs an episode where nothing is opened at all.
     static func windowIsOpen(_ usage: AccountUsage, now: Date) -> Bool {
         guard let session = usage.metrics.first(where: { $0.kind == .session }),
               let resetsAt = session.resetsAt else { return false }
         return resetsAt > now && session.usedPercent > 0
     }
 
-    /// Whether this account's latest reading may be used to decide anything this morning.
+    /// Whether this account's latest reading may be used to decide anything.
     ///
     /// BOTH HALVES, because a failed round does not announce itself as an error straight away. The
     /// fold that runs after every poll keeps the last good numbers on a failure and leaves `error`
     /// nil until a streak of them makes the account stale, publishing the failure on the first
     /// round through `lastRefreshFailed` instead (`foldLastGood`, Core/LastGoodFold.swift, which
     /// spells out why the badge and the machine need opposite answers). Reading `error` alone would
-    /// hand this morning a set of numbers from an earlier poll wearing the face of a fresh one: a
+    /// hand this evaluation a set of numbers from an earlier poll wearing the face of a fresh one: a
     /// window that has since closed still reads as open, and a window that has since opened still
     /// reads as closed, and the second of those spends a message on somebody already working.
     ///
@@ -253,27 +212,45 @@ enum EarlyStartLogic {
     }
 
     /// Why this account is not being started, or nil to start it.
+    ///
+    /// THE ORDER IS LOAD-BEARING IN TWO PLACES. `notLaunchable` comes before `unreadable` because a
+    /// signed-out account also reports an unusable reading, and "there is no credential here" is the
+    /// more useful of the two answers. And the window check comes before the dedup checks, which is
+    /// the opposite of the order the morning schedule used: an account that already had its message
+    /// is exactly the account whose reopened window has to be SEEN, because seeing it is what ends
+    /// the episode and lets the next message through. Put the dedup first and the relay never
+    /// advances - it decays into a five-hourly alarm.
     static func pass(_ candidate: EarlyStartCandidate, state: EarlyStartState,
-                     now: Date, calendar: Calendar) -> EarlyStartSkip? {
-        let today = dayKey(now, calendar: calendar)
+                     quietHours: EarlyStartQuietHours, now: Date, calendar: Calendar)
+        -> EarlyStartSkip? {
         if candidate.providerID != providerID { return .otherProvider }
         if !candidate.isEnabled { return .accountOff }
-        // Ordered before the readable check on purpose: a signed-out account also reports an
-        // unusable reading, and "there is no credential here" is the more useful of the two.
         if candidate.home == nil { return .notLaunchable }
-        if state.suppressedDay == today { return .daySuppressed }
-        if state.startedDays[candidate.accountID] == today { return .alreadyStarted }
         if !candidate.readingIsUsable { return .unreadable }
         if candidate.windowIsOpen { return .windowOpen }
+        if quietHours.contains(now, calendar: calendar) { return .quietHours }
+
+        let mark = state.marks[candidate.accountID]
+        // The window was seen open after this account's suppression began and is closed now: that is
+        // a whole episode, ended by the provider's own numbers. Nothing is owed to the clock.
+        if mark?.sawWindowOpen == true { return nil }
+        if let attemptedAt = mark?.attemptedAt {
+            return now.timeIntervalSince(attemptedAt) >= retryInterval ? nil : .alreadyStarted
+        }
+        if let armedAt = state.armedAt {
+            return now.timeIntervalSince(armedAt) >= retryInterval ? nil : .armedMidEpisode
+        }
         return nil
     }
 
-    /// One morning's whole decision.
+    /// One evaluation's whole decision.
     static func plan(candidates: [EarlyStartCandidate], state: EarlyStartState,
-                     now: Date, calendar: Calendar) -> EarlyStartPlan {
+                     quietHours: EarlyStartQuietHours, now: Date,
+                     calendar: Calendar) -> EarlyStartPlan {
         var plan = EarlyStartPlan()
         for candidate in candidates {
-            if let reason = pass(candidate, state: state, now: now, calendar: calendar) {
+            if let reason = pass(candidate, state: state, quietHours: quietHours, now: now,
+                                 calendar: calendar) {
                 plan.passed.append(EarlyStartPass(accountID: candidate.accountID, reason: reason))
             } else {
                 plan.start.append(candidate)
@@ -284,40 +261,42 @@ enum EarlyStartLogic {
 
     /// Arm the schedule, which is what the switch going on and the first notice being read both do.
     ///
-    /// NOTHING IS BACKFILLED INTO THE DAY SOMEBODY CHANGED THEIR MIND ON. Turning the feature on at
-    /// 10am is a statement about tomorrow: sending a message the moment the switch moves would be
-    /// the surprise the notice exists to prevent, one step later. So a trigger that has already
-    /// gone by today marks today as spent, and a switch flipped before 7am leaves today alone -
-    /// it is still going to happen.
+    /// NOTHING IS BACKFILLED INTO THE EPISODE SOMEBODY CHANGED THEIR MIND DURING. Turning the
+    /// feature on is a statement about the windows from here on: sending a message the instant the
+    /// switch moves would be the surprise the notice exists to prevent, one step later. So arming
+    /// suppresses every account's current closed-window stretch, and the relay starts with the next
+    /// one - the first window that opens and closes while the feature is on.
     ///
-    /// Only the arming does this. A launch or a wake past the trigger DOES catch up, because
-    /// neither is somebody changing their mind: an app that was closed at 7am and opened at 8am is
-    /// the case this feature is most obviously for.
-    static func arming(_ state: EarlyStartState, now: Date, hour: Int, minute: Int,
-                       calendar: Calendar) -> EarlyStartState {
-        guard triggerHasPassed(now: now, hour: hour, minute: minute, calendar: calendar) else {
-            return state
-        }
+    /// IT CANNOT NAME THE ACCOUNTS, which is why this is a single stamp rather than a mark each.
+    /// The switch lives in Settings and the accounts arrive with a refresh, so arming happens with
+    /// no fleet in hand. A stamp the pass rule falls back to when an account has no mark of its own
+    /// says the same thing about all of them, including the ones discovered afterwards. The marks
+    /// that DO exist are cleared for the same reason: a stale `sawWindowOpen` from before the
+    /// feature was switched off would let an account through on the strength of a window nobody was
+    /// watching.
+    ///
+    /// Only arming does this. A launch, a wake or an ordinary refresh does not: none of them is
+    /// somebody changing their mind, and an app that was closed while a window closed is the case
+    /// this feature is most obviously for.
+    static func arming(_ state: EarlyStartState, now: Date) -> EarlyStartState {
         var next = state
-        next.suppressedDay = dayKey(now, calendar: calendar)
+        next.armedAt = now
+        next.marks = [:]
         return next
     }
 
-    /// Fold a finished run into the state: every account whose morning is OVER is stamped with
-    /// today, and the run is recorded only if it was one (`EarlyStartPlan.isReportable`).
-    ///
-    /// Two kinds of account are over. One is every account a message was attempted for. The other
-    /// is every account passed over for a reason that finished its day (`EarlyStartSkip
-    /// .completesDay`), which today means the one that was already working: stamping it is what
-    /// keeps the promise on the Settings row - one decision per account per morning - when the
-    /// window it was running closes at lunchtime and the next refresh would otherwise open a new
-    /// one on its behalf.
+    /// Fold a finished evaluation into the state: what was attempted, what was observed, and what
+    /// today's row should say.
     ///
     /// STAMPED ON THE ATTEMPT, not on the success, because the promise is "at most one message per
-    /// account per morning" and a retry ladder cannot keep it: a lid opened twenty times on a day
-    /// when something is wrong would be twenty attempts per account. The cost is a morning lost to
-    /// a transient failure; what is bought is that the count in the row is the number of times
-    /// Tally spoke on somebody's behalf, whatever the answers were.
+    /// account per five hours" and a retry ladder cannot keep it: a refresh loop running every few
+    /// minutes on a day when something is wrong would be dozens of attempts per account. The cost is
+    /// an episode lost to a transient failure; what is bought is that the count on the row is the
+    /// number of times Tally spoke on somebody's behalf, whatever the answers were.
+    ///
+    /// THE OBSERVATION IS RECORDED WHETHER OR NOT ANYTHING WAS SENT, and it is the half that makes
+    /// the relay a relay: an account seen working has its `sawWindowOpen` set, so the moment that
+    /// window closes it is owed a message again without waiting out the five hours.
     ///
     /// - Parameters:
     ///   - attempted: account ids a spawn was made for, whatever its outcome.
@@ -325,20 +304,69 @@ enum EarlyStartLogic {
     static func recording(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
                           failed: Int, now: Date, calendar: Calendar) -> EarlyStartState {
         var next = state
-        let today = dayKey(now, calendar: calendar)
-        for accountID in attempted { next.startedDays[accountID] = today }
-        for entry in plan.passed where entry.reason.completesDay {
-            next.startedDays[entry.accountID] = today
+        // A fresh mark, not an edit: an attempt begins a new episode, so whatever was observed about
+        // the last one stops counting here.
+        for accountID in attempted {
+            next.marks[accountID] = EarlyStartMark(attemptedAt: now, sawWindowOpen: false)
         }
+        for entry in plan.passed where entry.reason.observesOpenWindow {
+            var mark = next.marks[entry.accountID] ?? EarlyStartMark()
+            mark.sawWindowOpen = true
+            next.marks[entry.accountID] = mark
+        }
+
         if plan.isReportable {
-            next.lastRun = EarlyStartRun(at: now, started: max(0, attempted.count - failed),
-                                         skipped: plan.skippedCount, failed: failed)
+            let today = dayKey(now, calendar: calendar)
+            // Yesterday's tally is replaced rather than added to: the row says "today".
+            var report = EarlyStartToday(day: today)
+            if let running = next.today, running.day == today { report = running }
+            report.started += max(0, attempted.count - failed)
+            report.failed += failed
+            var skipped = Set(report.skipped)
+            for entry in plan.passed where entry.reason.countsAsSkip {
+                skipped.insert(entry.accountID)
+            }
+            report.skipped = skipped.sorted()
+            if !attempted.isEmpty { report.lastAttemptAt = now }
+            next.today = report
         }
-        // Yesterday's stamps answer no question anybody can still ask, and an id is never reused
-        // for a different account without being removed first. Pruning here keeps the payload from
-        // growing by one entry per account per day for the life of the install.
-        next.startedDays = next.startedDays.filter { $0.value == today }
-        if next.suppressedDay != today { next.suppressedDay = nil }
+
+        // A mark that can no longer change an answer is dropped, so the payload does not grow by one
+        // entry per account per day for the life of the install. A mark whose floor has aged past
+        // the retry interval suppresses nothing, and one with no floor at all never did.
+        next.marks = next.marks.filter { _, mark in
+            guard let floor = mark.attemptedAt ?? next.armedAt else { return false }
+            return now.timeIntervalSince(floor) < retryInterval
+        }
+        if let armedAt = next.armedAt, now.timeIntervalSince(armedAt) >= retryInterval {
+            next.armedAt = nil
+        }
+        return next
+    }
+
+    /// Move `failed` messages from today's "started" column to its "could not start" one, once the
+    /// spawns have answered.
+    ///
+    /// A SEPARATE RULE FROM `recording` BECAUSE THE TALLY ACCUMULATES. The attempt is written
+    /// optimistically before the spawn (the store says why: an auto-update relaunch inside the two
+    /// minutes a CLI gets would otherwise resend everything), and the answers land minutes later.
+    /// Replaying `recording` with the same account ids to carry the failures - which is what the
+    /// morning schedule did, harmlessly, because it overwrote a single last-run record - would add
+    /// the whole batch to the day's total a second time.
+    ///
+    /// The marks are deliberately untouched: an attempt suppresses its account for `retryInterval`
+    /// whatever the CLI answered, which is the promise this feature makes about cost.
+    ///
+    /// A batch that started before midnight and answered after it is left alone rather than
+    /// corrected into the new day's column, where it would describe messages that day never sent.
+    static func correcting(_ state: EarlyStartState, failed: Int, now: Date,
+                           calendar: Calendar) -> EarlyStartState {
+        guard failed > 0, var report = state.today,
+              report.day == dayKey(now, calendar: calendar) else { return state }
+        var next = state
+        report.started = max(0, report.started - failed)
+        report.failed += failed
+        next.today = report
         return next
     }
 }

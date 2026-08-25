@@ -8,6 +8,11 @@ import SwiftUI
 /// ever sent until this has been read: `EarlyStartStore.isArmed` is false until it is dismissed, or
 /// until the Settings row it names has been opened, which teaches the same thing at more length.
 ///
+/// IT IS SHOWN AGAIN WHEN THE PROMISE CHANGES, which is what `EarlyStartLogic.noticeVersion` is
+/// counting. The first version of this notice said "each morning at 07:00" and somebody dismissed
+/// it on that basis; the feature now sends at any hour, which is not the thing they agreed to, so
+/// the gate closes again until the new sentence has been read.
+///
 /// It stands until it is answered rather than fading after a while, launches included, for the
 /// reason the Integrations pane's own notices give: nobody was at the machine when the schedule was
 /// set up, and a notice they were not there for is not a notice.
@@ -22,8 +27,7 @@ extension PopoverRootView {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Early start is on")).font(.caption.weight(.semibold))
-                    Text(String(format: L("Each morning at %@, Tally opens each Claude account's 5-hour window with one short message, so the window resets earlier in your day. Accounts already working are left alone."),
-                                AppLocale.shortTime(early.triggerToday ?? Date())))
+                    Text(L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Set quiet hours in Settings to keep it silent overnight."))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

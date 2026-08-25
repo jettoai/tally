@@ -1,20 +1,22 @@
 import AppKit
 import Observation
 
-/// The early-start schedule: the preference, the persisted bookkeeping, and the one place a morning
-/// message is actually sent. The rules it runs on are pure and live next door (`Core/EarlyStart.swift`);
-/// what a spawn is lives in `Core/EarlyStartCommand.swift`.
+/// The early-start relay: the preferences, the persisted bookkeeping, and the one place a message
+/// is actually sent. The rules it runs on are pure and live next door (`Core/EarlyStart.swift`,
+/// `Core/EarlyStartState.swift`, `Core/EarlyStartQuietHours.swift`); what a spawn is lives in
+/// `Core/EarlyStartCommand.swift`.
 ///
-/// THE EVALUATION RIDES THE REFRESH LOOP rather than the timer, the same way the two notifiers do.
-/// Deciding whether a window is open means reading this morning's usage, and the refresh is what
+/// THE EVALUATION RIDES THE REFRESH LOOP rather than a timer, the same way the two notifiers do.
+/// Deciding whether a window is open means reading this moment's usage, and the refresh is what
 /// produces it; a timer that fired and then read whatever numbers happened to be in memory would be
 /// deciding on a reading from before the machine went to sleep. So `evaluate` is called at the tail
-/// of every refresh, is idempotent (a date comparison and a dictionary lookup), and the timer and
-/// the wake observer below exist only to make the morning PUNCTUAL: both of them do nothing but ask
-/// for a refresh, and the decision happens where it always happens.
+/// of every refresh, is idempotent (a comparison and a dictionary lookup), and the two nudges below
+/// do nothing but ask for a refresh.
 ///
-/// That also covers the case no timer can: an app that was closed at 7am and opened at 8am has no
-/// fire to catch up on, and its first refresh is the one that notices.
+/// THAT IS ALSO WHY THE TIMER SHRANK when this became a relay. A morning schedule needs a clock; a
+/// relay reacts to windows closing, and the refresh that reads them is already running on the user's
+/// own interval. The one thing left that happens on the clock alone is the end of quiet hours, so
+/// that is the only thing the timer is ever set for.
 @MainActor
 @Observable
 final class EarlyStartStore {
@@ -22,9 +24,17 @@ final class EarlyStartStore {
 
     private enum Key {
         static let enabled = "ai.jetto.tally.earlyStart.enabled"
-        static let hour = "ai.jetto.tally.earlyStart.hour"
-        static let minute = "ai.jetto.tally.earlyStart.minute"
-        static let noticeSeen = "ai.jetto.tally.earlyStart.noticeSeen"
+        static let quietEnabled = "ai.jetto.tally.earlyStart.quiet.enabled"
+        static let quietStartHour = "ai.jetto.tally.earlyStart.quiet.startHour"
+        static let quietStartMinute = "ai.jetto.tally.earlyStart.quiet.startMinute"
+        static let quietEndHour = "ai.jetto.tally.earlyStart.quiet.endHour"
+        static let quietEndMinute = "ai.jetto.tally.earlyStart.quiet.endMinute"
+        /// WHICH telling of the feature has been acknowledged, not whether one has. The behaviour
+        /// changed after the first notice shipped, so a stored `true` from that version is consent
+        /// to a schedule that no longer exists (`EarlyStartLogic.noticeVersion`). A new key rather
+        /// than a reinterpreted old one: an integer read out of a Bool-shaped default is 0, which
+        /// happens to be the right answer, but only by luck.
+        static let noticeVersion = "ai.jetto.tally.earlyStart.noticeVersion"
         static let state = "ai.jetto.tally.earlyStart.state"
     }
 
@@ -34,18 +44,19 @@ final class EarlyStartStore {
     /// an unshipped build never sends anything (`mayRun`).
     private static let devOverrideKey = "TallyEarlyStartCLI"
 
-    /// ON by default. The feature costs one short message per account per morning and buys back a
-    /// reset that lands inside the working day; a switch nobody finds is a switch nobody benefits
-    /// from. What keeps that from being a surprise is the notice: nothing is sent until it has been
-    /// read (`isArmed`).
+    /// ON by default. The feature costs one haiku message per window and buys back a reset that
+    /// lands earlier in the day, every time; a switch nobody finds is a switch nobody benefits from.
+    /// What keeps that from being a surprise is the notice: nothing is sent until it has been read
+    /// (`isArmed`).
     private(set) var isEnabled: Bool
-    private(set) var hour: Int
-    private(set) var minute: Int
-    /// Whether the one-time notice has been shown and acknowledged. The gate in front of the very
-    /// first message this feature ever sends.
+    /// The hours the user asked for silence in. Off by default: see `EarlyStartQuietHours`.
+    private(set) var quietHours: EarlyStartQuietHours
+    /// Whether the CURRENT one-time notice has been shown and acknowledged. The gate in front of
+    /// the first message this feature ever sends, and in front of the first one it sends under a
+    /// changed promise.
     private(set) var noticeAcknowledged: Bool
-    /// What the last morning did, for the Settings row. Nil until there has been one.
-    private(set) var lastRun: EarlyStartRun?
+    /// What today has done, for the Settings row. Nil until something has.
+    private(set) var today: EarlyStartToday?
 
     private var timer: DispatchSourceTimer?
     private var wakeObserver: NSObjectProtocol?
@@ -57,17 +68,16 @@ final class EarlyStartStore {
     /// THE ORDERING IN AppDelegate ONLY COVERS THE LAUNCH PATH, and this flag is the rest of it.
     /// The schedule has three other entrances that all reach `scheduleTimer`, and every one of them
     /// is a thing the user can do in the seconds an ACL dialog holds the repair open: pressing "Got
-    /// it" on the notice, moving the Settings switch, changing the time. An app opened at 06:59:40
-    /// and acknowledged at 06:59:45 would otherwise arm a timer that fires at 07:00 into the middle
-    /// of the repair. `evaluate` carries it too, because a refresh asked for by anything at all
-    /// (the panel opening, the menu's Refresh) ends by asking this store whether to send.
+    /// it" on the notice, moving the Settings switch, changing the quiet hours. `evaluate` carries
+    /// it too, because a refresh asked for by anything at all (the panel opening, the menu's
+    /// Refresh) ends by asking this store whether to send.
     ///
     /// The preference writes themselves are NOT gated: they persist immediately, and `start()`
     /// schedules from the values it finds, so an early change is honoured rather than lost.
     private var started = false
-    /// True while a morning's spawns are in flight. A run can outlast several refreshes (the CLI
-    /// gets two minutes), and every one of those refreshes would otherwise evaluate a state that
-    /// has not been written yet and send the same message again.
+    /// True while spawns are in flight. A run can outlast several refreshes (the CLI gets two
+    /// minutes), and every one of those refreshes would otherwise evaluate a state that has not been
+    /// written yet and send the same message again.
     private var isRunning = false
 
     private init() {
@@ -75,12 +85,17 @@ final class EarlyStartStore {
         // `nil` here is "never chosen", not "chose off": the key is written only by the Settings
         // switch, and property observers do not run during init.
         isEnabled = defaults.object(forKey: Key.enabled) as? Bool ?? true
-        noticeAcknowledged = defaults.bool(forKey: Key.noticeSeen)
-        let storedHour = defaults.object(forKey: Key.hour) as? Int
-        let storedMinute = defaults.object(forKey: Key.minute) as? Int
-        hour = Self.clampedHour(storedHour ?? EarlyStartLogic.defaultHour)
-        minute = Self.clampedMinute(storedMinute ?? EarlyStartLogic.defaultMinute)
-        lastRun = Self.loadState().lastRun
+        noticeAcknowledged = EarlyStartLogic.noticeIsCurrent(
+            seen: defaults.integer(forKey: Key.noticeVersion))
+        let suggested = EarlyStartQuietHours.suggested
+        quietHours = EarlyStartQuietHours(
+            isEnabled: defaults.bool(forKey: Key.quietEnabled),
+            startHour: defaults.object(forKey: Key.quietStartHour) as? Int ?? suggested.startHour,
+            startMinute: defaults.object(forKey: Key.quietStartMinute) as? Int
+                ?? suggested.startMinute,
+            endHour: defaults.object(forKey: Key.quietEndHour) as? Int ?? suggested.endHour,
+            endMinute: defaults.object(forKey: Key.quietEndMinute) as? Int ?? suggested.endMinute)
+        today = Self.loadState().today
     }
 
     // MARK: Lifetime
@@ -88,18 +103,18 @@ final class EarlyStartStore {
     /// Install the punctuality nudges. Called once at launch, behind the Keychain repair.
     ///
     /// Opening the gate is the FIRST thing it does, because everything below it is gated on it.
-    /// Scheduling here rather than arming: `EarlyStartLogic.arming` marks today as spent when the
-    /// trigger has gone by, which is right for somebody changing their mind and wrong for a launch.
-    /// An app opened at 8am is the case this feature is most obviously for, so the catch-up has to
-    /// survive the gate, and it does because a preference changed before this point has already
-    /// written its own arming through `rearm`.
+    /// Scheduling here rather than arming: `EarlyStartLogic.arming` suppresses the episode in
+    /// progress, which is right for somebody changing their mind and wrong for a launch. An app
+    /// opened after a window closed is the case this feature is most obviously for, so the catch-up
+    /// has to survive the gate, and it does because a preference changed before this point has
+    /// already written its own arming through `rearm`.
     func start() {
         started = true
         scheduleTimer()
         guard wakeObserver == nil else { return }
-        // A machine asleep through 7am has no fire to catch: the schedule below is set on the wall
-        // clock so a deadline that passed during sleep fires on the way back, and this is the
-        // second path to the same place for the sleep that outlasts it.
+        // A machine asleep while a window closed has no fire to catch, and the refresh loop it wakes
+        // into is on a several-minute interval. Asking on the way out of sleep is the quick path to
+        // the same decision.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in EarlyStartStore.shared.nudge() }
@@ -115,14 +130,24 @@ final class EarlyStartStore {
         rearm()
     }
 
-    func setTime(hour newHour: Int, minute newMinute: Int) {
-        let clamped = (Self.clampedHour(newHour), Self.clampedMinute(newMinute))
-        guard clamped != (hour, minute) else { return }
-        hour = clamped.0
-        minute = clamped.1
-        UserDefaults.standard.set(hour, forKey: Key.hour)
-        UserDefaults.standard.set(minute, forKey: Key.minute)
-        rearm()
+    /// Change the silence window.
+    ///
+    /// IT DOES NOT RE-ARM, and that is the difference between this control and the switch above.
+    /// Arming costs the user the episode in progress, which is the right price for "I have just
+    /// decided to let this run" and the wrong one for "I am adjusting when it stays quiet": paying
+    /// it here would mean every nudge of a picker silently withheld a window. The one visible
+    /// consequence is that turning quiet hours OFF part way through the night lets the next refresh
+    /// act, which is what the person who just turned it off asked for.
+    func setQuietHours(_ hours: EarlyStartQuietHours) {
+        guard hours != quietHours else { return }
+        quietHours = hours
+        let defaults = UserDefaults.standard
+        defaults.set(hours.isEnabled, forKey: Key.quietEnabled)
+        defaults.set(hours.startHour, forKey: Key.quietStartHour)
+        defaults.set(hours.startMinute, forKey: Key.quietStartMinute)
+        defaults.set(hours.endHour, forKey: Key.quietEndHour)
+        defaults.set(hours.endMinute, forKey: Key.quietEndMinute)
+        scheduleTimer()
     }
 
     /// The notice has been read. The gate opens here and nowhere else.
@@ -131,7 +156,7 @@ final class EarlyStartStore {
         // into the defaults the real app reads (the same rule `AppLocale.override` follows).
         guard !DemoUsage.isActive, !noticeAcknowledged else { return }
         noticeAcknowledged = true
-        UserDefaults.standard.set(true, forKey: Key.noticeSeen)
+        UserDefaults.standard.set(EarlyStartLogic.noticeVersion, forKey: Key.noticeVersion)
         rearm()
     }
 
@@ -139,29 +164,21 @@ final class EarlyStartStore {
     /// store cannot answer: whether there is a Claude account for it to be about.
     var showsNotice: Bool { isEnabled && !noticeAcknowledged }
 
-    /// The schedule is live: switched on AND the notice has been read. The rule itself is pure
-    /// (`EarlyStartLogic.isArmed`) so the gate in front of the first message is asserted rather
+    /// The schedule is live: switched on AND the current notice has been read. The rule itself is
+    /// pure (`EarlyStartLogic.isArmed`) so the gate in front of the first message is asserted rather
     /// than described.
     var isArmed: Bool {
         EarlyStartLogic.isArmed(enabled: isEnabled, noticeAcknowledged: noticeAcknowledged)
     }
 
-    /// Today's trigger instant, for the notice's own sentence and the Settings row's caption.
-    var triggerToday: Date? {
-        EarlyStartLogic.trigger(onDayOf: Date(), hour: hour, minute: minute,
-                                calendar: Calendar.current)
-    }
+    // MARK: The relay
 
-    // MARK: The morning
-
-    /// Fold one refresh's accounts into the schedule, and send this morning's messages if this is
-    /// the refresh that finds the trigger passed. Called at the tail of every refresh.
+    /// Fold one refresh's accounts into the schedule, and send for any account whose window has
+    /// closed. Called at the tail of every refresh.
     func evaluate(accounts: [AccountUsage], launchHomes: [String: String]) {
         guard started, Self.mayRun, isArmed, !isRunning else { return }
         let now = Date()
         let calendar = Calendar.current
-        guard EarlyStartLogic.triggerHasPassed(now: now, hour: hour, minute: minute,
-                                               calendar: calendar) else { return }
         let settings = SettingsStore.shared
         let candidates = accounts.map { usage in
             EarlyStartCandidate(
@@ -177,22 +194,23 @@ final class EarlyStartStore {
         }
 
         let state = Self.loadState()
-        let plan = EarlyStartLogic.plan(candidates: candidates, state: state, now: now,
-                                        calendar: calendar)
-        // A morning with nothing to start and nothing in scope passed over is not a morning: it
-        // must not overwrite the record of the one that was (`EarlyStartPlan.isReportable`).
-        guard plan.isReportable else { return }
+        let plan = EarlyStartLogic.plan(candidates: candidates, state: state,
+                                        quietHours: quietHours, now: now, calendar: calendar)
+        // Most evaluations decide nothing and observe nothing - the fleet is working, or asleep, or
+        // out of scope. `needsRecording` rather than `isReportable`: an evaluation whose only
+        // content is "these accounts are working now" writes no row and still carries the fact that
+        // ends their episodes (`EarlyStartPlan.needsRecording`).
+        guard plan.needsRecording else { return }
         guard !plan.start.isEmpty else {
             record(state, plan: plan, attempted: [], failed: 0, now: now, calendar: calendar)
             return
         }
         // Absent rather than unresolved: `ProviderCLI.executable` falls back to the bare name, which
-        // would spawn nothing and report a failure per account every morning. Asked the way
+        // would spawn nothing and report a failure per account every few minutes. Asked the way
         // `ClaudeProvider` asks it.
         guard Self.devStandIn != nil || CLIRunner.resolve("claude") != nil else {
-            // Nothing is stamped, so an install that arrives later gets its morning on the next
-            // refresh; the row says the accounts could not be started rather than that they were
-            // skipped.
+            // Nothing is marked, so an install that arrives later gets the next evaluation; the row
+            // says the accounts could not be started rather than that they were skipped.
             record(state, plan: plan, attempted: [], failed: plan.start.count, now: now,
                    calendar: calendar)
             return
@@ -202,9 +220,9 @@ final class EarlyStartStore {
         let ids = starting.map(\.accountID)
         // WRITTEN BEFORE THE SPAWN, not after it. The CLIs get two minutes, and an app that quits
         // inside that window (an auto-update relaunch is the ordinary way it happens) would come
-        // back to a state that never heard about this morning and send everything again. Stamping
-        // first is what makes "at most one message per account per morning" true of a process that
-        // can be replaced mid-run; the counts below correct themselves when the answers land.
+        // back to a state that never heard about this attempt and send everything again. Marking
+        // first is what makes "at most one message per account per five hours" true of a process
+        // that can be replaced mid-run; the counts below correct themselves when the answers land.
         record(state, plan: plan, attempted: ids, failed: 0, now: now, calendar: calendar)
         Task { [weak self] in
             let failures = await Self.send(to: starting)
@@ -212,9 +230,9 @@ final class EarlyStartStore {
             self.isRunning = false
             guard failures > 0 else { return }
             // Re-read: the refresh loop has been running while the CLIs were out, and a state
-            // written from the copy captured above would discard whatever it wrote.
-            self.record(Self.loadState(), plan: plan, attempted: ids, failed: failures, now: now,
-                        calendar: calendar)
+            // written from the copy captured above would discard whatever it wrote. A correction
+            // rather than a replay, because the tally accumulates (`EarlyStartLogic.correcting`).
+            self.correct(failed: failures, now: Date(), calendar: calendar)
         }
     }
 
@@ -251,26 +269,32 @@ final class EarlyStartStore {
 
     // MARK: Scheduling
 
-    /// Ask for a refresh; the decision happens at its tail. Both nudges (the timer and the wake)
-    /// come through here, so neither of them can grow a second copy of the rule.
+    /// Ask for a refresh; the decision happens at its tail. Both nudges (the quiet-hours timer and
+    /// the wake) come through here, so neither of them can grow a second copy of the rule.
     private func nudge() {
         scheduleTimer()
         guard started, Self.mayRun, isArmed else { return }
         Task { await UsageStore.shared.refresh(userInitiated: false) }
     }
 
+    /// Set the one timer this feature still needs: the end of the quiet stretch.
+    ///
+    /// With quiet hours off there is no timer at all, and that is correct rather than a gap. Every
+    /// other thing the relay waits for - a window closing, an attempt ageing out - is read from a
+    /// refresh, and the refresh loop runs on its own interval whatever this store does.
     private func scheduleTimer() {
         timer?.cancel()
         timer = nil
         // `started` sits with the other conditions rather than above the cancel, so a schedule can
         // only ever be taken down by a path that could also put one back up.
         guard started, Self.mayRun, isArmed,
-              let next = EarlyStartLogic.nextTrigger(after: Date(), hour: hour, minute: minute,
-                                                     calendar: Calendar.current) else { return }
+              let next = quietHours.nextEnd(after: Date(), calendar: Calendar.current) else {
+            return
+        }
         // WALL CLOCK, not the uptime clock every other timer in this app uses. `DispatchTime` stops
         // while the machine sleeps, so a deadline set eight hours out on a machine that sleeps for
         // seven would fire seven hours late; `DispatchWallTime` fires on the way back out of sleep
-        // instead, which is the morning this feature is about.
+        // instead, which is the morning this timer is about.
         let delay = max(1, next.timeIntervalSinceNow)
         let source = DispatchSource.makeTimerSource(queue: .main)
         source.schedule(wallDeadline: .now() + delay, leeway: .seconds(30))
@@ -279,19 +303,15 @@ final class EarlyStartStore {
         timer = source
     }
 
-    /// What every path that can make the schedule live, or move its trigger, has to do: arm without
-    /// backfilling today (`EarlyStartLogic.arming` says why), then set the timer to the new next
-    /// trigger. One function because three callers doing two things in order is three chances to do
-    /// one of them.
+    /// What every path that makes the schedule live has to do: arm without backfilling the episode
+    /// in progress (`EarlyStartLogic.arming` says why), then set the timer. One function because two
+    /// callers doing two things in order is two chances to do one of them.
     ///
     /// Its two halves answer to different gates. The arming is bookkeeping in the defaults and runs
     /// whenever somebody changes their mind, launch or no launch; the timer is a live thing that
     /// ends in a refresh, so it waits for `started` like every other entrance.
     private func rearm() {
-        if isArmed {
-            Self.saveState(EarlyStartLogic.arming(Self.loadState(), now: Date(), hour: hour,
-                                                  minute: minute, calendar: Calendar.current))
-        }
+        if isArmed { Self.saveState(EarlyStartLogic.arming(Self.loadState(), now: Date())) }
         scheduleTimer()
     }
 
@@ -299,10 +319,21 @@ final class EarlyStartStore {
 
     private func record(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
                         failed: Int, now: Date, calendar: Calendar) {
-        let next = EarlyStartLogic.recording(state, plan: plan, attempted: attempted,
-                                             failed: failed, now: now, calendar: calendar)
-        Self.saveState(next)
-        lastRun = next.lastRun
+        apply(EarlyStartLogic.recording(state, plan: plan, attempted: attempted, failed: failed,
+                                        now: now, calendar: calendar))
+    }
+
+    /// Carry the spawns' answers into the tally that was written before they were made.
+    private func correct(failed: Int, now: Date, calendar: Calendar) {
+        apply(EarlyStartLogic.correcting(Self.loadState(), failed: failed, now: now,
+                                         calendar: calendar))
+    }
+
+    /// Persist a new state and republish what the Settings row reads off it. The one place either
+    /// happens, so a fold can never be written down without the row hearing about it.
+    private func apply(_ state: EarlyStartState) {
+        Self.saveState(state)
+        today = state.today
     }
 
     private static func loadState() -> EarlyStartState {
@@ -338,11 +369,4 @@ final class EarlyStartStore {
         guard !DemoUsage.isActive else { return false }
         return !BuildVariant.isUnshipped || devStandIn != nil
     }
-
-    // MARK: Bounds
-
-    /// Clock components, brought back into range on the way IN as well as on the way out: a
-    /// defaults file edited by hand must not be able to schedule a 25th hour.
-    private static func clampedHour(_ value: Int) -> Int { min(max(value, 0), 23) }
-    private static func clampedMinute(_ value: Int) -> Int { min(max(value, 0), 59) }
 }

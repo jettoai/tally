@@ -70,15 +70,32 @@ func runUnmanagedLaunchChecks() {
     // file exists to prevent, arriving through the reader (codex review of ea8816e). The tag on line
     // 1 is what makes both directions refuse instead.
     //
-    // ASSERTED AS THE WHOLE RECORD, not as `?.id`: this fixture is exactly the shape the old layout
-    // wrote, and a reader that mangled only the directory would satisfy an id-only assertion while
-    // filing the session under a directory nothing will ever ask about.
-    check("a record in the layout before the tag is no record",
+    // ASSERTED AS THE WHOLE RECORD, not as `?.id`: these fixtures are exactly the shapes the older
+    // layouts wrote, and a reader that mangled only the directory would satisfy an id-only assertion
+    // while filing the session under a directory nothing will ever ask about.
+    //
+    // EACH FIXTURE CLAIMS ONLY THE GUARD IT ACTUALLY REACHES. Both layouts before the tag wrote
+    // three lines, so today's reader refuses them at `lines.count >= 4` and never compares line 1 at
+    // all - a real refusal, and not the one this section is about. Naming those two for the tag was
+    // an assertion that could not have gone red if the tag were deleted.
+    check("a record in the layout before the tag is too short to be one today",
           parseUnmanagedLaunch("\(mine.startedAt)\n\(hereResolved)\nconv-abc\n", pid: mine.pid)
               == nil)
-    check("…and neither is the current layout with the tag missing",
+    check("…as is the current layout with the tag simply missing",
           parseUnmanagedLaunch("\(mine.startedAt)\nconv-abc\n\(hereResolved)\n", pid: mine.pid)
               == nil)
+    // LONG ENOUGH TO BE READ, AND STILL REFUSED: the same pre-tag layout, written for a directory
+    // whose name contains a newline - which is a shape the path-last rule exists for and the reason
+    // a pre-tag record can reach four lines at all. The line count no longer excuses this reader, so
+    // the refusal happens at line 1, where a pre-tag record carries a start time and this build
+    // wants a name.
+    check("…and a pre-tag record long enough to be read is refused at line 1",
+          parseUnmanagedLaunch("\(mine.startedAt)\n\(hereResolved)/two\nlines\nconv-abc\n",
+                               pid: mine.pid) == nil)
+    // THE FIXTURE THAT ISOLATES THE TAG COMPARISON: every other field here is exactly what today's
+    // reader wants, so that comparison is the only guard that can be refusing it. Delete the
+    // comparison and this record parses; the three above are refused by a second guard as well and
+    // would stay green, which is what makes this the one that answers for the tag.
     check("…nor a tag this build does not know",
           parseUnmanagedLaunch("tally-unmanaged-9\n\(mine.startedAt)\nconv-abc\n\(hereResolved)\n",
                                pid: mine.pid) == nil)
@@ -154,6 +171,73 @@ func runUnmanagedLaunchChecks() {
           !FileManager.default.fileExists(atPath: unmanagedLaunchFile(pid: deadPID, dir: dir).path))
     check("…and keeps the running one",
           readUnmanagedLaunch(pid: mine.pid, dir: dir) == record)
+
+    // MARK: - What the sweep is entitled to delete
+    //
+    // A RECORD THIS BUILD CANNOT READ IS NOT A DEAD ONE. The tag makes a record from another layout
+    // read as no record, which is the safe answer to "is this session live" and the destructive one
+    // to "may I delete this file". Both sides of a layout change run on one machine at the same time
+    // - an older Release beside a newer one, the copy inside a mounted dmg, a shim still execing a
+    // build from before the tag - so a file this reader cannot parse under a pid that is RUNNING is
+    // most likely the live record of a session the other build is writing. Under a config home with
+    // no Tally status line nothing will write that record again, so deleting it takes the session
+    // out of every live set for good and the next launch there resumes the transcript it is holding
+    // open: the Critical this file exists to prevent, arriving through the sweep (codex review of
+    // e1bde51). The sweep therefore deletes only what it can positively confirm is over.
+    //
+    // A DIRECTORY PER FIXTURE, because there is exactly one pid this suite can be sure is alive -
+    // its own - and every one of these shapes has to be filed under it.
+    let putRaw: (String, pid_t, URL) -> Void = { body, pid, into in
+        try? FileManager.default.createDirectory(at: into, withIntermediateDirectories: true)
+        try? body.write(to: unmanagedLaunchFile(pid: pid, dir: into), atomically: true,
+                        encoding: .utf8)
+    }
+    let stillOnDisk: (pid_t, URL) -> Bool = { pid, into in
+        FileManager.default.fileExists(atPath: unmanagedLaunchFile(pid: pid, dir: into).path)
+    }
+    let futureLayout = "tally-unmanaged-9\n\(mine.startedAt)\nconv-future\n\(hereResolved)\n"
+    let preTagLayout = "\(mine.startedAt)\n\(hereResolved)\nconv-old\n"
+
+    let unknownLive = root.appendingPathComponent("sweep-unknown-live")
+    putRaw(futureLayout, mine.pid, unknownLive)
+    sweepUnmanagedLaunches(dir: unknownLive)
+    check("the sweep keeps a record in a format it does not know while that process runs",
+          stillOnDisk(mine.pid, unknownLive))
+    check("…and still does not count that session as live",
+          liveUnmanagedLaunches(dir: unknownLive).isEmpty)
+
+    // The mirror direction, and the one already on this machine: the Release binaries here predate
+    // the tag, so the records at risk are the ones a build without it wrote.
+    let preTagLive = root.appendingPathComponent("sweep-pretag-live")
+    putRaw(preTagLayout, mine.pid, preTagLive)
+    sweepUnmanagedLaunches(dir: preTagLive)
+    check("…and keeps one from the layout before the tag on the same terms",
+          stillOnDisk(mine.pid, preTagLive))
+
+    // Unreadable is a reprieve and not an amnesty: the pid dies, and the very next sweep takes the
+    // file on a finding of its own rather than on a failure to parse.
+    let unknownDead = root.appendingPathComponent("sweep-unknown-dead")
+    putRaw(futureLayout, deadPID, unknownDead)
+    sweepUnmanagedLaunches(dir: unknownDead)
+    check("a record it cannot read under a pid that is gone is swept anyway",
+          !stillOnDisk(deadPID, unknownDead))
+
+    let readableLive = root.appendingPathComponent("sweep-readable-live")
+    writeUnmanagedLaunch(record, dir: readableLive)
+    sweepUnmanagedLaunches(dir: readableLive)
+    check("a record this build can read, whose process is running, is kept",
+          stillOnDisk(mine.pid, readableLive))
+
+    // THE DELETION THE REPRIEVE MUST NOT SWALLOW: parseable, and naming a process that is not the
+    // one holding this pid now. That is a positive finding about a record the sweep could read, so
+    // it goes.
+    let handedOn = root.appendingPathComponent("sweep-handed-on")
+    writeUnmanagedLaunch(UnmanagedLaunch(claudeCode: ProcessStamp(pid: mine.pid,
+                                                                 startedAt: mine.startedAt + 1),
+                                         cwd: hereResolved, id: "recycled"), dir: handedOn)
+    sweepUnmanagedLaunches(dir: handedOn)
+    check("a record whose pid now names a different process is swept",
+          !stillOnDisk(mine.pid, handedOn))
 
     // MARK: - The live set
 

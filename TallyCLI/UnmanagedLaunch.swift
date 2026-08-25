@@ -108,8 +108,14 @@ func unmanagedLaunchFile(pid: pid_t, dir: URL = unmanagedLaunchDir) -> URL {
 /// So line 1 is a name rather than data. A reader from before this tag existed wants an `Int64`
 /// there, does not get one, and refuses the whole record; a reader after it wants exactly this
 /// string, and refuses everything else - an older layout, a newer one, a half-written file. Both
-/// directions therefore fail SAFE, to no record at all, which is the behaviour every build before
-/// this channel existed had.
+/// directions therefore READ no record at all, which is the behaviour every build before this
+/// channel existed had.
+///
+/// REFUSING TO READ A RECORD IS NOT A LICENCE TO DELETE IT, and the sweep rather than the parse is
+/// where that distinction is kept: the builds either side of a layout change run on one machine at
+/// the same time, so a record this one cannot read may be a live session's, and deleting it turns
+/// this safe read into the Critical the file exists to prevent (`sweepUnmanagedLaunches` has the
+/// whole of it, from the codex review of e1bde51).
 ///
 /// NAMED RATHER THAN "v2", because this is the first VERSIONED format and the second LAYOUT: a
 /// numeral on line 1 would be off by one against the layouts for anybody counting later. Nothing
@@ -148,10 +154,15 @@ func formatUnmanagedLaunch(_ launch: UnmanagedLaunch) -> String {
 ///
 /// THE DIRECTORY IS CHECKED FOR THE ONE THING EVERY REAL ONE HAS. It is opaque, so there is nothing
 /// to validate about its shape - except that every path written here went through `realpathString`
-/// first and is therefore ABSOLUTE. A value that does not begin with a separator was not written by
-/// this program, which makes it a corrupt record rather than a directory, and the record is refused.
-/// This is the second of the two guards and it is not the tag's understudy: the tag catches a whole
-/// record from another layout, this catches a field that arrived from anywhere else.
+/// first, which answers with an ABSOLUTE path for anything that resolves. Provenance is not what
+/// this guard can speak to: the render channel's directory arrives in the JSON Claude Code hands the
+/// status line, and `realpathString` returns its argument unchanged when the resolve fails, so the
+/// field can carry a value neither written nor normalised by this program. What the guard rejects is
+/// a value that cannot be the resolved directory of any live process - a relative path, the id line
+/// of some other layout, a half-written file - which makes the record corrupt rather than a
+/// directory, and it is refused. This is the second of the two guards and it is not the tag's
+/// understudy: the tag catches a whole record from another layout, this catches a field that arrived
+/// from anywhere else.
 func parseUnmanagedLaunch(_ raw: String, pid: pid_t) -> UnmanagedLaunch? {
     let body = raw.hasSuffix("\n") ? String(raw.dropLast()) : raw
     let lines = body.split(separator: "\n", omittingEmptySubsequences: false)
@@ -181,30 +192,56 @@ func writeUnmanagedLaunch(_ launch: UnmanagedLaunch, dir: URL = unmanagedLaunchD
                encoding: .utf8)
 }
 
-/// Every file in this directory that is one of ours, with the record it holds when the process it
-/// names is STILL that process - nil for a session that has ended, a pid handed on to somebody else,
-/// or a body that says nothing usable.
+/// What one file in this directory is, to the two questions asked of it.
+///
+/// THOSE ARE NOT THE SAME QUESTION, and this type exists because folding them into one answer is how
+/// a safe read became a destructive delete. "Who is running here" takes a file this build cannot
+/// read as a no, exactly as every build before this channel did; "who has certainly ended" takes the
+/// same file as no answer at all, for the reason `sweepUnmanagedLaunches` states. A single
+/// `UnmanagedLaunch?` cannot hold both, which is what let the second be read off the first.
+enum UnmanagedLaunchState: Equatable {
+    /// The pid this file is named for is still the process the record inside it describes.
+    case live(UnmanagedLaunch)
+    /// Positively confirmed over: no process under that pid, or one whose stamp is not the record's,
+    /// which is a pid handed on to somebody else. The only state the sweep removes.
+    case ended
+    /// The process is running and this build cannot say what its file means: a tag it does not know,
+    /// a layout from another build, a half-written file. Neither live nor deletable.
+    case unreadable
+
+    var live: UnmanagedLaunch? {
+        guard case .live(let launch) = self else { return nil }
+        return launch
+    }
+}
+
+/// Every file in this directory that is one of ours, and what it is.
 ///
 /// One rule read by both the live set and the sweep, rather than the same listing written twice:
 /// "which files here are ours" and "which of them are still running" are exactly the questions those
 /// two would come to disagree about. A file not named for a pid is not ours and does not appear at
 /// all, which is what keeps the sweep off anything else in the directory.
+///
+/// THE PID IS ASKED ABOUT BEFORE THE FILE IS READ, and not only because it is the cheaper of the
+/// two: a dead pid ends the question whatever the body says, while a body that says nothing usable
+/// only ends it once the pid is known to be gone.
 func unmanagedLaunchEntries(dir: URL = unmanagedLaunchDir,
                             stamp: (pid_t) -> ProcessStamp? = processStamp)
-    -> [(file: URL, live: UnmanagedLaunch?)] {
+    -> [(file: URL, state: UnmanagedLaunchState)] {
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
     return files.compactMap { url in
         guard let pid = pid_t(url.lastPathComponent) else { return nil }
-        let record = readUnmanagedLaunch(pid: pid, dir: dir)
-        return (url, record.flatMap { stamp(pid) == $0.claudeCode ? $0 : nil })
+        guard let running = stamp(pid) else { return (url, .ended) }
+        guard let record = readUnmanagedLaunch(pid: pid, dir: dir) else { return (url, .unreadable) }
+        return (url, record.claudeCode == running ? .live(record) : .ended)
     }
 }
 
 /// Every unsupervised session running right now.
 func liveUnmanagedLaunches(dir: URL = unmanagedLaunchDir,
                            stamp: (pid_t) -> ProcessStamp? = processStamp) -> [UnmanagedLaunch] {
-    unmanagedLaunchEntries(dir: dir, stamp: stamp).compactMap(\.live)
+    unmanagedLaunchEntries(dir: dir, stamp: stamp).compactMap { $0.state.live }
 }
 
 /// The conversations unsupervised sessions are writing in `cwd` right now - the half of the live set
@@ -225,9 +262,20 @@ func unmanagedConversations(in cwd: String, dir: URL = unmanagedLaunchDir,
 /// the one moment it can be stale is a moment something is already here to tidy it. Nothing depends
 /// on the sweep for correctness - every reading refuses a record whose stamp does not match - so this
 /// is about the directory not accumulating a file per session for the life of the machine.
+///
+/// ENDED IS A POSITIVE FINDING HERE, NOT THE ABSENCE OF A LIVE ONE, and that distinction is the
+/// whole of what this function got wrong. It used to delete every entry the live set could not use,
+/// which reads "this build cannot parse it" as "its session is over": under a pid that is running,
+/// that file is most likely the live record of a session the build on the other side of a layout
+/// change is writing, and this directory is the ONLY witness such a session has under a config home
+/// with no Tally status line to write the record again. Deleting it makes the next launch in that
+/// directory resume a transcript somebody is holding open, which is precisely the Critical this file
+/// exists to prevent - so the tidying job is not allowed to reach a file it cannot read (codex
+/// review of e1bde51). The cost of keeping it is one file until that pid dies, when the very next
+/// sweep confirms the death and takes it.
 func sweepUnmanagedLaunches(dir: URL = unmanagedLaunchDir,
                             stamp: (pid_t) -> ProcessStamp? = processStamp) {
-    for entry in unmanagedLaunchEntries(dir: dir, stamp: stamp) where entry.live == nil {
+    for entry in unmanagedLaunchEntries(dir: dir, stamp: stamp) where entry.state == .ended {
         try? FileManager.default.removeItem(at: entry.file)
     }
 }

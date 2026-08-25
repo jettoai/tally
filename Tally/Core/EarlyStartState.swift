@@ -21,11 +21,12 @@ import Foundation
 /// numbers saying that episode is over, and waiting out five hours for a message nobody sent buys
 /// nothing.
 ///
-/// IT IS RECORDED ON ATTEMPTED ACCOUNTS TOO, where it is a record rather than a release, and saying
-/// otherwise was wrong for as long as this comment did: a window one of these messages opens is
-/// itself `retryInterval` long, so it closes at the moment the floor lifts, and the floor is the one
-/// that answers. A window that closes EARLIER than that was somebody else's, joined rather than
-/// opened, and acting on it is how "at most one per five hours" would have stopped being true.
+/// IT IS RECORDED ON ATTEMPTED ACCOUNTS TOO, where it is a record rather than a release. The floor
+/// is what answers there, and it answers WITHOUT asking whose window closed, which is the only form
+/// of the rule that holds: a window one of these messages opens is at most `retryInterval` long and
+/// routinely less (Anthropic resets sessions on a ten-minute grid), so "it closed early, therefore
+/// it was somebody else's" is false on ordinary days. The promise is about cost, not provenance, so
+/// the observation changes nothing here and the relay simply hands over a few minutes late.
 struct EarlyStartMark: Codable, Equatable {
     /// When a message was last attempted for this account, or nil when the suppression comes from
     /// the schedule being armed mid-episode rather than from an attempt (`EarlyStartState.armedAt`).
@@ -56,8 +57,20 @@ struct EarlyStartToday: Codable, Equatable {
     var day: String = ""
     /// Messages that went through.
     var started: Int = 0
-    /// Attempts that were made and did not go through.
+    /// Attempts that were made and did not go through. A COUNT, and it stays one: it is the partner
+    /// of `started`, the pair describes MESSAGES, and one account really can cost two failed
+    /// messages in a day. What the row shows is a different question, answered by the two sets
+    /// below (`couldNotStartTotal`).
     var failed: Int = 0
+    /// WHICH accounts those failures belong to, deduplicated.
+    ///
+    /// Beside the count rather than instead of it, because the row and the arithmetic ask different
+    /// questions of the same event: `started` has to have exactly as many messages taken back off
+    /// it as were optimistically added, while the row is answering "how many accounts got nothing
+    /// today" and must not count one account twice. A payload written by the build before this
+    /// field simply reports fewer accounts for the rest of that day, which is the only window in
+    /// which the two can disagree: the tally is replaced at midnight.
+    var attemptFailed: [String] = []
     /// Accounts no attempt could be made for AT ALL, because there is no `claude` on the machine,
     /// deduplicated.
     ///
@@ -80,11 +93,15 @@ struct EarlyStartToday: Codable, Equatable {
     var lastAttemptAt: Date?
 
     var skippedCount: Int { skipped.count }
-    /// Everything the row reports as "could not start": the attempts that were made and failed, plus
-    /// the accounts no attempt could be made for. One number because the two are the same news to a
-    /// reader (this account got nothing and it was not on purpose); two fields underneath because
-    /// only one of them is bounded by the number of attempts.
-    var couldNotStartTotal: Int { failed + couldNotStart.count }
+    /// Everything the row reports as "could not start": ACCOUNTS that got nothing today and not on
+    /// purpose, whether the attempt failed or none could be made.
+    ///
+    /// A UNION, NOT A SUM. Adding `failed` to `couldNotStart.count` let one account be counted on
+    /// both sides of the day - blocked all morning with no CLI, then attempted and failed once one
+    /// arrived - and print "4 could not start" on a machine holding two accounts. Every quantity a
+    /// reader compares against their own fleet has to be a set of accounts; the same mistake in
+    /// counter form is what put 1,440 on this row.
+    var couldNotStartTotal: Int { Set(attemptFailed).union(couldNotStart).count }
 }
 
 extension EarlyStartToday {
@@ -93,6 +110,7 @@ extension EarlyStartToday {
         day = try container.decodeIfPresent(String.self, forKey: .day) ?? ""
         started = try container.decodeIfPresent(Int.self, forKey: .started) ?? 0
         failed = try container.decodeIfPresent(Int.self, forKey: .failed) ?? 0
+        attemptFailed = try container.decodeIfPresent([String].self, forKey: .attemptFailed) ?? []
         couldNotStart = try container.decodeIfPresent([String].self, forKey: .couldNotStart) ?? []
         skipped = try container.decodeIfPresent([String].self, forKey: .skipped) ?? []
         lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)

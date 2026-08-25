@@ -58,8 +58,8 @@ enum EarlyStartSkip: String, Equatable {
     /// first miss or two. One-minute polling produces these routinely: the brief window while a CLI
     /// rotates an OAuth token is exactly the kind it catches (`foldLastGood`).
     case pollMissed
-    /// …and the polls have gone on failing long enough for the account to read as stale
-    /// (`AccountUsage.isStale`), which is the version of that news worth showing somebody.
+    /// …and the polls have gone on failing over the whole debounce window
+    /// (`AccountUsage.pollsKeepFailing`), which is the version of that news worth showing somebody.
     case unreadable
     /// The window is already counting down. The commonest pass by far, and the one the feature is
     /// for: somebody who is working gets nothing sent on their behalf. It is also the OBSERVATION
@@ -161,11 +161,19 @@ enum EarlyStartLogic {
     /// goes wrong, and however often the app refreshes, one account cannot be sent more than one
     /// message per five hours.
     ///
-    /// NOTHING OVERRIDES IT, which is what makes it a guarantee rather than a default, and the
-    /// ordinary path does not have to wait past it either: the window one of these messages opens is
-    /// itself exactly this long, so it closes at the moment the floor lifts and the relay hands over
-    /// on time. What the observation (`EarlyStartSkip.observesOpenWindow`) releases early is the
-    /// suppression that has no message behind it, and so no cost to bound (`EarlyStartState.armedAt`).
+    /// NOTHING OVERRIDES IT, which is what makes it a guarantee rather than a default, and it is a
+    /// FLOOR ON COST rather than a guess about windows: no observation lifts it, whoever opened the
+    /// window that was observed.
+    ///
+    /// The window one of these messages opens is AT MOST this long, not exactly. Anthropic resets a
+    /// session on a ten-minute grid point, so the window a 09:03 message opens closes at 14:00
+    /// rather than 14:03 (592 distinct session resets in `~/.tally/history.jsonl`, every one of them
+    /// on a ten-minute mark or the minute before it). The relay therefore hands over up to ten
+    /// minutes after its own window shut, which is the price of the promise and is not worth an
+    /// exception: an exception is the bug this floor was rewritten to close.
+    ///
+    /// What the observation (`EarlyStartSkip.observesOpenWindow`) releases early is the suppression
+    /// that has no message behind it, and so no cost to bound (`EarlyStartState.armedAt`).
     static let retryInterval: TimeInterval = 5 * 60 * 60
 
     /// Which telling of this feature the one-time notice has to have delivered. Bumped when the
@@ -239,7 +247,12 @@ enum EarlyStartLogic {
     /// reading "N skipped" needs the second, because that list is a set that stands until midnight:
     /// on the first failure it would name every account that ever lost a poll to a token rotation
     /// and go on naming it all day.
-    static func readingKeepsFailing(_ usage: AccountUsage) -> Bool { usage.isStale }
+    ///
+    /// NOT `isStale`, WHICH IS THE BADGE: it is never raised for an account that has never loaded
+    /// (`foldLastGood` says why it must not be), and that account - signed in, failing every poll
+    /// since launch - is precisely the one this row exists to name. Asking the badge made it the
+    /// one account the row could never report (codex review of 60a4fe7).
+    static func readingKeepsFailing(_ usage: AccountUsage) -> Bool { usage.pollsKeepFailing }
 
     /// Why this account is not being started, or nil to start it.
     ///
@@ -267,11 +280,12 @@ enum EarlyStartLogic {
         let mark = state.marks[candidate.accountID]
         // THE ATTEMPT'S FLOOR FIRST, AND NOTHING GETS PAST IT: an account that has had a message
         // owes the five hours whatever is observed during them, which is the promise three places
-        // in this app make in those words. A window seen open and then closed INSIDE the interval
-        // cannot be the one this feature opened, since that one is exactly the interval long; it
-        // was somebody else's, joined rather than started, because the reading that sent the
-        // message read a live window as closed (`windowIsOpen` names the 0%-rounding edge that
-        // does it). Releasing on that close is a second message inside the hour.
+        // in this app make in those words. The rule is deliberately blind to WHOSE window closed,
+        // because that question cannot be answered from here and the promise does not depend on it:
+        // our own window closes inside the interval routinely (resets land on a ten-minute grid, so
+        // it shuts up to ten minutes early), and somebody else's does too whenever the reading that
+        // sent the message read a live window as closed (`windowIsOpen` names the 0%-rounding edge).
+        // Releasing on either would be a second message inside the interval.
         if let attemptedAt = mark?.attemptedAt {
             return now.timeIntervalSince(attemptedAt) >= retryInterval ? nil : .alreadyStarted
         }
@@ -343,14 +357,16 @@ enum EarlyStartLogic {
     ///
     /// - Parameters:
     ///   - attempted: account ids a spawn was made for, whatever its outcome.
-    ///   - failed: how many of those did not go through.
+    ///   - failed: WHICH of those did not go through, not how many. The day's row reports accounts
+    ///     rather than events (`EarlyStartToday.couldNotStartTotal`), and it cannot fold a count
+    ///     into that answer without risking counting one account twice.
     ///   - couldNotStart: account ids no spawn could be made for at all, because there is no CLI on
     ///     the machine. NAMED RATHER THAN COUNTED, like `skipped` and for a sharper version of the
     ///     same reason: no attempt is made, so nothing is marked, so the very same accounts are
     ///     chosen again at the next refresh and every one after it. A counter would describe the
     ///     refresh loop (a thousand a day at the shipping interval) rather than the fleet.
     static func recording(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
-                          failed: Int, couldNotStart: [String] = [], now: Date,
+                          failed: [String] = [], couldNotStart: [String] = [], now: Date,
                           calendar: Calendar) -> EarlyStartState {
         var next = state
         // A fresh mark, not an edit: an attempt begins a new episode, so whatever was observed about
@@ -369,13 +385,14 @@ enum EarlyStartLogic {
             // Yesterday's tally is replaced rather than added to: the row says "today".
             var report = EarlyStartToday(day: today)
             if let running = next.today, running.day == today { report = running }
-            report.started += max(0, attempted.count - failed)
-            report.failed += failed
+            report.started += max(0, attempted.count - failed.count)
+            report.failed += failed.count
             var skipped = Set(report.skipped)
             for entry in plan.passed where entry.reason.countsAsSkip {
                 skipped.insert(entry.accountID)
             }
             report.skipped = skipped.sorted()
+            report.attemptFailed = Set(report.attemptFailed).union(failed).sorted()
             var blocked = Set(report.couldNotStart)
             blocked.formUnion(couldNotStart)
             report.couldNotStart = blocked.sorted()
@@ -411,13 +428,18 @@ enum EarlyStartLogic {
     ///
     /// A batch that started before midnight and answered after it is left alone rather than
     /// corrected into the new day's column, where it would describe messages that day never sent.
-    static func correcting(_ state: EarlyStartState, failed: Int, now: Date,
+    static func correcting(_ state: EarlyStartState, failed: [String], now: Date,
                            calendar: Calendar) -> EarlyStartState {
-        guard failed > 0, var report = state.today,
+        guard !failed.isEmpty, var report = state.today,
               report.day == dayKey(now, calendar: calendar) else { return state }
         var next = state
-        report.started = max(0, report.started - failed)
-        report.failed += failed
+        report.started = max(0, report.started - failed.count)
+        report.failed += failed.count
+        // NAMED as well as counted, and the names are what the row reads. The count still moves,
+        // because it is the partner of `started` and the pair describes messages; the row describes
+        // ACCOUNTS, and only a set can be merged with the other one without counting an account
+        // that was blocked this morning and failed this afternoon twice.
+        report.attemptFailed = Set(report.attemptFailed).union(failed).sorted()
         next.today = report
         return next
     }

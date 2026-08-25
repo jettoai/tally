@@ -42,11 +42,17 @@ func metric(_ kind: MetricKind, used: Double, resetsAt: Date?) -> UsageMetric {
                 isActive: false)
 }
 
+/// `isStale` and `pollsKeepFailing` are separate knobs here because the app really does set them
+/// separately: an account that has never succeeded gets the second without the first, for the
+/// reason `foldLastGood` gives, and that account is the whole subject of the never-succeeded check
+/// in relaychecks.
 func usage(_ id: String, session: UsageMetric?, error: String? = nil,
-           lastRefreshFailed: Bool = false, isStale: Bool = false) -> AccountUsage {
+           lastRefreshFailed: Bool = false, isStale: Bool = false,
+           pollsKeepFailing: Bool = false) -> AccountUsage {
     AccountUsage(id: id, providerID: "claude", accountLabel: id, planName: nil,
                  metrics: [session].compactMap { $0 }, refreshedAt: at("2026-08-24 07:00"),
-                 error: error, isStale: isStale, lastRefreshFailed: lastRefreshFailed)
+                 error: error, isStale: isStale, lastRefreshFailed: lastRefreshFailed,
+                 pollsKeepFailing: pollsKeepFailing)
 }
 
 func candidate(_ id: String, provider: String = "claude", home: String? = "/Users/tester/.claude2",

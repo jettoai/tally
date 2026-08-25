@@ -115,6 +115,14 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// numbers beside it are then held over from an earlier round however fresh they look. The fact
     /// `isStale` cannot carry, because that one waits for a second failure on purpose.
     var lastRefreshFailed: Bool = false
+    /// Whether this account's polls have gone on failing, over the same streak `isStale` waits for.
+    ///
+    /// THE FACT THAT DOES NOT MENTION NUMBERS, which is why it is not either field above: both of
+    /// those describe the numbers on screen, so neither can speak for an account that has never had
+    /// any. This one is true of a sustained failure whether or not there was ever a good round
+    /// behind it, so it answers "is something wrong with this account" for both kinds at once.
+    /// `foldLastGood` sets all three and says why the badge may not be reused for this.
+    var pollsKeepFailing: Bool = false
     /// Codex reset banking: how many banked rate-limit resets the account can still redeem
     /// (nil = the provider doesn't report the concept).
     var resetCreditsAvailable: Int?

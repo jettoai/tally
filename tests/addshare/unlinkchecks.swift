@@ -484,8 +484,17 @@ func runUnlinkChecks(root: URL) {
                                     encoding: .utf8)) ?? ""
     check("the sharing row offers the way to the control it has none of",
           launchSource.contains("L(\"Manage in Integrations\"), action: showIntegrations"))
-    let settingsSource = (try? String(contentsOfFile: "Tally/Views/SettingsView.swift",
-                                      encoding: .utf8)) ?? ""
+    // THE CLOSURE'S BODY, whitespace collapsed and cut at its own brace, not a line matched
+    // verbatim: these ask what the hand-off DOES, and a closure that grew a statement is the same
+    // answer (verbatim, this went red the first time one was added, 60a4fe7); a body it cannot find
+    // is "", which fails both rather than passing. The second is the PAGE, of the three 01078c2
+    // split Integrations into: the sharing control is on the first.
+    let flat = ((try? String(contentsOfFile: "Tally/Views/SettingsView.swift", encoding: .utf8))
+        ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    let handOff = flat.range(of: "showIntegrations: {")
+        .map { String(flat[$0.upperBound...].prefix { $0 != "}" }) } ?? ""
     check("…wired to the section selection this window already has, not to a notion of its own",
-          settingsSource.contains("showIntegrations: { section = .integrations }"))
+          handOff.contains("section = .integrations"))
+    check("…and onto the page the sharing control is on, not whichever was open last",
+          handOff.contains("integrationsGroup = .commandLine"))
 }

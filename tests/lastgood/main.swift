@@ -86,6 +86,35 @@ let never = fold(failure, previous: nil, streak: 1)
 check("an account that never succeeded keeps its bare error", never.error == "network down")
 check("…and has no numbers to be believed", never.metrics.isEmpty)
 check("…and is flagged too, because its latest poll did fail", never.lastRefreshFailed)
+// The badge, asserted rather than assumed: this branch never raises it, and three surfaces read
+// that as "this account has never loaded" (see the sustained case below, which is where raising it
+// would actually be tempting).
+check("…while its badge stays down, which is what keeps the card on the error and a Retry",
+      !never.isStale)
+
+// MARK: - …and the streak reaches that branch too
+
+// THE THIRD FACT, and the reason it exists. Both fields above are about NUMBERS - are these this
+// moment's, are the held-over ones old enough to badge - so on a branch that has none, neither of
+// them could ever say that a signed-in account has been failing every poll since launch. That is
+// the one account a "something is wrong here" reader most wants named, and before this field it was
+// the one account no reader could see (codex review of 60a4fe7).
+let neverAgain = fold(failure, previous: nil, streak: 2)
+check("a never-succeeded account whose failures are sustained says so", neverAgain.pollsKeepFailing)
+check("…while one missed round does not, which is the badge's own debounce",
+      !never.pollsKeepFailing)
+// AND THE BADGE STAYS DOWN HERE, permanently and on purpose. `AccountFacts.isHardError` is
+// `error != nil && !isStale`, and it is what collapses a never-loaded card to the message and a
+// Retry button (the menu bar's "!" mark and the hover's error line read the same pair). Raising the
+// badge to carry the streak would have taken all three away from the only accounts they are for.
+check("…and the badge is still not raised, so the card keeps its error and its Retry",
+      !neverAgain.isStale && neverAgain.error == "network down" && neverAgain.metrics.isEmpty)
+
+// The held-over branch answers the same question the same way, which is what lets one reader ask
+// one field and get both kinds of broken account.
+check("a sustained failure over good numbers says it too", second.pollsKeepFailing)
+check("…a first failure over them does not", !first.pollsKeepFailing)
+check("…and a round that succeeds clears it, like the flag beside it", !healed.pollsKeepFailing)
 
 // MARK: - The identity a failed round did establish still lands
 
@@ -127,6 +156,21 @@ check("…and the successful branch through it too, so recovery clears the flag"
 check("…and the badge's debounce is still the store's own constant",
       storeSource.contains("staleAfterFailures: Self.staleAfterFailures")
           && storeSource.contains("staleAfterFailures = 2"))
+
+// MARK: - The reader the third fact was added for
+
+// Asserted from here because THIS suite is the one that knows the two fields apart: the early-start
+// suite hands its rule a fixture and cannot tell which field the app fills in, so a consumer that
+// went back to asking the badge would pass there while silently never seeing a never-succeeded
+// account again. Read as the one line the rule is, so a rule that grew a second one fails loudly
+// rather than being matched by a prefix.
+let earlyStartSource = (try? String(contentsOfFile: "Tally/Core/EarlyStart.swift", encoding: .utf8))
+    ?? ""
+let keepsFailingRule = earlyStartSource.components(separatedBy: "func readingKeepsFailing")
+    .dropFirst().first?.components(separatedBy: "\n").first ?? ""
+check("the early-start row asks this fact rather than the badge",
+      keepsFailingRule.contains("usage.pollsKeepFailing")
+          && !keepsFailingRule.contains("usage.isStale"))
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

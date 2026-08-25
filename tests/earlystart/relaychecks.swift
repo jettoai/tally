@@ -67,12 +67,13 @@ func runRelayChecks() {
                                     calendar: taipei) == .pollMissed,
                "an account on a held-over reading is passed over rather than started")
 
-        // …AND THE OTHER HALF OF THE SAME FOLD DECIDES WHAT IS SAID ABOUT IT. `isStale` waits for a
-        // second consecutive failure, which is the question a person reading "N skipped" is asking:
-        // the day's list is a set that stands until midnight, so reporting the first miss would name
-        // every account that ever lost a poll to a token rotation and go on naming it all day.
+        // …AND ANOTHER FACT FROM THE SAME FOLD DECIDES WHAT IS SAID ABOUT IT. The streak is what a
+        // person reading "N skipped" is asking about: the day's list is a set that stands until
+        // midnight, so reporting the first miss would name every account that ever lost a poll to a
+        // token rotation and go on naming it all day.
         let keptFailing = usage("a", session: metric(.session, used: 0, resetsAt: nil),
-                                error: "boom", lastRefreshFailed: true, isStale: true)
+                                error: "boom", lastRefreshFailed: true, isStale: true,
+                                pollsKeepFailing: true)
         expect(!EarlyStartLogic.readingKeepsFailing(held),
                "one missed round is not an account whose polls keep failing")
         expect(EarlyStartLogic.readingKeepsFailing(keptFailing),
@@ -83,6 +84,23 @@ func runRelayChecks() {
         expect(EarlyStartLogic.pass(sustained, state: EarlyStartState(), quietHours: loud, now: now,
                                     calendar: taipei) == .unreadable,
                "…which is the pass that gets reported, while the single miss is not")
+
+        // THE ACCOUNT THAT HAS NEVER SUCCEEDED, which is the shape this row could not see at all
+        // until `pollsKeepFailing` existed. It is signed in and has a home, so it reaches this
+        // question; it has no numbers, so the app leaves its BADGE down for good and shows a bare
+        // error instead (`foldLastGood`). Asking the badge made a permanently broken account read
+        // as one that had blinked, every refresh, forever - the quietest possible way for the row
+        // to be wrong (codex review of 60a4fe7).
+        let neverLoaded = usage("a", session: nil, error: "network down", lastRefreshFailed: true,
+                                isStale: false, pollsKeepFailing: true)
+        expect(EarlyStartLogic.readingKeepsFailing(neverLoaded),
+               "an account failing every poll since launch is reported though its badge is down")
+        let broken = candidate("a", readable: EarlyStartLogic.readingIsUsable(neverLoaded),
+                               keepsFailing: EarlyStartLogic.readingKeepsFailing(neverLoaded),
+                               windowOpen: EarlyStartLogic.windowIsOpen(neverLoaded, now: now))
+        expect(EarlyStartLogic.pass(broken, state: EarlyStartState(), quietHours: loud, now: now,
+                                    calendar: taipei) == .unreadable,
+               "…so the row names it rather than passing it over in silence")
     }
 
     // 8. WHO IS PASSED OVER, and in which order. Two orderings are load-bearing: a signed-out account
@@ -255,7 +273,7 @@ func runRelayChecks() {
         let first = EarlyStartLogic.plan(candidates: [candidate("a")], state: state, quietHours: loud,
                                          now: opened, calendar: taipei)
         expect(first.start.map(\.accountID) == ["a"], "a closed window is started")
-        state = EarlyStartLogic.recording(state, plan: first, attempted: ["a"], failed: 0, now: opened,
+        state = EarlyStartLogic.recording(state, plan: first, attempted: ["a"], failed: [], now: opened,
                                           calendar: taipei)
         expect(state.marks["a"]?.attemptedAt == opened && state.marks["a"]?.sawWindowOpen == false,
                "…and the account is marked with the moment it was attempted")
@@ -267,7 +285,7 @@ func runRelayChecks() {
                                             state: state, quietHours: loud, now: seen, calendar: taipei)
         expect(watching.start.isEmpty && watching.passed.first?.reason == .windowOpen,
                "the window it opened is seen open, and nothing more is sent")
-        state = EarlyStartLogic.recording(state, plan: watching, attempted: [], failed: 0, now: seen,
+        state = EarlyStartLogic.recording(state, plan: watching, attempted: [], failed: [], now: seen,
                                           calendar: taipei)
         expect(state.marks["a"]?.sawWindowOpen == true,
                "…and the account is recorded as having had a window since its message")
@@ -281,7 +299,7 @@ func runRelayChecks() {
                                           now: closed, calendar: taipei)
         expect(second.start.map(\.accountID) == ["a"],
                "when that window closes the account is started again: the relay hands over")
-        state = EarlyStartLogic.recording(state, plan: second, attempted: ["a"], failed: 0, now: closed,
+        state = EarlyStartLogic.recording(state, plan: second, attempted: ["a"], failed: [], now: closed,
                                           calendar: taipei)
         expect(state.marks["a"]?.attemptedAt == closed && state.marks["a"]?.sawWindowOpen == false,
                "…and the new attempt starts a fresh episode rather than inheriting the last one's")
@@ -302,7 +320,7 @@ func runRelayChecks() {
         let plan = EarlyStartLogic.plan(candidates: [candidate("a")], state: state, quietHours: loud,
                                         now: tried, calendar: taipei)
         // Marked on the ATTEMPT, whatever the CLI answered: that is the promise about cost.
-        state = EarlyStartLogic.recording(state, plan: plan, attempted: ["a"], failed: 1, now: tried,
+        state = EarlyStartLogic.recording(state, plan: plan, attempted: ["a"], failed: ["a"], now: tried,
                                           calendar: taipei)
 
         func startsAgain(_ offset: TimeInterval) -> Bool {
@@ -324,12 +342,12 @@ func runRelayChecks() {
     //     hours" is stated three times in the shipping app (EarlyStart.swift, the Settings row and
     //     the panel notice) and nothing may override it.
     //
-    //     The reasoning is arithmetic, and it is why the observation looks safe here and is not: a
-    //     window one of these messages opens is exactly `retryInterval` long, so it cannot close
-    //     EARLY. A window that closes an hour after the message was somebody else's, joined rather
-    //     than opened, which is what happens whenever the reading that sent the message read a live
-    //     window as closed (`windowIsOpen` names the 0%-rounding edge that does it). Acting on that
-    //     close is a second message inside the hour.
+    //     THE RULE IS BLIND TO WHOSE WINDOW CLOSED, and has to be. It is tempting to argue that a
+    //     window closing early must be somebody else's, since ours would run the full five hours;
+    //     that is false on ordinary days, because Anthropic resets sessions on a ten-minute grid and
+    //     our own window therefore shuts up to ten minutes before the floor lifts. Provenance is
+    //     unknowable from here and the promise never depended on it: the floor is about COST, so it
+    //     holds against every observation and the relay hands over a few minutes late.
     //
     //     What the observation DOES release is the suppression with no message behind it, and no
     //     cost to bound: the arming stamp. Both halves are asserted here so that neither the
@@ -355,7 +373,7 @@ func runRelayChecks() {
                  == .alreadyStarted,
                "…one second short of the interval, an observed window still changes nothing")
         expect(held(withWindow, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval)) == nil,
-               "…and at the interval exactly it goes, which is when the window it opened closes")
+               "…and at the interval exactly it goes, a little after its own window actually shut")
 
         // THE OBSERVATION'S OWN CASE: a mark with no attempt behind it. Nothing was sent, so there
         // is no cost to bound, and a window seen open and then closed ends the episode the arming

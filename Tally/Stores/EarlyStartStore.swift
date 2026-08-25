@@ -203,7 +203,7 @@ final class EarlyStartStore {
         // ends their episodes (`EarlyStartPlan.needsRecording`).
         guard plan.needsRecording else { return }
         guard !plan.start.isEmpty else {
-            record(state, plan: plan, attempted: [], failed: 0, now: now, calendar: calendar)
+            record(state, plan: plan, attempted: [], failed: [], now: now, calendar: calendar)
             return
         }
         // Absent rather than unresolved: `ProviderCLI.executable` falls back to the bare name, which
@@ -217,7 +217,7 @@ final class EarlyStartStore {
             // decision: unmarked accounts are chosen again at every refresh, so a count would have
             // climbed by one per account per minute for as long as the CLI stayed missing
             // (`EarlyStartToday.couldNotStart`).
-            record(state, plan: plan, attempted: [], failed: 0,
+            record(state, plan: plan, attempted: [], failed: [],
                    couldNotStart: plan.start.map(\.accountID), now: now, calendar: calendar)
             return
         }
@@ -229,12 +229,12 @@ final class EarlyStartStore {
         // back to a state that never heard about this attempt and send everything again. Marking
         // first is what makes "at most one message per account per five hours" true of a process
         // that can be replaced mid-run; the counts below correct themselves when the answers land.
-        record(state, plan: plan, attempted: ids, failed: 0, now: now, calendar: calendar)
+        record(state, plan: plan, attempted: ids, failed: [], now: now, calendar: calendar)
         Task { [weak self] in
             let failures = await Self.send(to: starting)
             guard let self else { return }
             self.isRunning = false
-            guard failures > 0 else { return }
+            guard !failures.isEmpty else { return }
             // Re-read: the refresh loop has been running while the CLIs were out, and a state
             // written from the copy captured above would discard whatever it wrote. A correction
             // rather than a replay, because the tally accumulates (`EarlyStartLogic.correcting`).
@@ -242,33 +242,38 @@ final class EarlyStartStore {
         }
     }
 
-    /// Send one short message per account, concurrently, and answer how many did not go through.
+    /// Send one short message per account, concurrently, and answer WHICH did not go through.
+    ///
+    /// Which rather than how many, because the day's row counts accounts and not messages: an
+    /// account blocked this morning and failed this afternoon is one account with nothing to show
+    /// for the day, and only a name can be merged with the other list without saying two
+    /// (`EarlyStartToday.couldNotStartTotal`).
     ///
     /// The reply is discarded unread and never logged: what the run is for is the fact that a
     /// message was sent, and the body of a model's answer is not something this app has any reason
     /// to keep. Nothing about a credential passes through here either - the CLI holds its own.
-    private static func send(to accounts: [EarlyStartCandidate]) async -> Int {
+    private static func send(to accounts: [EarlyStartCandidate]) async -> [String] {
         let directory = EarlyStartCommand.directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = ProviderCLI.executable("claude", devOverrideKey: devOverrideKey)
-        return await withTaskGroup(of: Bool.self) { group in
+        return await withTaskGroup(of: (String, Bool).self) { group in
             for account in accounts {
                 group.addTask {
                     // Never nil for an account the plan chose (`EarlyStartLogic.pass` rejects one
                     // without a home); counted as a failure rather than skipped so a rule that ever
                     // stops guaranteeing it shows up in the row instead of shrinking the total.
-                    guard let home = account.home else { return false }
+                    guard let home = account.home else { return (account.accountID, false) }
                     let invocation = EarlyStartCommand.invocation(home: home, directory: directory)
                     let output = await CLIRunner.run(executable,
                                                      arguments: invocation.arguments,
                                                      environment: invocation.environment,
                                                      currentDirectory: invocation.currentDirectory,
                                                      timeout: invocation.timeout)
-                    return output?.exitCode == 0
+                    return (account.accountID, output?.exitCode == 0)
                 }
             }
-            var failures = 0
-            for await ok in group where !ok { failures += 1 }
+            var failures: [String] = []
+            for await (accountID, ok) in group where !ok { failures.append(accountID) }
             return failures
         }
     }
@@ -324,14 +329,15 @@ final class EarlyStartStore {
     // MARK: State
 
     private func record(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
-                        failed: Int, couldNotStart: [String] = [], now: Date, calendar: Calendar) {
+                        failed: [String], couldNotStart: [String] = [], now: Date,
+                        calendar: Calendar) {
         apply(EarlyStartLogic.recording(state, plan: plan, attempted: attempted, failed: failed,
                                         couldNotStart: couldNotStart, now: now,
                                         calendar: calendar))
     }
 
     /// Carry the spawns' answers into the tally that was written before they were made.
-    private func correct(failed: Int, now: Date, calendar: Calendar) {
+    private func correct(failed: [String], now: Date, calendar: Calendar) {
         apply(EarlyStartLogic.correcting(Self.loadState(), failed: failed, now: now,
                                          calendar: calendar))
     }

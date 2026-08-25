@@ -491,8 +491,13 @@ func runUnlinkChecks(root: URL) {
     // split Integrations into: the sharing control is on the first.
     let flat = ((try? String(contentsOfFile: "Tally/Views/SettingsView.swift", encoding: .utf8))
         ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    let handOff = flat.range(of: "showIntegrations: {")
-        .map { String(flat[$0.upperBound...].prefix { $0 != "}" }) } ?? ""
+    // SPLIT at the hand-off rather than searched for, so the COUNT comes with it: reading one body
+    // means reading the FIRST, and a second hand-off written the same way would leave the checks
+    // below measuring the old one while saying nothing at all about the new one.
+    let sites = flat.components(separatedBy: "showIntegrations: {")
+    check("…and there is exactly one such hand-off to read, which is what reading the first assumes",
+          sites.count == 2)
+    let handOff = sites.count > 1 ? String(sites[1].prefix { $0 != "}" }) : ""
     check("…wired to the section selection this window already has, not to a notion of its own",
           handOff.contains("section = .integrations"))
     check("…and onto the page the sharing control is on, not whichever was open last",

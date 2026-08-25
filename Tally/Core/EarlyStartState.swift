@@ -66,8 +66,10 @@ struct EarlyStartToday: Codable, Equatable {
     ///
     /// Beside the count rather than instead of it, because the row and the arithmetic ask different
     /// questions of the same event: `started` has to have exactly as many messages taken back off
-    /// it as were optimistically added, while the row is answering "how many accounts got nothing
-    /// today" and must not count one account twice. A payload written by the build before this
+    /// it as were optimistically added, while the row is answering "how many accounts have got
+    /// nothing today" and must not count one account twice. An account leaves this list the moment
+    /// a later round gets a message through for it (`EarlyStartLogic.recording`), which the count
+    /// beside it cannot do. A payload written by the build before this
     /// field simply reports fewer accounts for the rest of that day, which is the only window in
     /// which the two can disagree: the tally is replaced at midnight.
     var attemptFailed: [String] = []
@@ -78,7 +80,8 @@ struct EarlyStartToday: Codable, Equatable {
     /// Nothing is marked when there is no CLI, deliberately, so that an install landing later is
     /// served by the very next evaluation - which means the same accounts are chosen again at every
     /// refresh, forever. As a counter this read "1,440 could not start" by the end of a day on which
-    /// two accounts were never once tried.
+    /// two accounts were never once tried. And when that install does land, the account that gets
+    /// its message comes back off this list rather than sitting on it until midnight.
     var couldNotStart: [String] = []
     /// Accounts passed over today for a reason that BLOCKED work (`EarlyStartSkip.countsAsSkip`),
     /// deduplicated.
@@ -93,8 +96,12 @@ struct EarlyStartToday: Codable, Equatable {
     var lastAttemptAt: Date?
 
     var skippedCount: Int { skipped.count }
-    /// Everything the row reports as "could not start": ACCOUNTS that got nothing today and not on
-    /// purpose, whether the attempt failed or none could be made.
+    /// Everything the row reports as "could not start": ACCOUNTS that have got nothing today and
+    /// not on purpose, whether the attempt failed or none could be made.
+    ///
+    /// AS THINGS STAND, not as they ever stood today. Both lists drop an account the moment a round
+    /// gets a message through for it (`EarlyStartLogic.recording`), so a fleet that recovered by
+    /// lunchtime reads zero here rather than reporting its morning back at itself all afternoon.
     ///
     /// A UNION, NOT A SUM. Adding `failed` to `couldNotStart.count` let one account be counted on
     /// both sides of the day - blocked all morning with no CLI, then attempted and failed once one

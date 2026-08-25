@@ -364,9 +364,20 @@ enum EarlyStartLogic {
     ///     the machine. NAMED RATHER THAN COUNTED, like `skipped` and for a sharper version of the
     ///     same reason: no attempt is made, so nothing is marked, so the very same accounts are
     ///     chosen again at the next refresh and every one after it. A counter would describe the
-    ///     refresh loop (a thousand a day at the shipping interval) rather than the fleet.
+    ///     refresh loop (a thousand a day at the shipping interval) rather than the fleet. Being
+    ///     named is also what lets an account LEAVE the list, which is the rule below.
+    ///
+    /// A ROUND THAT GETS THROUGH TAKES ITS ACCOUNTS BACK OFF BOTH LISTS. The row answers "how many
+    /// accounts have got nothing today" (`EarlyStartToday.couldNotStartTotal`), and an account
+    /// blocked at nine and served at two belongs in neither list by two: it has its message. Left
+    /// as pure unions, the two sets only ever grew, so a machine holding two accounts that both
+    /// recovered by lunchtime read "2 started, 2 could not start" for the rest of the day - the
+    /// same reader confusion the union was introduced to end, in a different arithmetic.
+    ///
+    /// Only the SETS move. `failed` is left alone because it counts messages, and a message that
+    /// failed this morning really was sent for and really did fail.
     static func recording(_ state: EarlyStartState, plan: EarlyStartPlan, attempted: [String],
-                          failed: [String] = [], couldNotStart: [String] = [], now: Date,
+                          failed: [String], couldNotStart: [String] = [], now: Date,
                           calendar: Calendar) -> EarlyStartState {
         var next = state
         // A fresh mark, not an edit: an attempt begins a new episode, so whatever was observed about
@@ -392,10 +403,14 @@ enum EarlyStartLogic {
                 skipped.insert(entry.accountID)
             }
             report.skipped = skipped.sorted()
-            report.attemptFailed = Set(report.attemptFailed).union(failed).sorted()
-            var blocked = Set(report.couldNotStart)
-            blocked.formUnion(couldNotStart)
-            report.couldNotStart = blocked.sorted()
+            // Accounts this round reached: attempted, and not among the ones that came back failed.
+            // They come off both lists, which is what keeps the row's number a statement about what
+            // the fleet has NOW rather than a log of everything that went wrong since midnight.
+            let served = Set(attempted).subtracting(failed)
+            report.attemptFailed = Set(report.attemptFailed).union(failed)
+                .subtracting(served).sorted()
+            report.couldNotStart = Set(report.couldNotStart).union(couldNotStart)
+                .subtracting(served).sorted()
             if !attempted.isEmpty { report.lastAttemptAt = now }
             next.today = report
         }
@@ -425,6 +440,10 @@ enum EarlyStartLogic {
     ///
     /// The marks are deliberately untouched: an attempt suppresses its account for `retryInterval`
     /// whatever the CLI answered, which is the promise this feature makes about cost.
+    ///
+    /// This is also the half that puts an account BACK on the failed list after `recording` took it
+    /// off: the attempt is written before the spawn answers, so every account in a batch is treated
+    /// as served for the minutes in between, and the ones that did not go through are named here.
     ///
     /// A batch that started before midnight and answered after it is left alone rather than
     /// corrected into the new day's column, where it would describe messages that day never sent.

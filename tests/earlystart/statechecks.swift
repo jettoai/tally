@@ -184,19 +184,60 @@ func runStateChecks() {
         expect(answered.today?.attemptFailed == ["a"],
                "…and named as well, because the row's number is a count of ACCOUNTS")
 
-        // THE TWO LISTS OVERLAP, and the row must not add them. This is the day the first fix's own
-        // shape would have got wrong: blocked all morning with no CLI, then attempted once one
-        // arrived, and the attempt failed. Two accounts, nothing achieved, and adding a count to a
-        // set said four.
+        // THE TWO LISTS OVERLAP WHILE THE ACCOUNT STILL HAS NOTHING, and the row must not add them.
+        // This is the day the first fix's own shape would have got wrong: blocked all morning with
+        // no CLI, then attempted once one arrived, and the attempt failed. Two accounts, nothing
+        // achieved, and adding a count to a set said four.
         let installed = EarlyStartLogic.recording(missing, plan: plan, attempted: ["a", "b"],
                                                   failed: ["a", "b"], now: noon, calendar: taipei)
         expect(installed.today?.couldNotStart == ["a", "b"]
                  && installed.today?.attemptFailed == ["a", "b"],
-               "an account can be on both lists in one day: blocked this morning, failed this noon")
+               "an account with nothing yet is on both lists: blocked this morning, failed this noon")
         expect(installed.today?.failed == 2,
                "…and the message count says two, because two messages really were tried")
         expect(installed.today?.couldNotStartTotal == 2,
                "…while the ROW says two, not four: it counts accounts, and there are two")
+
+        // …AND THE OTHER HALF OF THAT DAY, which is the same two accounts with the attempt going
+        // THROUGH. The row is about what the fleet has now, so a machine holding two accounts that
+        // both recovered by lunchtime says so; as pure unions the sets only grew, and this read
+        // "2 started, 2 could not start" until midnight.
+        let recovered = EarlyStartLogic.recording(missing, plan: plan, attempted: ["a", "b"],
+                                                  failed: [], now: noon, calendar: taipei)
+        expect(recovered.today?.started == 2 && recovered.today?.couldNotStartTotal == 0,
+               "two accounts blocked all morning and served at noon: two started, none left blocked")
+        expect(recovered.today?.couldNotStart == [] && recovered.today?.attemptFailed == [],
+               "…by leaving both lists, which is what naming rather than counting them buys")
+
+        // THE SHAPE PRODUCTION ACTUALLY PRODUCES, which the overlapping fold above is not. The store
+        // never hands `recording` a non-empty `failed`: it writes the attempt optimistically and the
+        // answers land at `correcting` minutes later (EarlyStartStore.swift), so that day is really
+        // the three folds here, and `installed` measures a call shape only a test can make. `failed`
+        // stays on `recording` for the day a caller does have the answers in hand.
+        let landed = EarlyStartLogic.correcting(recovered, failed: ["a", "b"],
+                                                now: at("2026-08-24 13:02"), calendar: taipei)
+        expect(landed.today?.started == 0 && landed.today?.couldNotStartTotal == 2,
+               "…and the answers put both back on the row: two accounts, not four")
+        expect(landed.today?.failed == 2,
+               "…with two messages counted, because two were sent for and lost")
+
+        // ONE ACCOUNT, ONE DAY, both halves: a machine holding a single account is where the row's
+        // number is read most literally, and where a list that only grew was most obviously wrong.
+        let solo = EarlyStartLogic.plan(candidates: [candidate("a")], state: EarlyStartState(),
+                                        quietHours: loud, now: morning, calendar: taipei)
+        let soloMorning = EarlyStartLogic.correcting(
+            EarlyStartLogic.recording(EarlyStartState(), plan: solo, attempted: ["a"], failed: [],
+                                      now: morning, calendar: taipei),
+            failed: ["a"], now: at("2026-08-24 09:02"), calendar: taipei)
+        expect(soloMorning.today?.started == 0 && soloMorning.today?.couldNotStartTotal == 1,
+               "the lone account's morning message failed: nothing started, one could not start")
+        let soloAfternoon = EarlyStartLogic.recording(soloMorning, plan: solo, attempted: ["a"],
+                                                      failed: [], now: at("2026-08-24 14:00"),
+                                                      calendar: taipei)
+        expect(soloAfternoon.today?.started == 1 && soloAfternoon.today?.couldNotStartTotal == 0,
+               "…and the afternoon's went through: one started, and nothing is still waiting")
+        expect(soloAfternoon.today?.failed == 1,
+               "…while the message counter keeps the failure, which really did happen")
 
         // A single missed poll leaves no trace on the day it recovers in, while a sustained failure
         // is what the skipped column is for.

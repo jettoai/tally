@@ -441,12 +441,22 @@ enum EarlyStartLogic {
     /// A batch that started before midnight and answered after it is left alone rather than
     /// corrected into the new day's column, where it would describe messages that day never sent.
     ///
-    /// WHAT THE CRASH WINDOW LEAVES BEHIND, stated rather than papered over: `recording` has
-    /// already added the attempt to `started`, so an app that dies before the answers land reads
-    /// "1 started, 1 could not start" on a one-account machine for the rest of the day. That pair
-    /// is the deliberate trade. The alternative is announcing a success nobody saw happen, and
-    /// between a row that over-reports the trouble and a row that hides it, this feature exists to
-    /// surface the trouble.
+    /// WHAT THE CRASH WINDOW LEAVES BEHIND, stated with its limits rather than papered over. An app
+    /// that dies between the write before the spawn and these answers leaves the day's tally in two
+    /// halves that answer differently, and only one of them is this rule's to claim:
+    ///
+    /// The TWO ACCOUNT LISTS are conservative, and that is what moving the clearing here bought.
+    /// An account already named on one of them stays named until something confirms it was served,
+    /// so the leftover reads "1 started, 1 could not start" on a one-account machine rather than
+    /// announcing a success nobody saw happen.
+    ///
+    /// `started` IS NOT, and never was. It is added optimistically before the spawn, for the reason
+    /// EarlyStartStore states where it does it (WRITTEN BEFORE THE SPAWN: an app replaced inside the
+    /// two minutes a CLI gets would otherwise send the whole batch again), which is the price of the
+    /// at-most-one-message promise. So the ordinary crash - a machine with a CLI, first attempt of
+    /// the day, nothing on either list yet - leaves "1 started, 0 could not start" for a message
+    /// that may never have gone. That is the inherited trade, not a claim this fold makes; the lists
+    /// are what changed here, and the counter beside them still describes attempts.
     ///
     /// - Parameters:
     ///   - attempted: every account id the batch spawned for, failures included. What is NOT in

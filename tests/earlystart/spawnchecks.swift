@@ -167,10 +167,45 @@ func runSpawnChecks() {
         // returns early when nothing failed leaves every account it just served on "could not
         // start" until midnight. The batch that goes through entirely is the one this store used to
         // say nothing about, and it is the ordinary case.
+        //
+        // READ AS A SPAN, not as two string matches. The first version of this lock asked whether
+        // the call EXISTS and whether one early return does not, and a review of it put the bug
+        // back twice under that green light: wrapping the call in `if !failures.isEmpty` and
+        // writing the exit as `if failures.isEmpty { return }` both pass those two. What matters is
+        // whether the batch REACHES the call, so what is read is the stretch of code between the
+        // answers arriving and the hand-off.
+        //
+        // THIS IS A TEXT-LAYER HEURISTIC AND IS NAMED AS ONE. It reads Swift as lines rather than
+        // as a program, so what it can hold is the shape of THIS function: shapes it cannot see
+        // include the hand-off moved into a method of its own and called conditionally, a condition
+        // hidden inside `correct` or inside `correcting`, and an `#if` that compiles the call out.
+        // The durable oracle for all of those is behaviour coverage of the store, which nothing in
+        // this repo compiles today (it is @MainActor AppKit); that gap is tracked as deferred work
+        // rather than papered over here.
+        var answerPath: String?
+        if let answered = store.range(of: "let failures = await Self.send"),
+           let handedOver = store.range(of: "self.correct(attempted:"),
+           answered.upperBound <= handedOver.lowerBound {
+            answerPath = String(store[answered.upperBound..<handedOver.lowerBound])
+        }
+        expect(answerPath != nil,
+               "the stretch from the spawns answering to the tally hearing about it can be read")
+        // Whole-line comments are dropped first: prose is where the words below appear innocently,
+        // and a sentence explaining the rule must not be able to break it. A breach parked after
+        // code on a line of its own trailing comment is one more thing this cannot see.
+        // An unreadable span falls back to a string that fails every check below rather than to "",
+        // which would pass them all: a lock that cannot find its subject must read as broken.
+        let answerCode = (answerPath ?? "if failures.isEmpty { return }\nreturn")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(answerCode.components(separatedBy: "return").count - 1 == 1,
+               "…and exactly one return stands in it: the weak self guard, and no exit for a batch")
+        expect(!answerCode.contains("if failures") && !answerCode.contains("if !failures"),
+               "…with the failure list branching nothing on its way: success is carried back too")
         expect(store.contains("self.correct(attempted: ids, failed: failures,"),
-               "the spawn task carries both halves of the answer back: who was tried, and who failed")
-        expect(!store.contains("guard !failures.isEmpty"),
-               "…with nothing standing between an all-successful batch and the tally")
+               "…and both halves of the answer go with it: who was tried, and who failed")
     }
 
     // 23. EVERY WORD THIS FEATURE SHOWS IS IN THE CATALOGUE, in all four translations. The keys are

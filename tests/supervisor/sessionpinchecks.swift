@@ -306,6 +306,117 @@ func runSessionPinChecks() {
                                from: Data(older.utf8)))?.sessionPin == nil)
     clearSessionContext(pid: String(getpid()), dir: tickDir)
 
+    // MARK: - 31n-2. WHICH SCOPE holds it, published beside the pin
+
+    // THE PROBLEM THIS EXISTS FOR (owner report, 2026-09-01): a pin was invisible everywhere. The
+    // status line said nothing, the board said nothing, and a session refusing to be rebalanced off
+    // a dying account looked like a fault rather than like an instruction being obeyed.
+    //
+    // `sessionPin` alone cannot answer it: a project profile and the app's own pin hold a session
+    // just as firmly and leave that field empty. So the SCOPE is folded where the three become one
+    // policy - the poll tick - and published, and every surface reads it rather than re-deriving a
+    // precedence none of them can see all three inputs for.
+    var appPinned = LaunchPolicy()
+    appPinned.mode = "manual"
+    appPinned.pinnedAccountID = "F"
+    var appAutoPolicy = LaunchPolicy()
+    appAutoPolicy.mode = "auto"
+    check("nothing pinned reads as nothing, which is what a smart pick is",
+          sessionPinScope(appMode: "auto", appPinnedAccountID: nil, projectAccountID: nil,
+                          sessionPin: nil) == nil)
+    check("the app's own pin is the outermost scope",
+          sessionPinScope(appMode: appPinned.mode, appPinnedAccountID: appPinned.pinnedAccountID,
+                          projectAccountID: nil, sessionPin: nil) == .fleet)
+    check("a project profile lies over it",
+          sessionPinScope(appMode: appPinned.mode, appPinnedAccountID: appPinned.pinnedAccountID,
+                          projectAccountID: "P", sessionPin: nil) == .project)
+    check("and this session's own pin over that, the order the tick itself folds",
+          sessionPinScope(appMode: appPinned.mode, appPinnedAccountID: appPinned.pinnedAccountID,
+                          projectAccountID: "P", sessionPin: "S") == .session)
+    // `manual` with nothing named is a mode without an instruction in it, which every reader of
+    // `pinnedAccountID` is already guarded against (`pinnedLaunchHome`, `capReading`).
+    check("a mode that names no account pins nothing",
+          sessionPinScope(appMode: "manual", appPinnedAccountID: nil, projectAccountID: nil,
+                          sessionPin: nil) == nil)
+    // AND THE SAME FOLD THE MOVERS ARE JUDGED BY, asserted against it rather than described beside
+    // it: what `sessionPolicy(effectivePolicy(...))` produces is `manual` naming the innermost
+    // scope's account, and this names that same scope.
+    var repoProfile = ProjectPolicy()
+    repoProfile.accountID = "P"
+    let folded = sessionPolicy(effectivePolicy(appPinned, project: repoProfile), sessionPin: "S")
+    check("…and it names the scope whose account the folded policy actually carries",
+          folded.pinnedAccountID == "S"
+              && sessionPinScope(appMode: appPinned.mode,
+                                 appPinnedAccountID: appPinned.pinnedAccountID,
+                                 projectAccountID: repoProfile.accountID,
+                                 sessionPin: "S") == .session)
+
+    // What the status line draws from it: the mark rides the account's own name, because it is
+    // about that name and nothing else.
+    check("a pinned account carries the mark and the scope that holds it",
+          sessionPinnedLabel("Claude 3", scope: .project) == "Claude 3 📌project")
+    check("…and an unpinned one is the bare name, exactly as before",
+          sessionPinnedLabel("Claude 3", scope: nil) == "Claude 3")
+    let statusline = (try? String(contentsOfFile: "TallyCLI/Statusline.swift",
+                                  encoding: .utf8)) ?? ""
+    // ASKED OF WHAT IS DRAWN, not of what is computed, which is what the first version of this
+    // assertion got wrong: it read the line that BUILDS the marked name and said nothing about
+    // whether either identity zone uses it, so putting the bare `label` back in both of them left
+    // this green (mutation M6, this work package). The absence is half the assertion - two zones
+    // render the name, and one of them reverting is exactly the shape of that miss. Comments are
+    // stripped first, since the paragraphs above both zones say the word `label` while explaining
+    // them.
+    let statuslineCode = statusline.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+    check("the status line renders it through that one rule rather than spelling it again",
+          !statusline.isEmpty
+              && statuslineCode.contains("let pinned = sessionPinnedLabel(label, scope: pinScope)")
+              && statuslineCode.contains("pinScope = context?.pinScope"))
+    check("…and BOTH identity zones draw the marked name, neither of them the bare one",
+          statuslineCode.components(separatedBy: #"\(dim)\(pinned)\(reset)"#).count - 1 == 2
+              && !statuslineCode.contains(#"\(dim)\(label)\(reset)"#))
+
+    // Published on its own terms: the scope moves when nothing else about the session does. Taking
+    // the app's pin off changes it with the account, the token count and the session's own pin all
+    // standing still, and a reading that waited for the next thousand tokens would go on saying the
+    // session was held.
+    var scoped = SessionContextWriter()
+    scoped.sync(tokens: 20_000, accountID: "claude:.claude4", pin: nil, pinScope: .fleet,
+                pid: String(getpid()), dir: tickDir, now: published.updatedAt)
+    check("the scope is published beside the pin",
+          readSessionContext(pid: String(getpid()), dir: tickDir)?.pinScope == "fleet")
+    scoped.sync(tokens: 20_100, accountID: "claude:.claude4", pin: nil, pinScope: nil,
+                pid: String(getpid()), dir: tickDir, now: published.updatedAt)
+    check("…and unpinning is written at once, under the write delta, exactly as a release is",
+          readSessionContext(pid: String(getpid()), dir: tickDir)?.pinScope == nil)
+    check("a document from before the field decodes as no mark at all",
+          (try? decoder.decode(SupervisedSession.self, from: Data(older.utf8)))?.pinScope == nil)
+    // A word this build does not know is no mark either, never a wrong one: the app's own reader is
+    // what draws it, and a newer supervisor naming a fourth scope must not paint a third.
+    check("and a scope this build has never heard of draws nothing",
+          SessionPinScope(rawValue: "workspace") == nil)
+    clearSessionContext(pid: String(getpid()), dir: tickDir)
+
+    // MARK: - 31n-3. What `tally account --auto` says it did
+
+    // THE SENTENCE THAT WAS WRONG (same report): "session pin cleared" was printed whether or not
+    // there was a pin to clear - and in a session held by a project profile or by the app it said
+    // the pin was gone while the session went on being held by a scope this command cannot reach.
+    check("clearing a pin that existed says so",
+          switchReleaseMessage(hadSessionPin: true, scope: .session)
+              .hasPrefix("session pin cleared:"))
+    check("clearing one that never existed says THAT, rather than announcing an event",
+          switchReleaseMessage(hadSessionPin: false, scope: nil)
+              .contains("nothing to clear: this session had no pin of its own and was already"))
+    check("…and names the wider scope that is still holding it, with the way out of THAT one",
+          switchReleaseMessage(hadSessionPin: false, scope: .project)
+              .contains("`tally project set --account auto` here")
+              && switchReleaseMessage(hadSessionPin: false, scope: .fleet)
+                  .contains("Settings, Accounts"))
+    check("and a session that has published nothing yet is told it cannot be read, not guessed at",
+          switchReleaseMessage(hadSessionPin: nil, scope: nil).contains("cannot be read yet"))
+
     // MARK: - 31o. The two instructions are mutually exclusive
 
     // One invocation under either reading, and the readings are opposites: refuse rather than guess.

@@ -257,6 +257,7 @@ struct SessionCardView: View {
         HStack(spacing: 4) {
             if let identity = sessionIdentityLine {
                 ProviderIconView(providerID: row.providerID ?? "", size: 11)
+                if let scope = row.pinScope { pinMark(scope) }
                 // LAST IN THE QUEUE FOR ROOM. A truncated account name still says which account; a
                 // truncated port number is a wrong port.
                 Text(identity).font(.caption2).foregroundStyle(.secondary)
@@ -300,6 +301,30 @@ struct SessionCardView: View {
                 .map { settings.displayLabel(accountID: id, fallback: $0.accountLabel) }
         }
         return joined([account, row.model, row.effort])
+    }
+
+    /// WHY THIS SESSION IS ON THIS ACCOUNT, when something is holding it there.
+    ///
+    /// THE PROBLEM IT ANSWERS (owner report, 2026-09-01): a pin was invisible on every surface, so a
+    /// session sitting somewhere unexpected - or refusing to be rebalanced off a dying account -
+    /// read as Tally misbehaving rather than as an instruction being obeyed.
+    ///
+    /// LEADING THE LINE RATHER THAN TRAILING IT, and held at its own width: it qualifies the name
+    /// that follows it, and the identity beside it is what gives room up (`layoutPriority(-1)`), so
+    /// a mark laid out after it would be the first casualty of the narrow card it exists for.
+    ///
+    /// A SCOPE RATHER THAN A DOT, because the three send a reader somewhere different to undo it,
+    /// and the hover is where that answer fits. On the LABEL as well as in the callout, for the
+    /// reason the supervisor badge states in full: the whole card is one `Button`, so a child's
+    /// hint reaches nobody and only what composes into the card's label is spoken.
+    private func pinMark(_ scope: SessionPinScope) -> some View {
+        let owner = L(sessionPinOwnerKey(scope))
+        let release = L(sessionPinReleaseKey(scope))
+        return Text(verbatim: "\(sessionPinMark)\(L(sessionPinScopeWord(scope)))")
+            .font(.caption2).foregroundStyle(.secondary)
+            .lineLimit(1).fixedSize()
+            .accessibilityLabel(Text(TallyTooltipContent.lines([owner, release]).spoken))
+            .tallyTooltip(owner, detail: release)
     }
 
     /// The stats slot: what this session has spent, and - on the one card that has it - which build

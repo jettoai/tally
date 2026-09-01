@@ -426,6 +426,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                   sessionPin: manualMoves.sessionPin)
                                 .pinnedAccountID,
                             quarantine: quarantine, reserves: reserves)
+            /// WHICH SCOPE is holding this session on its account, for the two surfaces that show
+            /// it (the status line inside Claude Code, the app's session board). Taken here, where
+            /// the three pins are folded, because this is the only place the fold exists: `manual`
+            /// on the policy below no longer says which of them said so, which is the same reason
+            /// the release one line down is asked the app's own mode. `manualMoves.sessionPin` is
+            /// this tick's pin only after `applySessionDirectives` has run; the publish that reads
+            /// this happens after it, and the value is re-derived there.
             /// Whether the pins over this session yield this tick. Asked ONCE, off the app's own
             /// mode rather than the folded policy: a fleet pin is never released, and the folded
             /// reading cannot tell which scope pinned it.
@@ -706,7 +713,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the same directory (SessionContext.swift). Read here rather than remembered, so a
             // `/clear` or a fork republishes the new transcript with everything else.
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
-                                pin: manualMoves.sessionPin, axes: axes,
+                                pin: manualMoves.sessionPin,
+                                pinScope: sessionPinScope(
+                                    appMode: appPolicy.mode,
+                                    appPinnedAccountID: appPolicy.pinnedAccountID,
+                                    projectAccountID: project.accountID,
+                                    sessionPin: manualMoves.sessionPin),
+                                axes: axes,
                                 transcript: watcher.transcriptSessionID, pid: supervisorPID)
             // AND THE SAME ANSWER FILED BY DIRECTORY, which is what the NEXT launch here reads
             // instead of guessing which account's private pointer to believe (LaunchResume.swift).
@@ -949,6 +962,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,
                                                         launchArgs: launchArgs, observed: nil)
                     sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
+                                                  pinScope: sessionPinScope(
+                                                      appMode: appPolicy.mode,
+                                                      appPinnedAccountID: appPolicy.pinnedAccountID,
+                                                      projectAccountID: project.accountID,
+                                                      sessionPin: manualMoves.sessionPin),
                                                   axes: nextAxes,
                                                   transcript: watcher.transcriptSessionID,
                                                   pid: supervisorPID)

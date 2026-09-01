@@ -90,6 +90,13 @@ targets:
       # one copy: a drifted second list would let the CLI write an `--effort` value the child does
       # not recognise (a session that will not start) while the app's picker still refused it.
       - path: Tally/Core/LaunchAxisNames.swift
+      # Which scope pinned a session's account, and the mark that says so. The supervisor decides
+      # it and publishes it into the session sidecar, the status line renders it inside Claude Code
+      # and the app's board draws it beside the account name, so all three compile the one
+      # precedence: by the time the three pins are folded into one policy, `manual` no longer says
+      # which of them said so, and a second spelling of that order is how the terminal and the
+      # board would come to name different scopes for one session.
+      - path: Tally/Core/SessionPinScope.swift
       # The prompt hook to MCP tool contract: the variables the app substitutes into a hook's
       # `input` block and the keys the CLI reads them back under, plus the server and tool names
       # the app registers and the CLI answers to. Both targets compile the one copy because a

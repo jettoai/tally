@@ -66,6 +66,11 @@ extension DemoUsage {
         /// step behind whatever THIS bundle is, or a capture taken after the next release would
         /// quietly draw no badge at all (`laggingVersion`).
         var lagging = false
+        /// Which scope is holding this session on its account, for the mark the identity line leads
+        /// with (`SessionCardView.pinMark`). Absent on most of them, which is what an ordinary
+        /// smart-picked session looks like; two carry one, because the two scopes read differently
+        /// and a capture that showed only one would leave the other undocumented.
+        var pin: SessionPinScope?
     }
 
     /// THE BOARD A CAPTURE SHOWS, one fixture per card, in `fixtureOrder`'s own order.
@@ -107,12 +112,19 @@ extension DemoUsage {
         SessionFixture(project: "ledger", directory: "/Users/you/workspace/ledger",
                        account: "codex:demo-Codex", model: "gpt-5.6-sol",
                        context: 24_000, state: .working, since: 3 * 60, activity: 5),
+        // PINNED BY A PROJECT PROFILE, which is the mark's own fixture: a repo that always runs on
+        // one account, said on the card so a session sitting somewhere unexpected reads as an
+        // instruction rather than as a fault (`SessionPinScope`).
         SessionFixture(project: "relay", directory: "/Users/you/workspace/relay",
                        account: "claude:demo-Claude 3", model: "claude-sonnet-5", effort: "medium",
-                       context: 45_000, state: .idle, since: 26 * 60, activity: 26 * 60),
+                       context: 45_000, state: .idle, since: 26 * 60, activity: 26 * 60,
+                       pin: .project),
+        // And the other scope, which is undone somewhere else entirely: a `tally account` typed
+        // inside this conversation.
         SessionFixture(project: "beacon", directory: "/Users/you/workspace/beacon",
                        account: "claude:demo-Claude 2", model: "claude-opus-5", effort: "xhigh",
-                       context: 208_000, state: .working, since: 65, activity: 10),
+                       context: 208_000, state: .working, since: 65, activity: 10,
+                       pin: .session),
         // THE QUIET CARD: a supervisor too old to publish a state, drawn dimmed from the sidecars
         // it does write and counted under "not reporting" rather than as any of the three states
         // (`SessionRosterStore.count`). Its title comes from the directory, which is why this is
@@ -195,6 +207,7 @@ extension DemoUsage {
         sidecar.updatedAt = moved
         sidecar.observedModel = fixture.model
         sidecar.runningEffort = fixture.effort
+        sidecar.pinScope = fixture.pin?.rawValue
         let record = fixture.state.map { state in
             SessionStateRecord(state: state.rawValue,
                                since: captureStarted.addingTimeInterval(-fixture.since),

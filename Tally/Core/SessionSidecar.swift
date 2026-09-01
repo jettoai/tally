@@ -19,6 +19,11 @@ struct SessionSidecar: Equatable, Decodable {
     var contextTokens: Int?
     var updatedAt: Date?
     var sessionPin: String?
+    /// Which scope is holding this session on its account (`SessionPinScope`'s raw word), or nil
+    /// when nothing is - a smart pick, or a supervisor from before the field existed. Both read as
+    /// "no mark", which is deliberate: the card cannot tell them apart and neither can it lie about
+    /// one, and the reading is republished within a poll of the supervisor updating.
+    var pinScope: String?
     var sessionModel: String?
     var sessionEffort: String?
     var observedModel: String?

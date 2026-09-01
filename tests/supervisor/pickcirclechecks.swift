@@ -282,6 +282,15 @@ func runPickCircleChecks() {
     check("the bar keeps its space whether or not it says anything",
           row.contains(".frame(height: pickApplyBarHeight)"))
     // The button and the key do the same thing, which is what makes the keyboard path discoverable.
-    check("Apply is a word the catalogue carries, and the key beside it",
-          row.contains(#"Text(L("Apply"))"#) && row.contains(#"Text(verbatim: "\u{21A9}")"#))
+    //
+    // AND THE KEY IS NAMED IN WORDS, which is what this assertion used to allow to be missing: it
+    // read `Text(L("Apply"))` beside the bare return glyph, and that pairing is exactly what was on
+    // screen when somebody clicked a row, saw the bar appear, and still did not know that a second
+    // press was owed (owner report, 2026-09-01). The glyph stays as the convention; the sentence
+    // beside it is what a first reader gets the grammar from.
+    check("the key is named in words on the control that does the same thing",
+          row.contains(#"Text(L("Enter to apply"))"#)
+              && row.contains(#"Text(verbatim: "\u{21A9}")"#))
+    check("…and it is the sentence a listener is given too, ahead of what would be sent",
+          row.contains(#".accessibilityLabel("\(L("Enter to apply")) \(summary)")"#))
 }

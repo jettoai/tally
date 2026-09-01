@@ -495,11 +495,19 @@ func runSessionBoardOrderChecks() {
           cardCode.contains(
               ".accessibilityHint(Text(L(\"Click to bring its terminal to the front\")))")
               && !cardCode.contains(".help("))
-    check("…and answers exactly two hovers, the waiting card's state word",
-          cardCode.components(separatedBy: "tallyTooltip").count - 1 == 2
+    check("…and answers exactly three hovers, the waiting card's state word",
+          cardCode.components(separatedBy: "tallyTooltip").count - 1 == 3
               && cardCode.contains("if let reason = sessionReason { word.tallyTooltip(reason) }"))
     check("…and the badge that has to name a version the chip only numbers",
-          cardCode.contains(".tallyTooltip(owner,"))
+          cardCode.contains(".tallyTooltip(owner, detail: update,"))
+    // THE THIRD, AND WHY THE BUDGET MOVED (owner report, 2026-09-01). A pin was invisible on every
+    // surface, so a session sitting on an unexpected account - or refusing to be rebalanced off a
+    // dying one - read as Tally misbehaving. The mark itself is two glyphs and a word, which is all
+    // a card has room for; what a reader needs next is WHICH scope pinned it and where that is
+    // undone, and those are three different places (`SessionPinScope`). That is the exception this
+    // budget was always written for: a sentence too long to stand on a card.
+    check("…and the pin mark, which says which scope holds this session and how to release it",
+          cardCode.contains(".tallyTooltip(owner, detail: release)"))
     // A session that published no directory cannot be lifted at all (`orderKey`), so offering it a
     // grip would promise a gesture that does nothing. One answer, asked at the grab and at the draw.
     check("only a card there is something to arrange by carries a grip",

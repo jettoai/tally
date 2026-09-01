@@ -122,7 +122,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SupervisorVersionStamp.swift \
-  Tally/Core/SessionSidecar.swift \
+  Tally/Core/SessionSidecar.swift Tally/Core/SessionPinScope.swift \
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift \

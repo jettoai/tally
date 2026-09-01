@@ -73,12 +73,22 @@ func runStatusline(args: [String]) -> Never {
     // ASKED for. The model beside it does track that, because Claude Code reports the model it is
     // rendering for and reports no depth. Closing it needs a reading that does not exist yet.
     var depth: String?
+    /// WHICH SCOPE IS HOLDING THIS SESSION ON THIS ACCOUNT, or nil when nothing is - a smart pick,
+    /// which is the ordinary case and says nothing.
+    ///
+    /// READ RATHER THAN DERIVED, which is the rule this line follows everywhere else: the answer is
+    /// a fold of three documents in a precedence only the poll tick performs (`sessionPinScope`),
+    /// and a second copy of that fold here would be a second opinion about a session this process
+    /// knows nothing about. The supervisor publishes it beside the depth, so this costs no extra
+    /// read at all.
+    var pinScope: SessionPinScope?
     if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
        let pid = pid_t(pidStr), supervisorAlive(pid) {
         // One read, both fields: this is a file, and the two answers have to come from one moment
         // of it or the pin and the arguments could be read either side of a republish.
         let context = readSessionContext(pid: pidStr)
         depth = context?.sessionEffort ?? context?.runningEffort
+        pinScope = context?.pinScope.flatMap(SessionPinScope.init(rawValue:))
         if let drift = readDriftState(pid: pidStr) {
             // While a restore is queued the badge says what is about to happen, in the same
             // already-under-way voice as the supervisor's own update note: the session keeps working
@@ -98,9 +108,19 @@ func runStatusline(args: [String]) -> Never {
     }
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.
+    //
+    // AND THE PIN RIDES ON THE NAME rather than taking a segment of its own, because it is about
+    // that name and nothing else: it says why THIS session is on THAT account. A separate segment
+    // would sit among four others that are all about something else, on a line that is already
+    // competing for the row under somebody's prompt (owner report, 2026-09-01: a pin was invisible
+    // everywhere, so a session refusing to move looked like a fault).
+    //
+    // Under the same one-account rule as the name it marks: with nothing to choose between, where
+    // the session runs was never a question, so there is nothing for a pin to answer.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
+    let pinned = sessionPinnedLabel(label, scope: pinScope)
     let identity = [statusPiece, supervisionPiece, driftPiece, noticePiece,
-                    siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
+                    siblings > 1 ? "\(dim)\(pinned)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
@@ -223,7 +243,7 @@ func runStatusline(args: [String]) -> Never {
             // model - one grammar, no conditional homes. The custom line above may show a
             // model of its own, but THIS line's model is the one tally launched or adopted.
             let identityZone = [statusPiece, supervisionPiece, driftPiece, noticePiece,
-                                "\(dim)\(label)\(reset)", modelToken]
+                                "\(dim)\(pinned)\(reset)", modelToken]
                 .compactMap { $0 }
                 .joined(separator: " · ")
             let richLine = [identityZone, quota.joined(separator: " · ")]

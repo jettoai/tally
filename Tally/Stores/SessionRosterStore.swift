@@ -153,6 +153,16 @@ final class SessionRosterStore {
         /// The checkout, which is what the terminal jump matches a window against.
         var directory: String? { record?.directory ?? cwd }
         var accountID: String? { record?.accountID ?? session?.accountID }
+        /// WHY this session is on that account, when something is holding it there: the scope its
+        /// supervisor folded and published (`SessionPinScope`, decided in TallyCLI/Supervisor.swift
+        /// where the three pins become one policy).
+        ///
+        /// nil for the ordinary session Tally picked for, and nil for a word this build does not
+        /// recognise - a document from a NEWER app naming a fourth scope draws no mark rather than
+        /// a wrong one, which is the same rule every other additive field on this row follows.
+        var pinScope: SessionPinScope? {
+            session?.pinScope.flatMap(SessionPinScope.init(rawValue:))
+        }
 
         /// Which PROVIDER is serving this session, taken off the account id's own head
         /// (`claude:.claude5` -> `claude`). Read for the mark the identity line leads with, which is

@@ -213,10 +213,20 @@ struct PickApplyBar: View {
                 Spacer(minLength: 8)
                 Button(action: apply) {
                     HStack(spacing: 5) {
-                        Text(L("Apply"))
-                        // The key that does the same thing, beside the button that does it: the
-                        // keyboard path is the fast one and a button alone hides it.
+                        // THE KEY IS NAMED IN WORDS, not left as the glyph alone (owner report,
+                        // 2026-09-01). This panel's grammar is two-stage - a click circles a row
+                        // and Enter or this button sends it - and the person who hit that had this
+                        // very bar in front of them: a circled row, a summary, and `Apply ⏎`. The
+                        // glyph is the convention and it is also the half nobody reads, so a click
+                        // that appeared to do nothing stayed unexplained by a bar that was
+                        // explaining it.
+                        //
+                        // ONE CONTROL SAYING BOTH THINGS rather than a second hint beside it: a
+                        // label and a note repeating it are the "three ways of saying one thing"
+                        // this panel already refuses one line up (`searchField`), and the button is
+                        // where a reader looks for what happens next.
                         Text(verbatim: "\u{21A9}").opacity(0.7)
+                        Text(L("Enter to apply"))
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(TallyColor.ai)
@@ -228,7 +238,7 @@ struct PickApplyBar: View {
                 // The field keeps the keyboard: a button that took the responder would send the
                 // next keystroke somewhere the filter cannot see it.
                 .focusable(false)
-                .accessibilityLabel("\(L("Apply")) \(summary)")
+                .accessibilityLabel("\(L("Enter to apply")) \(summary)")
             }
             .frame(height: pickApplyBarHeight)
             .frame(maxWidth: .infinity, alignment: .leading)

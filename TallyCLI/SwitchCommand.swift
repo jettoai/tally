@@ -196,11 +196,15 @@ func attemptSwitch(_ intent: SwitchIntent,
             + "the installed one at the next idle moment, and the switch happens after that")
     }
     guard let target else {
+        // WHAT THE RELEASE ACTUALLY DID, read rather than assumed. The reading is the session's own
+        // published one, which is the only place a pin this command did not set is visible from
+        // here (SessionContext.swift).
+        let reading = readSessionContext(pid: sessionKey)
         return SwitchAttempt(
             result: .queued,
-            message: "session pin cleared: this session follows automatic account selection again "
-                + "(this project's profile, then the app's pin or smart pick). It stays where it "
-                + "is unless that selection says otherwise",
+            message: switchReleaseMessage(
+                hadSessionPin: reading.map { $0.sessionPin != nil },
+                scope: reading?.pinScope.flatMap(SessionPinScope.init(rawValue:))),
             notes: notes)
     }
     if alreadyThere {
@@ -223,6 +227,47 @@ func attemptSwitch(_ intent: SwitchIntent,
             + "until a hard cap forces a move; `tally account --auto` to follow automatic picks "
             + "again",
         notes: notes)
+}
+
+/// What `tally account --auto` says it did, which used to be one sentence for three situations.
+///
+/// THE SENTENCE THAT WAS WRONG (owner report, 2026-09-01): "session pin cleared" was printed
+/// whether or not there was a pin to clear. Run in a session that had never been pinned it
+/// announced an event that did not happen, and run in a session held by a PROJECT profile or by the
+/// app's own pin it was worse than untrue - it said the pin was gone while the session went on
+/// being held, by a scope this command does not reach.
+///
+/// `hadSessionPin` is nil when it cannot be read at all: a session that has not published a reading
+/// yet (no turn with usage in it). Said as "cannot tell" rather than guessed, because both guesses
+/// are a sentence about the user's own instruction.
+///
+/// The request is written on every one of these branches regardless. `--auto` is idempotent, and a
+/// session with no pin consumes it as the no-op it is (`SwitchDecision.unpin`); what changes here is
+/// only what the person is told.
+func switchReleaseMessage(hadSessionPin: Bool?, scope: SessionPinScope?) -> String {
+    let follows = "automatic account selection (this project's profile, then the app's pin or "
+        + "smart pick)"
+    guard let hadSessionPin else {
+        return "following \(follows) from now on. Whether this session carried a pin of its own "
+            + "cannot be read yet - it has published no reading - so nothing here says one was "
+            + "cleared"
+    }
+    if hadSessionPin {
+        return "session pin cleared: this session follows \(follows) again. It stays where it is "
+            + "unless that selection says otherwise"
+    }
+    switch scope {
+    case .project:
+        return "nothing to clear: this session had no pin of its own. It is on this account "
+            + "because this project's profile pins it - `tally project set --account auto` here is "
+            + "what releases that"
+    case .fleet:
+        return "nothing to clear: this session had no pin of its own. It is on this account "
+            + "because the app's own pin holds the whole fleet there - unpin in Settings, Accounts"
+    case .session, .none:
+        return "nothing to clear: this session had no pin of its own and was already following "
+            + "\(follows). It stays where it is unless that selection says otherwise"
+    }
 }
 
 // MARK: - CLI entry

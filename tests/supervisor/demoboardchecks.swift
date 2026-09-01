@@ -247,7 +247,7 @@ func runDemoSessionBoardChecks() {
     let covered: Set<String> = ["title", "state", "since", "reason", "model", "effort",
                                 "contextTokens", "lastActivity", "directory", "accountName",
                                 "providerID", "isReporting", "accountID", "id", "childPid",
-                                "outdatedSupervisorVersion"]
+                                "outdatedSupervisorVersion", "pinScope"]
     check("every field the cards read off a row is one this file replaces or keeps on purpose",
           asked.subtracting(covered).isEmpty)
 }

@@ -95,6 +95,20 @@ struct SupervisedSession: Equatable, Codable {
     /// before it existed decodes with nil rather than being rejected, and a reader that has never
     /// heard of it is unaffected.
     var sessionPin: String?
+    /// WHICH SCOPE is holding this session on that account (`SessionPinScope`'s raw word), or nil
+    /// when nothing is and Tally is picking freely.
+    ///
+    /// A SECOND FIELD RATHER THAN A DERIVATION FROM THE ONE ABOVE, because `sessionPin` answers only
+    /// the innermost of the three: a project profile and the app's own pin hold a session just as
+    /// firmly and leave that field empty. It is decided where the three are folded (the poll tick)
+    /// and published here because that is the only place the fold exists - a surface outside this
+    /// terminal has the session's account and nothing that says why it is there.
+    ///
+    /// Additive like everything else on this track: a document written before it decodes with nil,
+    /// which every reader draws as "cannot say" rather than as "not pinned" - the mark is simply
+    /// absent, which is what an unpinned session looks like too. That collapse is deliberate and
+    /// cheap: the reading is republished within a poll of the supervisor updating.
+    var pinScope: String?
     /// The model and effort a `tally model` pinned this session to, or nil for an axis it follows
     /// the project profile and the fleet default on (SessionModel.swift). Additive on the same
     /// terms as `sessionPin`.
@@ -180,9 +194,10 @@ extension SupervisedSession {
     /// The axis fields and the conversation id, spelled once, so a new publish cannot fill three of
     /// them.
     init(accountID: String, contextTokens: Int, updatedAt: Date, sessionPin: String?,
-         axes: SessionAxes, transcript: String?) {
+         pinScope: SessionPinScope? = nil, axes: SessionAxes, transcript: String?) {
         self.init(accountID: accountID, contextTokens: contextTokens, updatedAt: updatedAt,
-                  sessionPin: sessionPin, sessionModel: axes.pinnedModel,
+                  sessionPin: sessionPin, pinScope: pinScope?.rawValue,
+                  sessionModel: axes.pinnedModel,
                   sessionEffort: axes.pinnedEffort, observedModel: axes.observedModel,
                   runningModel: axes.runningModel, runningEffort: axes.runningEffort,
                   transcriptSessionID: transcript)
@@ -247,13 +262,15 @@ struct SessionContextWriter {
     /// has no file, and inventing one with a token count nobody measured would be worse than the
     /// silence the reader already handles.
     mutating func accountChanged(to accountID: String, pin: String?,
+                                 pinScope: SessionPinScope? = nil,
                                  axes: SessionAxes = SessionAxes(), transcript: String? = nil,
                                  pid: String,
                                  dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let current, current.accountID != accountID || current.sessionPin != pin
+            || current.pinScope != pinScope?.rawValue
             || !current.matches(axes, transcript: transcript) else { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
-                                  updatedAt: now, sessionPin: pin, axes: axes,
+                                  updatedAt: now, sessionPin: pin, pinScope: pinScope, axes: axes,
                                   transcript: transcript), pid: pid, dir: dir)
     }
 
@@ -279,17 +296,24 @@ struct SessionContextWriter {
     /// The pin joins the account as a reason to write even when the number has not moved: it
     /// changes on a tick of its own (a `tally switch --auto` moves nothing at all), and a reading
     /// that waited for the next thousand tokens would describe a session that is no longer pinned.
+    /// ITS SCOPE JOINS IT ON THE SAME TERMS AND FOR A REASON OF ITS OWN: the two move
+    /// independently. Unpinning the app's own pin changes the scope with nothing else about this
+    /// session moving at all, and a session pin taken off a session standing in a pinned repo moves
+    /// the scope from `session` to `project` while the account stays exactly where it is.
     /// The axes join it on identical terms - `tally model --auto` also moves nothing, and a quota
     /// fallback changes what is RUNNING without changing anything the user asked for.
     mutating func sync(tokens: Int?, accountID: String, pin: String?,
+                       pinScope: SessionPinScope? = nil,
                        axes: SessionAxes = SessionAxes(), transcript: String? = nil, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID, current.sessionPin == pin,
+           current.pinScope == pinScope?.rawValue,
            current.matches(axes, transcript: transcript),
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
-                                  sessionPin: pin, axes: axes, transcript: transcript),
+                                  sessionPin: pin, pinScope: pinScope, axes: axes,
+                                  transcript: transcript),
                 pid: pid, dir: dir)
     }
 

@@ -199,8 +199,13 @@ func runDroughtChecks() {
     /// shared field (`liveMoveField`), so what D's own row says decides as much as the policy does.
     /// The default is the pair of healthy rows the policy-only cases want; the cells about a spent
     /// or quarantined D hand it the fleet those cells are about.
-    func pinSwitchPlan(_ policy: LaunchPolicy, fleet: [Snapshot.Account] = pinnedAccounts,
-                       quarantine: [String: (model: String?, until: Date)] = [:]) -> RelaunchPlan? {
+    ///
+    /// It hands back the WAIT as well as the plan, because a pin that does not move the session is
+    /// only half a reading: the other half is whether the person watching was told why.
+    func pinSwitchTick(_ policy: LaunchPolicy, fleet: [Snapshot.Account] = pinnedAccounts,
+                       quarantine: [String: (model: String?, until: Date)] = [:],
+                       reading: ((Snapshot?, String?))? = nil)
+        -> (plan: RelaunchPlan?, waiting: PendingBadge?) {
         var watcher = idleWatcher("drought")
         var plan: RelaunchPlan?
         var state = ManualMoveState(sessionKey: "9191", servedEpoch: 100, dir: switchDir)
@@ -211,8 +216,13 @@ func runDroughtChecks() {
                          quarantine: quarantine, watcher: &watcher,
                          childAge: 9999, keyboardIdle: { _ in true }, dir: switchDir,
                          request: { _ in nil }, accounts: { fleet },
-                         loaded: { switchFleetReading(fleet) })
-        return plan
+                         loaded: { reading ?? switchFleetReading(fleet) },
+                         quarantineIn: switchQuarantineDir)
+        return (plan, state.waiting)
+    }
+    func pinSwitchPlan(_ policy: LaunchPolicy, fleet: [Snapshot.Account] = pinnedAccounts,
+                       quarantine: [String: (model: String?, until: Date)] = [:]) -> RelaunchPlan? {
+        pinSwitchTick(policy, fleet: fleet, quarantine: quarantine).plan
     }
     /// The tick as it stands just after a preventive mover acted: the session is on S, a project
     /// profile names D, and `pinned` is the row D has in the fleet at that moment.
@@ -296,8 +306,74 @@ func runDroughtChecks() {
                              switchFleetReading(healthyFleet,
                                                 generatedAt: Date().addingTimeInterval(
                                                     -(snapshotMaxAge + 60)))
-                         })
+                         },
+                         quarantineIn: switchQuarantineDir)
         return plan == nil
+    }())
+
+    // MARK: - 32c-3. AND THE WAIT IS SAID OUT LOUD, which for a long time it was not
+
+    // ONLY ONE OF THE THREE CELLS ENDS ON A CLOCK. A quarantine expires on its TTL; a snapshot
+    // nothing can read and an account with nothing left last as long as they last, and under a
+    // FLEET pin nothing else is going to move the session meanwhile (every preventive mover stands
+    // down on `mode == "manual"`, the cap handoff answers `.waitPinned`, and this station is the
+    // one left). Both surfaces draw such a session as pinned to the account it is not on
+    // (SessionPinScope.swift), and until this existed the status line said nothing about why: a
+    // typed `tally switch` held by the same fleet has had its own badge all along.
+    let spentWait = pinSwitchTick(afterTheMove(pinnedRow: spentNow, app: appPinned,
+                                               projectAccount: nil).moving, fleet: spentFleet)
+    check("a fleet pin held by an empty account says so rather than waiting in silence",
+          spentWait.plan == nil && spentWait.waiting?.badge == "pin: nothing left")
+    check("…and names the account the session is staying on meanwhile",
+          spentWait.waiting?.detail?.contains(sibling.label) == true)
+    // TOLD APART FROM THE ONE THAT EXPIRES, which is the whole reason these are separate badges: a
+    // reader who cannot tell them apart cannot tell "a few minutes" from "until the window resets".
+    let cappedWait = pinSwitchTick(afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                                projectAccount: nil).moving, fleet: healthyFleet,
+                                   quarantine: ["D": (model: "fable",
+                                                      until: Date().addingTimeInterval(600))])
+    check("a pin waiting on a quarantine reads as the wall it is, not as an empty account",
+          cappedWait.plan == nil && cappedWait.waiting?.badge == "pin: just capped")
+    // And the two cells where the fleet cannot answer at all, which are one reading apart: a
+    // document too old to trust says nothing about ANY account, while a fresh one that simply does
+    // not list the pinned account says something quite specific about that one.
+    let staleWait = pinSwitchTick(afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                               projectAccount: nil).moving, fleet: healthyFleet,
+                                  reading: switchFleetReading(
+                                      healthyFleet,
+                                      generatedAt: Date().addingTimeInterval(-(snapshotMaxAge + 60))))
+    check("a snapshot too old to judge on says that, rather than blaming the account",
+          staleWait.plan == nil && staleWait.waiting?.badge == "pin: no snapshot")
+    let unlistedWait = pinSwitchTick(afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                                  projectAccount: nil).moving,
+                                     fleet: [comfortable, sibling],
+                                     reading: switchFleetReading([sibling]))
+    check("a pinned account the fleet has stopped listing is a wait of its own kind",
+          unlistedWait.plan == nil && unlistedWait.waiting?.badge == "pin: not listed")
+    // The badge is a STATE, never a moment: the same rule both other waiting axes are held to
+    // (`promisesAMoment`, switchchecks.swift), because the term that lifts a wait is not the term
+    // that raised it.
+    check("and none of the four promises a moment",
+          [PinSwitchWait.unreadable, .unlisted, .spent, .quarantined].allSatisfy {
+              !promisesAMoment(pinSwitchWaitBadge($0, pinned: "Claude 4", staying: "Claude 3").badge)
+          })
+    // AND IT NEVER SPEAKS OVER A TYPED INSTRUCTION. `tally switch` is the more specific news about
+    // the same fleet, and this row holds one badge (PendingNotice.swift).
+    check("a pin wait does not displace the badge a `tally switch` just raised", {
+        var watcher = idleWatcher("drought-both")
+        var plan: RelaunchPlan?
+        var state = ManualMoveState(sessionKey: "9393", servedEpoch: 100, dir: switchDir)
+        var record: PendingSwitchConsumption?
+        var under = afterTheMove(pinnedRow: spentNow, app: appPinned, projectAccount: nil).moving
+        applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
+                         account: sibling, providerID: "claude", primaryModel: "fable",
+                         watcher: &watcher, childAge: 9999, keyboardIdle: { _ in true },
+                         dir: switchDir,
+                         request: { _ in SwitchRequest(epoch: 101, accountID: "nobody") },
+                         accounts: { spentFleet }, homeOnDisk: { _, _ in true },
+                         loaded: { switchFleetReading(spentFleet) },
+                         quarantineIn: switchQuarantineDir)
+        return state.waiting?.badge == switchWaitBadge(.unlisted, staying: sibling.label)?.badge
     }())
 
     // MARK: - 32d. The reading behind all of it

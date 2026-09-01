@@ -148,7 +148,19 @@ enum MachineLoadRollup {
     /// contest rule one file over hands the adoption to the inner session every time, so this was
     /// the main path rather than a corner of it (codex review of 904e540).
     ///
-    /// THE LARGER CARD IS THE ONE KEPT, and what that costs is stated rather than implied: where
+    /// THE LARGER CARD IS THE ONE KEPT, EXCEPT WHERE THERE IS NO LARGER ONE. Two cards holding the
+    /// same NUMBER of pids are separated by the sort's second key, which is the map key spelled as a
+    /// string, and a string orders pids by their digits: `"9"` sorts above `"10"`. So on an
+    /// equal-sized overlap the card a project keeps is decided by how many digits the supervisors'
+    /// pids happen to have, which is arbitrary. It is written down rather than repaired because the
+    /// property this rule owes anybody is DECIDABILITY - an answer that changed from tick to tick
+    /// would move cores between two cards every two seconds - and a key that cannot change while
+    /// nothing else does delivers it. The other tie-breaks on this page have meaning behind them
+    /// (`rows` orders on the root itself, `SessionProcessGroups.claimant` falls to the supervisor
+    /// that started later); this one does not, and a reader should not infer one from the sentence
+    /// above.
+    ///
+    /// What the kept card costs is stated rather than implied: where
     /// the overlap is partial, the dropped card's OWN pids - the job it adopted - are not in the
     /// project's total at all. A project reading nothing about a process is the ordinary shape of
     /// this page (the cards below still count it, and its own card still says `N background`),
@@ -183,13 +195,49 @@ enum MachineLoadRollup {
     /// How much a project's leftovers have to be holding to keep it on the books with no session
     /// left on it (`watched`).
     ///
-    /// SIXTY-FOUR MEGABYTES, and the number is a gap rather than a guess. What has to fall below it
-    /// is the interactive shell a session was started FROM: it is the supervisor's parent, so no
-    /// tree reaches it, and its working directory is the checkout, so it is a stray of that project
-    /// for as long as the terminal tab is open. Measured on this machine (2026-09-01): the shells
-    /// in the table hold 0.7 to 3.1 MB. What has to stay above it is anything worth a row - a dev
-    /// server, a worker, a build - and the smallest of those on the same table is over 100 MB.
+    /// SIXTY-FOUR MEGABYTES, AND IT IS NOT A GAP. An earlier version of this note called it "a gap
+    /// rather than a guess" and gave two measurements for it: that the shells it has to exclude
+    /// hold 0.7 to 3.1 MB, and that the smallest thing worth a row on the same table is over
+    /// 100 MB. Re-measured on this machine with this file's own reader (`ri_phys_footprint`,
+    /// 2026-09-02), both are wrong, and the first was wrong about WHICH shells it had looked at:
+    ///
+    ///     the shell a supervisor was started from       1.3 to  9.1 MB  (12 of them)
+    ///     a checkout's shell with no session under it   1.3 to 25.3 MB  (16, five above 21 MB)
+    ///     orphans (ppid 1), strays by construction      1.6 to 76.3 MB  (11, FIVE below this line)
+    ///
+    /// The 0.7 to 3.1 MB figures fit Claude Code's own Bash tool shells, which sit inside a
+    /// session's tree and so can never be in a stray pool at all. What this line is actually asked
+    /// to separate is the second row from the third, and those two overlap: a terminal tab's shell
+    /// reaches 25.3 MB, while the smallest orphans under it are a `cloudflared` tunnel at 28.3 MB,
+    /// a Python at 21.3 MB and three polling `bash` loops at 1.6 MB. The number lands inside one
+    /// population rather than between two.
+    ///
+    /// SO THE FLOOR IS NOT WHAT MAKES THIS SAFE, and the grace period below is (`watched`). What
+    /// the floor still buys is that anything genuinely heavy is kept whatever its CPU reads, which
+    /// is the case somebody closes a session and goes looking for. What it still COSTS, named
+    /// rather than implied: a project whose only leftover is a small idle service - that tunnel,
+    /// sitting at 0% until a request arrives - stops being watched once it has read idle for the
+    /// whole grace period, and comes back the next time a session names that directory. Lowering
+    /// the number would keep it and would keep every idle terminal tab with it, which is the row
+    /// this rule exists to refuse.
     static let idleMemoryFloor: UInt64 = 64_000_000
+
+    /// How many CONSECUTIVE ticks a project has to read idle before it stops being watched.
+    ///
+    /// ONE READING WAS ENOUGH BEFORE, AND ONE READING IS NOT EVIDENCE. An idle process reads 0% by
+    /// construction rather than by chance, and the tick a session ENDS on is guaranteed to read 0%
+    /// for everything it leaves behind: a pid reclassified into a pool is given that reading's own
+    /// counters as its baseline, so it contributes nothing to the tick that first sees it
+    /// (`ProcessResourceSample.pairing`). The very tick this section exists for - the session
+    /// closes, its dev server joins the pool - was therefore the tick most likely to drop the
+    /// project, and a project dropped here is never looked for again until some session names that
+    /// directory (`ProjectLoadAccounting.strays` matches against the roots this returns, and
+    /// nothing else puts one back).
+    ///
+    /// THREE, because two is the smallest number that could tell a rate apart from a first
+    /// sighting and this has to survive one more tick than that: the join tick reads 0% and the
+    /// tick after it is the first that could read anything at all.
+    static let idleTicksBeforeDropping = 3
 
     /// WHICH PROJECTS ARE STILL WORTH WATCHING once this tick has been read, which is what decides
     /// whether the next tick looks for them at all (`ProjectLoadAccounting`).
@@ -202,14 +250,35 @@ enum MachineLoadRollup {
     /// no session on it stays only while its leftovers are DOING something: a rate not yet
     /// established, a rate above zero, or memory at or above the floor above.
     ///
-    /// WHAT IT COSTS: a project whose only leftover is idle in both senses stops being watched, and
-    /// comes back the next time a session names it. That is the same standard the rest of this app
-    /// holds - no line rather than a line reading zero.
-    static func watched(_ load: MachineLoad) -> Set<String> {
-        Set(load.projects.filter {
-            $0.sessions > 0 || $0.cpuPercent == nil || ($0.cpuPercent ?? 0) > 0
-                || $0.memoryBytes >= idleMemoryFloor
-        }.map(\.root))
+    /// AND "IS IT IDLE" IS ASKED OVER SEVERAL TICKS RATHER THAN ONE, which is the whole of what the
+    /// count is for (`idleTicksBeforeDropping` carries the reasoning). A project that reads busy at
+    /// any point starts again from nothing.
+    ///
+    /// WHAT IT COSTS: a project whose only leftover is idle in both senses for the whole grace
+    /// period stops being watched, and comes back the next time a session names it. That is the
+    /// same standard the rest of this app holds - no line rather than a line reading zero.
+    ///
+    /// - Parameter idle: how many consecutive ticks each project has read idle so far, as this
+    ///   handed them back last tick. A parameter because the rules in this file are pure, and this
+    ///   one now needs a memory: one number per project rather than a reading.
+    /// - Returns: the roots the next tick looks for, and the counts to hand back in.
+    static func watched(_ load: MachineLoad, idle: [String: Int] = [:])
+        -> (roots: Set<String>, idle: [String: Int]) {
+        var roots: Set<String> = []
+        var next: [String: Int] = [:]
+        for project in load.projects {
+            let working = project.sessions > 0 || project.cpuPercent == nil
+                || (project.cpuPercent ?? 0) > 0 || project.memoryBytes >= idleMemoryFloor
+            if working {
+                roots.insert(project.root)
+                continue
+            }
+            let ticks = (idle[project.root] ?? 0) + 1
+            guard ticks < idleTicksBeforeDropping else { continue }
+            roots.insert(project.root)
+            next[project.root] = ticks
+        }
+        return (roots, next)
     }
 
     /// WHAT EACH PROJECT'S SESSIONS READ, out of the footprints the cards will actually draw.

@@ -26,14 +26,20 @@ import Foundation
 /// differ in WHEN they fire and in nothing else about the field: they must never come to disagree
 /// about which siblings exist or which windows count, and a second copy of this narrowing is
 /// exactly how they would.
+///
+/// - Parameter dir: where the cross-supervisor quarantine records live. A seam rather than a
+///   constant because reading them is a real directory read that also DELETES the expired files
+///   (`quarantineRecords`), so an assertion walking this path was writing to the machine's own
+///   `~/.tally/quarantine` - and would go red for whatever a real cap had just recorded there.
 func liveMoveField(provider: String, account: Snapshot.Account, primaryModel: String?,
                    quarantine: [String: (model: String?, until: Date)],
-                   loaded: (Snapshot?, String?), now: Date)
+                   loaded: (Snapshot?, String?), now: Date, dir: URL = quarantineDir)
     -> (current: Snapshot.Account, candidates: [Snapshot.Account])? {
     let (snapshot, problem) = loaded
     guard problem == nil, let snapshot,
           let live = snapshot.accounts.first(where: { $0.id == account.id }) else { return nil }
-    let excluded = quarantinedAccounts(forPrimary: primaryModel, sessionLocal: quarantine, now: now)
+    let excluded = quarantinedAccounts(forPrimary: primaryModel, sessionLocal: quarantine, now: now,
+                                       dir: dir)
     return (live, snapshot.accounts.filter {
         $0.provider == provider && eligible($0, primaryModel: primaryModel)
             && $0.id != account.id && !excluded.contains($0.id)

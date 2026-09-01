@@ -112,11 +112,20 @@ extension ProcessTree {
     ///
     /// TWO CALLS AT MOST AND ONLY FOR A DEPARTURE, which is a rare event in a pool that mostly
     /// survives from tick to tick: the second is made only when the first says the process is gone
-    /// from the table.
+    /// from the table. A member the pool is WAITING on is asked on every tick of that wait, which is
+    /// the one case where two calls a tick run for as long as the project is watched.
+    ///
+    /// AND THE LIVING ANSWER CARRIES WHOSE LIFE IT IS, out of the record that answered: the table
+    /// holding that number does not mean the pool's member is the one holding it, and the pairing
+    /// cannot tell the two apart without this (`ProcessResourceSample.pairing(with:departure:)`).
+    /// Spelled in the unit every pid stamp in this repository uses (`ProcessIdentity.startedAt`).
     static func departure(of pid: pid_t) -> ProcessDeparture {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size { return .living }
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size {
+            let seconds = min(Int64(clamping: info.pbi_start_tvsec), Int64.max / 1_000_000)
+            return .living(startedAt: seconds * 1_000_000 + Int64(clamping: info.pbi_start_tvusec))
+        }
         return usage(of: pid) == nil ? .collected : .ended
     }
 

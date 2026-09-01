@@ -26,7 +26,7 @@ extension PopoverRootView {
            store.accounts.contains(where: { $0.providerID == EarlyStartLogic.providerID }) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Early start is on")).font(.caption.weight(.semibold))
+                    Text(L("Window relay is on")).font(.caption.weight(.semibold))
                     Text(L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Set quiet hours in Settings to keep it silent overnight."))
                         .font(.caption2)
                         .foregroundStyle(.secondary)

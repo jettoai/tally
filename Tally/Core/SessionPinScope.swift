@@ -56,7 +56,15 @@ func sessionPinScope(appMode: String, appPinnedAccountID: String?, projectAccoun
 
 /// The mark that leads every rendering of a pin, on every surface. One glyph rather than one per
 /// surface, so a reader who has seen it in the terminal recognises it on the board.
-let sessionPinMark = "📌"
+///
+/// MONOCHROME, AND IN THE CIRCLE FAMILY THIS APP ALREADY PINS WITH. A colour emoji was the first
+/// spelling and it was wrong twice over: the status line prints this inside an ANSI dim segment
+/// (`Statusline.swift`), and dim does nothing to a colour emoji, so the least important thing on
+/// the line rendered as the brightest thing on it, at double width, in a row already fighting for
+/// columns. And the app had a pinning vocabulary of its own before this existed: the panel's own
+/// onboarding says `The ◯ on a card pins that account` (`PopoverLaunchViews.swift`), so a second
+/// symbol for the same idea taught the reader two.
+let sessionPinMark = "◉"
 
 /// What the STATUS LINE calls each scope. English, like everything else that line prints (it runs
 /// inside Claude Code's own hook and has no catalogue behind it); the app localizes its own copy.

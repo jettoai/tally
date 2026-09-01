@@ -53,13 +53,40 @@ func runProjectLoadChecks() {
           accounting.load(sessions: [], strays: [:], at: t0).projects.isEmpty
               && accounting.accounted.isEmpty)
 
+    // MARK: what never enters the pool at all
+
+    // TALLY'S OWN PROCESSES ARE THE METER, NOT THE WORK, and this is the one reading that had not
+    // been told: every card takes its own family out (`ProcessTree.ownFamily`), while the Projects
+    // row counted an orphaned hook of ours as a stray of whatever checkout it had been working in.
+    // Driven with THIS process as the candidate, which is the one pid an assertion can be sure is
+    // ours and is really on the machine: its working directory is the checkout the suite runs in,
+    // so it is a stray of that project by every other test in `strays`.
+    let here = MachineLoadRollup.resolvedPath(FileManager.default.currentDirectoryPath)
+    let me = ProcessIdentity(pid: getpid(), parent: 1, group: getpid(), startedAt: 0)
+    check("a process of Tally's own working in a checkout is not that project's stray",
+          accounting.strays(among: [me], claimed: [], adopted: [:], board: [],
+                            roots: [here]).strays.isEmpty)
+    // WHAT THIS ASSERTION DOES AND DOES NOT REACH, said rather than implied: the pid it offers is
+    // the harness itself, so what it pins is that the pool asks the ownership question at all
+    // (remove the test and this pid becomes that project's stray). The BUNDLE half of the same rule
+    // - a hook running out of Tally.app beside the app's own binary - is a pure rule with its own
+    // assertions next door (processtreechecks.swift, `ownFamily`), because no assertion here can
+    // put a second process of ours on the machine to be found.
+    check("…and the pool asks that of the program on disk, which is the rule the cards use",
+          ProcessTree.ownFamily([200, 300], root: 100, executable: {
+              [100: "/Applications/Tally.app/Contents/MacOS/Tally",
+               200: "/Applications/Tally.app/Contents/Resources/tally",
+               300: "/opt/homebrew/bin/node"][$0]
+          }) == [100, 200])
+
     // MARK: the readings, over two ticks
 
     // What the pool would report, handed to the accounting instead of read off the machine.
     var handed = ProcessResourceSample(times: [:], childTimes: [:], at: t0)
     func hand(_ times: [pid_t: Double], child: [pid_t: Double] = [:],
-              memory: [pid_t: UInt64] = [:], at moment: Date) {
-        handed = ProcessResourceSample(times: times, childTimes: child, memory: memory, at: moment)
+              memory: [pid_t: UInt64] = [:], born: [pid_t: Int64] = [:], at moment: Date) {
+        handed = ProcessResourceSample(times: times, childTimes: child, memory: memory, at: moment,
+                                       startedAt: born)
     }
     // What the machine says became of a departed member, which is the other half of what decides a
     // rate and the half no fixture of readings alone can state: a member that has died and not been
@@ -111,7 +138,7 @@ func runProjectLoadChecks() {
     // and counted elsewhere, so there is nothing to settle. Credited anyway, every successful
     // adoption blanked its project's row for two ticks.
     let adopting = pool()
-    became = [901: .living]
+    became = [901: .living(startedAt: nil)]
     hand([900: 10, 901: 600], at: t0)
     _ = adopting.load(sessions: [], strays: [900: root, 901: root], at: t0)
     hand([900: 11], at: later)
@@ -124,8 +151,60 @@ func runProjectLoadChecks() {
     became = [901: .collected]
     hand([900: 12], at: last)
     let after = adopting.load(sessions: [], strays: [900: root], at: last)
-    check("…and its eventual death is its card's arrival rather than this pool's",
+    check("…and nothing of it is settled on the tick it eventually dies on",
           after.projects.first?.cpuPercent == 50)
+
+    // WHAT THAT ASSUMES, ASSERTED RATHER THAN ASSUMED AWAY: that whoever collects it later is not in
+    // this pool. It usually is not (a job on a card is collected by the card, or by launchd), and
+    // there are ways out of a pool where it is - the scratchpad signal adopts a process whose parent
+    // is still a stray, a member's directory moves under another root while its parent's does not.
+    // Then the arrival lands with no credit to meet it and the clamp at zero does nothing, because
+    // this error is POSITIVE. Not repaired: settling across pools means one ledger for the machine
+    // rather than one per project (`ProcessResourceSample.pairing(with:departure:)` names the cost).
+    let strandedCredit = pool()
+    became = [901: .living(startedAt: nil)]
+    hand([900: 10, 901: 600], at: t0)
+    _ = strandedCredit.load(sessions: [], strays: [900: root, 901: root], at: t0)
+    hand([900: 11], at: later)
+    _ = strandedCredit.load(sessions: [], strays: [900: root], at: later)
+    became = [:]
+    hand([900: 12], child: [900: 600], at: last)
+    let stranded = strandedCredit.load(sessions: [], strays: [900: root], at: last)
+    check("a member that left alive and is reaped by a survivor still spikes the row it left",
+          stranded.projects.first?.cpuPercent == 30050)
+
+    // COLLECTED BETWEEN THE READING AND THE QUESTION, which is the one window waiting at the death
+    // cannot close: the pool is sampled, and each departure is asked about microseconds afterwards.
+    // A member collected in between is judged `.collected` against counters taken before its seconds
+    // landed, so the credit is produced a tick before the arrival - 0% and then 30050% if the tick
+    // throws it away. Handed to the next pair instead, the spike is bounded by the interval.
+    let racing = pool()
+    became = [901: .collected]
+    hand([900: 10, 901: 600], at: t0)
+    _ = racing.load(sessions: [], strays: [900: root, 901: root], at: t0)
+    hand([900: 11], at: later)
+    let earlyVerdict = racing.load(sessions: [], strays: [900: root], at: later)
+    check("a verdict reached after the counters were read costs one tick, not an unbounded one",
+          earlyVerdict.projects.first?.cpuPercent == 0)
+    hand([900: 12], child: [900: 600], at: last)
+    let lateArrival = racing.load(sessions: [], strays: [900: root], at: last)
+    check("…because the credit that tick could not spend meets the arrival on the next one",
+          lateArrival.projects.first?.cpuPercent == 100)
+
+    // A NUMBER THE MACHINE HANDS ON WHILE THE POOL IS WAITING ON IT. 901 dies, is waited for, is
+    // collected, and its pid is given to a new process in the same pool. By number alone that is a
+    // survivor whose counters went backwards, and the 600 seconds arriving in 900 have no credit to
+    // meet them. The stamps come off the table walk the tick already made, so this costs no syscall.
+    let recycled = pool()
+    became = [901: .ended]
+    hand([900: 10, 901: 600], born: [900: 1, 901: 2], at: t0)
+    _ = recycled.load(sessions: [], strays: [900: root, 901: root], at: t0)
+    hand([900: 11], born: [900: 1], at: later)
+    _ = recycled.load(sessions: [], strays: [900: root], at: later)
+    hand([900: 12, 901: 1], child: [900: 600], born: [900: 1, 901: 9], at: last)
+    let reissued = recycled.load(sessions: [], strays: [900: root, 901: root], at: last)
+    check("a waited-for member whose number a new process took over is settled, not read as alive",
+          reissued.projects.first?.cpuPercent == 50)
 
     // A LONG-LIVED PROCESS JOINS, which is what the tick after a session ends looks like: its whole
     // tree is reclassified into the pool, carrying counters cumulative since birth.
@@ -158,8 +237,36 @@ func runProjectLoadChecks() {
     let idle = quiet.load(sessions: [], strays: [3498: root], at: later)
     check("an idle shell is still a stray of that checkout",
           idle.projects.first?.strayProcesses == 1 && idle.projects.first?.cpuPercent == 0)
-    check("…and is not work, so the project stops being watched for it",
+    // AND ONE READING OF IT IS NOT EVIDENCE, which is what the grace period next door is for
+    // (`MachineLoadRollup.idleTicksBeforeDropping`): the tick a session ends on reads 0% for
+    // everything it leaves behind, by construction rather than by chance.
+    check("…and one idle reading does not take the checkout off the books",
+          quiet.accounted == [root])
+    hand([3498: 5], memory: [3498: 3_000_000], at: last)
+    _ = quiet.load(sessions: [], strays: [3498: root], at: last)
+    hand([3498: 5], memory: [3498: 3_000_000], at: last.addingTimeInterval(2))
+    _ = quiet.load(sessions: [], strays: [3498: root], at: last.addingTimeInterval(2))
+    check("…and reading idle throughout the grace period does",
           quiet.accounted.isEmpty)
+
+    // AND THE WAIT ITSELF LIVES EXACTLY THAT LONG, which is the other half of the same rule. A
+    // member that has DIED is not a stray - no table holds it and it answers no directory - so a
+    // project whose remaining strays all read idle for one tick used to be dropped, and the pool's
+    // reading went with it, credit and waiting member and all. The collector's arrival then landed
+    // on a first sighting or, one tick later, on nothing at all to cancel it.
+    let waitingOut = pool()
+    became = [901: .ended]
+    hand([900: 10, 901: 600], at: t0)
+    _ = waitingOut.load(sessions: [], strays: [900: root, 901: root], at: t0)
+    hand([900: 10], at: later)
+    let stalled = waitingOut.load(sessions: [], strays: [900: root], at: later)
+    check("a project reading nothing while a dead member is waited for stays on the books",
+          stalled.projects.first?.cpuPercent == 0 && waitingOut.accounted == [root])
+    became = [901: .collected]
+    hand([900: 11], child: [900: 600], at: last)
+    let met = waitingOut.load(sessions: [], strays: [900: root], at: last)
+    check("…so the credit is still there to meet the arrival, rather than the row spiking",
+          met.projects.first?.cpuPercent == 50)
     // And the reading that has to survive that: a dev server holding half a gigabyte while it waits
     // for a request is exactly what somebody closed their session and went looking for.
     let holding = pool()

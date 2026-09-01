@@ -317,7 +317,8 @@ func runRequestTranscriptChecks() {
         applyManualMoves(plan: &plan, state: &moves, record: &record, policy: &under,
                          account: onA, providerID: "claude", watcher: &session, childAge: 9999,
                          keyboardIdle: { _ in true }, dir: tickDir, request: { _ in request },
-                         accounts: { [onA, toB] }, homeOnDisk: { _, _ in false })
+                         accounts: { [onA, toB] }, homeOnDisk: { _, _ in false },
+                         quarantineIn: switchQuarantineDir)
         return plan
     }
 

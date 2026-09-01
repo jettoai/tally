@@ -66,7 +66,8 @@ func runSessionPinChecks() {
                          account: on, providerID: "claude", watcher: &watcher, childAge: 9999,
                          keyboardIdle: { _ in true }, dir: tickDir,
                          request: { _ in request }, accounts: { fleet },
-                         loaded: { switchFleetReading(fleet) })
+                         loaded: { switchFleetReading(fleet) },
+                         quarantineIn: switchQuarantineDir)
         tickPolicy = under
         return (plan, record)
     }
@@ -253,7 +254,8 @@ func runSessionPinChecks() {
                          account: onA, providerID: "claude", watcher: &legacyWatcher,
                          childAge: 9999, keyboardIdle: { _ in true }, dir: tickDir,
                          request: { _ in request }, accounts: { fleet },
-                         loaded: { switchFleetReading(fleet) })
+                         loaded: { switchFleetReading(fleet) },
+                         quarantineIn: switchQuarantineDir)
         return plan
     }
     check("the legacy override still refuses the pin it was taken off", legacyTick(nil) == nil)
@@ -276,7 +278,8 @@ func runSessionPinChecks() {
     applyManualMoves(plan: &execPlan, state: &afterExec, record: &execRecord, policy: &execPolicy,
                      account: toD, providerID: "claude", watcher: &relaunched, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in nil },
-                     accounts: { fleet }, loaded: { switchFleetReading(fleet) })
+                     accounts: { fleet }, loaded: { switchFleetReading(fleet) },
+                     quarantineIn: switchQuarantineDir)
     check("a session that came back from an upgrade is still pinned", execPlan == nil)
     check("and still knows what it is pinned to", afterExec.sessionPin == "D")
 
@@ -354,7 +357,7 @@ func runSessionPinChecks() {
     // What the status line draws from it: the mark rides the account's own name, because it is
     // about that name and nothing else.
     check("a pinned account carries the mark and the scope that holds it",
-          sessionPinnedLabel("Claude 3", scope: .project) == "Claude 3 📌project")
+          sessionPinnedLabel("Claude 3", scope: .project) == "Claude 3 ◉project")
     check("…and an unpinned one is the bare name, exactly as before",
           sessionPinnedLabel("Claude 3", scope: nil) == "Claude 3")
     let statusline = (try? String(contentsOfFile: "TallyCLI/Statusline.swift",

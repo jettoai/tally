@@ -12261,60 +12261,60 @@
         }
       }
     },
-    "Early start": {
+    "Window relay": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "提早開始"
+            "value": "窗口接力"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "提早开始"
+            "value": "窗口接力"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "早めのスタート"
+            "value": "ウィンドウリレー"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이른 시작"
+            "value": "윈도우 릴레이"
           }
         }
       }
     },
-    "Early start is on": {
+    "Window relay is on": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "提早開始已啟用"
+            "value": "窗口接力已啟用"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "提早开始已启用"
+            "value": "窗口接力已启用"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "早めのスタートは有効です"
+            "value": "ウィンドウリレーは有効です"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이른 시작이 켜져 있습니다"
+            "value": "윈도우 릴레이가 켜져 있습니다"
           }
         }
       }

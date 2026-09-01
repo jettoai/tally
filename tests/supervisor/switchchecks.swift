@@ -46,6 +46,17 @@ func switchFleetReading(_ accounts: [Snapshot.Account],
     return (snapshot, age > snapshotMaxAge ? "snapshot is \(Int(age / 60))m old" : nil)
 }
 
+/// A quarantine directory no assertion shares with the machine it runs on.
+///
+/// THE MOVERS' SHARED FIELD READS THE CROSS-SUPERVISOR RECORDS to narrow its candidates
+/// (`liveMoveField`), and reading them DELETES the ones that have expired (`quarantineRecords`), so
+/// every tick driven from these suites was making a write to the user's own `~/.tally/quarantine`
+/// and would have gone red for whatever a real cap had just recorded in it. One directory for the
+/// whole run, empty and per-process: what these assertions want quarantined they hand in as the
+/// session-local map, which is the seam that says so out loud.
+let switchQuarantineDir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-quarantine-suite-\(UUID().uuidString)")
+
 /// A session that has been silent for long enough to pass any bar, with no open tool call in it.
 func idleWatcher(_ label: String) -> TranscriptWatcher {
     switchWatcher(label, lines: [#"{"type":"user","timestamp":"2026-01-01T00:00:00Z"}"#])
@@ -240,7 +251,8 @@ func runSwitchChecks() {
                          account: onA, providerID: "claude", watcher: &watcher, childAge: childAge,
                          keyboardIdle: { _ in keyboardIdle }, dir: tickDir,
                          request: { _ in request }, accounts: { accounts },
-                         homeOnDisk: { _, _ in homeOnDisk }, now: now)
+                         homeOnDisk: { _, _ in homeOnDisk }, now: now,
+                         quarantineIn: switchQuarantineDir)
         return (plan, record)
     }
 
@@ -673,7 +685,8 @@ func runSwitchChecks() {
     applyManualMoves(plan: &blindPlan, state: &state, record: &blindRecord, policy: &blindPolicy,
                      account: onA, providerID: "claude", watcher: &blind, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in blindRequest },
-                     accounts: { nil }, homeOnDisk: { _, _ in false })
+                     accounts: { nil }, homeOnDisk: { _, _ in false },
+                     quarantineIn: switchQuarantineDir)
     check("no snapshot at all holds the request", blindPlan == nil)
     check("without cancelling it", state.servedEpoch < blindRequest.epoch
               && readSwitchRequest(sessionKey: session, dir: tickDir) == blindRequest)
@@ -739,7 +752,8 @@ func runSwitchChecks() {
                      account: onA, providerID: "claude", watcher: &plainWatcher,
                      childAge: 9999, keyboardIdle: { _ in true }, dir: tickDir,
                      request: { _ in nil }, accounts: { fleet },
-                     loaded: { switchFleetReading(fleet) })
+                     loaded: { switchFleetReading(fleet) },
+                     quarantineIn: switchQuarantineDir)
     check("a pinned session with no switch history follows the pin",
           plainPlan?.target.id == "B" && plainPlan?.reason == "pin")
     check("a pin switch never counts against the fuse either", plainPlan?.countsFuse == false)
@@ -752,7 +766,8 @@ func runSwitchChecks() {
     applyManualMoves(plan: &midPlan, state: &midState, record: &midRecord, policy: &midPolicy,
                      account: onA, providerID: "claude", watcher: &pinMidTurn, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in nil },
-                     accounts: { fleet }, loaded: { switchFleetReading(fleet) })
+                     accounts: { fleet }, loaded: { switchFleetReading(fleet) },
+                     quarantineIn: switchQuarantineDir)
     check("a pin does not cut a live turn short either", midPlan == nil)
     try? FileManager.default.removeItem(at: tickDir)
 

@@ -14,8 +14,8 @@ import Foundation
 /// (`ProcessFootprintStore`): everything here is a second reading of a pass that has already been
 /// made, and a store of its own would mean a second timer and a second walk to answer a question
 /// about the first one's leftovers. What it holds is only what a RATE needs - the previous reading
-/// and the credit it could not settle - plus the resolved directories, which are held because they
-/// never change.
+/// of each pool and the credit that pair could not settle - plus the resolved directories, which are
+/// held because they never change, and how long each project has been reading idle.
 ///
 /// THE RULES ARE NEXT DOOR AND PURE (`MachineLoadRollup`); what is here is the state and the
 /// syscalls, which is the same seam `ProcessTree` is split along.
@@ -34,10 +34,33 @@ final class ProjectLoadAccounting {
     /// (`ProcessResourceSample.pairing(with:departure:)`, which carries the measurements and what
     /// the rule still costs). So this holds one more thing than the last reading: a member that has
     /// died and not yet been collected, at the counters it was last read with, until the machine
-    /// says its seconds have landed somewhere. There is no `ProcessCPUCarry` beside it because of
-    /// that and not instead of it: waiting at the death is what makes every credit meet its arrival
-    /// in one reading, so none is ever left over to hand on.
+    /// says its seconds have landed somewhere.
+    ///
+    /// AND IT IS KEPT WHILE THE PROJECT IS WATCHED RATHER THAN WHILE THE POOL HAS MEMBERS. This was
+    /// rebuilt whole from each tick's live strays, which reads as "a project whose strays have all
+    /// ended keeps nothing" and is a different sentence from the one it was written for: a member
+    /// that has DIED is not a stray - it is in no process table and answers no working directory -
+    /// so a pool that momentarily holds nothing but a zombie dropped the very credit it was waiting
+    /// to spend, and the collector's arrival then landed with nothing to cancel it (30050%, asserted
+    /// in `projectloadchecks.swift`). One idle tick was enough to do it, which is exactly the tick a
+    /// session ends on. Bound to `watching` instead, which is the span this class already says the
+    /// waiting lasts (`ProcessResourceSample.pairing(with:departure:)` points at it by name).
     private var previous: [String: ProcessResourceSample] = [:]
+    /// What each project's last pair could not settle, on the same terms a session's card keeps one
+    /// (`ProcessTree.cpuPercent`), and kept for the same span as the reading above.
+    ///
+    /// A POOL NEEDS ONE FOR A REASON A TREE DOES NOT HAVE. Waiting at the death rather than at the
+    /// exit means a credit normally meets its arrival inside one reading, and the pairing used to
+    /// say no carry was needed because of it. The exception is that the pool is READ and then each
+    /// departure is ASKED about, microseconds apart: a member collected in between is settled
+    /// against counters taken before its seconds landed, and its credit would be produced and thrown
+    /// away with the tick. Rare and unbounded, so it is handed on instead - which turns 30050% into
+    /// 100% on the pairing's own fixture, and costs nothing when the window is not hit.
+    private var carry: [String: ProcessCPUCarry] = [:]
+    /// When each stray began, out of the table walk this tick already made
+    /// (`ProcessIdentity.startedAt`). Handed to each pool reading so the pairing can tell a member
+    /// still with us from a number the machine has handed on; nothing here costs a syscall.
+    private var strayStamps: [pid_t: Int64] = [:]
     /// Each session directory as the machine spells it. Held because a checkout does not move: this
     /// would be a `realpath` per session per tick otherwise, for an answer that never changes.
     private var resolved: [String: String] = [:]
@@ -58,6 +81,10 @@ final class ProjectLoadAccounting {
     /// is a stray of its checkout for as long as that terminal tab is open, so "kept while it has a
     /// row" kept every checkout ever opened, forever, each with a Projects line reading nothing.
     private var watching: Set<String> = []
+    /// How many consecutive ticks each watched project has read idle, which is the memory the grace
+    /// period next door needs (`MachineLoadRollup.idleTicksBeforeDropping` carries the whole of why
+    /// one reading is not evidence). A project that reads busy is simply absent from here.
+    private var idleTicks: [String: Int] = [:]
 
     /// How a pool of pids is read: which of them the machine holds counters for, at an instant.
     typealias PoolReader = (Set<pid_t>, Date) -> ProcessResourceSample
@@ -160,11 +187,34 @@ final class ProjectLoadAccounting {
                 roots: Set<String>) -> (strays: [pid_t: String], adoptions: [String: Set<pid_t>]) {
         guard !roots.isEmpty else { return ([:], adopted) }
         var strayRoot: [pid_t: String] = [:]
+        // The stamps come from THIS walk rather than from a later question about a pid, which is the
+        // point of taking them here: by the time the pool notices a member is gone, the machine can
+        // no longer say when it began (`strayStamps`).
+        strayStamps = processes.reduce(into: [:]) { $0[$1.pid] = $1.startedAt }
         let taken = claimed.union(adopted.values.joined())
         for one in processes where !taken.contains(one.pid) {
             guard let directory = MachineLoadRollup.workingDirectory(of: one.pid),
                   let root = MachineLoadRollup.project(of: directory, roots: roots) else { continue }
             strayRoot[one.pid] = root
+        }
+        // AND NOT THE METER ITSELF, which is the rule every card on the board already keeps: a
+        // reading must not answer "what is this costing you" with the process taking the reading
+        // (`ProcessTree.ownFamily` carries the whole of why). An ORPHANED one of ours is what
+        // reaches here: a hook whose shell has gone, still in the checkout it ran in and in nobody's
+        // tree, which every other test in this function calls a stray of that project. The cards say
+        // such a process is not theirs; the Projects row said it was the project's, counted it in the
+        // amber stray figure, and put its memory in the row. Same machine, same process, two
+        // answers.
+        //
+        // ASKED OF THE HANDFUL RATHER THAN OF THE TABLE: one `proc_pidpath` per stray, and the
+        // strays are the few already known to be working inside one of these directories. Compared
+        // against THIS process rather than a session's root, because a stray pool has no root: the
+        // app is the meter here, and the bundle around it is ours by the same reasoning `ownFamily`
+        // gives. A pid whose program cannot be read stays a stray, which is the same direction that
+        // rule already fails in.
+        for pid in ProcessTree.ownFamily(strayRoot.keys, root: getpid(),
+                                         executable: { ProcessTree.executablePath(of: $0) }) {
+            strayRoot[pid] = nil
         }
         var adoptions = adopted
         let conversations = strayRoot.isEmpty ? [:] : conversationOwners(of: board)
@@ -204,8 +254,18 @@ final class ProjectLoadAccounting {
             strays: DemoUsage.isActive ? DemoUsage.strayReadings(for: sessions.map(\.root))
                                        : measure(strays, at: now))
         // WHICH PROJECTS THE NEXT TICK LOOKS FOR, decided on what this one turned out to hold rather
-        // than on whether it produced a row at all.
-        watching = MachineLoadRollup.watched(rollup)
+        // than on whether it produced a row at all, and over several ticks rather than one
+        // (`MachineLoadRollup.idleTicksBeforeDropping`).
+        let next = MachineLoadRollup.watched(rollup, idle: idleTicks)
+        watching = next.roots
+        idleTicks = next.idle
+        // AND EVERYTHING A RATE NEEDS LASTS EXACTLY AS LONG AS THAT. A project still on the books is
+        // one this pool may still be waiting on a member of, so its reading and its credit are kept
+        // whether or not this tick found a live stray in it; one that has left the books will be a
+        // first sighting when it comes back, which is the honest answer for a pool nothing has
+        // watched in between.
+        previous = previous.filter { watching.contains($0.key) }
+        carry = carry.filter { watching.contains($0.key) }
         return rollup
     }
 
@@ -215,26 +275,35 @@ final class ProjectLoadAccounting {
         var pidsByRoot: [String: Set<pid_t>] = [:]
         for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
         var readings: [MachineLoadRollup.StrayReading] = []
-        var nextPrevious: [String: ProcessResourceSample] = [:]
         for (root, pids) in pidsByRoot {
-            let reading = sample(pids, now)
+            var reading = sample(pids, now)
+            // Identities for whatever the reader did not supply them for, which in production is all
+            // of them: `ProcessTree.resourceSample` asks `proc_pid_rusage` and that record carries no
+            // birth time. A fixture that states its own stamps keeps them.
+            for pid in reading.times.keys where reading.startedAt[pid] == nil {
+                reading.startedAt[pid] = strayStamps[pid]
+            }
             // PAIRED AGAINST WHAT THIS POOL ACTUALLY DID. Four things look identical from inside a
-            // pool - a member was collected, a member has died and has not been, a member was
-            // adopted back onto a card, a member joined - and reading them as one produced a blank
-            // row, an unbounded spike, another blank row and another spike
+            // pool - a member has died and has not been collected, a member was collected, a member
+            // was adopted back onto a card, a member joined - and reading them as one produced a
+            // blank row followed by a spike, another spike, another blank row and a third spike
             // (`ProcessResourceSample.pairing(with:departure:)`, which is where all four are
             // measured). Asking the machine what became of each departure, at this instant rather
             // than off a table walked earlier in the pass, is what tells them apart.
             let pair = previous[root]?.pairing(with: reading, departure: departure)
-            let cpu = ProcessTree.cpuPercent(from: pair?.basis, to: reading)
-            nextPrevious[root] = pair?.keep ?? reading
+            // A member whose NUMBER a live process has taken over cannot be settled through the
+            // basis - it is present in both readings, so the rate reads it as a survivor - so its
+            // seconds arrive here as a credit to spend, alongside whatever last tick could not.
+            let held = carry[root] ?? ProcessCPUCarry()
+            let cpu = ProcessTree.cpuPercent(
+                from: pair?.basis, to: reading,
+                carry: ProcessCPUCarry(theirs: held.theirs + (pair?.settled ?? 0), ours: held.ours))
+            previous[root] = pair?.keep ?? reading
+            carry[root] = cpu.carry
             readings.append(MachineLoadRollup.StrayReading(root: root, cpuPercent: cpu.percent,
                                                            memoryBytes: reading.memoryBytes,
                                                            processes: pids.count))
         }
-        // A project whose strays have all ended keeps nothing: its next stray is a first sighting
-        // rather than the continuation of a pool that no longer exists.
-        previous = nextPrevious
         return readings
     }
 }

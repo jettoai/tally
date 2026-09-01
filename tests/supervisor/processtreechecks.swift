@@ -220,6 +220,14 @@ func runProcessTreeChecks() {
         ProcessResourceSample(times: times, childTimes: child, memory: memory, diskWritten: written,
                               at: t0.addingTimeInterval(offset), ours: ours)
     }
+    /// The same reading with each pid's birth stamped on it, which only a pool ever needs: the rules
+    /// above are all inside one reading, where a pid is one process by definition.
+    func withBirths(_ reading: ProcessResourceSample,
+                    _ birth: [pid_t: Int64]) -> ProcessResourceSample {
+        var copy = reading
+        copy.startedAt = birth
+        return copy
+    }
     func percent(from previous: ProcessResourceSample?, to current: ProcessResourceSample,
                  carry: ProcessCPUCarry = ProcessCPUCarry()) -> Double? {
         ProcessTree.cpuPercent(from: previous, to: current, carry: carry).percent
@@ -319,7 +327,7 @@ func runProcessTreeChecks() {
     func gone(_ what: ProcessDeparture) -> (pid_t) -> ProcessDeparture { { _ in what } }
     // 1. REAPED INSIDE THE POOL. The dead one's whole life lands in the survivor's child counter,
     // and if nothing comes off it is read as fresh work: the multiplier is that life over the
-    // sampling interval, so it has no ceiling (measured at 30050% here, 3050% at the ten second
+    // sampling interval, so it has no ceiling (measured at 30050% here, 6050% at the ten second
     // beat this pass runs at behind a closed panel).
     let reaped = sample([900: 11], child: [900: 600], at: 2)
     check("a pool member reaping another is not a tick of fresh work",
@@ -330,19 +338,24 @@ func runProcessTreeChecks() {
     // 2. ADOPTED BACK ONTO A CARD, which is this app's own feature succeeding. The pid is alive and
     // being counted elsewhere, so there is nothing to settle and no arrival coming.
     let adopted = sample([900: 11], child: [:], at: 2)
-    let leaving = pool.pairing(with: adopted, departure: gone(.living))
+    let leaving = pool.pairing(with: adopted, departure: gone(.living(startedAt: nil)))
     check("a pool member taken back onto a card settles nothing and blanks nothing",
           ProcessTree.cpuPercent(from: leaving.basis, to: adopted).percent == 50)
     check("…which is exactly what crediting every departure does not do",
           ProcessTree.cpuPercent(from: pool, to: adopted).percent == 0)
-    check("…and it is not waited for either, its death being its card's arrival and not this pool's",
+    // WHAT THIS PINS IS THAT IT IS NOT WAITED FOR, and nothing about where its death lands: this
+    // fixture never kills 901. Whether that assumption holds - that its collector is outside the
+    // pool - is a claim about the POOL rather than about the pairing, and where it does not hold
+    // the reading is asserted as it stands next door (projectloadchecks.swift, "left alive and
+    // reaped by a survivor").
+    check("…and it is not waited for either, having left the pool alive",
           leaving.keep.times == [900: 11])
     // 3. BOTH AT ONCE, which is the case a rule that reads membership alone cannot get right in
     // either direction: 902 leaves alive, 901 dies and is buried by 900.
     let mixed = sample([900: 10, 901: 600, 902: 5], child: [:], at: 0)
     check("…and the two told apart in the same tick, on what became of each rather than on either",
           ProcessTree.cpuPercent(from: mixed.pairing(with: reaped,
-                                                     departure: { $0 == 901 ? .collected : .living })
+                                                     departure: { $0 == 901 ? .collected : .living(startedAt: nil) })
                                            .basis,
                                  to: reaped).percent == 50)
     // 4. DEAD AND NOT YET COLLECTED, which the table calls gone a tick or more before its seconds
@@ -366,21 +379,53 @@ func runProcessTreeChecks() {
     let joined = sample([900: 11, 903: 3600], child: [:], at: 2)
     let arriving = sample([900: 10], child: [:], at: 0)
     check("a process joining the pool contributes nothing to the tick that first sees it",
-          ProcessTree.cpuPercent(from: arriving.pairing(with: joined, departure: gone(.living)).basis,
+          ProcessTree.cpuPercent(from: arriving.pairing(with: joined, departure: gone(.living(startedAt: nil))).basis,
                                  to: joined).percent == 50)
     check("…where differencing it against nothing states its whole life as this tick's work",
           ProcessTree.cpuPercent(from: arriving, to: joined).percent == 180050)
     let next = sample([900: 11, 903: 3601], at: 4)
     check("…and it is a rate of its own on the tick after that",
-          ProcessTree.cpuPercent(from: joined.pairing(with: next, departure: gone(.living)).basis,
+          ProcessTree.cpuPercent(from: joined.pairing(with: next, departure: gone(.living(startedAt: nil))).basis,
                                  to: next).percent == 50)
     // The pair is still a pair: nothing here rewrites an instant or a survivor's counters, or it
     // would be measuring a different interval than the one it states.
     check("what is kept is kept exactly as it was read",
           leaving.basis.times == [900: 10] && leaving.basis.at == pool.at)
-    check("…and because collection is what settles it, the credit meets its arrival in one reading",
+    // ON THIS FIXTURE, where the credit and the arrival are the same 600 seconds by construction, so
+    // a carry could only appear if the pairing were wrong. The general claim - that collection is
+    // what settles it - is the one the verdict and the counters being different instants can break,
+    // and that half is driven over two real ticks next door (projectloadchecks.swift).
+    check("…and where the credit and its arrival are one reading, nothing is carried",
           ProcessTree.cpuPercent(from: pool.pairing(with: reaped, departure: gone(.collected)).basis,
                                  to: reaped).carry == ProcessCPUCarry())
+
+    // 6. A NUMBER THE MACHINE HAS HANDED ON, which membership alone reads as neither a departure nor
+    // a joiner. 901 is collected between the two ticks and a new process is given its pid: by number
+    // it is a survivor whose counters went backwards (clamped to nothing), and its predecessor's 600
+    // seconds arrive in 900 with no credit to meet them.
+    let stamped = withBirths(sample([900: 10, 901: 600], child: [:], at: 0), [900: 1, 901: 2])
+    let handedOn = withBirths(sample([900: 11, 901: 1], child: [900: 600], at: 2), [900: 1, 901: 9])
+    let reuse = stamped.pairing(with: handedOn, departure: gone(.collected))
+    check("a member whose number a new process has taken over is settled rather than survived",
+          ProcessTree.cpuPercent(from: reuse.basis, to: handedOn,
+                                 carry: ProcessCPUCarry(theirs: reuse.settled)).percent == 50)
+    check("…where reading it as a survivor states the dead one's whole life as this tick's work",
+          ProcessTree.cpuPercent(from: stamped.pairing(with: withBirths(handedOn, [900: 1, 901: 2]),
+                                                       departure: gone(.collected)).basis,
+                                 to: handedOn).percent == 30050)
+    check("…and the new process starts from where it is, like any other joiner",
+          reuse.basis.times[901] == 1 && reuse.settled == 600)
+    // AND THE SAME NUMBER SEEN ELSEWHERE. 901 leaves the pool and the table answers for its number,
+    // which is a different process: dropped as "left alive", its predecessor's arrival stands.
+    let elsewhere = sample([900: 12], child: [900: 600], at: 2)
+    check("a departure whose number a live stranger holds is settled, not dropped as still living",
+          ProcessTree.cpuPercent(from: stamped.pairing(with: elsewhere,
+                                                       departure: gone(.living(startedAt: 9))).basis,
+                                 to: elsewhere).percent == 100)
+    check("…while the same answer under its own stamp is the adoption it has always been",
+          ProcessTree.cpuPercent(from: stamped.pairing(with: elsewhere,
+                                                       departure: gone(.living(startedAt: 2))).basis,
+                                 to: elsewhere).percent == 30100)
 
     // MARK: which process is doing it
 

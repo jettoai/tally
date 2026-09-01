@@ -156,7 +156,8 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                           accountHomeExists($0, provider: $1)
                       },
                       loaded: () -> (Snapshot?, String?) = { loadSnapshot() },
-                      now: Date = Date()) {
+                      now: Date = Date(),
+                      quarantineIn: URL = quarantineDir) {
     let fleet = policy
     // Before anything else this tick, and on every tick rather than only the ones with a request:
     // the cancellation notice is the one badge here that nothing re-derives, so the tick that takes
@@ -173,97 +174,10 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
     guard plan == nil else { return }
     // The FLEET's policy, deliberately: this half is about the pin moved in the panel, and the
     // session's own pin reaches it as the stand-down inside it rather than as a pin to follow.
-    applyPinSwitch(plan: &plan, state: state, account: account, providerID: providerID,
+    applyPinSwitch(plan: &plan, state: &state, account: account, providerID: providerID,
                    policy: fleet, primaryModel: primaryModel, quarantine: quarantine,
-                   watcher: &watcher, keyboardIdle: keyboardIdle, loaded: loaded, now: now)
-}
-
-/// The status-line badge a switch leaves while the gate holds it. A constant because the wording is
-/// asserted in a test and read by a person on the same line, and a copy of it drifting in one of the
-/// two would assert nothing - the model axis keeps its own for that reason
-/// (`sessionModelWaitingBadge`), and this is the same wait one axis over.
-///
-/// Short because it shares its row with the quota meters, like every badge on this track: WHICH
-/// account the session is moving to, and which one it sits on until then, are the detail's job.
-///
-/// THE STATE, NOT A DEADLINE, which is the rule the long form already follows (`quietGateHolding`
-/// carries the review): "after this turn" told the reader WHEN, and the gate reports only the first
-/// term that said no, so the named moment arrived with nothing happening. It also promised a turn
-/// this arm cannot promise - one Bool covers a live turn, an open tool call, an unresolved fork and
-/// a subagent, so the badge says what the reload axis's short form has always said about the same
-/// term (`reloadWaitReason`): the session is busy (codex review of fe4462d).
-let switchQueuedBadge = "switch: session busy"
-
-/// The other two waits the same gate produces, described the same way. `reloadQuiet` is three terms
-/// (SessionSwitch asks it through `reloadQuiet` itself) and only the first is the transcript: a
-/// prompt being typed and a session that has not written a turn at all both hold the move too. The
-/// reader can only act on one of the three, which is the whole reason the reload axis names its gate
-/// as well (`reloadWaitReason`).
-let switchQueuedTypingBadge = "switch: typing"
-let switchQueuedStartupBadge = "switch: starting up"
-/// The fourth arm of `QuietGate`, which no caller can reach today: a gate term added there and not
-/// here would land on a badge that is vague rather than wrong.
-let switchQueuedIdleBadge = "switch: in use"
-
-/// Which of the four badges above a gate wears. Apart from the wording below because the SHORT form
-/// is a constant a test pins and a person reads on the same row, while the long form is composed.
-private func queuedSwitchBadge(_ gate: QuietGate) -> String {
-    switch gate {
-    case .transcript: return switchQueuedBadge
-    case .keyboard: return switchQueuedTypingBadge
-    case .startup: return switchQueuedStartupBadge
-    case .unknown: return switchQueuedIdleBadge
-    }
-}
-
-/// What a queued switch says on the status line, and at length beside it: the gate that is actually
-/// holding the move, named. `target` is where the session is going and `staying` where it sits until
-/// then, which is the question behind every badge on this track.
-///
-/// DESCRIBED, NOT PROMISED. The long form used to finish each arm with when the move would happen
-/// ("once the keyboard is quiet"), and the gate cannot support that: it reports the first term that
-/// said no, and a second term can be false at the same moment, so the promised moment arrived with
-/// nothing happening (`quietGateHolding` carries the review and the reasoning). The clause comes
-/// from that one place now, and this axis words only what it is waiting to DO.
-func switchQueuedWait(gate: QuietGate, target: String, staying: String) -> PendingBadge {
-    PendingBadge(queuedSwitchBadge(gate),
-                 detail: "\(quietGateHolding(gate)), so the move waits: switching to \(target); "
-                     + "staying on \(staying) until then")
-}
-
-/// What a held switch says on the status line: one badge per REASON the move has not happened, and
-/// they are kept apart because the reader can only act on one of them.
-///
-/// A dormant account is theirs to renew, and the badge says so. An account the fleet has momentarily
-/// stopped listing is Tally's to notice again and needs nothing from them. A snapshot that cannot be
-/// read at all is a third thing again - the app is not running, or its file is unreadable - and until
-/// this existed all three said "signed out", which sends someone to re-authenticate a login that was
-/// never the problem.
-///
-/// `staying` is the account the session remains on meanwhile, named in every detail line because the
-/// question behind the badge is always "so where am I right now".
-///
-/// The two states that are not waits answer nil: a launchable target is not held, and a removed one
-/// is cancelled rather than held (a `cancelled` badge, which is news rather than a state).
-func switchWaitBadge(_ target: SwitchTargetState, staying: String) -> PendingBadge? {
-    switch target {
-    case .signedOut:
-        return PendingBadge("switch: signed out",
-                            detail: "the account `tally account` named has no login right now; "
-                                + "staying on \(staying) until it is renewed")
-    case .unlisted:
-        return PendingBadge("switch: not listed",
-                            detail: "the account `tally account` named is not in the current fleet "
-                                + "snapshot, though its config home is still on disk; staying on "
-                                + "\(staying) until Tally lists it again")
-    case .unreadable:
-        return PendingBadge("switch: no snapshot",
-                            detail: "there is no fleet snapshot to find that account in - is "
-                                + "Tally.app running? - so the move is held; staying on \(staying) "
-                                + "until one can be read")
-    case .launchable, .removed:
-        return nil
-    }
+                   watcher: &watcher, keyboardIdle: keyboardIdle, loaded: loaded,
+                   quarantineIn: quarantineIn, now: now)
 }
 
 /// The `tally switch` half. Consumes nothing on the branch that plans a relaunch (see
@@ -411,8 +325,11 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 }
 
 /// Live pin switch: pinning another account in the Tally panel moves the RUNNING session there. An
-/// explicit human act, so no fuse; the pinned account is used even when capped (that is what pinning
-/// means). It stands down while THE PINNED ACCOUNT is spent, because the caller hands it a released
+/// explicit human act, so no fuse, and the pin is honoured down to the account's last percent:
+/// `eligible` passes at 1%. What it will NOT do is move a session onto an account with nothing left
+/// at all, or onto one the cap handoff has just quarantined; those are waited for rather than moved
+/// onto (the three cells below). It stands down while THE PINNED ACCOUNT is spent, because the
+/// caller hands it a released
 /// policy then (DroughtWatch.swift): without that, a mover carrying the session off an empty
 /// account and this dragging it back is a restart loop for the length of the drought.
 ///
@@ -454,28 +371,55 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 ///      dragged it back, into the same 429, twice inside three minutes (handoff.log, 2026-09-01
 ///      04:20:55 → 04:21:29 → 04:22:45 → 04:23:20). CapDetection.swift had already named this
 ///      exact blindness as the reason a fleet pin it cannot honour must answer `.waitPinned`; the
-///      quarantine is time-boxed, so the pin is deferred past the wall rather than broken by it.
+///      quarantine is time-boxed, so past THAT wall the pin is deferred rather than broken.
 ///
 /// Every one of those is a NARROWING: the field's candidates are a subset of what the old resolver
 /// called launchable (both require a launch home), so nothing this used to refuse is now allowed.
-private func applyPinSwitch(plan: inout RelaunchPlan?, state: ManualMoveState,
+///
+/// AND ONLY THE THIRD OF THEM ENDS ON A CLOCK, which is why the wait is now said out loud. Cells 1
+/// and 2 have no upper bound at all: a poll that keeps failing, a held-over row, a window at zero
+/// last as long as they last. Under a fleet pin nothing else is going to end that wait either
+/// (every preventive mover stands down on `mode == "manual"`, the cap handoff answers
+/// `.waitPinned`), so the session stays where it is while both surfaces draw it as pinned to the
+/// account it is not on. It said nothing while doing so; it raises a badge now
+/// (`PinSwitchWait`, SwitchBadges.swift), and never over the one a typed `tally switch` just
+/// raised, which is the more specific news about the same fleet.
+private func applyPinSwitch(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                             account: Snapshot.Account, providerID: String, policy: LaunchPolicy,
                             primaryModel: String?,
                             quarantine: [String: (model: String?, until: Date)],
                             watcher: inout TranscriptWatcher,
                             keyboardIdle: (TimeInterval) -> Bool,
-                            loaded: () -> (Snapshot?, String?), now: Date) {
+                            loaded: () -> (Snapshot?, String?), quarantineIn: URL, now: Date) {
     // The cheap gates first, so a tick that could not move this session anyway never pays for the
-    // snapshot read below - the ordering every other mover keeps for the same reason.
+    // snapshot read below. `isQuiet` is not among them and is not free either (it locates and tails
+    // the transcript, as this file says at :283); it sits here because it is the last term that can
+    // be answered without the fleet, not because it costs nothing.
     guard state.sessionPin == nil,
           policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
           !state.pinOverridden(pinnedID), watcher.isQuiet(manualMoveIdleSeconds),
-          keyboardIdle(manualMoveIdleSeconds),
-          let field = liveMoveField(provider: providerID, account: account,
-                                    primaryModel: primaryModel, quarantine: quarantine,
-                                    loaded: loaded(), now: now),
-          let target = field.candidates.first(where: { $0.id == pinnedID })
+          keyboardIdle(manualMoveIdleSeconds)
     else { return }
+    let reading = loaded()
+    let listed = reading.0?.accounts.first(where: { $0.id == pinnedID })
+    /// Say why the move has not happened, unless the typed axis has already said something on this
+    /// tick: `tally switch` names an instruction somebody just gave, and this row holds one badge.
+    func hold(_ wait: PinSwitchWait) {
+        guard state.waiting == nil else { return }
+        state.waiting = pinSwitchWaitBadge(wait, pinned: listed?.label ?? pinnedID,
+                                           staying: account.label)
+    }
+    guard let field = liveMoveField(provider: providerID, account: account,
+                                    primaryModel: primaryModel, quarantine: quarantine,
+                                    loaded: reading, now: now, dir: quarantineIn)
+    else { return hold(.unreadable) }
+    guard let target = field.candidates.first(where: { $0.id == pinnedID }) else {
+        // WHICH OF THE THREE NARROWINGS HELD IT, off the reading already in hand rather than a
+        // second pass over the fleet. An account the field excluded while `eligible` still passes
+        // it is one the quarantine took out, which is the only one of the three that expires.
+        guard let listed else { return hold(.unlisted) }
+        return hold(eligible(listed, primaryModel: primaryModel) ? .quarantined : .spent)
+    }
     warn("pinned in Tally → switching to \(target.label)")
     plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)
 }

@@ -208,7 +208,8 @@ func runRequestForwardChecks() {
                      account: onA, providerID: "claude", watcher: &usedWatcher, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: usedDir,
                      request: { readSwitchRequest(sessionKey: $0, dir: usedDir) },
-                     accounts: { [onA, toB] }, homeOnDisk: { _, _ in false })
+                     accounts: { [onA, toB] }, homeOnDisk: { _, _ in false },
+                     quarantineIn: switchQuarantineDir)
     check("a used conversation's move happens too", usedPlan?.target.id == "B")
     check("…and the relaunch continues OUR conversation, not the stranger's",
           relaunchArgs(["--model", "fable"], sessionID: usedWatcher.resumeID, sameAccount: false)
@@ -238,7 +239,8 @@ func runRequestForwardChecks() {
                      watcher: &crossedWatcher, childAge: 9999, keyboardIdle: { _ in true },
                      dir: crossedDir,
                      request: { readSwitchRequest(sessionKey: $0, dir: crossedDir) },
-                     accounts: { [onA, toB] }, homeOnDisk: { _, _ in false })
+                     accounts: { [onA, toB] }, homeOnDisk: { _, _ in false },
+                     quarantineIn: switchQuarantineDir)
     check("the move a wrongly-bound session asked for still happens",
           crossedPlan?.target.id == "B")
     check("…on our own conversation rather than the sibling's",
@@ -299,7 +301,8 @@ func runRequestForwardChecks() {
                          account: onA, providerID: "claude", watcher: &liveWatcher, childAge: 9999,
                          keyboardIdle: { _ in true }, dir: raceDir,
                          request: { readSwitchRequest(sessionKey: $0, dir: raceDir) },
-                         accounts: { [onA, toB] }, homeOnDisk: { _, _ in false })
+                         accounts: { [onA, toB] }, homeOnDisk: { _, _ in false },
+                         quarantineIn: switchQuarantineDir)
         var planning = TickPlan(plan)
         applySessionModel(plan: &planning, state: &raceModel, record: &modelRecord,
                           follow: &raceFollow, policy: fleetDefault, account: onA,

@@ -42,7 +42,7 @@ struct SettingsEarlyStartRow: View {
     private var headerRow: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(L("Early start")).font(.subheadline)
+                Text(L("Window relay")).font(.subheadline)
                 Text(L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Leaving this on costs very little and always moves the reset earlier."))
                     .font(.caption)
                     .foregroundStyle(.secondary)

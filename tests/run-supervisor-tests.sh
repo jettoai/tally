@@ -2,6 +2,13 @@
 # Compiles the supervisor's transcript watcher (model tracking guards) with a small assertion
 # harness and runs it. No Xcode test target needed; exits non-zero on failure.
 #
+# COUNTING THE ASSERTIONS: `command grep -c '^PASS:'`, anchored, and never a bare `grep PASS`. This
+# harness prints to the terminal a supervised session is already using, so Tally's own runtime log
+# lands in the same stream: a line like `PASS[tally] cap hit -> handing off to B` is not an
+# assertion and an unanchored count adds it. The number in a commit message is only as good as the
+# command that produced it, and a bare count is off by however many of those the run happened to
+# catch (05cde88 published one such number, and the commit after it copied it).
+#
 # SessionProcessGroups/MachineLoadRollup are the two halves of machine-load attribution: which
 # session a re-parented job belongs to, and which project everything else is working in. The second
 # is in the list for SessionSidecar.swift as well as for its own checks - the sidecar reads a
@@ -111,7 +118,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/SessionInputCommand.swift TallyCLI/SessionSendWait.swift \
   TallyCLI/QuotaKnock.swift TallyCLI/QuotaKnockLogic.swift \
   TallyCLI/QuotaKnockNotice.swift TallyCLI/QuotaKnockHookContract.swift TallyCLI/HookKnock.swift \
-  TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
+  TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \
   TallyCLI/ChildReaper.swift \
@@ -130,7 +137,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SupervisorVersionStamp.swift \
   Tally/Core/SessionSidecar.swift Tally/Core/SessionPinScope.swift \
-  Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreeRates.swift \
+  Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreePool.swift Tally/Core/ProcessTreeRates.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/SessionProcessGroups.swift Tally/Core/MachineLoadRollup.swift \
   Tally/Stores/ProjectLoadAccounting.swift \

@@ -143,17 +143,25 @@ func runMachineLoadChecks() {
     check("the accounting this suite reads is readable from it", !accounting.isEmpty)
     check("a stray pool's pair is decided on what became of each departure, not on the membership",
           accounting.contains("previous[root]?.pairing(with: reading, departure: departure)")
-              && accounting.contains("nextPrevious[root] = pair?.keep ?? reading"))
+              && accounting.contains("previous[root] = pair?.keep ?? reading"))
     // AND NOT ON A TABLE WALKED EARLIER IN THE PASS, which is the half a source string can still
     // say: the counters and the verdict about them have to be the same instant, and this tick walks
-    // its table some milliseconds of cwd reads before it samples the pool. What the two instants
-    // cost when they differ is asserted behaviourally next door (projectloadchecks.swift).
+    // its table some milliseconds of cwd reads before it samples the pool. The MICROSECONDS between
+    // the pool being read and each departure being asked about are a second instant again, which no
+    // source string reaches and which the pool's carry is what answers - that half is asserted
+    // behaviourally next door (projectloadchecks.swift, "collected between the reading and the
+    // question"); this line only rules out the milliseconds.
     check("…and the tick hands it no table of its own to decide with",
           sampler.contains("rollup.load(sessions: byProject, strays: unattributed, at: now)")
               && !sampler.contains("alive: Set(identities.keys)"))
     check("…and a project is watched from the tick a session names it until nothing works in it",
           accounting.contains("watching.formUnion(found.values)")
-              && accounting.contains("watching = MachineLoadRollup.watched(rollup)"))
+              && accounting.contains("MachineLoadRollup.watched(rollup, idle: idleTicks)"))
+    // AND WHAT A RATE NEEDS LIVES EXACTLY THAT LONG. Rebuilt from each tick's live strays instead,
+    // a pool holding nothing but a member it is waiting on lost the credit it was waiting to spend.
+    check("…and a pool's reading and credit are kept for as long as the project is",
+          accounting.contains("previous = previous.filter { watching.contains($0.key) }")
+              && accounting.contains("carry = carry.filter { watching.contains($0.key) }"))
 
     // THE STATE THE ROLLUP EXISTS FOR: a checkout with load and no session at all. What hands this
     // rule such an input is state rather than a rule, and is asserted where it lives
@@ -254,13 +262,18 @@ func runMachineLoadChecks() {
     // A ROW IS NOT WORK. The interactive shell a session was launched from is a stray of that
     // checkout for as long as the terminal tab is open, so a rule that kept every root with a row
     // kept every checkout ever opened, each with a Projects line reading nothing.
-    func watched(_ cpu: Double?, _ memory: UInt64, sessions: Int = 0) -> Set<String> {
+    func watchedTick(_ cpu: Double?, _ memory: UInt64, sessions: Int = 0, idle: [String: Int] = [:])
+        -> (roots: Set<String>, idle: [String: Int]) {
         MachineLoadRollup.watched(MachineLoadRollup.rows(
             sessions: (0..<sessions).map { _ in
                 MachineLoadRollup.SessionReading(root: tally, cpuPercent: nil, memoryBytes: 0)
             },
             strays: [MachineLoadRollup.StrayReading(root: tally, cpuPercent: cpu,
-                                                    memoryBytes: memory, processes: 1)]))
+                                                    memoryBytes: memory, processes: 1)]),
+            idle: idle)
+    }
+    func watched(_ cpu: Double?, _ memory: UInt64, sessions: Int = 0) -> Set<String> {
+        watchedTick(cpu, memory, sessions: sessions).roots
     }
     check("a project burning something is watched",
           watched(4, 3_000_000) == [tally])
@@ -270,9 +283,25 @@ func runMachineLoadChecks() {
           watched(0, MachineLoadRollup.idleMemoryFloor) == [tally])
     check("…and one with a live session on it whatever its leftovers are doing",
           watched(0, 3_000_000, sessions: 1) == [tally])
-    // The shell measured on this machine holds 0.7 to 3.1 MB and burns nothing between two ticks.
-    check("but an idle shell is not work, and does not keep a checkout on the books",
-          watched(0, 3_000_000).isEmpty)
+
+    // AND ONE READING IS NOT EVIDENCE. An idle process reads 0% by construction, and the tick a
+    // session ENDS on is guaranteed to read 0% for everything it leaves behind (a pid joining a pool
+    // is given that reading as its baseline), so the very tick this section exists for was the tick
+    // most likely to drop the project - and nothing puts a dropped one back until some session names
+    // that directory again.
+    let firstIdle = watchedTick(0, 3_000_000)
+    let thirdIdle = watchedTick(0, 3_000_000, idle: [tally: 2])
+    check("an idle shell is not work, but one reading of it does not drop the checkout either",
+          firstIdle.roots == [tally] && firstIdle.idle == [tally: 1])
+    check("…nor does the second, which is the first that could have read a rate at all",
+          watchedTick(0, 3_000_000, idle: [tally: 1]).roots == [tally])
+    check("…and the third takes it off the books, holding nothing over for it",
+          thirdIdle.roots.isEmpty && thirdIdle.idle.isEmpty)
+    // A project that reads busy at any point starts again from nothing, which is what makes the
+    // count a grace period rather than a lifespan.
+    let busyAgain = watchedTick(4, 3_000_000, idle: [tally: 2])
+    check("a checkout that does something once is not two ticks from being dropped",
+          busyAgain.roots == [tally] && busyAgain.idle.isEmpty)
 
     // MARK: the scratchpad signal
 

@@ -30,7 +30,12 @@ extension SessionCardView {
         guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return [] }
         return ProcessTree.segments(footprint,
                                     unit: L(footprint.processes == 1 ? "proc" : "procs"),
-                                    agentUnit: L(footprint.agents == 1 ? "agent" : "agents"))
+                                    agentUnit: L(footprint.agents == 1 ? "agent" : "agents"),
+                                    // ONE WORD FOR ONE AND FOR MANY, unlike the two above: this
+                                    // field says WHERE those processes came from rather than what
+                                    // they are, so English has no plural to make of it and a
+                                    // translator is not handed two keys that would take one phrase.
+                                    backgroundUnit: L("background"))
     }
 
     /// What this session is holding open, as the identity line prints it, or nothing when it is

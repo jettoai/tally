@@ -62,6 +62,6 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Providers/Claude/ClaudeAccounts.swift Tally/Core/Keychain/KeychainReader.swift \
   Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/ClaudeStatePath.swift \
   Tally/Core/AccountDirWatcher.swift \
-  Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreeLine.swift \
+  Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreeRates.swift Tally/Core/ProcessTreeLine.swift \
   Tally/Core/FootprintAlerts.swift Tally/Core/PickContract.swift
 "$out"

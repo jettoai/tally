@@ -114,7 +114,7 @@ enum FootprintTrendMetric: Hashable, CaseIterable {
         case .processes: self = .processes
         case .cpu: self = .cpu
         case .memory: self = .memory
-        case .agents, .disk: return nil
+        case .agents, .background, .disk: return nil
         }
     }
 

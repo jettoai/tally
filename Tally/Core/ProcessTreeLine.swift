@@ -22,7 +22,13 @@ struct ProcessFootprintSegment: Equatable {
     /// THE PORTS ARE NOT ONE OF THESE ANY MORE: they moved to the identity line, where they are
     /// their own element beside the account and the model rather than the last field of a sentence
     /// that truncates (`ProcessTree.portsText`, `SessionCardView.sessionIdentityRow`).
-    enum Kind: Equatable { case processes, agents, cpu, memory, disk }
+    ///
+    /// `background` is the one of these that is about WHERE a reading came from rather than what it
+    /// reads: how many of the processes counted beside it are jobs the tree walk could not have
+    /// reached, adopted back by the group they still carry (`SessionProcessGroups`). It sits with
+    /// the fan-out on the quiet row rather than with the trended figures, on that row's own rule -
+    /// these are the fields a card carries only when there is something to say.
+    enum Kind: Equatable { case processes, agents, background, cpu, memory, disk }
     var kind: Kind
     var text: String
     /// The quieter half of the field: the word a count is counting, or the program blamed for a
@@ -138,8 +144,9 @@ extension ProcessTree {
     /// ALWAYS A SENTENCE, never nothing: it used to return nil for a tree with no processes in it,
     /// and there is no such footprint now that the count is of what the session started (see above).
     static func line(_ footprint: ProcessFootprint, unit: String,
-                     agentUnit: String = "agents") -> String {
-        segments(footprint, unit: unit, agentUnit: agentUnit)
+                     agentUnit: String = "agents",
+                     backgroundUnit: String = "background") -> String {
+        segments(footprint, unit: unit, agentUnit: agentUnit, backgroundUnit: backgroundUnit)
             .map(\.text).joined(separator: pickEffortSeparator)
     }
 
@@ -258,12 +265,23 @@ extension ProcessTree {
     /// start, so however many are running it is never a condition to be alarmed about, and it is
     /// only shown while at least one is (`ProcessFootprint.agents` says what a zero means and why
     /// it is not printed).
-    static func segments(_ footprint: ProcessFootprint,
-                         unit: String, agentUnit: String = "agents") -> [ProcessFootprintSegment] {
+    static func segments(_ footprint: ProcessFootprint, unit: String,
+                         agentUnit: String = "agents",
+                         backgroundUnit: String = "background") -> [ProcessFootprintSegment] {
         var parts = [ProcessFootprintSegment(kind: .processes,
                                              text: "\(footprint.processes) \(unit)", aside: unit)]
         if footprint.agents > 0 {
             parts.append(.init(kind: .agents, text: "\(footprint.agents) \(agentUnit)"))
+        }
+        // WHAT THE SESSION HAS LEFT RUNNING BEHIND ITSELF, and only when it has left something:
+        // these are the jobs whose own shell has exited, re-parented to launchd and matched back
+        // here by the group they carry (`SessionProcessGroups`). It is the one field on this card
+        // that explains an IDLE session costing twelve cores, which is exactly the reading the card
+        // could not produce at all before the ledger existed - and on the ordinary session, which
+        // has left nothing, it says nothing.
+        if footprint.backgroundProcesses > 0 {
+            parts.append(.init(kind: .background,
+                               text: "\(footprint.backgroundProcesses) \(backgroundUnit)"))
         }
         // Decided before the CPU segment is built, because whether disk is on the line at all is
         // what decides which segment gets to carry a name.

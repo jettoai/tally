@@ -10550,6 +10550,35 @@
         }
       }
     },
+    "background": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個在背景"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个在后台"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個がバックグラウンド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개 백그라운드"
+          }
+        }
+      }
+    },
     "blocked": {
       "extractionState": "manual",
       "localizations": {
@@ -12663,6 +12692,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "오늘: %1$d개 시작, %2$d개 건너뜀, %3$d개 시작 실패. 마지막 메시지 %4$@."
+          }
+        }
+      }
+    },
+    "sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个工作会话"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개 세션"
           }
         }
       }

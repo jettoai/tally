@@ -106,6 +106,11 @@ extension PopoverRootView {
             } else {
                 sessionsBoardControls
                 sessionsSummary(roster)
+                // ABOVE THE CARDS RATHER THAN BELOW THEM, and above the filter's own empty state:
+                // it is a statement about the whole machine, so it must not be something a reader
+                // only meets after scrolling past ten cards - and it is exactly what a board
+                // filtered down to nothing still has to say (`sessionsProjectRollup`).
+                sessionsProjectRollup
                 if listed.isEmpty {
                     // The filter is holding everything back, which is a different sentence from
                     // "nothing is running" - and saying the wrong one would read as the board

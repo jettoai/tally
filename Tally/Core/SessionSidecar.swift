@@ -30,11 +30,12 @@ struct SessionSidecar: Equatable, Decodable {
     var runningModel: String?
     var runningEffort: String?
 
-    /// The app's spelling of the three suffixes. Held here rather than typed at each call site, and
+    /// The app's spelling of the four suffixes. Held here rather than typed at each call site, and
     /// locked to the writer's in the assertions above.
     static let contextSuffix = ".session"
     static let cwdSuffix = ".cwd"
     static let childSuffix = ".child"
+    static let transcriptSuffix = ".transcript"
 
     /// A document that cannot be read, or cannot be understood, reads as no document: the board
     /// simply draws the parts it knows. Same best-effort rule the state reading beside it follows.
@@ -61,6 +62,27 @@ struct SessionSidecar: Equatable, Decodable {
                                                    debugDescription: "not an instant: \(text)")
         }
         return try? decoder.decode(SessionSidecar.self, from: data)
+    }
+
+    /// WHICH CONVERSATION THIS SESSION IS IN, off the first line of `<pid>.transcript` (the file's
+    /// own contract is `TallyCLI/TranscriptIdentity.swift`: the id, then the Claude Code that
+    /// reported it, then when that process started).
+    ///
+    /// THE ID ALONE, AND NOT THE STAMP THE SUPERVISOR CHECKS. The supervisor reads this to decide
+    /// which transcript to WATCH, so a report from the child before last would bind it to a file
+    /// nobody is writing and it refuses one; this reads it to answer a different question - which
+    /// session a scratchpad directory belongs to (`MachineLoadRollup.scratchpadConversation`) - and
+    /// a conversation this supervisor was in one relaunch ago is still THIS supervisor's session.
+    /// The cost of a stale line is therefore the right answer rather than a wrong one.
+    ///
+    /// Nothing when the file is absent, empty, or does not lead with an id of the right shape: a
+    /// half-written line must not become a session name.
+    static func readConversation(pid: String, dir: URL = supervisorStateDir) -> String? {
+        guard let raw = try? String(contentsOf: dir.appendingPathComponent(pid + transcriptSuffix),
+                                    encoding: .utf8) else { return nil }
+        let first = raw.split(separator: "\n", omittingEmptySubsequences: false).first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        return MachineLoadRollup.isConversationID(first) ? first : nil
     }
 
     /// The directory this supervisor was started in, or nil when the file is absent or empty (an

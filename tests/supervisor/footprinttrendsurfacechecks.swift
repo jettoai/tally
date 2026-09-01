@@ -11,8 +11,12 @@ import Foundation
 // does.
 
 func runFootprintTrendSurfaceChecks() {
-    let store = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
-                             encoding: .utf8)) ?? ""
+    // BOTH HALVES OF THE STORE, because it was split at the repo's line cap and the assertions
+    // here are about the pass AND about when it runs (ProcessFootprintTiming.swift). Read as one
+    // string so a line moving between the two files does not silently stop being asserted.
+    let store = ["Tally/Stores/ProcessFootprintStore.swift",
+                 "Tally/Stores/ProcessFootprintTiming.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     let card = (try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
                             encoding: .utf8)) ?? ""
     let spark = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineView.swift",
@@ -24,7 +28,7 @@ func runFootprintTrendSurfaceChecks() {
     // this board BECAUSE something already felt wrong.
     check("the store samples for the life of the process, not only while the page is up",
           store.contains("func install() { retime() }")
-              && store.contains("private static let backgroundInterval: TimeInterval = 10"))
+              && store.contains("static let backgroundInterval: TimeInterval = 10"))
     check("…at the trend's own cadence, so a closed panel adds no point the ring would refuse",
           FootprintTrendSeries.cadence == 10)
     check("…and the app starts it",
@@ -411,12 +415,19 @@ func runFootprintTrendSurfaceChecks() {
     // program's path was what this used to cache, which cannot see the recycling it matters most
     // for - a restarted node under a tree of them (codex review of 0cd4a09).
     check("the ports are cached with the identity of the process holding them",
-          store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured)) {")
-              && store.contains("private var ports: [String: [UInt16: ProcessPortHolder]] = [:]")
-              && store.contains("if viewers > 0 { for one in processes"
-                                + " { startedAt[one.pid] = one.startedAt } }"))
+          store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured),")
+              && store.contains("var ports: [String: [UInt16: ProcessPortHolder]] = [:]")
+              && store.contains("for one in processes { identities[one.pid] = one }"))
     check("…and named only while the pid is still that process",
-          store.contains("portNames: ProcessTree.portNames(holding, startedAt: { startedAt[$0] },"))
+          store.contains("portNames: ProcessTree.portNames(holding, startedAt: began,"))
+    // THAT TABLE IS NOW BUILT BEHIND A CLOSED PANEL TOO, which it deliberately was not: it was the
+    // ports' own lookup and nothing draws a port with no card up. The group ledger reads the same
+    // field for the same reason one number over - a job is identified by when its LEADER began
+    // (`SessionProcessGroup.leaderStartedAt`) - and it is written whether or not anybody is
+    // looking, because a session detaches a dev server at three in the morning and a claim not
+    // written then can never be made afterwards.
+    check("…and the table it is compared against is built on every tick, not only a visible one",
+          !store.contains("if viewers > 0 { for one in processes"))
 
     // EVERY WORD THIS ROW ADDED IS IN THE CATALOGUE, in all four translations: the app ships five
     // languages, and a string that reaches a person in English on a Japanese machine is a missing

@@ -7,8 +7,9 @@ import Foundation
 /// holding a port. None of them differences two readings, which is the seam this file was split
 /// from `ProcessTreeStats.swift` along: the CPU's and the disk's own blame cannot be moved here,
 /// because deciding who burned a rate is the same arithmetic as deciding how big the rate was
-/// (`ProcessTree.cpuPercent`, `blame`). `leader(of:)` stays over there with them and is asked from
-/// both sides - it is the one rule shared by every kind of blame this app makes.
+/// (`ProcessTree.cpuPercent`, `blame`, now in `ProcessTreeRates.swift`). `leader(of:)` stays over
+/// there with them and is asked from both sides - it is the one rule shared by every kind of blame
+/// this app makes.
 ///
 /// PURE, like everything either file holds, so the assertion harness can state each of these with
 /// no processes around it.

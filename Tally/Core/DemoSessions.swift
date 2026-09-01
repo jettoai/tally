@@ -230,4 +230,22 @@ extension DemoUsage {
         return SessionRosterStore.SessionRow(id: real.id, record: record, session: sidecar,
                                              cwd: fixture.directory, child: real.child)
     }
+
+    /// WHAT IS RUNNING IN THESE PROJECTS THAT NO SESSION ANSWERS FOR, fabricated for a capture.
+    ///
+    /// THE ROW A CAPTURE CANNOT WAIT FOR, and the reason this exists at all. The rollup's whole
+    /// point is the leftovers (`MachineLoadRollup`), and on a demo board there are none by
+    /// construction: the roots are the fixtures' own invented directories, so no real process on
+    /// this machine is working under one and the section would be absent from every screenshot of
+    /// the feature it was added for.
+    ///
+    /// ONE PROJECT CARRIES THEM, which is what a real machine looks like: a dev server and its
+    /// workers left behind in one checkout rather than a little of everything everywhere. The
+    /// figures are the shape of the state - past a core, past a gigabyte - and none of them came
+    /// off this machine.
+    static func strayReadings(for roots: [String]) -> [MachineLoadRollup.StrayReading] {
+        guard let root = roots.sorted().first else { return [] }
+        return [MachineLoadRollup.StrayReading(root: root, cpuPercent: 214, memoryBytes: 1_900_000_000,
+                                               processes: 6)]
+    }
 }

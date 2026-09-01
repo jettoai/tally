@@ -221,7 +221,7 @@ func runProcessTreeChecks() {
                               at: t0.addingTimeInterval(offset), ours: ours)
     }
     func percent(from previous: ProcessResourceSample?, to current: ProcessResourceSample,
-                 carry: Double = 0) -> Double? {
+                 carry: ProcessCPUCarry = ProcessCPUCarry()) -> Double? {
         ProcessTree.cpuPercent(from: previous, to: current, carry: carry).percent
     }
     let first = sample([100: 1, 200: 4], at: 0)
@@ -279,10 +279,10 @@ func runProcessTreeChecks() {
     let collected = sample([100: 1], child: [100: 3], at: 4)         // the whole life arrives
     let atDeath = ProcessTree.cpuPercent(from: alive, to: died)
     check("a death the parent has not collected hands its credit to the next reading",
-          atDeath.percent == 0 && atDeath.carry == 3)
+          atDeath.percent == 0 && atDeath.carry == ProcessCPUCarry(theirs: 3))
     let atCollection = ProcessTree.cpuPercent(from: died, to: collected, carry: atDeath.carry)
     check("…so the tick that collects it is not a spike for a life already counted",
-          atCollection.percent == 0 && atCollection.carry == 0)
+          atCollection.percent == 0 && atCollection.carry == ProcessCPUCarry())
     // The credit is spent on the arrival and no further: real work in the same interval is still
     // reported, less what was owed.
     let busyCollection = ProcessTree.cpuPercent(from: died,
@@ -296,12 +296,12 @@ func runProcessTreeChecks() {
     let orphanDied = ProcessTree.cpuPercent(from: sample([100: 1, 400: 9], child: [100: 0], at: 0),
                                             to: sample([100: 1], child: [100: 0], at: 2))
     check("an orphan whose collector is outside the tree still hands its credit on once",
-          orphanDied.carry == 9)
+          orphanDied.carry == ProcessCPUCarry(theirs: 9))
     let neverSettled = ProcessTree.cpuPercent(from: sample([100: 1], child: [100: 0], at: 0),
                                               to: sample([100: 3], child: [100: 0], at: 2),
                                               carry: orphanDied.carry)
     check("…and what that tick cannot spend is written off rather than suppressing the next one",
-          neverSettled.percent == 0 && neverSettled.carry == 0)
+          neverSettled.percent == 0 && neverSettled.carry == ProcessCPUCarry())
     check("…which is what keeps the tick after it honest",
           percent(from: sample([100: 3], child: [100: 0], at: 0),
                   to: sample([100: 4], child: [100: 0], at: 2), carry: neverSettled.carry) == 50)

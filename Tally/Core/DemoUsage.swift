@@ -159,6 +159,12 @@ enum DemoUsage {
         switch index % 4 {
         case 0:
             one.processes = 3
+            // TWO OF THOSE THREE ARE JOBS THE SESSION LEFT BEHIND, which is the state the whole
+            // group ledger exists for and the one a capture cannot wait for: it needs a job to
+            // detach from its own shell while the app is watching (`SessionProcessGroups`). Put on
+            // the WARNED card on purpose - a session burning 92% of a core with nothing of its own
+            // still running is exactly what that field explains.
+            one.backgroundProcesses = 2
             one.cpuPercent = 92
             // BOTH READINGS NAME A PROCESS ON THIS ONE, which is what a warned card looks like on a
             // real machine: 92% of a core is being burned by something, and a card that warns about

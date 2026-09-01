@@ -256,14 +256,27 @@ enum FootprintAlarm {
     /// itself reads memory pressure at, and unlike a rate it is worth saying while the session is
     /// working, because a claim being held is held either way.
     ///
-    /// THE RULER THIS IS MEASURED WITH OVERSTATES, AND UNDER THE `AND` THAT IS HARMLESS. The tree's
-    /// figure counts a shared page once per process that maps it, so a fan-out of workers can read
-    /// half a machine it has not taken. On its own this share would therefore be a false red; paired
-    /// with the machine's own pressure level (`MachineMemoryPressure`), which counts that page once,
-    /// the overstatement can only ever cost a card that WOULD have been red - the share is the half
-    /// of the rule that answers "which session", and the kernel is the half that answers "is
-    /// anything actually short". Tightening the share to compensate would trade one bias for
-    /// another; the second witness removes the need to guess at all.
+    /// THE RULER THIS IS MEASURED WITH OVERSTATES, AND THE OTHER TWO WITNESSES NARROW WHAT THAT
+    /// COSTS WITHOUT CLOSING IT. The tree's figure counts a shared page once per process that maps
+    /// it, so a fan-out of workers can read half a machine it has not taken (`ProcessResourceSample.
+    /// memoryBytes`). Alone, this share is a false red on any wide fan-out. Paired with the
+    /// machine's own pressure level (`MachineMemoryPressure`), which counts that page once, the
+    /// machine at least has to really be short; paired further with "no session on this board is
+    /// holding more" (`advance(largestHolder:)`), the red at least lands on the heaviest of them.
+    ///
+    /// WHAT IS LEFT, SAID PLAINLY RATHER THAN CLAIMED AWAY: a tree whose inflated sum clears this
+    /// line while another program entirely - a browser, a virtual machine, somebody's build - is
+    /// what made the machine short will still go red, as long as it is the largest tree on the
+    /// board. All three witnesses are true in that case and the conclusion the colour invites is
+    /// wrong. Closing it needs the tree's UNIQUE footprint, which means `task_for_pid` on other
+    /// people's processes: a privilege this app does not ask for and will not (the read-only rule
+    /// it is built on), so the residue is named here rather than engineered around. An earlier
+    /// version of this note said the overstatement "can only ever cost a card that WOULD have been
+    /// red", which was wrong in exactly this case (codex review of `604135b`).
+    ///
+    /// Tightening the share to compensate would trade one bias for another, which is why it has
+    /// not moved: the witnesses are cheap and a threshold guessed against a fan-out that has not
+    /// happened yet is not.
     static let saturatedMemoryShare = 0.5
     /// And what counts as taking its cores: seven tenths of everything the machine will schedule
     /// (`MachineCapacity.saturatedCPUPercent`). Anchored on the TOTAL rather than on one core, the
@@ -319,9 +332,14 @@ enum FootprintAlarm {
     ///     alone, and this is a LIVE READING that has to be the one taken with this tick's sample.
     ///     A default here would let a board of ten cards take ten readings at ten instants, or let
     ///     a caller silently inherit a reading it never took.
+    /// - Parameter largestHolder: whether this tree holds more memory than any other session on
+    ///   the board. THE THIRD WITNESS, and the cheapest of the three: it needs no permission, no
+    ///   new syscall and no second ruler - only the numbers the tick already took for every card.
+    ///   See `saturatedMemoryShare` for what it removes and what it does not.
     static func advance(_ state: FootprintAlertState, reading: ProcessFootprint, idle: Bool,
                         at: Date, capacity: MachineCapacity = .current,
-                        pressure: MachineMemoryPressure) -> FootprintAlertState {
+                        pressure: MachineMemoryPressure,
+                        largestHolder: Bool = true) -> FootprintAlertState {
         // A SILENCE LONG ENOUGH TO BE A DIFFERENT AFTERNOON throws the evidence away rather than
         // counting it as more of the same, warning and all: what was true before a night of sleep
         // is not what this reading is about, and it has to be earned again from here (`gapAfter`).
@@ -339,14 +357,22 @@ enum FootprintAlarm {
         next.cpuSaturation = advance(next.cpuSaturation,
                                      met: (reading.cpuPercent ?? 0) >= capacity.saturatedCPUPercent,
                                      at: at, sustainedFor: outlastsABuild)
-        // TWO WITNESSES, AND THE CLOCK ONLY RUNS WHILE BOTH ARE SPEAKING: this tree reads as half
-        // the machine's memory, and the machine is telling the kernel it is short. Either alone is
-        // a card this board would be wrong to draw red (see the note on `saturatedMemoryShare`),
-        // and pressure that falls back to normal stops the run of evidence exactly as a tree that
-        // let go of its memory does.
+        // THREE WITNESSES, AND THE CLOCK ONLY RUNS WHILE ALL OF THEM ARE SPEAKING: this tree reads
+        // as half the machine's memory, the machine is telling the kernel it is short, and no other
+        // session on this board is holding more than this one. Any of them alone is a card this
+        // board would be wrong to draw red (see the note on `saturatedMemoryShare`), and any of
+        // them falling silent stops the run of evidence exactly as a tree that let go of its memory
+        // does.
+        //
+        // THE THIRD ONE ANSWERS "WHY THIS CARD", which the first two cannot: they establish that
+        // the machine is short and that this tree is big by a ruler that overstates, and neither
+        // says the shortage has anything to do with THIS session rather than the one beside it. A
+        // board where several trees clear the share would have lit all of them red on one machine's
+        // pressure; lit only on the largest, the claim the colour makes is one the same tick's own
+        // numbers support.
         next.memorySaturation = advance(next.memorySaturation,
                                         met: reading.memoryBytes >= capacity.saturatedMemoryBytes
-                                            && pressure.isElevated,
+                                            && pressure.isElevated && largestHolder,
                                         at: at)
         guard idle else {
             // Back at work: not "the condition was not met this time" but "the condition does not

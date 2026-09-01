@@ -2,6 +2,11 @@
 # Compiles the supervisor's transcript watcher (model tracking guards) with a small assertion
 # harness and runs it. No Xcode test target needed; exits non-zero on failure.
 #
+# SessionProcessGroups/MachineLoadRollup are the two halves of machine-load attribution: which
+# session a re-parented job belongs to, and which project everything else is working in. The second
+# is in the list for SessionSidecar.swift as well as for its own checks - the sidecar reads a
+# conversation id off `<pid>.transcript` and asks that file whether it IS one.
+#
 # ProjectPolicy.swift is in the list because a tick lays this project's launch profile over the
 # app policy it re-reads (TallyCLI/ProjectPolicy.swift); GitRepoRoot.swift is the repo identity
 # that profile is keyed by, and StatusReport/UsageAdvisor come along because the profile also
@@ -55,6 +60,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/demoboardchecks.swift \
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/processtreecensuschecks.swift \
+  tests/supervisor/sessiongroupchecks.swift tests/supervisor/machineloadchecks.swift \
   tests/supervisor/footprintchecks.swift \
   tests/supervisor/footprintalertchecks.swift tests/supervisor/footprinttrendchecks.swift \
   tests/supervisor/footprinttrendsurfacechecks.swift \
@@ -123,8 +129,9 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SupervisorVersionStamp.swift \
   Tally/Core/SessionSidecar.swift Tally/Core/SessionPinScope.swift \
-  Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift \
+  Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreeRates.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
+  Tally/Core/SessionProcessGroups.swift Tally/Core/MachineLoadRollup.swift \
   Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift \
   Tally/Core/FootprintTrend.swift \
   Tally/Core/DemoSessions.swift Tally/Core/DemoUsage.swift \

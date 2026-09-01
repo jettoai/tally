@@ -317,8 +317,11 @@ func runProcessTreeLineChecks() {
                                        encoding: .utf8)) ?? ""
     let boardSource = (try? String(contentsOfFile: "Tally/Views/SessionBoardView.swift",
                                    encoding: .utf8)) ?? ""
-    let storeSource = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
-                                   encoding: .utf8)) ?? ""
+    // Both halves of the store, which was split at the repo's line cap: the sampling pass and the
+    // timer that drives it (footprinttrendsurfacechecks.swift says the same).
+    let storeSource = ["Tally/Stores/ProcessFootprintStore.swift",
+                       "Tally/Stores/ProcessFootprintTiming.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     check("the four sources this suite reads are readable",
           !cardSource.isEmpty && !boardCardSource.isEmpty && !boardSource.isEmpty
               && !storeSource.isEmpty)
@@ -337,7 +340,7 @@ func runProcessTreeLineChecks() {
     // background interval old, and the rule that bounds it to a single tick was always in the pure
     // function rather than in the store (`ProcessTree.cpuPercent`).
     check("the departed-process credit is handed to the rule that bounds it, tick after tick",
-          storeSource.contains("carry: cpuCarry[key] ?? 0")
+          storeSource.contains("carry: cpuCarry[key] ?? ProcessCPUCarry()")
               && storeSource.contains("carried[key] = cpu.carry")
               && storeSource.contains("cpuCarry = carried"))
     check("…and is no longer thrown away with a panel that closed",
@@ -411,19 +414,24 @@ func runProcessTreeLineChecks() {
     // be ten seconds late saying what was already true.
     check("idleness is read from the state the session publishes, and unknown is not idle",
           storeSource.contains("row.state == .idle || row.state == .blocked")
-              && storeSource.contains("FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),")
+              && storeSource.contains("FootprintAlarm.advance(alertState[one.key] ?? FootprintAlertState(),")
               && storeSource.contains("alertState = alerting"))
     // ONE PRESSURE READING PER TICK, TAKEN OUTSIDE THE LOOP. The memory tier's second witness is a
     // fact about the MACHINE rather than about a card (`MachineMemoryPressure`), so a board of ten
     // cards must not carry ten readings from ten instants. Asserted by WHERE it is read as well as
     // that it is: moved inside the loop this would still compile and still be right most of the
     // time, which is the shape of defect a source check is worth having for.
+    //
+    // AND THE ALARM ITSELF MOVED OUT OF THE MEASURING LOOP, which is what the second half of this
+    // now reads: one of the memory tier's witnesses is about the whole BOARD - whether any other
+    // session holds more - and no card can be asked that until every card has been read
+    // (`FootprintAlarm.saturatedMemoryShare`).
     check("the machine's memory pressure is read once a tick and handed to the rule",
           storeSource.contains("let pressure = MachineMemoryPressure.current")
-              && storeSource.contains("pressure: pressure)")
+              && storeSource.contains("pressure: pressure,\n                                               largestHolder: one.key == heaviest)")
               && (storeSource.range(of: "let pressure = MachineMemoryPressure.current")
                   .flatMap { read in
-                      storeSource.range(of: "for (root, idle, child) in roots {")
+                      storeSource.range(of: "for one in measurements {")
                           .map { read.upperBound < $0.lowerBound }
                   }) == true)
     // WHAT THE AI IS DOING, NOT WHAT THE METER IS DOING. The exclusion is applied to the members

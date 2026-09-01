@@ -326,6 +326,36 @@ func runFootprintAlertChecks() {
     check("…and a read that did not succeed produces no level at all",
           rule.contains("else { return nil }")
               && rule.contains("level.flatMap(MachineMemoryPressure.init(rawValue:)) ?? .normal"))
+    // THE THIRD WITNESS: THIS TREE HAS TO BE THE LARGEST ON THE BOARD. The first two establish that
+    // the machine is short and that this tree is big by a ruler that overstates (a shared page is
+    // counted once per process that maps it), and neither says the shortage has anything to do with
+    // THIS session rather than the one beside it. Without it, one machine's pressure lit every tree
+    // over the share at once - so the colour claimed something about a card that the same tick's own
+    // numbers did not support (codex review of `604135b`).
+    func withHolder(_ largest: Bool) -> FootprintAlerts {
+        var state = FootprintAlertState()
+        var at = t0
+        for _ in 0 ..< 6 {
+            at = at.addingTimeInterval(2)
+            state = FootprintAlarm.advance(state, reading: reading(memory: saturatedMemory),
+                                           idle: false, at: at, capacity: machine,
+                                           pressure: .warning, largestHolder: largest)
+        }
+        return state.alerts
+    }
+    check("a tree over the machine's line while the machine is short goes red",
+          withHolder(true).memory == .saturation)
+    check("…and does not while another session on the board is holding more",
+          withHolder(false).memory == .calm)
+    // Named rather than claimed away: all three witnesses can be true while the shortage is some
+    // other program's entirely, and closing that needs a privilege this app will not ask for.
+    let alarmRule = (try? String(contentsOfFile: "Tally/Core/FootprintAlerts.swift",
+                                 encoding: .utf8)) ?? ""
+    check("what the three witnesses still do not settle is stated rather than claimed away",
+          alarmRule.contains("WHAT IS LEFT, SAID PLAINLY RATHER THAN CLAIMED AWAY")
+              && alarmRule.contains("task_for_pid")
+              && !alarmRule.contains("can only ever cost a card that WOULD have been red"))
+
     // RED OUTRANKS AMBER ON THE SAME READING, which the table above states twice and this states as
     // the rule it comes from: an idle tree over the machine's line meets BOTH conditions, and the
     // card has one colour to spend on it.

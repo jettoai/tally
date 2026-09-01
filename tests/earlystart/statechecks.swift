@@ -317,17 +317,43 @@ func runStateChecks() {
         // before this one has on disk right now. Both of its removed keys are simply not read: a
         // decoder that names its keys ignores the rest, and the state it produces is the one that
         // starts a closed window at the next refresh rather than holding it for five hours.
+        //
+        // THE FIXTURE IS THE SHAPE ARMING ACTUALLY LEFT, which the first version of this was not
+        // (codex review of 4a46750). It carried marks with attempt stamps beside `armedAt`, and
+        // that pairing is one the old build could not write: `arming()` EMPTIED the marks as it
+        // stamped, so what a machine has on disk right now is an empty map beside a stamp. The old
+        // fixture therefore tested a payload nobody has, and the migration's actual edge - a state
+        // whose only content is a key this build ignores - was never read at all.
+        //
+        // WHAT IT ASSERTS IS THE ACCEPTED EDGE, written down rather than left to be rediscovered:
+        // upgrading inside the five hours after a message went out reads as a state that never
+        // sent one, so that account can be sent to a second time in that window. The information
+        // that would prevent it was destroyed by the writer that made this payload (`armedAt` is a
+        // batch stamp, not a per-account one), so every fix is either too wide or too narrow; it
+        // costs one extra haiku, once, on the upgrade itself. Ruled acceptable 2026-09-01.
         let armedEra = Data(#"""
-            {"marks":{"a":{"attemptedAt":776415600,"sawWindowOpen":true},
-                      "b":{"sawWindowOpen":true}},
-             "armedAt":776412000}
+            {"marks":{},"armedAt":776412000}
             """#.utf8)
         let decodedArmed = try? JSONDecoder().decode(EarlyStartState.self, from: armedEra)
-        expect(decodedArmed?.marks["a"]?.attemptedAt == Date(timeIntervalSinceReferenceDate: 776415600),
-               "a payload from the arming era reads, and keeps the one thing that bounds cost")
-        expect(decodedArmed?.marks["b"]?.attemptedAt == nil,
-               "…while a mark that only ever stood for the arming stamp reads as holding nothing")
-        expect(decodedArmed?.today == nil, "…and the rest of it decodes as an untouched relay state")
+        expect(decodedArmed == EarlyStartState(),
+               "the payload arming really wrote reads as an empty relay state, not a throw")
+        // AND THE BEHAVIOUR THAT FOLLOWS FROM IT, which is the half a decode check cannot state: an
+        // account whose window has just closed is started AT ONCE on the first refresh after the
+        // upgrade, because nothing in what survived says it was ever attempted.
+        let afterUpgrade = EarlyStartLogic.plan(
+            candidates: [candidate("a", windowOpen: false)],
+            state: decodedArmed ?? EarlyStartState(), quietHours: loud,
+            now: at("2026-08-24 07:30"), calendar: taipei)
+        expect(afterUpgrade.start.map(\.accountID) == ["a"],
+               "…so the first refresh after the upgrade starts a closed window at once")
+        // The floor that DOES survive an upgrade, for contrast: a mark carrying an attempt stamp is
+        // what holds an account for five hours, and that is the one thing the migration keeps when
+        // there is one to keep.
+        let attempted = Data(#"{"marks":{"a":{"attemptedAt":776415600}}}"#.utf8)
+        let decodedAttempt = try? JSONDecoder().decode(EarlyStartState.self, from: attempted)
+        expect(decodedAttempt?.marks["a"]?.attemptedAt
+                 == Date(timeIntervalSinceReferenceDate: 776415600),
+               "…while a mark that carries an attempt keeps the one thing that bounds cost")
 
         let partialDay = Data(#"{"day":"2026-08-24","started":2}"#.utf8)
         let decodedDay = try? JSONDecoder().decode(EarlyStartToday.self, from: partialDay)

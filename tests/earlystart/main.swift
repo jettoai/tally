@@ -106,6 +106,15 @@ runQuietHoursChecks()
 runRelayChecks()
 runStateChecks()
 runSpawnChecks()
+// The store is `@MainActor` (it owns preferences and a timer) and top-level code here is isolated
+// to nothing, so the isolation is asserted rather than hopped to. This IS the main thread - a
+// process's top-level code runs there - and saying so runs the checks synchronously, in order, with
+// the rest of the file.
+//
+// NOT A `Task { @MainActor in … }` WITH A SEMAPHORE BEHIND IT, which is what this was first written
+// as and which deadlocks on the spot: the block needs the main thread to run on, and waiting for it
+// on the main thread is holding the only thread that could answer.
+MainActor.assumeIsolated { runStoreChecks() }
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

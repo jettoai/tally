@@ -196,9 +196,23 @@ func runSpawnChecks() {
         // as a program, so what it can hold is the shape of THIS function: shapes it cannot see
         // include the hand-off moved into a method of its own and called conditionally, a condition
         // hidden inside `correct` or inside `correcting`, and an `#if` that compiles the call out.
-        // The durable oracle for all of those is behaviour coverage of the store, which nothing in
-        // this repo compiles today (it is @MainActor AppKit); that gap is tracked as deferred work
-        // rather than papered over here.
+        //
+        // AND A THIRD REVIEW WALKED THROUGH IT (codex, 0cbda34): `let shouldCorrect = !failures
+        // .isEmpty` followed by `if shouldCorrect { … }` puts the bug back with all four checks
+        // green, because neither of the two named conditions below appears anywhere. That is the
+        // third time this lock has been beaten at the text layer - existence, then span structure,
+        // now a variable in between - so the answer this round is not a fourth spelling to forbid.
+        // The span is BLANK OF CONDITIONS: nothing between the answers arriving and the tally
+        // hearing about them may branch on anything at all. It is a stricter rule than the defect
+        // needs and it costs nothing, because there is nothing legitimate to decide in those three
+        // lines: releasing the run flag and handing both lists on.
+        //
+        // THE STORE IS COMPILED AND DRIVEN NOW (storechecks.swift), which this note used to say was
+        // impossible - and it still does not close this one. What cannot be driven is the SPAWN:
+        // `mayRun` is false in any assertion binary by construction, and the executable this path
+        // reaches for is the real `claude` on the machine's PATH, so a check that got as far as the
+        // hand-off would be a test suite spending somebody's subscription. Until this call has a
+        // seam that answers without spawning, the span is what holds it.
         var answerPath: String?
         if let answered = store.range(of: "let failures = await Self.send"),
            let handedOver = store.range(of: "self.correct(attempted:"),
@@ -221,6 +235,8 @@ func runSpawnChecks() {
                "…and exactly one return stands in it: the weak self guard, and no exit for a batch")
         expect(!answerCode.contains("if failures") && !answerCode.contains("if !failures"),
                "…with the failure list branching nothing on its way: success is carried back too")
+        expect(!answerCode.contains("if "),
+               "…and no condition of any spelling stands in it, whatever it reads from")
         expect(store.contains("self.correct(attempted: ids, failed: failures,"),
                "…and both halves of the answer go with it: who was tried, and who failed")
     }

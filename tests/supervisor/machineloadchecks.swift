@@ -112,8 +112,8 @@ func runMachineLoadChecks() {
     check("the sources this suite reads are readable from it", !sampler.isEmpty)
     check("the tick pays the strays out of what its cards turned out to be counting",
           sampler.contains("MachineLoadRollup.leftovers(strays: strayRoot, counted: counted)")
-              && sampler.contains("strays: unattributed, at: now)")
-              && !sampler.contains("strays: strayRoot, at: now)"))
+              && sampler.contains("rollup.load(sessions: byProject, strays: unattributed,")
+              && !sampler.contains("rollup.load(sessions: byProject, strays: strayRoot"))
     // And the walk that produced that set is skipped only where it could not answer differently: with
     // jobs to adopt it must still be made, or the re-parented work this whole repair exists for falls
     // back off the card it was just matched to.
@@ -141,12 +141,16 @@ func runMachineLoadChecks() {
     let accounting = (try? String(contentsOfFile: "Tally/Stores/ProjectLoadAccounting.swift",
                                   encoding: .utf8)) ?? ""
     check("the accounting this suite reads is readable from it", !accounting.isEmpty)
-    check("a stray pool is paired against its survivors, so a departure settles nothing",
-          accounting.contains("previous[root]?.narrowed(to: pids)")
+    check("a stray pool's pair is decided on the table rather than on the membership",
+          accounting.contains("previous[root]?.basis(for: reading, alive: alive)")
               && !accounting.contains("carry: carry[root]"))
-    check("…and a project is watched from the tick a session names it until nothing is left in it",
+    // And the table it decides on is the one this tick actually walked: a liveness test taken from
+    // the pool itself would be the membership again under another name.
+    check("…and the tick hands it the machine's own process table to decide with",
+          sampler.contains("alive: Set(identities.keys), at: now)"))
+    check("…and a project is watched from the tick a session names it until nothing works in it",
           accounting.contains("watching.formUnion(found.values)")
-              && accounting.contains("watching = Set(rollup.projects.map(\\.root))"))
+              && accounting.contains("watching = MachineLoadRollup.watched(rollup)"))
 
     // THE STATE THE ROLLUP EXISTS FOR: a checkout with load and no session at all. What hands this
     // rule such an input is state rather than a rule, and is asserted where it lives
@@ -166,6 +170,23 @@ func runMachineLoadChecks() {
     let members = ["100": Set<pid_t>([100, 200, 500, 600]), "500": Set<pid_t>([500, 600])]
     check("the session whose whole tree is inside another one's on the same project is nested",
           MachineLoadRollup.nested(members, roots: ["100": tally, "500": tally]) == ["500"])
+    // THE SHARED PIDS ARE NOT ALWAYS A CONTAINED TREE, and reading them as one is how this rule
+    // came to do nothing in the case it was written for. The inner session adopts a job of its own
+    // (the whole reason the group ledger exists) and the sets OVERLAP: the inner card holds the
+    // orphan, the outer does not, neither contains the other. Tested for containment, the project
+    // added both cards and counted the inner tree twice - and the contest rule hands the adoption
+    // to the inner session every time, so this was the main path (codex review of 904e540).
+    let overlapping = ["100": Set<pid_t>([100, 200, 500, 600]), "500": Set<pid_t>([500, 600, 900])]
+    check("…and so is one that merely SHARES processes with it, which containment does not catch",
+          MachineLoadRollup.nested(overlapping, roots: ["100": tally, "500": tally]) == ["500"])
+    check("…the larger card being the one a project keeps",
+          MachineLoadRollup.nested(["100": [100, 200], "500": [200, 500, 600]],
+                                   roots: ["100": tally, "500": tally]) == ["100"])
+    // A card is dropped only for a card the project is really counting. Decided against every other
+    // card instead, a chain of overlaps takes work off the row that nothing was counting twice.
+    check("…and a card dropped for another dropped card is not dropped at all",
+          MachineLoadRollup.nested(["a": [1, 2, 3, 4], "b": [4, 5, 6], "c": [6, 7]],
+                                   roots: ["a": tally, "b": tally, "c": tally]) == ["b"])
     check("…and two sessions of one checkout that share no process are not",
           MachineLoadRollup.nested(["100": [100, 200], "500": [500, 600]],
                                    roots: ["100": tally, "500": tally]).isEmpty)
@@ -224,6 +245,31 @@ func runMachineLoadChecks() {
               sessions: [MachineLoadRollup.SessionReading(root: tally, cpuPercent: 3,
                                                           memoryBytes: 1)],
               strays: [])))
+
+    // MARK: which projects are worth watching after their sessions have gone
+
+    // A ROW IS NOT WORK. The interactive shell a session was launched from is a stray of that
+    // checkout for as long as the terminal tab is open, so a rule that kept every root with a row
+    // kept every checkout ever opened, each with a Projects line reading nothing.
+    func watched(_ cpu: Double?, _ memory: UInt64, sessions: Int = 0) -> Set<String> {
+        MachineLoadRollup.watched(MachineLoadRollup.rows(
+            sessions: (0..<sessions).map { _ in
+                MachineLoadRollup.SessionReading(root: tally, cpuPercent: nil, memoryBytes: 0)
+            },
+            strays: [MachineLoadRollup.StrayReading(root: tally, cpuPercent: cpu,
+                                                    memoryBytes: memory, processes: 1)]))
+    }
+    check("a project burning something is watched",
+          watched(4, 3_000_000) == [tally])
+    check("…and so is one nothing has been read twice in yet, which is not the same as idle",
+          watched(nil, 3_000_000) == [tally])
+    check("…and one whose leftovers are holding real memory at rest",
+          watched(0, MachineLoadRollup.idleMemoryFloor) == [tally])
+    check("…and one with a live session on it whatever its leftovers are doing",
+          watched(0, 3_000_000, sessions: 1) == [tally])
+    // The shell measured on this machine holds 0.7 to 3.1 MB and burns nothing between two ticks.
+    check("but an idle shell is not work, and does not keep a checkout on the books",
+          watched(0, 3_000_000).isEmpty)
 
     // MARK: the scratchpad signal
 

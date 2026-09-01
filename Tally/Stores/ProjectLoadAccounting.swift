@@ -28,10 +28,11 @@ final class ProjectLoadAccounting {
     /// processes and nothing else: a reading holding two projects' pids would state one figure for
     /// both, and each row would move when the other project's work did.
     ///
-    /// AND THE PAIR IS TAKEN OVER THE SURVIVORS ONLY, which is where a stray pool differs from a
-    /// tree: there is no carry beside this, because a departure from this pool produces no credit
-    /// to carry (`ProcessResourceSample.narrowed(to:)` says what that costs and why the reading it
-    /// replaced was worse).
+    /// AND WHAT THE PAIR IS TAKEN OVER IS DECIDED RATHER THAN ASSUMED, which is where a stray pool
+    /// differs from a tree: a pid can leave this pool without dying, and only the ones that really
+    /// died settle a credit (`ProcessResourceSample.basis(for:alive:)`, which carries the
+    /// measurements and what the rule still costs). There is no carry beside this for the same
+    /// reason: nothing here is waiting for an arrival that is merely late.
     private var previous: [String: ProcessResourceSample] = [:]
     /// Each session directory as the machine spells it. Held because a checkout does not move: this
     /// would be a `realpath` per session per tick otherwise, for an answer that never changes.
@@ -47,10 +48,26 @@ final class ProjectLoadAccounting {
     /// the exact moment it became worth showing. The pure rules could always state it
     /// (`MachineLoadRollup.rows` with no sessions at all) and nothing assembled could produce it.
     ///
-    /// KEPT UNTIL A TICK FINDS NOTHING UNDER IT, rather than for a span: a root leaves this set on
-    /// the first pass that reads no session and no stray in it, which is also what stops it growing
-    /// - every project this app has ever seen would otherwise be walked for forever.
+    /// KEPT WHILE THERE IS WORK IN IT, rather than for a span and rather than merely while it has a
+    /// row: the rule and the floor are next door (`MachineLoadRollup.watched`), and what they are
+    /// for is that a row is not evidence of work. The interactive shell a session was started from
+    /// is a stray of its checkout for as long as that terminal tab is open, so "kept while it has a
+    /// row" kept every checkout ever opened, forever, each with a Projects line reading nothing.
     private var watching: Set<String> = []
+
+    /// How a pool of pids is read: which of them the machine holds counters for, at an instant.
+    typealias PoolReader = (Set<pid_t>, Date) -> ProcessResourceSample
+
+    /// A PARAMETER SO AN ASSERTION CAN STATE A RATE - two readings, real numbers, the figure a row
+    /// would draw. That is the half of this file no fixture could reach before: the rule that pairs
+    /// two readings is pure and asserted next door, and what nothing asserted is that this class
+    /// hands it the right pair. A rewrite of exactly that turned a 50% row into a 30050% one with
+    /// every suite in the repo still green (`projectloadchecks.swift`).
+    private let sample: PoolReader
+
+    init(sample: @escaping PoolReader = { ProcessTree.resourceSample(of: $0, at: $1) }) {
+        self.sample = sample
+    }
 
     /// The project roots this tick has to account against: the live sessions' and the retained.
     var accounted: Set<String> { watching }
@@ -165,35 +182,38 @@ final class ProjectLoadAccounting {
     /// one row this section exists for out of every screenshot. So the fixtures answer instead, on
     /// the same terms every other fixture on that page is under: what is shown is the SHAPE, and no
     /// field of it came off this machine.
+    ///
+    /// - Parameter alive: every pid the machine's table holds this tick, which is what tells a
+    ///   stray that ENDED from one this app has just taken back onto a card
+    ///   (`ProcessResourceSample.basis(for:alive:)`).
     func load(sessions: [MachineLoadRollup.SessionReading], strays: [pid_t: String],
-              at now: Date) -> MachineLoad {
+              alive: Set<pid_t>, at now: Date) -> MachineLoad {
         let rollup = MachineLoadRollup.rows(
             sessions: sessions,
             strays: DemoUsage.isActive ? DemoUsage.strayReadings(for: sessions.map(\.root))
-                                       : measure(strays, at: now))
-        // A PROJECT LEAVES THE BOOKS WHEN THIS TICK FOUND NOTHING IN IT, which is what a row IS:
-        // `rows` states one for every root that had a session or a stray in it, so what is left over
-        // is the answer to "is there still anything here" without a second pass to ask it.
-        watching = Set(rollup.projects.map(\.root))
+                                       : measure(strays, alive: alive, at: now))
+        // WHICH PROJECTS THE NEXT TICK LOOKS FOR, decided on what this one turned out to hold rather
+        // than on whether it produced a row at all.
+        watching = MachineLoadRollup.watched(rollup)
         return rollup
     }
 
     /// The strays of each project, read and turned into a rate.
-    private func measure(_ strays: [pid_t: String],
+    private func measure(_ strays: [pid_t: String], alive: Set<pid_t>,
                          at now: Date) -> [MachineLoadRollup.StrayReading] {
         var pidsByRoot: [String: Set<pid_t>] = [:]
         for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
         var readings: [MachineLoadRollup.StrayReading] = []
         var nextPrevious: [String: ProcessResourceSample] = [:]
         for (root, pids) in pidsByRoot {
-            let reading = ProcessTree.resourceSample(of: pids, at: now)
-            // PAIRED AGAINST THE SURVIVORS ONLY. A departure's credit exists to cancel an arrival
-            // and a stray's collector is launchd by construction, so there is no arrival to cancel
-            // and the credit - a whole lifetime of CPU, not an interval of it - simply blanked the
-            // pool for two ticks. Every job this app successfully adopts back onto a card LEAVES
-            // this pool, so the reading went to zero precisely when the rest of the page was working
-            // (`ProcessResourceSample.narrowed(to:)` carries the measurement and the cost).
-            let cpu = ProcessTree.cpuPercent(from: previous[root]?.narrowed(to: pids), to: reading)
+            let reading = sample(pids, now)
+            // PAIRED AGAINST WHAT THIS POOL ACTUALLY DID. Three things look identical from inside a
+            // pool - a member ended, a member was adopted back onto a card, a member joined - and
+            // reading them as one produced a blank row, an unbounded spike and a spike again, in
+            // that order (`ProcessResourceSample.basis(for:alive:)`, which is where all three are
+            // measured). The table this tick already walked is what tells them apart.
+            let cpu = ProcessTree.cpuPercent(from: previous[root]?.basis(for: reading, alive: alive),
+                                             to: reading)
             nextPrevious[root] = reading
             readings.append(MachineLoadRollup.StrayReading(root: root, cpuPercent: cpu.percent,
                                                            memoryBytes: reading.memoryBytes,

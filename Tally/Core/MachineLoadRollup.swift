@@ -138,25 +138,78 @@ enum MachineLoadRollup {
     /// since a project running several sessions is one of the two states `isWorthDrawing` returns
     /// true for.
     ///
-    /// SUBSET RATHER THAN OVERLAP, deliberately. Two cards share a process only where one tree
-    /// contains the other, so the subset test IS the nesting; a partial overlap would be a
-    /// different defect with a different repair (an adopted orphan's progeny walking into another
-    /// live session's tree, named in `SessionProcessGroups.adoptions`), and dropping a whole card's
-    /// figures for one would subtract work that is really there.
+    /// ANY SHARED PID, NOT ONLY A CONTAINED TREE. This test was written as a strict subset, on the
+    /// stated ground that two cards share a process only where one tree contains the other. That
+    /// sentence is false, and it was false in the ordinary case rather than an exotic one: the
+    /// moment the inner session adopts a job of its own (`SessionProcessGroups`, which is the whole
+    /// reason the ledger exists), the inner card holds the adopted orphan and the outer card does
+    /// not, so the two sets OVERLAP and neither contains the other. The subset test then found no
+    /// nesting at all and the project added both cards, counting the inner tree twice - and the
+    /// contest rule one file over hands the adoption to the inner session every time, so this was
+    /// the main path rather than a corner of it (codex review of 904e540).
+    ///
+    /// THE LARGER CARD IS THE ONE KEPT, and what that costs is stated rather than implied: where
+    /// the overlap is partial, the dropped card's OWN pids - the job it adopted - are not in the
+    /// project's total at all. A project reading nothing about a process is the ordinary shape of
+    /// this page (the cards below still count it, and its own card still says `N background`),
+    /// while a project counting one process twice is the error this whole rollup exists to refuse,
+    /// and the section's own note calls a confident wrong number the worst thing it can print.
+    /// Counting each pid exactly once needs per-pid figures, and what reaches here are the cards'
+    /// TOTALS - deliberately, because on a capture those totals are fixtures and a rollup built
+    /// from the machine's real per-process readings would contradict every card on the page.
     ///
     /// - Parameters:
     ///   - members: the pids each card is counting, keyed as the board keys its rows.
     ///   - roots: which project each of those sessions is working in.
     static func nested(_ members: [String: Set<pid_t>], roots: [String: String]) -> Set<String> {
+        // Largest first, and a card is kept only when it shares nothing with a card ALREADY kept.
+        // Deciding each card against every other one instead would drop a card for overlapping
+        // something that was itself dropped, and take work off the project that nothing was
+        // counting twice. Ties are settled on the key, so the answer cannot change from tick to
+        // tick while nothing else does, which is the rule every other order on this page follows.
+        var kept: [(root: String, members: Set<pid_t>)] = []
         var swallowed: Set<String> = []
-        for (key, mine) in members {
+        for (key, mine) in members.sorted(by: { ($0.value.count, $0.key) > ($1.value.count, $1.key) }) {
             guard let root = roots[key] else { continue }
-            let inside = members.contains { other, theirs in
-                other != key && roots[other] == root && mine.isStrictSubset(of: theirs)
+            if kept.contains(where: { $0.root == root && !$0.members.isDisjoint(with: mine) }) {
+                swallowed.insert(key)
+            } else {
+                kept.append((root, mine))
             }
-            if inside { swallowed.insert(key) }
         }
         return swallowed
+    }
+
+    /// How much a project's leftovers have to be holding to keep it on the books with no session
+    /// left on it (`watched`).
+    ///
+    /// SIXTY-FOUR MEGABYTES, and the number is a gap rather than a guess. What has to fall below it
+    /// is the interactive shell a session was started FROM: it is the supervisor's parent, so no
+    /// tree reaches it, and its working directory is the checkout, so it is a stray of that project
+    /// for as long as the terminal tab is open. Measured on this machine (2026-09-01): the shells
+    /// in the table hold 0.7 to 3.1 MB. What has to stay above it is anything worth a row - a dev
+    /// server, a worker, a build - and the smallest of those on the same table is over 100 MB.
+    static let idleMemoryFloor: UInt64 = 64_000_000
+
+    /// WHICH PROJECTS ARE STILL WORTH WATCHING once this tick has been read, which is what decides
+    /// whether the next tick looks for them at all (`ProjectLoadAccounting`).
+    ///
+    /// A ROW IS NOT THE SAME AS WORK, and the difference is a section that never goes away. Keeping
+    /// every root that produced a row means keeping every root that has a stray, and the interactive
+    /// shell a session was launched from is a stray of its checkout permanently: the Projects
+    /// section would sit on the page reading `0 sessions, 0%, 1 stray` under an empty board, once
+    /// per checkout a terminal tab is still open in, for as long as the app runs. So a project with
+    /// no session on it stays only while its leftovers are DOING something: a rate not yet
+    /// established, a rate above zero, or memory at or above the floor above.
+    ///
+    /// WHAT IT COSTS: a project whose only leftover is idle in both senses stops being watched, and
+    /// comes back the next time a session names it. That is the same standard the rest of this app
+    /// holds - no line rather than a line reading zero.
+    static func watched(_ load: MachineLoad) -> Set<String> {
+        Set(load.projects.filter {
+            $0.sessions > 0 || $0.cpuPercent == nil || ($0.cpuPercent ?? 0) > 0
+                || $0.memoryBytes >= idleMemoryFloor
+        }.map(\.root))
     }
 
     /// WHAT EACH PROJECT'S SESSIONS READ, out of the footprints the cards will actually draw.

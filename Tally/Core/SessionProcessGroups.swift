@@ -257,8 +257,10 @@ enum SessionProcessGroups {
     /// on both cards. It needs the adopted orphan to be an ANCESTOR of another live supervisor,
     /// which has not been observed on this machine; it is written here because the alternative is a
     /// reader taking the paragraph above for a closed case. A project's total does not inherit it
-    /// while both cards are in one project, since the swallowed tree is a subset of the swallowing
-    /// one and is counted once there (`MachineLoadRollup.nested`).
+    /// while both cards are in one project: the two cards share pids, and a project adds up only
+    /// one of any pair that does (`MachineLoadRollup.nested`, which tests for a shared pid rather
+    /// than for a contained tree, precisely because the containment this paragraph describes is not
+    /// the only shape the sharing comes in).
     static func adoptions(unclaimed: some Sequence<ProcessIdentity>,
                           ledger: [SessionProcessGroup], sessions: [String: Int64],
                           startedAt: (pid_t) -> Int64?) -> [String: Set<pid_t>] {

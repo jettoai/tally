@@ -180,32 +180,67 @@ struct ProcessResourceSample: Equatable {
         memory.reduce(0) { $0 + (ours.contains($1.key) ? 0 : $1.value) }
     }
 
-    /// This reading with everything but these pids dropped, so a pair taken across it has NO
-    /// departures in it.
-    ///
-    /// WHAT IT IS FOR IS A POOL WHOSE DEPARTURES SETTLE NOWHERE. A departure's credit exists to
-    /// cancel an ARRIVAL: the seconds come off because they are about to land in whoever collected
-    /// the process, and for a tree that collector is the parent standing right there
-    /// (`ProcessTree.cpuPercent`). A project's strays are the processes NO tree holds, so their
-    /// collector is launchd by construction (`ProjectLoadAccounting`) and nothing ever arrives: the
-    /// credit is the departed process's whole life from birth, and taken off a pool it cannot
-    /// settle against it reads the pool at 0% for as long as the credit lasts. Measured at two
-    /// ticks, and triggered by the feature working - a stray adopted back onto a card LEAVES the
-    /// pool, so every successful adoption blanked its project's stray row.
-    ///
-    /// WHAT THIS COSTS, stated rather than implied: a stray that ends between two ticks takes its
-    /// last interval of work with it, which is the same undercount `ProcessTree.diskWrite` accepts
-    /// for the same reason. And where one pool member reaps another the collection arrives whole in
-    /// the survivor's child counter with nothing coming off, so that child's earlier seconds are
-    /// counted twice - once while it ran and once as it is buried. One tick high, against two ticks
-    /// blank on every adoption, and the reading it protects is a rate nobody can act on anyway
-    /// unless it is roughly right.
+    /// This reading with everything but these pids dropped. Mechanical: what it is FOR is stated on
+    /// `basis(for:alive:)`, which is the only caller that decides which pids those are.
     func narrowed(to pids: Set<pid_t>) -> ProcessResourceSample {
         ProcessResourceSample(times: times.filter { pids.contains($0.key) },
                               childTimes: childTimes.filter { pids.contains($0.key) },
                               memory: memory.filter { pids.contains($0.key) },
                               diskWritten: diskWritten.filter { pids.contains($0.key) },
                               at: at, ours: ours.intersection(pids))
+    }
+
+    /// THE READING TO DIFFERENCE `current` AGAINST, for a pool a process can join and leave without
+    /// being born or dying.
+    ///
+    /// A TREE IS A CLOSED SET AND A STRAY POOL IS NOT, which is the whole of why this exists. A pid
+    /// leaves a tree by ending, so a pid missing from the second reading has DIED, and taking its
+    /// counters off is what stops the collection being counted twice (`ProcessTree.cpuPercent`).
+    /// A pid leaves a project's stray pool three ways: it ended, it was adopted back onto a card
+    /// (which is this app's own feature succeeding), or it stopped being unclaimed. Only the first
+    /// is a death, and the three had been read as one:
+    ///
+    ///   - CREDITING THEM ALL blanks the pool for two ticks on every successful adoption, because a
+    ///     stray's collector is launchd by construction and its credit - a whole life from birth,
+    ///     not an interval - has no arrival to cancel against (measured 2026-09-01, and triggered
+    ///     BY the adoption working).
+    ///   - CREDITING NONE OF THEM, which is what this file did between 904e540 and here, reads a
+    ///     pool member reaping another pool member as fresh work: the dead one's whole life lands
+    ///     in the survivor's `ri_child_time` with nothing coming off. Measured on the same fixture
+    ///     the row is meant to read 50% on: 3050% at the ten-second beat and 30050% at the two, the
+    ///     multiplier being the dead process's lifetime over the sampling interval and so unbounded.
+    ///     A stray pool is parents and children by construction - a shell and its job, a dev server
+    ///     and its workers - so reaping inside it is the ordinary case rather than an edge of it.
+    ///
+    /// So the two are told apart on the only evidence that can: the machine's own process table,
+    /// which the pass has already walked. A pid that is gone from the pool AND gone from the table
+    /// has died and settles; one that is gone from the pool and still alive simply stops being
+    /// counted here.
+    ///
+    /// AND A PID THAT HAS JUST JOINED STARTS FROM WHERE IT IS. Its counters are cumulative from its
+    /// birth, so differenced against nothing they state a whole life as one interval's work: a
+    /// long-running process reclassified into the pool the tick its session ended read 180050%.
+    /// It is given this reading's own figures as its baseline, so it contributes nothing to the
+    /// tick that first sees it and a true rate from the next one.
+    ///
+    /// WHAT THIS STILL COSTS, stated rather than implied: a pool member that dies with its
+    /// collector OUTSIDE the pool (launchd buried it, or its parent is on a card) hands over a
+    /// credit nothing will arrive to cancel, and the clamp at zero means that tick reads 0% instead
+    /// of what the survivors were doing. One tick, bounded by zero rather than unbounded, and the
+    /// tick after it is correct: no carry is kept here, which is the difference from a tree
+    /// (`ProcessCPUCarry` exists because a tree's collector is IN the tree and the arrival is
+    /// merely late).
+    ///
+    /// - Parameter alive: every pid the machine's table holds this tick. A pool member missing from
+    ///   both this and `current` is dead.
+    func basis(for current: ProcessResourceSample, alive: Set<pid_t>) -> ProcessResourceSample {
+        let settling = times.keys.filter { !alive.contains($0) }
+        var paired = narrowed(to: Set(current.times.keys).union(settling))
+        for (pid, time) in current.times where times[pid] == nil {
+            paired.times[pid] = time
+            paired.childTimes[pid] = current.childTimes[pid]
+        }
+        return paired
     }
 }
 

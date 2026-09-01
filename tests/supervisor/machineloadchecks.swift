@@ -141,13 +141,16 @@ func runMachineLoadChecks() {
     let accounting = (try? String(contentsOfFile: "Tally/Stores/ProjectLoadAccounting.swift",
                                   encoding: .utf8)) ?? ""
     check("the accounting this suite reads is readable from it", !accounting.isEmpty)
-    check("a stray pool's pair is decided on the table rather than on the membership",
-          accounting.contains("previous[root]?.basis(for: reading, alive: alive)")
-              && !accounting.contains("carry: carry[root]"))
-    // And the table it decides on is the one this tick actually walked: a liveness test taken from
-    // the pool itself would be the membership again under another name.
-    check("…and the tick hands it the machine's own process table to decide with",
-          sampler.contains("alive: Set(identities.keys), at: now)"))
+    check("a stray pool's pair is decided on what became of each departure, not on the membership",
+          accounting.contains("previous[root]?.pairing(with: reading, departure: departure)")
+              && accounting.contains("nextPrevious[root] = pair?.keep ?? reading"))
+    // AND NOT ON A TABLE WALKED EARLIER IN THE PASS, which is the half a source string can still
+    // say: the counters and the verdict about them have to be the same instant, and this tick walks
+    // its table some milliseconds of cwd reads before it samples the pool. What the two instants
+    // cost when they differ is asserted behaviourally next door (projectloadchecks.swift).
+    check("…and the tick hands it no table of its own to decide with",
+          sampler.contains("rollup.load(sessions: byProject, strays: unattributed, at: now)")
+              && !sampler.contains("alive: Set(identities.keys)"))
     check("…and a project is watched from the tick a session names it until nothing works in it",
           accounting.contains("watching.formUnion(found.values)")
               && accounting.contains("watching = MachineLoadRollup.watched(rollup)"))

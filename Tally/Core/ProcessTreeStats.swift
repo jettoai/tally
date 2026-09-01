@@ -115,6 +115,33 @@ struct ProcessIdentity: Equatable {
     var startedAt: Int64
 }
 
+/// WHAT BECAME OF A PID A POOL WAS COUNTING AND NO LONGER HOLDS, which is three different things
+/// wearing one face (`ProcessResourceSample.pairing(with:departure:)`).
+///
+/// TWO READERS ANSWER IT AND NEITHER ALONE CAN, because they stop answering at different instants.
+/// The process table drops a process the moment it EXITS; `proc_pid_rusage` goes on answering for it
+/// until it is COLLECTED, and that second instant is the one where its seconds land in whoever
+/// collected it. Measured on this machine (2026-09-01) on a child burning a known 0.765s, read
+/// through the very calls this app makes:
+///
+///     alive                   table Y   rusage Y   collector's child counter 0.000s
+///     exited, not collected   table n   rusage Y   collector's child counter 0.000s
+///     collected               table n   rusage n   collector's child counter 0.765s
+///
+/// So a rule that settles on the table settles a tick or more BEFORE the arrival it exists to
+/// cancel, and one that settles on `rusage` settles in the same reading as it, always.
+enum ProcessDeparture: Equatable {
+    /// The table still holds it: it left the pool without dying, which is this app's own feature
+    /// succeeding (a job adopted back onto a card) or a process that stopped being unclaimed.
+    /// Nothing to settle, and nothing to wait for.
+    case living
+    /// Gone from the table and still answering: it has died and nobody has collected it. Its
+    /// seconds are in nobody else's counter yet, so there is nothing to take off yet either.
+    case ended
+    /// Gone from both, which is the same instant its seconds landed in whoever collected it.
+    case collected
+}
+
 /// One reading of what the tree's processes have used, per pid, and the instant it was taken. Four
 /// counters out of one `proc_pid_rusage` call per process: two cumulative CPU totals, what the
 /// process is holding in memory now, and what it has written to disk since it started.
@@ -181,7 +208,7 @@ struct ProcessResourceSample: Equatable {
     }
 
     /// This reading with everything but these pids dropped. Mechanical: what it is FOR is stated on
-    /// `basis(for:alive:)`, which is the only caller that decides which pids those are.
+    /// `pairing(with:departure:)`, which is the only caller that decides which pids those are.
     func narrowed(to pids: Set<pid_t>) -> ProcessResourceSample {
         ProcessResourceSample(times: times.filter { pids.contains($0.key) },
                               childTimes: childTimes.filter { pids.contains($0.key) },
@@ -190,8 +217,9 @@ struct ProcessResourceSample: Equatable {
                               at: at, ours: ours.intersection(pids))
     }
 
-    /// THE READING TO DIFFERENCE `current` AGAINST, for a pool a process can join and leave without
-    /// being born or dying.
+    /// THE PAIR A POOL'S NEXT RATE IS TAKEN OVER: the reading to difference `current` against, and
+    /// the reading to keep for the tick after this one. For a pool a process can join and leave
+    /// without being born or dying.
     ///
     /// A TREE IS A CLOSED SET AND A STRAY POOL IS NOT, which is the whole of why this exists. A pid
     /// leaves a tree by ending, so a pid missing from the second reading has DIED, and taking its
@@ -204,18 +232,32 @@ struct ProcessResourceSample: Equatable {
     ///     stray's collector is launchd by construction and its credit - a whole life from birth,
     ///     not an interval - has no arrival to cancel against (measured 2026-09-01, and triggered
     ///     BY the adoption working).
-    ///   - CREDITING NONE OF THEM, which is what this file did between 904e540 and here, reads a
-    ///     pool member reaping another pool member as fresh work: the dead one's whole life lands
-    ///     in the survivor's `ri_child_time` with nothing coming off. Measured on the same fixture
-    ///     the row is meant to read 50% on: 3050% at the ten-second beat and 30050% at the two, the
-    ///     multiplier being the dead process's lifetime over the sampling interval and so unbounded.
-    ///     A stray pool is parents and children by construction - a shell and its job, a dev server
-    ///     and its workers - so reaping inside it is the ordinary case rather than an edge of it.
+    ///   - CREDITING NONE OF THEM reads a pool member reaping another pool member as fresh work:
+    ///     the dead one's whole life lands in the survivor's `ri_child_time` with nothing coming
+    ///     off. Measured on the same fixture the row is meant to read 50% on: 3050% at the
+    ///     ten-second beat and 30050% at the two, the multiplier being the dead process's lifetime
+    ///     over the sampling interval and so unbounded. A stray pool is parents and children by
+    ///     construction - a shell and its job, a dev server and its workers - so reaping inside it
+    ///     is the ordinary case rather than an edge of it.
     ///
-    /// So the two are told apart on the only evidence that can: the machine's own process table,
-    /// which the pass has already walked. A pid that is gone from the pool AND gone from the table
-    /// has died and settles; one that is gone from the pool and still alive simply stops being
-    /// counted here.
+    /// AND SETTLING ON THE TABLE HANDS THAT SAME NUMBER BACK ONE TICK LATER, which is why what is
+    /// asked here is `ProcessDeparture` rather than a membership or a liveness test. The table drops
+    /// a process at its EXIT and the seconds arrive at its COLLECTION, so a credit taken on the
+    /// table comes off a tick with no arrival to meet it (clamped to zero, and the row reads 0%),
+    /// and the arrival lands on the next tick with nothing left to cancel it: 0% and then 30050% on
+    /// the very fixture above, with the death and the collection one tick apart rather than in one
+    /// interval.
+    ///
+    /// So a member that has died and NOT been collected is neither settled nor dropped: it is kept,
+    /// at the counters it was last read with, until the machine says it has been collected. The
+    /// credit is then produced in the same reading as the arrival it cancels, every time. A member
+    /// that left the pool alive is dropped and never waited for - its death, whenever it comes, is
+    /// its new card's arrival rather than this pool's.
+    ///
+    /// WHICH IS WHY NO `ProcessCPUCarry` IS KEPT BESIDE THIS, and the reason is not that a pool
+    /// differs from a tree. A tree settles at the death and carries the unsettled credit one tick
+    /// because the arrival can be late; this waits at the death instead, so it never holds a credit
+    /// with nothing coming to meet it.
     ///
     /// AND A PID THAT HAS JUST JOINED STARTS FROM WHERE IT IS. Its counters are cumulative from its
     /// birth, so differenced against nothing they state a whole life as one interval's work: a
@@ -223,24 +265,40 @@ struct ProcessResourceSample: Equatable {
     /// It is given this reading's own figures as its baseline, so it contributes nothing to the
     /// tick that first sees it and a true rate from the next one.
     ///
-    /// WHAT THIS STILL COSTS, stated rather than implied: a pool member that dies with its
-    /// collector OUTSIDE the pool (launchd buried it, or its parent is on a card) hands over a
-    /// credit nothing will arrive to cancel, and the clamp at zero means that tick reads 0% instead
-    /// of what the survivors were doing. One tick, bounded by zero rather than unbounded, and the
-    /// tick after it is correct: no carry is kept here, which is the difference from a tree
-    /// (`ProcessCPUCarry` exists because a tree's collector is IN the tree and the arrival is
-    /// merely late).
+    /// WHAT THIS STILL COSTS, stated rather than implied: a pool member whose collector is OUTSIDE
+    /// the pool (launchd buried it, or its parent is on a card) hands over a credit nothing will
+    /// arrive to cancel, and the clamp at zero means the tick it is collected on reads 0% instead of
+    /// what the survivors were doing. One tick, bounded by zero rather than unbounded, and the tick
+    /// after it is correct. A member nobody ever collects is waited for as long as its project is
+    /// watched at all, which costs one `proc_pid_rusage` a tick and ends with the pool
+    /// (`ProjectLoadAccounting.watching`).
     ///
-    /// - Parameter alive: every pid the machine's table holds this tick. A pool member missing from
-    ///   both this and `current` is dead.
-    func basis(for current: ProcessResourceSample, alive: Set<pid_t>) -> ProcessResourceSample {
-        let settling = times.keys.filter { !alive.contains($0) }
-        var paired = narrowed(to: Set(current.times.keys).union(settling))
-        for (pid, time) in current.times where times[pid] == nil {
-            paired.times[pid] = time
-            paired.childTimes[pid] = current.childTimes[pid]
+    /// - Parameter departure: what became of a pid this reading holds and `current` does not. Asked
+    ///   once per departure, which is a rare event, and never of a member still in the pool.
+    /// - Returns: `basis`, to difference `current` against, and `keep`, to pair the reading after
+    ///   `current` with.
+    func pairing(with current: ProcessResourceSample, departure: (pid_t) -> ProcessDeparture)
+        -> (basis: ProcessResourceSample, keep: ProcessResourceSample) {
+        var collected: Set<pid_t> = []
+        var waiting: Set<pid_t> = []
+        for pid in times.keys where current.times[pid] == nil {
+            switch departure(pid) {
+            case .living: continue
+            case .ended: waiting.insert(pid)
+            case .collected: collected.insert(pid)
+            }
         }
-        return paired
+        var basis = narrowed(to: Set(current.times.keys).union(collected))
+        for (pid, time) in current.times where times[pid] == nil {
+            basis.times[pid] = time
+            basis.childTimes[pid] = current.childTimes[pid]
+        }
+        var keep = current
+        for pid in waiting {
+            keep.times[pid] = times[pid]
+            keep.childTimes[pid] = childTimes[pid]
+        }
+        return (basis, keep)
     }
 }
 

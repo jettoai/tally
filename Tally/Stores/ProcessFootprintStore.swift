@@ -456,8 +456,7 @@ final class ProcessFootprintStore {
         // to be counting, which is the adopted jobs' own children (`MachineLoadRollup.leftovers`).
         let unattributed = MachineLoadRollup.leftovers(strays: strayRoot, counted: counted)
         let load = rollup.accounted.isEmpty
-            ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed,
-                                          alive: Set(identities.keys), at: now)
+            ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
         if load != machineLoad { machineLoad = load }
         previousSample = readings
         cpuCarry = carried

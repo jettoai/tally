@@ -79,13 +79,7 @@ extension ProcessTree {
         var memory: [pid_t: UInt64] = [:]
         var diskWritten: [pid_t: UInt64] = [:]
         for pid in pids {
-            var info = rusage_info_current()
-            let rc = withUnsafeMutablePointer(to: &info) {
-                $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
-                    proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, $0)
-                }
-            }
-            guard rc == 0 else { continue }
+            guard let info = usage(of: pid) else { continue }
             times[pid] = seconds(info.ri_user_time + info.ri_system_time)
             childTimes[pid] = seconds(info.ri_child_user_time + info.ri_child_system_time)
             // Bytes, not mach units: only the two CPU counters are in the timebase (see `seconds`).
@@ -97,6 +91,33 @@ extension ProcessTree {
         return ProcessResourceSample(times: times, childTimes: childTimes, memory: memory,
                                      diskWritten: diskWritten, at: now,
                                      ours: ours.filter { times[$0] != nil })
+    }
+
+    /// One process's `rusage_info` record, or nil when the machine will not answer for it - which is
+    /// a reading in itself and is the whole of `departure(of:)` below.
+    private static func usage(of pid: pid_t) -> rusage_info_current? {
+        var info = rusage_info_current()
+        let rc = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, $0)
+            }
+        }
+        return rc == 0 ? info : nil
+    }
+
+    /// WHAT BECAME OF ONE PID, asked of the machine at the instant the answer is needed rather than
+    /// read off a table walked earlier in the pass: the counters and the verdict about them are then
+    /// the same moment, which is what a pool's credit depends on (`ProcessDeparture` carries the
+    /// measurement, and `ProcessResourceSample.pairing(with:departure:)` the rule).
+    ///
+    /// TWO CALLS AT MOST AND ONLY FOR A DEPARTURE, which is a rare event in a pool that mostly
+    /// survives from tick to tick: the second is made only when the first says the process is gone
+    /// from the table.
+    static func departure(of pid: pid_t) -> ProcessDeparture {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size { return .living }
+        return usage(of: pid) == nil ? .collected : .ended
     }
 
     /// The program each of these pids is running. ONE PASS FOR THE WHOLE TREE, because the tick

@@ -306,66 +306,81 @@ func runProcessTreeChecks() {
           percent(from: sample([100: 3], child: [100: 0], at: 0),
                   to: sample([100: 4], child: [100: 0], at: 2), carry: neverSettled.carry) == 50)
 
-    // MARK: the pool whose departures settle nowhere
+    // MARK: the pool a process can join and leave without being born or dying
 
-    // A CREDIT IS ONLY EVER WORTH TAKING WHERE AN ARRIVAL IS COMING. Everything above is about a
-    // TREE, where the collector is the parent standing right there; a project's strays are the
-    // processes no tree holds, so launchd buries them and nothing arrives anywhere this app reads
-    // (`ProjectLoadAccounting`). 900 is a dev server steadily burning half a core, 901 a helper that
-    // has been running for ten minutes and leaves: its whole lifetime of CPU came off the pool it
-    // could never be settled against, and the row read 0% for two ticks - once for the credit and
-    // once for the carry - while 900 went on burning.
-    // THREE THINGS LOOK THE SAME FROM INSIDE THE POOL and are not the same thing at all: a member
-    // ended, a member was adopted back onto a card, a member joined. 900 is a dev server burning
-    // half a core throughout, so the truth in every row below is 50%; 901 is a helper that has been
-    // running ten minutes; 903 is a long-lived process the tick reclassifies into the pool.
+    // A CREDIT IS ONLY EVER WORTH TAKING WHERE AN ARRIVAL IS COMING, and a pool of strays is
+    // parents and children like any tree - a shell and its job, a dev server and its workers - so
+    // one member reaping another is its ordinary case rather than an edge (`ProjectLoadAccounting`).
+    // FOUR THINGS LOOK THE SAME FROM INSIDE IT and are not the same thing at all: a member ended
+    // and was collected, a member ended and was not, a member was adopted back onto a card, a member
+    // joined. 900 is a dev server burning half a core throughout, so the truth in every row below is
+    // 50%; 901 is a helper that has been running ten minutes; 903 is one the tick reclassifies in.
     let pool = sample([900: 10, 901: 600], child: [:], at: 0)
+    func gone(_ what: ProcessDeparture) -> (pid_t) -> ProcessDeparture { { _ in what } }
     // 1. REAPED INSIDE THE POOL. The dead one's whole life lands in the survivor's child counter,
     // and if nothing comes off it is read as fresh work: the multiplier is that life over the
     // sampling interval, so it has no ceiling (measured at 30050% here, 3050% at the ten second
     // beat this pass runs at behind a closed panel).
     let reaped = sample([900: 11], child: [900: 600], at: 2)
     check("a pool member reaping another is not a tick of fresh work",
-          ProcessTree.cpuPercent(from: pool.basis(for: reaped, alive: [900]), to: reaped).percent
-              == 50)
+          ProcessTree.cpuPercent(from: pool.pairing(with: reaped, departure: gone(.collected)).basis,
+                                 to: reaped).percent == 50)
     check("…which is exactly what leaving the dead one out of the pair does not do",
           ProcessTree.cpuPercent(from: pool.narrowed(to: [900]), to: reaped).percent == 30050)
     // 2. ADOPTED BACK ONTO A CARD, which is this app's own feature succeeding. The pid is alive and
     // being counted elsewhere, so there is nothing to settle and no arrival coming.
     let adopted = sample([900: 11], child: [:], at: 2)
+    let leaving = pool.pairing(with: adopted, departure: gone(.living))
     check("a pool member taken back onto a card settles nothing and blanks nothing",
-          ProcessTree.cpuPercent(from: pool.basis(for: adopted, alive: [900, 901]), to: adopted)
-              .percent == 50)
+          ProcessTree.cpuPercent(from: leaving.basis, to: adopted).percent == 50)
     check("…which is exactly what crediting every departure does not do",
           ProcessTree.cpuPercent(from: pool, to: adopted).percent == 0)
+    check("…and it is not waited for either, its death being its card's arrival and not this pool's",
+          leaving.keep.times == [900: 11])
     // 3. BOTH AT ONCE, which is the case a rule that reads membership alone cannot get right in
     // either direction: 902 leaves alive, 901 dies and is buried by 900.
     let mixed = sample([900: 10, 901: 600, 902: 5], child: [:], at: 0)
-    check("…and the two told apart in the same tick, on the table rather than on the membership",
-          ProcessTree.cpuPercent(from: mixed.basis(for: reaped, alive: [900, 902]), to: reaped)
-              .percent == 50)
-    // 4. JOINED. Counters are cumulative from birth, so a pid differenced against nothing states a
+    check("…and the two told apart in the same tick, on what became of each rather than on either",
+          ProcessTree.cpuPercent(from: mixed.pairing(with: reaped,
+                                                     departure: { $0 == 901 ? .collected : .living })
+                                           .basis,
+                                 to: reaped).percent == 50)
+    // 4. DEAD AND NOT YET COLLECTED, which the table calls gone a tick or more before its seconds
+    // arrive anywhere. Settled on the table, the credit comes off a tick with no arrival to meet it
+    // and the arrival lands on the next one with nothing left to cancel it. So it is neither
+    // settled nor dropped: it is kept at what it was last read with, and settles on the tick the
+    // collection actually happens (which projectloadchecks.swift drives over two real ticks).
+    let buried = sample([900: 11], child: [:], at: 2)
+    let dying = pool.pairing(with: buried, departure: gone(.ended))
+    check("a pool member that has died and not been collected settles nothing yet",
+          ProcessTree.cpuPercent(from: dying.basis, to: buried).percent == 50)
+    check("…and is waited for, at the counters it was last read with, until it is",
+          dying.keep.times == [900: 11, 901: 600])
+    let arrival = sample([900: 12], child: [900: 600], at: 4)
+    check("…where settling it on the table instead blanks that tick and spikes the next one",
+          ProcessTree.cpuPercent(from: pool, to: buried).percent == 0
+              && ProcessTree.cpuPercent(from: buried, to: arrival).percent == 30050)
+    // 5. JOINED. Counters are cumulative from birth, so a pid differenced against nothing states a
     // whole life as one interval's work. It starts from where it is and reads a rate from the next
     // tick on.
     let joined = sample([900: 11, 903: 3600], child: [:], at: 2)
     let arriving = sample([900: 10], child: [:], at: 0)
     check("a process joining the pool contributes nothing to the tick that first sees it",
-          ProcessTree.cpuPercent(from: arriving.basis(for: joined, alive: [900, 903]), to: joined)
-              .percent == 50)
+          ProcessTree.cpuPercent(from: arriving.pairing(with: joined, departure: gone(.living)).basis,
+                                 to: joined).percent == 50)
     check("…where differencing it against nothing states its whole life as this tick's work",
           ProcessTree.cpuPercent(from: arriving, to: joined).percent == 180050)
+    let next = sample([900: 11, 903: 3601], at: 4)
     check("…and it is a rate of its own on the tick after that",
-          ProcessTree.cpuPercent(from: joined.basis(for: sample([900: 11, 903: 3601], at: 4),
-                                                    alive: [900, 903]),
-                                 to: sample([900: 11, 903: 3601], at: 4)).percent == 50)
+          ProcessTree.cpuPercent(from: joined.pairing(with: next, departure: gone(.living)).basis,
+                                 to: next).percent == 50)
     // The pair is still a pair: nothing here rewrites an instant or a survivor's counters, or it
     // would be measuring a different interval than the one it states.
     check("what is kept is kept exactly as it was read",
-          pool.basis(for: adopted, alive: [900, 901]).times == [900: 10]
-              && pool.basis(for: adopted, alive: [900, 901]).at == pool.at)
-    check("…and no carry is left behind to blank the tick after any of it",
-          ProcessTree.cpuPercent(from: pool.basis(for: reaped, alive: [900]), to: reaped).carry
-              == ProcessCPUCarry())
+          leaving.basis.times == [900: 10] && leaving.basis.at == pool.at)
+    check("…and because collection is what settles it, the credit meets its arrival in one reading",
+          ProcessTree.cpuPercent(from: pool.pairing(with: reaped, departure: gone(.collected)).basis,
+                                 to: reaped).carry == ProcessCPUCarry())
 
     // MARK: which process is doing it
 

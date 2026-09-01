@@ -92,8 +92,13 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
     // must judge the session by what it runs now.
     primaryModel = sessionPrimaryModel(pin: model.pin, launchArgs: launchArgs,
                                        providerID: providerID, policy: policy)
+    // `primaryModel` and `quarantine` go with it because the pin switch inside is a proactive mover
+    // and plays on the movers' shared field (`liveMoveField`): what a quarantine blocks depends on
+    // the model this session runs, and the account the cap handoff just walked out of is precisely
+    // the one a pin must not drag it back into (SessionSwitch.swift carries the incident).
     applyManualMoves(plan: &plan, state: &moves, record: &switchRecord, policy: &policy,
-                     account: account, providerID: providerID, watcher: &watcher,
+                     account: account, providerID: providerID, primaryModel: primaryModel,
+                     quarantine: quarantine, watcher: &watcher,
                      childAge: childAge, keyboardIdle: keyboardIdle, request: switchRequest)
     // Handed the tick's relaunch as something it may only ADD to: with an account already chosen
     // above, this station folds its pair onto that plan and cannot replace it (`TickPlan`,

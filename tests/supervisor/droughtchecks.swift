@@ -193,16 +193,25 @@ func runDroughtChecks() {
     let switchDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-drought-\(UUID().uuidString)")
     let pinnedAccounts = [switchAccount("D", label: "Claude 4"), switchAccount("S", label: "Claude 3")]
-    func pinSwitchPlan(_ policy: LaunchPolicy) -> RelaunchPlan? {
+    /// The pin switch on a tick where the session sits on S and something pins D.
+    ///
+    /// `fleet` IS PART OF THE QUESTION NOW, and it was not before: this mover plays on the movers'
+    /// shared field (`liveMoveField`), so what D's own row says decides as much as the policy does.
+    /// The default is the pair of healthy rows the policy-only cases want; the cells about a spent
+    /// or quarantined D hand it the fleet those cells are about.
+    func pinSwitchPlan(_ policy: LaunchPolicy, fleet: [Snapshot.Account] = pinnedAccounts,
+                       quarantine: [String: (model: String?, until: Date)] = [:]) -> RelaunchPlan? {
         var watcher = idleWatcher("drought")
         var plan: RelaunchPlan?
         var state = ManualMoveState(sessionKey: "9191", servedEpoch: 100, dir: switchDir)
         var record: PendingSwitchConsumption?
         var under = policy
         applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
-                         account: pinnedAccounts[1], providerID: "claude", watcher: &watcher,
+                         account: fleet[1], providerID: "claude", primaryModel: "fable",
+                         quarantine: quarantine, watcher: &watcher,
                          childAge: 9999, keyboardIdle: { _ in true }, dir: switchDir,
-                         request: { _ in nil }, accounts: { pinnedAccounts })
+                         request: { _ in nil }, accounts: { fleet },
+                         loaded: { switchFleetReading(fleet) })
         return plan
     }
     /// The tick as it stands just after a preventive mover acted: the session is on S, a project
@@ -213,21 +222,83 @@ func runDroughtChecks() {
         policies(app: app, projectAccount: projectAccount, sessionPin: nil, sittingOn: sibling,
                  fleet: [pinnedRow, sibling])
     }
+    let healthyFleet: [Snapshot.Account] = [comfortable, sibling]
+    let spentFleet: [Snapshot.Account] = [spentNow, sibling]
     check("a pin the session is off drags it back while the account IT NAMES has something left",
-          pinSwitchPlan(afterTheMove(pinnedRow: comfortable).moving)?.target.id == "D")
+          pinSwitchPlan(afterTheMove(pinnedRow: comfortable).moving,
+                        fleet: healthyFleet)?.target.id == "D")
     // THE CELL THE RESTART LOOP LIVES IN, and the one this check could not reach before: judged on
     // the account UNDER the session it reads "nothing to release" - S is healthy, it always is
     // here - the pin switch is handed an unreleased policy and drags the session back into the same
     // wall the mover just carried it out of.
     check("…and stands down for as long as the account it names has nothing, session moved or not",
-          pinSwitchPlan(afterTheMove(pinnedRow: spentNow).moving) == nil)
+          pinSwitchPlan(afterTheMove(pinnedRow: spentNow).moving, fleet: spentFleet) == nil)
     // …and the release really is what is standing there. The reading behind it, taken over the
     // same fleet, is asserted in full one section down (`carried`).
     check("…which is the release, standing on a tick where the session's own account is healthy",
           afterTheMove(pinnedRow: spentNow).yields)
-    check("the app's own pin drags it back either way, which is what that scope means",
+
+    // MARK: - 32c-2. AND THE MOVER'S OWN FIELD, which is the half the release cannot cover
+
+    // THE ASSERTION THIS REPLACES SAID THE OPPOSITE: "the app's own pin drags it back either way,
+    // which is what that scope means". It was true of the old resolver and it is the shape of the
+    // 2026-09-01 incident. A fleet pin is never RELEASED - that part is unchanged and asserted just
+    // above - but the pin switch is a proactive mover and now plays on the field every proactive
+    // mover plays on (`liveMoveField`), so it waits for the account it names to be one a move may
+    // go to at all. Deferred, never broken: the cell below shows the same pin taking the session
+    // home the moment that account can serve again.
+    //
+    // What the old behaviour cost is worse than the wait: every preventive mover refuses a
+    // fleet-pinned session on `mode == "manual"` and the cap handoff answers `.waitPinned` for one,
+    // so a session dragged onto a spent account under a fleet pin has nothing left that can move it
+    // until the window resets.
+    check("a fleet pin does not drag the session onto an account with nothing left either",
           pinSwitchPlan(afterTheMove(pinnedRow: spentNow, app: appPinned,
-                                     projectAccount: nil).moving)?.target.id == "D")
+                                     projectAccount: nil).moving, fleet: spentFleet) == nil)
+    check("…and takes it home the moment that account can serve again, pin never touched",
+          pinSwitchPlan(afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                     projectAccount: nil).moving,
+                        fleet: healthyFleet)?.target.id == "D")
+    // THE CELL THE OWNER HIT (handoff.log 2026-09-01: cap-handoff at 04:20:55, `reason=pin` back at
+    // 04:21:29, cap again at 04:22:45, back again at 04:23:20). The cap handoff quarantines the
+    // account whose wall this session just hit and carries the session to a sibling; the quarantine
+    // is the only record that D is unusable RIGHT NOW, because D's published percentages can still
+    // read healthy - here D is `comfortable`, exactly as it was that morning.
+    check("a pin naming the account the cap handoff just walked out of waits for the quarantine",
+          pinSwitchPlan(afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                     projectAccount: nil).moving, fleet: healthyFleet,
+                        quarantine: ["D": (model: "fable",
+                                           until: Date().addingTimeInterval(600))]) == nil)
+    // …and only for the window it names: a quarantine on the fable window says nothing about a
+    // session running sonnet, which is `quarantineBlocks`' own rule and the reason this is a wait
+    // rather than a divorce.
+    check("…and a quarantine that has expired stops saying anything at all",
+          pinSwitchPlan(afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                     projectAccount: nil).moving, fleet: healthyFleet,
+                        quarantine: ["D": (model: "fable",
+                                           until: Date().addingTimeInterval(-1))])?.target.id == "D")
+    // A SNAPSHOT THAT CANNOT ANSWER IS NOT A REASON TO MOVE, which is the same sentence the release
+    // makes about its own missing data (`observe`) and which this station used to contradict: the
+    // old resolver read the accounts out of a STALE document, because `loadSnapshot` hands back the
+    // snapshot beside the problem rather than instead of it.
+    check("a snapshot too old to trust holds the pin switch exactly as it holds every other mover", {
+        var watcher = idleWatcher("drought-stale")
+        var plan: RelaunchPlan?
+        var state = ManualMoveState(sessionKey: "9292", servedEpoch: 100, dir: switchDir)
+        var record: PendingSwitchConsumption?
+        var under = afterTheMove(pinnedRow: comfortable, app: appPinned,
+                                 projectAccount: nil).moving
+        applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
+                         account: sibling, providerID: "claude", primaryModel: "fable",
+                         watcher: &watcher, childAge: 9999, keyboardIdle: { _ in true },
+                         dir: switchDir, request: { _ in nil }, accounts: { healthyFleet },
+                         loaded: {
+                             switchFleetReading(healthyFleet,
+                                                generatedAt: Date().addingTimeInterval(
+                                                    -(snapshotMaxAge + 60)))
+                         })
+        return plan == nil
+    }())
 
     // MARK: - 32d. The reading behind all of it
 
@@ -451,7 +522,8 @@ func runDroughtChecks() {
         let yields: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
                                                    pinnedSpent: loopWatch.pinnedSpent)
         if yields { released += 1 }
-        let dragged: RelaunchPlan? = pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: yields))
+        let dragged: RelaunchPlan? = pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: yields),
+                                                   fleet: emptyPin)
         if dragged != nil { draggedBack += 1 }
     }
     check("ten ticks on the account a mover carried it to, and the pin drags it back on none",
@@ -471,5 +543,6 @@ func runDroughtChecks() {
     check("and when that account refills the release lapses on its own",
           !loopWatch.pinnedSpent && !refilled)
     check("…which is the standing instruction taking the session home again",
-          pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: refilled))?.target.id == "D")
+          pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: refilled),
+                        fleet: refilledPin)?.target.id == "D")
 }

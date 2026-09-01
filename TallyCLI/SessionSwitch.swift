@@ -127,9 +127,22 @@ func sessionPolicy(_ policy: LaunchPolicy, sessionPin: String?) -> LaunchPolicy 
 /// `request` is one because a default argument cannot name `state.sessionKey`, and the file it
 /// reads is what every tick is polling for anyway. Both are also the seam that makes this testable
 /// without a home directory or a snapshot.
+///
+/// `loaded` IS THE SEAM THE PIN SWITCH PLAYS ON, and it is a second one on purpose. The two halves
+/// of this call ask different questions of the fleet: a `tally switch` is a typed instruction and
+/// asks only what a named account IS (`switchTargetState`, which holds a stale listing rather than
+/// dropping an instruction on its floor), while the pin switch is an automatic move and asks the
+/// question every other automatic mover asks - can this snapshot answer at all, and is that account
+/// one a move may go to right now (`liveMoveField`, MoveField.swift). Folding them into one reading
+/// would mean choosing one of those two answers for both.
+///
+/// `primaryModel` and `quarantine` are here for that same half: they are what makes the field this
+/// mover plays on the SAME field as the rebalance, the turn-boundary move and the window repick.
 func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                       record: inout PendingSwitchConsumption?, policy: inout LaunchPolicy,
                       account: Snapshot.Account, providerID: String,
+                      primaryModel: String? = nil,
+                      quarantine: [String: (model: String?, until: Date)] = [:],
                       watcher: inout TranscriptWatcher, childAge: TimeInterval,
                       keyboardIdle: (TimeInterval) -> Bool,
                       dir: URL = switchRequestDir,
@@ -142,6 +155,7 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                       homeOnDisk: @escaping (String, String) -> Bool = {
                           accountHomeExists($0, provider: $1)
                       },
+                      loaded: () -> (Snapshot?, String?) = { loadSnapshot() },
                       now: Date = Date()) {
     let fleet = policy
     // Before anything else this tick, and on every tick rather than only the ones with a request:
@@ -160,18 +174,8 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
     // The FLEET's policy, deliberately: this half is about the pin moved in the panel, and the
     // session's own pin reaches it as the stand-down inside it rather than as a pin to follow.
     applyPinSwitch(plan: &plan, state: state, account: account, providerID: providerID,
-                   policy: fleet, watcher: &watcher, keyboardIdle: keyboardIdle,
-                   accounts: accounts)
-}
-
-/// The account an id names, when it is one this session could actually be launched on. Through the
-/// same classifier the switch decision uses, so "launchable" means one thing here: the pin has no
-/// use for WHY a target is unusable (it simply waits, as it always has), and asking the one question
-/// twice in two shapes is how the two would come to disagree about it.
-private func launchableAccount(_ id: String?, provider: String,
-                               in accounts: () -> [Snapshot.Account]?) -> Snapshot.Account? {
-    guard let id else { return nil }
-    return switchTargetState(id, provider: provider, accounts: accounts()).account
+                   policy: fleet, primaryModel: primaryModel, quarantine: quarantine,
+                   watcher: &watcher, keyboardIdle: keyboardIdle, loaded: loaded, now: now)
 }
 
 /// The status-line badge a switch leaves while the gate holds it. A constant because the wording is
@@ -426,16 +430,51 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 /// go, not an instruction to drag this conversation somewhere its user just moved it off. (The
 /// legacy `overriddenPin` says the same thing about a narrower case, for a session that upgraded
 /// mid-life out of a build that only had that.)
+///
+/// AND IT PLAYS ON THE FIELD EVERY OTHER PROACTIVE MOVER PLAYS ON (`liveMoveField`,
+/// MoveField.swift), which is the whole of the 2026-09-01 fix. It used to resolve the pinned account
+/// through the switch request's classifier instead, and that classifier answers a DIFFERENT
+/// question: it says what a named account IS, for a typed instruction that is allowed to wait on a
+/// stale listing. Asked by an automatic mover it made this the one station on the tick whose answer
+/// to "the snapshot cannot say" was MOVE while every other station's was stay put, and the release
+/// meant to stand it down (DroughtWatch.swift) is false in exactly those cases: `liveMoveField`
+/// answering nil, a held-over reading, a failed refresh, no counted window - `accountIsSpent` refuses
+/// to release a pin on any of them, correctly, and this dragged the session anyway.
+///
+/// THREE CELLS CLOSE TOGETHER BECAUSE THEY ARE ONE SHAPE, and the third is the one the owner hit:
+///
+///   1. A snapshot too old to trust, unreadable, or not naming the account this session is ON. The
+///      old resolver read `loadSnapshot().0?.accounts`, which hands back the accounts of a STALE
+///      document (`loadSnapshot` returns the snapshot beside the problem); the field refuses it.
+///   2. The pinned account's own row saying nothing usable - a poll that failed, an error, a stale
+///      row, no headroom left at all. `eligible` is the fleet-wide spelling of "could serve this",
+///      and 1% still passes it, so a pin honoured to the letter is untouched.
+///   3. THE PINNED ACCOUNT IS QUARANTINED, which is the cap handoff's own record of a wall this
+///      session just hit. The handoff moved the session off that account and 34 seconds later this
+///      dragged it back, into the same 429, twice inside three minutes (handoff.log, 2026-09-01
+///      04:20:55 → 04:21:29 → 04:22:45 → 04:23:20). CapDetection.swift had already named this
+///      exact blindness as the reason a fleet pin it cannot honour must answer `.waitPinned`; the
+///      quarantine is time-boxed, so the pin is deferred past the wall rather than broken by it.
+///
+/// Every one of those is a NARROWING: the field's candidates are a subset of what the old resolver
+/// called launchable (both require a launch home), so nothing this used to refuse is now allowed.
 private func applyPinSwitch(plan: inout RelaunchPlan?, state: ManualMoveState,
                             account: Snapshot.Account, providerID: String, policy: LaunchPolicy,
+                            primaryModel: String?,
+                            quarantine: [String: (model: String?, until: Date)],
                             watcher: inout TranscriptWatcher,
                             keyboardIdle: (TimeInterval) -> Bool,
-                            accounts: () -> [Snapshot.Account]?) {
+                            loaded: () -> (Snapshot?, String?), now: Date) {
+    // The cheap gates first, so a tick that could not move this session anyway never pays for the
+    // snapshot read below - the ordering every other mover keeps for the same reason.
     guard state.sessionPin == nil,
           policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
           !state.pinOverridden(pinnedID), watcher.isQuiet(manualMoveIdleSeconds),
           keyboardIdle(manualMoveIdleSeconds),
-          let target = launchableAccount(pinnedID, provider: providerID, in: accounts)
+          let field = liveMoveField(provider: providerID, account: account,
+                                    primaryModel: primaryModel, quarantine: quarantine,
+                                    loaded: loaded(), now: now),
+          let target = field.candidates.first(where: { $0.id == pinnedID })
     else { return }
     warn("pinned in Tally → switching to \(target.label)")
     plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)

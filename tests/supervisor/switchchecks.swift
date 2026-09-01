@@ -31,6 +31,21 @@ func switchAccount(_ id: String, label: String? = nil,
                      isStale: false, error: nil)
 }
 
+/// The tick's snapshot reading as the PIN SWITCH asks for it: a fresh document listing exactly
+/// these accounts.
+///
+/// It exists because that half of `applyManualMoves` plays on the movers' shared field
+/// (`liveMoveField`, MoveField.swift) rather than on the typed switch's classifier, so a test that
+/// wants the pin to act has to hand it a snapshot that can ANSWER - a listing alone is what the
+/// typed switch reads, and handing one to an automatic mover is the 2026-09-01 defect
+/// (SessionSwitch.swift carries it). `generatedAt` is the seam for the stale case.
+func switchFleetReading(_ accounts: [Snapshot.Account],
+                        generatedAt: Date = Date()) -> (Snapshot?, String?) {
+    let snapshot = Snapshot(version: 2, generatedAt: generatedAt, accounts: accounts)
+    let age = Date().timeIntervalSince(generatedAt)
+    return (snapshot, age > snapshotMaxAge ? "snapshot is \(Int(age / 60))m old" : nil)
+}
+
 /// A session that has been silent for long enough to pass any bar, with no open tool call in it.
 func idleWatcher(_ label: String) -> TranscriptWatcher {
     switchWatcher(label, lines: [#"{"type":"user","timestamp":"2026-01-01T00:00:00Z"}"#])
@@ -723,7 +738,8 @@ func runSwitchChecks() {
     applyManualMoves(plan: &plainPlan, state: &plainPin, record: &plainRecord, policy: &plainPolicy,
                      account: onA, providerID: "claude", watcher: &plainWatcher,
                      childAge: 9999, keyboardIdle: { _ in true }, dir: tickDir,
-                     request: { _ in nil }, accounts: { fleet })
+                     request: { _ in nil }, accounts: { fleet },
+                     loaded: { switchFleetReading(fleet) })
     check("a pinned session with no switch history follows the pin",
           plainPlan?.target.id == "B" && plainPlan?.reason == "pin")
     check("a pin switch never counts against the fuse either", plainPlan?.countsFuse == false)
@@ -736,7 +752,7 @@ func runSwitchChecks() {
     applyManualMoves(plan: &midPlan, state: &midState, record: &midRecord, policy: &midPolicy,
                      account: onA, providerID: "claude", watcher: &pinMidTurn, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in nil },
-                     accounts: { fleet })
+                     accounts: { fleet }, loaded: { switchFleetReading(fleet) })
     check("a pin does not cut a live turn short either", midPlan == nil)
     try? FileManager.default.removeItem(at: tickDir)
 

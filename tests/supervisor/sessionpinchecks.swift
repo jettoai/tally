@@ -65,7 +65,8 @@ func runSessionPinChecks() {
         applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
                          account: on, providerID: "claude", watcher: &watcher, childAge: 9999,
                          keyboardIdle: { _ in true }, dir: tickDir,
-                         request: { _ in request }, accounts: { fleet })
+                         request: { _ in request }, accounts: { fleet },
+                         loaded: { switchFleetReading(fleet) })
         tickPolicy = under
         return (plan, record)
     }
@@ -251,7 +252,8 @@ func runSessionPinChecks() {
         applyManualMoves(plan: &plan, state: &legacy, record: &record, policy: &under,
                          account: onA, providerID: "claude", watcher: &legacyWatcher,
                          childAge: 9999, keyboardIdle: { _ in true }, dir: tickDir,
-                         request: { _ in request }, accounts: { fleet })
+                         request: { _ in request }, accounts: { fleet },
+                         loaded: { switchFleetReading(fleet) })
         return plan
     }
     check("the legacy override still refuses the pin it was taken off", legacyTick(nil) == nil)
@@ -274,7 +276,7 @@ func runSessionPinChecks() {
     applyManualMoves(plan: &execPlan, state: &afterExec, record: &execRecord, policy: &execPolicy,
                      account: toD, providerID: "claude", watcher: &relaunched, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in nil },
-                     accounts: { fleet })
+                     accounts: { fleet }, loaded: { switchFleetReading(fleet) })
     check("a session that came back from an upgrade is still pinned", execPlan == nil)
     check("and still knows what it is pinned to", afterExec.sessionPin == "D")
 

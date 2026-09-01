@@ -158,10 +158,17 @@ final class ProcessFootprintStore {
             pid_t(row.id).map { ($0, row.state == .idle || row.state == .blocked,
                                  row.childPid.flatMap { pid_t(exactly: $0) }) }
         }
+        // WHICH DIRECTORIES THIS MACHINE'S SESSIONS ARE WORKING IN, settled before the table is
+        // walked because it is what decides whether to walk it: a project goes on being accounted
+        // for while anything is running in it, which outlives the session that put it there and is
+        // the one state the Projects section exists to show (`ProjectLoadAccounting.accounted`).
+        let rootOfSession = rollup.roots(of: board)
         // A board with nothing on it is not a special case, only an empty one: no table is walked,
         // the loop below does not run, and everything held falls out through the same three lines
-        // that retire a single session that ended.
-        let processes = roots.isEmpty ? [] : ProcessTree.liveProcesses()
+        // that retire a single session that ended. A project still being watched keeps the pass
+        // alive on its own, and stops it again on the first tick that finds nothing left in it.
+        let processes = roots.isEmpty && rollup.accounted.isEmpty
+            ? [] : ProcessTree.liveProcesses()
         // EVERY LIVE PROCESS BY PID, out of the walk that has just been made anyway. Two readings
         // need it: a port held across a few ticks is compared against when its holder BEGAN, since
         // the number alone cannot say whether the pid still belongs to the process that opened the
@@ -206,14 +213,13 @@ final class ProcessFootprintStore {
         // once: each write is a lock and a whole-file rewrite, and a board of ten sessions starting
         // commands would otherwise take ten of them in one tick.
         var claims: [SessionProcessGroup] = []
-        // WHICH DIRECTORIES THIS MACHINE'S SESSIONS ARE WORKING IN, and what is running in them
-        // that no card accounts for. Both are the rollup's own work, next door: it is a second
-        // reading of the pass just made rather than another pass, and this file had run out of room
-        // (`ProjectLoadAccounting.strays`, which is also where the scratchpad signal is).
-        let rootOfSession = rollup.roots(of: board)
+        // WHAT IS RUNNING IN THOSE DIRECTORIES THAT NO CARD ACCOUNTS FOR: the rollup's own work,
+        // next door, being a second reading of the pass just made rather than another pass, and
+        // this file had run out of room (`ProjectLoadAccounting.strays`, which is also where the
+        // scratchpad signal is).
         let (strayRoot, adoptions) = rollup.strays(among: processes, claimed: claimed,
                                                    adopted: adopted, board: board,
-                                                   roots: Set(rootOfSession.values))
+                                                   roots: rollup.accounted)
         // THE FULL MEMBERSHIP OF EVERY CARD, settled before any of them is measured: an adopted job's
         // own children come in with it, and those must come OUT of the strays below or the page
         // would count them twice - once on a card and once as work nobody is answering for. The
@@ -224,14 +230,14 @@ final class ProcessFootprintStore {
         // only seeds `members` takes beyond the root's own tree and job, so with nothing adopted the
         // second walk rebuilds the whole table's parent index to arrive at the set already in hand -
         // per card, on the ordinary board where nothing is adopted at all.
-        var membership: [pid_t: Set<pid_t>] = [:]
+        var membership: [String: Set<pid_t>] = [:]
         var counted: Set<pid_t> = []
         for (root, _, _) in roots {
             let orphans = adoptions[String(root)] ?? []
             let full = orphans.isEmpty
                 ? (reached[root] ?? [])
                 : ProcessTree.members(root: root, processes: processes, adopting: orphans)
-            membership[root] = full
+            membership[String(root)] = full
             counted.formUnion(full)
         }
         // On screen only, and see the file's note for why: this is the one reading here that costs
@@ -266,7 +272,7 @@ final class ProcessFootprintStore {
             // board above, so nothing here can take a process another card is already counting; fed
             // back into the same walk, an adopted server's own children come with it.
             let orphans = adoptions[key] ?? []
-            let members = membership[root] ?? []
+            let members = membership[key] ?? []
             guard !members.isEmpty else { continue }
             // Every program in the tree, once: the same table answers which of these processes are
             // Tally's own and what to call the one that earned a name.
@@ -443,17 +449,14 @@ final class ProcessFootprintStore {
         // than from the readings above: on a capture those are fixtures, and a rollup summing the
         // machine's real numbers under a board of invented ones would contradict every card on the
         // page (the same reason the ring is offered the drawn footprint one loop up).
-        let byProject = next.compactMap { key, footprint in
-            rootOfSession[key].map {
-                MachineLoadRollup.SessionReading(root: $0, cpuPercent: footprint.cpuPercent,
-                                                 memoryBytes: footprint.memoryBytes)
-            }
-        }
+        // …with a session that runs INSIDE another one counted once (`MachineLoadRollup.nested`).
+        let byProject = MachineLoadRollup.readings(of: next, roots: rootOfSession,
+                                                   members: membership)
         // And the strays as they stand once the cards are settled: minus whatever a card turned out
         // to be counting, which is the adopted jobs' own children (`MachineLoadRollup.leftovers`).
         let unattributed = MachineLoadRollup.leftovers(strays: strayRoot, counted: counted)
-        let load = roots.isEmpty ? MachineLoad()
-                                 : rollup.load(sessions: byProject, strays: unattributed, at: now)
+        let load = rollup.accounted.isEmpty
+            ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
         if load != machineLoad { machineLoad = load }
         previousSample = readings
         cpuCarry = carried

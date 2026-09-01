@@ -61,6 +61,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/processtreecensuschecks.swift \
   tests/supervisor/sessiongroupchecks.swift tests/supervisor/machineloadchecks.swift \
+  tests/supervisor/projectloadchecks.swift \
   tests/supervisor/footprintchecks.swift \
   tests/supervisor/footprintalertchecks.swift tests/supervisor/footprinttrendchecks.swift \
   tests/supervisor/footprinttrendsurfacechecks.swift \
@@ -132,6 +133,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreeRates.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/SessionProcessGroups.swift Tally/Core/MachineLoadRollup.swift \
+  Tally/Stores/ProjectLoadAccounting.swift \
   Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift \
   Tally/Core/FootprintTrend.swift \
   Tally/Core/DemoSessions.swift Tally/Core/DemoUsage.swift \

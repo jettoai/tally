@@ -122,21 +122,82 @@ func runSessionGroupChecks() {
           SessionProcessGroups.claimant(of: proc(700, ppid: 1, group: 1), ledger: ledger,
                                         sessions: sessions, startedAt: table(detached)) == nil)
 
+    // MARK: the refusal above, on the path this whole file exists for
+
+    // THE LEADER OF A JOB IS THE SHELL WHOSE EXIT MAKES THE JOB AN ORPHAN, so the tick that matters
+    // is always a tick where the process table can no longer say when the group's leader started.
+    // Taking that silence for the answer wrote a second claim with no stamp on it, and `claimant`
+    // skips the recycled-number test on a stamp-less claim: the strongest of the three refusals
+    // switched itself off on the main path, leaving the weak test alone against a newborn stranger.
+    let afterExit = SessionProcessGroups.observed(
+        members: detached.filter { [100, 200, 400, 401].contains($0.pid) },
+        startedAt: table(detached), name: { $0 == 400 ? "uv" : "sh" })
+    check("the job's leader has gone by the time the orphan matters, so the table cannot stamp it",
+          afterExit.first { $0.group == 300 }?.leaderStartedAt == nil)
+    let carriedOn = SessionProcessGroups.claims(afterExit, session: "100",
+                                                sessionStartedAt: birth(100), against: ledger,
+                                                at: "2026-08-25T10:00:02.000Z")
+    check("…and the tick after it exits writes nothing, the claim on file still answering for it",
+          carriedOn.isEmpty)
+    // A claim IS written again when a member older than any seen before turns up in the group, and
+    // that one has to carry the stamp forward too: what is written down is the only thing left that
+    // knows when the leader began.
+    let older = [SessionProcessGroups.Observation(group: 300, leaderStartedAt: nil,
+                                                  earliestMemberStart: birth(300) - 1_000,
+                                                  name: "uv")]
+    let restamped = SessionProcessGroups.claims(older, session: "100",
+                                                sessionStartedAt: birth(100), against: ledger,
+                                                at: "2026-08-25T10:00:04.000Z")
+    check("…and a claim written once the leader has gone keeps the stamp the leader left",
+          restamped.first?.leaderStartedAt == birth(300))
+    // THE FAILURE THAT PUTS A STRANGER'S CORES ON A CARD, replayed through the ledger a live session
+    // actually builds rather than through a hand-written one: the first claim, plus everything the
+    // ticks after the leader's exit added to it, still refuses a recycled group number.
+    check("…so the ledger that outlives the leader still refuses a recycled group number",
+          SessionProcessGroups.claimant(of: proc(700, ppid: 1, group: 300),
+                                        ledger: ledger + carriedOn + restamped,
+                                        sessions: sessions, startedAt: recycled) == nil)
+
     // MARK: two sessions claiming one job
 
     // A `tally claude` started inside a supervised terminal is genuinely in its parent's tree, so
-    // both can hold the group; the one that STARTED the job is the one that saw it later.
+    // both can hold the group; the one that STARTED the job is the inner one.
+    //
+    // AND THE NESTED CASE IS A TIE ON "WHO SAW IT LAST", which is why the claims here carry the SAME
+    // instant rather than two hand-written ones three seconds apart. The inner supervisor is already
+    // inside the outer's tree, so one pass of one tick observes the job on both cards, and a tick
+    // stamps every claim it writes with one instant (`ProcessFootprintStore.sample` takes it once).
+    // A test that invented a gap was asserting a mechanism production cannot reach: the contest was
+    // always being settled by the arbitrary tie-break underneath it.
+    let sameTick = "2026-08-25T10:00:00.000Z"
+    check("the two sessions of a nested pair see the job on the same tick, at the same instant",
+          ledger.allSatisfy { $0.firstSeen == sameTick })
     let contested = ledger + [SessionProcessGroup(session: "500", sessionStartedAt: birth(500),
                                                   group: 300, leaderStartedAt: birth(300),
                                                   earliestMemberStart: birth(300),
-                                                  firstSeen: "2026-08-25T10:00:03.000Z",
-                                                  name: "sh")]
-    check("a contested job goes to the session that saw it last, which is the inner one",
-          SessionProcessGroups.claimant(of: orphan, ledger: contested,
-                                        sessions: ["100": birth(100), "500": birth(500)],
+                                                  firstSeen: sameTick, name: "sh")]
+    let bothLive = ["100": birth(100), "500": birth(500)]
+    check("a contested job goes to the inner session, which is the supervisor that started later",
+          SessionProcessGroups.claimant(of: orphan, ledger: contested, sessions: bothLive,
                                         startedAt: table(detached)) == "500")
+    // The outer supervisor is the one with the LOWER pid here as well as the earlier start, so the
+    // answer above is the second key's rather than the pid tie-break's underneath it.
+    check("…which is not what the pid tie-break under it would have answered",
+          contested.filter { $0.group == 300 }.map(\.session).min() == "100")
     check("…and falls back to the live one when the other has gone",
           SessionProcessGroups.claimant(of: orphan, ledger: contested, sessions: sessions,
+                                        startedAt: table(detached)) == "100")
+    // Two supervisors that somehow started at the same instant still have to be told apart, and the
+    // answer only has to be DECIDABLE: an adoption changing hands from tick to tick would move cores
+    // between two cards every two seconds.
+    let twins = contested.map { record -> SessionProcessGroup in
+        var same = record
+        same.sessionStartedAt = birth(100)
+        return same
+    }
+    check("…and a tie on both keys falls to the lower pid, which is arbitrary and stable",
+          SessionProcessGroups.claimant(of: orphan, ledger: twins,
+                                        sessions: ["100": birth(100), "500": birth(100)],
                                         startedAt: table(detached)) == "100")
 
     // MARK: the whole machine at once
@@ -208,4 +269,27 @@ func runSessionGroupChecks() {
                                         at: t0.addingTimeInterval(2), ours: [])
     check("an unspendable credit is written off rather than suppressing the next tick",
           ProcessTree.cpuPercent(from: orphaned, to: working, carry: unsettled.carry).percent == 200)
+
+    // MARK: the two credits, on the tick that holds both of them
+
+    // ONE TICK'S ARRIVALS ARE ONE POOL, and each credit capped at the whole of them is each credit
+    // settling the same seconds. 30 is a session process that ends having burned three seconds; 10
+    // is a hook of ours that ends having burned two; 20 collects three seconds of children and
+    // really burns five of its own. The tree's own credit takes the whole three arriving seconds,
+    // so ours has nothing left to spend and is written off - the five seconds of real work stand.
+    let bothKinds = ProcessResourceSample(times: [10: 2, 20: 1, 30: 3], childTimes: [:],
+                                          at: t0, ours: [10])
+    let settling = ProcessResourceSample(times: [20: 6], childTimes: [20: 3],
+                                         at: t0.addingTimeInterval(1), ours: [])
+    let paired = ProcessTree.cpuPercent(from: bothKinds, to: settling)
+    check("two kinds of credit against one tick's arrivals do not each spend the whole of them",
+          paired.percent == 500)
+    check("…and what ours could not spend is handed on rather than taken out of the work",
+          paired.carry.ours == 2 && paired.carry.theirs == 0)
+    // The same, with ours' credit arriving from the tick before instead of departing on this one:
+    // both halves of ours' spending are capped against what the tree's own credit left.
+    let carriedIn = ProcessResourceSample(times: [20: 1, 30: 3], childTimes: [:], at: t0, ours: [])
+    check("…and a credit carried in from the previous tick is capped the same way",
+          ProcessTree.cpuPercent(from: carriedIn, to: settling,
+                                 carry: ProcessCPUCarry(theirs: 0, ours: 2)).percent == 500)
 }

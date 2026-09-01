@@ -287,6 +287,32 @@ func runProcessTreeLineChecks() {
                                unit: "procs", agentUnit: "agents").map(\.kind)
               == [.processes, .cpu, .agents, .memory])
 
+    // MARK: the background field
+
+    // THE ONE FIELD ON THIS CARD THAT EXPLAINS AN IDLE SESSION COSTING TWELVE CORES: the jobs whose
+    // own shell exited, re-parented to launchd, matched back here by the group they still carry
+    // (`SessionProcessGroups`). It was the reading the card could not produce at all before the
+    // ledger existed, and it had no assertion of any kind: deleting the whole segment left every
+    // suite in this repo green (mutation, 2026-09-01).
+    check("a session that has left jobs running behind it says how many, right after the count",
+          ProcessTree.line(ProcessFootprint(processes: 6, backgroundProcesses: 2, cpuPercent: 40,
+                                            listeningPorts: []),
+                           unit: "procs", backgroundUnit: "background")
+              == "6 procs · 2 background · 40% CPU")
+    // Zero is the ordinary session, which has left nothing behind: a segment reading "0 background"
+    // would spend the card's narrowest line saying that nothing happened, on almost every card.
+    check("…and a session that has left nothing says nothing about background at all",
+          ProcessTree.segments(ProcessFootprint(processes: 6, backgroundProcesses: 0, cpuPercent: 40,
+                                                listeningPorts: []),
+                               unit: "procs").map(\.kind) == [.processes, .cpu])
+    // The word is the caller's, exactly as "procs" and "agents" are: only the surface has the
+    // bundle, and only it knows which language the card is being drawn in.
+    check("the word for the background jobs is the caller's to choose",
+          ProcessTree.line(ProcessFootprint(processes: 3, backgroundProcesses: 1,
+                                            cpuPercent: nil, listeningPorts: []),
+                           unit: "procs", backgroundUnit: "im Hintergrund")
+              == "3 procs · 1 im Hintergrund")
+
     // MARK: the quieter half of a field
 
     // AN ASIDE IS READ BY EXACTLY ONE SURFACE: the row that draws a metric as a figure and prints
@@ -345,6 +371,13 @@ func runProcessTreeLineChecks() {
               && storeSource.contains("cpuCarry = carried"))
     check("…and is no longer thrown away with a panel that closed",
           !storeSource.contains("cpuCarry = [:]"))
+    // AND THE FIELD ABOVE HAS TO BE FED BY THE MACHINE, which is the half no pure assertion can
+    // reach: the count is a subtraction taken in the sampler (what the card ends up counting, less
+    // what the tree walk could reach on its own), and a segment rule that draws it perfectly out of
+    // a constant zero draws nothing on every card there is.
+    check("the tick counts the jobs the walk could not have reached on its own",
+          storeSource.contains("backgroundProcesses: orphans.isEmpty")
+              && storeSource.contains("? 0 : measured.subtracting(reached[root] ?? []).count"))
     // The ports cost a descriptor table per process on top of the walk, so they are read on their
     // own slower beat, held in between, and never taken at all with nothing on screen.
     check("the ports are read on a slower beat than the tree and its CPU",

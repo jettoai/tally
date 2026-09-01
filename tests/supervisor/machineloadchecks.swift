@@ -119,12 +119,98 @@ func runMachineLoadChecks() {
     // back off the card it was just matched to.
     check("a card with jobs to adopt is walked again, and only such a card is",
           sampler.contains("orphans.isEmpty") && sampler.contains("adopting: orphans)"))
+    // THE ROOTS ARE NOT THE BOARD'S, and the difference is the whole state this section exists for.
+    // Taken from the live rows, a checkout stops being accounted for in the same tick its last
+    // session closes: its dev server has no project to be a stray of, and with the board empty the
+    // pass does not even walk the table. Both short circuits are on the RETAINED roots now
+    // (`ProjectLoadAccounting.accounted`, whose lifecycle projectloadchecks.swift drives).
+    check("the tick accounts against the projects still being watched, not against the board",
+          sampler.contains("roots: rollup.accounted")
+              && sampler.contains("roots.isEmpty && rollup.accounted.isEmpty")
+              && sampler.contains("rollup.accounted.isEmpty\n            ? MachineLoad()")
+              && !sampler.contains("roots.isEmpty ? MachineLoad()")
+              && !sampler.contains("roots: Set(rootOfSession.values)"))
+    // And a project's total is asked for rather than assembled here, so the nesting rule cannot be
+    // skipped by a caller that only wanted the figures.
+    check("the sessions' side of the rollup comes through the rule that de-duplicates it",
+          sampler.contains("MachineLoadRollup.readings(of: next, roots: rootOfSession,")
+              && sampler.contains("members: membership)"))
+    // The strays' own rate is the other half that only exists in the store: a pair taken over the
+    // whole previous reading credits a departed stray its entire lifetime of CPU against a pool that
+    // can never settle it, and reads 0% for two ticks every time a job is adopted back onto a card.
+    let accounting = (try? String(contentsOfFile: "Tally/Stores/ProjectLoadAccounting.swift",
+                                  encoding: .utf8)) ?? ""
+    check("the accounting this suite reads is readable from it", !accounting.isEmpty)
+    check("a stray pool is paired against its survivors, so a departure settles nothing",
+          accounting.contains("previous[root]?.narrowed(to: pids)")
+              && !accounting.contains("carry: carry[root]"))
+    check("…and a project is watched from the tick a session names it until nothing is left in it",
+          accounting.contains("watching.formUnion(found.values)")
+              && accounting.contains("watching = Set(rollup.projects.map(\\.root))"))
 
-    // THE STATE THE ROLLUP EXISTS FOR: a checkout with load and no session at all.
+    // THE STATE THE ROLLUP EXISTS FOR: a checkout with load and no session at all. What hands this
+    // rule such an input is state rather than a rule, and is asserted where it lives
+    // (projectloadchecks.swift): for three months nothing could, and this assertion was green
+    // throughout.
     let abandoned = MachineLoadRollup.rows(sessions: [], strays: strays)
     check("a checkout whose session has ended still has a row while its jobs run",
           abandoned.projects.first?.sessions == 0
               && abandoned.projects.first?.strayProcesses == 6)
+
+    // MARK: a session running inside another one
+
+    // `tally claude` from a supervised terminal puts the inner supervisor inside the outer one's
+    // tree, so the outer card's members already hold every process the inner card counts. Two
+    // cards, one honest answer each; one project total, and adding them states the checkout at
+    // twice its size.
+    let members = ["100": Set<pid_t>([100, 200, 500, 600]), "500": Set<pid_t>([500, 600])]
+    check("the session whose whole tree is inside another one's on the same project is nested",
+          MachineLoadRollup.nested(members, roots: ["100": tally, "500": tally]) == ["500"])
+    check("…and two sessions of one checkout that share no process are not",
+          MachineLoadRollup.nested(["100": [100, 200], "500": [500, 600]],
+                                   roots: ["100": tally, "500": tally]).isEmpty)
+    // The rule is about one project's total, so it has nothing to say across two of them: those are
+    // two rows, and neither is adding the other's figures to itself.
+    check("…nor is a tree inside another one when the two are filed under different checkouts",
+          MachineLoadRollup.nested(members, roots: ["100": tally, "500": sibling]).isEmpty)
+    let together = MachineLoadRollup.rows(
+        sessions: [MachineLoadRollup.SessionReading(root: tally, cpuPercent: 300,
+                                                    memoryBytes: 4_000_000_000),
+                   MachineLoadRollup.SessionReading(root: tally, cpuPercent: 120,
+                                                    memoryBytes: 1_000_000_000, nested: true)],
+        strays: [])
+    check("a checkout's total counts a nested session without adding its figures a second time",
+          together.projects.first?.cpuPercent == 300
+              && together.projects.first?.memoryBytes == 4_000_000_000)
+    // AND IT IS STILL A SESSION WORKING HERE, which is not a detail: "more than one session in one
+    // checkout" is half of why this section is on the page at all, so a rule that dropped the row
+    // instead of its figures would take the section down with it.
+    check("…and is still counted as a session, which is half of why the section is drawn",
+          together.projects.first?.sessions == 2 && MachineLoadRollup.isWorthDrawing(together))
+    // And the readings the tick hands to `rows` are marked by the same rule, over the memberships
+    // the cards were drawn from.
+    let outer = ProcessFootprint(processes: 4, cpuPercent: 300, memoryBytes: 4_000_000_000,
+                                 listeningPorts: [])
+    let within = ProcessFootprint(processes: 2, cpuPercent: 120, memoryBytes: 1_000_000_000,
+                                  listeningPorts: [])
+    let drawn = MachineLoadRollup.readings(of: ["100": outer, "500": within],
+                                           roots: ["100": tally, "500": tally], members: members)
+    check("the reading of the session inside the other one is the one marked",
+          drawn.filter(\.nested).map(\.memoryBytes) == [1_000_000_000])
+    check("…so the checkout states the outer figure rather than the two added together",
+          MachineLoadRollup.rows(sessions: drawn, strays: []).projects.first?.cpuPercent == 300)
+    // A CARD THAT WAS NOT DRAWN SWALLOWS NOTHING: a root whose tree was all Tally's own has no
+    // footprint and adds nothing to the project, so letting its membership mark the session inside
+    // it would take that session's figures off the row with nothing putting them back.
+    check("…and a session whose card was skipped does not swallow the one inside it",
+          MachineLoadRollup.readings(of: ["500": within], roots: ["100": tally, "500": tally],
+                                     members: members).contains { $0.nested } == false)
+    check("two sessions in one checkout that share no process are both read in full",
+          MachineLoadRollup.rows(
+              sessions: MachineLoadRollup.readings(of: ["100": outer, "500": within],
+                                                   roots: ["100": tally, "500": tally],
+                                                   members: ["100": [100, 200], "500": [500, 600]]),
+              strays: []).projects.first?.cpuPercent == 420)
 
     // MARK: when the section is worth the room
 

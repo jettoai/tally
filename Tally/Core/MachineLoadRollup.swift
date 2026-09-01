@@ -77,6 +77,10 @@ enum MachineLoadRollup {
         var root: String
         var cpuPercent: Double?
         var memoryBytes: UInt64
+        /// Whether another session on this project is already counting every process this one is
+        /// (`nested`). Such a session is still a session working here and its figures are still its
+        /// card's; what it is not is a second helping of the same processes.
+        var nested: Bool = false
     }
 
     /// And one project's leftovers: what is working in that directory and belongs to no session.
@@ -122,6 +126,62 @@ enum MachineLoadRollup {
         strays.filter { !counted.contains($0.key) }
     }
 
+    /// WHICH SESSIONS' FIGURES A PROJECT MUST NOT ADD UP, because another card on the same project
+    /// is already counting every process they name.
+    ///
+    /// A SESSION STARTED INSIDE ANOTHER ONE IS INSIDE ITS PARENT'S TREE. `tally claude` run from a
+    /// supervised terminal puts the inner supervisor under the outer one, so the outer card's
+    /// members already contain the whole of the inner card's. For a CARD that is a question about
+    /// what a session is and both readings are defensible, which is where `ProcessTreeCensus` leaves
+    /// it. FOR A PROJECT IT IS NOT: "what is this repository costing me" has one answer, and adding
+    /// the two cards states it at twice its size - on exactly the board this section is drawn for,
+    /// since a project running several sessions is one of the two states `isWorthDrawing` returns
+    /// true for.
+    ///
+    /// SUBSET RATHER THAN OVERLAP, deliberately. Two cards share a process only where one tree
+    /// contains the other, so the subset test IS the nesting; a partial overlap would be a
+    /// different defect with a different repair (an adopted orphan's progeny walking into another
+    /// live session's tree, named in `SessionProcessGroups.adoptions`), and dropping a whole card's
+    /// figures for one would subtract work that is really there.
+    ///
+    /// - Parameters:
+    ///   - members: the pids each card is counting, keyed as the board keys its rows.
+    ///   - roots: which project each of those sessions is working in.
+    static func nested(_ members: [String: Set<pid_t>], roots: [String: String]) -> Set<String> {
+        var swallowed: Set<String> = []
+        for (key, mine) in members {
+            guard let root = roots[key] else { continue }
+            let inside = members.contains { other, theirs in
+                other != key && roots[other] == root && mine.isStrictSubset(of: theirs)
+            }
+            if inside { swallowed.insert(key) }
+        }
+        return swallowed
+    }
+
+    /// WHAT EACH PROJECT'S SESSIONS READ, out of the footprints the cards will actually draw.
+    ///
+    /// The one rule applied on the way through is the one above: a session already inside another
+    /// one's tree contributes its count and not its figures.
+    ///
+    /// - Parameters:
+    ///   - footprints: what each card will draw, keyed as the board keys its rows.
+    ///   - roots: which project each session is working in.
+    ///   - members: the pids each card is counting, for the nesting test. Read only for the cards
+    ///     that HAVE a footprint: a session whose card was skipped adds nothing to any total, so
+    ///     letting its membership swallow another one would take that other session's figures off
+    ///     the project without anything putting them back.
+    static func readings(of footprints: [String: ProcessFootprint], roots: [String: String],
+                         members: [String: Set<pid_t>]) -> [SessionReading] {
+        let swallowed = nested(members.filter { footprints[$0.key] != nil }, roots: roots)
+        return footprints.compactMap { key, footprint in
+            roots[key].map {
+                SessionReading(root: $0, cpuPercent: footprint.cpuPercent,
+                               memoryBytes: footprint.memoryBytes, nested: swallowed.contains(key))
+            }
+        }
+    }
+
     /// The rows a view draws, out of what the sessions read and what was left over.
     ///
     /// A PROJECT IS LISTED WHEN EITHER SIDE HAS SOMETHING TO SAY, so a directory whose session has
@@ -132,6 +192,10 @@ enum MachineLoadRollup {
     /// rather than zero everywhere else in this app, and summing a nil as zero here would state a
     /// reading nobody took; a project where nothing has been read twice keeps nil, and one where
     /// something has states what that something says.
+    ///
+    /// AND A NESTED SESSION IS COUNTED WITHOUT ITS FIGURES BEING ADDED (`nested`): it is a session
+    /// working here, so the count says two, and its processes are already in the outer card's
+    /// numbers, so adding them again would state the tree twice.
     static func rows(sessions: [SessionReading], strays: [StrayReading]) -> MachineLoad {
         var byRoot: [String: ProjectLoad] = [:]
         func row(_ root: String) -> ProjectLoad {
@@ -146,8 +210,10 @@ enum MachineLoadRollup {
         }
         for reading in sessions {
             var held = row(reading.root)
-            held.cpuPercent = add(reading.cpuPercent, to: held.cpuPercent)
-            held.memoryBytes += reading.memoryBytes
+            if !reading.nested {
+                held.cpuPercent = add(reading.cpuPercent, to: held.cpuPercent)
+                held.memoryBytes += reading.memoryBytes
+            }
             held.sessions += 1
             byRoot[reading.root] = held
         }

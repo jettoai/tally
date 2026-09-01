@@ -53,8 +53,10 @@ struct SessionProcessGroup: Codable, Equatable, Sendable {
     /// number, so a group whose leader has exited leaves a number the machine is free to hand out
     /// again, and a later job given it would be adopted by a session that never started it. When
     /// the leader is alive at match time and started at a different instant, the number has been
-    /// recycled and the claim is refused. Nil when the leader had already gone by the time the
-    /// claim was written, which is a claim that can only ever be checked by the weaker test below.
+    /// recycled and the claim is refused. Nil only when the leader had already gone the FIRST time
+    /// this session saw the group, which is a claim that can only ever be checked by the weaker
+    /// test below; once a stamp has been written the later claims of that group carry it forward
+    /// rather than losing it with the leader (`claims`).
     var leaderStartedAt: Int64?
     /// The earliest start time among the members seen carrying this group.
     ///
@@ -75,7 +77,15 @@ struct SessionProcessGroup: Codable, Equatable, Sendable {
 
 enum SessionProcessGroups {
     /// How many claims are kept. A session that runs commands all day is a claim per job, so this
-    /// is bounded by attrition as well as by the sweep below: the oldest go first.
+    /// is bounded by attrition as well as by the sweep below.
+    ///
+    /// AND THE CAP DROPS THE WRONG END, said rather than implied: `swept` keeps the newest `limit`,
+    /// so the first claim to go is the OLDEST claim of a live session - which is the one the sweep's
+    /// own note calls the most worth keeping (a dev server started at nine in the morning). Nothing
+    /// on this machine has come near the cap to date (the live ledger holds tens of claims across a
+    /// working day, and the sweep against the board is what actually bounds it), so this is a stated
+    /// limit rather than a defect being repaired: reaching it costs a long-lived job its adoption,
+    /// and only after four thousand shorter ones have been started by sessions still on the board.
     static let limit = 4000
 
     /// `~/.tally/session-groups.json`. The home is a parameter so an assertion harness can use a
@@ -141,6 +151,18 @@ enum SessionProcessGroups {
     /// A GENERATION IS PART OF THE COMPARISON rather than only of the match: a group number reused
     /// inside one session's life is a NEW job, and a ledger that called it answered would go on
     /// vouching for the dead one's earliest member.
+    ///
+    /// AND THE LEADER'S STAMP SURVIVES THE LEADER, which is the whole of what keeps the strongest
+    /// refusal on the MAIN PATH rather than on an edge of it. `observed` can only ask the process
+    /// table, and the table stops answering for a group the instant its leader exits - which is not
+    /// a rare state here, it is the state this file exists for: the leader IS the command shell
+    /// whose exit re-parents the job. A tick that took the table's silence for the answer wrote a
+    /// SECOND claim on the same group with no stamp at all, and `claimant` skips its recycled-number
+    /// test on a stamp-less claim, so the weak test stood alone and any newborn stranger carrying
+    /// that number passed it. The stamp this session already wrote down is the answer to a question
+    /// the table can no longer be asked, so it is carried forward, and the comparison above is made
+    /// against the carried value - otherwise the same claim is rewritten on every tick for as long
+    /// as the job runs, which is a lock and a whole-file write twice a second.
     static func claims(_ observations: [Observation], session: String, sessionStartedAt: Int64,
                        against existing: [SessionProcessGroup],
                        at instant: String) -> [SessionProcessGroup] {
@@ -150,12 +172,13 @@ enum SessionProcessGroups {
             held[record.group] = record
         }
         return observations.compactMap { observation in
-            if let record = held[observation.group],
-               record.leaderStartedAt == observation.leaderStartedAt,
+            let record = held[observation.group]
+            let leaderStartedAt = observation.leaderStartedAt ?? record?.leaderStartedAt
+            if let record, record.leaderStartedAt == leaderStartedAt,
                record.earliestMemberStart <= observation.earliestMemberStart { return nil }
             return SessionProcessGroup(session: session, sessionStartedAt: sessionStartedAt,
                                        group: observation.group,
-                                       leaderStartedAt: observation.leaderStartedAt,
+                                       leaderStartedAt: leaderStartedAt,
                                        earliestMemberStart: observation.earliestMemberStart,
                                        firstSeen: instant, name: observation.name)
         }
@@ -178,9 +201,18 @@ enum SessionProcessGroups {
     ///
     /// A CONTEST GOES TO THE CLAIM WRITTEN LAST, which is the innermost session: a `tally claude`
     /// started inside a supervised terminal is genuinely inside its parent's tree, so both may hold
-    /// the group, and the one that started the job is the one that saw it later. Ties fall to the
-    /// session with the lower pid, which is arbitrary and only has to be DECIDABLE: an adoption that
-    /// changed hands from tick to tick would move cores between two cards every two seconds.
+    /// the group, and the one that started the job is the one that saw it later.
+    ///
+    /// AND THE NESTED CASE IS A TIE ON THAT KEY RATHER THAN A CONTEST, which is why there is a
+    /// second one. The inner supervisor is ALREADY in the outer session's tree, so a job it starts
+    /// is first seen by both cards in the same pass of the same tick, and one tick writes one
+    /// instant for every claim it makes (`ProcessFootprintStore.sample`): the "written last" rule
+    /// can only separate sessions that saw the job on DIFFERENT ticks. So the tie is settled on
+    /// which SUPERVISOR started later, and the inner one always did - it was started from inside
+    /// the outer one's terminal. That says outright what the rule above only meant to say. Ties on
+    /// both keys fall to the session with the lower pid, which is arbitrary and only has to be
+    /// DECIDABLE: an adoption that changed hands from tick to tick would move cores between two
+    /// cards every two seconds.
     ///
     /// - Parameters:
     ///   - sessions: the live supervisors, pid string to when that supervisor started.
@@ -196,7 +228,10 @@ enum SessionProcessGroups {
             guard process.startedAt >= record.earliestMemberStart else { continue }
             guard let held = best else { best = record; continue }
             if record.firstSeen > held.firstSeen
-                || (record.firstSeen == held.firstSeen && record.session < held.session) {
+                || (record.firstSeen == held.firstSeen
+                    && (record.sessionStartedAt > held.sessionStartedAt
+                        || (record.sessionStartedAt == held.sessionStartedAt
+                            && record.session < held.session))) {
                 best = record
             }
         }
@@ -211,6 +246,19 @@ enum SessionProcessGroups {
     /// - Parameter unclaimed: the processes no session's tree already holds. Passing the whole
     ///   machine would work and would be wrong: a process that IS in a tree is already counted, and
     ///   counting it again on a second card is the one thing an attribution must not do.
+    ///
+    /// A BLIND SPOT THIS DOES NOT CLOSE, named rather than claimed away: the rule above holds for
+    /// the pids handed back here (each is claimed by at most one session, and every pid already in
+    /// a tree was excluded before being offered), and it does NOT hold for what the walk then
+    /// descends to. `ProcessTree.members(root:processes:adopting:)` continues from an adopted
+    /// orphan through its progeny with no test for crossing into another root, so if a second
+    /// session's supervisor happens to be descended from an orphan this session adopted - a
+    /// `tally claude` started from a shell that had already detached - that whole tree is counted
+    /// on both cards. It needs the adopted orphan to be an ANCESTOR of another live supervisor,
+    /// which has not been observed on this machine; it is written here because the alternative is a
+    /// reader taking the paragraph above for a closed case. A project's total does not inherit it
+    /// while both cards are in one project, since the swallowed tree is a subset of the swallowing
+    /// one and is counted once there (`MachineLoadRollup.nested`).
     static func adoptions(unclaimed: some Sequence<ProcessIdentity>,
                           ledger: [SessionProcessGroup], sessions: [String: Int64],
                           startedAt: (pid_t) -> Int64?) -> [String: Set<pid_t>] {

@@ -179,6 +179,34 @@ struct ProcessResourceSample: Equatable {
     var memoryBytes: UInt64 {
         memory.reduce(0) { $0 + (ours.contains($1.key) ? 0 : $1.value) }
     }
+
+    /// This reading with everything but these pids dropped, so a pair taken across it has NO
+    /// departures in it.
+    ///
+    /// WHAT IT IS FOR IS A POOL WHOSE DEPARTURES SETTLE NOWHERE. A departure's credit exists to
+    /// cancel an ARRIVAL: the seconds come off because they are about to land in whoever collected
+    /// the process, and for a tree that collector is the parent standing right there
+    /// (`ProcessTree.cpuPercent`). A project's strays are the processes NO tree holds, so their
+    /// collector is launchd by construction (`ProjectLoadAccounting`) and nothing ever arrives: the
+    /// credit is the departed process's whole life from birth, and taken off a pool it cannot
+    /// settle against it reads the pool at 0% for as long as the credit lasts. Measured at two
+    /// ticks, and triggered by the feature working - a stray adopted back onto a card LEAVES the
+    /// pool, so every successful adoption blanked its project's stray row.
+    ///
+    /// WHAT THIS COSTS, stated rather than implied: a stray that ends between two ticks takes its
+    /// last interval of work with it, which is the same undercount `ProcessTree.diskWrite` accepts
+    /// for the same reason. And where one pool member reaps another the collection arrives whole in
+    /// the survivor's child counter with nothing coming off, so that child's earlier seconds are
+    /// counted twice - once while it ran and once as it is buried. One tick high, against two ticks
+    /// blank on every adoption, and the reading it protects is a rate nobody can act on anyway
+    /// unless it is roughly right.
+    func narrowed(to pids: Set<pid_t>) -> ProcessResourceSample {
+        ProcessResourceSample(times: times.filter { pids.contains($0.key) },
+                              childTimes: childTimes.filter { pids.contains($0.key) },
+                              memory: memory.filter { pids.contains($0.key) },
+                              diskWritten: diskWritten.filter { pids.contains($0.key) },
+                              at: at, ours: ours.intersection(pids))
+    }
 }
 
 enum ProcessTree {

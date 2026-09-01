@@ -306,6 +306,29 @@ func runProcessTreeChecks() {
           percent(from: sample([100: 3], child: [100: 0], at: 0),
                   to: sample([100: 4], child: [100: 0], at: 2), carry: neverSettled.carry) == 50)
 
+    // MARK: the pool whose departures settle nowhere
+
+    // A CREDIT IS ONLY EVER WORTH TAKING WHERE AN ARRIVAL IS COMING. Everything above is about a
+    // TREE, where the collector is the parent standing right there; a project's strays are the
+    // processes no tree holds, so launchd buries them and nothing arrives anywhere this app reads
+    // (`ProjectLoadAccounting`). 900 is a dev server steadily burning half a core, 901 a helper that
+    // has been running for ten minutes and leaves: its whole lifetime of CPU came off the pool it
+    // could never be settled against, and the row read 0% for two ticks - once for the credit and
+    // once for the carry - while 900 went on burning.
+    let pool = sample([900: 10, 901: 600], child: [:], at: 0)
+    let departed = sample([900: 11], child: [:], at: 2)
+    check("a whole pool differenced against a departure it cannot settle reads nothing at all",
+          ProcessTree.cpuPercent(from: pool, to: departed).percent == 0)
+    check("…and the pair taken over the survivors reads what the survivors are actually doing",
+          ProcessTree.cpuPercent(from: pool.narrowed(to: [900]), to: departed).percent == 50)
+    check("…leaving no carry to blank the tick after it either",
+          ProcessTree.cpuPercent(from: pool.narrowed(to: [900]), to: departed).carry
+              == ProcessCPUCarry())
+    // Narrowing is by pid and touches nothing else: the instant and the readings of whoever is left
+    // are the same numbers, or the pair would be measuring a different interval than it says.
+    check("what is kept is kept exactly as it was read",
+          pool.narrowed(to: [900]).times == [900: 10] && pool.narrowed(to: [900]).at == pool.at)
+
     // MARK: which process is doing it
 
     // MORE THAN HALF, NOT HALF: a name beside a number claims one thing is doing this, and two

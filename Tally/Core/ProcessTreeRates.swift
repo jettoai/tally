@@ -42,7 +42,9 @@ struct ProcessCPUCarry: Equatable {
     /// on different ticks and the clamp at zero costs nothing in between.
     var theirs: Double = 0
     /// And what TALLY'S OWN departures left unsettled, which may only ever be spent against an
-    /// arrival. Carried for one tick, on the same bound the credit beside it keeps: a hook that died
+    /// arrival the credit above has not already settled - the two come out of one tick's arrivals,
+    /// and each spending the whole of them takes the difference off real work (`cpuPercent`).
+    /// Carried for one tick, on the same bound the credit beside it keeps: a hook that died
     /// just before a reading is collected just after it, and if the arrival still has not come by
     /// then it is never coming.
     var ours: Double = 0
@@ -161,14 +163,22 @@ extension ProcessTree {
                                                             ours: carry.ours + departedOurs))
         }
         let arrivals = arrived.values.reduce(0, +)
+        let theirs = carry.theirs + departedTheirs
+        // AND THE TWO CREDITS SETTLE OUT OF ONE POOL, which is what "capped at the arrivals" has to
+        // mean once there are two of them. The tree's own credit comes off the tick whole, so what
+        // is left for ours is what THAT has not already taken - measured against the full arrivals,
+        // both kinds cancelled the same seconds and the difference came off real work: five seconds
+        // of arrivals with five of each credit read 0% where either credit alone read 500%, which is
+        // the very double count `ProcessCPUCarry` was split in two to stop, reappearing on the tick
+        // where both kinds are present.
+        let spendable = max(0, arrivals - theirs)
         // Ours' credit spends what was carried in first and then what left this tick, and only ever
         // against an arrival. What THIS tick's departures cannot spend is handed on for one tick;
         // what was carried in and still cannot be spent is written off, which is the same bound the
         // credit beside it keeps and for the same reason.
-        let carriedSpent = min(carry.ours, arrivals)
-        let departedSpent = min(departedOurs, arrivals - carriedSpent)
+        let carriedSpent = min(carry.ours, spendable)
+        let departedSpent = min(departedOurs, spendable - carriedSpent)
         let spentOurs = carriedSpent + departedSpent
-        let theirs = carry.theirs + departedTheirs
         let net = own.values.reduce(0, +) + arrivals - theirs - spentOurs
         return ProcessCPUReading(
             percent: max(0, net) / elapsed * 100,

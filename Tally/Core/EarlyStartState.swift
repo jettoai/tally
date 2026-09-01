@@ -1,47 +1,51 @@
 import Foundation
 
 /// What early start remembers between evaluations: enough to keep "at most one message per account
-/// per closed-window episode" true across a restart, a sleep or an auto-update relaunch, and enough
-/// for the Settings row to say what today has actually done.
+/// every 5 hours" true across a restart, a sleep or an auto-update relaunch, and enough for the
+/// Settings row to say what today has actually done.
 ///
 /// EVERY TYPE HERE DECODES KEY BY KEY. The synthesized `Decodable` throws on a missing key rather
 /// than falling back to the property default, and the store reads a decode failure as "no state at
 /// all" - which, for this feature, means sending every message it already sent today a second time.
 /// So a payload written by an older build has to READ, and the way that stays true as fields are
 /// added is that fields are only ever added. Declared in extensions so the memberwise inits survive.
+///
+/// A FIELD THAT IS REMOVED HAS TO GO ON READING TOO, and does, because a decoder that names its keys
+/// ignores the ones it is not asking about. Two went that way when the arming suppression did
+/// (`EarlyStart.swift` says why): a mark's `sawWindowOpen`, and the state's `armedAt`. Whatever is
+/// on disk keeps decoding; those two keys are simply not read, which is the same answer as their
+/// having been nil.
 
-/// One account's suppression: when it was last acted on, and whether its window has been seen open
-/// since.
+/// One account's suppression: when a message was last sent for it.
 ///
-/// THE TWO HALVES ANSWER DIFFERENT QUESTIONS and both are needed. `attemptedAt` bounds the cost, and
-/// bounds it absolutely: whatever else is true, an account gets at most one message per
-/// `EarlyStartLogic.retryInterval`. `sawWindowOpen` releases the suppression that has no cost behind
-/// it - the one the arming stamp puts on an account no message was ever sent for
-/// (`EarlyStartState.armedAt`) - because a window seen open and then closed is the provider's own
-/// numbers saying that episode is over, and waiting out five hours for a message nobody sent buys
-/// nothing.
+/// A STRUCT FOR ONE DATE, deliberately. It carried a second field while the relay inferred anything
+/// from a pass, and the shape is what the payload on disk is written in, so collapsing it to a bare
+/// date would make every state written before this build fail to decode - which the store reads as
+/// "nothing was ever sent" and answers by sending it all again.
 ///
-/// IT IS RECORDED ON ATTEMPTED ACCOUNTS TOO, where it is a record rather than a release. The floor
-/// is what answers there, and it answers WITHOUT asking whose window closed, which is the only form
-/// of the rule that holds: a window one of these messages opens is at most `retryInterval` long and
-/// routinely less (Anthropic resets sessions on a ten-minute grid), so "it closed early, therefore
-/// it was somebody else's" is false on ordinary days. The promise is about cost, not provenance, so
-/// the observation changes nothing here and the relay simply hands over a few minutes late.
+/// WHAT IT BOUNDS IS COST, ABSOLUTELY: an account gets at most one message per
+/// `EarlyStartLogic.retryInterval`, and this is the only thing in the feature that holds an account
+/// back. It answers WITHOUT asking whose window closed, which is the only form of the rule that
+/// holds: a window one of these messages opens is at most `retryInterval` long and routinely less
+/// (Anthropic resets sessions on a ten-minute grid), so "it closed early, therefore it was somebody
+/// else's" is false on ordinary days. The relay simply hands over a few minutes late.
+///
+/// NOTHING CLEARS THESE MARKS EARLY, the switch included. Turning the feature off and on again is
+/// not a reason to spend a second message inside the interval, and it is the one path that could:
+/// the marks used to be wiped there, which was safe only because a stamp took over the suppression
+/// in the same breath. With that stamp gone, wiping them would hand back exactly the guarantee the
+/// panel notice and the Settings row both state in words.
 struct EarlyStartMark: Codable, Equatable {
-    /// When a message was last attempted for this account, or nil when the suppression comes from
-    /// the schedule being armed mid-episode rather than from an attempt (`EarlyStartState.armedAt`).
+    /// When a message was last attempted for this account. Optional only so that a payload written
+    /// before this field was always set still decodes; an evaluation writes one on every attempt and
+    /// prunes the ones it finds without it (`EarlyStartLogic.recording`).
     var attemptedAt: Date?
-    /// Whether this account's 5-hour window has been observed OPEN since `attemptedAt` (or since
-    /// arming, when there was no attempt). Set from the pass list rather than from the spawn's exit
-    /// code: what proves a window opened is the provider's own numbers saying so.
-    var sawWindowOpen: Bool = false
 }
 
 extension EarlyStartMark {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         attemptedAt = try container.decodeIfPresent(Date.self, forKey: .attemptedAt)
-        sawWindowOpen = try container.decodeIfPresent(Bool.self, forKey: .sawWindowOpen) ?? false
     }
 }
 
@@ -134,9 +138,6 @@ struct EarlyStartState: Codable, Equatable {
     /// at noon and signed back in at one still gets its window opened, and its sibling's message
     /// says nothing about it.
     var marks: [String: EarlyStartMark] = [:]
-    /// When the schedule was last armed, which suppresses every account's CURRENT episode without
-    /// naming them (`EarlyStartLogic.arming` says why, and why it cannot name them).
-    var armedAt: Date?
     /// Today's tally for the Settings row.
     var today: EarlyStartToday?
 }
@@ -145,7 +146,6 @@ extension EarlyStartState {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         marks = try container.decodeIfPresent([String: EarlyStartMark].self, forKey: .marks) ?? [:]
-        armedAt = try container.decodeIfPresent(Date.self, forKey: .armedAt)
         today = try container.decodeIfPresent(EarlyStartToday.self, forKey: .today)
     }
 }

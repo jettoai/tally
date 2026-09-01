@@ -66,11 +66,10 @@ func candidate(_ id: String, provider: String = "claude", home: String? = "/User
 /// Quiet hours switched off, which is the shipping default and the state most of these checks want.
 let loud = EarlyStartQuietHours()
 
-/// Every reason there is, so the two truth tables below can be shown to cover the enum rather than
-/// to cover the cases somebody remembered.
+/// Every reason there is, so the truth table below can be shown to cover the enum rather than to
+/// cover the cases somebody remembered.
 let everyReason: [EarlyStartSkip] = [.otherProvider, .accountOff, .notLaunchable, .pollMissed,
-                                     .unreadable, .windowOpen, .alreadyStarted, .armedMidEpisode,
-                                     .quietHours]
+                                     .unreadable, .windowOpen, .alreadyStarted, .quietHours]
 
 // 1. THE FIRST-RUN GATE. The feature ships on, so the switch alone must not be enough: nothing may
 //    be sent before the one-time notice has been answered. All four rows, because the interesting

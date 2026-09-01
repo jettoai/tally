@@ -14,6 +14,18 @@ import Foundation
 /// the day where waiting is the better answer. What replaces the clock is `EarlyStartQuietHours`,
 /// which is off by default and exists for the preference the arithmetic cannot speak to.
 ///
+/// BEING SWITCHED ON IS ALREADY BEING TOLD, so nothing waits after it. The schedule goes live only
+/// once the one-time notice has been answered, and both ways of answering it are the user reading
+/// what this does: pressing the button on the panel, or opening the Settings row that says the same
+/// thing at more length (`EarlyStartLogic.isArmed`). There is therefore no moment at which the
+/// feature is armed and the user has not heard of it, and no surprise left for a waiting period to
+/// prevent. It used to hold every account's closed stretch for up to five hours after the switch
+/// moved; that was the same waiting the arithmetic above rules out, wearing politeness. An account
+/// whose window is closed when the schedule goes live is started by the very next evaluation.
+///
+/// WHAT BOUNDS THE COST IS `EarlyStartLogic.retryInterval`, ALONE. One attempt per account per five
+/// hours, whatever else is true, and it is the only suppression in this file.
+///
 /// Everything in this file is a pure function of values, Foundation only (no AppKit, no timers, no
 /// Process), so `tests/earlystart` compiles it standalone. The persisted shapes live in
 /// `EarlyStartState.swift`, the silence window in `EarlyStartQuietHours.swift`; the scheduling and
@@ -62,14 +74,10 @@ enum EarlyStartSkip: String, Equatable {
     /// (`AccountUsage.pollsKeepFailing`), which is the version of that news worth showing somebody.
     case unreadable
     /// The window is already counting down. The commonest pass by far, and the one the feature is
-    /// for: somebody who is working gets nothing sent on their behalf. It is also the OBSERVATION
-    /// the relay runs on (`observesOpenWindow`).
+    /// for: somebody who is working gets nothing sent on their behalf.
     case windowOpen
-    /// This account's current closed-window stretch has already had its message.
+    /// This account has had its message inside the last `EarlyStartLogic.retryInterval`.
     case alreadyStarted
-    /// The schedule was armed part way through this account's current closed-window stretch, so the
-    /// relay starts from the next one rather than from the moment somebody moved a switch.
-    case armedMidEpisode
     /// The user asked for silence at this hour.
     case quietHours
 
@@ -92,26 +100,8 @@ enum EarlyStartSkip: String, Equatable {
     var countsAsSkip: Bool {
         switch self {
         case .otherProvider, .accountOff, .pollMissed, .windowOpen, .alreadyStarted,
-             .armedMidEpisode, .quietHours: return false
+             .quietHours: return false
         case .notLaunchable, .unreadable: return true
-        }
-    }
-
-    /// Whether this pass is EVIDENCE that the account's window opened, which is what ends one
-    /// episode and starts the next (`EarlyStartMark.sawWindowOpen`).
-    ///
-    /// A DIFFERENT AXIS FROM `countsAsSkip` and, since that one narrowed, they now share no case at
-    /// all: this asks what the pass proves about the provider's side, that one asks what the user
-    /// should be told. Only `windowOpen` proves anything - it is read from Anthropic's own numbers,
-    /// which is a stronger fact than a spawn's exit code, and it is what releases an account the
-    /// arming stamp is holding without waiting out `EarlyStartLogic.retryInterval`. It does NOT
-    /// release an account that has had a message: that one owes the interval whatever is seen
-    /// during it (`EarlyStartLogic.pass`).
-    var observesOpenWindow: Bool {
-        switch self {
-        case .windowOpen: return true
-        case .otherProvider, .accountOff, .notLaunchable, .pollMissed, .unreadable, .alreadyStarted,
-             .armedMidEpisode, .quietHours: return false
         }
     }
 }
@@ -127,20 +117,16 @@ struct EarlyStartPlan: Equatable {
     var start: [EarlyStartCandidate] = []
     var passed: [EarlyStartPass] = []
 
-    /// Whether this evaluation has anything to WRITE DOWN - either an action, or an observation the
-    /// next evaluation depends on.
+    /// Whether this evaluation belongs in the day's tally, and the same question as whether it has
+    /// anything to write down at all. An evaluation that started nothing and blocked on nothing is
+    /// the ordinary quiet case, hundreds of times a day, and must not touch the record (see
+    /// `EarlyStartSkip.countsAsSkip`).
     ///
-    /// The observation half is why this is not the same question as `isReportable`, and having them
-    /// be the same by coincidence is how the relay would quietly stop relaying: the store returns
-    /// early when there is nothing to record, and an evaluation whose only content is "these three
-    /// accounts are working now" reports nothing while carrying the fact that ends their episodes.
-    var needsRecording: Bool {
-        !start.isEmpty || passed.contains { $0.reason.countsAsSkip || $0.reason.observesOpenWindow }
-    }
-
-    /// Whether this evaluation belongs in the day's tally. An evaluation that started nothing and
-    /// blocked on nothing is the ordinary quiet case, hundreds of times a day, and must not touch
-    /// the record (see `EarlyStartSkip.countsAsSkip`).
+    /// IT WAS TWO QUESTIONS while the relay carried an observation forward: an evaluation whose only
+    /// content was "these three accounts are working now" reported nothing and still had to be
+    /// written, because that fact ended their suppression. Nothing is inferred from a pass any more
+    /// - the only suppression left is the attempt's own floor, which ages out on the clock - so the
+    /// two questions have one answer and are one property.
     var isReportable: Bool { !start.isEmpty || passed.contains { $0.reason.countsAsSkip } }
 
     var skippedCount: Int { passed.filter { $0.reason.countsAsSkip }.count }
@@ -172,8 +158,9 @@ enum EarlyStartLogic {
     /// minutes after its own window shut, which is the price of the promise and is not worth an
     /// exception: an exception is the bug this floor was rewritten to close.
     ///
-    /// What the observation (`EarlyStartSkip.observesOpenWindow`) releases early is the suppression
-    /// that has no message behind it, and so no cost to bound (`EarlyStartState.armedAt`).
+    /// IT IS ALSO THE ONLY SUPPRESSION LEFT. Everything else that used to hold an account back was
+    /// about the moment somebody moved a switch (see the top of this file), and none of it bounded a
+    /// cost, so this one carries the promise by itself.
     static let retryInterval: TimeInterval = 5 * 60 * 60
 
     /// Which telling of this feature the one-time notice has to have delivered. Bumped when the
@@ -256,15 +243,10 @@ enum EarlyStartLogic {
 
     /// Why this account is not being started, or nil to start it.
     ///
-    /// THE ORDER IS LOAD-BEARING IN TWO PLACES. `notLaunchable` comes before the reading check
-    /// because a signed-out account also reports an unusable reading, and "there is no credential
-    /// here" is the more useful of the two answers. And the window check comes before the
-    /// suppression checks, which is the opposite of the order the morning schedule used: a
-    /// suppressed account is exactly the one whose open window has to be SEEN, because the
-    /// observation is read off the pass reason (`EarlyStartSkip.observesOpenWindow`) and it is what
-    /// releases an account the arming stamp is holding. Put the suppression first and an account
-    /// armed mid-episode is answered `.armedMidEpisode` every time - no observation is ever recorded
-    /// for it, and the relay decays into the five-hourly alarm it replaced.
+    /// ONE ORDERING IS LOAD-BEARING: `notLaunchable` comes before the reading check, because a
+    /// signed-out account also reports an unusable reading and "there is no credential here" is the
+    /// more useful of the two answers. The rest of the order decides only which reason a passed-over
+    /// account is reported with, since none of these questions changes another's answer.
     static func pass(_ candidate: EarlyStartCandidate, state: EarlyStartState,
                      quietHours: EarlyStartQuietHours, now: Date, calendar: Calendar)
         -> EarlyStartSkip? {
@@ -277,25 +259,20 @@ enum EarlyStartLogic {
         if candidate.windowIsOpen { return .windowOpen }
         if quietHours.contains(now, calendar: calendar) { return .quietHours }
 
-        let mark = state.marks[candidate.accountID]
-        // THE ATTEMPT'S FLOOR FIRST, AND NOTHING GETS PAST IT: an account that has had a message
-        // owes the five hours whatever is observed during them, which is the promise three places
-        // in this app make in those words. The rule is deliberately blind to WHOSE window closed,
-        // because that question cannot be answered from here and the promise does not depend on it:
-        // our own window closes inside the interval routinely (resets land on a ten-minute grid, so
-        // it shuts up to ten minutes early), and somebody else's does too whenever the reading that
-        // sent the message read a live window as closed (`windowIsOpen` names the 0%-rounding edge).
+        // THE ATTEMPT'S FLOOR, AND NOTHING GETS PAST IT: an account that has had a message owes the
+        // five hours whatever is observed during them, which is the promise three places in this app
+        // make in those words. The rule is deliberately blind to WHOSE window closed, because that
+        // question cannot be answered from here and the promise does not depend on it: our own
+        // window closes inside the interval routinely (resets land on a ten-minute grid, so it shuts
+        // up to ten minutes early), and somebody else's does too whenever the reading that sent the
+        // message read a live window as closed (`windowIsOpen` names the 0%-rounding edge).
         // Releasing on either would be a second message inside the interval.
-        if let attemptedAt = mark?.attemptedAt {
+        //
+        // AND NO MARK MEANS GO. An account this schedule has not written down inside the interval is
+        // one nothing has been spent on, so there is nothing to bound and nothing to wait for: the
+        // window in front of it is closed and can be moved earlier now.
+        if let attemptedAt = state.marks[candidate.accountID]?.attemptedAt {
             return now.timeIntervalSince(attemptedAt) >= retryInterval ? nil : .alreadyStarted
-        }
-        // No attempt of its own, so there is no cost to bound: this account is held by the arming
-        // stamp alone (`arming` says why that stamp cannot name accounts), and a window seen open
-        // and then closed is the provider's own numbers saying that episode is over. THIS is what
-        // the observation is for, and the only place it decides anything.
-        if mark?.sawWindowOpen == true { return nil }
-        if let armedAt = state.armedAt {
-            return now.timeIntervalSince(armedAt) >= retryInterval ? nil : .armedMidEpisode
         }
         return nil
     }
@@ -316,44 +293,14 @@ enum EarlyStartLogic {
         return plan
     }
 
-    /// Arm the schedule, which is what the switch going on and the first notice being read both do.
-    ///
-    /// NOTHING IS BACKFILLED INTO THE EPISODE SOMEBODY CHANGED THEIR MIND DURING. Turning the
-    /// feature on is a statement about the windows from here on: sending a message the instant the
-    /// switch moves would be the surprise the notice exists to prevent, one step later. So arming
-    /// suppresses every account's current closed-window stretch, and the relay starts with the next
-    /// one - the first window that opens and closes while the feature is on.
-    ///
-    /// IT CANNOT NAME THE ACCOUNTS, which is why this is a single stamp rather than a mark each.
-    /// The switch lives in Settings and the accounts arrive with a refresh, so arming happens with
-    /// no fleet in hand. A stamp the pass rule falls back to when an account has no mark of its own
-    /// says the same thing about all of them, including the ones discovered afterwards. The marks
-    /// that DO exist are cleared for the same reason: a stale `sawWindowOpen` from before the
-    /// feature was switched off would let an account through on the strength of a window nobody was
-    /// watching.
-    ///
-    /// Only arming does this. A launch, a wake or an ordinary refresh does not: none of them is
-    /// somebody changing their mind, and an app that was closed while a window closed is the case
-    /// this feature is most obviously for.
-    static func arming(_ state: EarlyStartState, now: Date) -> EarlyStartState {
-        var next = state
-        next.armedAt = now
-        next.marks = [:]
-        return next
-    }
-
-    /// Fold a finished evaluation into the state: what was attempted, what was observed, and what
-    /// today's row should say.
+    /// Fold a finished evaluation into the state: what was attempted, and what today's row should
+    /// say.
     ///
     /// STAMPED ON THE ATTEMPT, not on the success, because the promise is "at most one message per
     /// account per five hours" and a retry ladder cannot keep it: a refresh loop running every few
     /// minutes on a day when something is wrong would be dozens of attempts per account. The cost is
     /// an episode lost to a transient failure; what is bought is that the count on the row is the
     /// number of times Tally spoke on somebody's behalf, whatever the answers were.
-    ///
-    /// THE OBSERVATION IS RECORDED WHETHER OR NOT ANYTHING WAS SENT, and it is the half that makes
-    /// the relay a relay: an account seen working has its `sawWindowOpen` set, so the moment that
-    /// window closes it is owed a message again without waiting out the five hours.
     ///
     /// - Parameters:
     ///   - attempted: account ids a spawn was made for, whatever its outcome.
@@ -378,15 +325,8 @@ enum EarlyStartLogic {
                           failed: [String], couldNotStart: [String] = [], now: Date,
                           calendar: Calendar) -> EarlyStartState {
         var next = state
-        // A fresh mark, not an edit: an attempt begins a new episode, so whatever was observed about
-        // the last one stops counting here.
         for accountID in attempted {
-            next.marks[accountID] = EarlyStartMark(attemptedAt: now, sawWindowOpen: false)
-        }
-        for entry in plan.passed where entry.reason.observesOpenWindow {
-            var mark = next.marks[entry.accountID] ?? EarlyStartMark()
-            mark.sawWindowOpen = true
-            next.marks[entry.accountID] = mark
+            next.marks[accountID] = EarlyStartMark(attemptedAt: now)
         }
 
         if plan.isReportable {
@@ -409,13 +349,11 @@ enum EarlyStartLogic {
 
         // A mark that can no longer change an answer is dropped, so the payload does not grow by one
         // entry per account per day for the life of the install. A mark whose floor has aged past
-        // the retry interval suppresses nothing, and one with no floor at all never did.
+        // the retry interval suppresses nothing, and one with no floor at all (which only a payload
+        // from an older build can hold) never did.
         next.marks = next.marks.filter { _, mark in
-            guard let floor = mark.attemptedAt ?? next.armedAt else { return false }
+            guard let floor = mark.attemptedAt else { return false }
             return now.timeIntervalSince(floor) < retryInterval
-        }
-        if let armedAt = next.armedAt, now.timeIntervalSince(armedAt) >= retryInterval {
-            next.armedAt = nil
         }
         return next
     }

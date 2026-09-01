@@ -162,6 +162,23 @@ func runSpawnChecks() {
         expect(store.components(separatedBy: "guard started").count - 1 == 3,
                "…which is every live path there is: the other entrances all end at one of these three")
 
+        // NOTHING BUT AN EVALUATION MAY WRITE THIS STATE, and that is what carries the cost floor
+        // across the Settings switch. The marks are the whole record of "this account has had its
+        // message inside the last five hours"; the switch used to clear them and hand the
+        // suppression to a stamp that no longer exists, so a preference path that writes state again
+        // would give back the guarantee the panel notice and the Settings row both state in words.
+        // Read from the source because the store cannot be compiled here, and asserted on both the
+        // low-level writer and the one function that calls it, since either alone leaves a way in.
+        expect(store.components(separatedBy: "Self.saveState(").count - 1 == 1,
+               "exactly one place puts this state on disk")
+        expect(store.contains("""
+            private func apply(_ state: EarlyStartState) {
+                    Self.saveState(state)
+            """),
+               "…which is apply(), the one publisher the two folds go through")
+        expect(store.components(separatedBy: "apply(").count - 1 == 3,
+               "…and its only callers are those two folds: nothing a preference does reaches it")
+
         // THE ANSWERS ALWAYS COME BACK, read from the same source and for the same reason: the day's
         // two account lists are cleared by `correcting` and by nothing else, so a spawn task that
         // returns early when nothing failed leaves every account it just served on "could not

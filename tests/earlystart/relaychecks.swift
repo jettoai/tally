@@ -3,10 +3,10 @@ import Foundation
 // The relay itself: which accounts are started, which are passed over and why, and the handover
 // that gives the feature its name (Tally/Core/EarlyStart.swift).
 //
-// The sequence in the middle is the whole behaviour change of 2026-08-25 in one run of assertions:
-// a window is started, the window it opened is SEEN open, that window closes, and the next message
-// goes out. Everything around it exists to pin down the two ways that chain can be faked - by the
-// clock alone, and by an attempt that never opened anything.
+// The sequence in the middle is the relay in one run of assertions: a window is started, the window
+// it opened is left alone while it runs, that window closes, and the next message goes out.
+// Everything around it pins down the one thing that may hold an account back - the attempt's own
+// five-hour floor - and the fact that nothing else does, the switch moving included.
 
 func runRelayChecks() {
     // 6. IS THE WINDOW ALREADY OPEN - read from the numbers the app already polls, both halves
@@ -152,22 +152,25 @@ func runRelayChecks() {
         expect(pass(candidate("b"), state: attempted, at: now.addingTimeInterval(60)) == nil,
                "…per ACCOUNT: a sibling that has not had its message still gets one")
 
-        var armed = empty
-        armed.armedAt = now
-        expect(pass(candidate("a"), state: armed, at: now.addingTimeInterval(60)) == .armedMidEpisode,
-               "an account whose stretch was underway when the schedule was armed waits for the next")
-        expect(pass(candidate("a"), state: armed,
-                    at: now.addingTimeInterval(EarlyStartLogic.retryInterval)) == nil,
-               "…for at most the retry interval, after which it is started anyway")
+        // THE SWITCH GOING ON IS NOT A WAITING PERIOD, which is the whole of the 2026-09-01 change:
+        // there is no longer any state that holds back an account with no mark of its own. It used
+        // to be held for up to five hours from the moment somebody moved the switch; the first
+        // assertion in this block is the same account, now started. What the switch does and does
+        // not carry over is asserted in full in statechecks (14).
+        var elsewhere = empty
+        elsewhere.marks["b"] = EarlyStartMark(attemptedAt: now)
+        elsewhere.today = EarlyStartToday(day: "2026-08-24", started: 1)
+        expect(pass(candidate("a"), state: elsewhere, at: now.addingTimeInterval(60)) == nil,
+               "a day already under way holds back only the accounts it wrote a mark for")
     }
 
-    // 9. WHICH PASSES COUNT AS SKIPS, and which are EVIDENCE the window opened. Two axes over the same
-    //    nine reasons, listed exhaustively from `everyReason` so a reason added later cannot slip past
-    //    both tables. They now share no case at all: one asks what the user should be told, the other
-    //    what the provider's numbers proved.
+    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all eight reasons, listed exhaustively from
+    //    `everyReason` so a reason added later cannot slip past the table. It used to be two axes:
+    //    the second asked what a pass PROVED about the provider's side, which is how an account
+    //    suppressed by the arming stamp was let out early. Nothing is inferred from a pass any more.
     do {
-        expect(everyReason.count == 9 && Set(everyReason.map(\.rawValue)).count == 9,
-               "all nine reasons are named here, once each")
+        expect(everyReason.count == 8 && Set(everyReason.map(\.rawValue)).count == 8,
+               "all eight reasons are named here, once each")
 
         expect(EarlyStartSkip.notLaunchable.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip,
                "the two that mean an account gets nothing while the switch reads on are reported")
@@ -179,21 +182,13 @@ func runRelayChecks() {
         // when everything worked.
         expect(!EarlyStartSkip.windowOpen.countsAsSkip,
                "an account that is simply working is not a skip: that is the feature succeeding")
-        expect(!EarlyStartSkip.quietHours.countsAsSkip && !EarlyStartSkip.alreadyStarted.countsAsSkip
-                 && !EarlyStartSkip.armedMidEpisode.countsAsSkip,
-               "…and neither is silence somebody asked for, nor a stretch already dealt with")
+        expect(!EarlyStartSkip.quietHours.countsAsSkip && !EarlyStartSkip.alreadyStarted.countsAsSkip,
+               "…and neither is silence somebody asked for, nor an account already served")
         // The debounce, as a truth-table row: one missed poll is not news, a streak of them is. The
         // list this feeds is a set that only clears at midnight, so the difference is between a row
         // that reads wrong until tomorrow and one that reads wrong for a minute.
         expect(!EarlyStartSkip.pollMissed.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip,
                "…nor is a single missed poll, though the streak it may become is")
-
-        expect(EarlyStartSkip.windowOpen.observesOpenWindow,
-               "an open window is evidence the window opened")
-        expect(everyReason.filter(\.observesOpenWindow).map(\.rawValue) == ["windowOpen"],
-               "…and it is the only reason that proves anything about the provider's side")
-        expect(everyReason.allSatisfy { !($0.countsAsSkip && $0.observesOpenWindow) },
-               "the two axes share no case: what is reported and what is proved are different questions")
     }
 
     // 10. ONE EVALUATION'S PLAN over a mixed fleet.
@@ -212,18 +207,17 @@ func runRelayChecks() {
                "every other account is passed over with its own reason")
         expect(plan.skippedCount == 1,
                "…of which one is worth reporting (the signed-out one; the busy one is working)")
-        expect(plan.isReportable && plan.needsRecording,
-               "an evaluation that started something is both reported and recorded")
+        expect(plan.isReportable, "an evaluation that started something is written down")
 
-        // A fleet where everything is already working. Nothing to report - and it MUST still be
-        // recorded, because "these two are working" is the fact that ends their episodes.
+        // A fleet where everything is already working writes nothing at all. It used to be recorded
+        // even so, because "these two are working" was the fact that released them from the arming
+        // stamp; with no stamp to release them from, the payload is left alone - which is what keeps
+        // a once-a-minute refresh loop from rewriting it all day.
         let allBusy = EarlyStartLogic.plan(
             candidates: [candidate("a", windowOpen: true), candidate("b", windowOpen: true)],
             state: EarlyStartState(), quietHours: loud, now: now, calendar: taipei)
         expect(allBusy.start.isEmpty && allBusy.skippedCount == 0, "an all-busy fleet starts nothing")
-        expect(!allBusy.isReportable, "…and puts nothing on the row")
-        expect(allBusy.needsRecording,
-               "…but is still written down: the observation is what makes the relay a relay")
+        expect(!allBusy.isReportable, "…and writes nothing down either")
 
         // A fleet where one account blinked and another has been failing for a while. Neither is
         // started - the window state is not known for either - and only the sustained one is put on
@@ -243,14 +237,14 @@ func runRelayChecks() {
         let blink = EarlyStartLogic.plan(candidates: [candidate("blinked", readable: false)],
                                          state: EarlyStartState(), quietHours: loud, now: now,
                                          calendar: taipei)
-        expect(!blink.isReportable && !blink.needsRecording,
+        expect(!blink.isReportable,
                "a fleet whose only news is one missed poll writes nothing")
 
         // A fleet with nothing in scope at all: neither reported nor recorded.
         let none = EarlyStartLogic.plan(
             candidates: [candidate("codex", provider: "codex"), candidate("off", enabled: false)],
             state: EarlyStartState(), quietHours: loud, now: now, calendar: taipei)
-        expect(!none.isReportable && !none.needsRecording,
+        expect(!none.isReportable,
                "a fleet with nothing in scope writes nothing at all")
 
         // A whole fleet inside quiet hours: nothing started, nothing reported, nothing recorded.
@@ -259,7 +253,7 @@ func runRelayChecks() {
             quietHours: EarlyStartQuietHours(isEnabled: true, startHour: 23, startMinute: 0,
                                              endHour: 7, endMinute: 0),
             now: at("2026-08-24 03:00"), calendar: taipei)
-        expect(asleep.start.isEmpty && !asleep.isReportable && !asleep.needsRecording,
+        expect(asleep.start.isEmpty && !asleep.isReportable,
                "a fleet inside quiet hours is left entirely alone")
     }
 
@@ -275,22 +269,20 @@ func runRelayChecks() {
         expect(first.start.map(\.accountID) == ["a"], "a closed window is started")
         state = EarlyStartLogic.recording(state, plan: first, attempted: ["a"], failed: [], now: opened,
                                           calendar: taipei)
-        expect(state.marks["a"]?.attemptedAt == opened && state.marks["a"]?.sawWindowOpen == false,
+        expect(state.marks["a"]?.attemptedAt == opened,
                "…and the account is marked with the moment it was attempted")
 
-        // 09:05 - the next refresh reads the window the message opened. Nothing is sent; what happens
-        // is the observation.
+        // 09:05 - the next refresh reads the window the message opened. Nothing is sent, and nothing
+        // is written: the attempt's own floor is what will hold this account until 14:00.
         let seen = at("2026-08-24 09:05")
         let watching = EarlyStartLogic.plan(candidates: [candidate("a", windowOpen: true)],
                                             state: state, quietHours: loud, now: seen, calendar: taipei)
         expect(watching.start.isEmpty && watching.passed.first?.reason == .windowOpen,
                "the window it opened is seen open, and nothing more is sent")
-        state = EarlyStartLogic.recording(state, plan: watching, attempted: [], failed: [], now: seen,
-                                          calendar: taipei)
-        expect(state.marks["a"]?.sawWindowOpen == true,
-               "…and the account is recorded as having had a window since its message")
-        expect(state.marks["a"]?.attemptedAt == opened,
-               "…without disturbing the attempt time, which is what bounds the worst case")
+        let watched = EarlyStartLogic.recording(state, plan: watching, attempted: [], failed: [],
+                                                now: seen, calendar: taipei)
+        expect(watched == state,
+               "…and that refresh leaves the state exactly as it found it")
 
         // 14:00 - the window has closed. The account is owed another message, and this is the case the
         // old day-keyed schedule could not serve at all.
@@ -301,8 +293,8 @@ func runRelayChecks() {
                "when that window closes the account is started again: the relay hands over")
         state = EarlyStartLogic.recording(state, plan: second, attempted: ["a"], failed: [], now: closed,
                                           calendar: taipei)
-        expect(state.marks["a"]?.attemptedAt == closed && state.marks["a"]?.sawWindowOpen == false,
-               "…and the new attempt starts a fresh episode rather than inheriting the last one's")
+        expect(state.marks["a"]?.attemptedAt == closed,
+               "…and the new attempt starts a fresh floor rather than inheriting the last one's")
 
         // 14:05 - and it does not fire twice on the next refresh, which is minutes away.
         let again = EarlyStartLogic.plan(candidates: [candidate("a")], state: state, quietHours: loud,
@@ -337,27 +329,24 @@ func runRelayChecks() {
                "…which is five hours: the length of the window that message would have opened")
     }
 
-    // 13. …AND THE OBSERVATION DOES NOT LIFT THE ATTEMPT'S FLOOR. This is the pair to 12: same
-    //     elapsed time, and now the SAME answer, because "at most one message per account every 5
-    //     hours" is stated three times in the shipping app (EarlyStart.swift, the Settings row and
-    //     the panel notice) and nothing may override it.
+    // 13. …AND NOTHING LIFTS THE ATTEMPT'S FLOOR EARLY, which is the pair to 12: "at most one
+    //     message per account every 5 hours" is stated three times in the shipping app
+    //     (EarlyStart.swift, the Settings row and the panel notice) and nothing may override it.
     //
     //     THE RULE IS BLIND TO WHOSE WINDOW CLOSED, and has to be. It is tempting to argue that a
     //     window closing early must be somebody else's, since ours would run the full five hours;
     //     that is false on ordinary days, because Anthropic resets sessions on a ten-minute grid and
     //     our own window therefore shuts up to ten minutes before the floor lifts. Provenance is
     //     unknowable from here and the promise never depended on it: the floor is about COST, so it
-    //     holds against every observation and the relay hands over a few minutes late.
+    //     holds whatever is seen during it and the relay hands over a few minutes late.
     //
-    //     What the observation DOES release is the suppression with no message behind it, and no
-    //     cost to bound: the arming stamp. Both halves are asserted here so that neither the
-    //     unconditional release this replaced nor a bare deletion of it can pass.
+    //     A window seen open during the interval used to be recorded against the account, and that
+    //     record is what let the arming stamp go early. The stamp is gone, so nothing is inferred
+    //     from a pass any more and this floor is the only suppression there is.
     do {
         let tried = at("2026-08-24 09:00")
-        var withWindow = EarlyStartState()
-        withWindow.marks["a"] = EarlyStartMark(attemptedAt: tried, sawWindowOpen: true)
-        var withoutWindow = EarlyStartState()
-        withoutWindow.marks["a"] = EarlyStartMark(attemptedAt: tried, sawWindowOpen: false)
+        var served = EarlyStartState()
+        served.marks["a"] = EarlyStartMark(attemptedAt: tried)
         let soon = at("2026-08-24 10:00")
 
         func held(_ state: EarlyStartState, at when: Date) -> EarlyStartSkip? {
@@ -365,28 +354,20 @@ func runRelayChecks() {
                                  calendar: taipei)
         }
 
-        expect(held(withWindow, at: soon) == .alreadyStarted,
-               "an observed window closing an hour after the message does NOT let a second one out")
-        expect(held(withoutWindow, at: soon) == .alreadyStarted,
-               "…and the same hour with no window observed waits too: it is one floor, not two")
-        expect(held(withWindow, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval - 1))
+        expect(held(served, at: soon) == .alreadyStarted,
+               "a window that closed an hour after the message does NOT let a second one out")
+        expect(held(served, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval - 1))
                  == .alreadyStarted,
-               "…one second short of the interval, an observed window still changes nothing")
-        expect(held(withWindow, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval)) == nil,
+               "…one second short of the interval, still nothing")
+        expect(held(served, at: tried.addingTimeInterval(EarlyStartLogic.retryInterval)) == nil,
                "…and at the interval exactly it goes, a little after its own window actually shut")
 
-        // THE OBSERVATION'S OWN CASE: a mark with no attempt behind it. Nothing was sent, so there
-        // is no cost to bound, and a window seen open and then closed ends the episode the arming
-        // stamp was holding. Deleting the observation outright rather than qualifying it would
-        // answer `.armedMidEpisode` here and decay the relay into a five-hourly alarm.
-        var armedAndSeen = EarlyStartState()
-        armedAndSeen.armedAt = tried
-        armedAndSeen.marks["a"] = EarlyStartMark(attemptedAt: nil, sawWindowOpen: true)
-        expect(held(armedAndSeen, at: soon) == nil,
-               "an account held by the arming stamp alone IS released by the window it was seen in")
-        var armedUnseen = EarlyStartState()
-        armedUnseen.armedAt = tried
-        expect(held(armedUnseen, at: soon) == .armedMidEpisode,
-               "…while the same stamp with no window observed still holds it")
+        // A MARK FROM AN OLDER PAYLOAD, where a mark could stand for the arming stamp rather than
+        // for a message and carried no attempt time. Nothing was ever spent on that account, so it
+        // suppresses nothing: the account is started, and the next fold prunes the mark.
+        var floating = EarlyStartState()
+        floating.marks["a"] = EarlyStartMark(attemptedAt: nil)
+        expect(held(floating, at: soon) == nil,
+               "a mark with no attempt behind it holds nothing back: no message, no cost to bound")
     }
 }

@@ -9,46 +9,32 @@ import Foundation
 // send it all again.
 
 func runStateChecks() {
-    // 14. ARMING NEVER BACKFILLS THE EPISODE SOMEBODY CHANGED THEIR MIND DURING.
+    // 14. THE SWITCH MOVING WRITES NOTHING DOWN, which is what makes "armed means started" true and
+    //     is also what protects the one guarantee this feature makes about cost. There is no fold
+    //     for it to call: the only state the feature keeps is the marks, and both answers about them
+    //     have to hold at once - an account that has had nothing is started at once, and an account
+    //     that has had its message keeps its floor across the switch.
     do {
         let flipped = at("2026-08-24 10:00")
-        let armed = EarlyStartLogic.arming(EarlyStartState(), now: flipped)
-        expect(armed.armedAt == flipped, "arming stamps the moment the switch moved")
-        expect(EarlyStartLogic.pass(candidate("a"), state: armed, quietHours: loud, now: flipped,
-                                    calendar: taipei) == .armedMidEpisode,
-               "…so nothing is sent the instant the switch moves, even with a closed window in front of it")
+        expect(EarlyStartLogic.pass(candidate("a"), state: EarlyStartState(), quietHours: loud,
+                                    now: flipped, calendar: taipei) == nil,
+               "a closed window in front of a freshly armed schedule is started at once")
 
-        // The next episode is the first window that opens and closes while the feature is on, and it is
-        // served without waiting out the retry interval.
-        let seen = EarlyStartLogic.recording(
-            armed,
-            plan: EarlyStartLogic.plan(candidates: [candidate("a", windowOpen: true)], state: armed,
-                                       quietHours: loud, now: at("2026-08-24 11:00"), calendar: taipei),
-            attempted: [], failed: [], now: at("2026-08-24 11:00"), calendar: taipei)
-        expect(seen.marks["a"]?.sawWindowOpen == true,
-               "a window opening after the switch moved is recorded against that account")
-        expect(EarlyStartLogic.pass(candidate("a"), state: seen, quietHours: loud,
-                                    now: at("2026-08-24 12:00"), calendar: taipei) == nil,
-               "…and when it closes, the relay starts: the NEXT episode, as promised")
-
-        // Arming clears the marks it finds, so a `sawWindowOpen` left over from before the feature was
-        // switched off cannot let an account through on the strength of a window nobody was watching.
-        var stale = EarlyStartState()
-        stale.marks["a"] = EarlyStartMark(attemptedAt: at("2026-08-20 09:00"), sawWindowOpen: true)
-        let rearmed = EarlyStartLogic.arming(stale, now: flipped)
-        expect(rearmed.marks.isEmpty, "arming clears the marks it finds")
-        expect(EarlyStartLogic.pass(candidate("a"), state: rearmed, quietHours: loud, now: flipped,
-                                    calendar: taipei) == .armedMidEpisode,
-               "…so a stale observation cannot survive the switch being turned back on")
-
-        // Arming says something about the schedule, not about the day's tally.
-        var held = EarlyStartState()
-        held.today = EarlyStartToday(day: "2026-08-24", started: 2)
-        expect(EarlyStartLogic.arming(held, now: flipped).today == held.today,
-               "arming leaves the day's record alone")
+        // THE OTHER HALF, AND THE ONE A REWRITE COULD LOSE: the marks are what bounds the cost, so
+        // nothing about the switch may drop them. Turning the feature off and on again used to wipe
+        // them, which was safe only because a stamp took over the suppression in the same breath;
+        // with no stamp, wiping them would let a second message out minutes after the first.
+        var served = EarlyStartState()
+        served.marks["a"] = EarlyStartMark(attemptedAt: at("2026-08-24 09:50"))
+        expect(EarlyStartLogic.pass(candidate("a"), state: served, quietHours: loud, now: flipped,
+                                    calendar: taipei) == .alreadyStarted,
+               "…while an account served ten minutes ago still owes its five hours across the switch")
+        expect(EarlyStartLogic.pass(candidate("a"), state: served, quietHours: loud,
+                                    now: at("2026-08-24 14:50"), calendar: taipei) == nil,
+               "…and is started again when that floor ages out, not before")
     }
 
-    // 15. RECORDING: marks, observations, and the prune.
+    // 15. RECORDING: marks and the prune.
     do {
         let now = at("2026-08-24 09:00")
         let plan = EarlyStartLogic.plan(candidates: [candidate("a"), candidate("b"),
@@ -57,45 +43,28 @@ func runStateChecks() {
                                         calendar: taipei)
         var before = EarlyStartState()
         // Two marks that can no longer change an answer: one aged past the retry interval, one with no
-        // floor at all.
+        // floor at all (the shape an older payload's arming-era mark decodes to).
         before.marks["ancient"] = EarlyStartMark(attemptedAt: at("2026-08-24 03:00"))
-        before.marks["floating"] = EarlyStartMark(attemptedAt: nil, sawWindowOpen: true)
+        before.marks["floating"] = EarlyStartMark(attemptedAt: nil)
 
         let after = EarlyStartLogic.recording(before, plan: plan, attempted: ["a", "b"], failed: [],
                                               now: now, calendar: taipei)
         expect(after.marks["a"]?.attemptedAt == now && after.marks["b"]?.attemptedAt == now,
                "every attempted account is marked with the moment of the attempt")
-        // The account that was merely working keeps NO mark, and that is the prune doing its job rather
-        // than the observation going missing: with nothing suppressing that account there is nothing
-        // for an observation to unlock, and a fleet of accounts quietly working would otherwise each
-        // carry an entry for the life of the install. The behaviour it would have bought is asserted
-        // straight after, because "the record is absent" is only acceptable if the answer is unchanged.
+        // The account that was merely working keeps NO mark: nothing was spent on it, so there is
+        // nothing to bound, and a fleet of accounts quietly working would otherwise each carry an
+        // entry for the life of the install. The behaviour that costs is asserted straight after,
+        // because "the record is absent" is only acceptable if the answer is unchanged.
         expect(after.marks["c"] == nil,
-               "an observation about an account nothing is suppressing is not kept")
+               "an account that was merely working is not written down")
         expect(EarlyStartLogic.pass(candidate("c"), state: after, quietHours: loud,
                                     now: at("2026-08-24 14:00"), calendar: taipei) == nil,
                "…and that account is started the moment its window closes all the same")
         expect(after.marks["ancient"] == nil,
                "a mark older than the retry interval is pruned: it suppresses nothing")
         expect(after.marks["floating"] == nil,
-               "…and so is one with no attempt and no arming behind it")
-
-        // An arming stamp keeps the floorless marks alive, because with it they DO suppress something.
-        var armedBefore = before
-        armedBefore.armedAt = at("2026-08-24 08:00")
-        let afterArmed = EarlyStartLogic.recording(armedBefore, plan: plan, attempted: [], failed: [],
-                                                   now: now, calendar: taipei)
-        expect(afterArmed.marks["floating"]?.sawWindowOpen == true,
-               "with a live arming stamp, a mark with no attempt of its own is kept")
-        expect(afterArmed.armedAt == at("2026-08-24 08:00"), "…and the stamp itself is kept")
-
-        var armedLongAgo = before
-        armedLongAgo.armedAt = at("2026-08-24 03:00")
-        let afterExpired = EarlyStartLogic.recording(armedLongAgo, plan: plan, attempted: [], failed: [],
-                                                     now: now, calendar: taipei)
-        expect(afterExpired.armedAt == nil,
-               "an arming stamp older than the retry interval is cleared")
-        expect(afterExpired.marks["floating"] == nil, "…and takes the marks that leaned on it with it")
+               "…and so is one with no attempt behind it at all")
+        expect(after.marks.count == 2, "…so what is left is the two accounts a message went out for")
     }
 
     // 16. TODAY'S TALLY: what the Settings row reads. It accumulates across the day, counts accounts
@@ -265,15 +234,8 @@ func runStateChecks() {
                                                       failed: [], now: morning, calendar: taipei)
         expect(flakyRecorded.today?.skipped == ["failing"],
                "one missed poll is not written to a list that stands until midnight")
-        // The observation about the busy account is recorded whether or not a CLI exists - shown here
-        // against an arming stamp, which is the state where that observation has something to unlock.
-        var armed = EarlyStartState()
-        armed.armedAt = at("2026-08-24 08:30")
-        let missingArmed = EarlyStartLogic.recording(armed, plan: plan, attempted: [], failed: [],
-                                                     couldNotStart: blockedIDs, now: morning,
-                                                     calendar: taipei)
-        expect(missingArmed.marks["busy"]?.sawWindowOpen == true,
-               "…while the observation about the busy account is recorded either way")
+        expect(flakyRecorded.marks.isEmpty,
+               "…and an evaluation that sent nothing leaves no mark on anybody")
     }
 
     // 17. THE CORRECTION, once the CLIs have answered. The tally is written optimistically before the
@@ -327,8 +289,7 @@ func runStateChecks() {
     //     re-send every message already sent, so a throwing decoder is the expensive kind of wrong.
     do {
         var state = EarlyStartState()
-        state.marks = ["a": EarlyStartMark(attemptedAt: at("2026-08-24 09:00"), sawWindowOpen: true)]
-        state.armedAt = at("2026-08-24 08:00")
+        state.marks = ["a": EarlyStartMark(attemptedAt: at("2026-08-24 09:00"))]
         state.today = EarlyStartToday(day: "2026-08-24", started: 2, failed: 1,
                                       attemptFailed: ["a"], couldNotStart: ["nocli"],
                                       skipped: ["gone"],
@@ -352,10 +313,21 @@ func runStateChecks() {
         expect(migrated == EarlyStartState(),
                "a payload from the morning schedule reads as an empty relay state, not a throw")
 
-        let partialMark = Data(#"{"marks":{"a":{"attemptedAt":776415600}}}"#.utf8)
-        let decodedMark = try? JSONDecoder().decode(EarlyStartState.self, from: partialMark)
-        expect(decodedMark?.marks["a"]?.sawWindowOpen == false,
-               "a mark written before the observation flag reads it as false")
+        // THE PAYLOAD THE ARMING SUPPRESSION WROTE, which is what every machine running the build
+        // before this one has on disk right now. Both of its removed keys are simply not read: a
+        // decoder that names its keys ignores the rest, and the state it produces is the one that
+        // starts a closed window at the next refresh rather than holding it for five hours.
+        let armedEra = Data(#"""
+            {"marks":{"a":{"attemptedAt":776415600,"sawWindowOpen":true},
+                      "b":{"sawWindowOpen":true}},
+             "armedAt":776412000}
+            """#.utf8)
+        let decodedArmed = try? JSONDecoder().decode(EarlyStartState.self, from: armedEra)
+        expect(decodedArmed?.marks["a"]?.attemptedAt == Date(timeIntervalSinceReferenceDate: 776415600),
+               "a payload from the arming era reads, and keeps the one thing that bounds cost")
+        expect(decodedArmed?.marks["b"]?.attemptedAt == nil,
+               "…while a mark that only ever stood for the arming stamp reads as holding nothing")
+        expect(decodedArmed?.today == nil, "…and the rest of it decodes as an untouched relay state")
 
         let partialDay = Data(#"{"day":"2026-08-24","started":2}"#.utf8)
         let decodedDay = try? JSONDecoder().decode(EarlyStartToday.self, from: partialDay)

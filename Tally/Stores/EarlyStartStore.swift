@@ -102,12 +102,10 @@ final class EarlyStartStore {
 
     /// Install the punctuality nudges. Called once at launch, behind the Keychain repair.
     ///
-    /// Opening the gate is the FIRST thing it does, because everything below it is gated on it.
-    /// Scheduling here rather than arming: `EarlyStartLogic.arming` suppresses the episode in
-    /// progress, which is right for somebody changing their mind and wrong for a launch. An app
-    /// opened after a window closed is the case this feature is most obviously for, so the catch-up
-    /// has to survive the gate, and it does because a preference changed before this point has
-    /// already written its own arming through `rearm`.
+    /// Opening the gate is the FIRST thing it does, because everything below it is gated on it. An
+    /// app opened after a window closed is the case this feature is most obviously for, so the
+    /// catch-up has to survive the gate: nothing here writes state, and the first refresh after this
+    /// point decides on the fleet it actually finds.
     func start() {
         started = true
         scheduleTimer()
@@ -123,21 +121,23 @@ final class EarlyStartStore {
 
     // MARK: Preferences
 
+    /// Turn the schedule on or off.
+    ///
+    /// NOTHING PERSISTED IS RESET HERE, and the marks least of all. Switching the feature on is the
+    /// user saying they want their windows opened from now on, which the next refresh does; it is
+    /// not a reason to forget that an account had its message twenty minutes ago, and forgetting
+    /// would let a second one out inside the five hours this app promises in three places
+    /// (`EarlyStartMark`).
     func setEnabled(_ on: Bool) {
         guard on != isEnabled else { return }
         isEnabled = on
         UserDefaults.standard.set(on, forKey: Key.enabled)
-        rearm()
+        scheduleTimer()
     }
 
-    /// Change the silence window.
-    ///
-    /// IT DOES NOT RE-ARM, and that is the difference between this control and the switch above.
-    /// Arming costs the user the episode in progress, which is the right price for "I have just
-    /// decided to let this run" and the wrong one for "I am adjusting when it stays quiet": paying
-    /// it here would mean every nudge of a picker silently withheld a window. The one visible
-    /// consequence is that turning quiet hours OFF part way through the night lets the next refresh
-    /// act, which is what the person who just turned it off asked for.
+    /// Change the silence window. Like the switch above it writes the preference and re-times the
+    /// one timer this feature keeps; turning quiet hours OFF part way through the night therefore
+    /// lets the next refresh act, which is what the person who just turned it off asked for.
     func setQuietHours(_ hours: EarlyStartQuietHours) {
         guard hours != quietHours else { return }
         quietHours = hours
@@ -150,14 +150,15 @@ final class EarlyStartStore {
         scheduleTimer()
     }
 
-    /// The notice has been read. The gate opens here and nowhere else.
+    /// The notice has been read. The gate opens here and nowhere else, and the next refresh acts:
+    /// having been told is the whole of what the first message was ever waiting for.
     func acknowledgeNotice() {
         // A screenshot run may show the notice and press its button; it may not write that press
         // into the defaults the real app reads (the same rule `AppLocale.override` follows).
         guard !DemoUsage.isActive, !noticeAcknowledged else { return }
         noticeAcknowledged = true
         UserDefaults.standard.set(EarlyStartLogic.noticeVersion, forKey: Key.noticeVersion)
-        rearm()
+        scheduleTimer()
     }
 
     /// Whether the panel should be carrying the one-time notice. The caller adds the question this
@@ -197,11 +198,10 @@ final class EarlyStartStore {
         let state = Self.loadState()
         let plan = EarlyStartLogic.plan(candidates: candidates, state: state,
                                         quietHours: quietHours, now: now, calendar: calendar)
-        // Most evaluations decide nothing and observe nothing - the fleet is working, or asleep, or
-        // out of scope. `needsRecording` rather than `isReportable`: an evaluation whose only
-        // content is "these accounts are working now" writes no row and still carries the fact that
-        // ends their episodes (`EarlyStartPlan.needsRecording`).
-        guard plan.needsRecording else { return }
+        // Most evaluations decide nothing - the fleet is working, or asleep, or out of scope - and
+        // an evaluation with nothing to say must not write, or the payload would be rewritten once
+        // a minute for the life of the install (`EarlyStartPlan.isReportable`).
+        guard plan.isReportable else { return }
         guard !plan.start.isEmpty else {
             record(state, plan: plan, attempted: [], failed: [], now: now, calendar: calendar)
             return
@@ -316,18 +316,6 @@ final class EarlyStartStore {
         source.setEventHandler { Task { @MainActor in EarlyStartStore.shared.nudge() } }
         source.resume()
         timer = source
-    }
-
-    /// What every path that makes the schedule live has to do: arm without backfilling the episode
-    /// in progress (`EarlyStartLogic.arming` says why), then set the timer. One function because two
-    /// callers doing two things in order is two chances to do one of them.
-    ///
-    /// Its two halves answer to different gates. The arming is bookkeeping in the defaults and runs
-    /// whenever somebody changes their mind, launch or no launch; the timer is a live thing that
-    /// ends in a refresh, so it waits for `started` like every other entrance.
-    private func rearm() {
-        if isArmed { Self.saveState(EarlyStartLogic.arming(Self.loadState(), now: Date())) }
-        scheduleTimer()
     }
 
     // MARK: State

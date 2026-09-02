@@ -114,12 +114,14 @@ func runTrustRelaunchChecks(root: URL) {
                   && entry(dir, key)["hasCompletedProjectOnboarding"] as? Bool == true)
     }
 
-    // MARK: - Nothing to do
+    // MARK: - An answer is already on file
 
-    // The overwhelmingly common pass, and the one that has to cost nothing: a relaunch in a folder
-    // the user vouched for themselves. Reported as "no change" rather than "written", because that
-    // return is what decides whether an audit line is left, and a log that recorded every relaunch
-    // would say nothing about the ones that mattered.
+    // The flag is the USER's answer, so the rule is about the field being there rather than about
+    // what it says: absent means nobody has been asked, and anything else means somebody has. The
+    // overwhelmingly common pass is the first row here, a relaunch in a folder the user vouched for
+    // themselves, and it has to cost nothing. Reported as "no change" rather than "written", because
+    // that return decides whether an audit line is left, and a log recording every relaunch would
+    // say nothing about the ones that mattered.
     do {
         let dir = home("trust-relaunch-already")
         let (path, key) = project("trust-relaunch-already-cwd")
@@ -136,6 +138,38 @@ func runTrustRelaunchChecks(root: URL) {
         check("and the file is not rewritten at all", raw(dir) == before)
         check("…not even its modification date", mtime() == stampBefore && stampBefore != nil)
         check("the trust is of course still there", trusted(dir, key))
+    }
+
+    // THE ROW THIS FEATURE COULD DO REAL HARM ON. `false` is not "not yet trusted", it is the user
+    // having been asked and having answered NO, and it is the one state a convenience must never
+    // overturn: flipping it would grant, on Tally's own initiative, a permission its owner declined,
+    // and the next relaunch would look exactly like the ones that are working correctly. The account
+    // seed next door reads the same value the same way (main.swift: a declined path is not carried),
+    // so this is the file's existing vocabulary rather than a reading invented here.
+    do {
+        let dir = home("trust-relaunch-declined")
+        let (path, key) = project("trust-relaunch-declined-cwd")
+        write(["projects": [key: ["hasTrustDialogAccepted": false, "lastVersionBase": "2.1.258"]]],
+              into: dir)
+        let before = raw(dir)
+        check("a folder the user DECLINED is never flipped to trusted",
+              !seedFolderTrust(forDirectory: path, inConfigDir: dir))
+        check("…and their answer is still the one in the file", raw(dir) == before
+                  && entry(dir, key)["hasTrustDialogAccepted"] as? Bool == false)
+    }
+
+    // And the third state the field can be in: present, and something this does not recognise. Same
+    // answer as everywhere else in here, for the reason the shape guards below give: a value whose
+    // meaning is unknown is a value whose meaning is not ours to overwrite.
+    do {
+        let dir = home("trust-relaunch-oddflag")
+        let (path, key) = project("trust-relaunch-oddflag-cwd")
+        write(["projects": [key: ["hasTrustDialogAccepted": "yes"]]], into: dir)
+        let before = raw(dir)
+        check("a flag that is present but is not a boolean is left alone",
+              !seedFolderTrust(forDirectory: path, inConfigDir: dir))
+        check("…so whatever it meant is still what the file says", raw(dir) == before
+                  && entry(dir, key)["hasTrustDialogAccepted"] as? String == "yes")
     }
 
     // MARK: - Which path this is about
@@ -173,6 +207,30 @@ func runTrustRelaunchChecks(root: URL) {
               !seedFolderTrust(forDirectory: path, inConfigDir: dir))
         check("and left exactly as it was",
               (try? String(contentsOf: file, encoding: .utf8)) == "{\"projects\": {")
+    }
+
+    // AND THE MOST EXPENSIVE READING AVAILABLE HERE: a file that is there but will not open. Read
+    // as "no file yet" it becomes an empty starting point, and the atomic write below then replaces
+    // a signed-in account's whole state (its identity, every project's history) with a document
+    // holding one key of ours. A permission error is only the reachable example; the shape of the
+    // mistake is treating a failed read as an absence.
+    do {
+        let dir = home("trust-relaunch-unreadable")
+        let (path, key) = project("trust-relaunch-unreadable-cwd")
+        let file = claudeStateFile(forConfigDir: dir)
+        let body = "{\"oauthAccount\":{\"accountUuid\":\"u-9\"},\"projects\":{}}"
+        try! body.write(to: file, atomically: true, encoding: .utf8)
+        try? fm.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        let seeded = seedFolderTrust(forDirectory: path, inConfigDir: dir)
+        let mode = (try? fm.attributesOfItem(atPath: file.path))?[.posixPermissions] as? NSNumber
+        // Restored before anything reads it back, and unconditionally, so a red row above cannot
+        // leave an unopenable file behind it for the rest of the suite or for whoever is debugging.
+        try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        check("a state file that exists but cannot be read is not an absent one", !seeded)
+        check("…so the account's own state is still there, whole",
+              (try? String(contentsOf: file, encoding: .utf8)) == body)
+        check("…under the mode it was found with", mode?.intValue == 0)
+        check("…and nothing was written under the key this would have seeded", !trusted(dir, key))
     }
 
     do {

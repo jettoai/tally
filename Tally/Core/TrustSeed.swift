@@ -204,14 +204,26 @@ func removeSeededFolderTrust(from target: URL) -> Int {
 /// climbs towards the git root, accepting as soon as one of those paths carries the flag, so the
 /// first step of that walk is this entry. Keyed any other way this would seed a path nothing reads.
 ///
-/// Returns whether the file was CHANGED: false when the flag was already there, and false on every
-/// failure. Best-effort throughout, like the MCP seeding beside it at the call site: what a failure
-/// costs is the dialog the user would have been shown anyway.
+/// Returns whether the file was CHANGED, and it changes it in EXACTLY ONE CASE: the entry for this
+/// directory does not carry `hasTrustDialogAccepted` at all. Present with any value at all and this
+/// declines, `false` above all. A `false` there is the user having been asked and having SAID NO,
+/// which is the one answer this must never overturn (the account seed above reads it the same way:
+/// a declined path is not carried to a new account). Present but not a boolean is a schema this
+/// does not understand, and overwriting what it means would be a guess. Best-effort otherwise, like
+/// the MCP seeding beside it at the call site: what a failure costs is the dialog the user would
+/// have been shown anyway.
 ///
 /// NOTHING ELSE IN THE FILE IS TOUCHED. This is the live state of a signed-in account, not the
 /// fresh home `seedFolderTrust(from:to:)` above writes whole: it carries `oauthAccount`, start-up
-/// counters, and every other project's history. So it is read, given one key, and written back, and
-/// a file that will not parse is left alone entirely rather than replaced by a valid one of ours.
+/// counters, and every other project's history. So it is read, given one key, and written back.
+///
+/// WHICH IS WHY "NO FILE" AND "A FILE I CANNOT READ" ARE DIFFERENT ANSWERS, and conflating them is
+/// the expensive mistake available here: an empty starting point plus an atomic write is how a real
+/// `~/.claude.json` gets REPLACED by a document holding nothing but our one key, taking the
+/// account's identity and every project's history with it. A permission error, a directory in its
+/// place, a read that fails halfway: all of those exist, and none of them means the file is absent.
+/// Only a genuinely missing file starts from nothing. The same rule covers a file that will not
+/// parse, which is left alone rather than replaced by a valid one of ours.
 ///
 /// RESIDUAL RACE, stated rather than locked: a Claude Code on this account rewriting the same file
 /// between the read and the write loses whatever it wrote in that window (and this seed is lost the
@@ -222,8 +234,10 @@ func seedFolderTrust(forDirectory directory: String, inConfigDir home: URL) -> B
     let key = URL(fileURLWithPath: directory).resolvingSymlinksInPath().path
     let file = claudeStateFile(forConfigDir: home)
     var root: [String: Any] = [:]
-    if let raw = try? Data(contentsOf: file) {
-        guard let parsed = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
+    if FileManager.default.fileExists(atPath: file.path) {
+        // It is there, so from here on the only safe outcomes are "read it" and "leave it alone".
+        guard let raw = try? Data(contentsOf: file),
+              let parsed = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
         else { return false }
         root = parsed
     }
@@ -233,7 +247,8 @@ func seedFolderTrust(forDirectory directory: String, inConfigDir home: URL) -> B
     var projects = root["projects"] as? [String: Any] ?? [:]
     if let existing = projects[key], !(existing is [String: Any]) { return false }
     var entry = projects[key] as? [String: Any] ?? [:]
-    if entry["hasTrustDialogAccepted"] as? Bool == true { return false }
+    // ABSENT, not "not true": the field carries the user's own answer, and `false` is a refusal.
+    if entry["hasTrustDialogAccepted"] != nil { return false }
     entry["hasTrustDialogAccepted"] = true
     projects[key] = entry
     root["projects"] = projects

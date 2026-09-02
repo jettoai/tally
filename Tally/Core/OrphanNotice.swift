@@ -38,6 +38,15 @@ enum OrphanNotice {
         var memoryBytes: UInt64
         var listeningPorts: [UInt16]
         var ageSeconds: TimeInterval
+        /// EVERY PID THE SIGNAL WENT TO, ascending, for a reclaim. Empty for a report, which sends
+        /// nothing.
+        ///
+        /// The count above answers "how big was it" and this answers "which processes were they",
+        /// and only the second can be checked against anything afterwards: a machine that comes
+        /// back wrong is read by comparing what this app says it ended against what the person
+        /// finds missing, and a number cannot be compared with anything (root-cause review,
+        /// 2026-09-02).
+        var signalled: [pid_t] = []
         /// What was done, which is the first thing a reader needs.
         var outcome: Outcome
     }
@@ -254,6 +263,10 @@ enum OrphanNotice {
         lines.append(report.listeningPorts.isEmpty
             ? "- Listening on: nothing (no port held)"
             : "- Listening on: " + report.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
+        if !report.signalled.isEmpty {
+            lines.append("- Signalled: "
+                + report.signalled.map(String.init).joined(separator: ", "))
+        }
         return lines
     }
 
@@ -276,17 +289,38 @@ enum OrphanNotice {
                     "If this was wanted, start it again - and if it should stay up unattended, run"
                         + " it under `/dev-watch`, whose lease says whose it is."]
         case .reported(let doubts):
+            // A CANDIDATE WITH NOTHING AGAINST IT IS THE OBSERVATION PERIOD SPEAKING, and it needs
+            // a sentence of its own: the shape below ends in a list of doubts, and this reading has
+            // none - it cleared every bar and every veto and would have been ended by the tier
+            // that is switched off (`OrphanReclaim.verdict`). Saying "here it could not be sure"
+            // about it would be untrue, and saying nothing would hide the one reading the period
+            // exists to collect.
+            guard !doubts.isEmpty else {
+                return ["Left it alone, and it is the shape this app WOULD end: nothing is"
+                            + " connected to it, no terminal or editor is above it, no session is"
+                            + " working in its checkout, and it read the same way twice more than"
+                            + " \(Int(OrphanReclaim.roundInterval / 60)) minutes apart. Ending"
+                            + " anything on evidence alone is switched off while this feature is"
+                            + " being observed, so this is a message and nothing more.",
+                        "",
+                        "Have a look and end it yourself if it is not wanted. If it should stay up"
+                            + " on its own, run it under `/dev-watch`, whose lease says whose it"
+                            + " is."]
+            }
             // WHAT TO DO ABOUT IT DEPENDS ON WHOSE IT MIGHT BE. "End it yourself if it is not
-            // wanted" is the wrong sentence for a tree the reader's own session may have started.
-            let advice = doubts.contains(.sessionPresent)
-                ? "If it is yours, there is nothing to do. If it should stay up on its own, run it"
-                    + " under `/dev-watch`, whose lease says whose it is. If it is not wanted, end"
-                    + " it yourself."
-                : "Have a look and end it yourself if it is not wanted."
+            // wanted" is the wrong sentence for a tree the reader's own session may have started,
+            // and a board that could not place one of its rows leaves exactly that open.
+            let mightBeTheirs = doubts.contains(.sessionPresent)
+                || doubts.contains(.sessionUnknown)
             return ["Left it alone. It looks like something nobody is answering for, but this app"
                         + " will not end a process it cannot be sure about, and here it could not"
                         + " be: " + doubts.map { reason($0) }.joined(separator: "; ") + ".",
-                    "", advice]
+                    "",
+                    mightBeTheirs
+                        ? "If it is yours, there is nothing to do. If it should stay up on its own,"
+                            + " run it under `/dev-watch`, whose lease says whose it is. If it is"
+                            + " not wanted, end it yourself."
+                        : "Have a look and end it yourself if it is not wanted."]
         case .failed(let reason):
             return ["Tried to end it and could not: \(reason). It is still running.",
                     "",
@@ -303,6 +337,8 @@ enum OrphanNotice {
         case .crossRepo: return "part of the tree is working in another checkout"
         case .unknownProgram: return "its program is not one this app recognises as development work"
         case .sessionPresent: return "a session is working in this checkout, so this may be its work"
+        case .sessionUnknown: return "a live session would not say which checkout it is working in,"
+            + " so this may be its work"
         // Never reached from a message, `leased` being hard: a tree its own harness still answers
         // for is left in silence rather than reported (`OrphanReclaim.Veto.leased`). Spelled out
         // because the switch is exhaustive, and spelled as the others are so that a later change of

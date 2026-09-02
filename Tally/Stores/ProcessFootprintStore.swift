@@ -409,8 +409,16 @@ final class ProcessFootprintStore {
         // root too few costs somebody's server, ended under them, under a message saying nobody
         // was working there. The board's own rows are drawn from the cards as before: what is being
         // decided here is not what the page says but what may be killed.
-        OrphanReclaimStore.shared.observe(strays: unattributed, processes: processes,
-                                          sessions: Set(rootOfSession.values), at: now)
+        //
+        // AND THE SET GOES OVER WITH ITS OWN COMPLETENESS BESIDE IT, which is the half a set cannot
+        // carry: a roster row that published no directory at all is dropped by the map above
+        // (`ProjectLoadAccounting.boardUnreadable`), and a dropped row is indistinguishable from a
+        // machine with one session fewer. Named, the round fails closed instead of inferring.
+        OrphanReclaimStore.shared.observe(
+            strays: unattributed, processes: processes,
+            sessions: OrphanReclaim.Sessions(checkouts: Set(rootOfSession.values),
+                                             unreadable: rollup.boardUnreadable),
+            at: now)
         previousSample = readings
         cpuCarry = carried
         alertState = painted.alerts

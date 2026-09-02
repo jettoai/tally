@@ -12,10 +12,12 @@ extension OrphanReclaim {
 
     /// WHAT THE SCAN DOES ABOUT A TREE THIS ROUND.
     enum Verdict: Equatable {
-        /// End it, and why (which is what the record and the message both say).
+        /// End it, and why (which is what the record and the message both say). Reached from the
+        /// lease tier alone while the observation period runs (`verdict`).
         case reclaim(Reason)
-        /// Say so and do nothing: the tier-C answer, and the answer to anything this app cannot be
-        /// sure about (`Veto.hard` is false for exactly those).
+        /// Say so and do nothing: the tier-C answer, the answer to anything this app cannot be sure
+        /// about (`Veto.hard` is false for exactly those), and - until the inference tier is turned
+        /// back on - the answer to a candidate with nothing against it at all.
         case notify
         /// Evidence so far, nothing said and nothing done: the first sighting of something that
         /// might qualify next round.
@@ -29,6 +31,12 @@ extension OrphanReclaim {
         /// (`OrphanLease`).
         case leaseOwnerGone
         /// Two rounds of strong evidence with nothing speaking against it.
+        ///
+        /// NOTHING PRODUCES THIS WHILE THE OBSERVATION PERIOD RUNS, and it is kept rather than
+        /// deleted on purpose (see `verdict`): the case that reaches this answer is still computed
+        /// to the last test, and what changed is only what is done about it. Turning the inference
+        /// tier back on is one `return` in `verdict`, and a type that had to be reinvented for it
+        /// would be reinvented by somebody who had not read why it went away.
         case sustained
     }
 
@@ -88,6 +96,24 @@ extension OrphanReclaim {
 
     /// THE VERDICT, out of this round's reading and last round's sighting.
     ///
+    /// 🔴 THE INFERENCE TIER IS REPORT-ONLY, AND THIS IS WHERE THAT IS SPELLED (2026-09-02, the
+    /// hold on v0.65.0). Tier B is the one that ends a process on EVIDENCE rather than on a
+    /// statement, and on the first day it ran on a real machine it ended two dev servers whose
+    /// sessions were sitting in the checkout. Three repairs went in and a root-cause review then
+    /// said what the three had in common: every one of them found another reading whose failure was
+    /// spelled the same way as its safe answer, and the design goes on producing that class of
+    /// defect because a kill is authorised by the ABSENCE of a veto rather than by a positive,
+    /// re-checkable statement that the round was complete. So the last step is a report until an
+    /// authorisation model exists to replace it - the candidate is still found, the panel still
+    /// draws it and the project is still written to, and no signal is sent on inference at all.
+    ///
+    /// WHAT REOPENS IT, said plainly so this is a hold rather than a quiet retreat: a week of
+    /// report-only running in which no message names a tree that turns out to have been somebody's,
+    /// and the six items the review asked for (a `KillAuthorization` carrying the completeness of
+    /// every reader, continuity that only a clean round can extend, both signals re-authorised, and
+    /// the four stateful cases asserted). Tier A is untouched by this: a dev-watch lease is a
+    /// statement by this machine's own harness, not an inference (`Reason.leaseOwnerGone`).
+    ///
     /// THE ORDER OF THE TESTS IS THE POLICY. A hard veto answers first and answers `leave`, before
     /// anything about load is considered: a terminal somebody is typing in can be spending three
     /// cores and is still not this app's business, and a message about it is worse than nothing
@@ -118,7 +144,11 @@ extension OrphanReclaim {
         if reading.listeningPorts.isEmpty, (previous?.cpuPercent ?? 0) < runawayPercent {
             return (.wait, keep)
         }
-        return (.reclaim(.sustained), keep)
+        // EVERYTHING ABOVE STILL HAS TO PASS, and what is returned is a message rather than an
+        // ending: this is the whole of the observation period, in one line and reversible in one
+        // (see the note above). A reading that reaches here draws NO doubt at all, which is what
+        // the message has to say for itself (`OrphanNotice.Outcome.reported`).
+        return (.notify, keep)
     }
 
     /// THE PORTS A SET OF SOCKETS IS WAITING ON, ascending and each named once.

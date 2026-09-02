@@ -117,6 +117,24 @@ enum OrphanReclaim {
         var unreadable: Set<pid_t> = []
     }
 
+    /// ONE READING OF THE SESSION BOARD: which checkouts live sessions are working in, AND whether
+    /// the board could say that about every row it holds.
+    ///
+    /// THE SECOND FIELD IS THERE FOR THE REASON THE ONE ABOVE IS. "No session is working in this
+    /// checkout" is the reading that lets a tree be ended, and a roster row whose directory nothing
+    /// published is dropped on the way here (`ProjectLoadAccounting.roots`) - so a session this app
+    /// simply could not place looked exactly like a machine with no session on it. Named, the round
+    /// fails closed: every tree gets `Veto.sessionUnknown`, which is soft, so what happens is a
+    /// message rather than either a signal or silence.
+    struct Sessions: Equatable {
+        /// The directories, as the board holds them
+        /// (`MachineLoadRollup.SessionReading.root`).
+        var checkouts: Set<String> = []
+        /// True when a live row would not say which directory it is in. Not "there are no
+        /// sessions".
+        var unreadable = false
+    }
+
     /// A group of strays that belong together: one root and everything descended from it.
     struct Tree: Equatable {
         /// The pid nothing else in the stray set is the parent of.
@@ -211,9 +229,16 @@ enum OrphanReclaim {
         /// A DEV-WATCH LEASE STILL HAS SOMEBODY ANSWERING FOR THIS TREE (`OrphanLease`): the
         /// supervisor that registered it is running right now.
         ///
-        /// THE MIRROR OF TIER A RATHER THAN AN ADDITION TO IT. That tier acts on a lease whose
-        /// writer is GONE; this is the same file read for the opposite answer, and between them the
-        /// two cover every lease on the machine. What sat in the gap was the ordinary case - a
+        /// THE MIRROR OF TIER A RATHER THAN AN ADDITION TO IT. That tier acts on a lease that is
+        /// `abandoned`; this veto is raised by one that is `tended`, and those are two of the four
+        /// states a lease can be in. The other two are deliberately outside both and neither is an
+        /// oversight: `spent` has no tree left to speak for, and `unsure` is the state where
+        /// neither the table nor the kernel would answer about the supervisor - turning THAT into a
+        /// veto would put the one shape this feature exists for permanently out of reach on a
+        /// machine whose probe is flaky, so it falls to tier B like any other leftover
+        /// (`OrphanReclaimStore.leases` states the same split at the code that makes it).
+        ///
+        /// What sat in the gap before this veto existed was the ordinary case - a
         /// supervisor doing its job - and it fell straight through into the evidence tiers, which
         /// know nothing about leases and judged the supervisor as a leftover `bash` holding two
         /// gigabytes (2026-09-02: three messages about one such tree in thirty minutes).
@@ -239,6 +264,20 @@ enum OrphanReclaim {
         /// behind by the session BEFORE this one. So the answer is tier C - say what is running and
         /// leave it - rather than the silence a hard veto buys.
         case sessionPresent
+        /// THE BOARD WOULD NOT SAY WHERE ONE OF ITS LIVE SESSIONS IS WORKING, so "nobody is working
+        /// in this checkout" could not be established this round for ANY tree (`Sessions`).
+        ///
+        /// RAISED ON EVERY TREE OR ON NONE, which is what makes it different from every other veto
+        /// here: the rest are readings about one tree, and this is a fact about the round. A roster
+        /// row with no directory is dropped silently on the way in
+        /// (`ProjectLoadAccounting.roots`), and a dropped row is indistinguishable from a machine
+        /// with one session fewer - which is the exact shape of the reading the 2026-09-02 incident
+        /// was decided on, one layer up (root-cause review, same day).
+        ///
+        /// SOFT, on the same reasoning as `unreadable`: what this app cannot establish is reported
+        /// rather than acted on, and a round that says nothing at all would hide the very state a
+        /// reader would want to know about.
+        case sessionUnknown
 
         /// Whether this says "not an orphan" rather than "cannot tell". The first three are
         /// evidence about the world; the rest are the absence of evidence, which is what tier C
@@ -246,7 +285,8 @@ enum OrphanReclaim {
         var hard: Bool {
             switch self {
             case .terminal, .ancestor, .inUse, .leased: return true
-            case .unreadable, .crossRepo, .unknownProgram, .sessionPresent: return false
+            case .unreadable, .crossRepo, .unknownProgram, .sessionPresent, .sessionUnknown:
+                return false
             }
         }
 

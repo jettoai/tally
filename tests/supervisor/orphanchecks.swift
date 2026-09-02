@@ -1,8 +1,8 @@
 import Darwin
 import Foundation
 
-// ENDING SOMEBODY ELSE'S PROCESS, WHICH IS THE ONE THING IN THIS APP THAT CANNOT BE TAKEN BACK
-// (Tally/Core/Orphan*.swift, Tally/Stores/OrphanReclaimStore.swift).
+// ENDING SOMEBODY ELSE'S PROCESS, WHICH IS THE THING THIS FEATURE CANNOT TAKE BACK
+// (Tally/Core/Orphan*.swift, Tally/Stores/OrphanReclaimStore*.swift).
 //
 // Every other reading on the session board can be wrong for a tick and right on the next one. This
 // one sends a signal. So the whole feature is written to be assertable with no processes around it -
@@ -191,17 +191,21 @@ private func runOrphanVerdictChecks() {
     check("a first sighting of a busy old server waits rather than acting",
           OrphanReclaim.verdict(for: reading(), previous: nil).verdict == .wait)
     let first = OrphanReclaim.verdict(for: reading(), previous: nil).keep
-    check("…and the second round five minutes later ends it",
-          OrphanReclaim.verdict(for: reading(at: round2), previous: first).verdict
-              == .reclaim(.sustained))
+    // 🔴 AND WHAT THE SECOND ROUND DOES IS WRITE ABOUT IT (2026-09-02, the hold on v0.65.0). It
+    // ended the tree until the root-cause review found that the three repairs before it had one
+    // shape in common - a kill authorised by the ABSENCE of a veto, over readings whose failure is
+    // spelled the same way as their safe answer - and that the design goes on producing that class
+    // of defect. Every bar above still has to be cleared; the last step is a message
+    // (`OrphanReclaim.verdict` carries what reopens it).
+    check("…and the second round five minutes later reports it rather than ending it",
+          OrphanReclaim.verdict(for: reading(at: round2), previous: first).verdict == .notify)
     // TWO READINGS OF ONE MOMENT SAY ONLY THAT IT WAS BUSY JUST NOW, which is what a link step is.
     let soon = OrphanReclaim.verdict(for: reading(at: t0.addingTimeInterval(120)), previous: first)
     check("two rounds two minutes apart are one moment read twice", soon.verdict == .wait)
     check("…and the pair stays open, so the confirmation is not pushed another interval out",
           soon.keep == first)
     check("…which the round at five minutes from the FIRST sighting then confirms",
-          OrphanReclaim.verdict(for: reading(at: round2), previous: soon.keep).verdict
-              == .reclaim(.sustained))
+          OrphanReclaim.verdict(for: reading(at: round2), previous: soon.keep).verdict == .notify)
     // A MACHINE THAT SLEPT WATCHED NOTHING.
     check("a pair straddling a sleep is thrown away rather than believed",
           OrphanReclaim.verdict(for: reading(at: t0.addingTimeInterval(3600)),
@@ -239,9 +243,24 @@ private func runOrphanVerdictChecks() {
           OrphanReclaim.verdict(for: reading(at: round2, cpu: 85, ports: []),
                                 previous: spike).verdict == .wait)
     let sustainedSpike = OrphanReclaim.verdict(for: reading(cpu: 85, ports: []), previous: nil).keep
-    check("…and one burning through both rounds is ended, which is the incident this exists for",
+    check("…and one burning through both rounds clears the bar, which is the 2026-09-01 incident",
           OrphanReclaim.verdict(for: reading(at: round2, cpu: 85, ports: []),
-                                previous: sustainedSpike).verdict == .reclaim(.sustained))
+                                previous: sustainedSpike).verdict == .notify)
+    // AND NOTHING ANYWHERE REACHES THE OTHER ANSWER, which is the whole of the hold stated as a
+    // property rather than as three cells: the inference tier is the only producer of
+    // `Reason.sustained`, and while it is report-only no reading of any shape can reach it. Taken
+    // over the matrix above rather than at one point in it, so a `return` left behind anywhere in
+    // the rule is caught here (`Reason.leaseOwnerGone` is untouched: a lease is a statement).
+    let everyShape = [reading(), reading(at: round2), reading(at: round2, cpu: 400),
+                      reading(at: round2, memory: 4 * 1024 * 1024 * 1024),
+                      reading(at: round2, cpu: 85, ports: []),
+                      reading(at: round2, age: 10 * 3600, cpu: 300, ports: [])]
+    check("no reading of any shape ends a tree on evidence while the tier is report-only",
+          everyShape.allSatisfy { shape in
+              [nil, first, sustainedSpike, spike].allSatisfy {
+                  OrphanReclaim.verdict(for: shape, previous: $0).verdict != .reclaim(.sustained)
+              }
+          })
 
     // MARK: what speaks against it
 
@@ -250,7 +269,8 @@ private func runOrphanVerdictChecks() {
               OrphanReclaim.verdict(for: reading(at: round2, vetoes: [veto]),
                                     previous: first).verdict == .leave)
     }
-    for veto in [OrphanReclaim.Veto.unreadable, .crossRepo, .unknownProgram, .sessionPresent] {
+    for veto in [OrphanReclaim.Veto.unreadable, .crossRepo, .unknownProgram, .sessionPresent,
+                 .sessionUnknown] {
         check("a tree in doubt over \(veto.rawValue) is reported and not ended",
               OrphanReclaim.verdict(for: reading(at: round2, vetoes: [veto]),
                                     previous: first).verdict == .notify)
@@ -324,11 +344,17 @@ private func runOrphanVerdictChecks() {
             check("…while the fold on its own answers a spelling the machine never reports",
                   folded != foldRepo)
         } catch {
-            check("a real checkout fold is left unasserted: the fixture would not be written", true)
+            // 🔴 A FIXTURE THAT WOULD NOT BE WRITTEN IS A FAILURE, not a cell to wave through
+            // (codex review of 15c5552). This pair used to assert `true` and print PASS, so a run
+            // in which the one assertion that touches a real disk never happened was
+            // indistinguishable from a run in which it passed - on the two cells that exist
+            // BECAUSE no fixture can produce what the disk produces.
+            check("a real checkout fold could not be set up: \(error)", false)
         }
         try? disk.removeItem(atPath: base)
     } else {
-        check("a real checkout fold is left unasserted: /private/tmp would take no directory", true)
+        check("a real checkout fold could not be set up: /private/tmp would take no directory",
+              false)
     }
 
     // MARK: the vetoes themselves, taken off real readings
@@ -489,47 +515,48 @@ private func runOrphanVerdictChecks() {
 // MARK: - how it is ended
 
 private func runOrphanKillChecks() {
-    // 900 is a server whose whole job is inside the reclaim set; 800 shares a group with a stranger.
-    let table: [pid_t: pid_t] = [900: 900, 901: 900, 902: 900, 800: 800, 801: 800, 700: 1, 600: 0]
-    let clean = OrphanKill.plan(members: [900, 901, 902], groups: table, ours: [], ownGroup: 42)
-    // ONE CALL REACHES WORKERS THAT JOINED AFTER THE READING, which is exactly what a server that
-    // keeps spawning needs - and exactly why the group has to be provably clean first.
-    check("a job every member of which is being reclaimed is signalled as a group",
-          clean.groups == [900] && clean.pids.isEmpty)
-    let shared = OrphanKill.plan(members: [800], groups: table, ours: [], ownGroup: 42)
-    check("a job holding somebody else is signalled one process at a time",
-          shared.groups.isEmpty && shared.pids == [800])
-    // `kill(-1)` REACHES EVERY PROCESS THIS USER OWNS and `kill(-0)` reaches the caller's own job.
-    check("the init group is never signalled as a group, whatever is in the reclaim set",
-          OrphanKill.plan(members: [700], groups: table, ours: [], ownGroup: 42).pids == [700])
-    check("…and neither is group zero",
-          OrphanKill.plan(members: [600], groups: table, ours: [], ownGroup: 42).pids == [600])
-    check("…and never this app's own job, however clean it looks",
-          OrphanKill.plan(members: [900, 901, 902], groups: table, ours: [],
-                          ownGroup: 900).groups.isEmpty)
+    // 900, 901 and 902 are one server's tree; 800 is a leftover elsewhere; 999 is a number the
+    // table no longer holds; 1 is launchd, which is live and must never be signalled.
+    let live: Set<pid_t> = [900, 901, 902, 800, 1]
+    // 🔴 ONE CALL PER PROCESS, FOR BOTH SIGNALS AND WHATEVER THE JOB LOOKS LIKE (root-cause review,
+    // 2026-09-02). The first signal used to reach a whole process group wherever every live member
+    // of that group was being reclaimed, on the argument that a `SIGTERM` is a request rather than
+    // an execution. The argument held and its EVIDENCE did not: "every live member" is a
+    // completeness claim about the machine read out of a table walk that is one `proc_pidinfo` per
+    // pid, any of which can fail for a pass, and a single failure on an unrelated process sharing
+    // the group makes a dirty group read as clean. There is no entry point left that can ask for
+    // one, which is the same shape the escalation's own rule had before it folded into this.
+    let clean = OrphanKill.plan(members: [900, 901, 902], live: live, ours: [])
+    check("a job every member of which is being reclaimed is still signalled one at a time",
+          clean.pids == [900, 901, 902])
+    check("…and a job holding somebody else the same way",
+          OrphanKill.plan(members: [800], live: live, ours: []).pids == [800])
+    // `kill(-1)` REACHES EVERY PROCESS THIS USER OWNS, `kill(-0)` the caller's own job, and pid 1
+    // is launchd. None can be a member of a stray tree, and the guard costs a comparison.
+    check("nothing at or below pid 1 is ever in a plan, whatever is in the reclaim set",
+          OrphanKill.plan(members: [1, 900], live: live, ours: []).pids == [900])
     // The meter is never the thing metered, here as everywhere else on this page.
-    let withOurs = OrphanKill.plan(members: [900, 901, 902], groups: table, ours: [902],
-                                   ownGroup: 42)
+    let withOurs = OrphanKill.plan(members: [900, 901, 902], live: live, ours: [902])
     check("a process of Tally's own inside the set is spared and says so",
-          withOurs.spared == [902] && withOurs.pids == [900, 901] && withOurs.groups.isEmpty)
+          withOurs.spared == [902] && withOurs.pids == [900, 901])
     check("a member the table no longer holds needs no signal",
-          OrphanKill.plan(members: [900, 901, 902, 999], groups: table, ours: [],
-                          ownGroup: 42).pids.isEmpty)
-    check("nothing left to signal is an empty plan rather than an empty group kill",
-          OrphanKill.plan(members: [999], groups: table, ours: [], ownGroup: 42).isEmpty)
-
-    // 🔴 AND THE SECOND SIGNAL HAS A RULE OF ITS OWN: never a group, however clean the group looks
-    // (codex review of 8bfb19c). "Clean" is a completeness claim about the whole machine read out
-    // of a table walk that can miss a process, and `SIGKILL` cannot be taken back. A separate
-    // entry point rather than a flag, so no call site can ask for the group arm.
-    let escalation = OrphanKill.escalation(members: [900, 901, 902], groups: table, ours: [],
-                                           ownGroup: 42)
-    check("the escalation signals no group even where the ordinary plan would",
-          escalation.groups.isEmpty && escalation.pids == [900, 901, 902]
-              && clean.groups == [900])
-    check("…and still spares this app's own family and anything the table has lost",
-          OrphanKill.escalation(members: [900, 901, 902, 999], groups: table, ours: [902],
-                                ownGroup: 42).pids == [900, 901])
+          OrphanKill.plan(members: [999], live: live, ours: []).pids.isEmpty)
+    check("nothing left to signal is an empty plan",
+          OrphanKill.plan(members: [999], live: live, ours: []).isEmpty)
+    // AND THE ORDER IS STATED RATHER THAN A SET'S OWN, so a record of what was sent reads the same
+    // way twice.
+    check("the plan is ascending, so two runs of one reclaim deliver in the same order",
+          OrphanKill.plan(members: [902, 900, 901], live: live, ours: []).pids == [900, 901, 902])
+    // 🔴 AND THE DELIVERY ITSELF NEVER ADDRESSES A GROUP, which is the half a plan cannot state:
+    // the planner refuses to put such a number in, and the sending refuses to send one, so neither
+    // is the single point the guarantee rests on (`OrphanKill.Signals.real`).
+    var addressed: [pid_t] = []
+    OrphanKill.deliver(SIGTERM, following: clean,
+                       through: OrphanKill.Signals(
+                           send: { addressed.append($1) }, alive: { _ in [:] },
+                           listening: { [] }, presence: { _ in .running }, table: { [] }))
+    check("every delivery is one call to one positive pid",
+          addressed == [900, 901, 902] && !addressed.contains { $0 <= 1 })
 
     // THE LAST THING BEFORE THE SIGNAL: five minutes passed between the verdict and here.
     check("a pid whose start time has changed since the reading is not signalled",
@@ -672,7 +699,7 @@ private func runOrphanNoticeChecks() {
     let report = OrphanNotice.Report(
         project: "/Users/x/workspace/bigdata/web", program: "node", pid: 900, processes: 4,
         cpuPercent: 187, memoryBytes: 3_400_000_000, listeningPorts: [3000, 24_678],
-        ageSeconds: 7200, outcome: .reclaimedBySustained)
+        ageSeconds: 7200, signalled: [900, 901, 902, 904], outcome: .reclaimedByLease)
     let text = OrphanNotice.message(report, to: "bigdata", worktree: nil, at: at)
     // THE STOP GATE ON THE RECEIVING SIDE CHASES ANYTHING THAT ASKS FOR A REPLY, and the writer
     // here is a menu bar app that cannot receive one.
@@ -685,6 +712,17 @@ private func runOrphanNoticeChecks() {
     check("a message says what was running and what was done about it",
           text.contains("node") && text.contains(":3000, :24678") && text.contains("187%")
               && text.contains("2h 0m") && text.contains("Ended it."))
+    // 🔴 AND WHICH PROCESSES, not merely how many (root-cause review, 2026-09-02). A machine that
+    // comes back wrong is read by comparing what this app says it ended against what the person
+    // finds missing, and a count compares with nothing.
+    check("…and writes down every pid the signal actually went to",
+          text.contains("- Signalled: 900, 901, 902, 904"))
+    var unsent = report
+    unsent.signalled = []
+    unsent.outcome = .reported(doubts: [.unknownProgram])
+    check("…while a report, which sends nothing, has no such line to write",
+          !OrphanNotice.message(unsent, to: "bigdata", worktree: nil, at: at)
+              .contains("Signalled:"))
     check("…and a parallel line's message says which line, since the repository's box is not it",
           OrphanNotice.message(report, to: "bigdata",
                                worktree: "/Users/x/workspace/bigdata/.worktrees/feat", at: at)
@@ -705,10 +743,39 @@ private func runOrphanNoticeChecks() {
     check("…and is told how to keep it rather than only how to end it",
           told.contains("If it is yours, there is nothing to do.")
               && told.contains("`/dev-watch`") && !told.contains("Have a look and end it yourself"))
+    // 🔴 AND THE ONE A CANDIDATE WITH NOTHING AGAINST IT GETS, which is the shape the hold on the
+    // inference tier created: it cleared every bar and every veto, so a sentence ending in a list
+    // of doubts would have nothing to put in the list. Saying "it could not be sure" about it
+    // would be untrue, and saying nothing would hide the one reading the observation period exists
+    // to collect (`OrphanReclaim.verdict`).
+    var clear = report
+    clear.signalled = []
+    clear.outcome = .reported(doubts: [])
+    let held = OrphanNotice.message(clear, to: "bigdata", worktree: nil, at: at)
+    check("a candidate with no doubt at all is reported as one this app would end and did not",
+          held.contains("no session is working in its checkout")
+              && held.contains("switched off while this feature is being observed"))
+    check("…and names no doubt, there being none to name",
+          !held.contains("it could not be:") && !held.contains("Ended it."))
+    // AND THE OTHER READING THE ROUND CAN FAIL CLOSED ON: a board that would not place one of its
+    // own live sessions (`OrphanReclaim.Veto.sessionUnknown`), which has to read as a doubt about
+    // that rather than as a fact about the checkout.
+    var unplaced = report
+    unplaced.signalled = []
+    unplaced.outcome = .reported(doubts: [.sessionUnknown])
+    let vague = OrphanNotice.message(unplaced, to: "bigdata", worktree: nil, at: at)
+    check("a round whose board could not place a session says so, and offers the careful advice",
+          vague.contains("a live session would not say which checkout it is working in")
+              && vague.contains("If it is yours, there is nothing to do."))
     // AND THE SENTENCE THE INCIDENT'S OWN MESSAGES CARRIED, which is now a claim something checks
-    // (`OrphanReclaim.Veto.sessionPresent`). It was in this file before the veto existed.
+    // (`OrphanReclaim.Veto.sessionPresent`). It was in this file before the veto existed. The
+    // outcome it belongs to has no producer while the inference tier is held, and the wording is
+    // kept for the same reason the reason itself is (`OrphanReclaim.Reason.sustained`).
+    var sustained = report
+    sustained.outcome = .reclaimedBySustained
     check("a reclaim still says no session was working here, which is now a tested claim",
-          text.contains("No live session was working in this checkout"))
+          OrphanNotice.message(sustained, to: "bigdata", worktree: nil, at: at)
+              .contains("No live session was working in this checkout"))
     var failed = report
     failed.outcome = .failed(reason: "it would not go")
     check("…and a failure says the thing is still running",

@@ -5,7 +5,14 @@ import Foundation
 // out of OrphanReclaimStore.swift (past the repo's 500-line cap) along the seam the class already
 // had inside it - the MARK this file is named for. Over there is a ROUND: what the machine is
 // asked, which trees are strays, which of them the rules say may be ended, and what is said about
-// the ones that may not. Here is the only thing in this app that cannot be taken back.
+// the ones that may not. Here are the reclaim's own `begin` and `advance` signal paths, which
+// cannot be taken back.
+//
+// THAT IS A SENTENCE ABOUT THIS EXTENSION AND NOT ABOUT THE APP, which is the whole of the
+// correction (codex review of 0bbd8ec). It read "the only thing in this app that cannot be taken
+// back", and the app has others: `RedeemAction.redeem` spends a reset credit, and
+// `RenewLoginRunner` sends a `SIGKILL` of its own. A safety review that takes this file's word for
+// being the whole population would never go and look at them.
 //
 // AND THE TWO HALVES KEEP DIFFERENT CLOCKS, which is the other reason this is the seam. A round is
 // taken at most every five minutes; a sweep is looked at five times a second, on a timer of its own
@@ -17,8 +24,8 @@ extension OrphanReclaimStore {
     /// A kill in flight.
     ///
     /// THE PLAN IS NOT KEPT, and that is the repair rather than a tidy-up: the escalation used to
-    /// re-send the plan the `SIGTERM` was made from, which is a set of pids and PROCESS GROUPS
-    /// decided a whole grace period earlier (`advance`).
+    /// re-send the plan the `SIGTERM` was made from, which is a set of pids decided a whole grace
+    /// period earlier, some of which the machine has handed on since (`advance`).
     struct Sweep {
         var targets: Set<pid_t>
         var expected: [pid_t: Int64]
@@ -37,8 +44,7 @@ extension OrphanReclaimStore {
         let confirmed = OrphanKill.confirmed(tree.members, expected: expected,
                                              now: machine.signals.alive(tree.members))
         let ours = ProcessTree.ownFamily(confirmed, root: getpid(), executable: machine.program)
-        let plan = OrphanKill.plan(members: confirmed, groups: table.mapValues(\.group), ours: ours,
-                                   ownGroup: pid_t(getpgrp()))
+        let plan = OrphanKill.plan(members: confirmed, live: Set(table.keys), ours: ours)
         // The root's name first and the rest by pid, because a Set hands its members over in
         // whatever order it likes and a report that named a different worker each time would read
         // as this app not knowing what it ended.
@@ -50,6 +56,13 @@ extension OrphanReclaimStore {
             memoryBytes: machine.sample(confirmed, now).memoryBytes, listeningPorts: ports,
             ageSeconds: now.timeIntervalSince(
                 Date(timeIntervalSince1970: Double(tree.rootStartedAt) / 1_000_000)),
+            // WHO THIS IS ABOUT TO BE SENT TO, WRITTEN DOWN BEFORE IT IS SENT (root-cause review,
+            // 2026-09-02). While the first signal could reach a whole process group, the set that
+            // actually received it was not knowable afterwards from anything this app kept: the
+            // record said how MANY processes and the delivery was one call to a number that is not
+            // a process. Per-pid delivery makes the plan the list, and a list nobody wrote down is
+            // a list an incident cannot be reconstructed from.
+            signalled: plan.pids,
             outcome: reason == .leaseOwnerGone ? .reclaimedByLease : .reclaimedBySustained)
         guard !plan.isEmpty else {
             // Nothing left to signal: the tree ended between the verdict and here, which is a
@@ -129,15 +142,9 @@ extension OrphanReclaimStore {
     /// THE PLAN FOR THE SIGNAL THAT DOES NOT ASK, made again from scratch at the moment it is sent.
     ///
     /// THE GRACE PERIOD IS TEN SECONDS OF THE MACHINE MOVING, and re-sending the first plan ignores
-    /// all of it (codex review, 2026-09-02). Two things go stale in that window and both end with a
-    /// `SIGKILL` at a stranger:
-    ///
-    ///   - THE MEMBERS. Some of the tree did what it was asked and exited, and the kernel is free to
-    ///     hand those numbers straight back out. The old plan still named them.
-    ///   - THE GROUPS. A group is signalled as a group only where every live process carrying it is
-    ///     being reclaimed, and that was true ten seconds ago. A process group leader that exits
-    ///     leaves its number reusable too, so a `kill(-pgid)` decided then can now reach a job
-    ///     nobody here has ever looked at - and a group kill is one call that cannot be taken back.
+    /// all of it (codex review, 2026-09-02). Some of the tree did what it was asked and exited, and
+    /// the kernel is free to hand those numbers straight back out; the old plan still named them,
+    /// and the `SIGKILL` then landed on a stranger.
     ///
     /// So the survivors are replanned against a FRESH table, which is one walk and happens only for
     /// a tree that ignored `SIGTERM`.
@@ -151,18 +158,15 @@ extension OrphanReclaimStore {
     /// Intersecting BOTH readings against the same recorded start time is what closes it: a pid
     /// survives here only where the round, the sweep and the fresh walk all name one process.
     ///
-    /// AND NOTHING IS GROUP-KILLED AT THIS STAGE AT ALL (`OrphanKill.escalation`, which carries the
-    /// reasoning and what it costs).
+    /// AND NOTHING IS GROUP-KILLED AT ANY STAGE (`OrphanKill.plan`, which carries the reasoning and
+    /// what it costs).
     private func replanned(_ survivors: Set<pid_t>, expected: [pid_t: Int64]) -> OrphanKill.Plan {
         let table = machine.signals.table()
         let still = OrphanKill.confirmed(
             survivors, expected: expected,
             now: Dictionary(table.map { ($0.pid, $0.startedAt) }) { first, _ in first })
         let ours = ProcessTree.ownFamily(still, root: getpid(), executable: machine.program)
-        return OrphanKill.escalation(
-            members: still,
-            groups: Dictionary(table.map { ($0.pid, $0.group) }) { first, _ in first },
-            ours: ours, ownGroup: pid_t(getpgrp()))
+        return OrphanKill.plan(members: still, live: Set(table.map(\.pid)), ours: ours)
     }
 
     /// A KILL THAT WORKED, which is not the same as a kill whose processes are gone.

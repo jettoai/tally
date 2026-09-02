@@ -54,99 +54,58 @@ enum OrphanKill {
     /// How often the sweep looks while it waits.
     static let pollInterval: TimeInterval = 0.2
 
-    /// WHAT TO SIGNAL AND HOW.
+    /// WHAT TO SIGNAL.
     struct Plan: Equatable {
-        /// Process groups every live member of which is inside the reclaim set, signalled with one
-        /// call each (`kill(-pgid)`).
-        var groups: [pid_t]
-        /// And the pids that have to be signalled one at a time, because their group holds somebody
-        /// else.
+        /// The pids, ascending, each signalled with a call of its own.
         var pids: [pid_t]
-        /// Members deliberately left alone, with nothing to do about it: this process, its family,
-        /// and anything whose group is the init group. Kept rather than dropped so a record can say
-        /// the tree was not fully ended.
+        /// Members deliberately left alone, with nothing to do about it: this process and its
+        /// family. Kept rather than dropped so a record can say the tree was not fully ended. A
+        /// member the table no longer holds is in neither list, being nothing to signal or spare.
         var spared: [pid_t]
 
-        var isEmpty: Bool { groups.isEmpty && pids.isEmpty }
+        var isEmpty: Bool { pids.isEmpty }
     }
 
-    /// HOW TO SIGNAL A SET OF PIDS WITHOUT TAKING ANYTHING ELSE WITH THEM.
+    /// HOW TO SIGNAL A SET OF PIDS WITHOUT TAKING ANYTHING ELSE WITH THEM: one process at a time,
+    /// for BOTH signals, and never a process group.
     ///
     /// A GROUP KILL IS ONE CALL AND CANNOT BE TAKEN BACK. `kill(-pgid)` reaches every process
     /// carrying that group, including ones that joined after the reading - which is exactly what
     /// makes it the right tool for a server that keeps spawning workers, and exactly what makes it
-    /// unusable when the group holds anything else. `/dev-watch`'s supervisor relies on the same
-    /// property (`kill -- -$SRV`), and its own note says why: a child that dies first re-parents its
-    /// grandchildren to launchd, and `pkill -P` can then never find them.
+    /// unusable when the group holds anything else. This used to send the FIRST signal that way
+    /// wherever the group read clean, on the argument that a `SIGTERM` is a request rather than an
+    /// execution and a stranger receiving one may decline it.
     ///
-    /// SO THE GROUP IS ONLY USED WHERE IT IS PROVABLY CLEAN, decided against the machine's whole
-    /// live table rather than against the tree: a member of that group missing from the reclaim set
-    /// is a stranger, whether it is a worker somebody else's session adopted or a process that
-    /// joined a second ago.
+    /// THAT ARGUMENT SURVIVED THE REVIEW AND ITS EVIDENCE DID NOT (root-cause review, 2026-09-02).
+    /// "Every live process carrying this group is being reclaimed" is a completeness claim about
+    /// the whole machine, read out of a table walk that is one `proc_pidinfo` per pid, any of which
+    /// can fail for a pass. A single such failure on an UNRELATED process sharing the group makes a
+    /// dirty group read as clean, and the delivery then reaches somebody nothing here ever looked
+    /// at. A request delivered to a stranger is still a request this app cannot account for, and
+    /// the whole point of the tier that survives the hold is that it acts on a STATEMENT rather
+    /// than on an inference. So the reach goes, and what is signalled is exactly the set that was
+    /// confirmed by pid AND start time (`confirmed`).
     ///
-    /// THREE THINGS ARE NEVER SIGNALLED, and the first two are the ones that would be funny if they
-    /// were not fatal. Group 0 and group 1 (`kill(-0)` is the CALLER's own group, `kill(-1)` is
-    /// every process the user owns) would end this app, this app's supervisors, and every session on
-    /// the machine, from a feature whose whole purpose is to be careful. And this process's own
-    /// family is out for the reason it is out of every reading on this page (`ProcessTree.
-    /// ownFamily`): the meter must never be the thing metered.
+    /// WHAT IT COSTS, NAMED: a worker spawned after the round's own walk is in the group and not in
+    /// the confirmed member list, so it survives the sweep. It is not lost - it is a stray in that
+    /// checkout on the next round, and the round after that can reclaim its tree on the same terms
+    /// as any other. A leftover that outlives one sweep by five minutes is a smaller thing than a
+    /// signal at somebody's unrelated job.
+    ///
+    /// TWO THINGS ARE NEVER SIGNALLED. This process's own family is out for the reason it is out of
+    /// every reading on this page (`ProcessTree.ownFamily`): the meter must never be the thing
+    /// metered. And pid 1 is out because `kill` reads anything at or below zero as a GROUP and 1 is
+    /// launchd: neither can ever be a member of a stray tree, and the cost of the guard is a
+    /// comparison against the cost of not having it being the whole machine.
     ///
     /// - Parameters:
     ///   - members: the pids to end.
-    ///   - groups: what group each LIVE process on the machine carries, out of the table walk the
-    ///     round already made. A member missing from it is already gone and needs no signal.
+    ///   - live: every process the machine holds, out of the table walk the caller just made. A
+    ///     member missing from it is already gone and needs no signal.
     ///   - ours: this process and anything of Tally's own among the members.
-    ///   - ownGroup: this process's own group, which `kill(-pgid)` would reach.
-    static func plan(members: Set<pid_t>, groups table: [pid_t: pid_t], ours: Set<pid_t>,
-                     ownGroup: pid_t) -> Plan {
-        assemble(members: members, groups: table, ours: ours, ownGroup: ownGroup, grouping: true)
-    }
-
-    /// THE PLAN FOR `SIGKILL`, WHICH NEVER SIGNALS A GROUP.
-    ///
-    /// A SEPARATE ENTRY POINT SO THE CALL SITE CANNOT ASK FOR ONE, which is the whole of what this
-    /// function is: the same rule with the group arm removed, spelled as a name rather than as a
-    /// flag somebody could pass the other way.
-    ///
-    /// WHY THE ONE RULE IS NOT GOOD ENOUGH HERE (codex review of 8bfb19c). A group is signalled as
-    /// a group only where every live process carrying it is being reclaimed, and "every live
-    /// process" is read out of a table walk - which is one `proc_pidinfo` per pid, any of which can
-    /// fail for a pass. A single such failure on an UNRELATED process that happens to share the
-    /// group makes the group look clean, and `kill(-pgid, SIGKILL)` then reaches a stranger with no
-    /// warning and no way back. The reading is a completeness claim about the whole machine, and a
-    /// completeness claim assembled from fallible per-pid reads is exactly the kind of evidence
-    /// that must not stand behind an unrecoverable act.
-    ///
-    /// `SIGTERM` STILL GROUPS, and the asymmetry is the point rather than an inconsistency: the
-    /// first signal is a request, a stranger that receives it is asked to exit and may decline, and
-    /// the reach is what catches the workers a dev server keeps spawning. The second is not a
-    /// request.
-    ///
-    /// WHAT IT COSTS, NAMED: a worker spawned INSIDE the grace period is in the group and not in
-    /// the confirmed member list, so it survives the escalation. It is not lost - it is a stray in
-    /// that checkout on the next round, and the round after that can reclaim its tree on the same
-    /// terms as any other. A leftover that outlives one sweep by five minutes is a smaller thing
-    /// than a `SIGKILL` at somebody's unrelated job.
-    static func escalation(members: Set<pid_t>, groups table: [pid_t: pid_t], ours: Set<pid_t>,
-                           ownGroup: pid_t) -> Plan {
-        assemble(members: members, groups: table, ours: ours, ownGroup: ownGroup, grouping: false)
-    }
-
-    private static func assemble(members: Set<pid_t>, groups table: [pid_t: pid_t],
-                                 ours: Set<pid_t>, ownGroup: pid_t, grouping: Bool) -> Plan {
-        let targets = members.subtracting(ours).filter { table[$0] != nil }
-        var byGroup: [pid_t: Set<pid_t>] = [:]
-        for pid in targets { byGroup[table[pid] ?? pid, default: []].insert(pid) }
-        var plan = Plan(groups: [], pids: [], spared: ours.intersection(members).sorted())
-        for (group, held) in byGroup.sorted(by: { $0.key < $1.key }) {
-            let everyone = Set(table.filter { $0.value == group }.map(\.key))
-            if grouping, group > 1, group != ownGroup, everyone.isSubset(of: targets) {
-                plan.groups.append(group)
-            } else {
-                plan.pids.append(contentsOf: held.sorted())
-            }
-        }
-        return plan
+    static func plan(members: Set<pid_t>, live: Set<pid_t>, ours: Set<pid_t>) -> Plan {
+        let targets = members.subtracting(ours).filter { live.contains($0) && $0 > 1 }
+        return Plan(pids: targets.sorted(), spared: ours.intersection(members).sorted())
     }
 
     /// WHICH OF THE PIDS A PLAN NAMES ARE STILL THE PROCESSES IT WAS MADE ABOUT.
@@ -208,7 +167,6 @@ enum OrphanKill {
     /// injected the same way - the harness hands over four functions, and no process is harmed.
     struct Signals: Sendable {
         var send: @Sendable (Int32, pid_t) -> Void
-        var sendGroup: @Sendable (Int32, pid_t) -> Void
         /// Which of these pids the table still holds, with their start times.
         var alive: @Sendable (Set<pid_t>) -> [pid_t: Int64]
         /// Every port listening on the machine right now.
@@ -216,13 +174,15 @@ enum OrphanKill {
         /// Whether ONE pid is there, asked of the kernel rather than of a walk (`ProcessPresence`).
         var presence: @Sendable (pid_t) -> ProcessPresence
         /// The whole table again, for the one moment a plan has to be rebuilt: the escalation from
-        /// `SIGTERM` to `SIGKILL`, where the set being signalled and the process groups behind it
-        /// are both a grace period older than the plan that was made.
+        /// `SIGTERM` to `SIGKILL`, where the set being signalled is a grace period older than the
+        /// plan that was made and some of those numbers have been handed on.
         var table: @Sendable () -> [ProcessIdentity]
 
         static let real = Signals(
-            send: { signal, pid in _ = kill(pid, signal) },
-            sendGroup: { signal, group in _ = kill(-group, signal) },
+            // A pid at or below zero is a GROUP to `kill(2)`, and nothing here may ever address
+            // one. The planner refuses to put such a number in a plan; this refuses to send it, so
+            // the guarantee does not rest on one of the two alone.
+            send: { signal, pid in if pid > 1 { _ = kill(pid, signal) } },
             alive: { pids in
                 var found: [pid_t: Int64] = [:]
                 for pid in pids {
@@ -248,9 +208,9 @@ enum OrphanKill {
             table: { ProcessTree.liveProcesses() })
     }
 
-    /// Send one signal, the way the plan says to.
+    /// Send one signal, the way the plan says to: one call per process, in a stated order so a
+    /// record of what was sent reads the same way twice.
     static func deliver(_ signal: Int32, following plan: Plan, through signals: Signals) {
-        for group in plan.groups { signals.sendGroup(signal, group) }
         for pid in plan.pids { signals.send(signal, pid) }
     }
 }

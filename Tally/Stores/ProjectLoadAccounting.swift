@@ -113,20 +113,37 @@ final class ProjectLoadAccounting {
     /// The project roots this tick has to account against: the live sessions' and the retained.
     var accounted: Set<String> { watching }
 
+    /// 🔴 WHETHER THE LAST READING OF THE BOARD COULD PLACE EVERY ROW ON IT, which the map below
+    /// cannot say for itself: a row nothing could place is simply absent from it, and an absence
+    /// reads the same way as a machine with one session fewer.
+    ///
+    /// FOR ONE CONSUMER AND NAMED FOR WHAT IT COSTS THERE. The rollup itself is unharmed by a
+    /// missing row - a project short one session's card is a wrong figure for a tick, and the next
+    /// tick corrects it. The reclaim is not: "no session is working in this checkout" is the
+    /// reading that lets it end a process, and it is drawn from exactly this map
+    /// (`ProcessFootprintStore.sample` hands it over, `OrphanReclaim.Sessions` carries this field
+    /// alongside it, and `OrphanReclaim.Veto.sessionUnknown` is what the round does about it).
+    private(set) var boardUnreadable = false
+
     /// Which project each session on the board is working in, keyed the way the board keys its rows.
     /// A session whose directory nothing published is simply absent, which is the same answer every
-    /// other reading gives it.
+    /// other reading gives it - and is recorded as such above.
     ///
     /// And every root it finds is one this accounting watches until nothing is left running in it
     /// (`watching`).
     func roots(of board: [SessionRosterStore.SessionRow]) -> [String: String] {
         var found: [String: String] = [:]
+        var missed = false
         for row in board {
-            guard let directory = row.directory else { continue }
+            guard let directory = row.directory else {
+                missed = true
+                continue
+            }
             let real = resolved[directory] ?? MachineLoadRollup.resolvedPath(directory)
             resolved[directory] = real
             found[row.id] = real
         }
+        boardUnreadable = missed
         watching.formUnion(found.values)
         return found
     }

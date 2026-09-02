@@ -393,12 +393,24 @@ final class ProcessFootprintStore {
             ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
         if load != machineLoad { machineLoad = load }
         // AND WHETHER ANY OF IT SHOULD STILL BE RUNNING (`OrphanReclaimStore`, which paces itself).
-        // THE SESSIONS GO WITH THE STRAYS, and they are the readings the rollup was just given: a
-        // checkout somebody is working in is one whose leftovers this app reports rather than ends
-        // (`OrphanReclaim.Veto.sessionPresent`). Taken from the cards rather than from the roster,
-        // so "a live session" means the same thing here as it does on the page.
+        // THE SESSIONS GO WITH THE STRAYS: a checkout somebody is working in is one whose leftovers
+        // this app reports rather than ends (`OrphanReclaim.Veto.sessionPresent`).
+        //
+        // TAKEN FROM THE ROSTER RATHER THAN FROM THE CARDS, which is the one place in this pass
+        // where the two must not be the same set. A card is dropped whenever its tree is
+        // momentarily empty - a supervisor between children, a session whose Claude Code has gone
+        // home - by the two guards in the loop above, and `readings` carries that hole through
+        // (`MachineLoadRollup.readings`). The roster still holds that session and its directory,
+        // and the difference between the two sets is a live session's dev server being signalled
+        // in the checkout its own session is sitting in.
+        //
+        // AND WIDE IS THE SAFE DIRECTION HERE, which is why the wider set is the right one rather
+        // than merely the larger. A root too many costs a message where a kill would have been; a
+        // root too few costs somebody's server, ended under them, under a message saying nobody
+        // was working there. The board's own rows are drawn from the cards as before: what is being
+        // decided here is not what the page says but what may be killed.
         OrphanReclaimStore.shared.observe(strays: unattributed, processes: processes,
-                                          sessions: Set(byProject.map(\.root)), at: now)
+                                          sessions: Set(rootOfSession.values), at: now)
         previousSample = readings
         cpuCarry = carried
         alertState = painted.alerts

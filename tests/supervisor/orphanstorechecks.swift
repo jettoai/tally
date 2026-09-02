@@ -564,8 +564,41 @@ func runOrphanStoreChecks() {
     // pass (`machineloadchecks.swift`).
     let tick = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
                             encoding: .utf8)) ?? ""
-    check("the tick hands the reclaim the checkouts its own cards are drawn for",
-          !tick.isEmpty && tick.contains("sessions: Set(byProject.map(\\.root)), at: now)"))
+    check("the tick hands the reclaim every checkout the ROSTER says a session is working in",
+          !tick.isEmpty && tick.contains("sessions: Set(rootOfSession.values), at: now)"))
+    // WHY THE ROSTER RATHER THAN THE CARDS, stated as the thing that actually differs between the
+    // two sets. A card is skipped whenever its tree is momentarily empty - a supervisor between
+    // children, a session whose Claude Code has gone home - and two guards in the reading loop drop
+    // exactly those (`ProcessFootprintStore.sample`). The set drawn from the cards then holds no
+    // root for that session at all, and the round below shows what that costs.
+    let board = ["7001": web, "7002": "/Users/x/workspace/geo"]
+    let cards = MachineLoadRollup.readings(
+        of: ["7002": ProcessFootprint(processes: 3, listeningPorts: [])],
+        roots: board, members: [:])
+    let drawnRoots = Set(cards.map(\.root))
+    check("a session whose card was skipped this round is missing from the cards' own roots",
+          drawnRoots == ["/Users/x/workspace/geo"])
+    let byCards = FakeMachine()
+    leftoverServer(byCards, project: web)
+    let fourteenth = byCards.store()
+    fourteenth.observe(strays: [root: web, worker: web], processes: byCards.table,
+                       sessions: drawnRoots, at: t0)
+    byCards.times = [root: 103, worker: 0]
+    fourteenth.observe(strays: [root: web, worker: web], processes: byCards.table,
+                       sessions: drawnRoots, at: round2)
+    check("…and a round handed only those roots signals the leftover of a session sitting there",
+          byCards.sent.map(\.0) == [SIGTERM])
+    let byRoster = FakeMachine()
+    leftoverServer(byRoster, project: web)
+    let fifteenth = byRoster.store()
+    fifteenth.observe(strays: [root: web, worker: web], processes: byRoster.table,
+                      sessions: Set(board.values), at: t0)
+    byRoster.times = [root: 103, worker: 0]
+    fifteenth.observe(strays: [root: web, worker: web], processes: byRoster.table,
+                      sessions: Set(board.values), at: round2)
+    check("…while the roster's own roots report it and leave it alone",
+          byRoster.sent.isEmpty
+              && fifteenth.records.first?.outcome == .reported(doubts: [.sessionPresent]))
     check("…and the guard sits before the round rather than after the sweep",
           (source.range(of: "guard !DemoUsage.isActive")?.lowerBound).map { flag in
               (source.range(of: "lastRound = now")?.lowerBound).map { flag < $0 } ?? false

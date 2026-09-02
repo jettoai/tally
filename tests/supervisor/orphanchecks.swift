@@ -519,6 +519,55 @@ private func runOrphanNoticeChecks() {
               == OrphanNotice.Repository(root: "/Users/x/workspace/bigdata/vendor/lib",
                                          worktree: nil))
 
+    // A PARALLEL LINE THAT POINTS BACK RELATIVELY, which is what git writes under
+    // `worktree.useRelativePaths` and `git worktree add --relative-paths` (git 2.48 and after) so a
+    // repository and its lines can be moved or copied as one directory. Taken as written, the root
+    // is a path relative to the worktree, and everything this app does with a root compares it
+    // against an absolute one: the session veto asks whether a stray's checkout is a checkout
+    // somebody is working in, and `../bigdata` is equal to nothing (`OrphanReclaim.checkout`).
+    let sibling: (String) -> OrphanNotice.GitEntry? = { path in
+        path == "/Users/x/workspace/bigdata-wt1/.git"
+            ? .file("gitdir: ../bigdata/.git/worktrees/wt1\n") : nil
+    }
+    check("a worktree pointing back relatively is folded into the repository it names",
+          OrphanNotice.repository(of: "/Users/x/workspace/bigdata-wt1/web", entry: sibling)
+              == OrphanNotice.Repository(root: "/Users/x/workspace/bigdata",
+                                         worktree: "/Users/x/workspace/bigdata-wt1"))
+    // The nested layout is the same rule two directories deeper, and it is the one this machine's
+    // own worktrees are cut in.
+    let nested: (String) -> OrphanNotice.GitEntry? = { path in
+        path == "/Users/x/workspace/bigdata/.worktrees/feat/.git"
+            ? .file("gitdir: ../../.git/worktrees/feat\n") : nil
+    }
+    check("…and one that climbs two levels back arrives at the same place",
+          OrphanNotice.repository(of: "/Users/x/workspace/bigdata/.worktrees/feat",
+                                  entry: nested)?.root == "/Users/x/workspace/bigdata")
+    check("…and a `.` segment on the way out is removed rather than compared",
+          OrphanNotice.repository(of: "/Users/x/workspace/bigdata-wt1",
+                                  entry: { $0 == "/Users/x/workspace/bigdata-wt1/.git"
+                                      ? .file("gitdir: ../bigdata/./.git/worktrees/wt1") : nil })?
+              .root == "/Users/x/workspace/bigdata")
+    // 🔴 AND THE READING THE VETO ACTUALLY TAKES, which is the whole point of the fold: a trunk
+    // session's root is an absolute path, so a relative answer here would say "a different
+    // checkout" about the one directory that session is sitting in.
+    check("…and the checkout a relative worktree is in equals the trunk session's own root",
+          OrphanReclaim.checkout(of: "/Users/x/workspace/bigdata/.worktrees/feat/web",
+                                 entry: nested) == "/Users/x/workspace/bigdata")
+
+    // THE FOLD ITSELF, which is lexical on purpose: no filesystem is touched on a path that runs
+    // while a machine is already in trouble, and what is being asked is which checkout two strings
+    // name rather than what the disk holds this second.
+    check("an absolute path is already the answer",
+          OrphanNotice.absolute("/Users/x/workspace/bigdata", from: "/anywhere")
+              == "/Users/x/workspace/bigdata")
+    check("…a relative one is resolved against the directory that stated it",
+          OrphanNotice.absolute("../bigdata", from: "/Users/x/workspace/bigdata-wt1")
+              == "/Users/x/workspace/bigdata")
+    check("…climbing past the top stops at the root rather than running off it",
+          OrphanNotice.absolute("../../../..", from: "/Users/x") == "/")
+    check("…and a directory that is itself relative has nothing to resolve against",
+          OrphanNotice.absolute("../bigdata", from: "workspace/wt") == "../bigdata")
+
     // A KEY NOTHING READS IS A DEAD LETTER, so this is the rule the other writers of these inboxes
     // already use: the path under the workspace, flattened.
     check("a nested checkout's inbox key is its path under the workspace with the slashes flattened",
@@ -530,6 +579,13 @@ private func runOrphanNoticeChecks() {
           OrphanNotice.key(for: "/opt/src/thing", workspace: workspace) == "thing")
     check("a sibling whose name merely starts the same way is not inside the workspace",
           OrphanNotice.key(for: "/Users/x/workspace-old/tally", workspace: workspace) == "tally")
+    // AND THE INBOX FOLLOWS THE SAME ROOT, which is the second thing a relative one breaks: a key
+    // taken off `../bigdata` addresses a directory called `..`, and the message lands where nobody
+    // is reading.
+    let feat = "/Users/x/workspace/bigdata/.worktrees/feat"
+    check("a relatively linked worktree's message is addressed to its repository's own box",
+          OrphanNotice.key(for: OrphanNotice.repository(of: feat, entry: nested)?.root ?? "",
+                           workspace: workspace) == "bigdata")
     check("the inbox is the one the harness's own notify skill writes into",
           OrphanNotice.inbox("tally", home: URL(fileURLWithPath: "/Users/x")).path
               == "/Users/x/.claude/inboxes/tally")

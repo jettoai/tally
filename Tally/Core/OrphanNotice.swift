@@ -80,9 +80,11 @@ enum OrphanNotice {
     /// message somebody still reads.
     ///
     /// A LINKED WORKTREE'S `.git` IS A FILE reading `gitdir: <repo>/.git/worktrees/<name>`, so the
-    /// repository is what sits before that suffix. The worktree itself is carried alongside rather
-    /// than discarded: the message says where the process really was, because "something was running
-    /// in bigdata" is the wrong sentence when it was running in a parallel line of it.
+    /// repository is what sits before that suffix - folded to an absolute path when git wrote that
+    /// line relatively, which it does for a whole class of worktree (`absolute`). The worktree
+    /// itself is carried alongside rather than discarded: the message says where the process really
+    /// was, because "something was running in bigdata" is the wrong sentence when it was running in
+    /// a parallel line of it.
     ///
     /// - Parameter entry: what `<directory>/.git` is, or nil when there is none there.
     static func repository(of directory: String, entry: (String) -> GitEntry?) -> Repository? {
@@ -95,7 +97,7 @@ enum OrphanNotice {
                 guard let root = mainRepository(gitdir: text) else {
                     return Repository(root: here, worktree: nil)
                 }
-                return Repository(root: root, worktree: here)
+                return Repository(root: absolute(root, from: here), worktree: here)
             case nil:
                 guard let slash = here.lastIndex(of: "/"), slash != here.startIndex else {
                     return nil
@@ -104,6 +106,32 @@ enum OrphanNotice {
             }
         }
         return nil
+    }
+
+    /// THE ABSOLUTE FORM OF A PATH A `.git` FILE STATED, resolved against the directory that file
+    /// sits in.
+    ///
+    /// GIT WRITES THESE RELATIVE ON PURPOSE. `git worktree add --relative-paths`, and
+    /// `worktree.useRelativePaths` for every line thereafter (git 2.48 and after), so a repository
+    /// and its parallel lines can be moved or copied as one directory. Everything that consumes a
+    /// root here compares it against an ABSOLUTE path: a session's working directory, on the
+    /// reading that decides whether a stray may be ended (`OrphanReclaim.checkout`), and the inbox
+    /// key a message is addressed by. `../bigdata` compares equal to none of them, and the failure
+    /// is silent in the one direction that costs something - "no session is working here" about a
+    /// checkout somebody is sitting in.
+    ///
+    /// THE FOLD IS TEXTUAL RATHER THAN RESOLVED, which is the same reading every other path in this
+    /// file gets: `standardizedFileURL` takes the `..` and `.` segments out and leaves symlinked
+    /// components alone, where `resolvingSymlinksInPath` would answer about the disk instead
+    /// (measured: `/tmp` stays `/tmp`). What is being asked is which checkout two strings name.
+    ///
+    /// A `directory` THAT IS ITSELF RELATIVE LEAVES THE PATH AS IT WAS, there being nothing here
+    /// to resolve it against: `URL(fileURLWithPath:)` would quietly complete it from this process's
+    /// own working directory, which is an answer about Tally rather than about the worktree.
+    static func absolute(_ path: String, from directory: String) -> String {
+        guard !path.hasPrefix("/"), directory.hasPrefix("/") else { return path }
+        return URL(fileURLWithPath: directory, isDirectory: true)
+            .appendingPathComponent(path).standardizedFileURL.path
     }
 
     /// The repository a linked worktree's `.git` file points back at.

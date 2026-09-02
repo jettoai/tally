@@ -282,7 +282,8 @@ func runStatus(json: Bool = false) {
     // so both read it (AccountReserve.swift).
     let reserves = accountReserves()
     let advisor = loadAdvisorReadings(plans: accountPlans(snapshot),
-                                      reserves: accountReserveIDs(snapshot, reserves))
+                                      reserves: accountReserveIDs(snapshot, reserves),
+                                      live: Set(snapshot.accounts.map(\.id)))
     // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
     // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.
     //

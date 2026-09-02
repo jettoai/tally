@@ -445,10 +445,15 @@ func runProcessTreeLineChecks() {
     // "a warning is about a condition that HOLDS" needs; a panel that closes no longer resets it,
     // because the ticks continue behind it and a warning re-earned from nothing on reopening would
     // be ten seconds late saying what was already true.
+    // The last of the three is spelled `alertState = painted.alerts` since the painting step moved
+    // into ProcessFootprintTiming.swift (2026-09-02, the store passed the cap again). What it
+    // still pins is the same sentence: the counting is carried BACK onto the store, so it survives
+    // the tick that took it. Both files are read as one string above, so the move itself changed
+    // nothing here.
     check("idleness is read from the state the session publishes, and unknown is not idle",
           storeSource.contains("row.state == .idle || row.state == .blocked")
               && storeSource.contains("FootprintAlarm.advance(alertState[one.key] ?? FootprintAlertState(),")
-              && storeSource.contains("alertState = alerting"))
+              && storeSource.contains("alertState = painted.alerts"))
     // ONE PRESSURE READING PER TICK, TAKEN OUTSIDE THE LOOP. The memory tier's second witness is a
     // fact about the MACHINE rather than about a card (`MachineMemoryPressure`), so a board of ten
     // cards must not carry ten readings from ten instants. Asserted by WHERE it is read as well as

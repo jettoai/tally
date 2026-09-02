@@ -111,6 +111,10 @@ extension PopoverRootView {
                 // only meets after scrolling past ten cards - and it is exactly what a board
                 // filtered down to nothing still has to say (`sessionsProjectRollup`).
                 sessionsProjectRollup
+                // …and what was DONE about any of it, which is the one thing on this page that is
+                // not a reading (`sessionsReclaimNotes`). Directly under the rollup, because it is
+                // about the very rows above it.
+                sessionsReclaimNotes
                 if listed.isEmpty {
                     // The filter is holding everything back, which is a different sentence from
                     // "nothing is running" - and saying the wrong one would read as the board

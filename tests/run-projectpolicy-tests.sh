@@ -27,5 +27,6 @@ swiftc -o "$out" tests/projectpolicy/main.swift tests/projectpolicy/shellsafetyc
   Tally/Core/ArtifactHookContract.swift TallyCLI/AccountComfort.swift \
   TallyCLI/ResumePrompt.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
+  TallyCLI/UsageAdvisorMath.swift \
   TallyCLI/LaunchDir.swift TallyCLI/Quarantine.swift
 "$out"

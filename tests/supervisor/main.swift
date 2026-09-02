@@ -723,7 +723,12 @@ runMachineLoadChecks()
 // The one suite here that drives a @MainActor store rather than a pure rule: the project rollup's
 // state BETWEEN two ticks is the half no pure function can hold (projectloadchecks.swift).
 MainActor.assumeIsolated { runProjectLoadChecks() }
+// The same, one question further on: what the rollup finds, and whether it should still be running
+// (orphanchecks.swift). Drives a store too, for the same reason - a kill is a thing that happens
+// BETWEEN two rounds - and nothing in it touches a real process.
+MainActor.assumeIsolated { runOrphanChecks() }
 runFootprintChecks()
+MainActor.assumeIsolated { runFootprintPaintChecks() }
 runFootprintAlertChecks()
 runFootprintTrendChecks()
 runSessionCardEdgeChecks()

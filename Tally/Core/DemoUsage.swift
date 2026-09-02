@@ -250,17 +250,35 @@ enum DemoUsage {
         // strip shows the pooled figure, the uniform-fleet case), and Codex spread over Pro and
         // Team, which is what puts the per-tier reading on screen. Each split sums to its own
         // pooled demand, the same invariant a real reading keeps.
-        [UsageAdvisor.Reading(provider: "claude", verdict: .addAccount, demandPerWeek: 5.8,
-                              activeBurnPerHour: 11, starvedHoursPerWeek: 3.4,
-                              daysOfData: 14, accountCount: 5,
-                              tierDemands: [.init(plan: "Max 20x", demandPerWeek: 5.8,
-                                                  accountCount: 5)]),
-         UsageAdvisor.Reading(provider: "codex", verdict: .sufficient, demandPerWeek: 2.6,
-                              activeBurnPerHour: 5, starvedHoursPerWeek: 0,
-                              daysOfData: 14, accountCount: 4,
-                              tierDemands: [.init(plan: "Pro", demandPerWeek: 1.7, accountCount: 3),
-                                            .init(plan: "Team", demandPerWeek: 0.9,
-                                                  accountCount: 1)])]
+        // The window ladder the clickable figure cycles through, built from the same pooled numbers
+        // so the demo reads like a real fortnight: a slightly hotter recent week than the month
+        // behind it, which is the situation the shorter windows exist for. The 28-day rung IS the
+        // pooled figure, exactly as a live reading's is.
+        let claudeTiers = [UsageAdvisor.TierDemand(plan: "Max 20x", demandPerWeek: 5.8,
+                                                   accountCount: 5)]
+        let codexTiers = [UsageAdvisor.TierDemand(plan: "Pro", demandPerWeek: 1.7, accountCount: 3),
+                          UsageAdvisor.TierDemand(plan: "Team", demandPerWeek: 0.9, accountCount: 1)]
+        func ladder(_ figures: [Double], tiers: [UsageAdvisor.TierDemand]) -> [UsageAdvisor.WindowDemand] {
+            zip(UsageAdvisor.displayWindows, figures).map { window, figure in
+                let scale = figure / (figures.last ?? figure)
+                return UsageAdvisor.WindowDemand(
+                    days: window, demandPerWeek: figure,
+                    tierDemands: tiers.map { .init(plan: $0.plan,
+                                                   demandPerWeek: $0.demandPerWeek * scale,
+                                                   accountCount: $0.accountCount) },
+                    minimumDays: min(window, UsageAdvisor.minimumDays))
+            }
+        }
+        return [UsageAdvisor.Reading(provider: "claude", verdict: .addAccount, demandPerWeek: 5.8,
+                                     activeBurnPerHour: 11, starvedHoursPerWeek: 3.4,
+                                     daysOfData: 14, accountCount: 5,
+                                     tierDemands: claudeTiers,
+                                     windowDemands: ladder([6.4, 6.1, 6.0, 5.8], tiers: claudeTiers)),
+                UsageAdvisor.Reading(provider: "codex", verdict: .sufficient, demandPerWeek: 2.6,
+                                     activeBurnPerHour: 5, starvedHoursPerWeek: 0,
+                                     daysOfData: 14, accountCount: 4,
+                                     tierDemands: codexTiers,
+                                     windowDemands: ladder([3.0, 2.8, 2.7, 2.6], tiers: codexTiers))]
     }
 
     /// Fixture token history for the Tokens tab, so the screenshot shows a plausible year of work

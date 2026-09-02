@@ -21,12 +21,30 @@ enum UsageAdvisor {
     /// A window at or above this percent used has no usable quota left - it is starved.
     static let starvedThreshold: Double = 99
     /// Two samples farther apart than this aren't one continuous stretch of work; cap the gap so an
-    /// overnight idle span counts as neither active nor starved time.
+    /// overnight idle span counts as neither active nor starved time. It is also how long one
+    /// sample vouches for the app having been awake (`observedSpans`).
     static let maxGap: TimeInterval = 30 * 60
+    /// How far a reported reset time may move and still name the SAME weekly cycle.
+    ///
+    /// RESET TIMES WOBBLE. Claude's are parsed out of `/usage`'s human text, whose finest unit is
+    /// the minute, so one unbroken window is reported a minute earlier or later as the underlying
+    /// instant rounds; Codex's walk forward almost every poll while a window sits idle, because the
+    /// weekly period starts at the first request rather than on a calendar. Matched by EQUALITY,
+    /// 31,618 of this machine's 34,281 Claude weekly samples looked like a fresh cycle and their
+    /// real deltas were thrown away (Sol's audit, 2026-09-02). The same 5 minutes the rebalance
+    /// claim uses for the same reason (`rebalanceCycleTolerance`, TallyCLI/Rebalance.swift); they
+    /// are one tolerance over one wobble and should move together.
+    static let resetTolerance: TimeInterval = 5 * 60
     /// Recommend another account once weekly demand reaches this fraction of pooled capacity...
     static let demandTriggerRatio: Double = 0.9
     /// ...or once the fleet sits starved more than this many hours in a week.
     static let starvedTriggerHours: Double = 2
+    /// The spans the panel can read the weekly demand over, shortest first. The VERDICT is always
+    /// the full `lookbackDays` one - a recommendation that changed with the reader's zoom level
+    /// would be a different piece of advice per click - so these only ever move the figure on
+    /// screen. Last entry is the default and has to be `lookbackDays`, because that is the window
+    /// every other surface publishes (`Reading.demandPerWeek`, the CLI's JSON).
+    static let displayWindows: [Double] = [1, 3, 7, 28]
 
     /// One history row, decoded straight from the JSONL file. Field-for-field the same as
     /// `UsageHistory.Sample`; kept separate so this pure file carries no app dependency.
@@ -57,6 +75,28 @@ enum UsageAdvisor {
         var accountCount: Int
     }
 
+    /// The same weekly demand measured over ONE of the display windows, so the panel can offer the
+    /// reader a shorter lens than the 28 days the verdict is fixed to: a fleet whose habits changed
+    /// last Tuesday reads its old month as one number and its new week as another, and only the
+    /// reader knows which one they are asking about.
+    ///
+    /// EVERY WINDOW HAS ITS OWN COLLECTING GATE, in `minimumDays` below. A day's window is a real
+    /// reading after a day; the month's still waits the week the trend gate has always waited, and
+    /// no window waits longer than that. A window that has not reached its own gate carries a nil
+    /// demand rather than a small number computed over a sliver of history, because the sliver
+    /// would look exactly like a fact.
+    struct WindowDemand: Sendable, Equatable {
+        /// The span in days: one of `displayWindows`.
+        var days: Double
+        /// Pooled weekly burn over that span, or nil while the history is shorter than the gate.
+        var demandPerWeek: Double?
+        /// The same figure split by plan, on the same terms as `Reading.tierDemands`. Empty while
+        /// the window is still collecting.
+        var tierDemands: [TierDemand] = []
+        /// How much history this window needs before it reads at all.
+        var minimumDays: Double
+    }
+
     /// One provider's verdict plus the numbers behind it. Language-free on purpose: the panel
     /// builds a localized headline from `verdict`, the CLI/JSON layer an English one.
     struct Reading: Sendable, Equatable {
@@ -75,6 +115,10 @@ enum UsageAdvisor {
         /// tier whose `plan` is nil and whose demand IS the pooled figure, not an empty list: the
         /// split is always complete, it just has nothing to name its single tier.
         var tierDemands: [TierDemand] = []
+        /// The same demand measured over each of `displayWindows`, shortest first - what the panel's
+        /// clickable figure cycles through. The `lookbackDays` entry is `demandPerWeek` itself, by
+        /// construction rather than by coincidence: same samples, same denominator.
+        var windowDemands: [WindowDemand] = []
     }
 
     private static let decoder: JSONDecoder = {
@@ -111,27 +155,49 @@ enum UsageAdvisor {
     /// place the reserve exists (the model pools below read it as zero). Defaults to no reserve
     /// anywhere, which is every fleet that has not set one and every caller that has not been taught
     /// to ask.
+    ///
+    /// `liveAccounts` is the fleet AS IT IS NOW - the accounts still on this machine. The history
+    /// outlives a removed account by up to four weeks, and while it does, that account is a whole
+    /// account-week of CAPACITY nobody has any more, a reserve nobody holds, a pip nobody owns, and
+    /// a member of the starvation intersection that never starves (so the pool never does either).
+    /// Its past BURN stays in the demand, which is the honest half: the work happened, and it is
+    /// the work the remaining accounts would have to absorb. Nil means "every account in the
+    /// history is live", which is what every caller that has not been taught to ask means, and what
+    /// the tests mean.
     static func readings(samples: [Sample], now: Date = Date(),
                          planOf: (String) -> String? = { _ in nil },
-                         reserveOf: @escaping (String) -> Double = { _ in 0 }) -> [Reading] {
+                         reserveOf: @escaping (String) -> Double = { _ in 0 },
+                         liveAccounts: Set<String>? = nil) -> [Reading] {
         Dictionary(grouping: samples, by: \.provider).keys.sorted().compactMap { provider in
             reading(provider: provider, samples: samples.filter { $0.provider == provider },
-                    now: now, planOf: planOf, reserveOf: reserveOf)
+                    now: now, planOf: planOf, reserveOf: reserveOf, liveAccounts: liveAccounts)
         }
     }
 
     static func reading(provider: String, samples: [Sample], now: Date = Date(),
                         planOf: (String) -> String? = { _ in nil },
-                        reserveOf: (String) -> Double = { _ in 0 }) -> Reading? {
+                        reserveOf: (String) -> Double = { _ in 0 },
+                        liveAccounts: Set<String>? = nil) -> Reading? {
         guard let earliest = samples.map(\.ts).min() else { return nil }
         let days = now.timeIntervalSince(earliest) / 86_400
         let weeks = max(days / 7, 1e-6)   // div-safety only; the collecting gate handles young data
-        let accounts = Set(samples.map(\.account))
+        let accounts = Set(samples.map(\.account)).filter { isLive($0, in: liveAccounts) }
+        // A provider whose every account has gone still has history. It has no fleet, so it has no
+        // question: "do I need another account" is not asked of a provider nobody is on any more.
+        guard !accounts.isEmpty else { return nil }
 
         let weeklyAll = samples.filter { $0.window == weeklyAllWindow }
         let weeklyModel = samples.filter { $0.window == weeklyModelWindow }
+        // WHAT THE APP ACTUALLY WATCHED, from every sample this provider wrote - any account, any
+        // window. Starvation is measured inside it (`poolStarvedSeconds`) so a laptop that was shut
+        // for ten hours cannot report ten starved hours it was not there to see.
+        let observed = observedSpans(samples)
 
-        let demandPerWeek = burnSum(weeklyAll) / weeks / 100
+        // ONE walk of the account-wide series answers both the pooled demand and the active
+        // pace; they are the same spending seen two ways, and walking it twice is how they
+        // would come to disagree.
+        let spent = consumption(weeklyAll)
+        let demandPerWeek = spent.total / weeks / 100
 
         // Binding constraint: the most saturated pool relative to its OWN account capacity - the
         // account-wide weekly, or any single model window. A fable window can be the wall while
@@ -140,25 +206,29 @@ enum UsageAdvisor {
         // window and of no other (Tally/Core/AccountReserve.swift), so subtracting it from a model
         // pool as well would hold the same points back twice - and would report a flagship pool as
         // saturated on capacity nothing actually withholds there.
-        var bindingRatio = poolRatio(weeklyAll, weeks: weeks, reserveOf: reserveOf)
+        var bindingRatio = poolRatio(weeklyAll, weeks: weeks, live: liveAccounts,
+                                     reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
             bindingRatio = max(bindingRatio, poolRatio(weeklyModel.filter { $0.model == model },
-                                                       weeks: weeks, reserveOf: { _ in 0 }))
+                                                       weeks: weeks, live: liveAccounts,
+                                                       reserveOf: { _ in 0 }))
         }
 
-        let (burn, activeHours) = activeBurn(weeklyAll)
-        let activeBurnPerHour = activeHours > 0 ? burn / activeHours : 0
+        let activeBurnPerHour = spent.activeSeconds > 0
+            ? spent.activeBurn / (spent.activeSeconds / 3_600) : 0
 
         // Starvation is pool-level and conservative: a pool only counts as starved while EVERY one
         // of its accounts is simultaneously at/above the threshold (any account with quota can
         // absorb a handoff). Provider value = the most-starved pool, mirroring bindingRatio.
-        var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, reserveOf: reserveOf)
+        var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, live: liveAccounts,
+                                                observed: observed, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
             // The account-wide pool only, for the reason the ratio above states: a model window is
             // not a window anybody reserved anything on.
             starvedSeconds = max(starvedSeconds,
                                  poolStarvedSeconds(weeklyModel.filter { $0.model == model },
-                                                    now: now, reserveOf: { _ in 0 }))
+                                                    now: now, live: liveAccounts,
+                                                    observed: observed, reserveOf: { _ in 0 }))
         }
         let starvedHoursPerWeek = starvedSeconds / 3_600 / weeks
 
@@ -173,150 +243,10 @@ enum UsageAdvisor {
         return Reading(provider: provider, verdict: verdict, demandPerWeek: demandPerWeek,
                        activeBurnPerHour: activeBurnPerHour, starvedHoursPerWeek: starvedHoursPerWeek,
                        daysOfData: days, accountCount: accounts.count,
-                       tierDemands: tierDemands(weeklyAll, weeks: weeks, planOf: planOf))
-    }
-
-    /// The weekly demand split by plan, largest first. Splitting by account keeps every series
-    /// (account | window | model) whole, which is why the tiers add back up to the pooled figure.
-    private static func tierDemands(_ samples: [Sample], weeks: Double,
-                                    planOf: (String) -> String?) -> [TierDemand] {
-        Dictionary(grouping: samples) { planOf($0.account) }
-            .map { plan, rows in
-                TierDemand(plan: plan, demandPerWeek: burnSum(rows) / weeks / 100,
-                           accountCount: Set(rows.map(\.account)).count)
-            }
-            .sorted { a, b in
-                if a.demandPerWeek != b.demandPerWeek { return a.demandPerWeek > b.demandPerWeek }
-                // Ties break by name so a refresh cannot reshuffle the row under the reader; the
-                // unnamed tier goes last, which is where an unknown belongs.
-                switch (a.plan, b.plan) {
-                case let (left?, right?): return left < right
-                case (_?, nil): return true
-                default: return false
-                }
-            }
-    }
-
-    /// A pool's weekly demand as a fraction of its own account capacity (accounts contributing the
-    /// window). Zero when the pool has no accounts.
-    ///
-    /// CAPACITY IS THE PART TALLY MAY SPEND, so an account contributes `(100 - reserve) / 100` of
-    /// an account-week rather than a whole one. Two accounts with 30 points reserved on one of them
-    /// are 1.7 accounts of capacity, and the verdict this feeds - "do I need another account?" - is
-    /// about exactly that number: a fleet whose spendable half is saturated needs another seat no
-    /// matter how much quota is sitting behind somebody's browser reserve. A pool whose accounts are
-    /// entirely reserved has no capacity at all, which is saturation by any demand above zero.
-    private static func poolRatio(_ samples: [Sample], weeks: Double,
-                                  reserveOf: (String) -> Double) -> Double {
-        let capacity = Set(samples.map(\.account))
-            .reduce(0.0) { $0 + (100 - min(max(reserveOf($1), 0), 100)) / 100 }
-        let demand = burnSum(samples) / weeks / 100
-        // Nothing spendable: saturated by any demand at all, and no signal without one. Both halves
-        // matter - a fleet reserved down to nothing and not being used is a preference, not a
-        // shortage, and telling that person to buy a seat would be advice about their own setting.
-        guard capacity > 0 else { return demand > 0 ? .infinity : 0 }
-        return demand / capacity
-    }
-
-    /// Series = one (account, window, model). Consumption = sum of positive `used` deltas between
-    /// consecutive samples whose window did not roll over between them (`resetAt` unchanged); a
-    /// rollover drops `used` and contributes nothing.
-    private static func burnSum(_ samples: [Sample]) -> Double {
-        var total = 0.0
-        for (_, rows) in Dictionary(grouping: samples, by: seriesKey) {
-            let sorted = rows.sorted { $0.ts < $1.ts }
-            for (prev, cur) in zip(sorted, sorted.dropFirst()) where prev.resetAt == cur.resetAt {
-                total += max(0, cur.used - prev.used)
-            }
-        }
-        return total
-    }
-
-    /// Burn and active time over the pairs that actually spent, gap-capped so idle stretches don't
-    /// dilute the "while working" pace.
-    private static func activeBurn(_ samples: [Sample]) -> (burn: Double, hours: Double) {
-        var burn = 0.0, seconds = 0.0
-        for (_, rows) in Dictionary(grouping: samples, by: seriesKey) {
-            let sorted = rows.sorted { $0.ts < $1.ts }
-            for (prev, cur) in zip(sorted, sorted.dropFirst()) where prev.resetAt == cur.resetAt {
-                let delta = cur.used - prev.used
-                guard delta > 0 else { continue }
-                burn += delta
-                seconds += min(maxGap, cur.ts.timeIntervalSince(prev.ts))
-            }
-        }
-        return (burn, seconds / 3_600)
-    }
-
-    /// Seconds a whole pool sat starved: the time ALL of its accounts were simultaneously at or
-    /// above the starved threshold. One account keeping quota means the pool can still absorb a
-    /// handoff, so it is not starved. Zero for an empty pool or any account that never starved.
-    private static func poolStarvedSeconds(_ samples: [Sample], now: Date,
-                                           reserveOf: (String) -> Double) -> Double {
-        let byAccount = Dictionary(grouping: samples, by: \.account)
-        guard !byAccount.isEmpty else { return 0 }
-        var intersection: [Interval]?
-        for (account, rows) in byAccount {
-            let starved = merge(starvedIntervals(rows, now: now, reserve: reserveOf(account)))
-            if starved.isEmpty { return 0 }
-            intersection = intersection.map { intersect($0, starved) } ?? starved
-            if intersection?.isEmpty == true { return 0 }
-        }
-        return (intersection ?? []).reduce(0) { $0 + $1.end.timeIntervalSince($1.start) }
-    }
-
-    /// Half-open `[start, end)` span.
-    private struct Interval { var start: Date; var end: Date }
-
-    /// The spans one account's series sat starved. Per the recorder's change-only contract each
-    /// sample's value persists until the next; the last sample extends to `now`.
-    ///
-    /// AN ACCOUNT WITH A RESERVE STARVES EARLIER, by exactly the size of the reserve: what starved
-    /// means here is "this account can absorb no more work", and the points its owner kept were
-    /// never work this fleet could absorb. Without it, a personal account at 30 points reserved
-    /// would read as healthy through the whole drought Tally spends refusing to touch it, and the
-    /// pool - starved only while EVERY account is - would report no starvation at all.
-    private static func starvedIntervals(_ samples: [Sample], now: Date,
-                                         reserve: Double) -> [Interval] {
-        let threshold = starvedThreshold - min(max(reserve, 0), 100)
-        let sorted = samples.sorted { $0.ts < $1.ts }
-        var out: [Interval] = []
-        for (i, s) in sorted.enumerated() {
-            let end = i + 1 < sorted.count ? sorted[i + 1].ts : now
-            guard s.used >= threshold, end > s.ts else { continue }
-            out.append(Interval(start: s.ts, end: end))
-        }
-        return out
-    }
-
-    /// Coalesce overlapping or touching spans so intersection can sweep them linearly.
-    private static func merge(_ intervals: [Interval]) -> [Interval] {
-        var out: [Interval] = []
-        for iv in intervals.sorted(by: { $0.start < $1.start }) {
-            if let last = out.last, iv.start <= last.end {
-                out[out.count - 1].end = max(last.end, iv.end)
-            } else {
-                out.append(iv)
-            }
-        }
-        return out
-    }
-
-    /// The overlap of two coalesced span lists (time covered by both).
-    private static func intersect(_ a: [Interval], _ b: [Interval]) -> [Interval] {
-        var out: [Interval] = []
-        var i = 0, j = 0
-        while i < a.count, j < b.count {
-            let start = max(a[i].start, b[j].start)
-            let end = min(a[i].end, b[j].end)
-            if start < end { out.append(Interval(start: start, end: end)) }
-            if a[i].end < b[j].end { i += 1 } else { j += 1 }
-        }
-        return out
-    }
-
-    private static func seriesKey(_ s: Sample) -> String {
-        "\(s.account)|\(s.window)|\(s.model ?? "")"
+                       tierDemands: tierDemands(weeklyAll, weeks: weeks, live: liveAccounts,
+                                                planOf: planOf),
+                       windowDemands: windowDemands(weeklyAll, days: days, now: now,
+                                                    live: liveAccounts, planOf: planOf))
     }
 
     /// English one-liner for the CLI and the --json `headline` field. The panel builds its own

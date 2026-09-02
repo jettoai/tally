@@ -9,6 +9,14 @@
 # command that produced it, and a bare count is off by however many of those the run happened to
 # catch (05cde88 published one such number, and the commit after it copied it).
 #
+# ProcessFootprintStore/ProcessFootprintTiming are COMPILED here rather than only read as strings
+# (2026-09-02). The sampling pass itself still cannot be driven from a harness - it walks the real
+# process table and reads a real roster - so what the two files were asserted with was source-string
+# locks, and those say a line is present rather than what it computes. One step of the pass IS
+# reachable on its own, being handed everything it needs: what every card says once every card has
+# been read (`painted`, footprintpaintchecks.swift). Measured before it was written: with that step
+# gutted to `return ([:], [:])` this whole suite stayed green.
+#
 # SessionProcessGroups/MachineLoadRollup are the two halves of machine-load attribution: which
 # session a re-parented job belongs to, and which project everything else is working in. The second
 # is in the list for SessionSidecar.swift as well as for its own checks - the sidecar reads a
@@ -69,7 +77,9 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/processtreecensuschecks.swift \
   tests/supervisor/sessiongroupchecks.swift tests/supervisor/machineloadchecks.swift \
   tests/supervisor/projectloadchecks.swift \
+  tests/supervisor/orphanchecks.swift \
   tests/supervisor/footprintchecks.swift \
+  tests/supervisor/footprintpaintchecks.swift \
   tests/supervisor/footprintalertchecks.swift tests/supervisor/footprinttrendchecks.swift \
   tests/supervisor/footprinttrendsurfacechecks.swift \
   tests/supervisor/sessioncardedgechecks.swift \
@@ -132,7 +142,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/KeychainPartitionRepair.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift Tally/Core/PathIdentity.swift \
-  TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
+  TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SupervisorVersionStamp.swift \
@@ -141,6 +151,11 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/SessionProcessGroups.swift Tally/Core/MachineLoadRollup.swift \
   Tally/Stores/ProjectLoadAccounting.swift \
+  Tally/Stores/ProcessFootprintStore.swift Tally/Stores/ProcessFootprintTiming.swift \
+  Tally/Core/OrphanReclaim.swift Tally/Core/OrphanVerdict.swift \
+  Tally/Core/OrphanLease.swift Tally/Core/OrphanKill.swift \
+  Tally/Core/OrphanReaders.swift Tally/Core/OrphanNotice.swift \
+  Tally/Stores/OrphanReclaimStore.swift \
   Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift \
   Tally/Core/FootprintTrend.swift \
   Tally/Core/DemoSessions.swift Tally/Core/DemoUsage.swift \

@@ -69,11 +69,15 @@ final class ProcessFootprintStore {
     /// How many visible ticks pass between two readings of the ports (see the note above).
     private static let portsEveryNTicks = 3
 
-    // THE FIVE BELOW ARE NOT `private` BECAUSE THE TIMER IS NEXT DOOR. When this file passed the
+    // THE SIX BELOW ARE NOT `private` BECAUSE THE TIMER IS NEXT DOOR. When this file passed the
     // repo's 500-line cap the lifecycle went into ProcessFootprintTiming.swift, along the seam the
     // class already had: what it HOLDS and what one pass DOES stayed here, when the pass runs went
     // there. Swift's `private` is file-scoped, so the rate, the audience and the ports cache are
     // module-visible - the same trade `UsageStore` made for the same reason.
+    //
+    // THE SIXTH IS `alertState`, and it went the same way for the same reason: the file passed the
+    // cap a second time, and the piece that moved was the step that turns every card's reading into
+    // what the card SAYS (`painted`), which is what carries the warnings from tick to tick.
     @ObservationIgnored var timer: Timer?
     /// What the running timer's interval is, so a rate that has not changed is not restarted (which
     /// would push the next sample a whole interval away every time a surface appeared).
@@ -125,7 +129,7 @@ final class ProcessFootprintStore {
     /// Per session, how long each warning condition has been met or missed. A warning is about a
     /// condition that HOLDS rather than about one tick's reading, so something has to count the
     /// ticks, and this is the only thing here that knows what a tick is (`FootprintAlerts.swift`).
-    @ObservationIgnored private var alertState: [String: FootprintAlertState] = [:]
+    @ObservationIgnored var alertState: [String: FootprintAlertState] = [:]
 
     private init() {}
 
@@ -254,18 +258,15 @@ final class ProcessFootprintStore {
         // the memory tier needs, because the per-process figures below count a shared page once per
         // mapper and the kernel counts it once (`FootprintAlarm.saturatedMemoryShare`).
         let pressure = MachineMemoryPressure.current
-        var next: [String: ProcessFootprint] = [:]
         var readings: [String: ProcessResourceSample] = [:]
         var carried: [String: ProcessCPUCarry] = [:]
-        var alerting: [String: FootprintAlertState] = [:]
         var trends = history
         // Every session that turned out to HAVE a reading, in the order the board listed them, held
         // until the loop is done rather than published inside it. Only one thing needs that (the
-        // fixtures below are keyed by the cards that will actually be drawn), and it is worth the
-        // one array: keyed by the roster instead, a root the two guards below skip took its
-        // fixture with it and the warned card simply was not in the capture.
-        var measurements: [(key: String, footprint: ProcessFootprint, interval: TimeInterval?,
-                            idle: Bool)] = []
+        // fixtures are keyed by the cards that will actually be drawn), and it is worth the one
+        // array: keyed by the roster instead, a root the two guards below skip took its fixture
+        // with it and the warned card simply was not in the capture.
+        var measurements: [FootprintMeasurement] = []
         for (root, idle, child) in roots {
             let key = String(root)
             // THE TREE, PLUS THE JOBS THAT HAVE LEFT IT. The adoptions were decided for the whole
@@ -370,81 +371,14 @@ final class ProcessFootprintStore {
             // seconds the slow timer had been running, and the fast ones after it cover two each.
             // Folded flat they made a peak out of the opening (`FootprintTrendSample.folded`).
             let interval = cpu.percent != nil ? previous.map { now.timeIntervalSince($0.at) } : nil
-            measurements.append((key: key, footprint: footprint, interval: interval, idle: idle))
+            measurements.append(FootprintMeasurement(key: key, footprint: footprint,
+                                                     interval: interval, idle: idle))
         }
-        // WHICH FIXTURE EACH CARD GETS DURING A CAPTURE, decided once for the whole tick so a
-        // session keeps the same one from tick to tick, and empty on every ordinary launch
-        // (`DemoUsage.footprint`).
-        //
-        // KEYED BY THE CARDS THAT WILL BE DRAWN rather than by the roster the tick started from,
-        // which is the fix for a fixture that could go missing: the two guards above skip a root
-        // whose session has just ended or whose tree is all Tally's own, and an index handed out
-        // before them left a hole - the first fixture is the WARNED card, the one state a capture
-        // cannot wait for, and nothing about the remaining three cards said one was absent. Decided
-        // on the survivors, every fixture is on the board whenever there are cards for them.
-        let demoOrder = DemoUsage.isActive ? DemoUsage.fixtureOrder(of: measurements.map(\.key))
-                                           : [:]
-        // WHICH TREE HOLDS THE MOST, which the memory tier's third witness is decided against: a
-        // machine being short says nothing about WHICH session to point at, and the same tick's own
-        // figures are the only comparison available that costs nothing
-        // (`FootprintAlarm.saturatedMemoryShare`). Ties broken on the key so the answer cannot
-        // change from tick to tick while nothing else does.
-        let heaviest = measurements.sorted {
-            $0.footprint.memoryBytes == $1.footprint.memoryBytes
-                ? $0.key < $1.key : $0.footprint.memoryBytes > $1.footprint.memoryBytes
-        }.first?.key
-        for one in measurements {
-            var footprint = one.footprint
-            // The warnings are decided from THIS tick's reading and the ticks before it, then put
-            // back on the same reading: what the card draws and what the card warns about are one
-            // value, so they cannot be a tick apart.
-            //
-            // A TICK IS NOT ALWAYS TWO SECONDS, which is why the rule is handed the INSTANT rather
-            // than counting ticks (`FootprintAlarm`): five of them used to mean ten seconds with
-            // the board open and fifty behind it, and a warning could be earned by four fast
-            // readings and one slow one - evidence over two different spans added together.
-            //
-            // DECIDED HERE RATHER THAN IN THE LOOP ABOVE, which is where it used to be, because one
-            // of its witnesses is about the whole BOARD and no card can be asked about that until
-            // every card has been read. Painted before the fixtures below for the same reason the
-            // ring is offered the drawn footprint: a capture states its own warnings outright, and
-            // an alarm run afterwards would be judging invented numbers.
-            let state = FootprintAlarm.advance(alertState[one.key] ?? FootprintAlertState(),
-                                               reading: footprint, idle: one.idle, at: now,
-                                               pressure: pressure,
-                                               largestHolder: one.key == heaviest)
-            alerting[one.key] = state
-            footprint.alerts = state.alerts
-            // FIXTURE READINGS FOR A CAPTURE, and only for one: the flag lives in the volatile
-            // argument domain, so an ordinary launch never takes this branch (`DemoUsage`).
-            //
-            // PAINTED BEFORE THE RING RATHER THAN AFTER IT, which is the whole of what makes the
-            // card coherent. Painted after, the fixture figure was the last point of a line drawn
-            // from the machine's REAL readings, and the sparkline measures from zero to its own
-            // maximum (`FootprintSparkline.points`): a fixture memory of 4.1 GB over a real series
-            // of 200 MB flattened every kept point against the floor and stood the last one
-            // vertically at the top, on all three metrics, on every fixture card. What a shot is
-            // for is what the card looks like, so the fixture reading is the reading - it is what
-            // the ring is offered below, and the shapes are as fabricated as the figures.
-            if let index = demoOrder[one.key] { footprint = DemoUsage.footprint(footprint, at: index) }
-            next[one.key] = footprint
-            // THE RING IS OFFERED EVERY TICK AND KEEPS ONE POINT IN FIVE OF THEM, folding the rest
-            // into it, which is what holds the series to one cadence AND to one meaning across two
-            // rates (`FootprintTrendSeries.record`).
-            //
-            // AND THE RING IS OFFERED THE FOOTPRINT THE CARD DRAWS, not the raw reading it was
-            // built from. The two are the same values on every ordinary launch - the fields are
-            // copied from these very numbers - and where they are not (a capture's fixtures), a
-            // line drawn from one and a figure printed from the other is a card contradicting
-            // itself.
-            if let interval = one.interval, let percent = footprint.cpuPercent {
-                trends.record(FootprintTrendSample(cpuPercent: percent,
-                                                   seconds: interval,
-                                                   memoryBytes: footprint.memoryBytes,
-                                                   processes: footprint.processes),
-                              for: one.key, at: now)
-            }
-        }
+        // WHAT EACH CARD ACTUALLY SAYS, once every card has been read: the warnings, the capture's
+        // fixtures and the trend point, which are one step rather than three because they have to
+        // agree with each other (`painted`, next door, carries the whole of why).
+        let painted = painted(measurements, pressure: pressure, trends: &trends, at: now)
+        let next = painted.drawn
         // WHETHER THE CARDS ADD UP, taken from the footprints the cards will actually DRAW rather
         // than from the readings above: on a capture those are fixtures, and a rollup summing the
         // machine's real numbers under a board of invented ones would contradict every card on the
@@ -458,9 +392,11 @@ final class ProcessFootprintStore {
         let load = rollup.accounted.isEmpty
             ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
         if load != machineLoad { machineLoad = load }
+        // AND WHETHER ANY OF IT SHOULD STILL BE RUNNING (`OrphanReclaimStore`, which paces itself).
+        OrphanReclaimStore.shared.observe(strays: unattributed, processes: processes, at: now)
         previousSample = readings
         cpuCarry = carried
-        alertState = alerting
+        alertState = painted.alerts
         // THE LEDGER IS TOUCHED ONLY WHEN IT HAS SOMETHING TO SAY, which is what makes it
         // affordable on a two-second timer: a session running the jobs it was already running adds
         // no claims, and a board whose sessions are all still live has nothing to sweep, so the

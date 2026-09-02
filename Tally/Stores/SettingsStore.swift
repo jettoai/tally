@@ -138,6 +138,20 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(showAdvisor, forKey: "showAdvisor") }
     }
 
+    /// How many days of history the advisor strip's demand figure is measured over: one of
+    /// `UsageAdvisor.displayWindows`, cycled by clicking the figure itself.
+    ///
+    /// A VIEW SETTING AND ONLY THAT. The verdict, the pips and the trigger stay fixed to the full
+    /// 28-day lookback whatever this says: a recommendation that changed with the reader's zoom
+    /// level would be a different piece of advice per click. What this moves is the number, which
+    /// is the question "is this month's average still what I am doing THIS week".
+    ///
+    /// Remembered because it is an opinion about how the reader reads, not about this session: a
+    /// fleet whose habits just changed wants the short lens every time the panel opens.
+    var advisorWindowDays: Double {
+        didSet { UserDefaults.standard.set(advisorWindowDays, forKey: "advisorWindowDays") }
+    }
+
     /// Providers whose account cards are folded away behind their fleet gauge (clicking the gauge
     /// row toggles it). A view gesture, not a Settings item: the collapse only takes effect while
     /// that provider's gauge is actually on screen, so cards can never become unreachable.
@@ -297,6 +311,12 @@ final class SettingsStore {
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
         showAdvisor = defaults.object(forKey: "showAdvisor") as? Bool ?? true
+        // Anything that is not one of the offered windows reads as the default (the full lookback),
+        // which covers a missing key, a build that offered a window this one no longer does, and a
+        // hand-edited plist - the same rule the remembered column counts follow below.
+        let storedWindow = defaults.object(forKey: "advisorWindowDays") as? Double ?? 0
+        advisorWindowDays = UsageAdvisor.displayWindows.contains(storedWindow)
+            ? storedWindow : UsageAdvisor.lookbackDays
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
         // ALL THREE REMEMBERED COUNTS COME BACK THROUGH THE ONE RULE

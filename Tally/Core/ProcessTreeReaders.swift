@@ -54,7 +54,8 @@ extension ProcessTree {
             let seconds = min(Int64(clamping: info.pbi_start_tvsec), Int64.max / 1_000_000)
             processes.append(ProcessIdentity(
                 pid: pid, parent: pid_t(info.pbi_ppid), group: pid_t(info.pbi_pgid),
-                startedAt: seconds * 1_000_000 + Int64(clamping: info.pbi_start_tvusec)))
+                startedAt: seconds * 1_000_000 + Int64(clamping: info.pbi_start_tvusec),
+                hasTerminal: ProcessTree.attached(terminal: info.e_tdev)))
         }
         return processes
     }

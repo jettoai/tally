@@ -344,14 +344,19 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
 /// `plans` maps account id to plan name, joined from the snapshot because the history holds no
 /// plan of its own (see `UsageAdvisor.readings`). Empty just leaves the tier split unnamed.
 /// `reserves` is the same shape for the same reason: account id to the points its owner keeps.
+/// `live` is the fleet the snapshot names - the accounts still on this machine. The history keeps a
+/// removed account for four weeks, and while it does it is a seat of capacity nobody has; nil means
+/// no caller told us, which is every account in the history.
 func loadAdvisorReadings(plans: [String: String] = [:], reserves: [String: Double] = [:],
+                         live: Set<String>? = nil,
                          now: Date = Date()) -> [UsageAdvisor.Reading] {
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/history.jsonl")
     guard let data = try? Data(contentsOf: url) else { return [] }
     let since = now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)
     return UsageAdvisor.readings(samples: UsageAdvisor.decodeSamples(data, since: since),
-                                 now: now, planOf: { plans[$0] }, reserveOf: { reserves[$0] ?? 0 })
+                                 now: now, planOf: { plans[$0] }, reserveOf: { reserves[$0] ?? 0 },
+                                 liveAccounts: live)
 }
 
 /// The reserves as the advisor needs them: keyed by ACCOUNT ID, because that is what the burn-rate

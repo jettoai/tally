@@ -115,6 +115,15 @@ struct ProcessIdentity: Equatable {
     /// It costs nothing to carry: it comes out of the very `proc_bsdinfo` record the parent and the
     /// group are read from (`ProcessTree.liveProcesses`).
     var startedAt: Int64
+    /// Whether a controlling terminal is attached, which is the cheapest evidence there is that a
+    /// PERSON is at this process rather than that it was left behind (`OrphanReclaim.Veto.terminal`).
+    ///
+    /// Out of the same record as the three above, so it costs nothing to carry and the reclaim
+    /// never has to make a pass of its own for it. Defaulted, so every fixture written before this
+    /// field existed reads as "no terminal" - which for the reclaim is the direction that lets a
+    /// candidate through, and is therefore asserted rather than assumed
+    /// (`orphanchecks.swift`, "a member with a terminal").
+    var hasTerminal = false
 }
 
 /// One reading of what the tree's processes have used, per pid, and the instant it was taken. Four

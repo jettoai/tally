@@ -42,6 +42,15 @@ final class UsageStore {
     /// has no history to read.
     private(set) var advisorReadings: [UsageAdvisor.Reading] = []
 
+    /// Where the recompute next door lands (UsageStoreAdvisor.swift). A method rather than a wider
+    /// setter so the property stays read-only to everything else, and so the demo guard is written
+    /// once: demo mode never reaches the read at all (its refresh returns before it), and this keeps
+    /// the fixture readings the only ones a demo panel can show even if that early return moves.
+    func publishAdvisorReadings(_ readings: [UsageAdvisor.Reading]) {
+        guard !DemoUsage.isActive else { return }
+        advisorReadings = readings
+    }
+
     private let providers = ProviderCatalog.all
     private var timer: DispatchSourceTimer?
     /// Held for the app's lifetime: the watcher tears its stream down when it is released.
@@ -378,29 +387,9 @@ final class UsageStore {
                 UsageStore.shared.republishSnapshot()
             }
         }
-        // The advisor needs a wider window than the pace forecast (weekly demand needs weeks, not
-        // hours), so it reads the history separately. Same off-main queue, mapped into the pure
-        // advisor's own sample type. Demo mode never reaches this read (its refresh returned
-        // above); the guard below keeps the fixture readings the only ones a demo panel can show
-        // even if that early return ever moves.
-        // Which plan each account is on, for the advisor's tier split. Taken from the live rows
-        // here on the main actor rather than inside the read below, which runs on the history
-        // queue; a plain [String: String] is what can cross to it.
-        let plans = Dictionary(accounts.compactMap { usage in usage.planName.map { (usage.id, $0) } },
-                               uniquingKeysWith: { first, _ in first })
-        UsageHistory.shared.samples(
-            since: now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)) { samples in
-            let advisorSamples = samples.map {
-                UsageAdvisor.Sample(ts: $0.ts, account: $0.account, provider: $0.provider,
-                                    window: $0.window, model: $0.model, used: $0.used,
-                                    resetAt: $0.resetAt)
-            }
-            let readings = UsageAdvisor.readings(samples: advisorSamples, now: now) { plans[$0] }
-            Task { @MainActor in
-                guard !DemoUsage.isActive else { return }
-                UsageStore.shared.advisorReadings = readings
-            }
-        }
+        // And the usage advisor, which needs a wider window than the pace forecast above (weekly
+        // demand needs weeks, not hours) and so reads the history for itself (UsageStoreAdvisor.swift).
+        recomputeAdvisor(known: known, now: now)
         // Ask the provider CLIs whether each account is still signed in. Detached rather than
         // awaited: it throttles itself to its own (much longer) interval, and a refresh must not
         // hold the snapshot behind a question about credentials. Only the accounts actually being

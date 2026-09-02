@@ -10,5 +10,5 @@ swiftc -o "$out" tests/statusjson/main.swift TallyCLI/Snapshot.swift TallyCLI/Ac
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift \
   TallyCLI/ResumePrompt.swift \
-    TallyCLI/UsageAdvisor.swift TallyCLI/AccountComfort.swift
+    TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift TallyCLI/AccountComfort.swift
 "$out"

@@ -18,6 +18,9 @@ extension PopoverRootView {
     /// have and what you would add.
     private static let maxPips = 6
     private static let maxHollowPips = 6
+    /// What a figure reads while its window is still collecting. The repo's one sanctioned em dash:
+    /// a no-data glyph, not prose (Tally/CLAUDE.md), spelled the same way the menu bar spells it.
+    private static let noFigure = "—"
 
     @ViewBuilder
     var advisorStrip: some View {
@@ -91,12 +94,27 @@ extension PopoverRootView {
             // minWidth, not a fixed width, because "1.8 acct/wk" is wider than a bare percentage
             // and must not truncate; the trailing pad reserves the gauge's row gap + chevron slot,
             // which is what puts the two numbers' right edges on one line.
-            Text(demandFigure(reading))
-                .font(.footnote.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.primary)
+            //
+            // AND IT IS A BUTTON: clicking it cycles the span the figure is measured over. The
+            // window label sits immediately left of the number because it is what the click
+            // changes, and because a number that silently means something different after a click
+            // is worse than no control at all. The verdict beside it does not move (`advisorWindow`
+            // says why).
+            Button(action: cycleAdvisorWindow) {
+                HStack(spacing: 4) {
+                    Text(windowLabel(advisorWindow(reading).days))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Text(demandFigure(reading))
+                        .font(.footnote.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.primary)
+                }
                 .frame(minWidth: Self.fleetValueWidth, alignment: .trailing)
-                .padding(.trailing, Self.fleetRowSpacing + Self.fleetChevronWidth)
-                .layoutPriority(1)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, Self.fleetRowSpacing + Self.fleetChevronWidth)
+            .layoutPriority(1)
         }
         .font(.caption2)
         .lineLimit(1)
@@ -106,7 +124,54 @@ extension PopoverRootView {
         // row still says what it means, not just its two numbers.
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), "
-            + "\(verdictSentence(reading)), \(demandFigure(reading))")
+            + "\(verdictSentence(reading)), \(demandFigure(reading)), "
+            + "\(windowLabel(advisorWindow(reading).days))")
+    }
+
+    /// The window the figure is currently read over: the remembered one, or the full lookback when
+    /// the setting names a window this reading does not carry.
+    private func advisorWindow(_ reading: UsageAdvisor.Reading) -> UsageAdvisor.WindowDemand {
+        reading.windowDemands.first { $0.days == settings.advisorWindowDays }
+            ?? reading.windowDemands.last
+            ?? UsageAdvisor.WindowDemand(days: UsageAdvisor.lookbackDays,
+                                         demandPerWeek: reading.demandPerWeek,
+                                         tierDemands: reading.tierDemands,
+                                         minimumDays: UsageAdvisor.minimumDays)
+    }
+
+    /// Next window along, wrapping. ONE setting for every provider row, deliberately: the question
+    /// a reader is asking ("is last month still what I am doing this week") is about their own
+    /// week, not about one vendor, and two rows answering it over different spans would put two
+    /// numbers on screen that cannot be compared.
+    private func cycleAdvisorWindow() {
+        let windows = UsageAdvisor.displayWindows
+        guard !windows.isEmpty else { return }
+        let index = windows.firstIndex(of: settings.advisorWindowDays) ?? windows.count - 1
+        settings.advisorWindowDays = windows[(index + 1) % windows.count]
+    }
+
+    /// A window as a compact "28d". Catalogued with the number as an ARGUMENT (`%@`), like every
+    /// other figure this app localizes: a key built by interpolating the value would only exist for
+    /// whatever number happened to be on screen the day it was translated.
+    private func windowLabel(_ days: Double) -> String {
+        let count = "\(Int(days))"
+        return String(localized: "\(count)d", bundle: AppLocale.bundle)
+    }
+
+    /// Every window's pooled figure on one line: "1d 4.1 · 3d 3.8 · 7d 3.6 · 28d 3.4". Windows that
+    /// have not reached their own gate keep their rung and show the no-data glyph, so the ladder is
+    /// the same shape on day one as it is in month two.
+    private func demandLadder(_ reading: UsageAdvisor.Reading) -> String {
+        reading.windowDemands
+            .map { "\(windowLabel($0.days)) \(pooledFigure($0))" }
+            .joined(separator: " · ")
+    }
+
+    /// One window's pooled figure to one decimal, or the no-data glyph while it is still short of
+    /// its gate. ONE place decides what a missing number looks like: the row and the ladder show the
+    /// same window side by side, and two spellings of "not yet" would read as two different states.
+    private func pooledFigure(_ window: UsageAdvisor.WindowDemand) -> String {
+        window.demandPerWeek.map { String(format: "%.1f", $0) } ?? Self.noFigure
     }
 
     /// Mini quota-of-history bar: a quaternary track with a secondary fill proportional to how far
@@ -182,8 +247,8 @@ extension PopoverRootView {
         return String(localized: "\(days)/\(target)d", bundle: AppLocale.bundle)
     }
 
-    /// The running weekly demand as "1.8 acct/wk". Live from day one (only the recommendation waits
-    /// for a week of history), so it shows in every state as the strip's headline number.
+    /// The running weekly demand as "1.8 acct/wk", measured over whichever window the reader picked
+    /// - the strip's headline number, shown in every state the window has enough history for.
     ///
     /// A fleet spread over more than one plan reads per tier instead ("Pro 0.9 · Team 1.0"). The
     /// unit here is an ACCOUNT, and a $200 seat and a $20 seat are not the same account: pooled,
@@ -191,10 +256,15 @@ extension PopoverRootView {
     /// which one. The unit word drops to the tooltip there rather than repeating per tier; the row
     /// is one line, so an unusually wide split truncates like any other long label instead of
     /// wrapping, and the tooltip holds the full breakdown.
+    ///
+    /// A WINDOW STILL SHORT OF ITS OWN GATE reads as the no-data glyph rather than as a number
+    /// computed over a sliver of history, which would look exactly like a fact. The unit stays, so
+    /// the row still says what is missing.
     private func demandFigure(_ reading: UsageAdvisor.Reading) -> String {
-        let tiers = splitTiers(reading)
+        let window = advisorWindow(reading)
+        let tiers = splitTiers(window)
         guard !tiers.isEmpty else {
-            let demand = String(format: "%.1f", reading.demandPerWeek)
+            let demand = pooledFigure(window)
             return String(localized: "\(demand) acct/wk", bundle: AppLocale.bundle)
         }
         return tiers.map { "\(tierName($0)) \(String(format: "%.1f", $0.demandPerWeek))" }
@@ -204,9 +274,9 @@ extension PopoverRootView {
     /// The tiers worth splitting the figure into: none unless the provider's accounts actually sit
     /// on two or more NAMED plans. One plan (or none the app can name) means the accounts really
     /// are interchangeable, and the pooled figure is then both exact and the shorter read.
-    private func splitTiers(_ reading: UsageAdvisor.Reading) -> [UsageAdvisor.TierDemand] {
-        guard Set(reading.tierDemands.compactMap(\.plan)).count >= 2 else { return [] }
-        return reading.tierDemands
+    private func splitTiers(_ window: UsageAdvisor.WindowDemand) -> [UsageAdvisor.TierDemand] {
+        guard Set(window.tierDemands.compactMap(\.plan)).count >= 2 else { return [] }
+        return window.tierDemands
     }
 
     private func tierName(_ tier: UsageAdvisor.TierDemand) -> String {
@@ -245,7 +315,7 @@ extension PopoverRootView {
         // spelled out in full, with the reason they are not added up. The pooled line below stays:
         // it is still the honest total percent-points, and dropping it would make the tooltip
         // disagree with `demandPerWeek` everywhere else this app publishes it.
-        let tiers = splitTiers(reading)
+        let tiers = splitTiers(advisorWindow(reading))
         for tier in tiers {
             let figure = String(format: "%.1f", tier.demandPerWeek)
             // The count goes in as a STRING: an interpolated Int would key the entry on `%lld`,
@@ -263,6 +333,13 @@ extension PopoverRootView {
         lines.append(
             String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
                    bundle: AppLocale.bundle))
+        // THE LADDER, always present rather than only after a click: the whole point of the shorter
+        // windows is the COMPARISON (is this week still last month's average?), and a control that
+        // shows one rung at a time makes the reader click three times and hold four numbers in their
+        // head. The row shows the one they picked; here they are side by side.
+        lines.append(String(localized: "by window: \(demandLadder(reading)) acct/wk",
+                            bundle: AppLocale.bundle))
+        lines.append(L("Click the figure to change the window."))
         let now = Date()
         for refill in upcomingRefills(reading.provider, now: now) {
             lines.append(refillText(refill, style: settings.resetDisplay, now: now)

@@ -99,13 +99,48 @@ enum OrphanKill {
     ///   - ownGroup: this process's own group, which `kill(-pgid)` would reach.
     static func plan(members: Set<pid_t>, groups table: [pid_t: pid_t], ours: Set<pid_t>,
                      ownGroup: pid_t) -> Plan {
+        assemble(members: members, groups: table, ours: ours, ownGroup: ownGroup, grouping: true)
+    }
+
+    /// THE PLAN FOR `SIGKILL`, WHICH NEVER SIGNALS A GROUP.
+    ///
+    /// A SEPARATE ENTRY POINT SO THE CALL SITE CANNOT ASK FOR ONE, which is the whole of what this
+    /// function is: the same rule with the group arm removed, spelled as a name rather than as a
+    /// flag somebody could pass the other way.
+    ///
+    /// WHY THE ONE RULE IS NOT GOOD ENOUGH HERE (codex review of 8bfb19c). A group is signalled as
+    /// a group only where every live process carrying it is being reclaimed, and "every live
+    /// process" is read out of a table walk - which is one `proc_pidinfo` per pid, any of which can
+    /// fail for a pass. A single such failure on an UNRELATED process that happens to share the
+    /// group makes the group look clean, and `kill(-pgid, SIGKILL)` then reaches a stranger with no
+    /// warning and no way back. The reading is a completeness claim about the whole machine, and a
+    /// completeness claim assembled from fallible per-pid reads is exactly the kind of evidence
+    /// that must not stand behind an unrecoverable act.
+    ///
+    /// `SIGTERM` STILL GROUPS, and the asymmetry is the point rather than an inconsistency: the
+    /// first signal is a request, a stranger that receives it is asked to exit and may decline, and
+    /// the reach is what catches the workers a dev server keeps spawning. The second is not a
+    /// request.
+    ///
+    /// WHAT IT COSTS, NAMED: a worker spawned INSIDE the grace period is in the group and not in
+    /// the confirmed member list, so it survives the escalation. It is not lost - it is a stray in
+    /// that checkout on the next round, and the round after that can reclaim its tree on the same
+    /// terms as any other. A leftover that outlives one sweep by five minutes is a smaller thing
+    /// than a `SIGKILL` at somebody's unrelated job.
+    static func escalation(members: Set<pid_t>, groups table: [pid_t: pid_t], ours: Set<pid_t>,
+                           ownGroup: pid_t) -> Plan {
+        assemble(members: members, groups: table, ours: ours, ownGroup: ownGroup, grouping: false)
+    }
+
+    private static func assemble(members: Set<pid_t>, groups table: [pid_t: pid_t],
+                                 ours: Set<pid_t>, ownGroup: pid_t, grouping: Bool) -> Plan {
         let targets = members.subtracting(ours).filter { table[$0] != nil }
         var byGroup: [pid_t: Set<pid_t>] = [:]
         for pid in targets { byGroup[table[pid] ?? pid, default: []].insert(pid) }
         var plan = Plan(groups: [], pids: [], spared: ours.intersection(members).sorted())
         for (group, held) in byGroup.sorted(by: { $0.key < $1.key }) {
             let everyone = Set(table.filter { $0.value == group }.map(\.key))
-            if group > 1, group != ownGroup, everyone.isSubset(of: targets) {
+            if grouping, group > 1, group != ownGroup, everyone.isSubset(of: targets) {
                 plan.groups.append(group)
             } else {
                 plan.pids.append(contentsOf: held.sorted())

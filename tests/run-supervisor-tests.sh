@@ -78,6 +78,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/sessiongroupchecks.swift tests/supervisor/machineloadchecks.swift \
   tests/supervisor/projectloadchecks.swift \
   tests/supervisor/orphanchecks.swift \
+  tests/supervisor/orphanstorechecks.swift \
   tests/supervisor/footprintchecks.swift \
   tests/supervisor/footprintpaintchecks.swift \
   tests/supervisor/footprintalertchecks.swift tests/supervisor/footprinttrendchecks.swift \

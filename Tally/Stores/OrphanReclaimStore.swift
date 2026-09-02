@@ -342,7 +342,9 @@ final class OrphanReclaimStore {
             case .wait:
                 running.append(sweep)
             case .escalate:
-                OrphanKill.deliver(SIGKILL, following: replanned(survivors), through: machine.signals)
+                OrphanKill.deliver(SIGKILL,
+                                   following: replanned(survivors, expected: sweep.expected),
+                                   through: machine.signals)
                 sweep.escalated = true
                 running.append(sweep)
             case .settled:
@@ -377,14 +379,30 @@ final class OrphanReclaimStore {
     ///     leaves its number reusable too, so a `kill(-pgid)` decided then can now reach a job
     ///     nobody here has ever looked at - and a group kill is one call that cannot be taken back.
     ///
-    /// So the survivors (already confirmed by pid AND start time) are replanned against a FRESH
-    /// table, which is one walk and happens only for a tree that ignored `SIGTERM`.
-    private func replanned(_ survivors: Set<pid_t>) -> OrphanKill.Plan {
+    /// So the survivors are replanned against a FRESH table, which is one walk and happens only for
+    /// a tree that ignored `SIGTERM`.
+    ///
+    /// AND THE IDENTITY TEST IS MADE AGAIN AGAINST THAT TABLE, which is the half the first repair
+    /// left open (codex review of 8bfb19c). The survivors were confirmed against the reading
+    /// `alive()` took, and this is a SECOND reading of the machine a moment later: a survivor that
+    /// exited in between and had its number handed on is present in both readings, alive in both,
+    /// and a different process in the second one. `OrphanKill.plan` only asks whether a pid is in
+    /// the table, so without this the replacement goes into the plan and takes the `SIGKILL`.
+    /// Intersecting BOTH readings against the same recorded start time is what closes it: a pid
+    /// survives here only where the round, the sweep and the fresh walk all name one process.
+    ///
+    /// AND NOTHING IS GROUP-KILLED AT THIS STAGE AT ALL (`OrphanKill.escalation`, which carries the
+    /// reasoning and what it costs).
+    private func replanned(_ survivors: Set<pid_t>, expected: [pid_t: Int64]) -> OrphanKill.Plan {
         let table = machine.signals.table()
-        let ours = ProcessTree.ownFamily(survivors, root: getpid(), executable: machine.program)
-        return OrphanKill.plan(members: survivors,
-                               groups: Dictionary(table.map { ($0.pid, $0.group) }) { a, _ in a },
-                               ours: ours, ownGroup: pid_t(getpgrp()))
+        let still = OrphanKill.confirmed(
+            survivors, expected: expected,
+            now: Dictionary(table.map { ($0.pid, $0.startedAt) }) { first, _ in first })
+        let ours = ProcessTree.ownFamily(still, root: getpid(), executable: machine.program)
+        return OrphanKill.escalation(
+            members: still,
+            groups: Dictionary(table.map { ($0.pid, $0.group) }) { first, _ in first },
+            ours: ours, ownGroup: pid_t(getpgrp()))
     }
 
     /// A KILL THAT WORKED, which is not the same as a kill whose processes are gone.

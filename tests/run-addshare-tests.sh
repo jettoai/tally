@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/addshare/main.swift tests/addshare/shareexistingchecks.swift \
   tests/addshare/unlinkchecks.swift tests/addshare/harnessfixtures.swift \
-  tests/addshare/sharecommandchecks.swift \
+  tests/addshare/sharecommandchecks.swift tests/addshare/trustrelaunchchecks.swift \
   Tally/Core/AddAccount.swift Tally/Core/SharedHarness.swift Tally/Core/ShareExisting.swift \
   Tally/Core/PathIdentity.swift Tally/Core/TrustSeed.swift \
   Tally/Core/AddAccountFlow.swift Tally/Core/ClaudeOnboarding.swift \

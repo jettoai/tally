@@ -966,6 +966,9 @@ check("the CLI's login message still promises no wait",
 runShareExistingChecks(root: tmp)
 runUnlinkChecks(root: tmp)
 runShareCommandChecks()
+// And the other user of TrustSeed.swift: the folder trust a supervisor RELAUNCH seeds into a live
+// state file, which is the opposite act to the whole-file seed above (trustrelaunchchecks.swift).
+runTrustRelaunchChecks(root: tmp)
 
 try? fm.removeItem(at: tmp)
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

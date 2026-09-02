@@ -178,3 +178,67 @@ func removeSeededFolderTrust(from target: URL) -> Int {
     try? FileManager.default.removeItem(at: record)
     return paths.count
 }
+
+// MARK: Folder trust for a relaunch Tally itself decided on
+
+/// Mark `directory` trusted in the state file of `home`, so a child this program restarts is not
+/// asked a question the session it continues has already lived past.
+///
+/// WHY THIS IS NOT A GRANT TALLY INVENTED. Claude Code decides trust once, at start-up, and
+/// remembers the answer for the life of that process. On 2026-09-02 a session was launched in a
+/// directory that was not yet a git repository, so the trust walk climbed unbounded, found
+/// `~/workspace` already accepted, and asked nothing. That conversation then ran `git init`. Three
+/// hours later the supervisor self-updated and relaunched the same conversation with `--resume`,
+/// and the new child re-ran the decision from scratch: the directory was now its own git root, the
+/// walk was bounded to it, no entry named it, and the trust dialog appeared. The session sat
+/// behind that dialog for three minutes with nobody at the machine, and every line the supervisor
+/// types into a session would have queued behind it too.
+///
+/// So this is for RELAUNCHES ONLY (TallyCLI/Supervisor.swift): a directory whose session is already
+/// running in it, restarted by a decision of Tally's rather than of the user's. Their own first
+/// launch is left to Claude Code untouched, which is the line this must not cross. Tally never
+/// answers a trust question the user has not already answered by being there.
+///
+/// THE KEY IS THE REALPATH OF THE DIRECTORY ITSELF, which is sufficient whatever Claude Code picks
+/// as its own project key. Its walk (read out of 2.1.258) starts at the realpath of the cwd and
+/// climbs towards the git root, accepting as soon as one of those paths carries the flag, so the
+/// first step of that walk is this entry. Keyed any other way this would seed a path nothing reads.
+///
+/// Returns whether the file was CHANGED: false when the flag was already there, and false on every
+/// failure. Best-effort throughout, like the MCP seeding beside it at the call site: what a failure
+/// costs is the dialog the user would have been shown anyway.
+///
+/// NOTHING ELSE IN THE FILE IS TOUCHED. This is the live state of a signed-in account, not the
+/// fresh home `seedFolderTrust(from:to:)` above writes whole: it carries `oauthAccount`, start-up
+/// counters, and every other project's history. So it is read, given one key, and written back, and
+/// a file that will not parse is left alone entirely rather than replaced by a valid one of ours.
+///
+/// RESIDUAL RACE, stated rather than locked: a Claude Code on this account rewriting the same file
+/// between the read and the write loses whatever it wrote in that window (and this seed is lost the
+/// other way round). Read, modify, write, atomic rename keeps that window at the width of one JSON
+/// serialisation, and a lock here would be a lock the program that owns the file does not take.
+@discardableResult
+func seedFolderTrust(forDirectory directory: String, inConfigDir home: URL) -> Bool {
+    let key = URL(fileURLWithPath: directory).resolvingSymlinksInPath().path
+    let file = claudeStateFile(forConfigDir: home)
+    var root: [String: Any] = [:]
+    if let raw = try? Data(contentsOf: file) {
+        guard let parsed = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
+        else { return false }
+        root = parsed
+    }
+    // A `projects` or an entry that is there but is not an object belongs to a schema this does not
+    // understand, and reading it as absent would overwrite it. Decline instead.
+    if let existing = root["projects"], !(existing is [String: Any]) { return false }
+    var projects = root["projects"] as? [String: Any] ?? [:]
+    if let existing = projects[key], !(existing is [String: Any]) { return false }
+    var entry = projects[key] as? [String: Any] ?? [:]
+    if entry["hasTrustDialogAccepted"] as? Bool == true { return false }
+    entry["hasTrustDialogAccepted"] = true
+    projects[key] = entry
+    root["projects"] = projects
+    guard let body = try? JSONSerialization.data(withJSONObject: root) else { return false }
+    try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    return (try? body.write(to: file, options: .atomic)) != nil
+}

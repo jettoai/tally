@@ -232,6 +232,31 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         repairClaudeKeychain(provider: provider, interactive: !relaunching)
         if let seedHome = account.launchHome {
             seedMCPAuthorization(provider: provider, home: seedHome, interactive: !relaunching)
+            // AND THE OTHER QUESTION A FRESH CHILD ASKS: is this folder trusted. Claude Code decides
+            // that once, at start-up, so a conversation can run for hours past the decision that let
+            // it start and still be asked again the moment Tally restarts it. On 2026-09-02 that is
+            // exactly what happened: a session launched in a directory that was not yet a git
+            // repository (the trust walk climbed to `~/workspace`, which was accepted, and said
+            // nothing), the conversation ran `git init`, and three hours later a self-update
+            // relaunched it with `--resume`. The new child's walk was now bounded to that directory,
+            // nothing named it, and the trust dialog stopped the session for three minutes with
+            // nobody at the machine. Anything typed in from outside would have queued behind it.
+            //
+            // ON RELAUNCHES ONLY, off the same flag as the drain and the seeding above, and that is
+            // the whole boundary of this: a relaunch restarts a session that was ALREADY running in
+            // this directory, by a decision of Tally's, so re-asking is friction and nothing else.
+            // The user's own first pass is left to Claude Code untouched, because their answer is
+            // the only thing that can put the flag there in the first place. The home is this pass's
+            // TARGET (`seedHome`), which is what makes a cap handoff onto an account that has never
+            // seen this folder work as well.
+            if relaunching,
+               seedFolderTrust(forDirectory: cwd, inConfigDir: URL(fileURLWithPath: seedHome)) {
+                appendHandoffLine(
+                    trustSeedLine(sessionID: flagValue(launchArgs, "--resume")
+                                      ?? flagValue(launchArgs, "-r"),
+                                  pid: supervisorPID, home: seedHome, cwd: cwd),
+                    to: handoffLog)
+            }
         }
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")

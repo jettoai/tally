@@ -52,6 +52,11 @@
 # is asserted directly, which is the only way to state that no field of a real session survives
 # onto a screenshot. The two other suites that compile DemoUsage.swift need none of this, which is
 # why the session fixtures are a file of their own.
+#
+# TrustSeed.swift and TrustSeedRelaunch.swift are here because the spawn loop now seeds this
+# folder's trust into the home it is launching onto (2026-09-03): the act itself is asserted next
+# to its neighbours in tests/addshare, and what this suite compiles them for is the audit line and
+# the fact that Supervisor.swift will not build without them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -143,6 +148,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/KeychainPartitionRepair.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift Tally/Core/PathIdentity.swift \
+  Tally/Core/TrustSeed.swift TallyCLI/TrustSeedRelaunch.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \

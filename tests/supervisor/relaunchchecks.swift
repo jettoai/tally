@@ -369,6 +369,31 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     check("and hands the live fuse to the exec",
           supervisorSource.contains("recoveries: fuse.carried()"))
 
+    // MARK: - The folder trust a relaunch seeds
+
+    // What the relaunch writes into the CHILD's world before it starts it: the answer to a trust
+    // question this conversation has already lived past (Tally/Core/TrustSeed.swift; the act itself
+    // is asserted in tests/addshare/trustrelaunchchecks.swift, where the seed's neighbours are).
+    // Here only its audit line, which is the record of Tally having written into a file another
+    // program owns and the one trace of it a reader finds weeks later.
+    let seedLine = trustSeedLine(sessionID: "23786407-aaaa-bbbb-cccc-dddddddddddd", pid: "10930",
+                                 home: "/Users/x/.claude", cwd: "/Users/x/workspace/my cleat",
+                                 now: Date(timeIntervalSince1970: 1_800_000_000))
+    check("the trust seed line names the session, the supervisor, the home and the directory",
+          seedLine.hasSuffix(" session=23786407 pid=10930 trust-seeded home=.claude "
+                                 + "cwd=/Users/x/workspace/my cleat\n"))
+    check("the home is named the way the caller holds it, reduced here rather than at the call site",
+          !seedLine.contains("home=/Users/x/.claude"))
+    // The same rule `handoffLogLine` keeps: every field before the directory is read at a fixed
+    // offset, and the directory is the only one that may contain a space.
+    let seedHead = seedLine.components(separatedBy: " cwd=").first ?? ""
+    check("…with the directory last, because it is the field that can hold a space",
+          seedLine.components(separatedBy: " cwd=").count == 2
+              && seedHead.components(separatedBy: " ").count == 5)
+    check("a relaunch with no session id to resume still leaves a readable line",
+          trustSeedLine(sessionID: nil, pid: "10930", home: "/Users/x/.claude2", cwd: "/tmp/x")
+              .contains(" session=unknown pid=10930 trust-seeded home=.claude2 cwd=/tmp/x"))
+
     // The account re-pick a reload restart carries for free (reloadrepickchecks.swift).
     runReloadRepickChecks(account: tickAccount, watcher: &tickWatcher, t0: tickT0)
 }

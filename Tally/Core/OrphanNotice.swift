@@ -303,6 +303,11 @@ enum OrphanNotice {
         case .crossRepo: return "part of the tree is working in another checkout"
         case .unknownProgram: return "its program is not one this app recognises as development work"
         case .sessionPresent: return "a session is working in this checkout, so this may be its work"
+        // Never reached from a message, `leased` being hard: a tree its own harness still answers
+        // for is left in silence rather than reported (`OrphanReclaim.Veto.leased`). Spelled out
+        // because the switch is exhaustive, and spelled as the others are so that a later change of
+        // mind about that veto's severity does not also have to invent a sentence.
+        case .leased: return "a live `/dev-watch` lease still answers for it"
         }
     }
 

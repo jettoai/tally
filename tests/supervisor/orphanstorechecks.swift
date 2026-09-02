@@ -50,6 +50,10 @@ private final class FakeMachine {
     /// What `<dir>/.git` is, for the paths the default below does not cover: a parallel line's
     /// `.git` FILE, which is what folds a worktree into its repository (`OrphanNotice.repository`).
     var gitEntries: [String: OrphanNotice.GitEntry] = [:]
+    /// What `realpath` would say about a path. Absent means the path is already its own real form,
+    /// which is every path in every other fixture here; the one that needs this is the checkout
+    /// whose two spellings have to disagree (`resolve`).
+    var resolvedPaths: [String: String] = [:]
 
     func store(home: URL = URL(fileURLWithPath: "/Users/x")) -> OrphanReclaimStore {
         OrphanReclaimStore(machine: OrphanReclaimStore.Machine(
@@ -89,6 +93,9 @@ private final class FakeMachine {
                     MainActor.assumeIsolated { presence[pid] ?? .gone }
                 },
                 table: { [self] in MainActor.assumeIsolated { laterTable ?? table } }),
+            resolve: { [self] path in
+                MainActor.assumeIsolated { resolvedPaths[path] ?? path }
+            },
             gitEntry: { [self] path in
                 MainActor.assumeIsolated {
                     gitEntries[path] ?? (path == gitRoot + "/.git" ? .directory : nil)
@@ -527,6 +534,148 @@ func runOrphanStoreChecks() {
     check("a session in the repository speaks for a leftover in a worktree of it",
           parallel.sent.isEmpty
               && twelfth.records.first?.outcome == .reported(doubts: [.sessionPresent]))
+
+    // 🔴 AND THE TWO SIDES HAVE TO BE SPELLED THE SAME WAY (codex review, 2026-09-02). A
+    // session's root reaches this store through `realpath` (`ProjectLoadAccounting.roots`), and a
+    // worktree's repository reaches it as the text of a `.git` file, which nothing resolves. Where
+    // the workspace sits behind a symlink the two name one checkout in two spellings, compare
+    // unequal, and the veto is missed in the one direction that ends a process.
+    let linked = repo.replacingOccurrences(of: "/workspace/", with: "/ws-link/")
+    let crooked = FakeMachine()
+    leftoverServer(crooked, project: line)
+    crooked.gitEntries = [line + "/.git": .file("gitdir: " + linked + "/.git/worktrees/wt1")]
+    crooked.resolvedPaths = [linked: repo]
+    let symlinked = crooked.store()
+    symlinked.observe(strays: [root: line, worker: line], processes: crooked.table,
+                      sessions: [web], at: t0)
+    crooked.times = [root: 103, worker: 0]
+    symlinked.observe(strays: [root: line, worker: line], processes: crooked.table,
+                      sessions: [web], at: round2)
+    check("a checkout whose two spellings differ only by a symlink is one checkout",
+          crooked.sent.isEmpty
+              && symlinked.records.first?.outcome == .reported(doubts: [.sessionPresent]))
+
+    // MARK: 🔴 a dev-watch lease whose supervisor is alive (2026-09-02, three messages about it)
+
+    // THE SUPERVISOR IS A `bash` THAT HOLDS NOTHING AND ITS SERVER IS THE TREE UNDER IT, so with
+    // the lease tended the whole thing fell past tier A into the evidence tiers and was reported
+    // as a leftover - three times in thirty minutes, in a checkout whose own harness had registered
+    // that server. The advice in the message ("run it under `/dev-watch`, whose lease says whose it
+    // is") was being given to a tree already running under exactly that.
+    //
+    // THE FIXTURE PUTS THE TREE IN THE STRAYS, which the tended-lease row above does not: with an
+    // empty stray set nothing reaches tier B or C at all, so "left entirely alone" was true there
+    // for a reason that says nothing about this.
+    let tendedStray = FakeMachine()
+    leftoverServer(tendedStray, project: web)
+    let tendedBorn = Date(timeIntervalSince1970: Double(ancient) / 1_000_000)
+    tendedStray.leases = [OrphanLease(project: "bigdata-web",
+                                      pidFile: "/tmp/bigdata-web.devwatch.pid",
+                                      supervisor: root, bornAt: tendedBorn, child: worker,
+                                      childBornAt: tendedBorn)]
+    let sixteenth = tendedStray.store()
+    sixteenth.observe(strays: [root: web, worker: web], processes: tendedStray.table,
+                      sessions: [], at: t0)
+    tendedStray.times = [root: 103, worker: 0]
+    sixteenth.observe(strays: [root: web, worker: web], processes: tendedStray.table,
+                      sessions: [], at: round2)
+    check("a tree its own live dev-watch lease still answers for is never signalled",
+          tendedStray.sent.isEmpty && tendedStray.cleared.isEmpty)
+    // AND THE OTHER HALF ON ITS OWN FIXTURE, because a signalled tree writes nothing until its
+    // sweep finishes: asserting silence on the one above would have been silence about a kill in
+    // flight. With a session in the checkout the tree lands in tier C instead, which is exactly
+    // where the real one landed, and what has to be empty then is the inbox.
+    let tendedTold = FakeMachine()
+    leftoverServer(tendedTold, project: web)
+    tendedTold.leases = [OrphanLease(project: "bigdata-web",
+                                     pidFile: "/tmp/bigdata-web.devwatch.pid",
+                                     supervisor: root, bornAt: tendedBorn, child: worker,
+                                     childBornAt: tendedBorn)]
+    let nineteenth = tendedTold.store()
+    nineteenth.observe(strays: [root: web, worker: web], processes: tendedTold.table,
+                       sessions: [web], at: t0)
+    tendedTold.times = [root: 103, worker: 0]
+    nineteenth.observe(strays: [root: web, worker: web], processes: tendedTold.table,
+                       sessions: [web], at: round2)
+    check("…and is never written about either, the harness having registered it already",
+          tendedTold.delivered.isEmpty && nineteenth.records.isEmpty
+              && nineteenth.watching.isEmpty)
+    // AND THE VETO IS ABOUT THAT TREE RATHER THAN ABOUT THE MACHINE. A live lease somewhere else on
+    // the box says nothing about this leftover, and a blanket "any lease is tended" would switch
+    // the whole feature off for as long as one dev server is up.
+    let otherLease = FakeMachine()
+    leftoverServer(otherLease, project: web)
+    otherLease.table.append(ProcessIdentity(pid: 999_999, parent: 1, group: 999_999,
+                                           startedAt: ancient))
+    otherLease.leases = [OrphanLease(project: "other", pidFile: "/tmp/other.devwatch.pid",
+                                    supervisor: 999_999, bornAt: tendedBorn, child: 999_998,
+                                    childBornAt: tendedBorn)]
+    let seventeenth = otherLease.store()
+    seventeenth.observe(strays: [root: web, worker: web], processes: otherLease.table,
+                        sessions: [], at: t0)
+    otherLease.times = [root: 103, worker: 0]
+    seventeenth.observe(strays: [root: web, worker: web], processes: otherLease.table,
+                        sessions: [], at: round2)
+    check("…while a lease over some other tree leaves this one exactly as exposed as before",
+          otherLease.sent.map(\.0) == [SIGTERM])
+
+    // MARK: 🔴 one tree, one message (2026-09-02, the same pid reported three times)
+
+    // THE EPHEMERAL PORT IS WHY THE SITUATION KEY COULD NOT HOLD IT (`OrphanReclaim.fingerprint`):
+    // the three real messages read `:3000, :55955`, `:3000, :54887`, `:3000, :58902`, one per
+    // restart of the server under the supervisor. Nothing about the tree or the answer changed, so
+    // the second and third said nothing the first had not.
+    let repeated = FakeMachine()
+    leftoverServer(repeated, project: web)
+    let eighteenth = repeated.store()
+    var moment = t0
+    for (index, ephemeral) in [55_955, 54_887, 58_902].enumerated() {
+        repeated.sockets = [
+            OrphanReclaim.Connection(pid: root, localPort: 3100, remotePort: 0,
+                                     remoteIsLoopback: true, listening: true),
+            OrphanReclaim.Connection(pid: worker, localPort: UInt16(ephemeral), remotePort: 0,
+                                     remoteIsLoopback: true, listening: true),
+        ]
+        if index > 0 { repeated.times = [root: Double(100 + index * 3), worker: 0] }
+        eighteenth.observe(strays: [root: web, worker: web], processes: repeated.table,
+                           sessions: [web], at: moment)
+        moment = moment.addingTimeInterval(OrphanReclaim.sleepGap + 60)
+    }
+    check("a standing leftover is written about once, not once per round it is still standing",
+          repeated.delivered.count == 1 && eighteenth.records.count == 1)
+    // A CHANGED ANSWER IS NEWS. A doubt has appeared that was not there before - here the machine
+    // has stopped answering for one member's sockets - so what the reader was told last time is no
+    // longer what this app thinks, and the memory must not hold that back.
+    repeated.unreadableSockets = [worker]
+    eighteenth.observe(strays: [root: web, worker: web], processes: repeated.table,
+                       sessions: [web], at: moment)
+    check("…and a different answer about the same tree is said, since it was not said before",
+          repeated.delivered.count == 2
+              && eighteenth.records.first?.outcome
+                  == .reported(doubts: [.sessionPresent, .unreadable]))
+    // AND A NUMBER HANDED ON IS A NEW TREE. Same pid, a later birth, and every OTHER thing about
+    // the reading left exactly as it was - the doubts included - so the only reason this can be
+    // said again is the identity half of the memory above. The alternative is an app that goes
+    // quiet about something it has never reported.
+    let reborn = ancient + 1_000_000
+    repeated.table = repeated.table.map {
+        ProcessIdentity(pid: $0.pid, parent: $0.parent, group: $0.group, startedAt: reborn)
+    }
+    repeated.surviving = [root: reborn, worker: reborn]
+    // With the port a restart of it would really take: left on the previous one, the situation key
+    // would silence this round on its own and the identity half of the memory above would never be
+    // asked anything.
+    repeated.sockets = [
+        OrphanReclaim.Connection(pid: root, localPort: 3100, remotePort: 0,
+                                 remoteIsLoopback: true, listening: true),
+        OrphanReclaim.Connection(pid: worker, localPort: 61_004, remotePort: 0,
+                                 remoteIsLoopback: true, listening: true),
+    ]
+    moment = moment.addingTimeInterval(OrphanReclaim.sleepGap + 60)
+    eighteenth.observe(strays: [root: web, worker: web], processes: repeated.table,
+                       sessions: [web], at: moment)
+    check("…and a tree that only shares its pid with the last one is reported afresh",
+          repeated.delivered.count == 3)
 
     // AND TIER A IS NOT SUBJECT TO ANY OF THIS. A lease is a statement rather than an inference -
     // this machine's own harness named that tree, and the supervisor that wrote it is gone - so a

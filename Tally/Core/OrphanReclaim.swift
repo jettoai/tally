@@ -208,6 +208,22 @@ enum OrphanReclaim {
         /// The program is not one this app recognises as development work
         /// (`developmentPrograms`).
         case unknownProgram
+        /// A DEV-WATCH LEASE STILL HAS SOMEBODY ANSWERING FOR THIS TREE (`OrphanLease`): the
+        /// supervisor that registered it is running right now.
+        ///
+        /// THE MIRROR OF TIER A RATHER THAN AN ADDITION TO IT. That tier acts on a lease whose
+        /// writer is GONE; this is the same file read for the opposite answer, and between them the
+        /// two cover every lease on the machine. What sat in the gap was the ordinary case - a
+        /// supervisor doing its job - and it fell straight through into the evidence tiers, which
+        /// know nothing about leases and judged the supervisor as a leftover `bash` holding two
+        /// gigabytes (2026-09-02: three messages about one such tree in thirty minutes).
+        ///
+        /// HARD, WHICH THE OTHER "SOMEBODY OWNS THIS" VETOES ARE FOR THE SAME REASON. The message
+        /// tier C would write ends by advising the reader to run the thing under `/dev-watch`,
+        /// whose lease says whose it is - which is advice this tree has already taken, arriving in
+        /// the inbox of the project that took it. A statement by this machine's own harness is not
+        /// a doubt to be reported; it is an answer.
+        case leased
         /// A LIVE SESSION IS WORKING IN THIS TREE'S CHECKOUT, so the tree may well be that
         /// session's own even though no card is counting it.
         ///
@@ -229,7 +245,7 @@ enum OrphanReclaim {
         /// exists to report rather than to act on.
         var hard: Bool {
             switch self {
-            case .terminal, .ancestor, .inUse: return true
+            case .terminal, .ancestor, .inUse, .leased: return true
             case .unreadable, .crossRepo, .unknownProgram, .sessionPresent: return false
             }
         }

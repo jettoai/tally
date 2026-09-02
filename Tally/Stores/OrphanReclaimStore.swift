@@ -66,6 +66,9 @@ final class OrphanReclaimStore {
         var leases: @Sendable () -> [OrphanLease]
         var clearLease: @Sendable (OrphanLease) -> Void
         var signals: OrphanKill.Signals
+        /// What a path really is, symlinks and all. The one reading here that exists to make two
+        /// spellings of one checkout compare equal (`round`).
+        var resolve: @Sendable (String) -> String
         var gitEntry: @Sendable (String) -> OrphanNotice.GitEntry?
         var deliver: @Sendable (String, URL, String) -> URL?
         var home: URL
@@ -79,6 +82,7 @@ final class OrphanReclaimStore {
             leases: { OrphanLeases.all() },
             clearLease: { OrphanLeases.clear($0) },
             signals: .real,
+            resolve: { MachineLoadRollup.resolvedPath($0) },
             gitEntry: { OrphanNotice.gitEntry($0) },
             deliver: { OrphanNotice.deliver($0, to: $1, named: $2) },
             home: FileManager.default.homeDirectoryForCurrentUser)
@@ -92,6 +96,9 @@ final class OrphanReclaimStore {
     private var counters: [pid_t: ProcessResourceSample] = [:]
     /// When each fingerprint was last reported, so the same leftover is not announced hourly.
     private var said: [String: Date] = [:]
+    /// And what was last said about each TREE, which is the half `said` cannot hold: a situation
+    /// whose ports move under it is a new fingerprint every round (`OrphanReclaim.Told`).
+    private var told: [pid_t: OrphanReclaim.Told] = [:]
     /// When the last round was taken, which is what makes a round a round.
     private var lastRound: Date?
     /// Kills in flight.
@@ -124,10 +131,11 @@ final class OrphanReclaimStore {
         // The table by pid, built once and handed down: every step below asks it something, and
         // three copies of one index is three chances for two of them to disagree.
         let table = Dictionary(processes.map { ($0.pid, $0) }) { first, _ in first }
-        var acted = leases(among: processes, table: table, at: now)
+        let fromLeases = leases(among: processes, table: table, at: now)
+        var acted = fromLeases.claimed
         acted.formUnion(sweeps.flatMap(\.targets))
         round(strays: strays.filter { !acted.contains($0.key) }, processes: processes,
-              table: table, sessions: sessions, at: now)
+              table: table, sessions: sessions, leased: fromLeases.tended, at: now)
     }
 
     /// TIER A: the leases whose writer has gone (`OrphanLease` carries the whole contract).
@@ -136,10 +144,21 @@ final class OrphanReclaimStore {
     /// in one round - once on the lease and once on two rounds of evidence - and end up signalled
     /// from two places.
     ///
-    /// - Returns: every pid this tier claimed, whether or not the kill has finished.
+    /// AND THE SAME FILES READ FOR THE OPPOSITE ANSWER, which is the other thing this pass is the
+    /// only one able to say. A lease whose supervisor is running names a tree the harness itself is
+    /// answering for; before this it simply fell out of tier A and into the evidence tiers, which
+    /// know nothing about leases and judged the supervisor on what it looks like - a `bash` holding
+    /// two gigabytes, reported as a leftover three times in thirty minutes while `/dev-watch` was
+    /// doing exactly its job (2026-09-02). Gathered here rather than re-read below because the
+    /// verdict about a lease is this function's, and two readings of one file are two chances to
+    /// disagree.
+    ///
+    /// - Returns: every pid this tier claimed, whether or not the kill has finished, and the pids
+    ///   a live lease still speaks for (`OrphanReclaim.Veto.leased`).
     private func leases(among processes: [ProcessIdentity], table: [pid_t: ProcessIdentity],
-                        at now: Date) -> Set<pid_t> {
+                        at now: Date) -> (claimed: Set<pid_t>, tended: Set<pid_t>) {
         var claimed: Set<pid_t> = []
+        var tended: Set<pid_t> = []
         for lease in machine.leases() {
             // WHERE THE TABLE IS SILENT ABOUT THE SUPERVISOR, THE KERNEL IS ASKED ABOUT IT
             // DIRECTLY, and only a definite "no such process" gets past here (`OrphanReclaim.state`
@@ -149,7 +168,19 @@ final class OrphanReclaimStore {
                 of: lease, supervisorStartedAt: table[lease.supervisor]?.startedAt,
                 presence: { machine.signals.presence(lease.supervisor) },
                 childStartedAt: lease.child.flatMap { table[$0]?.startedAt })
-            guard case .abandoned(let root) = state else { continue }
+            guard case .abandoned(let root) = state else {
+                // ONLY `tended`, AND THE OTHER TWO DELIBERATELY NOT. `spent` has no tree left to
+                // speak for; `unsure` is the state where neither the table nor the kernel would
+                // answer, and turning "cannot tell" into a veto would put the one shape this
+                // feature exists for permanently out of reach on a machine whose probe is flaky.
+                // It already goes to tier B, which cannot end anything without two rounds and a
+                // clean sweep.
+                if state == .tended {
+                    tended.insert(lease.supervisor)
+                    if let child = lease.child { tended.insert(child) }
+                }
+                continue
+            }
             let members = ProcessTree.members(root: root, processes: processes)
             guard !members.isEmpty else { continue }
             claimed.formUnion(members)
@@ -159,7 +190,7 @@ final class OrphanReclaimStore {
             begin(kill: tree, table: table, reason: .leaseOwnerGone, lease: lease,
                   ports: ports(of: members), at: now)
         }
-        return claimed
+        return (claimed, tended)
     }
 
     /// TIER B AND C: everything else that is running in one of these checkouts.
@@ -169,17 +200,21 @@ final class OrphanReclaimStore {
     /// a session in the checkout says nothing about a server whose owner is provably gone. It is
     /// only the evidence-based tier that has to defer to somebody being here.
     private func round(strays: [pid_t: String], processes: [ProcessIdentity],
-                       table: [pid_t: ProcessIdentity], sessions: Set<String>, at now: Date) {
+                       table: [pid_t: ProcessIdentity], sessions: Set<String>,
+                       leased: Set<pid_t>, at now: Date) {
         let parents = table.mapValues(\.parent)
         // THE CHECKOUTS SOMEBODY IS WORKING IN, folded to their repositories once for the round
         // rather than once per tree: the fold is a walk of the filesystem, and the answer is the
         // same for every tree on the round (`OrphanReclaim.checkout`).
-        let occupied = Set(sessions.map { OrphanReclaim.checkout(of: $0, entry: machine.gitEntry) })
+        //
+        // AND BOTH SIDES OF THE COMPARISON THROUGH ONE CALL (`checkout(of:)`), which is where the
+        // resolving lives and why it is a method rather than two expressions.
+        let occupied = Set(sessions.map(checkout(of:)))
         var seen: Set<pid_t> = []
         var watches: [Watch] = []
         for tree in OrphanReclaim.trees(of: strays, among: processes) {
             let reading = read(tree, identities: table, parents: parents, occupied: occupied,
-                               at: now)
+                               leased: leased, at: now)
             seen.insert(tree.root)
             let decided = OrphanReclaim.verdict(for: reading, previous: sightings[tree.root])
             sightings[tree.root] = decided.keep
@@ -189,7 +224,7 @@ final class OrphanReclaimStore {
                       ports: reading.listeningPorts, at: now)
             case .notify:
                 watches.append(watch(reading))
-                report(reading, outcome: .reported(doubts: reading.vetoes.sorted()), at: now)
+                report(reading, at: now)
             case .wait:
                 // Worth showing only once it is a candidate rather than merely old: a first
                 // sighting of something heavy is exactly what a reader wants warning of.
@@ -205,6 +240,7 @@ final class OrphanReclaimStore {
         // sighting already refuses it; this keeps the dictionaries from growing all day).
         sightings = sightings.filter { seen.contains($0.key) }
         counters = counters.filter { seen.contains($0.key) }
+        told = told.filter { seen.contains($0.key) }
         if watching != watches { watching = watches }
     }
 
@@ -214,7 +250,7 @@ final class OrphanReclaimStore {
     /// the same reading (`OrphanReclaim.trees` took it from this very walk), and asking twice is
     /// how two spellings of one fact come to disagree.
     private func read(_ tree: OrphanReclaim.Tree, identities: [pid_t: ProcessIdentity],
-                      parents: [pid_t: pid_t], occupied: Set<String>,
+                      parents: [pid_t: pid_t], occupied: Set<String>, leased: Set<pid_t>,
                       at now: Date) -> OrphanReclaim.Reading {
         let members = tree.members.compactMap { pid -> OrphanReclaim.Member? in
             guard let identity = identities[pid] else { return nil }
@@ -247,9 +283,11 @@ final class OrphanReclaimStore {
         // here that comes off the BOARD rather than off the process table - and the one the
         // 2026-09-02 incident was decided without. Two servers were ended in checkouts whose
         // sessions were sitting right there, under a message that said no session was.
-        if occupied.contains(OrphanReclaim.checkout(of: tree.project, entry: machine.gitEntry)) {
-            vetoes.insert(.sessionPresent)
-        }
+        if occupied.contains(checkout(of: tree.project)) { vetoes.insert(.sessionPresent) }
+        // AND WHETHER A LEASE IS STILL ANSWERING FOR IT, which comes off the same files tier A
+        // reads and is that tier's mirror: it acts on a lease whose writer is gone, and this is the
+        // ordinary case it used to drop on the floor (`OrphanReclaim.Veto.leased`).
+        if !tree.members.isDisjoint(with: leased) { vetoes.insert(.leased) }
         let began = Date(timeIntervalSince1970: Double(tree.rootStartedAt) / 1_000_000)
         return OrphanReclaim.Reading(
             tree: tree, takenAt: now, age: now.timeIntervalSince(began), cpuPercent: percent,
@@ -258,6 +296,20 @@ final class OrphanReclaimStore {
             name: members.first { $0.identity.pid == tree.root }.flatMap(OrphanReclaim.name)
                 ?? members.compactMap(OrphanReclaim.name).first,
             vetoes: vetoes)
+    }
+
+    /// WHICH CHECKOUT A DIRECTORY IS IN, as the session veto compares them: the repository above it
+    /// (`OrphanReclaim.checkout`), resolved.
+    ///
+    /// A METHOD BECAUSE BOTH SIDES HAVE TO GO THROUGH IT. They arrive spelled differently - a
+    /// session's root has been through `realpath` before it ever reaches this store
+    /// (`ProjectLoadAccounting.roots`), and a worktree's repository is the text of a `.git` file,
+    /// which nothing resolves - so where the workspace sits behind a symlink they are one checkout
+    /// under two names, compare unequal, and the veto is missed in the one direction that ends a
+    /// process (codex review, 2026-09-02). Written twice, one of them could go on being the
+    /// resolved one alone; written once, that cannot happen.
+    private func checkout(of directory: String) -> String {
+        machine.resolve(OrphanReclaim.checkout(of: directory, entry: machine.gitEntry))
     }
 
     private func watch(_ reading: OrphanReclaim.Reading) -> Watch {
@@ -447,8 +499,18 @@ final class OrphanReclaimStore {
     // MARK: saying so
 
     /// Say something about a tree that was NOT ended, subject to not having said it lately.
-    private func report(_ reading: OrphanReclaim.Reading, outcome: OrphanNotice.Outcome,
-                        at now: Date) {
+    private func report(_ reading: OrphanReclaim.Reading, at now: Date) {
+        // TWO GATES, AND THEY CATCH DIFFERENT REPEATS. The tree's own memory refuses a second
+        // message about one unchanged tree however much moves around it (`OrphanReclaim.Told`); the
+        // fingerprint refuses a second message about one SITUATION however many pids pass through
+        // it (`OrphanReclaim.fingerprint`). Neither covers the other's case, and the machine has
+        // now produced both.
+        let doubts = reading.vetoes.sorted()
+        guard OrphanReclaim.worthSaying(told[reading.tree.root],
+                                        rootStartedAt: reading.tree.rootStartedAt,
+                                        doubts: doubts) else { return }
+        told[reading.tree.root] = OrphanReclaim.Told(rootStartedAt: reading.tree.rootStartedAt,
+                                                     doubts: doubts)
         let fingerprint = OrphanReclaim.fingerprint(reading)
         guard !OrphanReclaim.silenced(fingerprint, said: said, at: now) else { return }
         said[fingerprint] = now
@@ -456,7 +518,7 @@ final class OrphanReclaimStore {
             project: reading.tree.project, program: reading.name ?? "?", pid: reading.tree.root,
             processes: reading.tree.members.count, cpuPercent: reading.cpuPercent,
             memoryBytes: reading.memoryBytes, listeningPorts: reading.listeningPorts,
-            ageSeconds: reading.age, outcome: outcome), at: now)
+            ageSeconds: reading.age, outcome: .reported(doubts: doubts)), at: now)
     }
 
     /// PUT IT ON THE PANEL AND IN THE PROJECT'S INBOX. Both, always: the panel is what somebody

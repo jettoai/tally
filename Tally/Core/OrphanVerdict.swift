@@ -181,6 +181,37 @@ extension OrphanReclaim {
         return "\(reading.tree.project)|\(reading.name ?? "?")|\(ports)"
     }
 
+    /// WHAT WAS LAST SAID ABOUT ONE TREE, which is the other half of not repeating oneself.
+    ///
+    /// THE KEY ABOVE IS ABOUT THE SITUATION AND THIS ONE IS ABOUT THE TREE, and the machine showed
+    /// why both are needed. A `next dev` under a supervisor holds its own port AND an ephemeral one
+    /// that each restart hands back and takes out again, so `project|program|ports` was a different
+    /// string on every reading of one unchanged tree: `:3000, :55955`, then `:54887`, then
+    /// `:58902` - three messages in thirty minutes about a leftover that had not moved
+    /// (2026-09-02).
+    ///
+    /// SO THE PID IS IN THIS ONE, WHICH IT IS DELIBERATELY NOT IN THE OTHER, and the two notes are
+    /// not in conflict: keyed by pid ALONE a supervisor's restarted server is a fresh message every
+    /// few minutes, which is what `fingerprint` refuses; keyed by the situation alone a standing
+    /// tree talks whenever anything volatile about it moves, which is what this refuses. A tree is
+    /// the pid and the instant it began, the identity rule the sighting next door already uses.
+    struct Told: Equatable {
+        var rootStartedAt: Int64
+        /// The doubts that message named, sorted. A different set is a different ANSWER, and an
+        /// answer the reader has not been given yet is worth giving: the session that was working
+        /// here has gone home, or has arrived, and either way what they were told last is no longer
+        /// what this app thinks.
+        var doubts: [Veto]
+    }
+
+    /// Whether a tier-C reading says anything the last message about that tree did not.
+    ///
+    /// Through the whole value rather than field by field, so a field added to `Told` is compared
+    /// by being there. Nothing said yet is unequal to anything, which is the `nil` case.
+    static func worthSaying(_ told: Told?, rootStartedAt: Int64, doubts: [Veto]) -> Bool {
+        told != Told(rootStartedAt: rootStartedAt, doubts: doubts)
+    }
+
     /// How long a message silences its own repeat.
     static let noticeInterval: TimeInterval = 24 * 60 * 60
 

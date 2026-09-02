@@ -260,7 +260,14 @@ private func runOrphanVerdictChecks() {
     // process: the switch is exhaustive, so the compiler catches a missing case, and what it cannot
     // catch is a case added to the wrong side of it.
     check("a soft veto is a doubt and a hard one is silence, over every veto there is",
-          OrphanReclaim.Veto.allCases.filter(\.hard).sorted() == [.ancestor, .inUse, .terminal])
+          OrphanReclaim.Veto.allCases.filter(\.hard).sorted()
+              == [.ancestor, .inUse, .leased, .terminal])
+    // 🔴 AND A LEASED TREE IS SILENCE RATHER THAN A REPORT, which is the whole of the 2026-09-02
+    // dev-watch defect: the harness registered that server itself, so "run it under `/dev-watch`,
+    // whose lease says whose it is" is advice it has already taken.
+    check("a tree its own dev-watch lease still answers for is left without a word",
+          OrphanReclaim.verdict(for: reading(at: round2, vetoes: [.leased]),
+                                previous: first).verdict == .leave)
 
     // MARK: 🔴 which checkout a directory is in (2026-09-02, the session-present veto)
 
@@ -411,6 +418,30 @@ private func runOrphanVerdictChecks() {
     check("a clock that went backwards leaves the channel quiet rather than repeating",
           OrphanReclaim.silenced(OrphanReclaim.fingerprint(reading()), said: said,
                                  at: t0.addingTimeInterval(-3600)))
+
+    // MARK: 🔴 nor twice about one tree (2026-09-02, three messages in thirty minutes)
+
+    // THE SITUATION KEY ABOVE CANNOT HOLD A STANDING TREE QUIET, and the machine showed how: a
+    // `next dev` under a dev-watch supervisor holds :3000 AND an ephemeral port that its own
+    // restarts hand back and take out again, so `project|program|ports` was a different string
+    // every time it was read (`:3000, :55955`, then `:54887`, then `:58902` - the three messages
+    // the incident is named for). What has not changed between those three is the TREE and the
+    // answer reached about it, which is what this key is.
+    let told = OrphanReclaim.Told(rootStartedAt: 1_000, doubts: [.sessionPresent])
+    check("a tree nothing has been said about yet is worth saying",
+          OrphanReclaim.worthSaying(nil, rootStartedAt: 1_000, doubts: [.sessionPresent]))
+    check("…and the same tree with the same answer is not worth saying again",
+          !OrphanReclaim.worthSaying(told, rootStartedAt: 1_000, doubts: [.sessionPresent]))
+    // A CHANGED ANSWER IS NEWS IN BOTH DIRECTIONS. The session that was working here has gone home,
+    // or has arrived: either way the reader is being told something they were not told before.
+    check("…while a different set of doubts about it is",
+          OrphanReclaim.worthSaying(told, rootStartedAt: 1_000, doubts: [.unknownProgram])
+              && OrphanReclaim.worthSaying(told, rootStartedAt: 1_000,
+                                           doubts: [.sessionPresent, .unknownProgram]))
+    // AND THE PID IS NOT THE TREE. The number is handed out again; what says it is the same tree is
+    // the number AND the instant it began, which is the identity rule the sighting already uses.
+    check("…and a number handed on to something else is a new tree, not a repeat",
+          OrphanReclaim.worthSaying(told, rootStartedAt: 2_000, doubts: [.sessionPresent]))
 }
 
 // MARK: - how it is ended

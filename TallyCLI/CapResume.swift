@@ -29,9 +29,10 @@ import Foundation
 //     typed is a better answer than what this would have. A keystroke BURST in that composer is the
 //     weaker half of the same fact and it HOLDS (`.hold(.drafting)`), on the dialog row's terms:
 //     the evidence expires (`sessionInputDraftLife`) and a person who is really there sends a
-//     prompt, so both endings are reachable without a clock of this station's own. The two were one
-//     branch and one word until 2026-09-02, and the log says what that cost: six dropped resumes on
-//     this machine, every one `reason=someone-typed`, none saying which half fired.
+//     prompt, so both endings are reachable without a clock of this station's own; that claim is
+//     about two numbers, see `capResumeLife`. The two were one branch and one word until
+//     2026-09-02, and the log says what that cost: six dropped resumes on this machine, every one
+//     `reason=someone-typed`, none saying which half fired.
 //   - ANSWER A DIALOG. A blocked session is sitting on a permission request or a plan approval, and
 //     a line typed at one of those is an answer to a question this supervisor never read. It HOLDS
 //     rather than drops, because a dialog is answered and the composer comes back
@@ -97,17 +98,20 @@ let capResumeDroppedOutcome = "cap-resume-dropped"
 
 /// How long an arm may wait for a moment it can be typed at.
 ///
-/// `sessionInputQueuedLife` rather than a number of this feature's own, because it is the same
-/// question: a line waiting for a session to become typeable, where the wait is the feature working
-/// rather than the feature failing (SessionInput.swift carries the measurement that settled fifteen
-/// minutes). The two waits this one actually spends are a child that has not yet said what it is
-/// doing, which is seconds, and a permission dialog nobody has answered, which is however long its
-/// owner is away from the desk.
+/// TWICE `sessionInputDraftLife`, which is what keeps the drafting hold from being the old drop
+/// under a friendlier name. That hold clears when the burst behind it ages out at
+/// `burstAt + sessionInputDraftLife`, and the burst is in the child the handoff relaunched, so it
+/// is always LATER than the wall this clock runs from: equal lives expire first for every burst
+/// there can ever be, which is what they did until 2026-09-02 (`sessionInputQueuedLife`, the same
+/// fifteen minutes), leaving the branch written that day unable to reach the line beyond it. A real
+/// dependency rather than a shared scale, and a second copy of that number would stop saying so.
 ///
-/// Measured from the CAP rather than from the relaunch, which is the honest clock: what the line
-/// offers to resume is work that stopped at that instant, and by fifteen minutes later a session
-/// whose owner has still not touched it is one the offer has stopped being about.
-let capResumeLife: TimeInterval = sessionInputQueuedLife
+/// THE EDGE IT DOES NOT COVER, stated rather than defended against: a burst landing in the SECOND
+/// draft window ages out after this clock does and the offer is dropped as expired instead. That is
+/// the judgement this clock already makes, MEASURED FROM THE CAP rather than from the relaunch:
+/// half an hour after the work stopped, a session whose owner has still not touched it is one the
+/// offer has stopped being about.
+let capResumeLife: TimeInterval = sessionInputDraftLife * 2
 
 /// How long after this supervisor types a line the user turn it produces keeps arriving.
 ///

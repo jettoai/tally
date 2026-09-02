@@ -201,6 +201,37 @@ func runCapResumeChecks() {
                            relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(capResumeLife + 1)) == .drop(.expired))
+    // AND THE SEQUENCE THOSE TWO ENDINGS ONLY MEAN ANYTHING IN, driven by the real predicate rather
+    // than by a boolean this file chose: `sessionInputDraftSuspected` answers from a burst and a
+    // clock, and a hand-flipped Bool asserts the branch while asserting nothing about whether the
+    // tick that flips it can ever arrive. The burst is in the relaunched child, so it is later than
+    // the wall, so the evidence clears at `burstAt + sessionInputDraftLife` while the offer dies at
+    // `wall + capResumeLife`. With those two equal the offer always went first, and the hold added
+    // on 2026-09-02 was the drop it replaced under a friendlier name. Three moments, one fixture.
+    let burst = wall.addingTimeInterval(60)
+    func draftEvidence(at moment: TimeInterval) -> Bool {
+        sessionInputDraftSuspected(burstAt: burst, userTurnAt: nil, injectedAt: nil,
+                                   now: wall.addingTimeInterval(moment))
+    }
+    func afterBurst(at moment: TimeInterval) -> CapResumeDecision {
+        typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
+                         relaunchPlanned: false, draftSuspected: draftEvidence(at: moment),
+                         userTurnAt: nil, conversation: armedConversation,
+                         now: wall.addingTimeInterval(moment))
+    }
+    let evidenceFresh = burst.timeIntervalSince(wall) + 30
+    let evidenceGone = burst.timeIntervalSince(wall) + sessionInputDraftLife + 1
+    check("a burst in the relaunched child holds the offer while that evidence is fresh",
+          draftEvidence(at: evidenceFresh) && afterBurst(at: evidenceFresh) == .hold(.drafting))
+    check("…and the line is typed at the tick the evidence expires, which is what the hold is for",
+          !draftEvidence(at: evidenceGone) && afterBurst(at: evidenceGone) == .type(sentence))
+    check("…with the offer's own life still the far end of the wait",
+          afterBurst(at: capResumeLife + 1) == .drop(.expired))
+    // THE CONTROL, which is why this station's life is DERIVED from the draft's rather than sharing
+    // a scale with it: the first instant that line can be typed at is already past an offer that
+    // only lived `sessionInputDraftLife`, and inside the one this station actually keeps.
+    check("a life equal to the draft's could never reach that line, and this one reaches it",
+          evidenceGone > sessionInputDraftLife && evidenceGone < capResumeLife)
 
     // MARK: - 33e. The shared table, and the clock
 

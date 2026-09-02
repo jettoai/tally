@@ -13,6 +13,28 @@ import Foundation
 /// to produce a process that ignores `SIGTERM` for ten seconds and then dies, so what it drives
 /// instead is the state machine: given who is still alive and how long it has been, what happens
 /// next. The one thing this file does with the real machine is behind that seam.
+/// WHETHER A PID IS THERE, asked of the kernel directly rather than of a table walked earlier.
+///
+/// THREE ANSWERS BECAUSE THERE ARE THREE, and collapsing them into two is what let a healthy dev
+/// server be killed. A process table pass is a snapshot assembled one `proc_pidinfo` at a time, and
+/// any one of those can fail transiently; "absent from the walk" therefore means "gone OR the walk
+/// missed it", which is a distinction with a process's life on it (codex review, 2026-09-02).
+///
+/// `kill(pid, 0)` IS THE PROBE THAT SEPARATES THEM, and it is the only one on this platform that
+/// does. Measured here (2026-09-02): a live pid answers 0, a reaped pid answers -1/ESRCH, and one
+/// belonging to another user answers -1/EPERM - so ESRCH is the single errno that means DEFINITELY
+/// GONE, EPERM means definitely there, and anything else means neither. `proc_pid_rusage` cannot be
+/// used for this: it answers -1/ESRCH for a reaped pid too, but a failure of any other kind is
+/// indistinguishable from it in the return value alone.
+enum ProcessPresence: Equatable {
+    /// It is there (ours, or somebody else's).
+    case running
+    /// It is not: the kernel says no such process.
+    case gone
+    /// The kernel would not say. Never a reason to act.
+    case unknown
+}
+
 enum OrphanKill {
 
     /// How long a tree is given to end itself before the signal that does not ask.
@@ -156,6 +178,12 @@ enum OrphanKill {
         var alive: @Sendable (Set<pid_t>) -> [pid_t: Int64]
         /// Every port listening on the machine right now.
         var listening: @Sendable () -> Set<UInt16>
+        /// Whether ONE pid is there, asked of the kernel rather than of a walk (`ProcessPresence`).
+        var presence: @Sendable (pid_t) -> ProcessPresence
+        /// The whole table again, for the one moment a plan has to be rebuilt: the escalation from
+        /// `SIGTERM` to `SIGKILL`, where the set being signalled and the process groups behind it
+        /// are both a grace period older than the plan that was made.
+        var table: @Sendable () -> [ProcessIdentity]
 
         static let real = Signals(
             send: { signal, pid in _ = kill(pid, signal) },
@@ -168,7 +196,21 @@ enum OrphanKill {
                 }
                 return found
             },
-            listening: { Set(ProcessTree.everyListeningPort()) })
+            listening: { Set(ProcessTree.everyListeningPort()) },
+            presence: { pid in
+                // A pid of 0 or below is a GROUP to `kill(2)`, and 0 is the caller's own group.
+                // Nothing here should ever ask about one, and asking would be the worst possible
+                // way to find out.
+                guard pid > 1 else { return .running }
+                errno = 0
+                if kill(pid, 0) == 0 { return .running }
+                switch errno {
+                case ESRCH: return .gone
+                case EPERM: return .running
+                default: return .unknown
+                }
+            },
+            table: { ProcessTree.liveProcesses() })
     }
 
     /// Send one signal, the way the plan says to.

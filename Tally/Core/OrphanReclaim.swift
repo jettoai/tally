@@ -103,6 +103,20 @@ enum OrphanReclaim {
         var listening: Bool
     }
 
+    /// ONE SOCKET WALK: what it found, AND whose descriptor table it could not read.
+    ///
+    /// THE SECOND FIELD IS THE WHOLE POINT. "Nothing is connected to this tree" is a reading that
+    /// lets it be ended, and it used to be spelled the same way as "the machine would not answer" -
+    /// an empty list either way. A single transient failure therefore turned the in-use veto off
+    /// without anything saying so, on the one code path in this app that sends a signal (codex
+    /// review, 2026-09-02). Named, it becomes `Veto.unreadable`, which is soft: the tree is
+    /// reported rather than ended.
+    struct Sockets: Equatable {
+        var connections: [Connection] = []
+        /// Pids whose sockets could not be enumerated. Not "pids with no sockets".
+        var unreadable: Set<pid_t> = []
+    }
+
     /// A group of strays that belong together: one root and everything descended from it.
     struct Tree: Equatable {
         /// The pid nothing else in the stray set is the parent of.
@@ -238,13 +252,17 @@ enum OrphanReclaim {
     ///
     /// - Parameters:
     ///   - members: every process in the tree, with what could be read about each.
-    ///   - connections: the sockets those processes hold.
+    ///   - sockets: what the socket walk found, AND whose table it could not read - the second of
+    ///     those is a doubt about the tree rather than a quiet nothing (`Sockets`).
     ///   - ancestors: the programs above the tree's root, nearest first, as far as the walk got.
     ///     Empty is ordinary: an orphan's parent is launchd.
-    static func vetoes(of tree: Tree, members: [Member], connections: [Connection],
+    static func vetoes(of tree: Tree, members: [Member], sockets: Sockets,
                        ancestors: [String]) -> Set<Veto> {
         var found: Set<Veto> = []
         let known = Set(members.map(\.identity.pid))
+        // A DESCRIPTOR TABLE THAT WOULD NOT BE READ IS THE SAME KIND OF ABSENCE as a program or a
+        // directory the machine would not state, and gets the same answer.
+        if !sockets.unreadable.isDisjoint(with: tree.members) { found.insert(.unreadable) }
         // A member the walk named and the reader could not describe is the same absence as a
         // member missing from the list altogether: both are the tree holding a process nothing
         // here can speak for.
@@ -260,7 +278,7 @@ enum OrphanReclaim {
             }
         }
         if ancestors.contains(where: interactiveAncestors.contains) { found.insert(.ancestor) }
-        if inUse(connections, within: tree.members) { found.insert(.inUse) }
+        if inUse(sockets.connections, within: tree.members) { found.insert(.inUse) }
         if !recognised(tree, members: members) { found.insert(.unknownProgram) }
         return found
     }

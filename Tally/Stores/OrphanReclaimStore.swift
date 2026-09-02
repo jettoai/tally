@@ -60,7 +60,7 @@ final class OrphanReclaimStore {
     struct Machine: Sendable {
         var program: @Sendable (pid_t) -> String?
         var directory: @Sendable (pid_t) -> String?
-        var connections: @Sendable (Set<pid_t>) -> [OrphanReclaim.Connection]
+        var connections: @Sendable (Set<pid_t>) -> OrphanReclaim.Sockets
         var sample: @Sendable (Set<pid_t>, Date) -> ProcessResourceSample
         var hasTerminal: @Sendable (pid_t) -> Bool
         var leases: @Sendable () -> [OrphanLease]
@@ -137,8 +137,13 @@ final class OrphanReclaimStore {
                         at now: Date) -> Set<pid_t> {
         var claimed: Set<pid_t> = []
         for lease in machine.leases() {
+            // WHERE THE TABLE IS SILENT ABOUT THE SUPERVISOR, THE KERNEL IS ASKED ABOUT IT
+            // DIRECTLY, and only a definite "no such process" gets past here (`OrphanReclaim.state`
+            // carries the incident). `unsure` claims nothing, so the tree is left in the strays and
+            // reaches tier B, which cannot end anything without two rounds and a clean sweep.
             let state = OrphanReclaim.state(
                 of: lease, supervisorStartedAt: table[lease.supervisor]?.startedAt,
+                presence: { machine.signals.presence(lease.supervisor) },
                 childStartedAt: lease.child.flatMap { table[$0]?.startedAt })
             guard case .abandoned(let root) = state else { continue }
             let members = ProcessTree.members(root: root, processes: processes)
@@ -216,15 +221,18 @@ final class OrphanReclaimStore {
         // The walk above stops at launchd, so for an ordinary orphan this is empty and costs
         // nothing; a tree still under somebody's terminal is where it earns its calls.
         let named = ancestors.compactMap { machine.program($0).flatMap(ProcessTree.displayName) }
-        // Read once and used twice: what the tree is waiting on, and who is talking to it.
+        // Read once and used twice: what the tree is waiting on, and who is talking to it. A
+        // descriptor table the machine would not read comes back NAMED rather than empty, and the
+        // rule turns that into a doubt about the whole tree (`OrphanReclaim.Sockets`).
         let sockets = machine.connections(tree.members)
-        var vetoes = OrphanReclaim.vetoes(of: tree, members: members, connections: sockets,
+        var vetoes = OrphanReclaim.vetoes(of: tree, members: members, sockets: sockets,
                                           ancestors: named)
         if ancestors.contains(where: machine.hasTerminal) { vetoes.insert(.terminal) }
         let began = Date(timeIntervalSince1970: Double(tree.rootStartedAt) / 1_000_000)
         return OrphanReclaim.Reading(
             tree: tree, takenAt: now, age: now.timeIntervalSince(began), cpuPercent: percent,
-            memoryBytes: reading.memoryBytes, listeningPorts: OrphanReclaim.listening(sockets),
+            memoryBytes: reading.memoryBytes,
+            listeningPorts: OrphanReclaim.listening(sockets.connections),
             name: members.first { $0.identity.pid == tree.root }.flatMap(OrphanReclaim.name)
                 ?? members.compactMap(OrphanReclaim.name).first,
             vetoes: vetoes)
@@ -236,16 +244,22 @@ final class OrphanReclaimStore {
               doubts: reading.vetoes.sorted())
     }
 
-    /// The ports a set of processes is waiting on, ascending.
+    /// The ports a set of processes is waiting on, ascending. A table that would not be read is not
+    /// a doubt HERE, only a shorter list: the one caller is tier A, which acts on the lease rather
+    /// than on the vetoes, and what these ports are for is the report and the release check
+    /// (`OrphanKill.released`) - both of which say less rather than something wrong.
     private func ports(of members: Set<pid_t>) -> [UInt16] {
-        OrphanReclaim.listening(machine.connections(members))
+        OrphanReclaim.listening(machine.connections(members).connections)
     }
 
     // MARK: ending it
 
     /// A kill in flight.
+    ///
+    /// THE PLAN IS NOT KEPT, and that is the repair rather than a tidy-up: the escalation used to
+    /// re-send the plan the `SIGTERM` was made from, which is a set of pids and PROCESS GROUPS
+    /// decided a whole grace period earlier (`advance`).
     private struct Sweep {
-        var plan: OrphanKill.Plan
         var targets: Set<pid_t>
         var expected: [pid_t: Int64]
         var began: Date
@@ -285,7 +299,7 @@ final class OrphanReclaimStore {
             return
         }
         OrphanKill.deliver(SIGTERM, following: plan, through: machine.signals)
-        sweeps.append(Sweep(plan: plan, targets: confirmed, expected: expected, began: now,
+        sweeps.append(Sweep(targets: confirmed, expected: expected, began: now,
                             report: report, lease: lease))
         watch()
     }
@@ -328,7 +342,7 @@ final class OrphanReclaimStore {
             case .wait:
                 running.append(sweep)
             case .escalate:
-                OrphanKill.deliver(SIGKILL, following: sweep.plan, through: machine.signals)
+                OrphanKill.deliver(SIGKILL, following: replanned(survivors), through: machine.signals)
                 sweep.escalated = true
                 running.append(sweep)
             case .settled:
@@ -348,6 +362,29 @@ final class OrphanReclaimStore {
             sweep?.invalidate()
             sweep = nil
         }
+    }
+
+    /// THE PLAN FOR THE SIGNAL THAT DOES NOT ASK, made again from scratch at the moment it is sent.
+    ///
+    /// THE GRACE PERIOD IS TEN SECONDS OF THE MACHINE MOVING, and re-sending the first plan ignores
+    /// all of it (codex review, 2026-09-02). Two things go stale in that window and both end with a
+    /// `SIGKILL` at a stranger:
+    ///
+    ///   - THE MEMBERS. Some of the tree did what it was asked and exited, and the kernel is free to
+    ///     hand those numbers straight back out. The old plan still named them.
+    ///   - THE GROUPS. A group is signalled as a group only where every live process carrying it is
+    ///     being reclaimed, and that was true ten seconds ago. A process group leader that exits
+    ///     leaves its number reusable too, so a `kill(-pgid)` decided then can now reach a job
+    ///     nobody here has ever looked at - and a group kill is one call that cannot be taken back.
+    ///
+    /// So the survivors (already confirmed by pid AND start time) are replanned against a FRESH
+    /// table, which is one walk and happens only for a tree that ignored `SIGTERM`.
+    private func replanned(_ survivors: Set<pid_t>) -> OrphanKill.Plan {
+        let table = machine.signals.table()
+        let ours = ProcessTree.ownFamily(survivors, root: getpid(), executable: machine.program)
+        return OrphanKill.plan(members: survivors,
+                               groups: Dictionary(table.map { ($0.pid, $0.group) }) { a, _ in a },
+                               ours: ours, ownGroup: pid_t(getpgrp()))
     }
 
     /// A KILL THAT WORKED, which is not the same as a kill whose processes are gone.

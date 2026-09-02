@@ -96,9 +96,28 @@ extension OrphanReclaim {
         /// to delete - `/dev-watch` reads them itself, and deleting one it is about to write is a
         /// race with no upside.
         case spent
+        /// The table did not hold the supervisor and the kernel would not say either. Nothing is
+        /// done and nothing is claimed: the tree stays a stray and goes to tier B, which needs two
+        /// rounds and a clean veto sweep before it can end anything.
+        case unsure
     }
 
     /// The lease's verdict, out of what the process table says about the two pids it names.
+    ///
+    /// A TABLE MISSING A PROCESS IS NOT THE PROCESS BEING GONE, and this tier used to read it as
+    /// exactly that: `supervisorStartedAt == nil` went straight to `abandoned`, which sends a
+    /// `SIGTERM` in the same round with no second opinion of any kind - no two rounds, no vetoes,
+    /// no resource bar. One transient `proc_pidinfo` failure inside the table walk was therefore
+    /// enough to end a perfectly healthy dev server whose supervisor was sitting right there (codex
+    /// review, 2026-09-02). So where the table is silent the kernel is asked about that one pid
+    /// directly, and only `ProcessPresence.gone` proceeds.
+    ///
+    /// THE PROBE IS A CLOSURE, and lazily called, for two reasons: it is a syscall that the common
+    /// case (a tended lease) must not pay for, and a harness can state all three of its answers.
+    ///
+    /// A RECYCLED NUMBER NEEDS NO PROBE. Where the table DOES hold the pid and it started after the
+    /// lease was written, the writer is gone as a matter of arithmetic rather than of observation,
+    /// and asking whether "the supervisor" is running would get a yes about a stranger.
     ///
     /// THE CHILD IS CHECKED AGAINST ITS OWN FILE, not against the supervisor's. The child file is
     /// rewritten on every restart, so a lease written this morning can legitimately name a server
@@ -109,8 +128,20 @@ extension OrphanReclaim {
     /// no way down to the tree (the supervisor's descendants have been re-parented), and guessing
     /// from the port or the name is exactly the inference this tier exists to avoid.
     static func state(of lease: OrphanLease, supervisorStartedAt: Int64?,
+                      presence: () -> ProcessPresence,
                       childStartedAt: Int64?) -> LeaseState {
-        if holder(supervisorStartedAt, of: lease.bornAt) == true { return .tended }
+        switch holder(supervisorStartedAt, of: lease.bornAt) {
+        case .some(true):
+            return .tended
+        case .some(false):
+            break
+        case .none:
+            switch presence() {
+            case .running: return .tended
+            case .unknown: return .unsure
+            case .gone: break
+            }
+        }
         guard let child = lease.child, let childBornAt = lease.childBornAt,
               holder(childStartedAt, of: childBornAt) == true else { return .spent }
         return .abandoned(root: child)

@@ -52,23 +52,56 @@ extension ProcessTree {
     /// needs is whether the peer is local (a browser, a tunnel, another worker) or somewhere else,
     /// and an address is a string this app would then have to be careful about. IPv4 loopback is
     /// `127.0.0.0/8`; IPv6 loopback is `::1`.
-    static func connections(of pids: some Sequence<pid_t>) -> [OrphanReclaim.Connection] {
-        var found: [OrphanReclaim.Connection] = []
+    /// AND A PID WHOSE DESCRIPTOR TABLE WOULD NOT BE READ COMES BACK NAMED, rather than as nothing.
+    ///
+    /// THIS WAS THE THIRD FAIL-OPEN IN THE KILL PATH (codex review, 2026-09-02). "Nobody is
+    /// connected to it" and "the machine would not say who is connected to it" were the same empty
+    /// list, and the first of those is the reading that lets a tree be ended: one transient
+    /// `PROC_PIDLISTFDS` failure and the in-use veto is silently not applied at all. Named instead,
+    /// the tree gets `OrphanReclaim.Veto.unreadable` and falls to tier C, which is the direction
+    /// every other absence in this feature already fails in.
+    ///
+    /// `proc_pidinfo` REPORTS FAILURE AS ZERO, NOT AS -1, which is why the errno discipline below is
+    /// not defensive noise. Measured on this machine (2026-09-02): the sizing call returns 360 for
+    /// this process, and **0 with `errno` set** for launchd (EPERM) and for a pid that has been
+    /// reaped (ESRCH). So the return value alone cannot separate "no descriptors" from "would not
+    /// say", and the only thing that can is `errno`, cleared before each call. A zero WITH a clean
+    /// errno is left as an honest empty reading; in practice a live process holds at least its
+    /// standard descriptors, so that branch is close to unreachable and is not treated as failure.
+    static func connections(of pids: some Sequence<pid_t>) -> OrphanReclaim.Sockets {
+        var found = OrphanReclaim.Sockets()
         for pid in pids {
+            errno = 0
             let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-            guard bytes > 0 else { continue }
+            if bytes <= 0 {
+                if errno != 0 { found.unreadable.insert(pid) }
+                continue
+            }
             let stride = MemoryLayout<proc_fdinfo>.stride
             var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride)
+            errno = 0
             let returned = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &descriptors,
                                         Int32(descriptors.count * stride))
-            guard returned > 0 else { continue }
+            guard returned > 0 else {
+                found.unreadable.insert(pid)
+                continue
+            }
             for descriptor in descriptors.prefix(min(Int(returned) / stride, descriptors.count))
             where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
                 var socket = socket_fdinfo()
                 let size = Int32(MemoryLayout<socket_fdinfo>.size)
+                // A DESCRIPTOR THAT WILL NOT DESCRIBE ITSELF IS NOT A DESCRIPTOR THAT IS NOT A
+                // SOCKET. This is the same conflation one level down: the fd was listed as a
+                // socket, so a read that fails may be hiding the very connection the veto is
+                // looking for. Not being TCP, on the other hand, is a successful reading of
+                // something this rule has nothing to say about (a unix socket, a UDP one), and is
+                // skipped rather than doubted.
                 guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDSOCKETINFO,
-                                     &socket, size) == size,
-                      socket.psi.soi_kind == SOCKINFO_TCP else { continue }
+                                     &socket, size) == size else {
+                    found.unreadable.insert(pid)
+                    continue
+                }
+                guard socket.psi.soi_kind == SOCKINFO_TCP else { continue }
                 let tcp = socket.psi.soi_proto.pri_tcp
                 let state = tcp.tcpsi_state
                 let listening = state == TSI_S_LISTEN
@@ -79,7 +112,7 @@ extension ProcessTree {
                 guard listening || state == TSI_S_ESTABLISHED else { continue }
                 let local = UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport))
                 let remote = UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_fport))
-                found.append(OrphanReclaim.Connection(
+                found.connections.append(OrphanReclaim.Connection(
                     pid: pid, localPort: local, remotePort: remote,
                     remoteIsLoopback: isLoopback(tcp.tcpsi_ini), listening: listening))
             }

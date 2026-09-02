@@ -13,9 +13,9 @@ struct MetricRowView: View {
     /// about to lose.
     var settlingReset: Bool = false
     /// The personal account's water line, 0 on every other account (ReserveMark.swift). Passed for
-    /// every window because the bar is per window, and DRAWN on the one the reserve is held back
-    /// from: the weekly all-models bar, never the 5h or flagship ones, which no pick treats as
-    /// reserved (PersonalAccount.reserved, Tally/Core/AccountReserve.swift).
+    /// every window because the bar is per window, and DRAWN on the ones the reserve is held back
+    /// from: the weekly all-models bar and the 5h one, never the flagship one, which no pick treats
+    /// as reserved (PersonalAccount.reserved, Tally/Core/AccountReserve.swift).
     var reserve: Int = 0
 
     /// What this row's own bar reserves: the number above where the window carries one, and zero

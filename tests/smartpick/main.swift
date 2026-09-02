@@ -312,7 +312,7 @@ check("and it carries the untouched-window anchor too, behind the same fixed-cyc
 // one does not. A mirror that halved only on one side would have the badge naming an idle account
 // the launcher passes over.
 check("and it opts its weekly window in",
-      appPolicySource.contains("window(AccountRoles.reservedWindowName, weekly, "
+      appPolicySource.contains("window(AccountRoles.weeklyWindowName, weekly, "
                                    + "fullWindowHours: 168, fixedCycle: true,"))
 check("and leaves its 5h session window out",
       !appPolicySource.contains("fullWindowHours: 5, fixedCycle: true"))
@@ -324,16 +324,26 @@ check("and leaves its 5h session window out",
 // suite that compiles the app's store.)
 check("and its rate is what Tally may spend, the reserve taken off",
       appPolicySource.contains("(metric.remainingPercent - held) / hours"))
-// AND OFF THE SAME ONE WINDOW. The reserve covers the weekly all-models window and nothing else
-// (Tally/Core/AccountReserve.swift owns the ruling; each mirror marks that window where it builds
-// it), so a copy that subtracted on every window would have the badge stepping off an account whose
-// session dipped while the launcher stayed on it.
-check("…and only from the window the reserve is held back from",
-      appPolicySource.contains("let held = reserved ? reserve : 0"))
-check("…which is the weekly one, named from the file that owns the ruling",
-      appPolicySource.contains("window(AccountRoles.reservedWindowName, weekly, "
+// AND OFF THE SAME WINDOWS. The reserve covers the weekly all-models window and the 5h session one
+// and nothing else (Albert's ruling, 2026-09-02; Tally/Core/AccountReserve.swift owns it, and each
+// mirror marks those windows where it builds them), so a copy that subtracted on every window would
+// have the badge stepping off an account whose FLAGSHIP window dipped while the launcher stayed on
+// it - and a copy that subtracted on one of them would have it staying while the launcher stepped.
+check("…and only from the windows the reserve is held back from",
+      appPolicySource.contains(
+          "let held = reserved && AccountRoles.reservedWindowNames.contains(name) ? reserve : 0"))
+check("…which are the weekly one and the 5h one, named from the file that owns the ruling",
+      appPolicySource.contains("window(AccountRoles.weeklyWindowName, weekly, "
                                    + "fullWindowHours: 168, fixedCycle: true,")
-          && appPolicySource.components(separatedBy: "reserved: true").count == 2)
+          && appPolicySource.contains("window(AccountRoles.sessionWindowName, "
+                                          + "usage.metrics.first { $0.kind == .session },")
+          && appPolicySource.components(separatedBy: "reserved: true").count == 3)
+// AND THE FLAGSHIP CALL SITE OPTS INTO NEITHER, which is the half a count cannot show: the model
+// window is built from a name the PROVIDER chose, and the two conditions above are what keep it out
+// of the feature however that name is spelled.
+check("…while the flagship window is built without the opt-in",
+      appPolicySource.contains("inferredAnchor: weekly?.resetsAt, fullWindowHours: 168,\n"
+                                   + "                          fixedCycle: true)"))
 // THE REST OF THAT SUBTRACTION'S JOURNEY, because taking it off the rate is only the first of three
 // places it has to land. The rules the two targets share are compiled from one file
 // (Tally/Core/AccountReserve.swift, listed under both targets); the SCORING is mirrored, so these

@@ -34,15 +34,31 @@ enum PersonalAccount {
     /// Whether a reserve is held back from a window of this kind, so the meters draw the water line
     /// exactly where the launcher applies it.
     ///
-    /// THE WEEKLY ALL-MODELS WINDOW ONLY - the ruling lives in Tally/Core/AccountReserve.swift,
-    /// which cannot name a `MetricKind` (the CLI target compiles it and has no such type), so this
-    /// is the same sentence said in the app's own vocabulary. A hatch on a 5h bar, or on a flagship
-    /// window that is a slice of the same week, would draw a line nothing enforces - which is worse
-    /// than drawing none: the bar is the only place the user ever sees what the number does.
-    static func reserved(_ kind: MetricKind) -> Bool { kind == .weeklyAll }
+    /// ASKED OF THE RULING ITSELF (`AccountRoles.reservedWindowNames`, Tally/Core/AccountReserve.
+    /// swift) rather than re-spelled here as a list of kinds. That file cannot name a `MetricKind`
+    /// (the CLI target compiles it and has no such type), so the translation into the app's
+    /// vocabulary lives here and the SCOPE stays over there, in the one place both burn-rate mirrors
+    /// already read it. A hatch on a window no pick treats as reserved would draw a line nothing
+    /// enforces - which is worse than drawing none, the bar being the only place the user ever sees
+    /// what the number does.
+    static func reserved(_ kind: MetricKind) -> Bool {
+        guard let name = windowName(kind) else { return false }
+        return AccountRoles.reservedWindowNames.contains(name)
+    }
 
-    /// The slice of its WEEK Tally's own choices must leave standing, 0 for every account that is
-    /// not the marked one.
+    /// This window's name in the launcher's vocabulary, and nil where it has none: a per-model
+    /// window is named after its model, so it can never be one of the named windows above, and
+    /// `other` is a kind the launcher does not rate at all.
+    private static func windowName(_ kind: MetricKind) -> String? {
+        switch kind {
+        case .session: return AccountRoles.sessionWindowName
+        case .weeklyAll: return AccountRoles.weeklyWindowName
+        case .weeklyModel, .other: return nil
+        }
+    }
+
+    /// The slice of each shared window Tally's own choices must leave standing, 0 for every account
+    /// that is not the marked one.
     static func reserve(accountID: String, home: String?) -> Int {
         if DemoUsage.isActive {
             return accountID == DemoUsage.personalAccountID ? DemoUsage.personalReserve : 0

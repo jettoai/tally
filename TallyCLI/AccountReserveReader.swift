@@ -19,15 +19,15 @@ import Foundation
 // person is signed in to claude.ai on it, and an automatic decision that drains it to 2% takes their
 // afternoon away without ever telling them.
 //
-// ONE NUMBER, AND IT MEANS ONE THING EVERYWHERE. The reserve is percentage points held back from the
-// account's WEEKLY ALL-MODELS window and from no other one (the 5h session window refills by itself,
-// the flagship window is a slice of the same week; Tally/Core/AccountReserve.swift states that
-// ruling - one knob over one window, because the plan is explicit that three knobs is two too many).
+// ONE NUMBER, AND IT MEANS ONE THING EVERYWHERE. The reserve is percentage points held back from
+// each window the account SHARES with that browser - its weekly all-models one and its 5h session
+// one - and from no other (the flagship window is a slice of the same week; Tally/Core/
+// AccountReserve.swift states that ruling, and why one knob covers both windows rather than two).
 // It reaches the product as a single subtraction inside `effectiveRemaining` (AccountComfort.swift),
-// on the one window that carries it. Everything an automatic decision asks - is this account comfortable, is it
-// spent, may a session be moved onto it, how hard can it be pushed - is already asked through that
-// one reading, so nothing here has to teach eight movers about reserves. What it does have to do is
-// hand each of them the reserves to read, which is what `AccountReserves` below is for.
+// on the windows that carry it. Everything an automatic decision asks - is this account comfortable,
+// is it spent, may a session be moved onto it, how hard can it be pushed - is already asked through
+// that one reading, so nothing here has to teach eight movers about reserves. What it does have to
+// do is hand each of them the reserves to read, which is what `AccountReserves` below is for.
 //
 // WHAT A RESERVE IS NOT ALLOWED TO DO, and both halves are load-bearing:
 //

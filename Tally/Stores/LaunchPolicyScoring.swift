@@ -55,12 +55,12 @@ extension LaunchPolicyStore {
     /// snapshot, an unpolled account): the conservative full-window assumption stays in place.
     /// Both anchors are inferences, so the badge's REASON quotes `resetsAt` and never the anchor.
     ///
-    /// `reserve` is the percentage points of this account's WEEK its owner keeps for their own use,
-    /// and it is subtracted from the RATE exactly as the CLI does it: ranking is where "spend
-    /// somewhere else if you can" has to bite. It reaches the weekly all-models window only
-    /// (`AccountRoles.reservedWindowName`, which states why every other window is outside the
-    /// feature), and it never touches `remaining`, which is the provider's own number and the one a
-    /// person reads (`smartReason`).
+    /// `reserve` is the percentage points its owner keeps for their own use in each window this
+    /// account shares with their browser, and it is subtracted from the RATE exactly as the CLI does
+    /// it: ranking is where "spend somewhere else if you can" has to bite. It reaches the weekly
+    /// all-models window and the 5h session one (`AccountRoles.reservedWindowNames`, which states
+    /// why the flagship window is outside the feature), and it never touches `remaining`, which is
+    /// the provider's own number and the one a person reads (`smartReason`).
     static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, reserve: Double = 0,
                              now: Date)
         -> [(name: String, remaining: Double, resetsAt: Date?, anchor: Date?, reserve: Double,
@@ -78,16 +78,19 @@ extension LaunchPolicyStore {
             let anchor = metric.resetsAt ?? inferredAnchor ?? untouchedAnchor
             let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
                 ?? fullWindowHours
-            // The reserve reaches the weekly all-models window and nothing else, marked at the same
-            // point the CLI marks it (Tally/Core/AccountReserve.swift owns the ruling).
-            let held = reserved ? reserve : 0
+            // The reserve reaches the windows this account shares with the user's browser and no
+            // other, marked at the same point the CLI marks it (Tally/Core/AccountReserve.swift
+            // owns the ruling). Both conditions, so this fails closed in either direction: the
+            // call site has to opt in AND the ruling has to name the window.
+            let held = reserved && AccountRoles.reservedWindowNames.contains(name) ? reserve : 0
             return (name, metric.remainingPercent, metric.resetsAt, anchor, held,
                     (metric.remainingPercent - held) / hours)
         }
         let weekly = usage.metrics.first { $0.kind == .weeklyAll }
         var windows = [
-            window("session", usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
-            window(AccountRoles.reservedWindowName, weekly, fullWindowHours: 168, fixedCycle: true,
+            window(AccountRoles.sessionWindowName, usage.metrics.first { $0.kind == .session },
+                   fullWindowHours: 5, reserved: true),
+            window(AccountRoles.weeklyWindowName, weekly, fullWindowHours: 168, fixedCycle: true,
                    reserved: true),
         ].compactMap { $0 }
         let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
@@ -115,26 +118,29 @@ extension LaunchPolicyStore {
     /// model spends, keyed on the ANCHOR (mirror of the CLI's `comfortWindow`, TallyCLI/
     /// AccountBinding.swift) - the gate asks when the wall comes down, and a flagship window with no
     /// reset of its own hits the account's weekly one. The reserve rides across with them, so the
-    /// gate weighs the same window the score did.
+    /// gate weighs the same windows the score did.
     static func comfortWindows(_ usage: AccountUsage, primaryModel: String?, reserve: Double = 0,
                                now: Date) -> [ComfortWindow] {
         ratedWindows(usage, primaryModel: primaryModel, reserve: reserve, now: now)
             .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.anchor, reserve: $0.reserve) }
     }
 
-    /// Whether this account still has quota above the line its owner drew - the RESERVED window read
-    /// through the gate's own scale. Mirror of the CLI's `aboveReserve`, lookup included: the line
-    /// is drawn on the weekly all-models window, so neither a spent 5h window nor a drained flagship
-    /// one is an account under its water line. It answers yes for every account nobody
-    /// reserved anything on, which is what keeps the drought fallback in `autoPickID` unreachable on
-    /// an unmarked fleet.
+    /// Whether this account still has quota above the line its owner drew - EVERY reserved window
+    /// read through the gate's own scale. Mirror of the CLI's `aboveReserve`, lookup included: the
+    /// line is drawn on the weekly all-models window and the 5h session one, so an account under it
+    /// on either of them is under its water line, and a drained flagship window is not. Every
+    /// reserved window and not the first one found: two carry the number now, and reading one would
+    /// make which of them binds depend on the order this array happens to be built in.
+    ///
+    /// It answers yes for every account nobody reserved anything on, which is what keeps the drought
+    /// fallback in `autoPickID` unreachable on an unmarked fleet - and yes for an account reporting
+    /// no reserved window at all, which is the missing-data reading `accountIsSpent` names.
     static func aboveReserve(_ usage: AccountUsage, primaryModel: String?, reserve: Double,
                              now: Date) -> Bool {
-        guard reserve > 0,
-              let reserved = comfortWindows(usage, primaryModel: primaryModel, reserve: reserve,
-                                            now: now).first(where: { $0.reserve > 0 })
-        else { return true }
-        return effectiveRemaining(reserved, now: now) > 0
+        guard reserve > 0 else { return true }
+        return comfortWindows(usage, primaryModel: primaryModel, reserve: reserve, now: now)
+            .filter { $0.reserve > 0 }
+            .allSatisfy { effectiveRemaining($0, now: now) > 0 }
     }
 
     /// Badge-facing reason for the smart pick, mirroring the CLI's `pickReason`:

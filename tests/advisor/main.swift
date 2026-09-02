@@ -335,10 +335,15 @@ check("a reserved account starves at its own line, not at the raw one",
       (starved?.starvedHoursPerWeek ?? 0) > 0)
 check("…and the same fleet reports no starvation without the reserve",
       (notStarved?.starvedHoursPerWeek ?? -1) == 0)
-// 12e. THE ACCOUNT-WIDE POOL IS THE ONLY ONE THAT HAS A RESERVE. The number is a slice of the weekly
-//      all-models window and of no other (Albert's ruling, 2026-08-21; Tally/Core/AccountReserve.
-//      swift), so a model pool reads it as zero - taking it off there as well would hold the same
-//      points back twice and report a flagship pool as saturated on capacity nothing withholds.
+// 12e. THE ACCOUNT-WIDE POOL IS THE ONLY ONE THAT HAS A RESERVE, and that is a statement about
+//      POOLS rather than a copy of the window ruling. The number is held back from two WINDOWS - the
+//      weekly all-models one and the 5h session one (Albert's ruling, 2026-09-02; Tally/Core/
+//      AccountReserve.swift) - but the question asked here is "does a week's capacity cover a week's
+//      demand", and the only pool a week's capacity is counted in is the account-wide one: the 5h
+//      window refills 33 times a week and paces work rather than capping it, and a model pool is a
+//      slice of the very week already counted. So a model pool reads the reserve as zero - taking it
+//      off there as well would hold the same points back twice and report a flagship pool as
+//      saturated on capacity nothing withholds.
 let modelOnly = [
     s("a1", "weeklyModel", used: 70, at: daysAgo(9), model: "fable"),
     s("a1", "weeklyModel", used: 70, at: daysAgo(1), model: "fable"),

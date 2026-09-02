@@ -7,16 +7,24 @@ import Foundation
 // lands on, which one a running session is moved to when a wall comes down - spends that account's
 // quota without ever being asked, and the person only finds out when their own browser says they are
 // out of messages. So one account may be MARKED as theirs, and given a water line: a percentage of
-// its WEEK that Tally's own choices are not allowed to go below.
+// each window it SHARES with that browser which Tally's own choices are not allowed to go below.
 //
-// ONE WINDOW, AND IT IS THE WEEKLY ALL-MODELS ONE (Albert's ruling, 2026-08-21). Every other window
-// an account reports is outside the feature: the 5h session window refills five hours after it
-// opened whatever anybody does, so holding a slice of one back buys its owner nothing they would not
-// have had by making a cup of tea while costing them the launches Tally declined to make in the
-// meantime; and the per-model flagship window is a sub-allowance of the same week, so reserving it
-// as well would take the same points off the account twice. What a browser runs out of is the week,
-// and the account's 7-day pool is where that is counted. `AccountRoles.reservedWindowName` below is
-// that rule, asked at the one place each burn-rate mirror builds a window.
+// TWO WINDOWS: THE WEEKLY ALL-MODELS ONE AND THE 5H SESSION ONE (Albert's ruling, 2026-09-02, which
+// supersedes the weekly-only ruling of 2026-08-21). The test is whether the browser and Tally spend
+// the same allowance, and for both of these they do: claude.ai and the CLI draw on ONE 5h session
+// window, so an automatic launch that empties it locks the person out of their own browser until it
+// refills - up to five hours, not the cup of tea the earlier ruling assumed. Across a fleet of
+// several accounts, declining to spend the last slice of ONE account's 5h window costs close to
+// nothing, and it is the difference between the browser answering and not.
+//
+// THE PER-MODEL FLAGSHIP WINDOW STAYS OUTSIDE THE FEATURE, for the reason it always did: it is a
+// sub-allowance of the same week, so reserving it as well would hold the same points back twice.
+//
+// ONE NUMBER OVER BOTH, rather than a knob per window. The figure is a rough "leave me room to
+// work", and it says the same thing about each window the browser and Tally share; a second setting
+// would be a second thing to keep in step for a difference nobody can feel.
+// `AccountRoles.reservedWindowNames` below is that rule, asked at the one place each burn-rate
+// mirror builds a window.
 //
 // TWO FACTS, ONE MARKING. The role also answers the question the Artifact guard asks (which account
 // this machine's browser is signed into - Tally/Core/ArtifactHookContract.swift), which is why the
@@ -37,8 +45,9 @@ import Foundation
 struct AccountRoleSetting: Codable, Equatable {
     /// `AccountRoles.personal`, or nil for an account holding no role.
     var role: String?
-    /// The percentage of this account's WEEK Tally's own choices must leave standing (0-100), held
-    /// back from its weekly all-models window and from no other (`reservedWindowName`).
+    /// The percentage Tally's own choices must leave standing (0-100) in each window this account
+    /// shares with the user's browser: its weekly all-models one and its 5h session one, and no
+    /// other (`reservedWindowNames`). One number, read against both.
     /// Absent is zero: no reserve at all, which is what every account starts as.
     var reserve: Int?
 
@@ -71,16 +80,30 @@ enum AccountRoles {
     /// rewritten on disk for the sake of the control.
     static let reserveStep = 10
 
-    /// The ONE window a reserve is held back from, spelled the way both burn-rate mirrors label it:
-    /// the account's 7-day all-models pool.
+    /// The account's 7-day all-models pool and its 5h session pool, spelled the way both burn-rate
+    /// mirrors label them.
     ///
-    /// A NAME RATHER THAN A PREDICATE OVER WINDOWS, because the two mirrors build their windows from
+    /// NAMES RATHER THAN A PREDICATE OVER WINDOWS, because the two mirrors build their windows from
     /// different types (a snapshot row on one side, a `UsageMetric` on the other) and the only thing
-    /// they share is this label. Each one marks that window as reserved where it builds it, so
-    /// everything downstream - the score, the nearly-dry gate, the spent test, the water line a
-    /// launch says it crossed, the hatching on the bar - inherits the scope without a rule of its
-    /// own. A window that carries no reserve is a window this feature does not exist for.
-    static let reservedWindowName = "weekly"
+    /// they share is these labels.
+    static let weeklyWindowName = "weekly"
+    static let sessionWindowName = "session"
+
+    /// The windows a reserve is held back from, and the whole of the ruling at the top of this file
+    /// said as a value.
+    ///
+    /// READ AT THE ONE PLACE EACH MIRROR BUILDS A WINDOW, alongside that site's own opt-in: a
+    /// window carries the reserve only when the mirror asked for it AND this set names it. Two
+    /// conditions rather than one because they fail closed in opposite directions - a mirror that
+    /// forgot the opt-in holds nothing back, and a name this set does not carry holds nothing back
+    /// either, which is what keeps a flagship window named after its model out of the feature
+    /// whatever it happens to be called.
+    ///
+    /// Everything downstream - the score, the nearly-dry gate, the spent test, the water line a
+    /// launch says it crossed, the hatching on the bar - inherits the scope from that one marking
+    /// without a rule of its own. A window that carries no reserve is a window this feature does
+    /// not exist for.
+    static let reservedWindowNames: Set<String> = [weeklyWindowName, sessionWindowName]
 
     /// The home holding the personal role, or nil while nobody holds it.
     ///
@@ -105,8 +128,8 @@ enum AccountRoles {
         return key == marked
     }
 
-    /// How much of this account's WEEK Tally's own choices must leave standing, 0 when there is no
-    /// answer. Which window it is held back from is `reservedWindowName` above; this answers only
+    /// How much of each shared window Tally's own choices must leave standing, 0 when there is no
+    /// answer. Which windows it is held back from is `reservedWindowNames` above; this answers only
     /// how much.
     ///
     /// ONLY THE MARKED ACCOUNT HAS ONE, asked here rather than trusted from the document: the

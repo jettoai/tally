@@ -248,7 +248,8 @@ struct AccountListRowView: View {
             }
             // The personal account's water line, on the same track and at the same boundary the
             // card draws it (ReserveMark.swift): a density is not a reduced feature set. On the same
-            // window too - the weekly all-models one and no other (`PersonalAccount.reserved`).
+            // windows too - the weekly all-models one and the 5h one, and no other
+            // (`PersonalAccount.reserved`).
             .overlay { ReserveMark(reserve: barReserve(metric)) }
     }
 

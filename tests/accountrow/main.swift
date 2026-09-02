@@ -651,15 +651,27 @@ let listMeter = readSource("Tally/Views/AccountListRowView.swift")
 check("both meters ask the shared reading rather than the store directly",
       facts.contains("PersonalAccount.isPersonal(") && facts.contains("PersonalAccount.reserve(")
           && !cardMeter.contains("LaunchPolicyStore") && !listMeter.contains("LaunchPolicyStore"))
-// AND THEY ASK IT PER BAR. The reserve is held back from the weekly all-models window and from no
-// other (the top of AccountReserve.swift states the ruling), so a hatch on the 5h bar or on a
-// flagship one would be a line nothing enforces - and the bar is the only place a person ever sees
-// what this number does, which makes it the one surface where a scope error is invisible to every
-// check that reads numbers alone.
+// AND THEY ASK IT PER BAR. The reserve is held back from the two windows the account shares with
+// the user's browser - its weekly all-models one and its 5h one - and from no other (Albert's
+// ruling, 2026-09-02; the top of AccountReserve.swift states it), so a hatch on a flagship bar would
+// be a line nothing enforces - and the bar is the only place a person ever sees what this number
+// does, which makes it the one surface where a scope error is invisible to every check that reads
+// numbers alone.
+//
+// ASSERTED ON THE RULING'S OWN VALUE, which this suite compiles: the app's per-bar reading is a
+// TRANSLATION of `reservedWindowNames` into `MetricKind` rather than a second list of kinds, so a
+// scope change made in one place cannot leave the meters drawing the old one.
+check("the ruling names the weekly all-models window and the 5h session window, and no other",
+      AccountRoles.reservedWindowNames == [AccountRoles.weeklyWindowName,
+                                           AccountRoles.sessionWindowName]
+          && AccountRoles.weeklyWindowName == "weekly"
+          && AccountRoles.sessionWindowName == "session")
 let personalSource = readSource("Tally/Core/PersonalAccount.swift")
-check("the app's per-window reading covers the weekly all-models window and nothing else",
-      personalSource.contains(
-          "static func reserved(_ kind: MetricKind) -> Bool { kind == .weeklyAll }"))
+check("the app's per-window reading asks that set rather than spelling its own list of kinds",
+      personalSource.contains("return AccountRoles.reservedWindowNames.contains(name)")
+          && personalSource.contains("case .session: return AccountRoles.sessionWindowName")
+          && personalSource.contains("case .weeklyAll: return AccountRoles.weeklyWindowName")
+          && personalSource.contains("case .weeklyModel, .other: return nil"))
 check("…and both meters draw the mark through it rather than off the account's number",
       cardMeter.contains("PersonalAccount.reserved(metric.kind) ? reserve : 0")
           && cardMeter.contains("ReserveMark(reserve: barReserve)")
@@ -726,13 +738,13 @@ let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
 let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
 check("the string catalogue is readable from this suite", !catalogueStrings.isEmpty)
 for word in ["Personal", "Personal account (web)",
-             "Keep at least %lld%% of the week for web use",
+             "Keep at least %lld%% of the week and the 5h window for web use",
              "Kept for web use",
-             "Tally leaves this much of the account's weekly quota alone when it picks or moves "
-                 + "sessions by itself. Its other windows are untouched, and launching on it "
-                 + "yourself always works.",
+             "Tally leaves this much of the account's weekly and 5-hour quota alone when it picks "
+                 + "or moves sessions by itself, because your browser shares both windows with it. "
+                 + "Its per-model windows are untouched, and launching on it yourself always works.",
              "The account you are signed into on claude.ai. Tally publishes artifacts from it, and "
-                 + "can keep part of its weekly quota free for you."] {
+                 + "can keep part of its quota free for you."] {
     let entry = catalogueStrings[word] as? [String: Any]
     let localizations = entry?["localizations"] as? [String: Any] ?? [:]
     check("\(word.prefix(30)) is translated into every language Tally ships",

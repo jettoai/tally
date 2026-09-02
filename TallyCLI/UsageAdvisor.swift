@@ -202,10 +202,13 @@ enum UsageAdvisor {
         // Binding constraint: the most saturated pool relative to its OWN account capacity - the
         // account-wide weekly, or any single model window. A fable window can be the wall while
         // the account-wide weekly still reads healthy.
-        // A RESERVE IS TAKEN OFF THE ACCOUNT-WIDE POOL ONLY. It is a slice of the weekly all-models
-        // window and of no other (Tally/Core/AccountReserve.swift), so subtracting it from a model
-        // pool as well would hold the same points back twice - and would report a flagship pool as
-        // saturated on capacity nothing actually withholds there.
+        // A RESERVE IS TAKEN OFF THE ACCOUNT-WIDE POOL ONLY, and that is a statement about POOLS
+        // rather than a re-run of the window ruling. The question here is "do these accounts cover a
+        // week's demand", and the only pool a week's capacity is counted in is the account-wide one:
+        // the 5h window the reserve also covers (Tally/Core/AccountReserve.swift) refills 33 times a
+        // week and is a pacing constraint rather than capacity, and a model pool is a slice of the
+        // very week already counted here, so subtracting the reserve from either would hold the same
+        // points back twice and report a pool as saturated on capacity nothing actually withholds.
         var bindingRatio = poolRatio(weeklyAll, weeks: weeks, live: liveAccounts,
                                      reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {

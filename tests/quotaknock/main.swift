@@ -20,9 +20,10 @@ let now = Date(timeIntervalSince1970: 1_800_000_000)
 /// An account whose SESSION window is the interesting one: the weekly and flagship windows stay
 /// healthy, so the session window alone decides what binds.
 func account(_ id: String, label: String? = nil, session: Double, sessionResetHours: Double = 3,
-             weekly: Double = 90, weeklyResetHours: Double = 100) -> Snapshot.Account {
+             weekly: Double = 90, weeklyResetHours: Double = 100,
+             model: Double = 90) -> Snapshot.Account {
     Snapshot.Account(id: id, provider: "claude", label: label ?? id, launchHome: "/tmp/\(id)",
-                     sessionRemaining: session, weeklyRemaining: weekly, modelRemaining: 90,
+                     sessionRemaining: session, weeklyRemaining: weekly, modelRemaining: model,
                      sessionResetsAt: now.addingTimeInterval(sessionResetHours * 3600),
                      weeklyResetsAt: now.addingTimeInterval(weeklyResetHours * 3600),
                      modelResetsAt: now.addingTimeInterval(weeklyResetHours * 3600),
@@ -468,10 +469,11 @@ expect(quiet.contains("session 6%") && !quiet.contains("resets"),
 let reserved = AccountReserves(settings: [
     "/tmp/R": AccountRoleSetting(role: AccountRoles.personal, reserve: 30),
 ])
-// THE WEEK IS WHAT A RESERVE IS ABOUT, so the account this section is about is thin THERE: the
-// reserve is held back from the weekly all-models window and from no other (AccountReserve.swift
-// states the ruling), and a reading taken through the same pair the gates use inherits that without
-// this station knowing anything about it.
+// THE WINDOWS A BROWSER SHARES ARE WHAT A RESERVE IS ABOUT, so the account this section is about is
+// thin in one of them: the reserve is held back from the weekly all-models window and the 5h session
+// one and from no other (Albert's ruling, 2026-09-02; AccountReserve.swift states it), and a reading
+// taken through the same pair the gates use inherits that without this station knowing anything
+// about it.
 let browsing = account("R", session: 90, weekly: 40)
 func knockReading(_ acct: Snapshot.Account, reserves: AccountReserves) -> Double {
     let binding = bindingWindow(acct, primaryModel: nil, reserves: reserves, now: now)
@@ -481,15 +483,25 @@ expect(knockReading(browsing, reserves: reserved) <= quotaKnockPercent,
        "a reserved account with 40% of its week left is already inside the knock's threshold")
 expect(knockReading(browsing, reserves: .none) > quotaKnockPercent,
        "and the same account is nowhere near it when nobody reserved anything")
-// AND THE 5H WINDOW IS NOT PULLED IN WITH IT. A session window at 40% is 40% to this station
-// whatever the owner reserved: it refills five hours after it opened, so a knock announcing it as
-// nearly spent would be warning about a wall that comes down by itself.
+// AND THE 5H WINDOW COMES WITH IT, which is what the 2026-09-02 ruling changed here. The browser
+// and Tally draw on ONE 5h window, so an account whose share of it is gone is an account the movers
+// have already stopped placing work on - and a knock that waited for the WEEK would announce that 30
+// points late, which is to say after every mover had refused it.
 let sessionThin = account("R", session: 40, weekly: 90)
 expect(knockReading(sessionThin, reserves: reserved)
-           == knockReading(sessionThin, reserves: .none),
-       "a reserve moves no reading on the 5h window at all")
-expect(knockReading(sessionThin, reserves: reserved) > quotaKnockPercent,
-       "…so a session at 40% stays outside the threshold on a reserved account")
+           < knockReading(sessionThin, reserves: .none),
+       "a reserve moves the reading on the 5h window exactly as it does on the week")
+expect(knockReading(sessionThin, reserves: reserved) <= quotaKnockPercent,
+       "…so a session at 40% is already inside the threshold on a reserved account")
+expect(knockReading(sessionThin, reserves: .none) > quotaKnockPercent,
+       "…and nowhere near it when nobody reserved anything (guard the premise)")
+// THE FLAGSHIP WINDOW IS STILL OUTSIDE IT, being a sub-allowance of the very week this number is a
+// percentage of: taking it off there as well would hold the same points back twice. Thin enough to
+// BE the binding window, so this is a reading of that window and not of a healthier neighbour.
+let flagshipThin = account("R", session: 90, weekly: 90, model: 40)
+expect(knockReading(flagshipThin, reserves: reserved) == 40
+           && knockReading(flagshipThin, reserves: .none) == 40,
+       "a reserve moves no reading on the flagship window at all")
 // AND THE SENTENCE STILL QUOTES THE PROVIDER'S OWN PERCENTAGE. What the reader is owed is the
 // number their provider published - it has to mean the same thing here, in the panel and on
 // claude.ai - so the reserve moves the threshold and never the news.

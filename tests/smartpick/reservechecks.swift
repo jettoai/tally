@@ -152,12 +152,13 @@ func runReserveChecks() {
     check("an imminent reset counts as a full window, less the reserve",
           effectiveRemaining(comfortWindow(refillingWeekly!), now: now) == 70)
 
-    // MARK: - R3b. ONE WINDOW CARRIES IT, AND IT IS THE WEEKLY ALL-MODELS ONE
+    // MARK: - R3b. TWO WINDOWS CARRY IT: THE WEEKLY ALL-MODELS ONE AND THE 5H SESSION ONE
 
-    // Albert's ruling, 2026-08-21 (AccountReserve.swift states it): the 5h session window refills by
-    // itself five hours after it opened, and the flagship window is a slice of the very week this
-    // number is a percentage of - so reserving either buys its owner nothing and costs them the
-    // launches Tally declined to make. Asserted at the window, and then at what reads it.
+    // Albert's ruling, 2026-09-02 (AccountReserve.swift states it, superseding the weekly-only
+    // ruling of 2026-08-21): claude.ai and the CLI draw on ONE 5h session window, so an automatic
+    // launch that empties it locks the person out of their own browser until it refills. The
+    // flagship window stays outside the feature, being a sub-allowance of the very week this number
+    // is a percentage of. Asserted at the window, and then at everything that reads it.
     let mixed = acct("A", weekly: 90, session: 20, model: 25)
     func rated(_ account: Snapshot.Account, _ reserves: AccountReserves) -> [String: RatedWindow] {
         var out: [String: RatedWindow] = [:]
@@ -169,47 +170,72 @@ func runReserveChecks() {
     let held5h = rated(mixed, personalA)
     check("all three windows of the fixture were rated (guard the premise)",
           held5h["session"] != nil && held5h["weekly"] != nil && held5h["fable"] != nil)
-    check("the weekly window is the one that carries the reserve",
-          held5h["weekly"]?.reserve == 30)
-    check("…the 5h session window carries none",
-          held5h["session"]?.reserve == 0)
-    check("…and neither does the flagship window",
-          held5h["fable"]?.reserve == 0)
+    check("the weekly window carries the reserve", held5h["weekly"]?.reserve == 30)
+    check("…so does the 5h session window", held5h["session"]?.reserve == 30)
+    check("…and the flagship window carries none", held5h["fable"]?.reserve == 0)
     let bare = rated(mixed, .none)
-    check("…so both of their rates are exactly what an unreserved fleet computes",
-          held5h["session"]?.rate == bare["session"]?.rate
-              && held5h["fable"]?.rate == bare["fable"]?.rate)
-    check("…while the weekly rate is the reserved one",
-          held5h["weekly"]?.rate != bare["weekly"]?.rate)
-    check("…and the gate reads the two of them as the provider published them",
-          effectiveRemaining(comfortWindow(held5h["session"]!), now: now) == 20
-              && effectiveRemaining(comfortWindow(held5h["fable"]!), now: now) == 25)
+    check("…so the flagship rate is exactly what an unreserved fleet computes",
+          held5h["fable"]?.rate == bare["fable"]?.rate)
+    check("…while both shared windows are rated on what Tally may spend",
+          held5h["weekly"]?.rate != bare["weekly"]?.rate
+              && held5h["session"]?.rate != bare["session"]?.rate)
+    check("…and the gate reads the flagship one as the provider published it",
+          effectiveRemaining(comfortWindow(held5h["fable"]!), now: now) == 25)
+    check("…and the two shared ones less the reserve",
+          effectiveRemaining(comfortWindow(held5h["session"]!), now: now) == -10
+              && effectiveRemaining(comfortWindow(held5h["weekly"]!), now: now) == 60)
 
-    // AND NOTHING DOWNSTREAM TREATS EITHER AS A CROSSED WATER LINE. An account whose 5h window is
-    // spent will be fine within the hour; one whose flagship window is spent has a wall that the
-    // week it is carved out of does not have. Announcing either as a dip into the owner's reserve
-    // would be a sentence about a preference that had nothing to do with it.
-    for thin in [acct("A", weekly: 90, session: 0), acct("A", weekly: 90, model: 5)] {
-        check("an account thin outside its weekly window is still above its water line",
-              aboveReserve(thin, primaryModel: nil, reserves: personalA, now: now))
-        check("…and a launch onto it announces no dip",
-              reserveDipNotice(thin, primaryModel: nil, reserves: personalA, now: now) == nil)
-        // The nearly-dry gate is a different question and it still answers on its own merits: what
-        // must be true is that the reserve changed nothing about that answer.
-        check("…while every gate reads it exactly as it does on an unreserved fleet",
-              accountIsComfortable(thin, primaryModel: nil, reserves: personalA, now: now)
-                  == accountIsComfortable(thin, primaryModel: nil, now: now)
-                  && accountIsSpent(thin, primaryModel: nil, reserves: personalA, now: now)
-                  == accountIsSpent(thin, primaryModel: nil, now: now))
-    }
-    // The mirror image, so this is a scope and not a switch: thin in the WEEK, with both other
-    // windows full, is the account the whole feature exists for.
+    // A FLAGSHIP WINDOW IS NOT A CROSSED WATER LINE. It is a sub-allowance of the very week this
+    // number is already a percentage of, so announcing it as a dip into the owner's reserve would be
+    // a sentence about a preference that had nothing to do with it.
+    let flagshipThin = acct("A", weekly: 90, model: 5)
+    check("an account thin only in its flagship window is still above its water line",
+          aboveReserve(flagshipThin, primaryModel: nil, reserves: personalA, now: now))
+    check("…and a launch onto it announces no dip",
+          reserveDipNotice(flagshipThin, primaryModel: nil, reserves: personalA, now: now) == nil)
+    // The nearly-dry gate is a different question and it still answers on its own merits: what must
+    // be true is that the reserve changed nothing about that answer.
+    check("…while every gate reads it exactly as it does on an unreserved fleet",
+          accountIsComfortable(flagshipThin, primaryModel: nil, reserves: personalA, now: now)
+              == accountIsComfortable(flagshipThin, primaryModel: nil, now: now)
+              && accountIsSpent(flagshipThin, primaryModel: nil, reserves: personalA, now: now)
+              == accountIsSpent(flagshipThin, primaryModel: nil, now: now))
+
+    // EITHER SHARED WINDOW UNDER THE LINE IS A CROSSED LINE, AND THE SENTENCE NAMES WHICH ONE. The
+    // two mean different things to the reader - a week that will not refill for days, or a 5h window
+    // their browser shares and that comes back this afternoon - so a fixed "weekly" would have named
+    // the wrong one half the time.
     let thinWeek = acct("A", weekly: 25, session: 100, model: 100)
     check("an account thin in the week alone is under its water line",
           !aboveReserve(thinWeek, primaryModel: nil, reserves: personalA, now: now))
     check("…and the launch onto it says which reserve it is spending",
           reserveDipNotice(thinWeek, primaryModel: nil, reserves: personalA, now: now)
               == "dipping into A's weekly reserve (30% kept for web use)")
+    // THE HALF THE 2026-09-02 RULING ADDED, and the half an `aboveReserve` reading only the FIRST
+    // reserved window it finds gets wrong: the session window is built first, so a first-match
+    // reading answers on the 5h window and never looks at the week - which on `thinWeek` above calls
+    // an account whose week is spent healthy, on the strength of an untouched 5h window.
+    let thinSession = acct("A", weekly: 100, session: 25, model: 100)
+    check("an account thin in its 5h window alone is under its water line too",
+          !aboveReserve(thinSession, primaryModel: nil, reserves: personalA, now: now))
+    check("…and the launch onto it names the 5h window rather than the week",
+          reserveDipNotice(thinSession, primaryModel: nil, reserves: personalA, now: now)
+              == "dipping into A's session reserve (30% kept for web use)")
+    let thinBoth = acct("A", weekly: 25, session: 25, model: 100)
+    check("an account under both of its lines is under its water line",
+          !aboveReserve(thinBoth, primaryModel: nil, reserves: personalA, now: now))
+    check("…and the launch onto it names both, in the order the windows are rated",
+          reserveDipNotice(thinBoth, primaryModel: nil, reserves: personalA, now: now)
+              == "dipping into A's session and weekly reserve (30% kept for web use)")
+    // AND EVERY GATE FOLLOWS THE 5H LINE, which is the whole of what widening the scope buys: an
+    // account under it is not somewhere an automatic launch or move may land.
+    check("an account under its 5h line is not comfortable",
+          !accountIsComfortable(thinSession, primaryModel: nil, reserves: personalA, now: now))
+    check("…and reads as spent, on the same scale as one under its weekly line",
+          accountIsSpent(thinSession, primaryModel: nil, reserves: personalA, now: now))
+    check("…while the same account is comfortable and unspent with no reserve (the premise)",
+          accountIsComfortable(thinSession, primaryModel: nil, now: now)
+              && !accountIsSpent(thinSession, primaryModel: nil, now: now))
 
     // MARK: - R4. Consumer 1, the launch pick
 

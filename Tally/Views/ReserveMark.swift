@@ -8,10 +8,10 @@ import SwiftUI
 /// THE WATER LINE ON A USAGE BAR: where the personal account's reserve starts, and the stretch below
 /// it hatched out.
 ///
-/// WHICH BAR GETS ONE IS THE CALLER'S ANSWER, not this view's: the reserve is held back from the
-/// weekly all-models window alone, so the meters hand this a zero on every other bar
-/// (`PersonalAccount.reserved`). Drawing it everywhere would put a line on windows no pick treats as
-/// reserved.
+/// WHICH BARS GET ONE IS THE CALLER'S ANSWER, not this view's: the reserve is held back from the
+/// two windows the account shares with the user's browser - its weekly all-models one and its 5h
+/// one - so the meters hand this a zero on every other bar (`PersonalAccount.reserved`). Drawing it
+/// everywhere would put a line on windows no pick treats as reserved.
 ///
 /// AN ABSOLUTE POSITION ON THE TRACK, not a second fill. The track is the whole quota, 0% spent at
 /// the left edge and 100% at the right, and a reserve of 30 says "leave 30% standing" - so the line

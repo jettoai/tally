@@ -222,9 +222,10 @@ struct RatedWindow {
     let anchor: Date?
     /// Percentage points of this window its owner reserved for themselves, carried so the gate one
     /// step downstream weighs the same window this rate was measured on (`comfortWindow`). Zero
-    /// unless the caller handed reserves in - AND zero on every window but the weekly all-models one
-    /// whatever they handed in, which is where the reserve's scope is applied for the whole product
-    /// (`AccountRoles.reservedWindowName`).
+    /// unless the caller handed reserves in - AND zero on every window but the two the account
+    /// shares with the user's browser (the weekly all-models one and the 5h session one) whatever
+    /// they handed in, which is where the reserve's scope is applied for the whole product
+    /// (`AccountRoles.reservedWindowNames`).
     var reserve: Double = 0
     /// How fast the part of this window Tally may spend can be spent: the EFFECTIVE remaining over
     /// the hours until the anchor. Reserve-aware because ranking is where "spend somewhere else if
@@ -254,18 +255,23 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
             ? now.addingTimeInterval(fullWindowHours / 2 * 3600) : nil
         let anchor = resetsAt ?? inferredAnchor ?? untouchedAnchor
         let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
-        // THE RESERVE REACHES ONE WINDOW, THE WEEKLY ALL-MODELS ONE (AccountReserve.swift states the
-        // ruling). Applied here, at the one place a window is built, so the score below and every
-        // gate downstream of it inherit the scope rather than each restating it - and so neither a
-        // spent 5h window nor a drained flagship one can be the thing that makes an account read as
-        // under somebody's water line.
-        let held = reserved ? reserve : 0
+        // THE RESERVE REACHES THE TWO WINDOWS A BROWSER SHARES WITH TALLY: the weekly all-models
+        // one and the 5h session one (AccountReserve.swift states the ruling). Applied here, at the
+        // one place a window is built, so the score below and every gate downstream of it inherit
+        // the scope rather than each restating it - and so a drained flagship window, which is a
+        // slice of the very week this number is a percentage of, cannot be the thing that makes an
+        // account read as under somebody's water line. BOTH conditions, so this fails closed in
+        // either direction: the call site has to opt in AND the ruling has to name the window,
+        // which is what keeps a flagship window named after its model out of the feature whatever
+        // the provider happens to call it.
+        let held = reserved && AccountRoles.reservedWindowNames.contains(name) ? reserve : 0
         return RatedWindow(name: name, remaining: remaining, resetsAt: resetsAt, anchor: anchor,
                            reserve: held, rate: (remaining - held) / hours)
     }
     var windows = [
-        window("session", account.sessionRemaining, account.sessionResetsAt, fullWindowHours: 5),
-        window(AccountRoles.reservedWindowName, account.weeklyRemaining, account.weeklyResetsAt,
+        window(AccountRoles.sessionWindowName, account.sessionRemaining, account.sessionResetsAt,
+               fullWindowHours: 5, reserved: true),
+        window(AccountRoles.weeklyWindowName, account.weeklyRemaining, account.weeklyResetsAt,
                fullWindowHours: 168, fixedCycle: true, reserved: true),
     ].compactMap { $0 }
     // The flagship window only constrains the pick when the declared primary model IS that tier

@@ -15,17 +15,23 @@ import Foundation
 // wall cut short, the supervisor types one marked line into the new child saying what happened and
 // asking it to continue. That line is a keystroke channel into somebody's conversation, so it is
 // held to the same table every other writer into that composer is held to (`sessionInputHold`,
-// SessionInput.swift) plus one gate of its own, and it is ABANDONED rather than delayed the moment
-// there is any sign a person is driving.
+// SessionInput.swift) plus two gates of its own, and it is ABANDONED rather than delayed the moment
+// a person has actually driven: a prompt of their own. Weaker signs of one hold instead, and the
+// offer's own life is what ends every wait.
 //
 // FOUR THINGS IT MAY NEVER DO, which are the reason this is a station with a state rather than two
 // lines at the relaunch:
 //
 //   - SPEAK TWICE FOR ONE WALL. The arm is keyed by the cap's own instant (`lastCapAt`), so a second
 //     handoff carrying the same cap re-arms nothing, and firing spends the arm outright.
-//   - TYPE OVER SOMEBODY. A keystroke burst in that composer or a prompt of their own in the new
-//     child ends the arm for good (`.drop(.userTyped)`): the person is here, and what they type is
-//     a better answer than what this would have.
+//   - TYPE OVER SOMEBODY. A prompt of their own in the new child ends the arm for good
+//     (`.drop(.userTurn)`): the person is here, they answered the wall themselves, and what they
+//     typed is a better answer than what this would have. A keystroke BURST in that composer is the
+//     weaker half of the same fact and it HOLDS (`.hold(.drafting)`), on the dialog row's terms:
+//     the evidence expires (`sessionInputDraftLife`) and a person who is really there sends a
+//     prompt, so both endings are reachable without a clock of this station's own. The two were one
+//     branch and one word until 2026-09-02, and the log says what that cost: six dropped resumes on
+//     this machine, every one `reason=someone-typed`, none saying which half fired.
 //   - ANSWER A DIALOG. A blocked session is sitting on a permission request or a plan approval, and
 //     a line typed at one of those is an answer to a question this supervisor never read. It HOLDS
 //     rather than drops, because a dialog is answered and the composer comes back
@@ -167,13 +173,22 @@ enum CapResumeHold: Equatable {
     /// bound yet looks like and the next tick usually answers it; what ends the waiting for good is
     /// the offer's own life.
     case unlocated
+    /// A run of keystrokes in that composer with no prompt sent since
+    /// (`sessionInputDraftSuspected`), which is EVIDENCE of somebody rather than the person
+    /// themselves: mouse reporting and an IME write the same shape. A wait for the reason the
+    /// dialog row above is one - if they are there they send a prompt, and if they are not the
+    /// evidence expires - and it was a final drop until 2026-09-02, when the evidence had no expiry
+    /// and this station's only measured failure mode was this branch.
+    case drafting
 }
 
-/// Why an arm will never be typed. Both are final: the arm is cleared and this wall gets no line.
+/// Why an arm will never be typed. All three are final: the arm is cleared and this wall gets no
+/// line.
 enum CapResumeDrop: Equatable {
-    /// Somebody is in the session. Either a run of keystrokes in that composer
-    /// (`sessionInputDraftSuspected`) or a prompt of their own in the relaunched child.
-    case userTyped
+    /// A prompt of their own in the relaunched child: the person answered the wall themselves.
+    /// STRICTLY A USER TURN, since 2026-09-02. The keystroke burst that used to share this case
+    /// holds instead, and the two carry different words so the log can say which fired.
+    case userTurn
     /// It never reached a moment it could be typed at inside `capResumeLife`.
     case expired
     /// The window now holds a DIFFERENT conversation from the one the wall interrupted. Final, and
@@ -184,7 +199,7 @@ enum CapResumeDrop: Equatable {
     /// The word the log records it under.
     var word: String {
         switch self {
-        case .userTyped: return "someone-typed"
+        case .userTurn: return "user-turn"
         case .expired: return "expired"
         case .otherConversation: return "other-conversation"
         }
@@ -338,17 +353,20 @@ struct CapResumeState: Equatable {
 
     /// What this tick owes, in the order the gates bite.
     ///
-    /// THE TWO DROPS COME FIRST, and before the holds, because they are about whether this line is
-    /// wanted at all rather than about whether now is the moment for it. A person typing outranks
-    /// the clock: it is the more specific fact and it is true whatever the clock says.
+    /// THE DROPS COME FIRST, and before the holds, because they are about whether this line is
+    /// wanted at all rather than about whether now is the moment for it. A person who has typed a
+    /// prompt outranks the clock: it is the more specific fact and it is true whatever the clock
+    /// says.
     ///
     /// THEN THE SHARED TABLE, unchanged and asked through the same function every other writer into
     /// this composer asks (`sessionInputHold`): a second spelling of those four rows is four gates
     /// that can come to disagree about one instant.
     ///
-    /// AND `blocked` LAST, which is this station's own gate. It sits after the shared table rather
-    /// than before it so that table's stated precedence is not quietly reordered here; both answers
-    /// are a hold, so the ordering decides only which word the record carries.
+    /// AND THIS STATION'S OWN TWO WAITS LAST, after the shared table rather than before it so that
+    /// table's stated precedence is not quietly reordered here. Between them the dialog comes
+    /// first: a composer behind a permission request is not one somebody is typing into, so naming
+    /// the draft there would describe the wrong wait. All of them are holds, so the ordering
+    /// decides only which word the record carries.
     func decide(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bool, keyboardIdle: Bool,
                 relaunchPlanned: Bool, draftSuspected: Bool, userTurnAt: Date?,
                 conversation: String?, now: Date = Date()) -> CapResumeDecision {
@@ -359,11 +377,14 @@ struct CapResumeState: Equatable {
         // something else ends the offer, since the work it points at is not in there to resume.
         guard let conversation else { return .hold(.unlocated) }
         guard conversation == offer.conversation else { return .drop(.otherConversation) }
-        // A run of keystrokes in that composer, or a prompt of their own in the relaunched child.
-        // The second is measured against the WALL rather than against the relaunch, and the two
-        // readings agree: the watcher belongs to the new child and refuses everything older than
-        // its launch, so any user turn it has seen at all is newer than the cap that preceded it.
-        if draftSuspected || userTurnAt.map({ $0 > offer.at }) == true { return .drop(.userTyped) }
+        // A prompt of their own in the relaunched child, measured against the WALL rather than
+        // against the relaunch; the two readings agree, since the watcher belongs to the new child
+        // and refuses everything older than its launch, so any user turn it has seen at all is
+        // newer than the cap that preceded it.
+        if userTurnAt.map({ $0 > offer.at }) == true { return .drop(.userTurn) }
+        // AND THE CLOCK BEFORE THE WAITS, which is what makes the draft row below reachable in both
+        // directions without a second clock: an offer nobody could type at ends here whatever is
+        // holding it, and it ends saying `expired` rather than naming the hold that outlasted it.
         if now.timeIntervalSince(offer.at) > capResumeLife { return .drop(.expired) }
         if let hold = sessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
                                        keyboardIdle: keyboardIdle,
@@ -371,6 +392,7 @@ struct CapResumeState: Equatable {
             return .hold(.input(hold))
         }
         if state == .blocked { return .hold(.blocked) }
+        if draftSuspected { return .hold(.drafting) }
         return .type(offer.line)
     }
 
@@ -448,7 +470,7 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
     case .type(let line):
         state.spend()
         // The same protection the requested line gets. `suspected` is false by construction on this
-        // branch (a suspected draft is a drop, one gate up), and the stash still runs: it is what
+        // branch (a suspected draft is a hold, one gate up), and the stash still runs: it is what
         // covers the draft this supervisor CANNOT see, since a paste is a single stamp and reads as
         // terminal chatter (SessionInputDraft.swift names it as the blind spot).
         let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)

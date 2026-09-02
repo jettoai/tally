@@ -187,15 +187,25 @@ func droughtBlockers(steering: Bool, mode: String, blocked: Bool, agentsWorking:
 /// The percentage is the EFFECTIVE remaining, the reading the gates weigh, so the number here and
 /// the decision it describes cannot disagree: a window minutes from resetting reads as full to
 /// both.
+///
+/// `burstAge` IS HOW OLD THE DRAFT EVIDENCE IS, in whole seconds, and it is here because the one
+/// blocker that turned out to matter is the one this line could say nothing about (2026-09-02).
+/// `draft-suspected` named 21 of the first 25 blocked droughts on this machine and stood alone in
+/// ten of them, and reconstructing WHY took the burst's age to be inferred from the absence of
+/// `session-busy` in the same field. A keyboard stamp nothing has refreshed for eleven minutes and
+/// a person mid-sentence are the same word in `movers-blocked` and different situations entirely;
+/// this is the number that separates them without anybody having to infer it. `none` where the
+/// terminal carries no burst at all, which is what a session nobody has typed in looks like.
 func droughtAuditLine(sessionID: String?, pid: String, account: String, window: String?,
-                      remaining: Double?, blockers: [String], cwd: String,
+                      remaining: Double?, blockers: [String], burstAge: TimeInterval?, cwd: String,
                       now: Date = Date()) -> String {
     let stamp = ISO8601DateFormatter().string(from: now)
     let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
     let left = remaining.map { "\(Int($0.rounded()))%" } ?? "unknown"
+    let age = burstAge.map { "\(Int($0.rounded()))" } ?? "none"
     return "\(stamp) session=\(sid) pid=\(pid) drought=blocked account=\(account) "
         + "window=\(window ?? "unknown") remaining=\(left) "
-        + "movers-blocked=\(blockers.joined(separator: ",")) cwd=\(cwd)\n"
+        + "movers-blocked=\(blockers.joined(separator: ",")) burst-age=\(age) cwd=\(cwd)\n"
 }
 
 /// What one supervised session knows about the account under it running out.
@@ -335,15 +345,21 @@ struct DroughtWatch {
     /// It RETURNS the line rather than writing it, so that reaching this decision in a test cannot
     /// append to the user's own audit history - the rule `appendHandoffLine` states about its sink.
     mutating func audit(account: String, sessionID: String?, pid: String, cwd: String,
-                        blockers: () -> [String], now: Date = Date()) -> String? {
+                        burstAt: Date? = nil, blockers: () -> [String],
+                        now: Date = Date()) -> String? {
         let alreadyWritten = audited && quotaKnockSameCycle(auditedCycle, cycle)
         guard spent, !alreadyWritten else { return nil }
         let named = blockers()
         guard !named.isEmpty else { return nil }
         audited = true
         auditedCycle = cycle
+        // The AGE rather than the stamp, measured against the clock this line is dated by: what a
+        // reader wants of that field is how stale the draft evidence was at the moment these gates
+        // refused, and two absolute times in one line is a subtraction the reader has to perform.
         return droughtAuditLine(sessionID: sessionID, pid: pid, account: account, window: window,
-                                remaining: remaining, blockers: named, cwd: cwd, now: now)
+                                remaining: remaining, blockers: named,
+                                burstAge: burstAt.map { now.timeIntervalSince($0) }, cwd: cwd,
+                                now: now)
     }
 }
 
@@ -366,7 +382,8 @@ struct DroughtWatch {
 func applyDroughtAudit(_ watch: inout DroughtWatch, relaunchPlanned: Bool, account: String,
                        sessionID: String?, pid: String, cwd: String,
                        steering: Bool, mode: String, blocked: Bool, agentsWorking: Bool,
-                       isQuiet: @autoclosure () -> Bool, draftSuspected: Bool, carryable: Bool,
+                       isQuiet: @autoclosure () -> Bool, draftSuspected: Bool, burstAt: Date?,
+                       carryable: Bool,
                        fuseAllows: @autoclosure () -> Bool, now: Date = Date(), log: URL) {
     guard !relaunchPlanned else { return }
     // Read out before the call: `audit` takes the watch `inout`, so reading a property of it from
@@ -374,6 +391,7 @@ func applyDroughtAudit(_ watch: inout DroughtWatch, relaunchPlanned: Bool, accou
     // at runtime (measured on this track 2026-08-02, and stated beside the reload repick).
     let hasTarget = watch.hasTarget
     guard let line = watch.audit(account: account, sessionID: sessionID, pid: pid, cwd: cwd,
+                                 burstAt: burstAt,
                                  blockers: {
                                      droughtBlockers(steering: steering, mode: mode,
                                                      blocked: blocked, agentsWorking: agentsWorking,

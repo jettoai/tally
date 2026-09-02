@@ -47,14 +47,27 @@ func runDraftStashChecks() {
     // And the margin that separates "somebody is typing" from the two things that look like it.
     check("the draft grace is well under the quiet bar the keyboard gate already asks for",
           sessionInputDraftGrace == 2 && sessionInputDraftGrace < sessionInputKeyboardQuietSeconds)
+    // AND THE LIFE, WHICH IS THE OTHER END OF THE SAME EVIDENCE (2026-09-02). It has to be LONGER
+    // than the bar the preventive movers judge a terminal quiet by, and the reason is NOT that the
+    // two answers contradict one another: a composer holds text long after the fingers stop, which
+    // is the whole of why this reading exists beside the keyboard gate. It is that a life shorter
+    // than that bar would make this answer dead code - every burst young enough to count as a draft
+    // would also be young enough to fail `keyboard.idle(followIdleSeconds)` one gate earlier, and
+    // nothing would ever be decided here.
+    check("the draft evidence has a life, and one longer than the movers' own quiet bar",
+          sessionInputDraftLife == 900 && sessionInputDraftLife > followIdleSeconds)
 
     // MARK: - The evidence: is there a draft in there at all
 
     /// The question, with each fact absent unless the row is about it.
+    ///
+    /// `now` IS A ROW OF THE TABLE rather than a default, since 2026-09-02: this answer is about how
+    /// old the burst is, so a row that let the clock default would assert something about the moment
+    /// the suite happened to run.
     func suspected(burst: TimeInterval? = nil, turn: TimeInterval? = nil,
-                   injected: TimeInterval? = nil) -> Bool {
+                   injected: TimeInterval? = nil, now: TimeInterval = 300) -> Bool {
         sessionInputDraftSuspected(burstAt: burst.map(at), userTurnAt: turn.map(at),
-                                   injectedAt: injected.map(at))
+                                   injectedAt: injected.map(at), now: at(now))
     }
     // NOTHING TYPED IS NOT A DRAFT, and it is the commonest row by far: a session nobody has touched
     // since it was launched, and one whose only keyboard stamps were lone ones (terminal chatter
@@ -91,6 +104,67 @@ func runDraftStashChecks() {
               && !suspected(burst: 120, turn: 100, injected: 150)
               && !suspected(burst: 120, turn: 150, injected: 100)
               && !suspected(burst: 120, turn: 150, injected: 160))
+
+    // MARK: - …and whether that burst is still about the present
+
+    // THE LATCH THIS BOUND ENDED (2026-09-02; SessionInputDraft.swift carries the log lines). Every
+    // input above only moves forward, so a `true` here could be taken back by a newer prompt or a
+    // newer injection and by nothing else - and in a session nobody is in, neither of those ever
+    // arrives, because a prompt needs the person this answer claims is there and an injection needs
+    // a station that is standing down on this very answer. Two sessions on this machine sat on
+    // accounts reading 0% for 59 and 37 minutes with `movers-blocked=draft-suspected` as the only
+    // name in the line.
+    check("a burst one second inside its life is still a draft",
+          suspected(burst: 100, now: 100 + sessionInputDraftLife - 1))
+    check("…and the boundary belongs to the expiry: at its life it is evidence about the past",
+          !suspected(burst: 100, now: 100 + sessionInputDraftLife))
+    check("…however clear of every other cause that burst was",
+          !suspected(burst: 100, turn: 10, injected: 20,
+                     now: 100 + sessionInputDraftLife + 3600))
+    // THE WHOLE RANGE RATHER THAN ITS TWO ENDS, because what this file could not say before is that
+    // the answer is bounded AT ALL, and two boundary rows are also what an implementation with the
+    // comparison inverted somewhere in the middle would pass. Every five seconds from the burst
+    // itself to a minute past its life, the answer has to be exactly "is this burst younger than
+    // its life".
+    var ages = 0
+    var wrongAges: [TimeInterval] = []
+    for step in 0 ... Int((sessionInputDraftLife + 60) / 5) {
+        let age = Double(step) * 5
+        ages += 1
+        if suspected(burst: 1000, now: 1000 + age) != (age < sessionInputDraftLife) {
+            wrongAges.append(age)
+        }
+    }
+    // THE COUNT IS PART OF THE ASSERTION rather than bookkeeping: a loop that ran no rows leaves
+    // `wrongAges` empty too, and would report this whole property as proved.
+    check("every burst age answers exactly `younger than its life`, with no row exempt",
+          wrongAges.isEmpty && ages == Int((sessionInputDraftLife + 60) / 5) + 1)
+    // WHAT THE MOVERS ARE HANDED AN HOUR LATER, stated at the seam they read it through: the three
+    // preventive movers and the automatic resume after a wall all take this Bool, and until the
+    // bound existed an hour changed nothing about it.
+    check("an hour after that burst, the reading every mover is handed is false",
+          !suspected(burst: 100, now: 100 + 3600))
+
+    // THE SAME EVIDENCE A SECOND TIME, WITH A DIFFERENT CAUSE BEHIND IT, across the boundary where
+    // the two lifetimes meet: `KeyboardActivity` is rebuilt with the child (Supervisor.swift), so a
+    // burst that expired, released a preventive move and got the session restarted is followed by a
+    // NEW burst as the new child reads its terminal. Same shape, different cause (a TUI handing
+    // over rather than fingers), and both halves of the obvious wrong answer are asserted against:
+    // the new burst inheriting the old one's expiry, and the old one's release carrying over so
+    // that the new child's composer is never protected at all.
+    let personTyped: TimeInterval = 1000
+    check("the burst that expired stopped protecting anything",
+          !suspected(burst: personTyped, now: personTyped + sessionInputDraftLife))
+    var afterRelaunch = KeyboardActivity()
+    check("a relaunched child starts with no burst at all, so nothing is inherited",
+          afterRelaunch.lastBurstAt == nil)
+    let handover = personTyped + sessionInputDraftLife + 3
+    afterRelaunch.observe(stamp: at(handover - 0.2))
+    afterRelaunch.observe(stamp: at(handover))
+    check("…and the burst its handover writes is protected on its own life rather than the old one",
+          afterRelaunch.lastBurstAt == at(handover)
+              && suspected(burst: handover, now: handover + 5)
+              && !suspected(burst: handover, now: handover + sessionInputDraftLife))
 
     // MARK: - The guard: what the injection may do about it
 
@@ -420,7 +494,24 @@ func runDraftStashChecks() {
     check("the reading is taken from the keyboard, the transcript and this supervisor's own line",
           loop.contains("sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,")
               && loop.contains("userTurnAt: watcher.lastUserTurnAt,")
-              && loop.contains("injectedAt: lastComposerWrite)"))
+              && loop.contains("injectedAt: lastComposerWrite,")
+              && loop.contains("now: tickNow)"))
+    // AND UNDER THE TICK'S OWN CLOCK, SHARED WITH THE LINE THAT DESCRIBES THE SAME STAMP: the
+    // drought audit reports how quiet that keyboard is and how old its burst is, and this reading
+    // says whether the same burst is a draft. Three defaulted `Date()` calls are how one line comes
+    // to report an age its own `draft-suspected` blocker disagrees with, which is the shape the
+    // 2026-09-02 incident was read out of.
+    check("…under a clock the audit line about that same stamp is written from too",
+          loop.contains("let tickNow = Date()")
+              && loop.contains("keyboard.idle(followIdleSeconds, now: tickNow)")
+              && loop.contains("burstAt: keyboard.lastBurstAt, carryable: carryable")
+              && loop.contains("fuseAllows: fuse.allows(), now: tickNow, log: handoffLog)"))
+    check("…and that clock is read before the draft question it dates",
+          loop.range(of: "let tickNow = Date()").map { taken in
+              loop.range(of: "let draftSuspected = sessionInputDraftSuspected(").map {
+                  taken.upperBound < $0.lowerBound
+              } ?? false
+          } ?? false)
     // BOTH WRITERS INTO THAT COMPOSER GET IT, which is the half that is easy to leave half done: the
     // requested line and the advisory knock type through the same door, and a draft is destroyed by
     // whichever of them was not told (QuotaKnock.swift).

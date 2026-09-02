@@ -424,10 +424,17 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
     //
     // A DELAY RATHER THAN A CANCELLATION, which is the whole of why it sits here and not in the
     // arm: nothing is consumed, nothing is disarmed, and this station is asked again on every tick,
-    // so the move happens as soon as the draft reading clears - a new user turn, or this supervisor
-    // typing (`sessionInputDraftSuspected`). No timeout of its own, deliberately: a second clock
-    // over the same invariant is a second answer to "does this session hold a draft", and the
-    // repick's own minute already ends an arm nobody could act on.
+    // so the move happens as soon as the draft reading clears - a new user turn, this supervisor
+    // typing, or that burst simply getting old (`sessionInputDraftSuspected`). No timeout of its
+    // own, deliberately: a second clock over the same invariant is a second answer to "does this
+    // session hold a draft", and the repick's own minute already ends an arm nobody could act on.
+    //
+    // THAT LAST WAY OUT IS WHAT MAKES THE WORD "DELAY" TRUE (2026-09-02), and it did not exist when
+    // this comment was written: the reading was taken back by a newer prompt or a newer injection
+    // and by nothing else, and neither of those can arrive in a session nobody is in, so this gate
+    // held for the life of the child. The clock that fixed it went on the EVIDENCE rather than here
+    // (`sessionInputDraftLife`), which is the same rule this paragraph already states, applied at
+    // the end where one clock answers all four of its readers.
     guard !draftSuspected else { return }
     if landed, watcher.isQuiet(windowRepickQuietSeconds), keyboardIdle(windowRepickQuietSeconds) {
         let carried = carryableSession(launchArgs: launchArgs,

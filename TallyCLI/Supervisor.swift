@@ -608,9 +608,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // minute. The transcript was scanned at the top of this tick, so this reading is as
             // fresh here as it was where it used to be taken, and one reading is what stops the two
             // ends of the invariant from ever disagreeing about the same instant.
+            // ONE CLOCK FOR EVERY STATEMENT THIS TICK MAKES ABOUT THAT KEYBOARD STAMP (2026-09-02).
+            // The draft question here and the drought audit's `session-busy` and `burst-age` fields
+            // are three readings of one `lastBurstAt`, and the incident that bounded the first of
+            // them is one audit line saying the terminal had been still for two minutes AND that
+            // somebody was typing in it. Defaulted clocks leave that contradiction to luck.
+            let tickNow = Date()
             let draftSuspected = sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,
                                                             userTurnAt: watcher.lastUserTurnAt,
-                                                            injectedAt: lastComposerWrite)
+                                                            injectedAt: lastComposerWrite,
+                                                            now: tickNow)
             // THE BOUNDARY THIS SESSION'S CLAUDE CODE LAST REPORTED, read ONCE for the two stations
             // that consult it: the rebalance below stands down while one is undecided, and the
             // station further down rules on it (TurnBoundaryMove.swift states why the order between
@@ -768,9 +775,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                               steering: steering, mode: policy.mode,
                               blocked: board.waitingOnPerson, agentsWorking: agentsWorking,
                               isQuiet: watcher.isQuiet(followIdleSeconds)
-                                  && keyboard.idle(followIdleSeconds),
-                              draftSuspected: draftSuspected, carryable: carryable,
-                              fuseAllows: fuse.allows(), log: handoffLog)
+                                  && keyboard.idle(followIdleSeconds, now: tickNow),
+                              draftSuspected: draftSuspected,
+                              burstAt: keyboard.lastBurstAt, carryable: carryable,
+                              fuseAllows: fuse.allows(), now: tickNow, log: handoffLog)
             // `tally session send`: type a pending request into this terminal, if the reading just
             // taken allows it. THE READING RATHER THAN THE WORD, because this is the one consumer
             // for which "working" is two different answers: a conversation mid-turn is not typed

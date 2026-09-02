@@ -483,6 +483,7 @@ func runDroughtChecks() {
     var blocked = watched()
     let first = blocked.audit(account: "Claude 2", sessionID: "a97d08561234", pid: "34133",
                               cwd: "/Users/x/work/my project",
+                              burstAt: droughtNow.addingTimeInterval(-671.4),
                               blockers: { ["mode-manual", "agents-working"] }, now: droughtNow)
     check("a spent account nothing can move off leaves one line", first != nil)
     check("naming the session, the supervisor and what kind of record it is",
@@ -491,8 +492,23 @@ func runDroughtChecks() {
           first?.contains("account=Claude 2 window=fable remaining=0%") == true)
     check("…what refused, in the order the gates bite",
           first?.contains("movers-blocked=mode-manual,agents-working") == true)
+    // HOW OLD THE DRAFT EVIDENCE WAS (2026-09-02), which is the one blocker this line used to name
+    // without being able to explain: `draft-suspected` on a keyboard nobody has touched for eleven
+    // minutes and `draft-suspected` on somebody mid-sentence are the same word and different
+    // situations, and reconstructing which one it was cost an inference from the ABSENCE of
+    // `session-busy` in the same field.
+    check("…how old the draft evidence was, in whole seconds and beside what it explains",
+          first?.contains("movers-blocked=mode-manual,agents-working burst-age=671 ") == true)
     check("…and the one field that can contain a space, last",
           first?.hasSuffix("cwd=/Users/x/work/my project\n") == true)
+    // A TERMINAL WITH NO BURST ON IT SAYS SO rather than reporting an age nobody measured, which is
+    // the shape a session nobody has typed in has: `unknown` is already spoken for by a reading
+    // that failed, and this is a reading that succeeded and found nothing.
+    var unstamped = watched()
+    check("a terminal carrying no burst at all says none rather than a number",
+          unstamped.audit(account: "Claude 2", sessionID: "a97d08561234", pid: "34133", cwd: "/w",
+                          blockers: { ["no-target"] }, now: droughtNow)?
+              .contains("movers-blocked=no-target burst-age=none cwd=/w\n") == true)
     check("and it is once per drought, however long the drought lasts",
           blocked.audit(account: "Claude 2", sessionID: "a97d08561234", pid: "34133", cwd: "/w",
                         blockers: { ["mode-manual"] },
@@ -548,11 +564,14 @@ func runDroughtChecks() {
     applyDroughtAudit(&station, relaunchPlanned: false, account: "Claude 2",
                       sessionID: "a97d08561234", pid: "34133", cwd: "/w", steering: true,
                       mode: "manual", blocked: false, agentsWorking: true, isQuiet: true,
-                      draftSuspected: false, carryable: true, fuseAllows: true, now: droughtNow,
+                      draftSuspected: false, burstAt: droughtNow.addingTimeInterval(-90),
+                      carryable: true, fuseAllows: true, now: droughtNow,
                       log: auditLog)
     let written = (try? String(contentsOf: auditLog, encoding: .utf8)) ?? ""
     check("the station writes the line the watch decided",
           written.contains("drought=blocked") && written.contains("mode-manual,agents-working"))
+    check("…carrying the burst it was handed, aged against the clock the line is dated by",
+          written.contains("burst-age=90 cwd=/w"))
     // A tick that IS moving the session records the move itself, in the same file, one line down.
     var moving = watched()
     let quietLog = FileManager.default.temporaryDirectory
@@ -560,8 +579,8 @@ func runDroughtChecks() {
     applyDroughtAudit(&moving, relaunchPlanned: true, account: "Claude 2",
                       sessionID: "a97d08561234", pid: "34133", cwd: "/w", steering: true,
                       mode: "auto", blocked: false, agentsWorking: false, isQuiet: true,
-                      draftSuspected: false, carryable: true, fuseAllows: true, now: droughtNow,
-                      log: quietLog)
+                      draftSuspected: false, burstAt: nil, carryable: true, fuseAllows: true,
+                      now: droughtNow, log: quietLog)
     check("and a tick that is moving the session writes nothing",
           !FileManager.default.fileExists(atPath: quietLog.path))
     try? FileManager.default.removeItem(at: auditLog)

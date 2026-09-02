@@ -327,6 +327,22 @@ func runWindowRepickChecks() {
     let undrafted = tick(repick: &restlessAgain, watcher: &restlessWatcherAgain)
     check("…while the same session with nothing suspected is rebalanced exactly as before",
           undrafted.plan?.reason == "rebalance" && undrafted.claimed)
+    // AND WHAT ENDS THAT DELAY WITHOUT ANYBODY COMING BACK (2026-09-02). This gate is a delay only
+    // if the reading behind it can turn over on its own, and until that day it could not: the
+    // answer was taken back by a newer prompt or a newer injection and by nothing else, neither of
+    // which arrives in a session nobody is in, so the delay was in fact permanent and two sessions
+    // on this machine sat on empty accounts for 59 and 37 minutes because of it. Asserted through
+    // the REAL reading rather than by handing the mover `false`, which is the difference between
+    // "the gate opens when it is told to" and "something opens it".
+    let staleBurst = launch.addingTimeInterval(-30)
+    let expiredDraft = sessionInputDraftSuspected(
+        burstAt: staleBurst, userTurnAt: nil, injectedAt: nil,
+        now: staleBurst.addingTimeInterval(sessionInputDraftLife))
+    var freedState = WindowRepickState()
+    var freedWatcher = session(id: "after")
+    let freed = tick(repick: &freedState, watcher: &freedWatcher, draftSuspected: expiredDraft)
+    check("a burst nobody followed up on stops holding the movers once its life runs out",
+          !expiredDraft && freed.plan?.reason == "rebalance" && freed.claimed)
 
     // Somebody typing in that terminal is the one thing the empty conversation cannot rule out: the
     // composer may hold their next prompt, and a restart takes it with them.

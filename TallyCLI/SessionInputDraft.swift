@@ -98,6 +98,41 @@ let sessionInputStashRounds = 12
 /// account move, which is the one thing this answer still decides.
 let sessionInputDraftGrace: TimeInterval = 2
 
+/// How long a keyboard burst goes on meaning somebody is at that composer NOW.
+///
+/// THE QUESTION IS IN THE PRESENT TENSE, and until 2026-09-02 the function below answered a
+/// different one. `burstAt` only moves forward, and so do the two facts that can put a burst behind
+/// a cause, so an answer of "yes" could be taken back by a newer prompt or a newer injection and by
+/// nothing else: time was not a cause. In a session nobody is in, neither of those ever arrives. A
+/// prompt needs the person this answer claims is there, and an injection needs a station that is
+/// standing down on this very answer, so the latch closed and stayed closed for the life of the
+/// child.
+///
+/// WHAT THAT COST, read off `~/.tally/handoff.log` and `~/.tally/logs/input.log` on 2026-09-02: two
+/// sessions sat on accounts reading 0% for 59 and 37 minutes with `movers-blocked=draft-suspected`
+/// as the ONLY named blocker, and each was freed the way this whole family exists to prevent, by a
+/// person coming back, typing, and hitting the wall. In that log `draft-suspected` names 21 of 25
+/// blocked droughts, and every line where it stands alone is a session on an account with nothing
+/// left.
+///
+/// THE SELF-CONTRADICTION IS THE PROOF OF THE MISSING BOUND, and the log wrote it down rather than
+/// anybody having to reason it out: the same audit line omitted `session-busy`, which is
+/// `keyboard.idle(followIdleSeconds)` answering that the terminal had been still for two minutes,
+/// and named `draft-suspected`, which is this function answering that somebody was typing. One
+/// `lastBurstAt`, one tick, two opposite readings, because the keyboard gate bounds that evidence
+/// and this one did not bound it at all.
+///
+/// FIFTEEN MINUTES, which is the number `sessionInputQueuedLife` already carries for the
+/// neighbouring question of how long a line is still meant for the conversation in front of it,
+/// taken as a SCALE rather than derived from it: the two questions are different and tying them
+/// would let a change to one silently answer the other. What it has to be longer than is
+/// `followIdleSeconds`, or the contradiction above is still expressible inside one tick; what it
+/// has to be shorter than is the time somebody stays away from a desk, and it errs long. The cost
+/// is stated plainly rather than defended: a draft left for fifteen minutes in a terminal nothing
+/// else stamped can now be carried off by a preventive relaunch, and the kill buffer it was stashed
+/// into dies with the child.
+let sessionInputDraftLife: TimeInterval = 900
+
 /// Whether that composer probably holds something its owner has not sent.
 ///
 /// WHAT IT STILL DECIDES, since the removal above: whether this session may be RESTARTED onto
@@ -122,16 +157,26 @@ let sessionInputDraftGrace: TimeInterval = 2
 /// A BURST IS NOT ONLY FINGERS, which is the limit that ended the restore on 2026-08-20 (see the
 /// header) and is stated here because it is this function's limit rather than the caller's: mouse
 /// reporting and an IME both write runs of bytes onto that terminal, and this answer counts them.
-/// What that costs now is an account move that was not taken. What it cost while a Ctrl-Y hung off
-/// the same answer was somebody's composer.
+/// What it cost while a Ctrl-Y hung off the same answer was somebody's composer. WHAT IT COSTS NOW
+/// is no longer the single account move the 2026-08-20 note recorded: three preventive movers hold
+/// on this answer with no bound of their own (`WindowRepick`, `Rebalance`, `TurnBoundaryMove`) and
+/// the automatic resume after a wall waits on it too (`CapResume`), so a false yes is a session
+/// parked on a spent account until somebody comes back and a resume line that arrives late or not
+/// at all. That is why the answer is bounded from 2026-09-02 (`sessionInputDraftLife`): the limit
+/// stated here is unchanged, and what changed is how long a reading taken through it stands.
 ///
 /// PASTED TEXT IS THE NAMED BLIND SPOT IN THE OTHER DIRECTION rather than an oversight. A paste is
 /// one read and one stamp, so it is a lone stamp, and lone stamps are the shape terminal chatter
 /// has. It is stated in the plan document as a limitation, and a session moved away from a pasted
 /// draft loses it exactly as one moved away from a typed one would.
 func sessionInputDraftSuspected(burstAt: Date?, userTurnAt: Date?, injectedAt: Date?,
-                                grace: TimeInterval = sessionInputDraftGrace) -> Bool {
-    guard let burstAt else { return false }
+                                grace: TimeInterval = sessionInputDraftGrace,
+                                life: TimeInterval = sessionInputDraftLife,
+                                now: Date = Date()) -> Bool {
+    // NO BURST, OR ONE TOO OLD TO BE ABOUT THE PRESENT, in one guard because they are one answer:
+    // this function says somebody is at that composer, and evidence of that has to be recent as
+    // well as uncontradicted (`sessionInputDraftLife` carries the incident and the number).
+    guard let burstAt, now.timeIntervalSince(burstAt) < life else { return false }
     // EVERY KNOWN CAUSE OF A BURST THAT IS NOT A DRAFT, in one list rather than as a chain of ifs:
     // the burst has to be clear of all of them, and a cause this build does not know about is a
     // cause that is missing from this array rather than one hidden in a condition.

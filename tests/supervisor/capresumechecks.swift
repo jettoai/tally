@@ -155,10 +155,13 @@ func runCapResumeChecks() {
                 let expected: CapResumeDecision
                 if !interrupted || second {
                     expected = .idle
-                } else if shape.draft {
-                    expected = .drop(.userTyped)
                 } else if shape.state == .blocked {
                     expected = .hold(.blocked)
+                } else if shape.draft {
+                    // A WAIT SINCE 2026-09-02, not the end of the offer: a burst is evidence about
+                    // a person rather than the person, and the evidence expires
+                    // (`sessionInputDraftLife`).
+                    expected = .hold(.drafting)
                 } else {
                     expected = .type(sentence)
                 }
@@ -172,12 +175,32 @@ func runCapResumeChecks() {
     // The other half of "somebody is typing": a prompt of their OWN in the relaunched child, which
     // the draft reading cannot see because the burst that spelled it ended in a Return.
     let typedInto = session(interrupted: true, second: false)
-    check("a prompt typed into the relaunched child ends the offer too",
+    check("a prompt typed into the relaunched child ends the offer",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false, draftSuspected: false,
                            userTurnAt: wall.addingTimeInterval(20),
                            conversation: armedConversation,
-                           now: wall.addingTimeInterval(30)) == .drop(.userTyped))
+                           now: wall.addingTimeInterval(30)) == .drop(.userTurn))
+    // THE TWO FACTS THAT WERE ONE BRANCH AND ONE WORD UNTIL 2026-09-02, asserted apart: same
+    // session, one gate each, opposite answers, and different words in the record. All six resumes
+    // this machine ever dropped carried `someone-typed`, and nothing in the log could say which of
+    // these two had fired.
+    check("a keystroke burst waits where a prompt of their own ends it",
+          typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
+                           relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
+                           conversation: armedConversation,
+                           now: wall.addingTimeInterval(30)) == .hold(.drafting))
+    check("…and every ending this station can reach carries a word of its own",
+          CapResumeDrop.userTurn.word == "user-turn" && CapResumeDrop.expired.word == "expired"
+              && CapResumeDrop.otherConversation.word == "other-conversation")
+    // AND THE CLOCK OUTRANKS THAT WAIT, which is what keeps the hold from being the old drop under
+    // a friendlier name: an offer nobody could type at ends at `capResumeLife` whatever is holding
+    // it, and it ends under its own word rather than the hold's.
+    check("a drafting hold that outlives the offer becomes the expiry rather than a standing wait",
+          typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
+                           relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
+                           conversation: armedConversation,
+                           now: wall.addingTimeInterval(capResumeLife + 1)) == .drop(.expired))
 
     // MARK: - 33e. The shared table, and the clock
 
@@ -289,12 +312,36 @@ func runCapResumeChecks() {
 
     typed.removeAll()
     var abandoned = session(interrupted: true, second: false)
-    check("a session somebody is typing in is not typed into",
+    check("a session somebody may be typing in is not typed into",
           station(&abandoned, draftSuspected: true) == nil && typed.isEmpty)
-    check("…the offer is given up rather than held", !abandoned.isArmed)
-    check("…and the silence is recorded, since nothing else about it leaves a trace",
-          audit().contains("input=\(capResumeDroppedOutcome)")
-              && audit().contains("reason=someone-typed"))
+    // A WAIT RATHER THAN THE END OF IT (2026-09-02): the burst is evidence about a person rather
+    // than the person, so the arm stands and the next tick asks again.
+    check("…the offer stands, so a tick where that evidence has expired can still use it",
+          abandoned.isArmed)
+    check("…and nothing is recorded, because nothing has been given up on",
+          !audit().contains("reason=drafting"))
+    check("…the line landing as soon as the burst stops being read as a draft",
+          station(&abandoned, draftSuspected: false, at: 40) == sentence && typed == [sentence])
+    // AND THE OTHER WAY OUT OF THAT WAIT, which is what makes the hold safe without a clock of this
+    // station's own: nobody comes back, the evidence never clears, and the offer's own life ends it
+    // under the word for a clock rather than the word for a person.
+    typed.removeAll()
+    var waited = session(interrupted: true, second: false)
+    _ = station(&waited, draftSuspected: true)
+    check("an offer held that way to the end of its life is dropped as expired",
+          station(&waited, draftSuspected: true, at: capResumeLife + 1) == nil
+              && typed.isEmpty && !waited.isArmed
+              && audit().contains("input=\(capResumeDroppedOutcome)")
+              && audit().contains("reason=expired"))
+    // AND THE HARD EVIDENCE STILL ENDS IT ON THE SPOT, under the word that says which fact it was:
+    // this is the half that must NOT have become a wait, since a person who has typed a prompt of
+    // their own has answered the wall better than this line would.
+    typed.removeAll()
+    var overtaken = session(interrupted: true, second: false)
+    check("a prompt of their own ends the offer, and the record names that fact rather than a burst",
+          station(&overtaken, userTurnAt: wall.addingTimeInterval(20)) == nil
+              && typed.isEmpty && !overtaken.isArmed
+              && audit().contains("reason=user-turn"))
 
     typed.removeAll()
     var refused = session(interrupted: true, second: false)
@@ -354,6 +401,41 @@ func runCapResumeChecks() {
     }())
     check("…and it says so in the log, which is the only trace a resume that never happened leaves",
           audit().contains("reason=other-conversation"))
+
+    // MARK: - 33i. The same shape a second time, with a different cause behind it
+
+    // THE SEQUENCE THIS COVERS, in one state and end to end: a wall, a burst that holds the line
+    // back, evidence that expires, the line typed at last - and then the turn THAT line starts hits
+    // a wall of its own. The second event has the same shape as the first (a cap handoff, a fresh
+    // user turn in the transcript) and a completely different cause: the turn is this supervisor's
+    // own sentence read back. It is here rather than in the pure grid because only the sequence can
+    // get it wrong - the hold is new, and a hold that quietly re-dated the anti-recursion stamp, or
+    // one whose release re-armed the station against its own output, would pass every row above.
+    typed.removeAll()
+    var recurring = session(interrupted: true, second: false)
+    check("the first wall's line waits on the burst rather than being abandoned by it",
+          station(&recurring, draftSuspected: true) == nil && recurring.isArmed)
+    check("…and is typed once that evidence expires",
+          station(&recurring, draftSuspected: false, at: 40) == sentence && typed == [sentence])
+    check("…dated by the end of that write rather than by the tick that decided to wait",
+          recurring.nudgedAt == wall.addingTimeInterval(45))
+    recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(120),
+                  answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
+                  userTurnAt: wall.addingTimeInterval(45.5))
+    check("a second wall arms nothing, because the only turn since is this station's own line",
+          !recurring.isArmed)
+    // AND A PERSON REALLY COMING BACK STILL RE-ARMS IT, which is the boundary of that refusal:
+    // what is discounted is a turn inside `capResumeOwnLineGrace` of the write, not every later one.
+    recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(120),
+                  answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
+                  userTurnAt: wall.addingTimeInterval(90))
+    check("…while a prompt somebody typed a minute after that line does re-arm it",
+          recurring.isArmed)
+    check("…and the second offer waits on its own burst rather than on the first offer's stamps",
+          recurring.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
+                           relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
+                           conversation: armedConversation,
+                           now: wall.addingTimeInterval(130)) == .hold(.drafting))
 
     try? FileManager.default.removeItem(at: log)
 }

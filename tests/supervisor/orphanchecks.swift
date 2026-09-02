@@ -289,6 +289,48 @@ private func runOrphanVerdictChecks() {
     check("…while a directory with no repository above it is only itself",
           OrphanReclaim.checkout(of: "/tmp/somewhere", entry: entry) == "/tmp/somewhere")
 
+    // 🔴 AND THE SAME QUESTION PUT TO A REAL DIRECTORY, because what makes the two sides of this
+    // comparison disagree is produced by the disk rather than by any fixture (codex review of
+    // d155fdc). The fold goes through `standardizedFileURL` (`OrphanNotice.absolute`), which takes
+    // a leading `/private` off and hands back DECOMPOSED Unicode; a session's directory reaches the
+    // store through `realpath`, which keeps `/private` and answers with the name the volume holds.
+    // So one checkout arrives under two spellings, compares unequal, and the veto is missed in the
+    // one direction that ends a process. The store closes it by putting both sides through
+    // `OrphanReclaimStore.checkout(of:)`, and what is asserted here is that exact composition:
+    // resolve after fold. The store's own suite states it with a map of fake resolutions
+    // (orphanstorechecks.swift), which can only be as good as the spellings somebody thought to put
+    // in the map.
+    var template = Array("/private/tmp/tally-orphan-fold-XXXXXX".utf8CString)
+    if let base = mkdtemp(&template).map({ String(cString: $0) }) {
+        let disk = FileManager.default
+        // A COMPOSED "é" (U+00E9) IN THE REPOSITORY'S NAME, written composed on purpose: it is half
+        // of what the fold changes, and a name of plain ASCII would leave only the `/private` half.
+        let foldRepo = base + "/r\u{00E9}po"
+        let foldLine = base + "/wt"
+        do {
+            try disk.createDirectory(atPath: foldRepo + "/.git", withIntermediateDirectories: true)
+            try disk.createDirectory(atPath: foldLine, withIntermediateDirectories: true)
+            // RELATIVE ON PURPOSE: this is the line `git worktree add --relative-paths` writes, and
+            // the whole reason there is anything to fold.
+            try "gitdir: ../r\u{00E9}po/.git/worktrees/wt\n"
+                .write(toFile: foldLine + "/.git", atomically: true, encoding: .utf8)
+            let folded = OrphanReclaim.checkout(of: foldLine, entry: OrphanNotice.gitEntry)
+            check("a parallel line's repository, resolved, is the checkout the session is in",
+                  MachineLoadRollup.resolvedPath(folded)
+                      == MachineLoadRollup.resolvedPath(foldRepo))
+            // AND WHY THE RESOLVING IS NOT DECORATION. Without it the comparison is made against a
+            // spelling no process on this machine ever reports, and the answer is "nobody is
+            // working here" about a checkout somebody is working in.
+            check("…while the fold on its own answers a spelling the machine never reports",
+                  folded != foldRepo)
+        } catch {
+            check("a real checkout fold is left unasserted: the fixture would not be written", true)
+        }
+        try? disk.removeItem(atPath: base)
+    } else {
+        check("a real checkout fold is left unasserted: /private/tmp would take no directory", true)
+    }
+
     // MARK: the vetoes themselves, taken off real readings
 
     func member(_ pid: pid_t, parent: pid_t = 1, program: String? = "/opt/homebrew/bin/node",

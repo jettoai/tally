@@ -248,11 +248,17 @@ enum OrphanNotice {
                     "If this was wanted, start it again - and if it should stay up unattended, run"
                         + " it under `/dev-watch`, whose lease says whose it is."]
         case .reported(let doubts):
+            // WHAT TO DO ABOUT IT DEPENDS ON WHOSE IT MIGHT BE. "End it yourself if it is not
+            // wanted" is the wrong sentence for a tree the reader's own session may have started.
+            let advice = doubts.contains(.sessionPresent)
+                ? "If it is yours, there is nothing to do. If it should stay up on its own, run it"
+                    + " under `/dev-watch`, whose lease says whose it is. If it is not wanted, end"
+                    + " it yourself."
+                : "Have a look and end it yourself if it is not wanted."
             return ["Left it alone. It looks like something nobody is answering for, but this app"
                         + " will not end a process it cannot be sure about, and here it could not"
                         + " be: " + doubts.map { reason($0) }.joined(separator: "; ") + ".",
-                    "",
-                    "Have a look and end it yourself if it is not wanted."]
+                    "", advice]
         case .failed(let reason):
             return ["Tried to end it and could not: \(reason). It is still running.",
                     "",
@@ -268,6 +274,7 @@ enum OrphanNotice {
         case .unreadable: return "the machine would not state one of its fields"
         case .crossRepo: return "part of the tree is working in another checkout"
         case .unknownProgram: return "its program is not one this app recognises as development work"
+        case .sessionPresent: return "a session is working in this checkout, so this may be its work"
         }
     }
 

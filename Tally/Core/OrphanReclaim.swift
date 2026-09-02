@@ -208,14 +208,29 @@ enum OrphanReclaim {
         /// The program is not one this app recognises as development work
         /// (`developmentPrograms`).
         case unknownProgram
+        /// A LIVE SESSION IS WORKING IN THIS TREE'S CHECKOUT, so the tree may well be that
+        /// session's own even though no card is counting it.
+        ///
+        /// THE FILE THAT DECIDES THIS ONE IS NOT THE PROCESS TABLE (`OrphanReclaimStore.round`
+        /// takes it, the way it takes a terminal above the root). Everything else here is read off
+        /// the tree; this is read off the board, and it is the reading the 2026-09-02 incident was
+        /// missing: two dev servers were ended in checkouts a session was sitting in and working,
+        /// and both messages said no session was, because the sentence was in the message and the
+        /// test behind it was nowhere.
+        ///
+        /// SOFT, not hard. A session in the checkout does not make this tree that session's: a
+        /// stray is by definition work no card reached, and the commonest one is the server left
+        /// behind by the session BEFORE this one. So the answer is tier C - say what is running and
+        /// leave it - rather than the silence a hard veto buys.
+        case sessionPresent
 
         /// Whether this says "not an orphan" rather than "cannot tell". The first three are
-        /// evidence about the world; the last three are the absence of evidence, which is what tier
-        /// C exists to report rather than to act on.
+        /// evidence about the world; the rest are the absence of evidence, which is what tier C
+        /// exists to report rather than to act on.
         var hard: Bool {
             switch self {
             case .terminal, .ancestor, .inUse: return true
-            case .unreadable, .crossRepo, .unknownProgram: return false
+            case .unreadable, .crossRepo, .unknownProgram, .sessionPresent: return false
             }
         }
 
@@ -250,6 +265,11 @@ enum OrphanReclaim {
     /// whose directory cannot be read makes the whole set unsafe to end - the unreadable one may be
     /// the very process that matters.
     ///
+    /// NOT EVERY VETO IS TAKEN HERE, and the two that are not are the two that are not about the
+    /// tree at all: a terminal on an ANCESTOR of the root, and a live session working in the
+    /// checkout (`Veto.sessionPresent`). Both are read off things this function is not handed, and
+    /// both are added by the caller (`OrphanReclaimStore.read`).
+    ///
     /// - Parameters:
     ///   - members: every process in the tree, with what could be read about each.
     ///   - sockets: what the socket walk found, AND whose table it could not read - the second of
@@ -281,6 +301,24 @@ enum OrphanReclaim {
         if inUse(sockets.connections, within: tree.members) { found.insert(.inUse) }
         if !recognised(tree, members: members) { found.insert(.unknownProgram) }
         return found
+    }
+
+    /// WHICH CHECKOUT A DIRECTORY IS IN, for the one question "is somebody working here".
+    ///
+    /// A PARALLEL LINE IS ITS REPOSITORY, on the same rule the messages are addressed by
+    /// (`OrphanNotice.repository`): a session in the trunk and a leftover in a worktree of it are
+    /// one person's business, and answering "two different checkouts" would end a tree that
+    /// session's own commands very likely started. The worktree name is dropped here because the
+    /// only thing being asked is whether two directories are the same body of work.
+    ///
+    /// A DIRECTORY WITH NO `.git` ABOVE IT IS ITS OWN CHECKOUT, which is what the strays' own
+    /// projects already are: the rollup files a stray under the accounted root that CONTAINS it
+    /// (`MachineLoadRollup.project`), and a session's root is that same string, so the ordinary
+    /// case compares equal without any of this. The walk is what covers the two that do not: a
+    /// worktree, and a session sitting in a subdirectory of the checkout its leftovers are in.
+    static func checkout(of directory: String,
+                         entry: (String) -> OrphanNotice.GitEntry?) -> String {
+        OrphanNotice.repository(of: directory, entry: entry)?.root ?? directory
     }
 
     /// The programs that make everything under them somebody's workspace.

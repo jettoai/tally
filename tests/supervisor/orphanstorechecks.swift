@@ -47,6 +47,9 @@ private final class FakeMachine {
     var surviving: [pid_t: Int64] = [:]
     var delivered: [(text: String, inbox: URL, name: String)] = []
     var gitRoot = "/Users/x/workspace/bigdata"
+    /// What `<dir>/.git` is, for the paths the default below does not cover: a parallel line's
+    /// `.git` FILE, which is what folds a worktree into its repository (`OrphanNotice.repository`).
+    var gitEntries: [String: OrphanNotice.GitEntry] = [:]
 
     func store(home: URL = URL(fileURLWithPath: "/Users/x")) -> OrphanReclaimStore {
         OrphanReclaimStore(machine: OrphanReclaimStore.Machine(
@@ -87,7 +90,9 @@ private final class FakeMachine {
                 },
                 table: { [self] in MainActor.assumeIsolated { laterTable ?? table } }),
             gitEntry: { [self] path in
-                MainActor.assumeIsolated { path == gitRoot + "/.git" ? .directory : nil }
+                MainActor.assumeIsolated {
+                    gitEntries[path] ?? (path == gitRoot + "/.git" ? .directory : nil)
+                }
             },
             deliver: { [self] text, inbox, name in
                 MainActor.assumeIsolated {
@@ -127,7 +132,7 @@ func runOrphanStoreChecks() {
     busyServer(fake)
     fake.times = [root: 100, worker: 0]
     let store = fake.store()
-    store.observe(strays: [root: web, worker: web], processes: fake.table, at: t0)
+    store.observe(strays: [root: web, worker: web], processes: fake.table, sessions: [], at: t0)
     check("the first round of a busy leftover sends nothing at all", fake.sent.isEmpty)
     // AND SAYS NOTHING EITHER, because there is nothing to say yet: a rate needs two readings, so
     // on a first round this app does not know whether the thing is busy at all.
@@ -136,7 +141,7 @@ func runOrphanStoreChecks() {
     // One whole core burned over the five minutes between rounds.
     fake.times = [root: 400, worker: 0]
     let round2 = t0.addingTimeInterval(OrphanReclaim.roundInterval)
-    store.observe(strays: [root: web, worker: web], processes: fake.table, at: round2)
+    store.observe(strays: [root: web, worker: web], processes: fake.table, sessions: [], at: round2)
     check("the second round asks the whole job to end, once",
           fake.sent.map(\.0) == [SIGTERM] && fake.sent.map(\.1) == [-group])
     check("…and says nothing until it knows whether that worked", store.records.isEmpty)
@@ -157,9 +162,11 @@ func runOrphanStoreChecks() {
     busyServer(stubborn)
     stubborn.times = [root: 100, worker: 0]
     let second = stubborn.store()
-    second.observe(strays: [root: web, worker: web], processes: stubborn.table, at: t0)
+    second.observe(strays: [root: web, worker: web], processes: stubborn.table,
+                   sessions: [], at: t0)
     stubborn.times = [root: 400, worker: 0]
-    second.observe(strays: [root: web, worker: web], processes: stubborn.table, at: round2)
+    second.observe(strays: [root: web, worker: web], processes: stubborn.table,
+                   sessions: [], at: round2)
     // The root goes at once and the worker does not, which is the ordinary shape of this: a group
     // kill is what reaches the survivor at all. The table the ESCALATION reads is the machine ten
     // seconds later, so the root is out of it.
@@ -201,9 +208,11 @@ func runOrphanStoreChecks() {
     busyServer(racing)
     racing.times = [root: 100, worker: 0]
     let sixthRace = racing.store()
-    sixthRace.observe(strays: [root: web, worker: web], processes: racing.table, at: t0)
+    sixthRace.observe(strays: [root: web, worker: web], processes: racing.table,
+                      sessions: [], at: t0)
     racing.times = [root: 400, worker: 0]
-    sixthRace.observe(strays: [root: web, worker: web], processes: racing.table, at: round2)
+    sixthRace.observe(strays: [root: web, worker: web], processes: racing.table,
+                      sessions: [], at: round2)
     check("the first signal reaches the whole job in one call, the group being clean",
           racing.sent.map(\.1) == [-group])
     let reused = born + 999_999
@@ -228,9 +237,11 @@ func runOrphanStoreChecks() {
     busyServer(direct)
     direct.times = [root: 100, worker: 0]
     let seventhRace = direct.store()
-    seventhRace.observe(strays: [root: web, worker: web], processes: direct.table, at: t0)
+    seventhRace.observe(strays: [root: web, worker: web], processes: direct.table,
+                        sessions: [], at: t0)
     direct.times = [root: 400, worker: 0]
-    seventhRace.observe(strays: [root: web, worker: web], processes: direct.table, at: round2)
+    seventhRace.observe(strays: [root: web, worker: web], processes: direct.table,
+                        sessions: [], at: round2)
     let elsewhere = group + 700, outsider = group + 701
     direct.surviving = [worker: born, root: reused]
     direct.laterTable = [ProcessIdentity(pid: worker, parent: 1, group: group, startedAt: born),
@@ -273,9 +284,11 @@ func runOrphanStoreChecks() {
     busyServer(handedOn)
     handedOn.times = [root: 100, worker: 0]
     let eighthRace = handedOn.store()
-    eighthRace.observe(strays: [root: web, worker: web], processes: handedOn.table, at: t0)
+    eighthRace.observe(strays: [root: web, worker: web], processes: handedOn.table,
+                       sessions: [], at: t0)
     handedOn.times = [root: 400, worker: 0]
-    eighthRace.observe(strays: [root: web, worker: web], processes: handedOn.table, at: round2)
+    eighthRace.observe(strays: [root: web, worker: web], processes: handedOn.table,
+                       sessions: [], at: round2)
     // `alive()` still names the worker at the start time the round recorded, so it is a survivor;
     // the fresh table a moment later says that number belongs to something younger.
     handedOn.surviving = [worker: born]
@@ -290,9 +303,10 @@ func runOrphanStoreChecks() {
     busyServer(stuck)
     stuck.times = [root: 100, worker: 0]
     let third = stuck.store()
-    third.observe(strays: [root: web, worker: web], processes: stuck.table, at: t0)
+    third.observe(strays: [root: web, worker: web], processes: stuck.table, sessions: [], at: t0)
     stuck.times = [root: 400, worker: 0]
-    third.observe(strays: [root: web, worker: web], processes: stuck.table, at: round2)
+    third.observe(strays: [root: web, worker: web], processes: stuck.table,
+                  sessions: [], at: round2)
     stuck.surviving = [:]
     stuck.listening = [3000]
     third.advance(at: round2.addingTimeInterval(1))
@@ -310,9 +324,10 @@ func runOrphanStoreChecks() {
                                                     remoteIsLoopback: true, listening: false))
     watched.times = [root: 100, worker: 0]
     let fourth = watched.store()
-    fourth.observe(strays: [root: web, worker: web], processes: watched.table, at: t0)
+    fourth.observe(strays: [root: web, worker: web], processes: watched.table, sessions: [], at: t0)
     watched.times = [root: 400, worker: 0]
-    fourth.observe(strays: [root: web, worker: web], processes: watched.table, at: round2)
+    fourth.observe(strays: [root: web, worker: web], processes: watched.table,
+                   sessions: [], at: round2)
     check("a server with a browser attached is never signalled, however busy or old",
           watched.sent.isEmpty && fourth.records.isEmpty)
 
@@ -325,9 +340,10 @@ func runOrphanStoreChecks() {
     doubted.programs = [root: "/usr/local/bin/mystery", worker: "/usr/local/bin/mystery"]
     doubted.times = [root: 100, worker: 0]
     let eighth = doubted.store()
-    eighth.observe(strays: [root: web, worker: web], processes: doubted.table, at: t0)
+    eighth.observe(strays: [root: web, worker: web], processes: doubted.table, sessions: [], at: t0)
     doubted.times = [root: 400, worker: 0]
-    eighth.observe(strays: [root: web, worker: web], processes: doubted.table, at: round2)
+    eighth.observe(strays: [root: web, worker: web], processes: doubted.table,
+                   sessions: [], at: round2)
     check("something heavy this app cannot vouch for is reported and never signalled",
           doubted.sent.isEmpty && eighth.records.first?.outcome
               == .reported(doubts: [.unknownProgram]))
@@ -336,7 +352,7 @@ func runOrphanStoreChecks() {
               && doubted.delivered.first?.text.contains("Left it alone.") == true)
     // AND NOT AGAIN AN HOUR LATER, which is what turns a channel into noise.
     doubted.times = [root: 700, worker: 0]
-    eighth.observe(strays: [root: web, worker: web], processes: doubted.table,
+    eighth.observe(strays: [root: web, worker: web], processes: doubted.table, sessions: [],
                    at: round2.addingTimeInterval(OrphanReclaim.roundInterval))
     check("…and not said a second time the same day",
           doubted.delivered.count == 1 && eighth.records.count == 1)
@@ -352,9 +368,10 @@ func runOrphanStoreChecks() {
     blind.unreadableSockets = [worker]
     blind.times = [root: 100, worker: 0]
     let ninth = blind.store()
-    ninth.observe(strays: [root: web, worker: web], processes: blind.table, at: t0)
+    ninth.observe(strays: [root: web, worker: web], processes: blind.table, sessions: [], at: t0)
     blind.times = [root: 400, worker: 0]
-    ninth.observe(strays: [root: web, worker: web], processes: blind.table, at: round2)
+    ninth.observe(strays: [root: web, worker: web], processes: blind.table,
+                  sessions: [], at: round2)
     check("a tree whose sockets could not be enumerated is reported rather than ended",
           blind.sent.isEmpty
               && ninth.records.first?.outcome == .reported(doubts: [.unreadable]))
@@ -365,11 +382,11 @@ func runOrphanStoreChecks() {
     busyServer(paced)
     paced.times = [root: 100, worker: 0]
     let fifth = paced.store()
-    fifth.observe(strays: [root: web, worker: web], processes: paced.table, at: t0)
+    fifth.observe(strays: [root: web, worker: web], processes: paced.table, sessions: [], at: t0)
     paced.times = [root: 400, worker: 0]
     // Two seconds later, which is the sampler's own beat: a pair this close is one moment read
     // twice, and taking it as a round would confirm a link step as a runaway.
-    fifth.observe(strays: [root: web, worker: web], processes: paced.table,
+    fifth.observe(strays: [root: web, worker: web], processes: paced.table, sessions: [],
                   at: t0.addingTimeInterval(2))
     check("the sampler's own tick does not take a round", paced.sent.isEmpty)
 
@@ -383,7 +400,7 @@ func runOrphanStoreChecks() {
                                  childBornAt: leaseBorn.addingTimeInterval(2))]
     let sixth = leased.store()
     // ONE ROUND, NOT TWO: the lease is a statement by the machine's own harness, not an inference.
-    sixth.observe(strays: [:], processes: leased.table, at: t0)
+    sixth.observe(strays: [:], processes: leased.table, sessions: [], at: t0)
     check("an abandoned lease is acted on in the very first round it is seen",
           leased.sent.map(\.0) == [SIGTERM])
     leased.surviving = [:]
@@ -402,7 +419,7 @@ func runOrphanStoreChecks() {
                                  supervisor: 999_999, bornAt: leaseBorn, child: root,
                                  childBornAt: leaseBorn.addingTimeInterval(2))]
     let seventh = tended.store()
-    seventh.observe(strays: [:], processes: tended.table, at: t0)
+    seventh.observe(strays: [:], processes: tended.table, sessions: [], at: t0)
     check("a dev-watch supervisor that is alive and well has its server left entirely alone",
           tended.sent.isEmpty && tended.cleared.isEmpty)
 
@@ -423,10 +440,112 @@ func runOrphanStoreChecks() {
                                      supervisor: 999_999, bornAt: leaseBorn, child: root,
                                      childBornAt: leaseBorn.addingTimeInterval(2))]
         let store = missed.store()
-        store.observe(strays: [:], processes: missed.table, at: t0)
+        store.observe(strays: [:], processes: missed.table, sessions: [], at: t0)
         check("a supervisor absent from the table but \(verdict) has its server left alone",
               missed.sent.isEmpty && missed.cleared.isEmpty && store.records.isEmpty)
     }
+
+    // MARK: 🔴 a live session working in the checkout (2026-09-02, the first real machine)
+
+    // TWO DEV SERVERS WERE ENDED IN CHECKOUTS WHOSE SESSIONS WERE SITTING RIGHT THERE, within
+    // eleven minutes of each other, on the first day this ran on a real machine: geo at 14:48
+    // (48 hours old, 2.7 GB, holding :3100) and bigdata at 14:58. The geo session reopened :3100
+    // inside the minute, which is the whole proof that the tree was wanted. Both messages said
+    // "No live session was working in this checkout" - a sentence with no test behind it anywhere,
+    // because the veto it describes did not exist: the intent was written in the design note
+    // (`OrphanReclaim.minimumAge`, "a checkout with no session on it") and never in the rule.
+    //
+    // THE FIXTURE IS THAT TREE. It draws no veto of the old kind at all - a recognised program, one
+    // checkout, no terminal, no ancestor, nothing connected, every field readable - and it clears
+    // the bar on MEMORY rather than on CPU, which is how both of the real ones did.
+    let ancient = Int64(t0.addingTimeInterval(-48 * 3600).timeIntervalSince1970 * 1_000_000)
+    func leftoverServer(_ fake: FakeMachine, project: String) {
+        fake.table = [ProcessIdentity(pid: root, parent: 1, group: group, startedAt: ancient),
+                      ProcessIdentity(pid: worker, parent: root, group: group, startedAt: ancient)]
+        fake.programs = [root: "/opt/homebrew/bin/node", worker: "/opt/homebrew/bin/node"]
+        fake.directories = [root: project, worker: project]
+        fake.sockets = [OrphanReclaim.Connection(pid: root, localPort: 3100, remotePort: 0,
+                                                 remoteIsLoopback: true, listening: true)]
+        // 2.7 GB against a bar of two, at about one per cent of a core: heavy, and idle.
+        fake.memory = [root: 2_700_000_000, worker: 100_000_000]
+        fake.surviving = [root: ancient, worker: ancient]
+        fake.times = [root: 100, worker: 0]
+    }
+
+    let occupied = FakeMachine()
+    leftoverServer(occupied, project: web)
+    let tenth = occupied.store()
+    tenth.observe(strays: [root: web, worker: web], processes: occupied.table,
+                  sessions: [web], at: t0)
+    occupied.times = [root: 103, worker: 0]
+    tenth.observe(strays: [root: web, worker: web], processes: occupied.table,
+                  sessions: [web], at: round2)
+    check("a leftover in a checkout a session is working in is reported and never signalled",
+          occupied.sent.isEmpty
+              && tenth.records.first?.outcome == .reported(doubts: [.sessionPresent]))
+    check("…and the message names the doubt and what to do about it",
+          occupied.delivered.count == 1
+              && occupied.delivered.first?.text
+                  .contains("a session is working in this checkout") == true
+              && occupied.delivered.first?.text.contains("`/dev-watch`") == true)
+
+    // AND THE SAME TREE WITH NOBODY IN THE CHECKOUT IS STILL ENDED, which is the half this repair
+    // must not have taken with it: the veto is a doubt about ONE reading, not a new bar.
+    let vacant = FakeMachine()
+    leftoverServer(vacant, project: web)
+    let eleventh = vacant.store()
+    eleventh.observe(strays: [root: web, worker: web], processes: vacant.table,
+                     sessions: [], at: t0)
+    vacant.times = [root: 103, worker: 0]
+    eleventh.observe(strays: [root: web, worker: web], processes: vacant.table,
+                     sessions: [], at: round2)
+    check("…while the same tree in a checkout nobody is in is ended on the second round",
+          vacant.sent.map(\.0) == [SIGTERM])
+    vacant.surviving = [:]
+    eleventh.advance(at: round2.addingTimeInterval(1))
+    // THE SENTENCE IN THE MESSAGE IS NOW A CLAIM SOMETHING CHECKED, which is the other half of the
+    // repair: it was written before the veto existed, and a message that vouches for a test nobody
+    // ran is worse than one that says nothing.
+    check("…and the message may say no session was working here, because now it was asked",
+          vacant.delivered.first?.text
+              .contains("No live session was working in this checkout") == true)
+
+    // A SESSION IN THE TRUNK COVERS ITS PARALLEL LINES, on the rule the messages are already
+    // addressed by: a worktree is the repository, so a session in `bigdata` speaks for a leftover
+    // in `bigdata/.worktrees/wt1` - which is very likely something that session's own commands
+    // started (`OrphanReclaim.checkout`).
+    let line = repo + "/.worktrees/wt1"
+    let parallel = FakeMachine()
+    leftoverServer(parallel, project: line)
+    parallel.gitEntries = [line + "/.git": .file("gitdir: " + repo + "/.git/worktrees/wt1")]
+    let twelfth = parallel.store()
+    twelfth.observe(strays: [root: line, worker: line], processes: parallel.table,
+                    sessions: [web], at: t0)
+    parallel.times = [root: 103, worker: 0]
+    twelfth.observe(strays: [root: line, worker: line], processes: parallel.table,
+                    sessions: [web], at: round2)
+    check("a session in the repository speaks for a leftover in a worktree of it",
+          parallel.sent.isEmpty
+              && twelfth.records.first?.outcome == .reported(doubts: [.sessionPresent]))
+
+    // AND TIER A IS NOT SUBJECT TO ANY OF THIS. A lease is a statement rather than an inference -
+    // this machine's own harness named that tree, and the supervisor that wrote it is gone - so a
+    // session in the checkout says nothing about it. Withholding here would leave exactly the
+    // abandoned server the lease exists to name.
+    let leasedBusy = FakeMachine()
+    busyServer(leasedBusy)
+    leasedBusy.leases = [OrphanLease(project: "bigdata-web",
+                                     pidFile: "/tmp/bigdata-web.devwatch.pid",
+                                     supervisor: 999_999, bornAt: leaseBorn, child: root,
+                                     childBornAt: leaseBorn.addingTimeInterval(2))]
+    let thirteenth = leasedBusy.store()
+    thirteenth.observe(strays: [:], processes: leasedBusy.table, sessions: [web], at: t0)
+    check("an abandoned lease is acted on however many sessions are working in the checkout",
+          leasedBusy.sent.map(\.0) == [SIGTERM])
+    leasedBusy.surviving = [:]
+    thirteenth.advance(at: t0.addingTimeInterval(1))
+    check("…and recorded as the reclaim the lease itself justified, not as a report",
+          thirteenth.records.first?.outcome == .reclaimedByLease)
 
     // MARK: a capture never reaches any of this
 
@@ -438,6 +557,15 @@ func runOrphanStoreChecks() {
                               encoding: .utf8)) ?? ""
     check("a capture takes no round at all",
           source.contains("guard !DemoUsage.isActive else { return }"))
+    // AND THE TICK HAS TO HAND THE SESSIONS OVER, which is the one step of this no fixture can
+    // drive: the pass that produces them walks the real process table and reads a real roster. The
+    // 2026-09-02 incident was exactly this shape - the rule was in the design note and the wiring
+    // was nowhere - so the call site is pinned as a string, the way this repo pins the rest of that
+    // pass (`machineloadchecks.swift`).
+    let tick = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
+                            encoding: .utf8)) ?? ""
+    check("the tick hands the reclaim the checkouts its own cards are drawn for",
+          !tick.isEmpty && tick.contains("sessions: Set(byProject.map(\\.root)), at: now)"))
     check("…and the guard sits before the round rather than after the sweep",
           (source.range(of: "guard !DemoUsage.isActive")?.lowerBound).map { flag in
               (source.range(of: "lastRound = now")?.lowerBound).map { flag < $0 } ?? false

@@ -393,7 +393,12 @@ final class ProcessFootprintStore {
             ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
         if load != machineLoad { machineLoad = load }
         // AND WHETHER ANY OF IT SHOULD STILL BE RUNNING (`OrphanReclaimStore`, which paces itself).
-        OrphanReclaimStore.shared.observe(strays: unattributed, processes: processes, at: now)
+        // THE SESSIONS GO WITH THE STRAYS, and they are the readings the rollup was just given: a
+        // checkout somebody is working in is one whose leftovers this app reports rather than ends
+        // (`OrphanReclaim.Veto.sessionPresent`). Taken from the cards rather than from the roster,
+        // so "a live session" means the same thing here as it does on the page.
+        OrphanReclaimStore.shared.observe(strays: unattributed, processes: processes,
+                                          sessions: Set(byProject.map(\.root)), at: now)
         previousSample = readings
         cpuCarry = carried
         alertState = painted.alerts

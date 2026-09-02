@@ -250,11 +250,37 @@ private func runOrphanVerdictChecks() {
               OrphanReclaim.verdict(for: reading(at: round2, vetoes: [veto]),
                                     previous: first).verdict == .leave)
     }
-    for veto in [OrphanReclaim.Veto.unreadable, .crossRepo, .unknownProgram] {
+    for veto in [OrphanReclaim.Veto.unreadable, .crossRepo, .unknownProgram, .sessionPresent] {
         check("a tree in doubt over \(veto.rawValue) is reported and not ended",
               OrphanReclaim.verdict(for: reading(at: round2, vetoes: [veto]),
                                     previous: first).verdict == .notify)
     }
+    // 🔴 EVERY VETO IS ONE OR THE OTHER, and the reason this is asserted over `allCases` rather
+    // than case by case is that a new one added without a `hard` answer is the failure that ends a
+    // process: the switch is exhaustive, so the compiler catches a missing case, and what it cannot
+    // catch is a case added to the wrong side of it.
+    check("a soft veto is a doubt and a hard one is silence, over every veto there is",
+          OrphanReclaim.Veto.allCases.filter(\.hard).sorted() == [.ancestor, .inUse, .terminal])
+
+    // MARK: 🔴 which checkout a directory is in (2026-09-02, the session-present veto)
+
+    // A WORKTREE IS ITS REPOSITORY, which is what makes a session in the trunk speak for a leftover
+    // in a parallel line of it. Same rule the messages are addressed by, asked here for a different
+    // purpose: whether two directories are the same body of work.
+    let line = "/Users/x/workspace/bigdata/.worktrees/wt1"
+    func entry(_ path: String) -> OrphanNotice.GitEntry? {
+        switch path {
+        case repo + "/.git": return .directory
+        case line + "/.git": return .file("gitdir: " + repo + "/.git/worktrees/wt1")
+        default: return nil
+        }
+    }
+    check("a directory inside a checkout is that checkout",
+          OrphanReclaim.checkout(of: repo + "/web", entry: entry) == repo)
+    check("…and a parallel line of it is the repository, not a checkout of its own",
+          OrphanReclaim.checkout(of: line, entry: entry) == repo)
+    check("…while a directory with no repository above it is only itself",
+          OrphanReclaim.checkout(of: "/tmp/somewhere", entry: entry) == "/tmp/somewhere")
 
     // MARK: the vetoes themselves, taken off real readings
 
@@ -539,6 +565,21 @@ private func runOrphanNoticeChecks() {
     check("a tier-C message says what was NOT done and why, in words rather than in enum names",
           OrphanNotice.message(doubted, to: "bigdata", worktree: nil, at: at)
               .contains("something is connected to it; its program is not one this app recognises"))
+    // 🔴 AND THE ONE THE INCIDENT WAS MISSING: what a reader is to do when the doubt is that they
+    // themselves are working here. "Have a look and end it yourself" is the wrong sentence for a
+    // tree that may be their own session's.
+    var mine = report
+    mine.outcome = .reported(doubts: [.sessionPresent])
+    let told = OrphanNotice.message(mine, to: "bigdata", worktree: nil, at: at)
+    check("a tree in an occupied checkout is reported as possibly the reader's own work",
+          told.contains("a session is working in this checkout, so this may be its work"))
+    check("…and is told how to keep it rather than only how to end it",
+          told.contains("If it is yours, there is nothing to do.")
+              && told.contains("`/dev-watch`") && !told.contains("Have a look and end it yourself"))
+    // AND THE SENTENCE THE INCIDENT'S OWN MESSAGES CARRIED, which is now a claim something checks
+    // (`OrphanReclaim.Veto.sessionPresent`). It was in this file before the veto existed.
+    check("a reclaim still says no session was working here, which is now a tested claim",
+          text.contains("No live session was working in this checkout"))
     var failed = report
     failed.outcome = .failed(reason: "it would not go")
     check("…and a failure says the thing is still running",

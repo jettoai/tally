@@ -109,7 +109,11 @@ final class OrphanReclaimStore {
     /// - Parameters:
     ///   - strays: what no session accounts for, by project (`MachineLoadRollup.leftovers`).
     ///   - processes: the whole table, out of the walk the tick already made.
-    func observe(strays: [pid_t: String], processes: [ProcessIdentity], at now: Date) {
+    ///   - sessions: the directories the LIVE sessions are working in, as the board holds them
+    ///     (`MachineLoadRollup.SessionReading.root`). A tree in one of these checkouts is never
+    ///     ended on inference alone (`OrphanReclaim.Veto.sessionPresent`).
+    func observe(strays: [pid_t: String], processes: [ProcessIdentity], sessions: Set<String>,
+                 at now: Date) {
         advance(at: now)
         // A CAPTURE MUST NEVER REACH THIS. The demo flag fabricates the board's readings
         // (`DemoUsage`), and a screenshot run that ended a real process because a fixture said it
@@ -123,7 +127,7 @@ final class OrphanReclaimStore {
         var acted = leases(among: processes, table: table, at: now)
         acted.formUnion(sweeps.flatMap(\.targets))
         round(strays: strays.filter { !acted.contains($0.key) }, processes: processes,
-              table: table, at: now)
+              table: table, sessions: sessions, at: now)
     }
 
     /// TIER A: the leases whose writer has gone (`OrphanLease` carries the whole contract).
@@ -159,13 +163,23 @@ final class OrphanReclaimStore {
     }
 
     /// TIER B AND C: everything else that is running in one of these checkouts.
+    ///
+    /// TIER A IS DELIBERATELY NOT SUBJECT TO THE SESSION VETO. A lease is a statement rather than
+    /// an inference - the harness's own supervisor named that tree and is no longer running - and
+    /// a session in the checkout says nothing about a server whose owner is provably gone. It is
+    /// only the evidence-based tier that has to defer to somebody being here.
     private func round(strays: [pid_t: String], processes: [ProcessIdentity],
-                       table: [pid_t: ProcessIdentity], at now: Date) {
+                       table: [pid_t: ProcessIdentity], sessions: Set<String>, at now: Date) {
         let parents = table.mapValues(\.parent)
+        // THE CHECKOUTS SOMEBODY IS WORKING IN, folded to their repositories once for the round
+        // rather than once per tree: the fold is a walk of the filesystem, and the answer is the
+        // same for every tree on the round (`OrphanReclaim.checkout`).
+        let occupied = Set(sessions.map { OrphanReclaim.checkout(of: $0, entry: machine.gitEntry) })
         var seen: Set<pid_t> = []
         var watches: [Watch] = []
         for tree in OrphanReclaim.trees(of: strays, among: processes) {
-            let reading = read(tree, identities: table, parents: parents, at: now)
+            let reading = read(tree, identities: table, parents: parents, occupied: occupied,
+                               at: now)
             seen.insert(tree.root)
             let decided = OrphanReclaim.verdict(for: reading, previous: sightings[tree.root])
             sightings[tree.root] = decided.keep
@@ -200,7 +214,8 @@ final class OrphanReclaimStore {
     /// the same reading (`OrphanReclaim.trees` took it from this very walk), and asking twice is
     /// how two spellings of one fact come to disagree.
     private func read(_ tree: OrphanReclaim.Tree, identities: [pid_t: ProcessIdentity],
-                      parents: [pid_t: pid_t], at now: Date) -> OrphanReclaim.Reading {
+                      parents: [pid_t: pid_t], occupied: Set<String>,
+                      at now: Date) -> OrphanReclaim.Reading {
         let members = tree.members.compactMap { pid -> OrphanReclaim.Member? in
             guard let identity = identities[pid] else { return nil }
             return OrphanReclaim.Member(identity: identity, program: machine.program(pid),
@@ -228,6 +243,13 @@ final class OrphanReclaimStore {
         var vetoes = OrphanReclaim.vetoes(of: tree, members: members, sockets: sockets,
                                           ancestors: named)
         if ancestors.contains(where: machine.hasTerminal) { vetoes.insert(.terminal) }
+        // AND WHETHER ANYBODY IS WORKING IN THE CHECKOUT THIS TREE IS IN, which is the one reading
+        // here that comes off the BOARD rather than off the process table - and the one the
+        // 2026-09-02 incident was decided without. Two servers were ended in checkouts whose
+        // sessions were sitting right there, under a message that said no session was.
+        if occupied.contains(OrphanReclaim.checkout(of: tree.project, entry: machine.gitEntry)) {
+            vetoes.insert(.sessionPresent)
+        }
         let began = Date(timeIntervalSince1970: Double(tree.rootStartedAt) / 1_000_000)
         return OrphanReclaim.Reading(
             tree: tree, takenAt: now, age: now.timeIntervalSince(began), cpuPercent: percent,

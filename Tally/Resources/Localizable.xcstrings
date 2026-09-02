@@ -12087,7 +12087,7 @@
         }
       }
     },
-    "Keep at least %lld%% of the week and the 5h window for web use": {
+    "Keep at least %lld%% of both the week and the 5h window for web use": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {

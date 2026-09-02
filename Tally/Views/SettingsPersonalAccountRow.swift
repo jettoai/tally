@@ -22,8 +22,8 @@ extension SettingsAccountsView {
             .tallyTooltip(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you."))
     }
 
-    /// "Keep at least 30% of the week and the 5h window for web use", and the ten-cell strip that
-    /// sets it.
+    /// "Keep at least 30% of both the week and the 5h window for web use", and the ten-cell
+    /// strip that sets it.
     ///
     /// THE NUMBER IS IN THE SENTENCE rather than in a field beside it, because the sentence is what
     /// the setting means and a bare "30" next to "Reserve" is a number the reader has to translate
@@ -48,7 +48,7 @@ extension SettingsAccountsView {
             : LaunchPolicyStore.shared.reserve(home: home)
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: L("Keep at least %lld%% of the week and the 5h window for web use"), shown))
+                Text(String(format: L("Keep at least %lld%% of both the week and the 5h window for web use"), shown))
                     .font(.subheadline)
                 Text(L("Tally leaves this much of the account's weekly and 5-hour quota alone when it picks or moves sessions by itself, because your browser shares both windows with it. Its per-model windows are untouched, and launching on it yourself always works."))
                     .font(.caption).foregroundStyle(.secondary)

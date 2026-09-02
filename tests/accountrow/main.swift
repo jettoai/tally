@@ -738,7 +738,7 @@ let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
 let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
 check("the string catalogue is readable from this suite", !catalogueStrings.isEmpty)
 for word in ["Personal", "Personal account (web)",
-             "Keep at least %lld%% of the week and the 5h window for web use",
+             "Keep at least %lld%% of both the week and the 5h window for web use",
              "Kept for web use",
              "Tally leaves this much of the account's weekly and 5-hour quota alone when it picks "
                  + "or moves sessions by itself, because your browser shares both windows with it. "

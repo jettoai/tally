@@ -45,8 +45,6 @@ func runProjectLoadChecks() {
     check("…which is what lets a checkout with no session left still state what it is running",
           busy.projects.map(\.root) == [root] && busy.projects.first?.sessions == 0
               && busy.projects.first?.strayProcesses == 1)
-    check("…and the section is drawn for it, that being the state it exists for",
-          MachineLoadRollup.isWorthDrawing(busy))
     check("…while it is still watched, so the next tick looks again",
           accounting.accounted == [root])
     check("a project with no session and nothing left in it is dropped, not kept on a clock",

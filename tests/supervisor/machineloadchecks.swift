@@ -264,8 +264,8 @@ func runMachineLoadChecks() {
     // AND IT IS STILL A SESSION WORKING HERE, which is not a detail: "more than one session in one
     // checkout" is half of why this section is on the page at all, so a rule that dropped the row
     // instead of its figures would take the section down with it.
-    check("…and is still counted as a session, which is half of why the section is drawn",
-          together.projects.first?.sessions == 2 && MachineLoadRollup.isWorthDrawing(together))
+    check("…and is still counted as a session, which is half of why these readings are taken",
+          together.projects.first?.sessions == 2)
     // And the readings the tick hands to `rows` are marked by the same rule, over the memberships
     // the cards were drawn from.
     let outer = ProcessFootprint(processes: 4, cpuPercent: 300, memoryBytes: 4_000_000_000,
@@ -291,18 +291,18 @@ func runMachineLoadChecks() {
                                                    members: ["100": [100, 200], "500": [500, 600]]),
               strays: []).projects.first?.cpuPercent == 420)
 
-    // MARK: when the section is worth the room
+    // MARK: which project a working directory belongs to, when one of them is not a project
 
-    check("leftovers are always worth saying", MachineLoadRollup.isWorthDrawing(load))
-    check("…and so is a checkout running several sessions at once",
-          MachineLoadRollup.isWorthDrawing(MachineLoadRollup.rows(sessions: sessions, strays: [])))
-    // On the ordinary board this section is a summary of the cards underneath it, and printing it
-    // would spend the top of the page restating the page.
-    check("but one session per checkout with nothing left over is the cards themselves",
-          !MachineLoadRollup.isWorthDrawing(MachineLoadRollup.rows(
-              sessions: [MachineLoadRollup.SessionReading(root: tally, cpuPercent: 3,
-                                                          memoryBytes: 1)],
-              strays: [])))
+    // AN EMPTY ROOT IS THE ONE THAT CONTAINS EVERYTHING. A reclaim whose tree the machine would not
+    // place is filed under an empty project on purpose - the kill still has to happen and be
+    // reported (`OrphanReclaimStore.round`) - and `directory.hasPrefix("" + "/")` is true of every
+    // absolute path there is. Left in the roots, it wins the match for any directory no real
+    // checkout claimed, and files that work under a project with no name (codex review of a54059c).
+    check("an empty root is not a project and swallows nothing",
+          MachineLoadRollup.project(of: tally, roots: [""]) == nil
+              && MachineLoadRollup.project(of: "/Applications/Safari.app", roots: [""]) == nil)
+    check("…and does not take work off the checkout that really contains it",
+          MachineLoadRollup.project(of: tally + "/Tally", roots: ["", tally]) == tally)
 
     // MARK: which projects are worth watching after their sessions have gone
 

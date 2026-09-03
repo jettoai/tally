@@ -64,11 +64,6 @@ struct MachineLoad: Equatable {
     var projects: [ProjectLoad] = []
     /// Which project is burning the most, when one is burning enough to be worth pointing at.
     var heaviest: String?
-    /// Whether anything here is unaccounted for, which is what decides the section is worth drawing
-    /// at all (`MachineLoadRollup.isWorthDrawing`).
-    var strayProcesses: Int {
-        projects.reduce(0) { $0 + $1.strayProcesses }
-    }
 }
 
 enum MachineLoadRollup {
@@ -107,9 +102,18 @@ enum MachineLoadRollup {
     /// `~/workspace/tally` and is a different project; a prefix test alone puts one project's dev
     /// server on another project's row, which is the one error here that produces a confident wrong
     /// number rather than a missing one. The root itself counts as inside itself.
+    ///
+    /// AN EMPTY ROOT IS NOT A PROJECT, and it is not a hypothetical one either: a reclaim whose tree
+    /// the machine would not place is filed under one on purpose, because the kill still has to
+    /// happen and be reported (`OrphanReclaimStore.round`). Left in, it is the one root that
+    /// CONTAINS every path on this machine - `"".hasPrefix("/")` never runs, but `directory
+    /// .hasPrefix("" + "/")` is true of every absolute path there is - so it would win the match for
+    /// any directory no real checkout claimed, and file work under a project with no name (codex
+    /// review of a54059c).
     static func project(of directory: String, roots: some Sequence<String>) -> String? {
         var best: String?
-        for root in roots where directory == root || directory.hasPrefix(root + "/") {
+        for root in roots where !root.isEmpty
+            && (directory == root || directory.hasPrefix(root + "/")) {
             if best == nil || root.count > best!.count { best = root }
         }
         return best
@@ -165,9 +169,8 @@ enum MachineLoadRollup {
     /// members already contain the whole of the inner card's. For a CARD that is a question about
     /// what a session is and both readings are defensible, which is where `ProcessTreeCensus` leaves
     /// it. FOR A PROJECT IT IS NOT: "what is this repository costing me" has one answer, and adding
-    /// the two cards states it at twice its size - on exactly the board this section is drawn for,
-    /// since a project running several sessions is one of the two states `isWorthDrawing` returns
-    /// true for.
+    /// the two cards states it at twice its size - on exactly the board these readings are drawn on,
+    /// a project running several sessions being one of the shapes they exist to describe.
     ///
     /// ANY SHARED PID, NOT ONLY A CONTAINED TREE. This test was written as a strict subset, on the
     /// stated ground that two cards share a process only where one tree contains the other. That
@@ -393,108 +396,4 @@ enum MachineLoadRollup {
                            heaviest: (top?.cpuPercent ?? 0) >= markedAbovePercent ? top?.root : nil)
     }
 
-    /// WHETHER THIS SECTION IS WORTH THE ROOM AT ALL, which is a question the cards below it already
-    /// answer most of the time.
-    ///
-    /// ONE SESSION PER PROJECT AND NOTHING LEFT OVER IS A ROLLUP OF ITS OWN CARDS, and printing it
-    /// would spend the top of the page restating the page. The two states where it says something no
-    /// card can are the two this returns true for: work in a project that no session accounts for,
-    /// and a project running more than one session, where the question "what is this repository
-    /// costing me" has no single card to read it off.
-    static func isWorthDrawing(_ load: MachineLoad) -> Bool {
-        load.strayProcesses > 0 || load.projects.contains { $0.sessions > 1 }
-    }
-
-    /// THE CLAUDE CODE SCRATCHPAD A PROCESS WAS STARTED WITH, as the conversation id alone.
-    ///
-    /// THE SECOND WAY BACK TO A SESSION, and it reaches the case the group ledger cannot: a job
-    /// whose own shell exits between two ticks was never once seen inside the tree, so no group of
-    /// it was ever claimed (`SessionProcessGroups`). Claude Code hands every session a scratchpad at
-    /// `/tmp/claude-<uid>/<project>/<conversation>/`, agents are told to put their working files
-    /// there, and a command that touches one carries the path in its arguments - which is how the
-    /// 2026-08-25 incident was attributed AFTER the fact, by hand. This is that reading made into a
-    /// mechanism.
-    ///
-    /// ONLY THE CONVERSATION ID EVER LEAVES THIS FUNCTION, and that is the whole reason it is
-    /// written as a scan rather than as a reader. A command line is a string that can carry a token
-    /// (the rule the card's own culprit names are decided under, `ProcessFootprint.memoryLeader`),
-    /// so nothing here returns, stores, logs or draws argv: it looks for one fixed path shape, takes
-    /// the component that is a UUID, and drops the buffer. A process whose arguments do not contain
-    /// that shape produces nothing at all.
-    ///
-    /// - Parameter arguments: the process's command line as one blob, as `KERN_PROCARGS2` hands it
-    ///   over. A parameter rather than a syscall so this stays pure and testable.
-    /// - Parameter uid: whose scratchpad to look for. The directory is named for the user, and
-    ///   matching another user's would be matching a path this app can say nothing about.
-    static func scratchpadConversation(in arguments: String, uid: uid_t) -> String? {
-        let marker = "/claude-\(uid)/"
-        var search = Substring(arguments)
-        while let hit = search.range(of: marker) {
-            let after = search[hit.upperBound...]
-            // <project>/<conversation>/… - the project component is the escaped working directory
-            // and says nothing this app needs, since the conversation names the session outright.
-            let parts = after.split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
-            if parts.count >= 2, isConversationID(parts[1]) { return String(parts[1]) }
-            search = after
-        }
-        return nil
-    }
-
-    /// Whether a path component is a Claude Code conversation id: 8-4-4-4-12 hexadecimal.
-    ///
-    /// SPELLED OUT RATHER THAN PARSED WITH `UUID(uuidString:)`, which accepts forms this never
-    /// produces and would let an arbitrary argument through as a session name.
-    static func isConversationID(_ text: some StringProtocol) -> Bool {
-        let groups = text.split(separator: "-", omittingEmptySubsequences: false)
-        guard groups.count == 5, groups.map(\.count) == [8, 4, 4, 4, 12] else { return false }
-        return groups.allSatisfy { $0.allSatisfy(\.isHexDigit) }
-    }
-
-    /// A process's whole command line as one blob, or nothing when the machine will not say.
-    ///
-    /// THE ONLY CALLER IS THE SCAN ABOVE, and the blob never goes anywhere else: it is read into a
-    /// local buffer, scanned for one path shape, and dropped. `KERN_PROCARGS2` is readable for one's
-    /// own processes without any additional entitlement, and answers nothing at all for another
-    /// user's - which is the same "simply absent" this app's other readings degrade to.
-    ///
-    /// The layout is an argument count, the executable path, then NUL-separated strings; nothing
-    /// here separates them, because a path is a path wherever in the blob it sits.
-    static func commandLine(of pid: pid_t) -> String? {
-        var size = 0
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-        var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
-        // NULs become separators rather than terminators, so one decode covers every argument.
-        return String(decoding: buffer.prefix(size).map { $0 == 0 ? UInt8(ascii: "\n") : $0 },
-                      as: UTF8.self)
-    }
-
-    /// The path a process started in this directory would report as its own.
-    ///
-    /// `realpath(3)` rather than `URL.resolvingSymlinksInPath()`, which strips a leading `/private`
-    /// and so returns a spelling no process ever reports - the same reason and the same spelling
-    /// `WorktreeOrigins.resolvedPath` uses, one comparison over.
-    static func resolvedPath(_ path: String) -> String {
-        guard let resolved = realpath(path, nil) else { return path }
-        defer { free(resolved) }
-        return String(cString: resolved)
-    }
-
-    /// The working directory of a process, or nothing when it cannot be read (the process has gone,
-    /// or belongs to another user - `login` runs as root and answers nothing).
-    ///
-    /// The CLI's worktree teardown reads the same field the same way (`TallyCLI/
-    /// WorktreeProcessScan.swift`); this is the app's copy rather than a shared file because the two
-    /// targets share only what a DRIFTED second spelling would break, and a reading with no decision
-    /// in it is not that (project.yml states the rule).
-    static func workingDirectory(of pid: pid_t) -> String? {
-        var info = proc_vnodepathinfo()
-        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) > 0 else { return nil }
-        let path = withUnsafeBytes(of: &info.pvi_cdir.vip_path) { raw in
-            raw.baseAddress.map { String(cString: $0.assumingMemoryBound(to: CChar.self)) }
-        }
-        return (path?.isEmpty ?? true) ? nil : path
-    }
 }

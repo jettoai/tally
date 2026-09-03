@@ -158,6 +158,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreePool.swift Tally/Core/ProcessTreeRates.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/SessionProcessGroups.swift Tally/Core/MachineLoadRollup.swift \
+  Tally/Core/MachineLoadReaders.swift \
   Tally/Core/SessionBoardGhosts.swift \
   Tally/Stores/ProjectLoadAccounting.swift \
   Tally/Stores/ProcessFootprintStore.swift Tally/Stores/ProcessFootprintTiming.swift \

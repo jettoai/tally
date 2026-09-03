@@ -18,10 +18,10 @@ enum SessionBoardGhosts {
     /// The projects that get a card of their own: the ones running work no session accounts for,
     /// and the ones this app has just finished doing something about.
     ///
-    /// A PROJECT RUNNING SEVERAL SESSIONS NO LONGER PRODUCES A ROW, which the rollup's own draw test
-    /// counted as one of its two reasons to exist (`MachineLoadRollup.isWorthDrawing`). Its cards
-    /// are on the page and each states its own figures; what nothing states is their TOTAL, and that
-    /// is deliberately still missing rather than quietly restored as a second layer.
+    /// A PROJECT RUNNING SEVERAL SESSIONS NO LONGER PRODUCES A ROW, which the old section counted as
+    /// one of its two reasons to exist. Its cards are on the page and each states its own figures;
+    /// what nothing states is their TOTAL, and that is deliberately still missing rather than
+    /// quietly restored as a second layer.
     ///
     /// AND A CARD OUTLIVES THE LEFTOVERS IT WAS DRAWN FOR, which is what `remembering` is: this card
     /// is where a reclaim is reported now that the section that used to report it is gone
@@ -34,13 +34,21 @@ enum SessionBoardGhosts {
     /// Such a card has NO figures and no amber word - there is nothing unclaimed running there any
     /// more - so it states the project and what happened, and nothing it cannot stand behind.
     ///
+    /// AND A ROOT NOBODY COULD NAME IS NOT A PROJECT. A reclaim whose tree the machine would not
+    /// place is recorded with an empty project, deliberately - the kill still has to happen and has
+    /// to be reported (`OrphanReclaimStore.round`) - and an empty string reaching here synthesized a
+    /// card with no name at all. Worse than the blank card: an empty root is a PREFIX of every path
+    /// on the machine, so anything asked which project it belongs to came back with this one
+    /// (`MachineLoadRollup.project(of:roots:)` now refuses it on its own side too), which would put
+    /// every session card on the board under one nameless project's footnote.
+    ///
     /// - Parameters:
     ///   - remembering: the roots this app is watching or has acted in. A root with no row of its
     ///     own gets a card with no load, because a project whose work has all ended has no row.
     // TODO: project total line for multi-session projects, direction package follow-up.
     static func unclaimed(in load: MachineLoad, remembering roots: Set<String>) -> [ProjectLoad] {
-        var cards = load.projects.filter { $0.strayProcesses > 0 }
-        for root in roots where !cards.contains(where: { $0.root == root }) {
+        var cards = load.projects.filter { $0.strayProcesses > 0 && !$0.root.isEmpty }
+        for root in roots where !root.isEmpty && !cards.contains(where: { $0.root == root }) {
             cards.append(ProjectLoad(root: root,
                                      name: URL(fileURLWithPath: root).lastPathComponent,
                                      cpuPercent: nil, memoryBytes: 0, sessions: 0,
@@ -67,6 +75,16 @@ enum SessionBoardGhosts {
     /// this whole package exists for - the last session closed and its dev server did not - fell
     /// into the branch that draws the empty line, and the card, the counts and the controls with it.
     /// The reading was drawn only while a session was there to make it unnecessary.
+    ///
+    /// AND IT IS THE CARDS THAT ARE COUNTED HERE, NOT WHAT IS STILL RUNNING IN THEM. This was asked
+    /// with the amber summary figure (`running`), which is zero for a card kept only for what this
+    /// app has already done about it. Under Connected such a card is not listed either, so a machine
+    /// whose whole reading was "Tally ended your dev server" answered `.nothing`: one quiet line,
+    /// and the filter control gone with it - leaving nobody a way back to All to see the card that
+    /// does exist (codex review of a54059c). The summary figure keeps its own question.
+    ///
+    /// - Parameter unclaimed: how many unclaimed CARDS this machine has, the ones kept for a record
+    ///   alone included.
     static func board(sessions: Int, unclaimed: Int, seats: Int) -> BoardState {
         if seats > 0 { return .cards }
         return sessions == 0 && unclaimed == 0 ? .nothing : .nothingListed
@@ -94,65 +112,88 @@ enum SessionBoardGhosts {
         case unclaimed(String)
     }
 
-    /// WHERE THE UNCLAIMED CARDS SIT, given the projects the listed session cards are working in.
+    /// HOW THE BOARD IS LAID OUT: the seats in order, and which session card each project's
+    /// leftovers are written along the bottom of.
+    struct Seating: Equatable {
+        /// The cards, in the order the grid lays them out.
+        var seats: [Seat]
+        /// The project whose leftovers are drawn as a footnote under the session card at this
+        /// index. At most one project per card, and at most one card per project.
+        var footnotes: [Int: String]
+    }
+
+    /// WHERE A CHECKOUT'S LEFTOVERS ARE SAID, given the projects the listed session cards are
+    /// working in.
     ///
-    /// BESIDE THE WORK IT IS ABOUT, which is the whole reason this is not simply an appendix: a
-    /// checkout's leftovers are read against the sessions in that same checkout, and a card at the
-    /// far end of the grid asks the reader to hold a project name in their head while they scroll.
-    /// So it follows the LAST card of its project - after them all, rather than after the first, so
-    /// a project running three sessions keeps its three cards together.
+    /// A FOOTNOTE UNDER THE PROJECT'S LAST SESSION CARD, NOT A CARD OF ITS OWN BESIDE IT. Every
+    /// unclaimed reading used to take a card, seated after the last session card of its project.
+    /// Read on a live board that is two defects rather than a layout preference (Albert, on the
+    /// board's first day, 2026-09-03): a three-line card in a grid row as tall as the session card
+    /// beside it left a block of empty card under itself, and a card inserted mid-board pushed
+    /// every card after it one seat along, so the two columns no longer stood project by project.
+    /// The reading is a line about the checkout the card above is already working in, and that is
+    /// exactly what a footnote is.
     ///
-    /// A PROJECT WITH NO SESSION LEFT GOES AT THE END, in the order the rollup already put its rows
-    /// in (by name), because there is nothing on the page for it to sit beside. That is also the
-    /// state this card exists for - the session closed and its dev server did not - so it is the
-    /// one a reader most often arrives looking for, and the end of the board is where a card with
-    /// no neighbour can be found without disturbing the ones that have one.
+    /// THE LAST CARD OF THE PROJECT, after them all rather than after the first: a checkout running
+    /// three sessions keeps its three cards together, and the leftovers are said once, at the end
+    /// of them, rather than on whichever card happens to come first.
     ///
-    /// AND WITH THE STATE SORT ON THEY ALL GO LAST. That switch means "the cards are in the order I
-    /// have to act on them" (`SessionRosterStore.seatingOnOpen`), and an unclaimed card is in none of
-    /// those states: it is not blocked, not working and not idle, so seating it among them would put
-    /// a card that answers no state into a board sorted by state.
+    /// A PROJECT WITH NO SESSION CARD LEFT STILL GETS A CARD, at the end of the board, in the order
+    /// the rollup already put its rows in (by name). That is the state this whole package exists for
+    /// - the session closed and its dev server did not - and there is nothing on the page for it to
+    /// sit beside, so it is a card and it goes where a card with no neighbour can be found without
+    /// disturbing the ones that have one.
+    ///
+    /// AND THE STATE SORT NO LONGER NEEDS A RULE OF ITS OWN. It used to send every unclaimed card to
+    /// the end, on the ground that a card answering no state cannot be seated among cards sorted by
+    /// state (`SessionRosterStore.seatingOnOpen`). The only cards that were ever seated among them
+    /// are footnotes now - they travel with the card they are written on, whatever order that card
+    /// is in - and the cards that remain already go last in both orders. One rule, both orders.
     ///
     /// A CARD IS MATCHED TO A PROJECT BY CONTAINMENT, NEVER BY TWO STRINGS BEING EQUAL, and that is
     /// the one rule the strays are already filed by (`MachineLoadRollup.project(of:roots:)`): the
     /// leftovers of `~/w/api` are the processes working ANYWHERE inside it, so a session working in
-    /// `~/w/api/apps/web` is a session of that project and its card is what the unclaimed one
-    /// belongs beside. Asked the same way on both sides, a page cannot file a stray under a project
-    /// its own session card is not filed under - which is what an equality test does the moment a
-    /// session is started one directory deeper (it drifts to the end of the board, where it reads as
-    /// a project nobody on the page is working in).
+    /// `~/w/api/apps/web` is a session of that project and its card is what carries the footnote.
+    /// Asked the same way on both sides, a page cannot file a stray under a project its own session
+    /// card is not filed under - which is what an equality test does the moment a session is started
+    /// one directory deeper (the reading drifts to the end of the board, where it reads as a project
+    /// nobody on the page is working in).
     ///
     /// - Parameters:
     ///   - sessionDirectories: where each listed session card is working, in board order, at
     ///     whatever depth it published. Nothing for a session that published no directory at all -
-    ///     such a card is arranged by nothing (`SessionRosterStore.orderKey`) and no unclaimed card
-    ///     follows it.
-    ///   - unclaimed: the roots that have an unclaimed card, in the order they are to be drawn.
-    ///   - sortsByState: whether the board is being seated by what the sessions are doing.
-    static func seats(sessionDirectories: [String?], unclaimed: [String],
-                      sortsByState: Bool) -> [Seat] {
-        guard !sortsByState else {
-            return sessionDirectories.indices.map { Seat.session($0) }
-                + unclaimed.map(Seat.unclaimed)
-        }
-        // Which unclaimed project each card belongs to, and the LAST card of each - so a checkout
-        // running several sessions keeps them together and its leftovers come after all of them.
-        var owner: [Int: String] = [:]
+    ///     such a card is arranged by nothing (`SessionRosterStore.orderKey`) and carries no
+    ///     footnote.
+    ///   - unclaimed: the roots that have an unclaimed reading, in the order they are to be drawn.
+    ///   - listsUnclaimedCards: whether a project with no session card on the page may take a card
+    ///     of its own. False under Connected, which lists the sessions that can report themselves
+    ///     and an unclaimed card reports nothing by construction. THE FOOTNOTES ARE DRAWN EITHER
+    ///     WAY: one is a fact about the checkout a listed card is working in, which is not a thing
+    ///     the filter is narrowing.
+    ///
+    /// A root that is the empty string is refused here as well as where the cards are decided
+    /// (`unclaimed(in:remembering:)`): the containment rule already declines to match one, so it
+    /// could only ever arrive as a card with no name at the end of the board.
+    static func seating(sessionDirectories: [String?], unclaimed roots: [String],
+                        listsUnclaimedCards: Bool = true) -> Seating {
+        let unclaimed = roots.filter { !$0.isEmpty }
+        // The LAST card of each project, which is the one its leftovers are written under.
         var last: [String: Int] = [:]
         for (index, directory) in sessionDirectories.enumerated() {
             guard let directory,
                   let root = MachineLoadRollup.project(of: directory, roots: unclaimed)
             else { continue }
-            owner[index] = root
             last[root] = index
         }
-        var seats: [Seat] = []
-        for index in sessionDirectories.indices {
-            seats.append(.session(index))
-            if let root = owner[index], last[root] == index { seats.append(.unclaimed(root)) }
-        }
+        // One project resolves each directory (the longest root containing it), so no card can be
+        // handed two footnotes and the map cannot lose one.
+        var footnotes: [Int: String] = [:]
+        for (root, index) in last { footnotes[index] = root }
+        let seats = sessionDirectories.indices.map { Seat.session($0) }
+        guard listsUnclaimedCards else { return Seating(seats: seats, footnotes: footnotes) }
         // Whatever no card on the page is working in, in the order it was handed over.
-        return seats + unclaimed.filter { last[$0] == nil }.map(Seat.unclaimed)
+        return Seating(seats: seats + unclaimed.filter { last[$0] == nil }.map(Seat.unclaimed),
+                       footnotes: footnotes)
     }
 
     /// One card's share of its project, which is all the mark below needs to know about it.

@@ -1,6 +1,13 @@
 import SwiftUI
 
-/// ONE CHECKOUT'S WORK THAT NO SESSION IS ANSWERING FOR, drawn as a card of its own on the board.
+/// ONE CHECKOUT'S WORK THAT NO SESSION IS ANSWERING FOR, drawn as a card of its own because that
+/// checkout has no other card on this board.
+///
+/// A CARD ONLY WHERE THERE IS NOTHING TO WRITE UNDER. A project still running sessions says this
+/// under the last of them, as a footnote (`SessionUnclaimedFootnote`, which draws the body of this
+/// card too); what is left for a card of its own is the state this whole package exists for - the
+/// last session closed and its dev server did not - where there is no session card to write under
+/// and the reading would otherwise be nowhere (`SessionBoardGhosts.seating`).
 ///
 /// THE READING THE CARDS COULD NOT PRODUCE. Every session card answers for its own tree, and a
 /// machine can be doing a great deal in the same directories that no live session accounts for - a
@@ -36,38 +43,21 @@ struct SessionGhostCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             headline
-            // NOTHING IS SAID ABOUT LEFTOVERS THAT ARE NO LONGER THERE. A card also stays for a
-            // while after this app has ended what was running here, to say that it did
-            // (`SessionBoardGhosts.unclaimed(in:remembering:)`); on that card a sentence reading
-            // "0 procs, no session is running them" and a row of zeroes would be two readings
-            // nobody took. What is left is the project's name and what happened to it.
-            if project.strayProcesses > 0 {
-                Text(verbatim: sentence)
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.tail)
-                figures
-            }
-            // WHAT THIS APP DID ABOUT ANY OF IT, on the card it is about rather than in a section of
-            // its own further up the page. A kill nobody is told about is indistinguishable from a
-            // crash, and the durable half of telling is the message written into the project's inbox
-            // (`OrphanNotice`); this is the other half - what a person sees when they happen to have
-            // the panel open, and the one answer the inbox cannot give: "is it about to do that
-            // again".
-            //
-            // WHAT IS BEING WATCHED COMES FIRST, because that is the reading somebody can still act
-            // on; what has already happened comes after it, newest first, and only for as long as
-            // the store keeps it (`OrphanReclaimStore.keptRecords`).
-            ForEach(watching) { watch in
-                reclaimRow(icon: "eye", tint: TallyColor.warning, text: watchLine(watch))
-            }
-            ForEach(records) { record in
-                reclaimRow(icon: Self.icon(record.outcome), tint: Self.tint(record.outcome),
-                           text: recordLine(record))
-            }
+            // THE SAME READING THIS BOARD WRITES UNDER A SESSION CARD, from the one view that draws
+            // it (`SessionUnclaimedFootnote`). Here it does not have to name itself - the headline
+            // one line up has already said the word - and it has the room for the sentence that
+            // says what this card is for.
+            SessionUnclaimedFootnote(project: project)
         }
         .padding(.horizontal, TallyMetrics.cardPaddingH)
         .padding(.vertical, TallyMetrics.cardPaddingV)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // AS TALL AS WHATEVER IT IS SEATED BESIDE, with its own lines held against the top. A grid
+        // row is as tall as the tallest card in it, and this one is three lines where a session
+        // card is five: laid out at its own height it drew a card that stopped halfway down its
+        // cell, with the row's ruled space showing under it (Albert, 2026-09-03). The cards it
+        // shares a row with are the other checkouts nobody is working in any more, so the row is
+        // the same shape whichever of them is the longest.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .tallyCard()
         .opacity(SessionCardView.quietCardOpacity)
         // One element rather than five, for the reason the session card is one: what a reader hears
@@ -103,114 +93,6 @@ struct SessionGhostCardView: View {
             }
             Spacer(minLength: 6)
             if marked { SessionCardView.flameMark }
-        }
-    }
-
-    /// How much is running here and the whole of why this card exists, in one sentence.
-    ///
-    /// ONE CATALOGUE ENTRY WITH THE COUNT PUT INTO IT, and the counted word comes from the pair the
-    /// session cards already spell their own process counts with (`SessionCardView
-    /// .sessionFootprintSegments`): a translator sees the sentence whole, and the plural is decided
-    /// where the bundle is rather than by a rule about English inside a format string.
-    private var sentence: String {
-        let counted = "\(project.strayProcesses) \(L(project.strayProcesses == 1 ? "proc" : "procs"))"
-        return String(format: L("%@, no session is running them"), counted)
-    }
-
-    /// What those processes are costing, in the font every figure on this board is drawn in.
-    ///
-    /// THE STRAYS' OWN FIGURES, NEVER THE PROJECT'S TOTAL (`ProjectLoad.strayCpuPercent`). The
-    /// total is the sessions' cores plus these, and a checkout running a session at 300% and one
-    /// abandoned server at 20 drew 320% under the sentence "no session is running them" - a figure
-    /// that is true of the project, false of this card, and counted a second time on the session
-    /// card sitting immediately before it. What is unclaimed is what this card is about.
-    ///
-    /// NO SHAPES AND NO CEILINGS, unlike a session card's own readings (`SessionCardView
-    /// .sessionFootprintTrends`): the trend rings are kept per SESSION, and a pool of leftovers has
-    /// no history to draw. Two figures rather than three - the strays are sampled for CPU and memory
-    /// and nothing else (`ProjectLoadAccounting.measure`).
-    ///
-    /// AND NO PORTS, WHICH IS A GAP RATHER THAN A CHOICE. `ProcessTree.portsText` reads them off a
-    /// `ProcessFootprint`, and the strays never produce one: the descriptor tables are read per
-    /// session tree, on one visible tick in three (`ProcessFootprintStore`), and nothing reads them
-    /// for a pool. A dev server nobody is answering for is exactly the leftover whose port somebody
-    /// wants, so this is the first thing to add here - it needs the pool sampled for ports the way a
-    /// tree is, which is a reading this package did not take.
-    private var figures: some View {
-        HStack(spacing: 6) {
-            Text(verbatim: project.strayCpuPercent.map { "\(Int($0.rounded()))% CPU" } ?? "")
-            Text(verbatim: ProcessTree.memoryText(project.strayMemoryBytes) ?? "")
-            Spacer(minLength: 0)
-        }
-        .font(.caption2.monospacedDigit())
-        .foregroundStyle(.tertiary)
-        .lineLimit(1)
-    }
-
-    /// This project's own leftovers under consideration, and its own history: the store keeps one
-    /// list for the whole machine, and each card takes the part that is about it.
-    ///
-    /// KEYED ON THE PROJECT ROOT, which both sides already spell the same way: the store is handed
-    /// the strays by project (`ProcessFootprintStore.sample`) and files what it watches and what it
-    /// did under that same root (`OrphanReclaimStore.watch`).
-    private var watching: [OrphanReclaimStore.Watch] {
-        OrphanReclaimStore.shared.watching.filter { $0.project == project.root }
-    }
-
-    private var records: [OrphanReclaimStore.Record] {
-        OrphanReclaimStore.shared.records.filter { $0.project == project.root }
-    }
-
-    private func reclaimRow(icon: String, tint: Color, text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.caption2)
-                .foregroundStyle(tint)
-            Text(verbatim: text)
-                .font(.caption2)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
-        }
-        .font(.caption2.monospacedDigit())
-    }
-
-    /// One thing still running that nothing here has acted on. NO PROJECT NAME ON IT ANY MORE: the
-    /// rows used to be a section about the whole machine and had to say which checkout each was in,
-    /// and on this card the title one line up has already said it.
-    private func watchLine(_ watch: OrphanReclaimStore.Watch) -> String {
-        var line = watch.program
-        if let percent = watch.cpuPercent { line += " · \(Int(percent.rounded()))%" }
-        if let held = ProcessTree.memoryText(watch.memoryBytes) { line += " · \(held)" }
-        return line
-    }
-
-    /// And one thing that happened, said as an outcome rather than as a status.
-    private func recordLine(_ record: OrphanReclaimStore.Record) -> String {
-        switch record.outcome {
-        case .reclaimedByLease, .reclaimedBySustained:
-            return "\(L("ended")) \(record.program) (\(record.processes))"
-        case .reported:
-            return "\(record.program) \(L("left alone"))"
-        case .failed:
-            return "\(record.program) \(L("would not end"))"
-        }
-    }
-
-    private static func icon(_ outcome: OrphanNotice.Outcome) -> String {
-        switch outcome {
-        case .reclaimedByLease, .reclaimedBySustained: return "xmark.circle"
-        case .reported: return "eye"
-        case .failed: return "exclamationmark.triangle"
-        }
-    }
-
-    /// A reclaim is done with and reads as history; anything still running is amber, which is the
-    /// same colour the count of leftovers is drawn in for the same reason.
-    private static func tint(_ outcome: OrphanNotice.Outcome) -> Color {
-        switch outcome {
-        case .reclaimedByLease, .reclaimedBySustained: return .secondary
-        case .reported, .failed: return TallyColor.warning
         }
     }
 }

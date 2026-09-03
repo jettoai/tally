@@ -33,10 +33,11 @@ extension PopoverRootView {
         var location: CGPoint
         /// The whole board as it stood when the hand closed, filter and all, unfiltered.
         let frozen: [SessionRosterStore.SessionRow]
-        /// And the unclaimed cards as they stood at the same instant, unfiltered
-        /// (`sessionUnclaimedCards`). Held for the same reason the rows are and read the same way:
-        /// the strays are sampled every two seconds, and one appearing or ending mid-carry would
-        /// insert or remove a card in the middle of the grid the hand is aiming at.
+        /// And the unclaimed readings AS THE GRID UNDER THE HAND WAS LAID OUT FROM THEM, unfiltered:
+        /// the array the grid was handed, passed straight through rather than read again at the
+        /// grab (`sessionsReorderGesture`). Held for the same reason the rows are: the strays are
+        /// sampled every two seconds, and one appearing or ending mid-carry would insert or remove
+        /// a card - or move a footnote from one card to another - in the grid the hand is aiming at.
         let unclaimed: [ProjectLoad]
 
         /// Where the floating copy's centre sits. The single source for BOTH the rendered position
@@ -80,14 +81,23 @@ extension PopoverRootView {
     /// second layer above the board is what that used to be (`SessionGhostCardView`). Only the
     /// session cards register a frame - an unclaimed card holds no session, so there is nothing for
     /// the drag to arrange by and nothing for it to hit-test against.
-    func sessionsGrid(_ seats: [SessionBoardGhosts.Seat],
+    ///
+    /// MOST OF THOSE READINGS ARE NOT CARDS ANY MORE but footnotes along the bottom of the last
+    /// session card of their project (`SessionUnclaimedFootnote`), which is the same set of
+    /// projects arriving through the same one list: what the seating hands back is which card
+    /// carries which, and the cards that remain are the checkouts with no session card left.
+    ///
+    /// - Parameter unclaimed: every project with an unclaimed reading, unfiltered - the footnotes
+    ///   are drawn from it as well as the cards, and the drag freezes this very array rather than
+    ///   asking the store again a frame later (`sessionsReorderGesture`).
+    func sessionsGrid(_ seating: SessionBoardGhosts.Seating,
                       listed: [SessionRosterStore.SessionRow],
                       unclaimed: [ProjectLoad],
                       board: [SessionRosterStore.SessionRow]) -> some View {
         // Resolved once for the whole pass, and the cells and the run are both laid out from it:
         // two readings of the count are two chances for the grid and its width to disagree, which
         // is the defect this pair was split apart to prevent (`sessionsBoardWidth`).
-        let cards = sessionSeatCards(seats, listed: listed, unclaimed: unclaimed)
+        let cards = sessionSeatCards(seating, listed: listed, unclaimed: unclaimed)
         let columns = sessionColumnCount(cards: cards.count)
         // Read once for the whole grid rather than per cell: which card wears the flame is a fact
         // about the machine (`sessionMarkedCard`), decided over both kinds of card at once, so what
@@ -97,8 +107,14 @@ extension PopoverRootView {
                          spacing: Self.sessionCardGap) {
             ForEach(cards) { card in
                 switch card.seat {
-                case let .session(row):
-                    sessionCard(row, marked: marked == .session(row.id))
+                case let .session(row, footnote):
+                    // AND THE FOOTNOTE'S OWN MARK IS ASKED OF THE PROJECT, not of the session: when
+                    // the heaviest checkout is heaviest on its leftovers the flame belongs on the
+                    // line that states them, and this card's headline stays unmarked
+                    // (`SessionBoardGhosts.marked`).
+                    sessionCard(row, marked: marked == .session(row.id), unclaimed: footnote,
+                                unclaimedMarked: footnote.map { marked == .unclaimed($0.root) }
+                                    ?? false)
                         // The card being carried is drawn by the floating copy instead, at the
                         // pointer (`sessionLiftPreview`); its seat stays empty until it is put down.
                         .opacity(sessionLift?.id == row.id ? 0 : 1)
@@ -133,7 +149,8 @@ extension PopoverRootView {
         // travel, so a press that stays put is still the card's own click through to its terminal;
         // this is the arrangement the account cards have shipped with since the drag existed, and
         // their pin, renew and retry buttons sit under the very same gesture.
-        .highPriorityGesture(sessionsReorderGesture(listed: listed, board: board))
+        .highPriorityGesture(sessionsReorderGesture(listed: listed, board: board,
+                                                    unclaimed: unclaimed))
         // Cancellation safety net, mirroring the account grid: @GestureState resets on cancel as
         // well as on end, which is the only hook a cancelled gesture guarantees.
         .onChange(of: isSessionDragActive) { _, active in if !active { sessionLift = nil } }
@@ -152,7 +169,9 @@ extension PopoverRootView {
         let seat: Seat
 
         enum Seat {
-            case session(SessionRosterStore.SessionRow)
+            /// A session, and the checkout leftovers written along the bottom of it - on the last
+            /// card of that project and on no other (`SessionBoardGhosts.Seating.footnotes`).
+            case session(SessionRosterStore.SessionRow, footnote: ProjectLoad?)
             case unclaimed(ProjectLoad)
         }
     }
@@ -160,15 +179,22 @@ extension PopoverRootView {
     /// The seats resolved against what they name. A seat pointing at nothing is dropped rather than
     /// drawn empty: the two lists and the seating are taken in one pass of the page's body, so this
     /// cannot happen, and a blank cell would be worse than a missing one if it ever did.
-    func sessionSeatCards(_ seats: [SessionBoardGhosts.Seat],
+    ///
+    /// A FOOTNOTE THAT NAMES NO PROJECT IN THE LIST IS SIMPLY NOT DRAWN, the same way: the seating
+    /// resolves the roots it was handed, so the only way here is a card whose reading ended between
+    /// two passes, and a card is right without it.
+    func sessionSeatCards(_ seating: SessionBoardGhosts.Seating,
                           listed: [SessionRosterStore.SessionRow],
                           unclaimed: [ProjectLoad]) -> [SessionSeatCard] {
         let byRoot = Dictionary(unclaimed.map { ($0.root, $0) }) { first, _ in first }
-        return seats.compactMap { seat in
+        return seating.seats.compactMap { seat in
             switch seat {
             case let .session(index):
                 guard index < listed.count else { return nil }
-                return SessionSeatCard(id: listed[index].id, seat: .session(listed[index]))
+                return SessionSeatCard(id: listed[index].id,
+                                       seat: .session(listed[index],
+                                                      footnote: seating.footnotes[index]
+                                                          .flatMap { byRoot[$0] }))
             case let .unclaimed(root):
                 guard let project = byRoot[root] else { return nil }
                 return SessionSeatCard(id: root, seat: .unclaimed(project))
@@ -184,15 +210,20 @@ extension PopoverRootView {
     ///   the user grabbed by does not fade out the moment the pointer leaves the card's old seat.
     /// - Parameter marked: wear the machine's flame (`SessionBoardGhosts.marked`). The preview
     ///   passes what the grid passed, so a card does not lose its mark while it is being carried.
+    /// - Parameter unclaimed: this checkout's leftovers, written along the bottom of the card. The
+    ///   preview passes none: a card in flight is a card being ARRANGED, and the footnote belongs to
+    ///   whichever card of that project ends up last once it is put down.
     func sessionCard(_ row: SessionRosterStore.SessionRow,
-                     handleProminent: Bool = false, marked: Bool = false) -> some View {
+                     handleProminent: Bool = false, marked: Bool = false,
+                     unclaimed: ProjectLoad? = nil, unclaimedMarked: Bool = false) -> some View {
         SessionCardView(row: row, store: store, settings: settings,
                         // A card with no directory has nothing to be arranged by and cannot be
                         // lifted at all, which is the same question the drag asks at the grab
                         // (`sessionsReorderGesture`): one answer, so the affordance and the gesture
                         // cannot disagree about which cards move.
                         showsDragHandle: SessionRosterStore.orderKey(row) != nil,
-                        handleProminent: handleProminent, marked: marked)
+                        handleProminent: handleProminent, marked: marked,
+                        unclaimed: unclaimed, unclaimedMarked: unclaimedMarked)
     }
 
     /// The gutter between two session cards, across and down. One number, so a grid that steps a
@@ -272,8 +303,16 @@ extension PopoverRootView {
     /// so a board that was sorting itself by state is still doing so afterwards. A drag that HAS
     /// displaced cards has already committed them, on purpose: the spring under the hand is the
     /// feedback, and taking it back on release would be a board that lied about what it was doing.
+    /// - Parameter unclaimed: the unclaimed readings THIS PASS OF THE GRID WAS LAID OUT FROM, which
+    ///   is what the lift freezes. It used to ask the page's property again inside `onChanged`
+    ///   (`sessionUnclaimedCards`), which reads the sampler live: the grab lands one frame or more
+    ///   after the body that drew the board, the sampler runs every two seconds, and a stray ending
+    ///   in between meant the drag was frozen against a set the page had never drawn - one card off,
+    ///   for the whole carry, in the middle of the grid the hand is aiming at (codex review of
+    ///   a54059c). Handed in, the two cannot differ: it is the same array.
     func sessionsReorderGesture(listed: [SessionRosterStore.SessionRow],
-                                board: [SessionRosterStore.SessionRow]) -> some Gesture {
+                                board: [SessionRosterStore.SessionRow],
+                                unclaimed: [ProjectLoad]) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.reorderSpace))
             .updating($isSessionDragActive) { _, state, _ in state = true }
             .onChanged { value in
@@ -291,7 +330,7 @@ extension PopoverRootView {
                         touchOffset: CGPoint(x: value.startLocation.x - grabbed.value.minX,
                                              y: value.startLocation.y - grabbed.value.minY),
                         location: value.location, frozen: board,
-                        unclaimed: sessionUnclaimedCards)
+                        unclaimed: unclaimed)
                 }
                 guard var lift = sessionLift else { return }   // the grab began between two cards
                 lift.location = value.location

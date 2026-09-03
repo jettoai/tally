@@ -29,6 +29,14 @@ struct SessionCardView: View {
     /// mark used to sit on a row in a section above the board, which is where it stopped being
     /// worth the layer it needed (`SessionGhostCardView`).
     var marked: Bool = false
+    /// This checkout's leftovers, written along the bottom of this card, on the LAST card of the
+    /// project and nowhere else (`SessionBoardGhosts.Seating.footnotes`). Nothing on every other
+    /// card, which is most of them.
+    var unclaimed: ProjectLoad?
+    /// Whether the machine's flame belongs to those leftovers rather than to this session: it is
+    /// drawn at the end of the footnote and this card's headline stays unmarked
+    /// (`SessionBoardGhosts.marked`).
+    var unclaimedMarked: Bool = false
 
     @State var isHovering = false
 
@@ -122,6 +130,15 @@ struct SessionCardView: View {
                 // own on every card for the reason all the others have one - a card that dropped
                 // the row while its neighbour drew it would stand a line shorter than the board.
                 sessionCardLine { sessionFootprintTrends }
+                // AND WHAT IS RUNNING IN THIS CHECKOUT THAT NO SESSION ANSWERS FOR, on the last
+                // card of the project and on no other (`SessionUnclaimedFootnote`). A card of its
+                // own is what this used to be, which left a short card in a tall grid cell and
+                // pushed the columns out of step; a line about the checkout the card above is
+                // working in belongs on that card.
+                if let unclaimed {
+                    SessionUnclaimedFootnote(project: unclaimed, namesItself: true,
+                                             marked: unclaimedMarked)
+                }
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)
@@ -466,23 +483,4 @@ struct SessionCardView: View {
         let kept = parts.compactMap { $0 }.filter { !$0.isEmpty }
         return kept.isEmpty ? nil : kept.joined(separator: pickEffortSeparator)
     }
-
-    /// What a blocked session is waiting for. ONLY while it is blocked: `reason` is what Claude Code
-    /// said at the moment it asked, and a sentence still standing under a session that has moved on
-    /// would be worse than no sentence at all.
-    ///
-    /// WHICH OF THE TWO TESTS BELOW IS DECIDING ANYTHING HAS CHANGED. A line on the card used to be
-    /// written on `sessionIsWaiting`, so the state test here merely agreed with the call site and
-    /// the reason test was what remained; now the only reader is a hover ON the state word, which is
-    /// already inside that same `if` (`sessionStateWord`). So the state test is the belt - kept
-    /// because a second reader arriving outside that branch would otherwise print what a session
-    /// said before it moved on - and the reason test is the whole decision: a callout with nothing
-    /// in it is not a target, so a wait nobody explained gets the word and no hover at all.
-    var sessionReason: String? {
-        guard sessionIsWaiting,
-              let reason = row.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !reason.isEmpty else { return nil }
-        return reason
-    }
-
 }

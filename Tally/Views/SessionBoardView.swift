@@ -100,10 +100,11 @@ extension PopoverRootView {
         let listed = SessionRosterStore.arranged(
             board.filter { tabState.sessionFilter == .all || $0.isReporting },
             manualKeys: settings.sessionBoardSortsByState ? [] : settings.sessionBoardOrder)
-        // WORK IN THESE CHECKOUTS THAT NO SESSION ACCOUNTS FOR, one card per project rather than a
-        // section above the board (`SessionGhostCardView`). Under Connected only sessions that can
-        // report themselves are listed, and an unclaimed card reports nothing by construction - the
-        // whole of what it says is that nobody is answering for what is running.
+        // WORK IN THESE CHECKOUTS THAT NO SESSION ACCOUNTS FOR, said under the cards of the project
+        // it is about rather than in a section above the board (`SessionUnclaimedFootnote`). Under
+        // Connected only sessions that can report themselves are listed, and a checkout with no card
+        // left reports nothing by construction - so it takes no card there, while a footnote on a
+        // card the filter DID list is a fact about that card's checkout and is drawn either way.
         let everyUnclaimed = sessionUnclaimedCards
         // AND THIS SET IS HELD STILL WHILE A CARD IS IN FLIGHT, for the reason the roster above is:
         // the sampler runs every two seconds, and a stray appearing or ending mid-drag would insert
@@ -111,7 +112,6 @@ extension PopoverRootView {
         // re-hit-tests the drag against seats nobody was aiming at. The SUMMARY still reads live,
         // exactly as the four session counts beside it do: what must not move is the grid.
         let seated = sessionLift?.unclaimed ?? everyUnclaimed
-        let unclaimed = tabState.sessionFilter == .all ? seated : []
         // WHERE EACH CARD IS WORKING, from the sampler's own resolved answer where there is one and
         // from the row itself where there is not. The map is preferred because it is CANONICAL: it
         // is `realpath` of the row's directory, computed by the very pass that produced the roots
@@ -119,21 +119,26 @@ extension PopoverRootView {
         // through a symlink is one spelling on both sides. The row's own directory is the fallback
         // rather than the source, so that no card can lose its seat to a field that has not been
         // published yet - and the rule that consumes either is containment, which does not need the
-        // two to be spelled identically to file them together (`SessionBoardGhosts.seats`).
-        let seats = SessionBoardGhosts.seats(
+        // two to be spelled identically to file them together (`SessionBoardGhosts.seating`).
+        let seating = SessionBoardGhosts.seating(
             sessionDirectories: listed.map {
                 ProcessFootprintStore.shared.sessionProjects[$0.id] ?? $0.directory
             },
-            unclaimed: unclaimed.map(\.root),
-            sortsByState: settings.sessionBoardSortsByState)
+            unclaimed: seated.map(\.root),
+            listsUnclaimedCards: tabState.sessionFilter == .all)
+        let seats = seating.seats
         // WHICH OF THE THREE THINGS THIS PAGE IS, asked of the unclaimed cards as well as of the
-        // sessions (`SessionBoardGhosts.board` carries what asking about the sessions alone cost).
-        // Counted over what is RUNNING unclaimed rather than over the cards, which outlast it by a
-        // record apiece (`SessionBoardGhosts.running`), and read once for both the page's state and
-        // the figure the summary draws.
+        // sessions (`SessionBoardGhosts.board` carries what asking about the sessions alone cost,
+        // and what asking about the RUNNING ones cost after that).
+        //
+        // TWO DIFFERENT QUESTIONS, TWO DIFFERENT FIGURES. The summary counts what is still running
+        // unclaimed, because a card kept for a record alone is not a call for anybody; the page's
+        // own state counts the CARDS, because one of those is still something the board has to be
+        // able to show - and counted the other way, a machine whose whole reading was a finished
+        // reclaim answered "nothing is running" and took the filter control down with it.
         let running = SessionBoardGhosts.running(everyUnclaimed)
-        let state = SessionBoardGhosts.board(sessions: board.count, unclaimed: running,
-                                             seats: seats.count)
+        let state = SessionBoardGhosts.board(sessions: board.count,
+                                             unclaimed: everyUnclaimed.count, seats: seats.count)
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
             switch state {
             case .nothing:
@@ -144,7 +149,7 @@ extension PopoverRootView {
                 // are: the cards below can be narrowed to none and the reading stays true.
                 sessionsSummary(roster, unclaimed: running)
                 if state == .cards {
-                    sessionsGrid(seats, listed: listed, unclaimed: unclaimed, board: board)
+                    sessionsGrid(seating, listed: listed, unclaimed: seated, board: board)
                 } else {
                     // The filter is holding everything back, which is a different sentence from
                     // "nothing is running" - and saying the wrong one would read as the board

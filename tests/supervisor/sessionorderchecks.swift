@@ -474,7 +474,7 @@ func runSessionBoardOrderChecks() {
     // preview asks for, and what the builder does with it.
     check("the floating copy holds the grip at full brightness",
           reorderSource.contains("sessionCard(lift.row, handleProminent: true,")
-              && reorderSource.contains("handleProminent: handleProminent, marked: marked)"))
+              && reorderSource.contains("handleProminent: handleProminent, marked: marked,"))
     // WHAT A CLICK DOES IS STILL SPOKEN. The callout used to hand that sentence to an accessibility
     // hint on its way past (`TallyTooltip`), so taking the callout off the card took the sentence
     // with it and left a control whose only affordance a screen reader could not see. A hint rather

@@ -205,6 +205,24 @@ extension SessionCardView {
         if hours < 24 { return "\(hours)h \(minutes % 60)m" }
         return "\(hours / 24)d"
     }
+
+    /// What a blocked session is waiting for. ONLY while it is blocked: `reason` is what Claude Code
+    /// said at the moment it asked, and a sentence still standing under a session that has moved on
+    /// would be worse than no sentence at all.
+    ///
+    /// WHICH OF THE TWO TESTS BELOW IS DECIDING ANYTHING HAS CHANGED. A line on the card used to be
+    /// written on `sessionIsWaiting`, so the state test here merely agreed with the call site and
+    /// the reason test was what remained; now the only reader is a hover ON the state word, which is
+    /// already inside that same `if` (`sessionStateWord`). So the state test is the belt - kept
+    /// because a second reader arriving outside that branch would otherwise print what a session
+    /// said before it moved on - and the reason test is the whole decision: a callout with nothing
+    /// in it is not a target, so a wait nobody explained gets the word and no hover at all.
+    var sessionReason: String? {
+        guard sessionIsWaiting,
+              let reason = row.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reason.isEmpty else { return nil }
+        return reason
+    }
 }
 
 /// THE WAIT, SAID TO A LISTENER, on the one node a listener can land on.

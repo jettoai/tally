@@ -1,7 +1,7 @@
 import Foundation
 
 /// WHICH MOTION THE BOARD'S LIVE FIGURES USE, as one launch flag spells it
-/// (`-TallyMotion roll,morph,snappy`).
+/// (`-TallyMotion roll,morph,snappy`): one axis per position, `<figures>,<lines>,<curve>`.
 ///
 /// IT IS A FLAG BECAUSE IT IS A QUESTION ABOUT HOW SOMETHING LOOKS. A quarter-second change is not
 /// something anybody can judge from a diff, and three curves at the same duration are
@@ -76,30 +76,68 @@ struct MotionChoice: Equatable {
         case snappy, smooth, bouncy
     }
 
-    /// THESE THREE DEFAULTS WERE CHOSEN BY LOOKING, which is the whole reason the samples window
-    /// exists: every combination was put on one screen under one clock and these are the ones that
-    /// came back (Albert, 2026-09-03, samples N3 and L6). Rolling digits on the bouncy curve, and a
-    /// line whose newest segment is drawn in while the rest of it is replaced.
+    /// THE FIGURES WERE CHOSEN BY LOOKING, which is the whole reason the samples window exists:
+    /// every combination was put on one screen under one clock and this is the one that came back
+    /// (Albert, 2026-09-03, sample N3). Rolling digits on the bouncy curve.
     ///
-    /// THE OTHER STYLES STAY, and that is deliberate rather than leftover: the question they answer
-    /// comes back every time this row gains a reading or changes size, and the cost of keeping them
-    /// is a case each.
+    /// THE LINE DOES NOT MOVE, AND THAT IS A PRICE RATHER THAN A PREFERENCE. L6 was picked at the
+    /// same sitting and cannot be afforded on a live board. Measured on this build with the board
+    /// open and fifteen cards on it, a minute of CPU time per state (2026-09-03): 27.0% of one core
+    /// with nothing moving, 56.9% with the line growing alone, 63.2% with the digits rolling alone,
+    /// 70.1% with both.
+    ///
+    /// EITHER AXIS ALONE COSTS ABOUT THIRTY POINTS AND THE TWO TOGETHER COST BARELY MORE, which is
+    /// the shape of the real cost: any continuous motion holds the WHOLE PANEL in a layout pass per
+    /// frame, and this board is fifteen cards of three metrics apiece, each row laid out by a
+    /// seven-candidate `ViewThatFits`. It is not this app's arithmetic - a profile of the same
+    /// minute put under one per cent of the main thread in this module and all the rest in
+    /// SwiftUI's own layout engine - so no cheaper geometry buys it back: the cheapest style there
+    /// is, one scalar on one shape (`pulse`), still costs 48.6%. Nor is the ladder the culprit:
+    /// cutting those seven candidates to one returned nine of the forty-three points and left the
+    /// remaining thirty-four exactly where they were.
+    ///
+    /// SO THIS IS HALF A CURE, AND IS WRITTEN DOWN AS ONE. Holding the line still returns seven of
+    /// those forty-three points; the only setting that costs nothing is `none` on both axes, and
+    /// which of the three the board should run is a question about how it should LOOK rather than
+    /// one an optimisation can answer (Albert, to decide - `-TallyMotion` still reaches every
+    /// combination).
+    ///
+    /// THE STYLES ALL STAY, and that is deliberate rather than leftover: they are what the samples
+    /// window is for, the flag still reaches every one of them, and the question they answer comes
+    /// back every time this row changes. What changed is which of them an ordinary launch runs.
     var figures: Figures = .roll
-    var lines: Lines = .grow
+    var lines: Lines = .plain
     var curve: Curve = .bouncy
 
-    /// EACH TOKEN IS OFFERED TO ALL THREE AXES and taken by whichever one recognises it, so the
-    /// order they are written in does not matter and neither does leaving one out.
+    /// EACH AXIS IS READ OFF ITS OWN POSITION, `<figures>,<lines>,<curve>`, which is the grammar
+    /// this flag has always been documented in (`MotionDemoWindow.footer`) and the only one it can
+    /// have. `none` IS A STYLE ON TWO OF THE THREE AXES, so a parser that offered every token to
+    /// every axis let the line's `none` reach back and turn the figures off as well: the fallback
+    /// spelling `-TallyMotion roll,none,bouncy` came out as no motion at all, and `none,roll,bouncy`
+    /// - the same three words in the wrong order - was what actually produced rolling digits on a
+    /// still line (codex review of 34b4147). Position is what tells the two `none`s apart, and it is
+    /// why the order a launch writes them in now matters.
     ///
     /// A TOKEN NOTHING RECOGNISES CHANGES NOTHING, which is the whole of the error handling: a typo
-    /// leaves the axis it was meant for at its default rather than turning the motion off, and an
-    /// absent flag is every default. There is nothing here a mistyped launch can break.
+    /// leaves the axis it was written in at its default rather than turning the motion off, an empty
+    /// position does the same (`-TallyMotion ,,smooth` is the curve alone), and an absent flag is
+    /// every default. There is nothing here a mistyped launch can break.
+    ///
+    /// `none` ON ITS OWN IS THE BASELINE, both axes off, which is the state a measurement of what
+    /// the motion COSTS has to be taken against (`Figures.plain`). Read as one word rather than as a
+    /// figures style with the line left running, because a launch that writes only that word is
+    /// asking for no motion rather than for half of it.
     init(_ raw: String?) {
-        for token in (raw ?? "").lowercased().split(separator: ",")
-            .map({ $0.trimmingCharacters(in: .whitespaces) }) {
-            if let one = Figures(rawValue: token) { figures = one }
-            if let one = Lines(rawValue: token) { lines = one }
-            if let one = Curve(rawValue: token) { curve = one }
+        let tokens = (raw ?? "").lowercased()
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if tokens == [Figures.plain.rawValue] {
+            figures = .plain
+            lines = .plain
+            return
         }
+        if let one = tokens.first.flatMap(Figures.init(rawValue:)) { figures = one }
+        if tokens.count > 1, let one = Lines(rawValue: tokens[1]) { lines = one }
+        if tokens.count > 2, let one = Curve(rawValue: tokens[2]) { curve = one }
     }
 }

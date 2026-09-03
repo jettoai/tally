@@ -394,15 +394,20 @@ func runFootprintTrendSurfaceChecks() {
           spark.contains("private func mark(_ readings: FootprintSparklineValues, at index: Int?,")
               && spark.components(separatedBy: "FootprintSparkline.slid(readings.series,").count - 1
                   == 3)
-    // A SERIES THAT GAINS A POINT IS ALIGNED AT ITS NEWEST END, which is where these grow: index 0
-    // of a 40-point window and index 0 of a 41-point one are different instants, while their last
-    // points are the same instant. Padded with the OLDEST READING rather than with zero, because
-    // zero is a value on all three metrics and the line is measured from it - a window growing by a
-    // point would otherwise sprout a spike from the floor at its left edge.
-    check("two lengths of one series are read as one length, padded at the front",
-          FootprintSparkline.padded([4, 5], to: 4) == [4, 4, 4, 5]
+    // A SERIES THAT GAINS A POINT IS ALIGNED AT ITS OLDEST END, which is the only end two lengths
+    // can share: the window grows by appending until it is full, so the shorter series is a PREFIX
+    // of the longer one and index 0 is the same instant in both. Extended with the NEWEST reading
+    // rather than with zero, because zero is a value on all three metrics and the line is measured
+    // from it - a window growing by a point would otherwise drop to the floor at its right edge.
+    check("two lengths of one series are read as one length, extended at the end",
+          FootprintSparkline.padded([4, 5], to: 4) == [4, 5, 5, 5]
               && FootprintSparkline.padded([4, 5], to: 2) == [4, 5]
               && FootprintSparkline.padded([], to: 3) == [0, 0, 0])
+    // AND THE POINT OF IT: the reading taken at t1 stays at t1 through a frame of interpolation. Put
+    // in front, it was made to travel to t2 and every point behind it slid one place left, on every
+    // window that had not yet filled (codex review of 34b4147).
+    check("…so a window that gains a point keeps every instant it already had",
+          FootprintSparkline.aligned([1, 2], [1, 2, 3]).0 == [1, 2, 2])
     check("…which is what makes the empty series the zero the interpolation starts from",
           FootprintSparkline.aligned([], [7, 8]).0 == [0, 0]
               && FootprintSparkline.aligned([1, 2, 3], [9]).1 == [9, 9, 9])
@@ -413,8 +418,14 @@ func runFootprintTrendSurfaceChecks() {
     check("every motion this row gained is off under Reduce Motion",
           spark.contains("@Environment(\\.accessibilityReduceMotion) private var"
                          + " motionFromEnvironment")
-              && spark.contains("guard !reduceMotion, lineStyle.interpolatesReadings"
-                                + " else { return nil }")
+              // The same judgement, one refactor on: what used to be a guard inside the animation
+              // getter is now the named question both the getter and the SHAPES are asked, so the
+              // outline, its dots and the curve they travel on cannot answer it differently
+              // (`FootprintSparklineView.readingsTravel`).
+              && spark.contains("private var readingsTravel: Bool"
+                                + " { !reduceMotion && lineStyle.interpolatesReadings }")
+              && spark.contains("private var travel: Animation? { readingsTravel ? curve : nil }")
+              && spark.contains("travels: readingsTravel")
               // The one gate every style that is not a travelling series passes through: each of
               // them is a phase set and animated home from here, and this refuses the lot.
               && spark.contains("guard !reduceMotion else { return }")
@@ -444,25 +455,48 @@ func runFootprintTrendSurfaceChecks() {
               && motion.contains("typealias Curve = MotionChoice.Curve")
               && ((try? String(contentsOfFile: "Tally/Views/MotionDemoWindow.swift",
                                encoding: .utf8)) ?? "").contains("CardMotion.FigureStyle.allCases"))
-    // A TOKEN NOTHING RECOGNISES CHANGES NOTHING, which is what keeps a typo from turning the
-    // board's motion off: each axis takes the tokens it knows and keeps its default otherwise, in
-    // any order and with anything missing.
-    check("the flag is parsed per axis, so order and case and spacing do not matter",
-          MotionChoice("push,scroll,bouncy") == MotionChoice("bouncy , SCROLL,push"))
-    check("…a token nothing recognises leaving its axis at the default",
-          MotionChoice("wobble,fade") == MotionChoice("fade")
+    // EACH AXIS IS READ OFF ITS OWN POSITION, `<figures>,<lines>,<curve>`, which is the grammar the
+    // window's own footer documents. It has to be positional because `none` is a style on TWO of the
+    // axes: offered to all three, the line's `none` turned the figures off as well, so the fallback
+    // spelling below meant no motion at all and the three words in the WRONG order were what
+    // produced rolling digits on a still line (codex review of 34b4147).
+    check("the flag is positional, so the fallback spelling means what it says",
+          MotionChoice("roll,none,bouncy").figures == .roll
+              && MotionChoice("roll,none,bouncy").lines == .plain
+              && MotionChoice("roll,none,bouncy").curve == .bouncy)
+    check("…and the same three words in another order are another launch",
+          MotionChoice("none,roll,bouncy").figures == .plain
+              // `roll` is not a line style, so that position keeps its default rather than
+              // reaching back to the axis it belongs to.
+              && MotionChoice("none,roll,bouncy").lines == MotionChoice(nil).lines
+              && MotionChoice("none,roll,bouncy").curve == .bouncy)
+    check("…with case and spacing not mattering inside a position",
+          MotionChoice("push,scroll,bouncy") == MotionChoice(" PUSH , Scroll ,BOUNCY"))
+    check("…a token nothing recognises leaving its own axis at the default",
+          MotionChoice("wobble,scroll") == MotionChoice(",scroll")
               && MotionChoice("fade").lines == MotionChoice(nil).lines
-              && MotionChoice("fade").curve == MotionChoice(nil).curve)
-    // THE DEFAULTS ARE THE ONES THAT WERE CHOSEN BY LOOKING (Albert, 2026-09-03, samples N3 and L6),
-    // written out here rather than read off the type: an edit that changes what an ordinary launch
-    // does has to change this line too.
-    check("…and an absent flag being the pair that was picked out of the samples",
+              && MotionChoice("fade").curve == MotionChoice(nil).curve
+              // An empty position is the same as a missing one, which is how a launch asks for the
+              // curve alone.
+              && MotionChoice(",,smooth") == MotionChoice("roll,none,smooth"))
+    // AND `none` ON ITS OWN IS THE BASELINE, both axes off: the state the cost of the motion is
+    // measured against, rather than a figures style with the line left running.
+    check("…and none on its own being every motion off",
+          MotionChoice("none").figures == .plain && MotionChoice("none").lines == .plain
+              && MotionChoice("none") == MotionChoice("none,none"))
+    // THE FIGURES ARE THE ONES CHOSEN BY LOOKING (Albert, 2026-09-03, sample N3) AND THE LINE DOES
+    // NOT MOVE, which is a price rather than a preference: a moving outline costs the whole panel a
+    // layout pass per frame, measured at 70.6% of a core against 27.3% with the digits alone
+    // (2026-09-03; `MotionChoice.lines` carries the readings). Written out here rather than read off
+    // the type: an edit that changes what an ordinary launch does has to change this line too.
+    check("…and an absent flag being the figures that were picked, on a still line",
           MotionChoice(nil) == MotionChoice("")
-              && MotionChoice(nil) == MotionChoice("roll,grow,bouncy"))
+              && MotionChoice(nil) == MotionChoice("roll,none,bouncy"))
     check("…with every style the samples window offers reachable through it",
           MotionChoice.Figures.allCases.allSatisfy { MotionChoice($0.rawValue).figures == $0 }
-              && MotionChoice.Lines.allCases.allSatisfy { MotionChoice($0.rawValue).lines == $0 }
-              && MotionChoice.Curve.allCases.allSatisfy { MotionChoice($0.rawValue).curve == $0 })
+              && MotionChoice.Lines.allCases.allSatisfy { MotionChoice(",\($0.rawValue)").lines == $0 }
+              && MotionChoice.Curve.allCases
+                  .allSatisfy { MotionChoice(",,\($0.rawValue)").curve == $0 })
 
     // THE FLAME NAMES A CARD AND THE FIGURE NAMES WHICH READING EARNED IT (Albert, 2026-09-03). The
     // mark on the headline says this checkout is the heaviest thing on the machine and this is the

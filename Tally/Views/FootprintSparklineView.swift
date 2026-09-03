@@ -422,8 +422,8 @@ private struct FootprintSparklineMark: Shape {
 /// not `VectorArithmetic`, and the shapes above need one to animate between.
 ///
 /// TWO LENGTHS ARE THE HARD CASE and the arithmetic for it is pure and stated next door
-/// (`FootprintSparkline.aligned`, which carries why the shorter series is padded at its FRONT and
-/// with its own oldest reading rather than with zero). Everything here is the conformance around it.
+/// (`FootprintSparkline.aligned`, which carries why the shorter series is extended at its END and
+/// with its own newest reading rather than with zero). Everything here is the conformance around it.
 ///
 /// THE EMPTY SERIES IS THE ZERO, and the padding is what makes that true rather than merely
 /// plausible: `a - .zero` pads the empty side to `a`'s length with zeroes and subtracts them, which

@@ -158,9 +158,18 @@ private struct MotionDemoView: View {
         }
     }
 
-    /// The nine combinations, in the order the labels number them: each style with each curve.
+    /// The nine combinations, in the order the labels number them: each style THAT MOVES with each
+    /// curve.
+    ///
+    /// THE STILL ONE IS ALREADY N0, and enumerating it again cost the window the thing it exists for:
+    /// three more cells of nothing happening took N1 to N3 - the numbers a reader picks a style BY -
+    /// and pushed rolling digits on the bouncy curve out to N6, while thirteen cells across a 950pt
+    /// window put the last of them off the edge (codex review of 34b4147; the pick was made against
+    /// `docs/plans/captures/2026-09-03-motion-demo-v2.png`, where N3 is roll on bouncy). Asked of the
+    /// style rather than tested for by name, so one added here has to answer it
+    /// (`MotionChoice.Figures.moves`).
     private var styleGrid: [(CardMotion.FigureStyle, CardMotion.Curve)] {
-        CardMotion.FigureStyle.allCases.flatMap { style in
+        CardMotion.FigureStyle.allCases.filter(\.moves).flatMap { style in
             CardMotion.Curve.allCases.map { (style, $0) }
         }
     }
@@ -256,7 +265,11 @@ private struct MotionDemoView: View {
     private var footer: some View {
         Text(verbatim: "The board runs whichever of these the launch asks for: "
              + "-TallyMotion <figure style>,<line style>,<curve>, for example "
-             + "-TallyMotion push,scroll,smooth. Defaults are roll, morph, bouncy (N3).")
+             + "-TallyMotion push,scroll,smooth. One axis per position, so a style left out is "
+             + "written as an empty one (-TallyMotion ,,smooth is the curve alone) and none on its "
+             + "own is every motion off. Defaults are roll, none, bouncy (N3, and L0 for the line: "
+             + "any motion holds the whole panel in a layout pass per frame - see MotionChoice.lines "
+             + "for what each axis costs a live board).")
             .font(.caption2).foregroundStyle(.secondary)
     }
 }

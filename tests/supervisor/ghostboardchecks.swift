@@ -588,8 +588,14 @@ func runGhostBoardChecks() {
     check("the drag freezes the whole mark and both surfaces read it from there",
           grid.contains("let mark: SessionBoardGhosts.Mark?")
               && grid.contains("mark: sessionMarkedCard)")
-              && grid.contains("SessionBoardGhosts.placement(sessionLift?.mark"
-                               + " ?? sessionMarkedCard,")
+              // ASKED WHETHER THERE IS A LIFT, not whether the lift HAS a mark: `sessionLift?.mark
+              // ?? sessionMarkedCard` cannot express "the machine had nothing marked when the hand
+              // closed", so a grab made in that state fell back to the live reading and the seats
+              // went on following a mark the copy in the hand had stopped following (codex review
+              // of 34b4147).
+              && grid.contains("SessionBoardGhosts.placement("
+                               + "sessionLift.map(\\.mark) ?? sessionMarkedCard,")
+              && !grid.contains("sessionLift?.mark ??")
               && grid.contains("SessionBoardGhosts.placement(lift.mark, carrying: lift.id,")
               && grid.contains("marked: flame.carriedHeadline,")
               && grid.contains("unclaimedMarked: flame.carriedLeftovers)"))

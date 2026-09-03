@@ -418,29 +418,35 @@ enum FootprintSparkline {
     /// shape it had to the shape it has instead of being repainted between two frames
     /// (`FootprintSparklineValues`, the view's own interpolation).
     ///
-    /// THE SHORTER ONE IS PADDED AT ITS FRONT, and that is the whole of the decision here. These
-    /// series grow at the NEWEST end - a reading is appended and the oldest is dropped once the ring
-    /// is full (`FootprintTrendSeries.record`) - so index 0 of a 40-point window and index 0 of a
-    /// 41-point one are different instants, while their last points are the same instant. Aligned at
-    /// the front, every pair of points being interpolated is a pair about the same moment; aligned
-    /// at the back, a session in its first minutes would have its whole history slide sideways under
-    /// the line every ten seconds.
+    /// THE SHORTER ONE IS EXTENDED AT ITS END, and that is the whole of the decision here. TWO
+    /// LENGTHS ONLY EVER HAPPEN WHILE THE RING IS STILL FILLING, which is the fact the answer turns
+    /// on: a reading is appended, and the oldest is dropped only once the window is full
+    /// (`FootprintTrendSeries.record`), so a 40-point window and the 41-point one that succeeds it
+    /// share index 0, index 1 and every index the shorter one has. Once the ring IS full both sides
+    /// are the same length and nothing here is asked at all - the sideways shift that happens then
+    /// is not a padding question.
     ///
-    /// PADDED WITH ITS OWN OLDEST READING rather than with zero, because zero is a VALUE on all
+    /// Extended at the FRONT, as this was, every pair being interpolated was a pair about two
+    /// DIFFERENT moments: `[t0, t1]` became `[t0, t0, t1]`, so the reading taken at t1 was made to
+    /// travel to the one taken at t2 and the whole history slid one place left every time a point
+    /// landed - on a window that had not yet filled, which is every session's first quarter of an
+    /// hour (codex review of 34b4147).
+    ///
+    /// EXTENDED WITH ITS OWN NEWEST READING rather than with zero, because zero is a VALUE on all
     /// three of these metrics and the line is measured from it (`points`): a window growing from 40
-    /// points to 41 would sprout a spike from the floor at its left edge, which is a reading the
+    /// points to 41 would otherwise drop to the floor at its right edge, which is a reading the
     /// machine never took.
     static func aligned(_ one: [Double], _ other: [Double]) -> ([Double], [Double]) {
         let width = max(one.count, other.count)
         return (padded(one, to: width), padded(other, to: width))
     }
 
-    /// One series stretched to `width` by repeating its oldest reading in front of it (see
-    /// `aligned`). An empty series has no reading to repeat and is a run of zeroes, which is what
-    /// makes the empty series the additive identity the interpolation needs.
+    /// One series stretched to `width` by repeating its newest reading after it (see `aligned`). An
+    /// empty series has no reading to repeat and is a run of zeroes, which is what makes the empty
+    /// series the additive identity the interpolation needs.
     static func padded(_ values: [Double], to width: Int) -> [Double] {
         guard values.count < width else { return values }
-        return Array(repeating: values.first ?? 0, count: width - values.count) + values
+        return values + Array(repeating: values.last ?? 0, count: width - values.count)
     }
 
     /// Which reading to mark with a dot, or nothing when there is no peak to point at: a flat line

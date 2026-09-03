@@ -117,11 +117,11 @@ extension PopoverRootView {
         // about the machine (`sessionMarkedCard`), decided over both kinds of card at once, so what
         // comes back already says which kind it landed on.
         //
-        // AND FROZEN FOR AS LONG AS A HAND IS CLOSED, which is what keeps exactly one flame on the
-        // page: the floating copy is drawn from the grab's snapshot, so a board still reading the
-        // mark live would light a second one the moment the machine moved it. One rule answers here
-        // and for the copy (`SessionBoardGhosts.placement`).
-        let marked = SessionBoardGhosts.placement(sessionLift?.mark ?? sessionMarkedCard,
+        // AND FROZEN FOR AS LONG AS A HAND IS CLOSED, which keeps exactly one flame on the page:
+        // the copy is drawn from the grab's snapshot, so a board still reading the mark live would
+        // light a second one. That snapshot includes "no flame at all", which a `??` cannot say, so
+        // this asks the LIFT, not its mark. One rule answers both (`placement`, codex 34b4147).
+        let marked = SessionBoardGhosts.placement(sessionLift.map(\.mark) ?? sessionMarkedCard,
                                                   carrying: sessionLift?.id,
                                                   footnote: sessionLift?.footnote?.root).seat
         // WHICH CARD IS CARRYING WHICH READING, out of the very cards being laid out: the drag

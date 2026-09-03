@@ -80,27 +80,31 @@ struct MotionChoice: Equatable {
     /// every combination was put on one screen under one clock and this is the one that came back
     /// (Albert, 2026-09-03, sample N3). Rolling digits on the bouncy curve.
     ///
-    /// THE LINE DOES NOT MOVE, AND THAT IS A PRICE RATHER THAN A PREFERENCE. L6 was picked at the
-    /// same sitting and cannot be afforded on a live board. Measured on this build with the board
-    /// open and fifteen cards on it, a minute of CPU time per state (2026-09-03): 27.0% of one core
-    /// with nothing moving, 56.9% with the line growing alone, 63.2% with the digits rolling alone,
-    /// 70.1% with both.
+    /// THE LINE DOES NOT MOVE, AND IT IS NOW A PREFERENCE RATHER THAN A PRICE. It was a price: L6
+    /// was picked at the same sitting and could not be afforded, a minute of CPU time per state on
+    /// a nine card board putting the growing line at 41.6% of one core against 20.8% with nothing
+    /// moving. The reason was never this app's arithmetic. Any continuous motion in the VIEW TREE
+    /// holds the whole panel in a layout pass per frame, because an animating leaf's layout computer
+    /// is dirty on every frame and nothing between it and the root truncates that, so no cheaper
+    /// geometry bought it back: the cheapest style there is, one scalar on one shape, still cost
+    /// most of it, and cutting the row's seven-candidate ladder to one returned nine of the
+    /// forty-three points and left the rest exactly where they were.
     ///
-    /// EITHER AXIS ALONE COSTS ABOUT THIRTY POINTS AND THE TWO TOGETHER COST BARELY MORE, which is
-    /// the shape of the real cost: any continuous motion holds the WHOLE PANEL in a layout pass per
-    /// frame, and this board is fifteen cards of three metrics apiece, each row laid out by a
-    /// seven-candidate `ViewThatFits`. It is not this app's arithmetic - a profile of the same
-    /// minute put under one per cent of the main thread in this module and all the rest in
-    /// SwiftUI's own layout engine - so no cheaper geometry buys it back: the cheapest style there
-    /// is, one scalar on one shape (`pulse`), still costs 48.6%. Nor is the ladder the culprit:
-    /// cutting those seven candidates to one returned nine of the forty-three points and left the
-    /// remaining thirty-four exactly where they were.
+    /// THE LINE'S MOTION IS THE RENDER SERVER'S NOW, so it costs this process nothing: the figure is
+    /// four Core Animation layers and one commit per reading, and the frames between them are not
+    /// this app's work at all (`FootprintSparklineLayerView`). Measured the same way in one sitting
+    /// on the same board, 2026-09-03: 14.8% with nothing moving and 14.7% with the line growing,
+    /// which is the same reading twice. A profile of that minute has no panel-wide measurement left
+    /// in it (`HostAnchored.sizeThatFits`, 4.7% of the main thread before and absent after).
     ///
-    /// SO THIS IS HALF A CURE, AND IS WRITTEN DOWN AS ONE. Holding the line still returns seven of
-    /// those forty-three points; the only setting that costs nothing is `none` on both axes, and
-    /// which of the three the board should run is a question about how it should LOOK rather than
-    /// one an optimisation can answer (Albert, to decide - `-TallyMotion` still reaches every
-    /// combination).
+    /// THE DIGITS STILL COST WHAT THEY COST, being still a view tree transition: 47.9% with them
+    /// rolling alone, 51.2% with both axes, against 14.8% still. Which is the same shape of cost the
+    /// line had, for the same reason, and it is the one this row has left.
+    ///
+    /// SO WHICH STYLE THE LINE RUNS IS A QUESTION ABOUT HOW IT SHOULD LOOK AGAIN, and the default
+    /// stays `none` until it is answered by looking rather than by arithmetic (Albert, to decide;
+    /// `-TallyMotion` still reaches every combination, and the samples window puts them on one
+    /// clock).
     ///
     /// THE STYLES ALL STAY, and that is deliberate rather than leftover: they are what the samples
     /// window is for, the flag still reaches every one of them, and the question they answer comes

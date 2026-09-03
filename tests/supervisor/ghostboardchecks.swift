@@ -305,7 +305,13 @@ func runGhostBoardChecks() {
     check("the reading under a session card is a mark on the trend row, not a line under the card",
           !session.contains("SessionUnclaimedFootnote(")
               && !footnote.contains("namesItself")
-              && card.contains("private var leftoversMark: some View"))
+              && card.contains("private var leftoversMark: some View")
+              // AND THE MARK SAYS WHAT THE READING IS RATHER THAN WHAT THIS APP MIGHT DO ABOUT IT.
+              // The turning arrow it wore was the reclaim vocabulary and was read as RELOAD on the
+              // board, a refresh control being what that glyph is everywhere else in this app and
+              // one of them being on this same surface (Albert, 2026-09-03, twice).
+              && footnote.contains("Image(systemName: \"circle.dashed\")")
+              && !footnote.contains("Image(systemName: \"arrow.counterclockwise\")"))
     // AND IT IS LAID OUT INSIDE THE ROW'S CANDIDATE LIST, not after it: `ViewThatFits` measures what
     // is in a candidate, so a fourth group beyond the row is a group the ladder never made room for
     // - the card would give up its width instead of a ceiling (`sessionFootprintTrends`).

@@ -83,12 +83,19 @@ private struct FigureMotion: ViewModifier {
         let rising = (value ?? 0) >= (previous ?? value ?? 0)
         return figured(content, rising: rising)
             .animation(still || !style.moves ? nil : curve, value: text)
-            // THE TRANSITION MUST NOT REACH THE LAYOUT AROUND IT, for the reason the shape beside it
-            // carries in full (`FootprintSparklineView`): this column sits inside a `ViewThatFits`
-            // that re-measures seven candidates whenever anything under it invalidates, and a
-            // figure changing every couple of seconds on fifteen cards was re-laying the board out
-            // frame by frame. The width is pinned by the hidden widest copy inside
-            // (`SessionCardView.column`) and always was; what leaked was the invalidation.
+            // THIS DOES NOT STOP THE BOARD BEING RE-LAID-OUT, WHICH IS WHAT IT WAS PUT HERE FOR
+            // (measured 2026-09-03). `.geometryGroup` isolates GEOMETRY - where a child is put, and
+            // what its transitions inherit from a moving parent - and geometry is downstream of
+            // size, so an invalidation travelling UP the layout computers passes straight through
+            // it: with the digits rolling alone and the line held still, the panel was still laid
+            // out once per frame, at 47.4% of one core against 12.4% with nothing moving. What it
+            // does buy is what its name says, and the figure it wraps is inside a `ViewThatFits`
+            // whose candidates are swapped subtrees, so it stays.
+            //
+            // The cure for the cost is the one the shape beside it took: hand the interpolation to
+            // the render server, so the view tree sees one update per reading rather than one per
+            // frame (`FootprintSparklineLayerView`). This column still animates in the view tree
+            // and still costs what it costs, which is the measurement A2 is about.
             .geometryGroup()
             .onChange(of: value) { old, _ in previous = old }
     }

@@ -230,6 +230,12 @@ private struct MotionDemoView: View {
         LineCell(style: .comet, detail: "travel, bright tail fades"),
     ]
 
+    /// How much larger the second copy of each line is drawn. The figure is told as well as scaled,
+    /// because what draws it is a layer and a layer rasterises at the resolution it is given: blown
+    /// up without being told, a one point stroke is drawn once and stretched
+    /// (`FootprintSparklineView.magnified`).
+    private static let magnification: CGFloat = 3
+
     /// One line at the size a card draws it, and again at three times that, because a 24 by 11 point
     /// figure is exactly the size at which two motions look alike.
     ///
@@ -241,10 +247,11 @@ private struct MotionDemoView: View {
             FootprintSparklineView(values: window, lineStyle: style, firstDraw: firstDraw,
                                    still: !animated)
             FootprintSparklineView(values: window, lineStyle: style, firstDraw: firstDraw,
-                                   still: !animated)
-                .scaleEffect(3, anchor: .topLeading)
-                .frame(width: FootprintSparklineView.size.width * 3,
-                       height: FootprintSparklineView.size.height * 3, alignment: .topLeading)
+                                   still: !animated, magnified: Self.magnification)
+                .scaleEffect(Self.magnification, anchor: .topLeading)
+                .frame(width: FootprintSparklineView.size.width * Self.magnification,
+                       height: FootprintSparklineView.size.height * Self.magnification,
+                       alignment: .topLeading)
         }
     }
 
@@ -267,9 +274,10 @@ private struct MotionDemoView: View {
              + "-TallyMotion <figure style>,<line style>,<curve>, for example "
              + "-TallyMotion push,scroll,smooth. One axis per position, so a style left out is "
              + "written as an empty one (-TallyMotion ,,smooth is the curve alone) and none on its "
-             + "own is every motion off. Defaults are roll, none, bouncy (N3, and L0 for the line: "
-             + "any motion holds the whole panel in a layout pass per frame - see MotionChoice.lines "
-             + "for what each axis costs a live board).")
+             + "own is every motion off. Defaults are roll, none, bouncy (N3, and L0 for the line, "
+             + "which is now a preference rather than a price: the line's motion is a layer's and "
+             + "costs the board nothing, while the digits are still a view tree transition - see "
+             + "MotionChoice.lines for what each axis costs a live board).")
             .font(.caption2).foregroundStyle(.secondary)
     }
 }

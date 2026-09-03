@@ -410,13 +410,22 @@ enum FootprintSparkline {
                                                y: previous.y + (last.y - previous.y) * grow)
         }
         guard steps != 0 else { return points }
-        let step = size.width / CGFloat(values.count - 1)
+        let step = stepWidth(values.count, in: size)
         return points.map { CGPoint(x: $0.x + step * CGFloat(steps), y: $0.y) }
+    }
+
+    /// HOW WIDE ONE READING IS, which is what a whole step of a slide is worth: the gap between
+    /// two points, so the outline arrives exactly where it stood before the newest reading landed
+    /// whatever the window's length has got to (`slid`, and the layer that commits the same slide
+    /// as an animation, `FootprintSparklineLayerHost`). Nothing at all for a series too short to be
+    /// a line, which has no gap to measure.
+    static func stepWidth(_ count: Int, in size: CGSize) -> CGFloat {
+        count >= minimumReadings ? size.width / CGFloat(count - 1) : 0
     }
 
     /// TWO READINGS OF ONE SERIES READ AS ONE LENGTH, which is what lets a line TRAVEL from the
     /// shape it had to the shape it has instead of being repainted between two frames
-    /// (`FootprintSparklineValues`, the view's own interpolation).
+    /// (`FootprintSparklineLayerHost.travel`, which commits one animation between the two).
     ///
     /// THE SHORTER ONE IS EXTENDED AT ITS END, and that is the whole of the decision here. TWO
     /// LENGTHS ONLY EVER HAPPEN WHILE THE RING IS STILL FILLING, which is the fact the answer turns

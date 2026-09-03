@@ -26,8 +26,13 @@ func runFootprintTrendSurfaceChecks() {
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     let spark = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineView.swift",
                              encoding: .utf8)) ?? ""
-    check("the three sources this suite reads are readable from it",
-          !store.isEmpty && !card.isEmpty && !spark.isEmpty)
+    // AND THE LAYERS THAT DRAW IT, which is where the figure's motion went: the shell decides what
+    // is drawn and the layers commit it, so a suite that read only the shell would go quietly green
+    // on every assertion about how a reading arrives (`FootprintSparklineLayerView`).
+    let layers = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineLayerView.swift",
+                              encoding: .utf8)) ?? ""
+    check("the four sources this suite reads are readable from it",
+          !store.isEmpty && !card.isEmpty && !spark.isEmpty && !layers.isEmpty)
     // THE HISTORY IS THE REASON THE STORE SAMPLES WITH NOTHING OPEN. A trend that only existed
     // while somebody was looking would be empty at the moment it is wanted, since a person opens
     // this board BECAUSE something already felt wrong.
@@ -162,11 +167,14 @@ func runFootprintTrendSurfaceChecks() {
     // is warned in parts: the line, the peak dot and the current dot each state the grey they wear
     // on a calm card AND the rank they keep on a warned one, and take both from the same rule.
     check("…the line and both of its dots turning amber with the figure",
-          spark.contains("guard let tint = level.tint else { return AnyShapeStyle(calm) }")
-              && spark.contains("return AnyShapeStyle(tint.opacity(step))")
-              && spark.contains(".stroke(tone(calm: .tertiary, step: Self.alertLine),")
-              && spark.contains("tone(calm: .secondary, step: Self.alertPeak)")
-              && spark.contains("tone(calm: .primary, step: Self.alertCurrent)"))
+          layers.contains("guard let tint = level.tint else { return calm.cgColor }")
+              && layers.contains("return NSColor(tint).withAlphaComponent(step).cgColor")
+              && layers.contains("line.strokeColor = tone(calm: .tertiaryLabelColor,"
+                                 + " step: FootprintSparklineView.alertLine)")
+              && layers.contains("peak.fillColor = tone(calm: .secondaryLabelColor,"
+                                 + " step: FootprintSparklineView.alertPeak)")
+              && layers.contains("current.fillColor = tone(calm: .labelColor,"
+                                 + " step: FootprintSparklineView.alertCurrent)"))
     // THREE STEPS OF ONE COLOUR, IN THE ORDER THE CALM CARD'S GREYS ARE: quietest at the line and
     // loudest at the current reading, mirroring tertiary, secondary, primary. It was not a mirror
     // before - the line and the current dot were both full amber, so the shape was as loud as the
@@ -177,7 +185,7 @@ func runFootprintTrendSurfaceChecks() {
     // to the SAME value left it green (ledger P4). Parsed, an edit that flattens any two of the
     // three turns it red.
     func alertStep(_ name: String) -> Double? {
-        guard let mark = spark.range(of: "private static let \(name): Double = ") else { return nil }
+        guard let mark = spark.range(of: "static let \(name): CGFloat = ") else { return nil }
         return Double(spark[mark.upperBound...].prefix { $0.isNumber || $0 == "." })
     }
     let quiet = alertStep("alertLine"), middle = alertStep("alertPeak")
@@ -358,9 +366,11 @@ func runFootprintTrendSurfaceChecks() {
     // because the row hands over the live reading with the kept ones: from the ring alone it marked
     // 20% on a session whose card said 400%, the newest KEPT point being up to a bucket old.
     check("the line marks the peak and the newest reading, quiet and bright",
-          spark.contains("if let index = FootprintSparkline.peakIndex(values)")
-              && spark.contains("mark(series, at: index, diameter: Self.peakDot)")
-              && spark.contains("mark(series, at: nil, diameter: Self.currentDot * pulse)"))
+          layers.contains("let ceiling = FootprintSparkline.peakIndex(values).flatMap {")
+              && layers.contains("place(peak, diameter: FootprintSparklineView.peakDot,"
+                                 + " at: now.peak)")
+              && layers.contains("place(current, diameter: FootprintSparklineView.currentDot,"
+                                 + " at: now.current)"))
     check("…and the newest one is this instant's reading, drawn and never stored",
           card.contains("? readings + [now].compactMap { $0 } : []"))
 
@@ -369,36 +379,74 @@ func runFootprintTrendSurfaceChecks() {
     // between two frames: the digits swapped and the whole outline was replaced, which reads as a
     // flicker rather than as a change.
     //
-    // THE THREE PIECES OF A GROUP TRAVEL ON ONE ANIMATION, which is the property worth pinning: the
-    // line and both of its dots are drawn from the SAME interpolated series, so a dot can never
-    // leave the line it sits on. The dots were `Circle`s at an `.offset` - which interpolates
-    // between two POSITIONS while the line interpolates between two SERIES - and two interpolations
-    // of one figure is exactly that defect.
-    check("the shape's animatable data is the readings, not the path it draws",
-          spark.contains("get { AnimatablePair(travels ? readings : .zero,"
-                         + " AnimatablePair(slide, grow)) }")
-              && spark.contains("struct FootprintSparklineLine: Shape")
-              && spark.contains("struct FootprintSparklineMark: Shape")
+    // AND THE INTERPOLATION IS THE RENDER SERVER'S, NOT THIS PROCESS'S, which is the property this
+    // row's cost turned on (Albert, 2026-09-03, feeling the board lag). A `Shape` whose
+    // `animatableData` is the series has a layout computer that depends on the shape's value, so
+    // every frame of every spring made the leaf dirty and nothing between it and the root truncates
+    // that: the whole panel was laid out per frame, at 41.3% of one core against 12.4% still. What
+    // is committed now is one animation per reading, and the frames between them cost nothing here.
+    check("the readings are interpolated by a layer rather than by the view tree",
+          layers.contains("struct FootprintSparklineLayerView: NSViewRepresentable")
+              && !spark.contains(": Shape {")
+              && !spark.contains("var animatableData")
               && !spark.contains("Circle()"))
-    // AND THE WINDOW IS ONLY INTERPOLATED WHERE THE STYLE SAYS IT TRAVELS. Every one of these
-    // shapes takes the series as its animatable data, so a style whose outline arrives WHOLE would
-    // have ninety readings interpolated on every frame of whatever phase does carry its change -
-    // arithmetic nobody looks at, on the default style, three shapes per metric (Albert, 2026-09-03,
-    // feeling the board lag). Offered as the zero instead, the phase animates alone.
-    check("…and only the styles that travel pay for interpolating it",
-          spark.contains("private var readingsTravel: Bool { !reduceMotion"
-                         + " && lineStyle.interpolatesReadings }")
-              && spark.contains("travels: readingsTravel")
-              && spark.contains("set { if travels { readings = newValue.first }"))
-    check("…both dots being drawn from the same series the line is",
-          spark.contains("private func mark(_ readings: FootprintSparklineValues, at index: Int?,")
-              && spark.components(separatedBy: "FootprintSparkline.slid(readings.series,").count - 1
-                  == 3)
+    // AND THE MEASUREMENT IT ANSWERS WITH IS A CONSTANT, which is the other half of it: a leaf whose
+    // size cannot depend on its contents cannot make an ancestor's layout computer dirty either,
+    // and the seven-candidate ladder above this measures a constant rather than walking a figure
+    // seven times (`SessionCardTrendRow.sessionFootprintTrends`).
+    check("…and the size it reports asks its own contents nothing",
+          layers.contains("func sizeThatFits(_ proposal: ProposedViewSize,"
+                          + " nsView: FootprintSparklineLayerHost,")
+              && layers.contains("        FootprintSparklineView.size\n    }"))
+    // THE THREE PIECES OF A GROUP TRAVEL ON ONE ANIMATION, which is the property worth pinning: the
+    // line and both of its dots are computed from the SAME pair of series, so a dot can never leave
+    // the line it sits on. The dots were `Circle`s at an `.offset` - which interpolates between two
+    // POSITIONS while the line interpolates between two SERIES - and two interpolations of one
+    // figure is exactly that defect.
+    check("…both dots travelling on the same pair of series the line does",
+          layers.contains("let (before, after) = FootprintSparkline.aligned(previous, values)")
+              && layers.contains("let start = geometry(before, grow: grow)")
+              && layers.contains("let end = geometry(after)")
+              && layers.contains("private func geometry(_ values: [Double], grow: Double = 1)"))
+    // AND THE OUTLINE ONLY TRAVELS WHERE THE STYLE SAYS IT DOES. The styles that arrive whole put
+    // their outline up in one step and announce the reading with a phase instead, which is the same
+    // fork the shapes drew and is still the style's own answer (`MotionChoice.Lines`).
+    check("…and only the styles that travel interpolate the readings",
+          layers.contains("case .morph, .bounce:\n            travel(from: previous, to: values,"
+                          + " curve: curve)")
+              && layers.contains("case .plain:\n            redraw()")
+              && layers.contains("plot.add(spring(curve, keyPath: \"transform.translation.x\","
+                                 + " from: step, to: 0),"))
+    // A FIGURE, NOT A CONTROL, AND NOT A SECOND VOICE. An AppKit view inside this card would
+    // otherwise take the click meant for the card's own button and be read out as an unlabelled
+    // element beside the row that already states every figure on it in words.
+    check("…and the view those layers hang in takes no click and says nothing",
+          layers.contains("override func hitTest(_ point: NSPoint) -> NSView? { nil }")
+              && layers.contains("setAccessibilityElement(false)"))
+    // THE CALM GREYS ARE THE SYSTEM'S OWN and are different colours in the two appearances, and the
+    // figure is drawn at the resolution of whichever display it is on: both are asked again when
+    // they change, which a layer does not do for itself.
+    check("…the greys and the resolution being resolved again when either changes",
+          layers.contains("override func viewDidChangeEffectiveAppearance()")
+              && layers.contains("override func viewDidChangeBackingProperties()")
+              && layers.contains("effectiveAppearance.performAsCurrentDrawingAppearance {"))
     // A SERIES THAT GAINS A POINT IS ALIGNED AT ITS OLDEST END, which is the only end two lengths
     // can share: the window grows by appending until it is full, so the shorter series is a PREFIX
     // of the longer one and index 0 is the same instant in both. Extended with the NEWEST reading
     // rather than with zero, because zero is a value on all three metrics and the line is measured
     // from it - a window growing by a point would otherwise drop to the floor at its right edge.
+    // DRAWN IN ONCE PER FIGURE, and the key is what makes that true: the candidate ladder above
+    // this swaps subtrees whenever the figures change width class, and a swapped candidate is a NEW
+    // view, so a line keyed on nothing blinked out and stroked itself back in on a card that had
+    // been on screen for minutes. The decision is the shell's, being about a key that outlives any
+    // one view; the layers are told, and refuse to run it twice.
+    check("the outline strokes itself in once per figure, not once per rebuild",
+          spark.contains("guard !Self.alreadyDrawn.contains(identity) else"
+                         + " { reveal = .instant; return }")
+              && spark.contains("Self.alreadyDrawn.insert(identity)")
+              && spark.contains("reveal = .stroked")
+              && layers.contains("guard !strokedIn else { return }")
+              && layers.contains("line.add(fade(\"strokeEnd\", from: 0, to: 1,"))
     check("two lengths of one series are read as one length, extended at the end",
           FootprintSparkline.padded([4, 5], to: 4) == [4, 5, 5, 5]
               && FootprintSparkline.padded([4, 5], to: 2) == [4, 5]
@@ -418,17 +466,15 @@ func runFootprintTrendSurfaceChecks() {
     check("every motion this row gained is off under Reduce Motion",
           spark.contains("@Environment(\\.accessibilityReduceMotion) private var"
                          + " motionFromEnvironment")
-              // The same judgement, one refactor on: what used to be a guard inside the animation
-              // getter is now the named question both the getter and the SHAPES are asked, so the
-              // outline, its dots and the curve they travel on cannot answer it differently
-              // (`FootprintSparklineView.readingsTravel`).
-              && spark.contains("private var readingsTravel: Bool"
-                                + " { !reduceMotion && lineStyle.interpolatesReadings }")
-              && spark.contains("private var travel: Animation? { readingsTravel ? curve : nil }")
-              && spark.contains("travels: readingsTravel")
-              // The one gate every style that is not a travelling series passes through: each of
-              // them is a phase set and animated home from here, and this refuses the lot.
-              && spark.contains("guard !reduceMotion else { return }")
+              // The shell asks the question and the layers are TOLD the answer, which is the one
+              // arrangement in which the outline, its dots and the phase that announces a reading
+              // cannot answer it differently: there is only one answer, and it is passed down.
+              && spark.contains("still: reduceMotion, reveal: reveal")
+              // The one gate every motion on this figure passes through. A style that never moves
+              // is refused by the same line, so the baseline and the styles are one implementation
+              // (`MotionChoice.Lines.moves`).
+              && layers.contains("if arriving, !still, lineStyle.moves {")
+              && layers.contains("            redraw()\n        }")
               && card.contains(".figureMotion(trend.figure, value: trend.value,"
                                + " still: reduceMotion)")
               // The figures' own gate, which refuses on two counts: the reader asked for stillness,

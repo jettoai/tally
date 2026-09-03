@@ -264,11 +264,13 @@ extension SessionUnclaimedFootnote {
 /// (`SessionCardView.sessionFootprintTrends`), so a narrow card gives ceilings and culprit names up
 /// to fit it rather than truncating it - the same ladder the three readings already descend.
 ///
-/// THE GLYPH IS THE APP'S OWN RECLAIM VOCABULARY, not a new one: an arrow turning back is what this
-/// package does about these processes when a lease runs out (`OrphanReclaim`), and it is the one
-/// mark on this card that is neither the eye of something being watched nor the cross of something
-/// ended. Amber for the reason the word `leftovers` is amber wherever it is written: worth an eye,
-/// not worth a hand.
+/// THE GLYPH SAYS WHAT THE READING IS, NOT WHAT THIS APP MIGHT DO ABOUT IT. It was the reclaim
+/// vocabulary - an arrow turning back, which is what this package does about these processes when a
+/// lease runs out (`OrphanReclaim`) - and on the board it read as RELOAD, the turning arrow being
+/// what a refresh control is everywhere else in this app and one of them being on this very surface
+/// (Albert, 2026-09-03, twice). A dashed circle says the thing the count is about instead:
+/// something present, drawn in full, claimed by nobody. Amber for the reason the word `leftovers`
+/// is amber wherever it is written: worth an eye, not worth a hand.
 ///
 /// AND IT ANSWERS A HOVER, WHICH ALMOST NOTHING ON THIS BOARD DOES. The ban is real and worth
 /// restating rather than quietly lifting: the pointer WAITS on this board between jumps, so a layer
@@ -286,7 +288,7 @@ struct SessionLeftoversMark: View {
 
     var body: some View {
         HStack(spacing: SessionCardView.trendSpacing) {
-            Image(systemName: "arrow.counterclockwise")
+            Image(systemName: "circle.dashed")
             Text(verbatim: "\(project.strayProcesses)")
             if flamed { SessionCardView.flameMark }
         }

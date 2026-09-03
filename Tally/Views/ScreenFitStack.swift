@@ -211,9 +211,17 @@ extension ScreenFitStack {
 /// content's ideal height and this only decides where that content sits until it does.
 struct HostAnchored: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let ideal = subviews.first?.sizeThatFits(proposal) ?? .zero
+        // A PROPOSAL WITH BOTH SIDES GIVEN IS THE ANSWER, and the subtree is not asked for one it
+        // cannot change: the host hands this its bounds on every pass (`NSHostingView`), so the
+        // ideal measured here was computed and then thrown away, once per pass, over the whole
+        // panel. What the surface REPORTS is unaffected, being measured on the content itself a
+        // level down (`PopoverRootView.sizeReporter`); this only places what it is given.
+        if let width = proposal.width, let height = proposal.height {
+            return CGSize(width: width, height: height)
+        }
         // An unspecified proposal is answered with the content's own size: a host that asks how big
         // this wants to be must not be told "as big as you like".
+        let ideal = subviews.first?.sizeThatFits(proposal) ?? .zero
         return CGSize(width: proposal.width ?? ideal.width, height: proposal.height ?? ideal.height)
     }
 

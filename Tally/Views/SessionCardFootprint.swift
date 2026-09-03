@@ -35,7 +35,17 @@ extension SessionCardView {
                                     // field says WHERE those processes came from rather than what
                                     // they are, so English has no plural to make of it and a
                                     // translator is not handed two keys that would take one phrase.
-                                    backgroundUnit: L("background"))
+                                    //
+                                    // AND IT SAYS `background jobs` RATHER THAN `background`,
+                                    // because the bare word meant two different things on one page:
+                                    // here it is what THIS session left running (a job whose own
+                                    // shell exited, matched back by the group it carries), and in
+                                    // the rollup above the board it was work no session accounts
+                                    // for at all. That rollup is now a card of its own and says
+                                    // `unclaimed` (`SessionGhostCardView`); this one names the
+                                    // things it is counting, and the two can no longer be read as
+                                    // one reading (Albert, 2026-09-03).
+                                    backgroundUnit: L("background jobs"))
     }
 
     /// What this session is holding open, as the identity line prints it, or nothing when it is

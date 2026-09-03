@@ -24,6 +24,11 @@ struct SessionCardView: View {
     /// Full-brightness grip regardless of hover: the floating drag preview sets it, so the glyph
     /// never blinks out under the very hand that is dragging by it.
     var handleProminent: Bool = false
+    /// Whether this card wears the machine's flame: its project is the heaviest one running, and of
+    /// that project's cards this is the one spending the most (`SessionBoardGhosts.marked`). The
+    /// mark used to sit on a row in a section above the board, which is where it stopped being
+    /// worth the layer it needed (`SessionGhostCardView`).
+    var marked: Bool = false
 
     @State var isHovering = false
 
@@ -33,7 +38,11 @@ struct SessionCardView: View {
     /// What a card that cannot report itself is drawn at. Far enough down to read as "this one is
     /// quieter than the others" at a glance, not so far that its own text stops being legible -
     /// the card is still the way to that terminal.
-    private static let quietCardOpacity: Double = 0.55
+    ///
+    /// Not private, because the board's unclaimed cards are drawn at it too: they are the other
+    /// thing on this page that is quieter than a session without being any less true
+    /// (`SessionGhostCardView`), and two spellings of one opacity would drift.
+    static let quietCardOpacity: Double = 0.55
 
     var body: some View {
         Button {
@@ -476,23 +485,4 @@ struct SessionCardView: View {
         return reason
     }
 
-}
-
-extension PopoverRootView {
-    /// One session's card, built the one way for both places that draw it: the grid, and the
-    /// floating copy the drag carries (`sessionLiftPreview`). What the hand is holding cannot drift
-    /// from what the grid draws, which is why the preview asks for this rather than for its own.
-    ///
-    /// - Parameter handleProminent: hold the grip at full brightness. The preview's, so the glyph
-    ///   the user grabbed by does not fade out the moment the pointer leaves the card's old seat.
-    func sessionCard(_ row: SessionRosterStore.SessionRow,
-                     handleProminent: Bool = false) -> some View {
-        SessionCardView(row: row, store: store, settings: settings,
-                        // A card with no directory has nothing to be arranged by and cannot be
-                        // lifted at all, which is the same question the drag asks at the grab
-                        // (`sessionsReorderGesture`): one answer, so the affordance and the gesture
-                        // cannot disagree about which cards move.
-                        showsDragHandle: SessionRosterStore.orderKey(row) != nil,
-                        handleProminent: handleProminent)
-    }
 }

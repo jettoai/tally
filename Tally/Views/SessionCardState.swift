@@ -39,8 +39,39 @@ extension SessionCardView {
                 sessionStateWord
                 sessionDuration
             }
+            // AT THE TRAILING END, WHERE NOTHING HAS TO BE HELD OPEN FOR IT. It began as a reserved
+            // slot between the dot and the name, on the reasoning that a mark arriving must not
+            // shunt the title sideways - which held the gap open on EVERY card on the board for the
+            // one card that might use it, and read as a layout mistake rather than as a space
+            // (Albert, seeing the first live board, 2026-09-03). Past the Spacer nothing is
+            // reserved and nothing moves: the title keeps the leading edge whatever else the row is
+            // carrying, exactly as the state word and the age already do on the waiting card.
+            if marked { Self.flameMark }
             if showsDragHandle { dragHandle }
         }
+    }
+
+    /// THE HEAVIEST PROJECT ON THE MACHINE, MARKED ON THE ONE CARD THAT IS SPENDING IT.
+    ///
+    /// DRAWN ONLY WHEN IT IS TRUE, and nothing is held open for it when it is not. The alternative
+    /// was a reserved slot in front of the title, which is how the row this mark came off did it,
+    /// and on a grid of cards it is the wrong trade: that row was one of a stack of identical rows,
+    /// while a card's title is the thing a reader lands on, so the empty slot showed up as a gap
+    /// between the state dot and the name on every card on the board. It costs nothing to leave out
+    /// because of where it now sits - at the trailing end of the headline, past the Spacer
+    /// (`sessionCardHeadline`), where the things that come and go already live.
+    ///
+    /// AMBER RATHER THAN RED, on the board's own division: red is reserved for the card that is
+    /// ASKING for somebody (`stateDot`, the waiting card's edge), and a checkout burning cores is a
+    /// fact to notice rather than one to answer.
+    ///
+    /// Static, because the unclaimed cards wear the same mark in the same place for the same
+    /// project, and one spelling of it is what keeps the two kinds of card saying it alike
+    /// (`SessionGhostCardView`).
+    static var flameMark: some View {
+        Image(systemName: "flame.fill")
+            .font(.caption2)
+            .foregroundStyle(TallyColor.warning)
     }
 
     /// The word `blocked`, and the whole of what the session is waiting FOR under a hover of it.

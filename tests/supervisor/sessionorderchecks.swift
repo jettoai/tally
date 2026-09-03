@@ -469,9 +469,12 @@ func runSessionBoardOrderChecks() {
               && cardSource.contains(".onHover { if showsDragHandle { isHovering = $0 } }"))
     // The card the hand is holding is drawn by the floating copy, and a grip that faded out the
     // moment the pointer left the old seat would blink out mid-drag.
+    // The card BUILDER moved next to its two call sites when the card file reached the repo's line
+    // cap (`sessionCard`, in the reorder file), so both halves of this are read from there: what the
+    // preview asks for, and what the builder does with it.
     check("the floating copy holds the grip at full brightness",
-          reorderSource.contains("sessionCard(lift.row, handleProminent: true)")
-              && cardSource.contains("handleProminent: handleProminent"))
+          reorderSource.contains("sessionCard(lift.row, handleProminent: true,")
+              && reorderSource.contains("handleProminent: handleProminent, marked: marked)"))
     // WHAT A CLICK DOES IS STILL SPOKEN. The callout used to hand that sentence to an accessibility
     // hint on its way past (`TallyTooltip`), so taking the callout off the card took the sentence
     // with it and left a control whose only affordance a screen reader could not see. A hint rather
@@ -511,6 +514,6 @@ func runSessionBoardOrderChecks() {
     // A session that published no directory cannot be lifted at all (`orderKey`), so offering it a
     // grip would promise a gesture that does nothing. One answer, asked at the grab and at the draw.
     check("only a card there is something to arrange by carries a grip",
-          cardSource.contains("showsDragHandle: SessionRosterStore.orderKey(row) != nil")
+          reorderSource.contains("showsDragHandle: SessionRosterStore.orderKey(row) != nil")
               && reorderSource.contains("let key = SessionRosterStore.orderKey(row)"))
 }

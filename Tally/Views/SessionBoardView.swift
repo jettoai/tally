@@ -100,28 +100,42 @@ extension PopoverRootView {
         let listed = SessionRosterStore.arranged(
             board.filter { tabState.sessionFilter == .all || $0.isReporting },
             manualKeys: settings.sessionBoardSortsByState ? [] : settings.sessionBoardOrder)
+        // WORK IN THESE CHECKOUTS THAT NO SESSION ACCOUNTS FOR, one card per project rather than a
+        // section above the board (`SessionGhostCardView`). Under Connected only sessions that can
+        // report themselves are listed, and an unclaimed card reports nothing by construction - the
+        // whole of what it says is that nobody is answering for what is running.
+        let everyUnclaimed = SessionBoardGhosts.unclaimed(
+            in: ProcessFootprintStore.shared.machineLoad)
+        let unclaimed = tabState.sessionFilter == .all ? everyUnclaimed : []
+        // WHERE EACH CARD IS WORKING, from the sampler's own resolved answer where there is one and
+        // from the row itself where there is not. The map is preferred because it is CANONICAL: it
+        // is `realpath` of the row's directory, computed by the very pass that produced the roots
+        // these cards are keyed by (`ProcessFootprintStore.sessionProjects`), so a checkout reached
+        // through a symlink is one spelling on both sides. The row's own directory is the fallback
+        // rather than the source, so that no card can lose its seat to a field that has not been
+        // published yet - and the rule that consumes either is containment, which does not need the
+        // two to be spelled identically to file them together (`SessionBoardGhosts.seats`).
+        let seats = SessionBoardGhosts.seats(
+            sessionDirectories: listed.map {
+                ProcessFootprintStore.shared.sessionProjects[$0.id] ?? $0.directory
+            },
+            unclaimed: unclaimed.map(\.root),
+            sortsByState: settings.sessionBoardSortsByState)
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
             if board.isEmpty {
                 sessionsEmptyState(L("No supervised sessions are running"))
             } else {
                 sessionsBoardControls
-                sessionsSummary(roster)
-                // ABOVE THE CARDS RATHER THAN BELOW THEM, and above the filter's own empty state:
-                // it is a statement about the whole machine, so it must not be something a reader
-                // only meets after scrolling past ten cards - and it is exactly what a board
-                // filtered down to nothing still has to say (`sessionsProjectRollup`).
-                sessionsProjectRollup
-                // …and what was DONE about any of it, which is the one thing on this page that is
-                // not a reading (`sessionsReclaimNotes`). Directly under the rollup, because it is
-                // about the very rows above it.
-                sessionsReclaimNotes
-                if listed.isEmpty {
+                // The whole machine's count rather than this filter's, exactly as the four beside it
+                // are: the cards below can be narrowed to none and the reading stays true.
+                sessionsSummary(roster, unclaimed: everyUnclaimed.count)
+                if seats.isEmpty {
                     // The filter is holding everything back, which is a different sentence from
                     // "nothing is running" - and saying the wrong one would read as the board
                     // having lost the sessions the summary above is still counting.
                     sessionsEmptyState(L("No sessions are reporting yet"))
                 } else {
-                    sessionsGrid(listed, board: board)
+                    sessionsGrid(seats, listed: listed, unclaimed: unclaimed, board: board)
                 }
             }
         }
@@ -154,8 +168,8 @@ extension PopoverRootView {
         // said "first board with cards" rather than "first board". Until it is taken the live count
         // answers (`sessionColumnCount`), so the first frame with cards is already the right shape
         // and the freeze changes nothing about it.
-        .onAppear { sessionsAutoColumns = listed.isEmpty ? nil : listed.count }
-        .onChange(of: listed.count) { _, count in
+        .onAppear { sessionsAutoColumns = seats.isEmpty ? nil : seats.count }
+        .onChange(of: seats.count) { _, count in
             if sessionsAutoColumns == nil, count > 0 { sessionsAutoColumns = count }
         }
         // THE FOOTPRINT NUMBERS ARE READ ONLY WHILE THIS PAGE IS UP, and this is the page saying so.
@@ -214,10 +228,29 @@ extension PopoverRootView {
             .windowDragSurface()
     }
 
-    /// The whole board in four numbers. ALWAYS THE WHOLE BOARD, never what the filter is listing: it
-    /// is read as "what is my machine doing", and a summary that shrank when somebody narrowed the
-    /// list below it would be answering a question nobody asked.
-    private func sessionsSummary(_ roster: SessionRosterStore) -> some View {
+    /// WHICH CARD WEARS THE MACHINE'S FLAME, decided in one place because two surfaces draw it: the
+    /// grid, and the floating copy a drag carries (`sessionLiftPreview`).
+    ///
+    /// TAKEN OVER EVERY LIVE SESSION RATHER THAN OVER WHAT THE FILTER IS LISTING, which is the same
+    /// rule the summary above keeps: the heaviest project is a fact about the machine, and a mark
+    /// that hopped to another card when somebody narrowed the list would be answering a different
+    /// question. What it costs is stated rather than implied - under Connected, a heaviest project
+    /// whose only session cannot report itself has its mark on a card that is not on the page, and
+    /// nothing is flamed until the filter comes off.
+    var sessionMarkedCard: String? {
+        let store = ProcessFootprintStore.shared
+        return SessionBoardGhosts.marked(
+            heaviest: store.machineLoad.heaviest,
+            among: store.sessionProjects.map {
+                SessionBoardGhosts.CardLoad(key: $0.key, root: $0.value,
+                                            cpuPercent: store.footprints[$0.key]?.cpuPercent)
+            })
+    }
+
+    /// The whole board in four numbers, and a fifth when there is one. ALWAYS THE WHOLE BOARD, never
+    /// what the filter is listing: it is read as "what is my machine doing", and a summary that
+    /// shrank when somebody narrowed the list below it would be answering a question nobody asked.
+    private func sessionsSummary(_ roster: SessionRosterStore, unclaimed: Int) -> some View {
         HStack(spacing: 8) {
             summaryCount(roster.workingCount, L("working"), colour: .secondary)
             // The one that is a call for somebody, so it is the only figure carrying colour - and
@@ -233,6 +266,13 @@ extension PopoverRootView {
             // reading's uninteresting answer for ever (Albert, 2026-08-23).
             if roster.updatingCount > 0 {
                 summaryCount(roster.updatingCount, L("updating"), colour: .secondary)
+            }
+            // AND THE OTHER SLOT THAT IS ONLY THERE WHEN IT SAYS SOMETHING, on the same rule and in
+            // the colour its cards carry the word in: this counts the checkouts running work no
+            // session accounts for (`SessionBoardGhosts.unclaimed`), which on an ordinary machine is
+            // none, and a permanent "0 unclaimed" would spend a slot on the answer nobody needs.
+            if unclaimed > 0 {
+                summaryCount(unclaimed, L("unclaimed"), colour: TallyColor.warning)
             }
             Spacer(minLength: 0)
         }

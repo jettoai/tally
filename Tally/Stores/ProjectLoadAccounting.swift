@@ -208,7 +208,17 @@ final class ProjectLoadAccounting {
         // point of taking them here: by the time the pool notices a member is gone, the machine can
         // no longer say when it began (`strayStamps`).
         strayStamps = processes.reduce(into: [:]) { $0[$1.pid] = $1.startedAt }
-        let taken = claimed.union(adopted.values.joined())
+        // AND THE PROCESSES THE SESSIONS ARE RUNNING INSIDE, which every other test here calls a
+        // stray of the checkout they are sitting in: the terminal tab's own shell is the PARENT of
+        // the supervisor, so no tree reaches it, its working directory is the project, and it is not
+        // work anybody left behind - it is the session's host (`MachineLoadRollup.hosts`, which
+        // carries the measurement). Taken from THIS walk's parent links rather than from a second
+        // question about each pid, and pooled over the whole board, because one shell can be the
+        // host of several sessions.
+        let hosts = MachineLoadRollup.hosts(
+            of: board.compactMap { pid_t($0.id) },
+            parents: processes.reduce(into: [pid_t: pid_t]()) { $0[$1.pid] = $1.parent })
+        let taken = claimed.union(adopted.values.joined()).union(hosts)
         for one in processes where !taken.contains(one.pid) {
             guard let directory = MachineLoadRollup.workingDirectory(of: one.pid),
                   let root = MachineLoadRollup.project(of: directory, roots: roots) else { continue }

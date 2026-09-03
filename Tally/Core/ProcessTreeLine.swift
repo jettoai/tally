@@ -145,7 +145,7 @@ extension ProcessTree {
     /// and there is no such footprint now that the count is of what the session started (see above).
     static func line(_ footprint: ProcessFootprint, unit: String,
                      agentUnit: String = "agents",
-                     backgroundUnit: String = "background") -> String {
+                     backgroundUnit: String = "background jobs") -> String {
         segments(footprint, unit: unit, agentUnit: agentUnit, backgroundUnit: backgroundUnit)
             .map(\.text).joined(separator: pickEffortSeparator)
     }
@@ -267,7 +267,7 @@ extension ProcessTree {
     /// it is not printed).
     static func segments(_ footprint: ProcessFootprint, unit: String,
                          agentUnit: String = "agents",
-                         backgroundUnit: String = "background") -> [ProcessFootprintSegment] {
+                         backgroundUnit: String = "background jobs") -> [ProcessFootprintSegment] {
         var parts = [ProcessFootprintSegment(kind: .processes,
                                              text: "\(footprint.processes) \(unit)", aside: unit)]
         if footprint.agents > 0 {

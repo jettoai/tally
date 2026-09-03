@@ -191,7 +191,10 @@ check(!reorderSource.contains("settings.sessionsColumns ="),
       "nothing on the board writes the remembered count back")
 // AUTO'S COUNT IS TAKEN WHEN THE PAGE IS OPENED, not read live off the roster: the scan runs twice
 // a second, and a board that re-flowed as sessions came and went would move under the reader.
-check(boardSource.contains(".onAppear { sessionsAutoColumns = listed.isEmpty ? nil : listed.count }"),
+// Counted over the SEATS rather than over the sessions, which is what the board now lays out:
+// a project running work no session accounts for takes a card of its own
+// (`SessionBoardGhosts.seats`), and a count blind to those would seat a column too few.
+check(boardSource.contains(".onAppear { sessionsAutoColumns = seats.isEmpty ? nil : seats.count }"),
       "auto resolves its count as the board is opened")
 // …and from the first board that has cards on it. The roster scans on its own clock, so the first
 // frame of a new surface is an empty board: a count taken there froze auto at one column on a
@@ -272,7 +275,7 @@ check(reorderSource.contains(
 // ONE READING OF THE COUNT PER PASS, which the cells and the run are both laid out from: two
 // readings are two chances for the grid and the width holding it to disagree about how many cards
 // are on the page.
-check(reorderSource.contains("let columns = sessionColumnCount(cards: listed.count)")
+check(reorderSource.contains("let columns = sessionColumnCount(cards: cards.count)")
         && reorderSource.contains("sessionGridItems(columns: columns)"),
       "…and the count behind both is resolved once for the pass")
 /// The board's own width: its columns of cards and the gutters between them. The board's gutter

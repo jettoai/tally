@@ -1,6 +1,35 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@, no session is running them": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，沒有工作階段在執行它們"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，没有会话在运行它们"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@、実行中のセッションはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, 실행 중인 세션이 없습니다"
+          }
+        }
+      }
+    },
     "%@d": {
       "extractionState": "manual",
       "localizations": {
@@ -10637,31 +10666,31 @@
         }
       }
     },
-    "background": {
+    "background jobs": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "個在背景"
+            "value": "個背景工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "个在后台"
+            "value": "个后台工作"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "個がバックグラウンド"
+            "value": "個のバックグラウンド作業"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "개 백그라운드"
+            "value": "개 백그라운드 작업"
           }
         }
       }
@@ -12319,6 +12348,35 @@
         }
       }
     },
+    "unclaimed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無人認領"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无人认领"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未管理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미관리"
+          }
+        }
+      }
+    },
     "updating": {
       "extractionState": "manual",
       "localizations": {
@@ -13098,35 +13156,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enter 로 적용"
-          }
-        }
-      }
-    },
-    "Left running": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "殘留執行中"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "残留运行中"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "残ったまま実行中"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "남아서 실행 중"
           }
         }
       }

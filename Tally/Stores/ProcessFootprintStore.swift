@@ -47,6 +47,17 @@ final class ProcessFootprintStore {
     /// says whether the cards ADD UP, which nothing here could say before.
     private(set) var machineLoad = MachineLoad()
 
+    /// WHICH PROJECT EACH CARD IS WORKING IN, keyed the way the board keys its rows.
+    ///
+    /// THE BOARD CANNOT WORK THIS OUT FOR ITSELF, which is why it is published rather than left
+    /// inside the accounting: a row's directory is whatever its supervisor wrote, and a project is
+    /// that path RESOLVED (`ProjectLoadAccounting.roots`), so a page comparing the two spellings
+    /// would file a card under a project the rollup has never heard of wherever a symlink sits in
+    /// the way. Two readers need the join - the unclaimed cards, which sit beside the sessions of
+    /// their own checkout, and the flame, which is decided on a project and drawn on a card
+    /// (`SessionBoardGhosts`).
+    private(set) var sessionProjects: [String: String] = [:]
+
     /// How long between samples while the board is on screen. The board's own scan interval, so a
     /// card gains its processes and its state in the same beat.
     static let visibleInterval: TimeInterval = 2
@@ -392,6 +403,10 @@ final class ProcessFootprintStore {
         let load = rollup.accounted.isEmpty
             ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
         if load != machineLoad { machineLoad = load }
+        // Assigned only when it moved, for the reason every other observed field here is: this is
+        // the same answer on every tick of a board nobody has changed, and re-publishing it would
+        // re-render every card twice a second for a map that did not move.
+        if rootOfSession != sessionProjects { sessionProjects = rootOfSession }
         // AND WHETHER ANY OF IT SHOULD STILL BE RUNNING (`OrphanReclaimStore`, which paces itself).
         // THE SESSIONS GO WITH THE STRAYS: a checkout somebody is working in is one whose leftovers
         // this app reports rather than ends (`OrphanReclaim.Veto.sessionPresent`).

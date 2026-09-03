@@ -69,24 +69,47 @@ extension PopoverRootView {
     ///
     /// Cells align to the TOP, so a card whose identity line is missing sits under its neighbours'
     /// first lines rather than floating in the middle of its cell.
-    func sessionsGrid(_ listed: [SessionRosterStore.SessionRow],
+    ///
+    /// AND ONE GRID HOLDS BOTH KINDS OF CARD, which is the whole of what the unclaimed ones are for:
+    /// a project's leftovers are read against the sessions sitting in the same checkout, and a
+    /// second layer above the board is what that used to be (`SessionGhostCardView`). Only the
+    /// session cards register a frame - an unclaimed card holds no session, so there is nothing for
+    /// the drag to arrange by and nothing for it to hit-test against.
+    func sessionsGrid(_ seats: [SessionBoardGhosts.Seat],
+                      listed: [SessionRosterStore.SessionRow],
+                      unclaimed: [ProjectLoad],
                       board: [SessionRosterStore.SessionRow]) -> some View {
         // Resolved once for the whole pass, and the cells and the run are both laid out from it:
         // two readings of the count are two chances for the grid and its width to disagree, which
         // is the defect this pair was split apart to prevent (`sessionsBoardWidth`).
-        let columns = sessionColumnCount(cards: listed.count)
+        let cards = sessionSeatCards(seats, listed: listed, unclaimed: unclaimed)
+        let columns = sessionColumnCount(cards: cards.count)
+        // Read once for the whole grid rather than per cell: which card wears the flame is a fact
+        // about the machine (`sessionMarkedCard`), and where no session card answers to it the
+        // heaviest project's own card does.
+        let marked = sessionMarkedCard
+        let orphanedMark = marked == nil ? ProcessFootprintStore.shared.machineLoad.heaviest : nil
         return LazyVGrid(columns: sessionGridItems(columns: columns),
                          spacing: Self.sessionCardGap) {
-            ForEach(listed) { row in
-                sessionCard(row)
-                    // The card being carried is drawn by the floating copy instead, at the pointer
-                    // (`sessionLiftPreview`); its seat stays empty until it is put down.
-                    .opacity(sessionLift?.id == row.id ? 0 : 1)
-                    // Where this card is, for the drag to hit-test against. The account cards'
-                    // registry, shared: the two boards live on different tabs and are keyed by
-                    // different ids (a supervisor pid here, an account id there), so one
-                    // coordinate space serves both and each drag reads only the ids it was handed.
-                    .cardFrame(id: row.id, in: Self.reorderSpace)
+            ForEach(cards) { card in
+                switch card.seat {
+                case let .session(row):
+                    sessionCard(row, marked: marked == row.id)
+                        // The card being carried is drawn by the floating copy instead, at the
+                        // pointer (`sessionLiftPreview`); its seat stays empty until it is put down.
+                        .opacity(sessionLift?.id == row.id ? 0 : 1)
+                        // Where this card is, for the drag to hit-test against. The account cards'
+                        // registry, shared: the two boards live on different tabs and are keyed by
+                        // different ids (a supervisor pid here, an account id there), so one
+                        // coordinate space serves both and each drag reads only the ids it was
+                        // handed.
+                        .cardFrame(id: row.id, in: Self.reorderSpace)
+                case let .unclaimed(project):
+                    // The mark falls to this card only where no session card of its project is on
+                    // the page to wear it (`SessionBoardGhosts.marked` answered with nothing).
+                    SessionGhostCardView(project: project,
+                                         marked: orphanedMark == project.root)
+                }
             }
         }
         // Only as wide as the cards it is laying out, against the leading edge: what a card cap
@@ -95,7 +118,7 @@ extension PopoverRootView {
         // Cards glide to their new seats rather than teleporting, on the same spring the account
         // cards move on: a card moved by hand and a card displaced by that move travel alike.
         .animation(reduceMotion ? nil : CardMotion.spring,
-                   value: listed.map(\.id).joined(separator: "|"))
+                   value: cards.map(\.id).joined(separator: "|"))
         // ON THE GRID, NEVER ON A CARD, for the reason the account grid's own comment gives: a live
         // reorder tears the moved card's view down, and SwiftUI CANCELS (not ends) a gesture whose
         // view that diff removed - lift state parked there would leak a floating preview forever.
@@ -110,6 +133,61 @@ extension PopoverRootView {
         // well as on end, which is the only hook a cancelled gesture guarantees.
         .onChange(of: isSessionDragActive) { _, active in if !active { sessionLift = nil } }
         .onDisappear { sessionLift = nil }
+    }
+
+    /// One card in a seat, with the identity the grid animates it by.
+    ///
+    /// AN IDENTITY THAT FOLLOWS THE CARD RATHER THAN THE SEAT, which is what makes the spring mean
+    /// anything: keyed by position, a reorder would fade one card out and another in where the whole
+    /// point is that the card the hand moved travels to its new seat. A session is its supervisor
+    /// pid, as everything else on this board keys it; an unclaimed card is its project root, which
+    /// cannot collide with a pid.
+    struct SessionSeatCard: Identifiable {
+        let id: String
+        let seat: Seat
+
+        enum Seat {
+            case session(SessionRosterStore.SessionRow)
+            case unclaimed(ProjectLoad)
+        }
+    }
+
+    /// The seats resolved against what they name. A seat pointing at nothing is dropped rather than
+    /// drawn empty: the two lists and the seating are taken in one pass of the page's body, so this
+    /// cannot happen, and a blank cell would be worse than a missing one if it ever did.
+    func sessionSeatCards(_ seats: [SessionBoardGhosts.Seat],
+                          listed: [SessionRosterStore.SessionRow],
+                          unclaimed: [ProjectLoad]) -> [SessionSeatCard] {
+        let byRoot = Dictionary(unclaimed.map { ($0.root, $0) }) { first, _ in first }
+        return seats.compactMap { seat in
+            switch seat {
+            case let .session(index):
+                guard index < listed.count else { return nil }
+                return SessionSeatCard(id: listed[index].id, seat: .session(listed[index]))
+            case let .unclaimed(root):
+                guard let project = byRoot[root] else { return nil }
+                return SessionSeatCard(id: root, seat: .unclaimed(project))
+            }
+        }
+    }
+
+    /// One session's card, built the one way for both places that draw it: the grid, and the
+    /// floating copy the drag carries (`sessionLiftPreview`). What the hand is holding cannot drift
+    /// from what the grid draws, which is why the preview asks for this rather than for its own.
+    ///
+    /// - Parameter handleProminent: hold the grip at full brightness. The preview's, so the glyph
+    ///   the user grabbed by does not fade out the moment the pointer leaves the card's old seat.
+    /// - Parameter marked: wear the machine's flame (`SessionBoardGhosts.marked`). The preview
+    ///   passes what the grid passed, so a card does not lose its mark while it is being carried.
+    func sessionCard(_ row: SessionRosterStore.SessionRow,
+                     handleProminent: Bool = false, marked: Bool = false) -> some View {
+        SessionCardView(row: row, store: store, settings: settings,
+                        // A card with no directory has nothing to be arranged by and cannot be
+                        // lifted at all, which is the same question the drag asks at the grab
+                        // (`sessionsReorderGesture`): one answer, so the affordance and the gesture
+                        // cannot disagree about which cards move.
+                        showsDragHandle: SessionRosterStore.orderKey(row) != nil,
+                        handleProminent: handleProminent, marked: marked)
     }
 
     /// The gutter between two session cards, across and down. One number, so a grid that steps a
@@ -267,7 +345,10 @@ extension PopoverRootView {
     @ViewBuilder
     var sessionLiftPreview: some View {
         if let lift = sessionLift {
-            sessionCard(lift.row, handleProminent: true)
+            // The mark travels with the card: it is decided on the machine rather than on the seat
+            // (`sessionMarkedCard`), so a card losing its flame the moment it is picked up would be
+            // the preview disagreeing with the grid it came out of.
+            sessionCard(lift.row, handleProminent: true, marked: sessionMarkedCard == lift.id)
                 .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
                             following: lift.location)
         }

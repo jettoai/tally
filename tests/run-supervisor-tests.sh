@@ -82,6 +82,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/processtreecensuschecks.swift \
   tests/supervisor/sessiongroupchecks.swift tests/supervisor/machineloadchecks.swift \
   tests/supervisor/projectloadchecks.swift \
+  tests/supervisor/ghostboardchecks.swift \
   tests/supervisor/orphanchecks.swift \
   tests/supervisor/orphanstorechecks.swift \
   tests/supervisor/footprintchecks.swift \
@@ -157,6 +158,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreePool.swift Tally/Core/ProcessTreeRates.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/SessionProcessGroups.swift Tally/Core/MachineLoadRollup.swift \
+  Tally/Core/SessionBoardGhosts.swift \
   Tally/Stores/ProjectLoadAccounting.swift \
   Tally/Stores/ProcessFootprintStore.swift Tally/Stores/ProcessFootprintTiming.swift \
   Tally/Core/OrphanReclaim.swift Tally/Core/OrphanVerdict.swift \

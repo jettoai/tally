@@ -720,6 +720,9 @@ runProcessTreeLineChecks()
 runProcessTreeCensusChecks()
 runSessionGroupChecks()
 runMachineLoadChecks()
+// The same rollup as the board now draws it: cards rather than a section above them
+// (ghostboardchecks.swift).
+runGhostBoardChecks()
 // The one suite here that drives a @MainActor store rather than a pure rule: the project rollup's
 // state BETWEEN two ticks is the half no pure function can hold (projectloadchecks.swift).
 MainActor.assumeIsolated { runProjectLoadChecks() }

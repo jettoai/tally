@@ -72,6 +72,43 @@ func runProjectLoadChecks() {
     // - a hook running out of Tally.app beside the app's own binary - is a pure rule with its own
     // assertions next door (processtreechecks.swift, `ownFamily`), because no assertion here can
     // put a second process of ours on the machine to be found.
+    // AND THE SHELL THE SESSION IS BEING READ IN IS NOT ITS CHECKOUT'S LEFTOVER, which is the
+    // defect this pair pins: an interactive `-/bin/zsh` sitting in the project, in nobody's tree
+    // because the supervisor is its CHILD rather than its parent, was a stray of that project for
+    // as long as the terminal tab stayed open. Measured on this machine (2026-09-03): every project
+    // on the board read exactly one stray and in every case it was that shell, so the amber count
+    // the unclaimed card exists for was permanently one and permanently wrong.
+    //
+    // DRIVEN WITH A REAL PROCESS AND TWO PARENT MAPS, because only a real pid has a working
+    // directory to be read: this harness's own PARENT is the shell the suite was started from, its
+    // directory is the checkout, and it is nobody's family (`ownFamily` answers about Tally's
+    // bundle, not about bash). The board names THIS process as the session, and the only thing that
+    // changes between the two readings is whether the shell is above it.
+    let shell = getppid()
+    let session = SessionRosterStore.SessionRow(id: "\(getpid())", record: nil,
+                                                cwd: FileManager.default.currentDirectoryPath)
+    func table(shellIsHost: Bool) -> [ProcessIdentity] {
+        [ProcessIdentity(pid: shell, parent: 1, group: shell, startedAt: 0),
+         ProcessIdentity(pid: getpid(), parent: shellIsHost ? shell : 1, group: getpid(),
+                         startedAt: 0)]
+    }
+    // The fixture's own precondition, asserted rather than assumed: both readings below are about a
+    // real process, and a run whose parent had gone would make the pair green by having nothing to
+    // find (`workingDirectory` answers nothing for a pid the machine no longer holds).
+    check("the harness really was started from a shell sitting in this checkout",
+          shell > 1
+              && MachineLoadRollup.workingDirectory(of: shell)
+                  .flatMap { MachineLoadRollup.project(of: $0, roots: [here]) } == here)
+    check("the shell a supervisor was started from is the session's host, not the project's stray",
+          accounting.strays(among: table(shellIsHost: true), claimed: [getpid()], adopted: [:],
+                            board: [session], roots: [here]).strays.isEmpty)
+    // THE CONTROL, and it is the same process read the same way: with the session started somewhere
+    // else, that very shell is work in this checkout that no card accounts for - which is the whole
+    // reading the unclaimed card is drawn for, and what a rule that simply dropped every shell
+    // would have thrown away with the false positive.
+    check("…while the same shell, with no session under it, is still that project's leftover",
+          accounting.strays(among: table(shellIsHost: false), claimed: [getpid()], adopted: [:],
+                            board: [session], roots: [here]).strays == [shell: here])
     check("…and the pool asks that of the program on disk, which is the rule the cards use",
           ProcessTree.ownFamily([200, 300], root: 100, executable: {
               [100: "/Applications/Tally.app/Contents/MacOS/Tally",

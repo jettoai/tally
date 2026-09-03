@@ -126,6 +126,31 @@ enum MachineLoadRollup {
         strays.filter { !counted.contains($0.key) }
     }
 
+    /// EVERY PROCESS A LIVE SESSION IS RUNNING INSIDE, which is the one thing a stray can never be.
+    ///
+    /// THE SHELL A SUPERVISOR WAS STARTED FROM IS NOT UNATTRIBUTED WORK, and every other test in the
+    /// pool says it is: an interactive `-/bin/zsh` whose working directory IS the checkout, in
+    /// nobody's tree because the supervisor is its CHILD rather than its parent. Measured on this
+    /// machine (2026-09-03): every project on the board read exactly one stray, and in every case it
+    /// was that shell - one amber count per project, permanently, for the terminal tab the session is
+    /// being read in.
+    ///
+    /// THE WHOLE CHAIN GOES, not only the parent. A session started from a shell inside `tmux`, or
+    /// from a window a script opened, has two or three processes above it, and each is as much the
+    /// host of that session as the first one; a rule that stopped at the parent would leave the rest
+    /// on the row. The walk itself is the reclaim's (`OrphanReclaim.ancestry`), which is already
+    /// bounded by a visited set - a parent map taken from one moment of a moving table is not
+    /// guaranteed to be a tree - and stops below pid 1, which is in no checkout anyway.
+    ///
+    /// - Parameters:
+    ///   - supervisors: the live sessions' own pids, as the board keys its rows.
+    ///   - parents: who each process's parent is, out of the table walk the tick has already made.
+    static func hosts(of supervisors: some Sequence<pid_t>, parents: [pid_t: pid_t]) -> Set<pid_t> {
+        supervisors.reduce(into: Set<pid_t>()) {
+            $0.formUnion(OrphanReclaim.ancestry(of: $1, parents: parents))
+        }
+    }
+
     /// WHICH SESSIONS' FIGURES A PROJECT MUST NOT ADD UP, because another card on the same project
     /// is already counting every process they name.
     ///

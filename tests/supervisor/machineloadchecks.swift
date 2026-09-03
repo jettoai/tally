@@ -86,6 +86,34 @@ func runMachineLoadChecks() {
     check("two projects burning the same amount settle the mark on the root, not on the row order",
           tied.projects.map(\.name) == ["api", "zulu"] && tied.heaviest == shallowZulu)
 
+    // MARK: the processes the sessions are running INSIDE
+
+    // THE SHELL A SUPERVISOR WAS STARTED FROM IS NOT UNATTRIBUTED WORK, and every other test the
+    // pool applies says it is: an interactive shell whose working directory IS the checkout, in
+    // nobody's tree because the supervisor is its CHILD. Measured on this machine (2026-09-03):
+    // every project on the board read exactly one stray, and in every case it was that shell.
+    let hosted: [pid_t: pid_t] = [900: 850, 850: 800, 800: 1, 700: 1]
+    // THE WHOLE CHAIN, not only the parent: a session started from a shell inside `tmux`, or from a
+    // window a script opened, has two or three of these above it and each is as much its host.
+    check("a supervisor's whole chain of hosts is claimed, not just the shell right above it",
+          MachineLoadRollup.hosts(of: [900], parents: hosted) == [850, 800])
+    // …and the half that keeps this narrow: a shell that is NOT above a supervisor is still work
+    // nobody is answering for, which is the reading the unclaimed card exists for.
+    check("…while a shell beside it, in the same checkout, is left exactly where it was",
+          !MachineLoadRollup.hosts(of: [900], parents: hosted).contains(700))
+    check("two sessions started from one terminal claim that terminal once",
+          MachineLoadRollup.hosts(of: [900, 901],
+                                  parents: hosted.merging([901: 850]) { first, _ in first })
+              == [850, 800])
+    check("a supervisor the table no longer holds a parent for claims nothing",
+          MachineLoadRollup.hosts(of: [42], parents: hosted).isEmpty)
+    check("…as does a board with no sessions on it at all",
+          MachineLoadRollup.hosts(of: [], parents: hosted).isEmpty)
+    // A parent map assembled from one moment of a moving table is not guaranteed to be a tree, and
+    // the walk this borrows is already bounded by a visited set (`OrphanReclaim.ancestry`).
+    check("a cycle in the parent links stops rather than walking for ever",
+          MachineLoadRollup.hosts(of: [5], parents: [5: 6, 6: 5]) == [6])
+
     // MARK: what is still unattributed once the cards are settled
 
     // The strays are picked out BEFORE the cards are walked, because that is what says which

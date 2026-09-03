@@ -200,6 +200,85 @@ func runSessionGroupChecks() {
                                         sessions: ["100": birth(100), "500": birth(100)],
                                         startedAt: table(detached)) == "100")
 
+    // MARK: the index every reading is now taken through
+
+    // THE SCAN THE INDEX REPLACED, kept as the oracle it has to agree with: the same three refusals
+    // and the same tie-break, over the whole ledger in file order. An optimisation of a rule this
+    // delicate is only worth having while something independent still states the rule, and the
+    // whole claim of `SessionProcessGroups.Index` is that it changed the cost and nothing else
+    // (measured 2026-09-03: 1370 unclaimed processes against 4000 claims was 350ms of the main
+    // thread every two seconds with the board doing nothing at all).
+    func linearClaimant(of process: ProcessIdentity, ledger: [SessionProcessGroup],
+                        sessions: [String: Int64], startedAt: (pid_t) -> Int64?) -> String? {
+        guard process.group > 1 else { return nil }
+        var best: SessionProcessGroup?
+        for record in ledger where record.group == process.group {
+            guard sessions[record.session] == record.sessionStartedAt else { continue }
+            if let leader = record.leaderStartedAt, let now = startedAt(record.group),
+               now != leader { continue }
+            guard process.startedAt >= record.earliestMemberStart else { continue }
+            guard let held = best else { best = record; continue }
+            if record.firstSeen > held.firstSeen
+                || (record.firstSeen == held.firstSeen
+                    && (record.sessionStartedAt > held.sessionStartedAt
+                        || (record.sessionStartedAt == held.sessionStartedAt
+                            && record.session < held.session))) {
+                best = record
+            }
+        }
+        return best?.session
+    }
+    // Every ledger this file has built, against every process it has asked about, under every
+    // roster: the four shapes the refusals exist for (a contest, a tie on both keys, a session the
+    // board has lost, a recycled group number) CROSSED with each other rather than one at a time.
+    let ledgers: [(String, [SessionProcessGroup])] = [
+        ("first sighting", ledger), ("contested", contested), ("twins", twins),
+        ("outliving the leader", ledger + carriedOn + restamped)]
+    let rosters: [(String, [String: Int64])] = [
+        ("one session", sessions), ("both live", bothLive),
+        ("twin supervisors", ["100": birth(100), "500": birth(100)]),
+        ("the board lost it", ["100": birth(100) + 5_000_000]), ("empty board", [:])]
+    let probes: [(String, ProcessIdentity, (pid_t) -> Int64?)] = [
+        ("the orphan", orphan, table(detached)),
+        ("a newborn on a recycled number", proc(700, ppid: 1, group: 300), recycled),
+        ("one older than the job ever was",
+         ProcessIdentity(pid: 700, parent: 1, group: 300, startedAt: birth(300) - 1),
+         table(detached)),
+        ("one in launchd's group", proc(700, ppid: 1, group: 1), table(detached))]
+    var disagreements: [String] = []
+    var answers: Set<String> = []
+    for (ledgerName, one) in ledgers {
+        let index = SessionProcessGroups.Index(one)
+        for (rosterName, roster) in rosters {
+            for (probeName, process, clock) in probes {
+                let indexed = SessionProcessGroups.claimant(of: process, in: index,
+                                                            sessions: roster, startedAt: clock)
+                answers.insert(indexed ?? "nobody")
+                if indexed != linearClaimant(of: process, ledger: one, sessions: roster,
+                                             startedAt: clock) {
+                    disagreements.append("\(ledgerName) / \(rosterName) / \(probeName)")
+                }
+            }
+        }
+    }
+    check("the indexed claimant answers what the whole-ledger scan answered, on every fixture here",
+          disagreements.isEmpty)
+    // …and the matrix is not vacuous: eighty comparisons that all answered "nobody" would pass
+    // whatever the index did with them.
+    check("…over a matrix that reaches both cards and a refusal",
+          ledgers.count * rosters.count * probes.count == 80
+              && answers == ["100", "500", "nobody"])
+    // WHICH OF A SESSION'S CLAIMS ON ONE GROUP IS THE ONE ON FILE: the LAST it wrote. The buckets
+    // keep the ledger's order for this reason alone, and a bucket sorted on anything else would go
+    // on comparing against the claim that was superseded while every other assertion here passed.
+    check("a re-stamped claim is what the next tick is compared against, not the one it replaced",
+          SessionProcessGroups.claims(older, session: "100", sessionStartedAt: birth(100),
+                                      against: ledger + restamped,
+                                      at: "2026-08-25T10:00:06.000Z").isEmpty)
+    check("…which is not what the claim it replaced would have answered",
+          SessionProcessGroups.claims(older, session: "100", sessionStartedAt: birth(100),
+                                      against: ledger, at: "2026-08-25T10:00:06.000Z").count == 1)
+
     // MARK: the whole machine at once
 
     let adopted = SessionProcessGroups.adoptions(
@@ -222,6 +301,58 @@ func runSessionGroupChecks() {
     // asked": acting on it would empty the file on the first tick after a relaunch.
     check("…but an empty board is not evidence that nothing is running",
           SessionProcessGroups.swept(dead, sessions: [:]).count == dead.count)
+
+    // MARK: and what it stops keeping, once a job's group has no member left
+
+    // A CLAIM ON A GROUP WITH NO MEMBER LEFT CAN ONLY EVER BE WRONG (`SessionProcessGroups.
+    // groupGrace`): a group exists while something is in it and `setpgid` only joins one that
+    // already exists, so a job that could still be adopted is a job that is still running, and a
+    // running job keeps its group alive. Until this rule the file was bounded by nothing but the
+    // cap and had reached it (measured 2026-09-03: 4000 claims, 1.0MB, 3003 groups, 19 of them
+    // still alive), which cost a megabyte rewritten on every command any session started.
+    let liveOnly: Set<pid_t> = [100]
+    check("a claim whose group has been gone for the whole grace is dropped",
+          SessionProcessGroups.swept(ledger, sessions: sessions, liveGroups: liveOnly,
+                                     absentFor: { _ in SessionProcessGroups.groupGrace })
+              .map(\.group) == [100])
+    check("…and one walk short of it is kept, because a walk that missed is not a walk that saw",
+          SessionProcessGroups.swept(ledger, sessions: sessions, liveGroups: liveOnly,
+                                     absentFor: { _ in SessionProcessGroups.groupGrace - 1 })
+              .map(\.group) == [100, 300])
+    check("…and a group this walk DID see is kept however long it had been missing before",
+          SessionProcessGroups.swept(ledger, sessions: sessions, liveGroups: [100, 300],
+                                     absentFor: { _ in 99 }).map(\.group) == [100, 300])
+    // An empty set of groups is a walk that was never made, exactly as an empty roster is a board
+    // that was never asked: acting on it would empty the file on the first tick after a relaunch.
+    check("…and an empty walk is not evidence that every group on the machine has gone",
+          SessionProcessGroups.swept(ledger, sessions: sessions, liveGroups: [],
+                                     absentFor: { _ in 99 }).map(\.group) == [100, 300])
+    // THE CLAIM THE WEAK TEST STANDS ALONE ON: written after the leader had already gone, so
+    // `claimant` skips the recycled-number refusal on it and a newborn stranger has only the
+    // generation test left to get past. It is the claim most worth retiring, and it is retired on
+    // exactly the same evidence as any other.
+    let stampless = [SessionProcessGroup(session: "100", sessionStartedAt: birth(100), group: 300,
+                                          leaderStartedAt: nil, earliestMemberStart: birth(300),
+                                          firstSeen: "2026-08-25T10:00:02.000Z", name: "uv")]
+    check("a stamp-less claim goes with its group, being the one a stranger could still pass",
+          SessionProcessGroups.swept(stampless, sessions: sessions, liveGroups: liveOnly,
+                                     absentFor: { _ in SessionProcessGroups.groupGrace }).isEmpty)
+
+    // The count the rule above is decided on, which no pure function can hold for itself.
+    var counts: [pid_t: Int] = [:]
+    var retiredOn: Int?
+    for walk in 1...(SessionProcessGroups.groupGrace + 1) {
+        let round = SessionProcessGroups.absences(in: SessionProcessGroups.Index(ledger),
+                                                  seeing: liveOnly, after: counts)
+        counts = round.ticks
+        if round.expired, retiredOn == nil { retiredOn = walk }
+    }
+    check("the walks are counted per group, and the grace-th consecutive miss is what retires it",
+          retiredOn == SessionProcessGroups.groupGrace
+              && counts == [300: SessionProcessGroups.groupGrace + 1])
+    check("…while a group the walk saw again is not counted at all, which is how a count resets",
+          SessionProcessGroups.absences(in: SessionProcessGroups.Index(ledger),
+                                        seeing: [100, 300], after: counts).ticks.isEmpty)
 
     // MARK: the file
 

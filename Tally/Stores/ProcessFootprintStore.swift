@@ -113,8 +113,15 @@ final class ProcessFootprintStore {
     /// HELD IN MEMORY AND WRITTEN THROUGH, rather than re-read every tick: this app is the only
     /// writer, so what is here IS the file, and reading it back twice a second would be a file read
     /// per tick for an answer this process just wrote. Nil until the first tick that needs it - a
-    /// launch with no sessions running never touches the file at all.
-    @ObservationIgnored private var groupLedger: [SessionProcessGroup]?
+    /// launch with no sessions running never touches the file at all. Indexed by group as it is
+    /// taken in, which is the only question either reading of it asks (`SessionProcessGroups.
+    /// Index`).
+    @ObservationIgnored private var groupLedger: SessionProcessGroups.Index?
+    /// Per group the ledger still claims, how many consecutive non-empty walks it has been missing
+    /// from: the evidence a claim is retired on, held here because the rule that reads it is pure
+    /// (`SessionProcessGroups.absences`). A group seen again resets, and a tick that walked nothing
+    /// leaves it alone, since silence is not absence.
+    @ObservationIgnored private var groupAbsentTicks: [pid_t: Int] = [:]
     /// EVERYTHING THE PROJECT ROLLUP NEEDS TO REMEMBER, which is its own object next door
     /// (`ProjectLoadAccounting`): the strays' previous readings, what their pairs could not settle,
     /// and each session directory as the machine spells it. Held apart from the readings above
@@ -194,8 +201,13 @@ final class ProcessFootprintStore {
         // panel switches off, but the ledger is written whether or not anybody is looking - a
         // session detaches a dev server at three in the morning, and a claim not written then is a
         // claim that can never be made afterwards.
+        //
+        // AND EVERY GROUP ANYTHING ON THE MACHINE IS STILL IN, which is what says a claim is worth
+        // keeping: taken over the whole table rather than over the trees, because a job that has
+        // left its tree is the case the ledger exists for (`SessionProcessGroups.swept`).
         var identities: [pid_t: ProcessIdentity] = [:]
-        for one in processes { identities[one.pid] = one }
+        var liveGroups: Set<pid_t> = []
+        for one in processes { identities[one.pid] = one; liveGroups.insert(one.group) }
         func began(_ pid: pid_t) -> Int64? { identities[pid]?.startedAt }
         // THE LIVE SESSIONS AS THE LEDGER SPELLS THEM: the supervisor pid the board keys its rows
         // by, with the instant that supervisor started. The pair is the identity, because the
@@ -220,10 +232,18 @@ final class ProcessFootprintStore {
         // THE JOBS THAT HAVE LEFT THEIR TREES, matched back by the group they still carry. Read from
         // memory rather than from the file (see `groupLedger`), and skipped entirely on a board with
         // nothing on it - an empty roster is "not asked" rather than "nothing is running".
-        let ledger = sessions.isEmpty ? [] : (groupLedger ?? SessionProcessGroups.load())
-        let adopted = ledger.isEmpty ? [:] : SessionProcessGroups.adoptions(
+        let ledger = sessions.isEmpty ? SessionProcessGroups.Index()
+            : (groupLedger ?? SessionProcessGroups.Index(SessionProcessGroups.load()))
+        let adopted = ledger.entries.isEmpty ? [:] : SessionProcessGroups.adoptions(
             unclaimed: processes.lazy.filter { !claimed.contains($0.pid) },
-            ledger: ledger, sessions: sessions, startedAt: began)
+            in: ledger, sessions: sessions, startedAt: began)
+        // HOW LONG EACH CLAIMED GROUP HAS BEEN GONE, counted only on a walk that saw something: an
+        // empty table is a question nobody asked, and retiring a job on it would be reading the
+        // silence for an answer (`SessionProcessGroups.absences`).
+        let absences = processes.isEmpty
+            ? SessionProcessGroups.Absences(ticks: groupAbsentTicks, expired: false)
+            : SessionProcessGroups.absences(in: ledger, seeing: liveGroups, after: groupAbsentTicks)
+        groupAbsentTicks = absences.ticks
         // The claims this tick has to add to the ledger, gathered across every card and written
         // once: each write is a lock and a whole-file rewrite, and a board of ten sessions starting
         // commands would otherwise take ten of them in one tick.
@@ -444,9 +464,14 @@ final class ProcessFootprintStore {
         // where the sweep would read "nothing is running" off a question nobody asked
         // (`SessionProcessGroups.swept`).
         if !sessions.isEmpty {
-            let stale = ledger.contains { sessions[$0.session] != $0.sessionStartedAt }
-            groupLedger = claims.isEmpty && !stale
-                ? ledger : SessionProcessGroups.record(claims, sessions: sessions)
+            let stale = ledger.entries.contains { sessions[$0.session] != $0.sessionStartedAt }
+            // ...and a third thing to say: a group whose last member has now been gone long enough
+            // to retire its claims. Without it the retirement would wait for whichever session next
+            // happened to start a command.
+            groupLedger = claims.isEmpty && !stale && !absences.expired ? ledger
+                : SessionProcessGroups.Index(
+                    SessionProcessGroups.record(claims, sessions: sessions, liveGroups: liveGroups,
+                                                absentFor: { absences.ticks[$0] ?? 0 }))
         }
         // A pid is handed out again once its session has gone, so a series left behind would be
         // adopted by an unrelated tree and drawn as its own history.

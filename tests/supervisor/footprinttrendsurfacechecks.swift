@@ -586,7 +586,10 @@ func runFootprintTrendSurfaceChecks() {
     check("the ports are cached with the identity of the process holding them",
           store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured),")
               && store.contains("var ports: [String: [UInt16: ProcessPortHolder]] = [:]")
-              && store.contains("for one in processes { identities[one.pid] = one }"))
+              // The loop's own body has since gained a second thing to collect (the live process
+              // groups the ledger's sweep is decided on), so what is locked here is that the table
+              // is still built by ONE unconditional pass over the walk rather than the whole line.
+              && store.contains("for one in processes { identities[one.pid] = one"))
     check("…and named only while the pid is still that process",
           store.contains("portNames: ProcessTree.portNames(holding, startedAt: began,"))
     // THAT TABLE IS NOW BUILT BEHIND A CLOSED PANEL TOO, which it deliberately was not: it was the

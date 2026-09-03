@@ -81,12 +81,36 @@ enum SessionProcessGroups {
     ///
     /// AND THE CAP DROPS THE WRONG END, said rather than implied: `swept` keeps the newest `limit`,
     /// so the first claim to go is the OLDEST claim of a live session - which is the one the sweep's
-    /// own note calls the most worth keeping (a dev server started at nine in the morning). Nothing
-    /// on this machine has come near the cap to date (the live ledger holds tens of claims across a
-    /// working day, and the sweep against the board is what actually bounds it), so this is a stated
-    /// limit rather than a defect being repaired: reaching it costs a long-lived job its adoption,
-    /// and only after four thousand shorter ones have been started by sessions still on the board.
+    /// own note calls the most worth keeping (a dev server started at nine in the morning).
+    ///
+    /// THIS FILE REACHED THE CAP, which the note here used to say nothing had come near. Measured
+    /// (2026-09-03): 4000 claims, exactly the cap, 1.0MB on disk, 3003 groups, of which 19 still
+    /// had a member alive. Every Bash tool call is a job of its own, so a working day is thousands
+    /// of them, and the sweep only ever dropped the claims of sessions the board had LOST: what a
+    /// LIVE session accumulated had nothing bounding it but this number. The costs were not of the
+    /// cap being reached but of the file it grew: a megabyte rewritten whenever any session started
+    /// a command, and four thousand records scanned per unclaimed process per tick (`Index`).
+    /// Bounding it is now the sweep's own job (`groupGrace`), which leaves this the backstop the
+    /// paragraph above describes.
     static let limit = 4000
+
+    /// How many consecutive NON-EMPTY walks a process group has to have been missing from before
+    /// the claims on it are dropped (`swept`). The unit is walks rather than seconds because that
+    /// is what the evidence is: a tick that walked nothing asked nothing.
+    ///
+    /// WHY A GROUP WITH NO MEMBER LEFT CANNOT COME BACK: a group exists while something is in it,
+    /// and `setpgid` only ever joins one that already exists, so a number whose last member has
+    /// gone names nothing, and anything later carrying it is a NEW job holding a recycled number.
+    /// A claim on such a group can therefore only be wrong, never right: a job that could still be
+    /// adopted is a job that is still running, and a running job keeps its group alive. Dropping it
+    /// takes away a chance for the weak generation test to be the only thing standing between a
+    /// stranger and somebody's card (`claimant`).
+    ///
+    /// AND THREE RATHER THAN ONE BECAUSE A WALK CAN MISS: `proc_pidinfo` answers for neither a
+    /// process the caller may not read nor one that exits mid-walk (`ProcessTreeReaders`), so one
+    /// tick's silence is not evidence. Three is six seconds with the board open and thirty behind
+    /// it, both well inside the life of anything worth adopting.
+    static let groupGrace = 3
 
     /// `~/.tally/session-groups.json`. The home is a parameter so an assertion harness can use a
     /// fixture tree, exactly as `WorktreeOrigins.fileURL` is.
@@ -102,6 +126,37 @@ enum SessionProcessGroups {
         var leaderStartedAt: Int64?
         var earliestMemberStart: Int64
         var name: String?
+    }
+
+    /// THE LEDGER WITH THE ONE QUESTION EVERY READING ASKS OF IT ANSWERED IN ADVANCE: which claims
+    /// are on a given group.
+    ///
+    /// Both readers below want the claims of ONE group and nothing else - `claimant` per unclaimed
+    /// process, `claims` per observation - and both used to walk the whole file to find them. The
+    /// cost of that is not the comparison but the COPY: an element of an array of these leaves the
+    /// iterator as a value holding four strings, retained and released once per record per process.
+    /// Measured (2026-09-03) with 1370 unclaimed processes against 4000 claims: five and a half
+    /// million copies a tick, 350ms of the main thread every two seconds, nothing on screen moving.
+    ///
+    /// THE BUCKETS KEEP THE LEDGER'S OWN ORDER, which is not tidiness. `claimant` settles a contest
+    /// on three keys and then falls back to the order it met the records in, and `claims` takes the
+    /// LAST claim a session wrote on a group as the one on file. Sorted buckets would answer both
+    /// differently while every assertion here still passed, because those fallbacks only ever
+    /// separate records that agree on everything a test can see.
+    struct Index {
+        /// The ledger as it stands, in file order: what is swept, compared and written back.
+        let entries: [SessionProcessGroup]
+        private let byGroup: [pid_t: [SessionProcessGroup]]
+
+        init(_ entries: [SessionProcessGroup] = []) {
+            self.entries = entries
+            var byGroup: [pid_t: [SessionProcessGroup]] = [:]
+            for record in entries { byGroup[record.group, default: []].append(record) }
+            self.byGroup = byGroup
+        }
+
+        /// The claims on one group, in the order the ledger holds them.
+        func claims(on group: pid_t) -> [SessionProcessGroup] { byGroup[group] ?? [] }
     }
 
     /// Every process group a set of tree members carries, with what identifies each one.
@@ -164,15 +219,17 @@ enum SessionProcessGroups {
     /// against the carried value - otherwise the same claim is rewritten on every tick for as long
     /// as the job runs, which is a lock and a whole-file write twice a second.
     static func claims(_ observations: [Observation], session: String, sessionStartedAt: Int64,
-                       against existing: [SessionProcessGroup],
+                       against existing: Index,
                        at instant: String) -> [SessionProcessGroup] {
-        var held: [pid_t: SessionProcessGroup] = [:]
-        for record in existing where record.session == session
-            && record.sessionStartedAt == sessionStartedAt {
-            held[record.group] = record
-        }
-        return observations.compactMap { observation in
-            let record = held[observation.group]
+        observations.compactMap { observation in
+            // WHAT THIS SESSION ALREADY HOLDS ON THIS GROUP, which is the LAST claim it wrote on
+            // it: a group claimed twice by one session is a re-stamping, and the later record is
+            // the one the file answers with. The whole-ledger scan this replaced arrived at the
+            // same record by overwriting as it went, and the buckets keep the order that makes the
+            // two the same answer (`Index`).
+            let record = existing.claims(on: observation.group).last {
+                $0.session == session && $0.sessionStartedAt == sessionStartedAt
+            }
             let leaderStartedAt = observation.leaderStartedAt ?? record?.leaderStartedAt
             if let record, record.leaderStartedAt == leaderStartedAt,
                record.earliestMemberStart <= observation.earliestMemberStart { return nil }
@@ -182,6 +239,14 @@ enum SessionProcessGroups {
                                        earliestMemberStart: observation.earliestMemberStart,
                                        firstSeen: instant, name: observation.name)
         }
+    }
+
+    /// The same, against a ledger nobody has indexed yet.
+    static func claims(_ observations: [Observation], session: String, sessionStartedAt: Int64,
+                       against existing: [SessionProcessGroup],
+                       at instant: String) -> [SessionProcessGroup] {
+        claims(observations, session: session, sessionStartedAt: sessionStartedAt,
+               against: Index(existing), at: instant)
     }
 
     /// WHICH SESSION AN UNCLAIMED PROCESS BELONGS TO, or none.
@@ -217,11 +282,11 @@ enum SessionProcessGroups {
     /// - Parameters:
     ///   - sessions: the live supervisors, pid string to when that supervisor started.
     ///   - startedAt: when a pid on the machine began, for the leader test.
-    static func claimant(of process: ProcessIdentity, ledger: [SessionProcessGroup],
+    static func claimant(of process: ProcessIdentity, in ledger: Index,
                          sessions: [String: Int64], startedAt: (pid_t) -> Int64?) -> String? {
         guard process.group > 1 else { return nil }
         var best: SessionProcessGroup?
-        for record in ledger where record.group == process.group {
+        for record in ledger.claims(on: process.group) {
             guard sessions[record.session] == record.sessionStartedAt else { continue }
             if let leader = record.leaderStartedAt, let now = startedAt(record.group),
                now != leader { continue }
@@ -236,6 +301,13 @@ enum SessionProcessGroups {
             }
         }
         return best?.session
+    }
+
+    /// The same, against a ledger nobody has indexed yet. One process against one ledger is what
+    /// the assertions ask; a tick asks it of a thousand processes and indexes once (`adoptions`).
+    static func claimant(of process: ProcessIdentity, ledger: [SessionProcessGroup],
+                         sessions: [String: Int64], startedAt: (pid_t) -> Int64?) -> String? {
+        claimant(of: process, in: Index(ledger), sessions: sessions, startedAt: startedAt)
     }
 
     /// Every unclaimed process matched back to the session that started its job, and the seeds a
@@ -262,19 +334,57 @@ enum SessionProcessGroups {
     /// than for a contained tree, precisely because the containment this paragraph describes is not
     /// the only shape the sharing comes in).
     static func adoptions(unclaimed: some Sequence<ProcessIdentity>,
-                          ledger: [SessionProcessGroup], sessions: [String: Int64],
+                          in ledger: Index, sessions: [String: Int64],
                           startedAt: (pid_t) -> Int64?) -> [String: Set<pid_t>] {
         var adopted: [String: Set<pid_t>] = [:]
         for process in unclaimed {
-            guard let session = claimant(of: process, ledger: ledger, sessions: sessions,
+            guard let session = claimant(of: process, in: ledger, sessions: sessions,
                                          startedAt: startedAt) else { continue }
             adopted[session, default: []].insert(process.pid)
         }
         return adopted
     }
 
-    /// The ledger with every claim of a session the board no longer holds dropped, and the newest
-    /// `limit` kept.
+    /// The same, against a ledger nobody has indexed yet.
+    static func adoptions(unclaimed: some Sequence<ProcessIdentity>,
+                          ledger: [SessionProcessGroup], sessions: [String: Int64],
+                          startedAt: (pid_t) -> Int64?) -> [String: Set<pid_t>] {
+        adoptions(unclaimed: unclaimed, in: Index(ledger), sessions: sessions, startedAt: startedAt)
+    }
+
+    /// WHAT A TICK'S WALK SAYS ABOUT THE GROUPS THE LEDGER STILL CLAIMS: how long each of them has
+    /// been missing, and whether any has been missing long enough to be dropped (`groupGrace`).
+    ///
+    /// COUNTED OVER THE LEDGER RATHER THAN OVER THE MACHINE: what is watched is the numbers this
+    /// app wrote down, not the thousand groups a machine carries.
+    struct Absences {
+        /// Per still-claimed group, how many consecutive non-empty walks it has been missing from.
+        /// A group the walk saw again is simply absent from this, which is how a count resets.
+        let ticks: [pid_t: Int]
+        /// Whether the sweep would now drop something, which is one of the three things that gives
+        /// a tick anything to write at all (`ProcessFootprintStore.sample`).
+        let expired: Bool
+    }
+
+    /// The absence counts a tick leaves behind, given the ones it inherited.
+    ///
+    /// ONLY EVER CALLED ON A NON-EMPTY WALK, which is the unit `groupGrace` is stated in: a tick
+    /// that walked nothing saw nothing, and counting it would retire a live job over a question
+    /// nobody asked (the same rule `swept` applies to an empty `sessions`).
+    static func absences(in ledger: Index, seeing liveGroups: Set<pid_t>,
+                         after previous: [pid_t: Int]) -> Absences {
+        var ticks: [pid_t: Int] = [:]
+        var expired = false
+        for record in ledger.entries where !liveGroups.contains(record.group) {
+            let count = (previous[record.group] ?? 0) + 1
+            ticks[record.group] = count
+            expired = expired || count >= groupGrace
+        }
+        return Absences(ticks: ticks, expired: expired)
+    }
+
+    /// The ledger with every claim of a session the board no longer holds dropped, every claim of a
+    /// group with no member left on the machine dropped, and the newest `limit` kept.
     ///
     /// SWEPT AGAINST THE BOARD RATHER THAN AGAINST A CLOCK, the same rule the trend ring's own
     /// retention follows (`FootprintTrendSeries.retain`): a claim is meaningless once its session
@@ -285,10 +395,29 @@ enum SessionProcessGroups {
     /// takes no reading at all when the roster is empty, so an empty set here means "not asked"
     /// rather than "nothing is running", and acting on it would empty the file on the first tick
     /// after a relaunch.
-    static func swept(_ ledger: [SessionProcessGroup],
-                      sessions: [String: Int64]) -> [SessionProcessGroup] {
+    ///
+    /// AND SWEPT AGAINST THE MACHINE'S OWN GROUPS AS WELL AS AGAINST THE BOARD, which is the half
+    /// that actually bounds the file (`groupGrace` carries why a group with no member left is gone
+    /// for good, and `limit` what it used to cost that nothing said so). The empty set means the
+    /// same thing on this axis as on the other one: no walk was made, so the group half is skipped
+    /// rather than read as "no group on this machine is alive", which would empty the file on the
+    /// first tick after a relaunch just as surely.
+    ///
+    /// - Parameters:
+    ///   - liveGroups: every process group the tick's walk saw, taken over the WHOLE table rather
+    ///     than over the trees: a job that has left its tree is the case this ledger exists for,
+    ///     and it is still a live group.
+    ///   - absentFor: how many consecutive non-empty walks a group has been missing from, counted
+    ///     by the caller because a pure function cannot remember (`absences`).
+    static func swept(_ ledger: [SessionProcessGroup], sessions: [String: Int64],
+                      liveGroups: Set<pid_t> = [],
+                      absentFor: (pid_t) -> Int = { _ in 0 }) -> [SessionProcessGroup] {
         guard !sessions.isEmpty else { return ledger }
-        return Array(ledger.filter { sessions[$0.session] == $0.sessionStartedAt }.suffix(limit))
+        return Array(ledger.filter {
+            sessions[$0.session] == $0.sessionStartedAt
+                && (liveGroups.isEmpty || liveGroups.contains($0.group)
+                    || absentFor($0.group) < groupGrace)
+        }.suffix(limit))
     }
 
     // MARK: The file
@@ -326,13 +455,15 @@ enum SessionProcessGroups {
     /// is: this app is the only writer today, and a second instance of it (a dev build beside the
     /// installed one) is an ordinary state on this machine rather than a hypothetical.
     static func record(_ claims: [SessionProcessGroup], sessions: [String: Int64],
+                       liveGroups: Set<pid_t> = [], absentFor: (pid_t) -> Int = { _ in 0 },
                        in url: URL = fileURL()) -> [SessionProcessGroup] {
         var result: [SessionProcessGroup] = []
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         withWriteLock(for: url) {
             let held = load(from: url)
-            let next = swept(held + claims, sessions: sessions)
+            let next = swept(held + claims, sessions: sessions, liveGroups: liveGroups,
+                             absentFor: absentFor)
             result = next
             guard next != held else { return }
             write(next, to: url)

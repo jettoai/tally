@@ -435,8 +435,15 @@ func runProcessTreeLineChecks() {
     // it covers the readings instead (asserted where the rest of that row is,
     // footprinttrendsurfacechecks.swift). What goes down with the numbers is the colour, on the
     // figure and on the shape alike, and the condition is still SAID in full.
+    // AND THE COLOUR HAS TO REACH THE LAYERS THAT DRAW THE FIGURE, which is where the digits went:
+    // a `foregroundStyle` is a view tree thing and does not reach an `NSView`, so the tier is
+    // handed down as a tone as well as spelled on the `Text` that pins the column's width
+    // (`FigureTone`, `RollingFigureLayerView`).
     check("a warned reading is coloured where the reading now is, figure and shape together",
           cardSource.contains("Self.figure(trend.figure, level: trend.segment.level)")
+              && cardSource.contains("tone: flamesTheFigure(trend)"
+                                     + " ? .tinted(SessionCardView.flameTint)")
+              && cardSource.contains(": .tint(trend.segment.level.tint))")
               && cardSource.contains("FootprintSparklineView(values: trend.values,"
                                      + " level: trend.segment.level,"))
     check("…and the reader who hears the groups is told the same condition",

@@ -31,8 +31,15 @@ func runFootprintTrendSurfaceChecks() {
     // on every assertion about how a reading arrives (`FootprintSparklineLayerView`).
     let layers = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineLayerView.swift",
                               encoding: .utf8)) ?? ""
-    check("the four sources this suite reads are readable from it",
-          !store.isEmpty && !card.isEmpty && !spark.isEmpty && !layers.isEmpty)
+    // AND THE LAYERS THAT DRAW THE FIGURE BESIDE IT, which went the same way and for the same
+    // reason: the digits are one `CATextLayer` per character now, so a suite that read only the
+    // view tree would go quietly green on every assertion about how a figure changes
+    // (`RollingFigureLayerView`).
+    let rolling = (try? String(contentsOfFile: "Tally/Views/RollingFigureLayerView.swift",
+                               encoding: .utf8)) ?? ""
+    check("the five sources this suite reads are readable from it",
+          !store.isEmpty && !card.isEmpty && !spark.isEmpty && !layers.isEmpty
+              && !rolling.isEmpty)
     // THE HISTORY IS THE REASON THE STORE SAMPLES WITH NOTHING OPEN. A trend that only existed
     // while somebody was looking would be empty at the moment it is wanted, since a person opens
     // this board BECAUSE something already felt wrong.
@@ -476,22 +483,74 @@ func runFootprintTrendSurfaceChecks() {
               && layers.contains("if arriving, !still, lineStyle.moves {")
               && layers.contains("            redraw()\n        }")
               && card.contains(".figureMotion(trend.figure, value: trend.value,"
-                               + " still: reduceMotion)")
-              // The figures' own gate, which refuses on two counts: the reader asked for stillness,
-              // or the chosen style is the baseline that never moved (`MotionChoice.Figures.moves`).
-              && motion.contains(".animation(still || !style.moves ? nil : curve, value: text)"))
+                               + " still: reduceMotion,")
+              // The figures' own gate, which refuses on three counts now: the reader asked for
+              // stillness, the chosen style is the baseline that never moved
+              // (`MotionChoice.Figures.moves`), or the motion is not in this tree at all because
+              // the digits are a layer's (`FigureRoller`).
+              && motion.contains(".animation(still || !style.moves || rollsInLayers ? nil"
+                                 + " : curve.animation, value: text)")
+              // AND THE LAYERS ARE TOLD, the same way the outline's are: a reader who switches
+              // Reduce Motion on mid-roll must have the roll stopped THEN, so the characters in
+              // flight are cut off rather than left to settle, and the ones on their way out go
+              // with them - they exist only for the motion.
+              && rolling.contains("if still {\n            for glyph in glyphs"
+                                  + " { glyph.removeAllAnimations() }")
+              && rolling.contains("for ghost in ghosts { ghost.removeAllAnimations();"
+                                  + " ghost.removeFromSuperlayer() }"))
     // AND WHICH STYLES TRAVEL IS THE STYLE'S OWN ANSWER rather than a test by name where the line is
     // drawn, so one added here has to say which half it is in.
     check("…and whether the readings themselves move is asked of the style",
           MotionChoice.Lines.allCases.filter(\.interpolatesReadings).map(\.rawValue)
               == ["morph", "bounce", "comet"])
     // THE DIRECTION IS THE READING'S OWN, which the spelling cannot supply: "999 MB" to "1.0 GB" is
-    // a rise that reads as a fall, so the transition is handed the quantity and the ANIMATION is
-    // keyed on the spelling - a CPU wandering between 9.1 and 9.4 per cent draws nothing at all.
+    // a rise that reads as a fall, so the layers are handed the quantity and the CHANGE is keyed on
+    // the spelling - a CPU wandering between 9.1 and 9.4 per cent draws nothing at all.
     check("the digits roll in the direction the reading moved",
-          motion.contains("content.contentTransition(value.map { .numericText(value: $0) }")
+          rolling.contains("let rising = (value ?? 0) >= (self.value ?? value ?? 0)")
               && card.contains("let value: Double?")
               && card.contains("figure: figure, value: now,"))
+    // AND THE ROLL IS THE RENDER SERVER'S, which is the whole of what this cost: a transition in
+    // the view tree made a leaf's layout computer dirty on every frame and the panel was laid out
+    // again with it, so the digits rolling alone cost 38.9% of one core against 13.2% still
+    // (measured 2026-09-04, the line already being layers). One commit per reading buys that back.
+    check("the board's rolling digits are drawn by layers rather than by the view tree",
+          motion.contains("case .roll where roller == .layers:")
+              && motion.contains("RollingFigureLayerView(text: text, value: value, tone: tone,"
+                                 + " still: still,")
+              && motion.contains("roller: FigureRoller = .layers")
+              // ONE LAYER PER CHARACTER, which is what makes a roll a roll: what changed travels
+              // and what did not stays exactly where it is, so `459 MB` becoming `460 MB` moves one
+              // character and not a number.
+              && rolling.contains("let aligned = before.count == after.count")
+              && rolling.contains("aligned ? before.indices.filter { before[$0] != after[$0] }")
+              // AND THE SIZE ASKS THE SUBTREE NOTHING, which is the other half of the cost: a leaf
+              // that walks a subtree to answer a measurement makes every ancestor's computer dirty
+              // (`FootprintSparklineLayerView.sizeThatFits` carries the same rule for the outline).
+              && rolling.contains("return CGSize(width: proposal.width ?? measured.width,"))
+    // THE COLUMN IS STILL WHAT PINS THE WIDTH. The hidden copy of the widest reading is half of
+    // that measurement, so the speller stays where it is and is hidden rather than removed: a box
+    // sized by the layers would be a column that changes width as the number does, which is the
+    // reflow the column was introduced to stop.
+    check("…in the very box the speller measures, right where the speller drew",
+          motion.contains("content.hidden().overlay(alignment: .trailing) {")
+              && card.contains("Text(verbatim: widest).hidden()"))
+    // A FIGURE, NOT A CONTROL, and nothing a listener is given twice: the card underneath is one
+    // button, the row carries a drag, and every figure on the row is already said in words
+    // (`SessionCardTrendRow.spokenTrends`).
+    check("…and the layers take neither a click nor a listener's attention",
+          rolling.contains("override func hitTest(_ point: NSPoint) -> NSView? { nil }")
+              && rolling.contains("setAccessibilityElement(false)"))
+    // AND THE COLOUR IS HANDED DOWN, because a `foregroundStyle` is a view tree thing and reaches
+    // no layer: the two spellings below are the same question in the same order, and a drift
+    // between them is an amber reading whose digits roll in grey (`FigureTone`).
+    check("…drawn in the colour the speller beside them picked",
+          card.contains("flamesTheFigure(trend) ? Self.flamed(trend.figure)")
+              && card.contains("tone: flamesTheFigure(trend)"
+                               + " ? .tinted(SessionCardView.flameTint)")
+              && card.contains(": .tint(trend.segment.level.tint))")
+              && card.contains("tone: .tertiary)")
+              && rolling.contains("case .tertiary: .tertiaryLabelColor"))
     // WHICH MOTION IS A LAUNCH FLAG ON A DEV BUILD, because how a quarter-second change LOOKS cannot
     // be judged from a diff: the samples window puts every combination on one clock and the board
     // runs whichever was picked, out of the same styles (`MotionDemoWindow`, `-TallyMotion`).
@@ -501,6 +560,16 @@ func runFootprintTrendSurfaceChecks() {
               && motion.contains("typealias Curve = MotionChoice.Curve")
               && ((try? String(contentsOfFile: "Tally/Views/MotionDemoWindow.swift",
                                encoding: .utf8)) ?? "").contains("CardMotion.FigureStyle.allCases"))
+    // AND THE ONE DIFFERENCE A DIFF CANNOT SETTLE IS PUT ON THAT SAME CLOCK: what a layer cannot
+    // spell is `numericText`'s own blur, so the sample the defaults name is drawn BOTH ways, side
+    // by side, and which is preferred is answered by looking (`FigureRoller`).
+    check("…and the picked sample is drawn both ways, beside itself",
+          ((try? String(contentsOfFile: "Tally/Views/MotionDemoWindow.swift",
+                        encoding: .utf8)) ?? "")
+              .contains("if pair.0 == Self.picked.figures, pair.1 == Self.picked.curve {")
+              && ((try? String(contentsOfFile: "Tally/Views/MotionDemoWindow.swift",
+                               encoding: .utf8)) ?? "")
+              .contains("sample(style: pair.0, curve: pair.1, roller: .viewTree)"))
     // EACH AXIS IS READ OFF ITS OWN POSITION, `<figures>,<lines>,<curve>`, which is the grammar the
     // window's own footer documents. It has to be positional because `none` is a style on TWO of the
     // axes: offered to all three, the line's `none` turned the figures off as well, so the fallback

@@ -145,12 +145,19 @@ private struct MotionDemoView: View {
                 }
                 ForEach(Array(styleGrid.enumerated()), id: \.offset) { index, pair in
                     cell("N\(index + 1)", pair.0.rawValue, detail: pair.1.rawValue) {
-                        SessionCardView.column(FootprintTrendMetric.cpu.widestFigure) {
-                            SessionCardView.figure(figureText, level: .calm)
+                        sample(style: pair.0, curve: pair.1)
+                    }
+                    // THE PICK, DRAWN THE OTHER WAY, BESIDE ITSELF. The rolling digits are a
+                    // layer's work now, and the one thing that buys nothing is `numericText`'s own
+                    // blur, which no layer property spells (`RollingFigureLayerView`). Whether that
+                    // is missed cannot be settled from a diff, so the version it replaces is drawn
+                    // next to it under the same clock. Beside WHICHEVER cell the defaults name,
+                    // asked of the rule rather than counted to, so a new default moves the
+                    // comparison with it (`MotionChoice`).
+                    if pair.0 == Self.picked.figures, pair.1 == Self.picked.curve {
+                        cell("N\(index + 1)v", "SwiftUI numericText", detail: "view tree") {
+                            sample(style: pair.0, curve: pair.1, roller: .viewTree)
                         }
-                        .font(.caption2.monospacedDigit())
-                        .figureMotion(figureText, value: reading, still: false,
-                                      style: pair.0, curve: pair.1.animation)
                     }
                 }
             }
@@ -172,6 +179,23 @@ private struct MotionDemoView: View {
         CardMotion.FigureStyle.allCases.filter(\.moves).flatMap { style in
             CardMotion.Curve.allCases.map { (style, $0) }
         }
+    }
+
+    /// The defaults, which are what the board runs when a launch says nothing: the cell they name is
+    /// the one the contrast is drawn beside (`MotionChoice.figures`).
+    private static let picked = MotionChoice(nil)
+
+    /// ONE SAMPLE FIGURE: the very column the card lays a reading out in and the very speller it
+    /// draws it with, in one style on one curve. Spelled once so the cells cannot differ in anything
+    /// but their arguments, which is the whole premise of comparing them.
+    private func sample(style: CardMotion.FigureStyle, curve: CardMotion.Curve,
+                        roller: FigureRoller = .layers) -> some View {
+        SessionCardView.column(FootprintTrendMetric.cpu.widestFigure) {
+            SessionCardView.figure(figureText, level: .calm)
+        }
+        .font(.caption2.monospacedDigit())
+        .figureMotion(figureText, value: reading, still: false, style: style, curve: curve,
+                      roller: roller)
     }
 
     private var figureText: String {
@@ -275,9 +299,10 @@ private struct MotionDemoView: View {
              + "-TallyMotion push,scroll,smooth. One axis per position, so a style left out is "
              + "written as an empty one (-TallyMotion ,,smooth is the curve alone) and none on its "
              + "own is every motion off. Defaults are roll, none, bouncy (N3, and L0 for the line, "
-             + "which is now a preference rather than a price: the line's motion is a layer's and "
-             + "costs the board nothing, while the digits are still a view tree transition - see "
-             + "MotionChoice.lines for what each axis costs a live board).")
+             + "which is now a preference rather than a price: both axes are a layer's work now "
+             + "and cost the board nothing - see MotionChoice.lines for what each one used to "
+             + "cost). N3v is the digits drawn the old way, in the view tree, for the one "
+             + "difference a layer cannot spell: numericText's own blur.")
             .font(.caption2).foregroundStyle(.secondary)
     }
 }

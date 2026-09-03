@@ -406,30 +406,9 @@ final class FootprintSparklineLayerHost: NSView {
 
     // MARK: - Curves
 
-    /// THE SAME CURVE THE VIEW TREE WOULD HAVE TRAVELLED ON. SwiftUI's three are springs stated as
-    /// a perceptual duration and a bounce, and Core Animation takes a spring in exactly those terms
-    /// (`CASpringAnimation(perceptualDuration:bounce:)`, macOS 14), so this is the same motion
-    /// rather than an approximation of it: smooth has no overshoot, snappy a little, bouncy the
-    /// overshoot it is named for (`MotionChoice.Curve.animation`).
-    private func spring(_ curve: MotionChoice.Curve, keyPath: String,
-                        from: Any, to: Any) -> CASpringAnimation {
-        let bounce: CGFloat
-        switch curve {
-        case .smooth: bounce = 0
-        case .snappy: bounce = 0.15
-        case .bouncy: bounce = 0.3
-        }
-        let animation = CASpringAnimation(perceptualDuration: CardMotion.figureDuration,
-                                          bounce: bounce)
-        animation.keyPath = keyPath
-        animation.fromValue = from
-        animation.toValue = to
-        // Nothing sets `duration` here: the `perceptualDuration:bounce:` initializer already sets
-        // it equal to `settlingDuration` (measured 2026-09-04 for all three bounce values this app
-        // uses; an explicit assignment to the same value was here and was a no-op).
-        return animation
-    }
-
+    /// The three curves themselves are next door, spelled once for this figure and for the digits
+    /// beside it (`spring`, `LayerMotion.swift`).
+    ///
     /// The one motion here that is not a spring: a phase set at its far end and eased home, which
     /// is what the stroking-in, the swelling dot and the fading overdraw all are.
     private func fade(_ keyPath: String, from: CGFloat, to: CGFloat,

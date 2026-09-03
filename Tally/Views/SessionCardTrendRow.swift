@@ -276,7 +276,14 @@ extension SessionCardView {
                         flamesTheFigure(trend) ? Self.flamed(trend.figure)
                             : Self.figure(trend.figure, level: trend.segment.level)
                     }
-                    .figureMotion(trend.figure, value: trend.value, still: reduceMotion)
+                    // AND THE LAYERS ARE HANDED THE COLOUR THE SPELLER ABOVE PICKED, by the same
+                    // question in the same order: the rolling style draws these digits itself, and
+                    // a `foregroundStyle` is a view tree thing that does not reach a layer, so an
+                    // amber reading whose digits rolled in grey would be the warning going missing
+                    // for a quarter of a second (`FigureTone`, `RollingFigureLayerView`).
+                    .figureMotion(trend.figure, value: trend.value, still: reduceMotion,
+                                  tone: flamesTheFigure(trend) ? .tinted(SessionCardView.flameTint)
+                                      : .tint(trend.segment.level.tint))
                     if let aside = trend.aside, asides.keeps(trend.metric) {
                         // WHETHER THIS WORD IS HERE AT ALL IS THE CANDIDATE LIST'S DECISION AND
                         // NOTHING ELSE'S, which is what a `layoutPriority(-1)` here used to claim
@@ -303,7 +310,8 @@ extension SessionCardView {
                         // THE SAME MOTION, WITH NO DIRECTION STATED. A ceiling only ever climbs
                         // while the window holds it and only ever falls when an old maximum ages
                         // out of it, so the two cases are not a rise and a fall about one reading.
-                        .figureMotion(trend.peak ?? "", value: nil, still: reduceMotion)
+                        .figureMotion(trend.peak ?? "", value: nil, still: reduceMotion,
+                                      tone: .tertiary)
                     }
                 }
             }

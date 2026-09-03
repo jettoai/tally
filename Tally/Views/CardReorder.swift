@@ -42,8 +42,8 @@ enum CardMotion {
 
     static var figures: FigureStyle { chosen.figures }
     static var lines: LineStyle { chosen.lines }
-    /// The one animation every live figure on the board travels on.
-    static var figureFlip: Animation { chosen.curve.animation }
+    /// The one curve every live figure on the board travels on.
+    static var figureCurve: Curve { chosen.curve }
 }
 
 extension MotionChoice.Curve {
@@ -74,15 +74,22 @@ private struct FigureMotion: ViewModifier {
     let text: String
     let value: Double?
     let still: Bool
+    let tone: FigureTone
     let style: CardMotion.FigureStyle
-    let curve: Animation
+    let curve: CardMotion.Curve
+    let roller: FigureRoller
 
     @State private var previous: Double?
+
+    /// Whether this figure's motion has left the view tree entirely, which is the one case where
+    /// there is nothing here for an animation to carry: the digits are a layer's and the `Text`
+    /// under them is hidden (`RollingFigureLayerView`).
+    private var rollsInLayers: Bool { style == .roll && roller == .layers }
 
     func body(content: Content) -> some View {
         let rising = (value ?? 0) >= (previous ?? value ?? 0)
         return figured(content, rising: rising)
-            .animation(still || !style.moves ? nil : curve, value: text)
+            .animation(still || !style.moves || rollsInLayers ? nil : curve.animation, value: text)
             // THIS DOES NOT STOP THE BOARD BEING RE-LAID-OUT, WHICH IS WHAT IT WAS PUT HERE FOR
             // (measured 2026-09-03). `.geometryGroup` isolates GEOMETRY - where a child is put, and
             // what its transitions inherit from a moving parent - and geometry is downstream of
@@ -105,6 +112,17 @@ private struct FigureMotion: ViewModifier {
         switch style {
         case .plain:
             content
+        case .roll where roller == .layers:
+            // THE COLUMN STILL PINS THE WIDTH AND THE LAYERS FILL IT. The hidden copy of the widest
+            // reading is what sizes this box, so the box is measured by the very speller every
+            // other style draws with (`SessionCardView.column`); the visible `Text` is hidden rather
+            // than removed, because it is half of that measurement. What is drawn in the box is one
+            // layer per character, which is a roll this process is not awake for
+            // (`RollingFigureLayerView`).
+            content.hidden().overlay(alignment: .trailing) {
+                RollingFigureLayerView(text: text, value: value, tone: tone, still: still,
+                                       curve: curve)
+            }
         case .roll:
             // Handed the quantity, so the digits know which way to turn. A figure with no reading
             // behind it (a metric this tick could not state) still rolls, with no direction claimed.
@@ -120,17 +138,37 @@ private struct FigureMotion: ViewModifier {
     }
 }
 
+/// WHO ROLLS THE DIGITS: the render server, or the view tree.
+///
+/// TWO IMPLEMENTATIONS OF ONE STYLE, and the second is here to be LOOKED AT rather than to be run.
+/// What a layer cannot spell is `numericText`'s own blur, and whether that is missed is a question
+/// about how something looks, so the samples window draws both under one clock and the answer is
+/// picked by looking (`MotionDemoWindow`, N3 against N3v). The board itself always takes the layers:
+/// the view tree's version is what held the whole panel in a layout pass per frame, which is the
+/// measurement all of this is about (`RollingFigureLayerView`).
+enum FigureRoller {
+    /// One `CATextLayer` per character, and no main thread work between two readings.
+    case layers
+    /// `contentTransition(.numericText)`, which is the same motion drawn in the view tree.
+    case viewTree
+}
+
 extension View {
     /// - Parameters:
     ///   - text: the figure as it is spelled, which is what a change is judged on.
     ///   - value: the same reading as a quantity, for the styles that have a direction.
     ///   - still: hold it still, for a reader who has asked for that.
+    ///   - tone: what colour the layers draw it in, for the style that draws it itself.
     ///   - style: which motion, defaulting to this launch's.
     ///   - curve: which curve, defaulting to this launch's.
+    ///   - roller: who rolls the digits, defaulting to the render server.
     func figureMotion(_ text: String, value: Double?, still: Bool,
+                      tone: FigureTone = .primary,
                       style: CardMotion.FigureStyle = CardMotion.figures,
-                      curve: Animation = CardMotion.figureFlip) -> some View {
-        modifier(FigureMotion(text: text, value: value, still: still, style: style, curve: curve))
+                      curve: CardMotion.Curve = CardMotion.figureCurve,
+                      roller: FigureRoller = .layers) -> some View {
+        modifier(FigureMotion(text: text, value: value, still: still, tone: tone, style: style,
+                              curve: curve, roller: roller))
     }
 }
 

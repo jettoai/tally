@@ -233,6 +233,79 @@ func runTrustRelaunchChecks(root: URL) {
         check("…and nothing was written under the key this would have seeded", !trusted(dir, key))
     }
 
+    // THE SAME MISTAKE WEARING THE OTHER HAT, and the one `fileExists(atPath:)` could not see. That
+    // API follows symlinks and answers false BOTH for "nothing is there" and for "I could not find
+    // out", so a `.claude.json` that is a dangling link read as absent - and the atomic write then
+    // replaced the LINK ITSELF with a real file holding one key of ours. Asked with `lstat`, the
+    // link is an object that is there, the read through it fails, and this declines.
+    do {
+        let dir = home("trust-relaunch-dangling")
+        let (path, key) = project("trust-relaunch-dangling-cwd")
+        let file = claudeStateFile(forConfigDir: dir)
+        let gone = dir.appendingPathComponent("a-target-that-is-not-there.json")
+        try! fm.createSymbolicLink(at: file, withDestinationURL: gone)
+        let seeded = seedFolderTrust(forDirectory: path, inConfigDir: dir)
+        let type = (try? fm.attributesOfItem(atPath: file.path))?[.type] as? FileAttributeType
+        check("a state file that is a dangling symlink is not an absent one", !seeded)
+        check("…so what stands there is still the link, not a real file of ours",
+              type == .typeSymbolicLink)
+        check("…still naming exactly what it always named",
+              (try? fm.destinationOfSymbolicLink(atPath: file.path)) == gone.path)
+        check("…and nothing was written under the key this would have seeded", !trusted(dir, key))
+    }
+
+    // A link that DOES lead somewhere is read through, because a link is not a shape this may
+    // refuse: what it leads to is somebody's live state file and the rules above are all about
+    // giving it back whole.
+    do {
+        let dir = home("trust-relaunch-linked")
+        let (path, key) = project("trust-relaunch-linked-cwd")
+        let file = claudeStateFile(forConfigDir: dir)
+        let target = dir.appendingPathComponent("real-state.json")
+        let body = "{\"oauthAccount\":{\"accountUuid\":\"u-7\"},\"projects\":{}}"
+        try! body.write(to: target, atomically: true, encoding: .utf8)
+        try! fm.createSymbolicLink(at: file, withDestinationURL: target)
+        check("a state file reached through a symlink is read rather than started from empty",
+              seedFolderTrust(forDirectory: path, inConfigDir: dir))
+        check("…so the account's identity is still in what the path now holds",
+              (state(dir)["oauthAccount"] as? NSDictionary)
+                  == ["accountUuid": "u-7"] as NSDictionary)
+        check("…alongside the trust this seeded", trusted(dir, key))
+        // MEASURED on macOS, 2026-09-03, and STATED in TrustSeed.swift rather than worked around:
+        // the atomic write renames a temp file over the path, which replaces the LINK with a
+        // regular file. The path stops leading to the target and the target keeps its old content.
+        // A symlinked state file is not a supported layout (it is an identity document every live
+        // session rewrites, which is why the shared harness refuses to link it), so this is
+        // recorded rather than preserved.
+        check("…and the atomic write leaves a regular file where the link was",
+              ((try? fm.attributesOfItem(atPath: file.path))?[.type] as? FileAttributeType)
+                  == .typeRegular)
+        check("…the file it used to point at being left exactly as it was",
+              (try? String(contentsOf: target, encoding: .utf8)) == body)
+    }
+
+    // And the errno that is neither "it is there" nor ENOENT: the config dir itself is a regular
+    // file, so the kernel cannot even walk to where the state file would be. An unanswered question
+    // is not an absence.
+    //
+    // SAID PLAINLY, because a row that looks like it proves more than it does is worse than no row:
+    // these two pass on the OLD `fileExists` reading as well, and they pass with the ENOENT guard
+    // deleted (measured 2026-09-03, all three mutations run). They cannot discriminate, because
+    // `lstat` and the atomic write resolve the SAME path under the same permissions: every errno
+    // that stops the probe stops the write too, so the function declines either way. What these
+    // hold is the contract itself, against a future shape where those two stop agreeing. The rows
+    // that do discriminate are the dangling-symlink ones above, which is where the harm was.
+    do {
+        let notADir = root.appendingPathComponent("trust-relaunch-notdir")
+        let body = "I am a file standing where a config dir should be"
+        try! body.write(to: notADir, atomically: true, encoding: .utf8)
+        let (path, _) = project("trust-relaunch-notdir-cwd")
+        check("a state path the kernel cannot walk to (ENOTDIR) is declined",
+              !seedFolderTrust(forDirectory: path, inConfigDir: notADir))
+        check("…and the file standing in that dir's place is left as it was",
+              (try? String(contentsOf: notADir, encoding: .utf8)) == body)
+    }
+
     do {
         let dir = home("trust-relaunch-shape")
         let (path, key) = project("trust-relaunch-shape-cwd")

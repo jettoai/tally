@@ -222,8 +222,29 @@ func removeSeededFolderTrust(from target: URL) -> Int {
 /// `~/.claude.json` gets REPLACED by a document holding nothing but our one key, taking the
 /// account's identity and every project's history with it. A permission error, a directory in its
 /// place, a read that fails halfway: all of those exist, and none of them means the file is absent.
-/// Only a genuinely missing file starts from nothing. The same rule covers a file that will not
-/// parse, which is left alone rather than replaced by a valid one of ours.
+///
+/// So "genuinely missing" is asked with `lstat` and means ENOENT ALONE: the kernel looked at that
+/// path and there was nothing there. Only that starts from an empty root. Anything `lstat` CAN see
+/// (a regular file, a directory, a symlink of any kind) has to be read and parsed, and a read or a
+/// parse that fails declines. Any other errno declines as well: EACCES on a parent directory,
+/// ENOTDIR, ELOOP are all "I could not find out", which is not an absence.
+///
+/// `FileManager.fileExists(atPath:)` cannot draw that line, which is why it is not the question
+/// asked here. It follows symlinks and answers false for BOTH "nothing is there" and "I could not
+/// find out", so a `.claude.json` that is a symlink to a target that has gone, or to one this
+/// process cannot reach, read as absent - and the atomic write below then replaced the LINK with a
+/// real file holding one key of ours. `lstat` sees the link itself, the read through it fails, and
+/// this declines.
+///
+/// STATED LIMITATION, measured on macOS 2026-09-03: a `.claude.json` that IS a symlink to a
+/// readable file is seeded, and the atomic write replaces the link with a regular file carrying the
+/// merged content. The original target keeps its old content and the path stops leading to it. That
+/// is left as it is rather than followed, because a symlinked state file is not a supported layout:
+/// the file is an identity document that every running session rewrites, which is exactly why the
+/// shared harness (SharedHarness.swift) refuses to link it in the first place.
+///
+/// The same rule covers a file that will not parse, which is left alone rather than replaced by a
+/// valid one of ours.
 ///
 /// RESIDUAL RACE, stated rather than locked: a Claude Code on this account rewriting the same file
 /// between the read and the write loses whatever it wrote in that window (and this seed is lost the
@@ -234,8 +255,17 @@ func seedFolderTrust(forDirectory directory: String, inConfigDir home: URL) -> B
     let key = URL(fileURLWithPath: directory).resolvingSymlinksInPath().path
     let file = claudeStateFile(forConfigDir: home)
     var root: [String: Any] = [:]
-    if FileManager.default.fileExists(atPath: file.path) {
-        // It is there, so from here on the only safe outcomes are "read it" and "leave it alone".
+    // `lstat`, so a symlink answers for itself rather than for what it leads to. Nothing here reads
+    // the buffer it fills: the only question is whether the kernel found anything at that path.
+    var info = stat()
+    let present = lstat(file.path, &info) == 0
+    // Absent means ENOENT and nothing else. Every other errno is "I could not find out", and an
+    // unanswered question is not an empty file. Read straight after the call, before anything that
+    // could set it.
+    guard present || errno == ENOENT else { return false }
+    if present {
+        // Something is there, so from here on the only safe outcomes are "read it" and "leave it
+        // alone". A dangling symlink lands here too, and declines because the read through it fails.
         guard let raw = try? Data(contentsOf: file),
               let parsed = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
         else { return false }

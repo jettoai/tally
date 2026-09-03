@@ -338,5 +338,17 @@ func runFootprintTrendChecks() {
     check("…and neither does a series too short to be a line",
           FootprintSparkline.peakIndex([9]) == nil)
 
+    // The peak dot's motion between two series: slide within the same reading, or fade across
+    // when the ceiling moved to a different one (codex review of c99f4a6, where it always slid,
+    // including across two unrelated readings).
+    check("the peak dot slides when the same reading is still the highest",
+          FootprintSparkline.peakMotion(from: [1, 9, 3], to: [2, 9, 4]) == .move)
+    check("…and fades across when a different reading takes the ceiling",
+          FootprintSparkline.peakMotion(from: [10, 1, 1], to: [1, 1, 10]) == .crossfade)
+    check("…and fades in when there was no peak to slide from",
+          FootprintSparkline.peakMotion(from: [4, 4, 4], to: [1, 9, 3]) == .crossfade)
+    check("…and fades out when the peak goes flat",
+          FootprintSparkline.peakMotion(from: [1, 9, 3], to: [4, 4, 4]) == .crossfade)
+
     runFootprintTrendSurfaceChecks()
 }

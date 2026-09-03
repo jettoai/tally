@@ -180,6 +180,13 @@ final class FootprintSparklineLayerHost: NSView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // A READING THAT ARRIVES STILL CUTS OFF WHATEVER WAS IN FLIGHT, rather than letting it
+        // finish: Reduce Motion switched on mid-spring must stop the spring then, not up to a
+        // settling duration later (codex review of c99f4a6). All four pieces, because each holds
+        // its own explicit animation and none of them inherits from `plot`.
+        if still {
+            for piece in [line, tail, peak, current] { piece.removeAllAnimations() }
+        }
         if restyled || previous == nil { recolour() }
         if arriving, !still, lineStyle.moves {
             announce(from: previous ?? [], to: values)
@@ -251,12 +258,43 @@ final class FootprintSparklineLayerHost: NSView {
         if lineStyle == .comet {
             tail.add(spring(curve, keyPath: "path", from: start.tail, to: end.tail), forKey: "tail")
         }
-        for (dot, from, to) in [(peak, start.peak, end.peak),
-                                (current, start.current, end.current)] {
-            guard let from, let to else { continue }
-            dot.add(spring(curve, keyPath: "position", from: NSValue(point: from),
-                           to: NSValue(point: to)), forKey: "travel")
+        switch FootprintSparkline.peakMotion(from: before, to: after) {
+        case .move:
+            if let from = start.peak, let to = end.peak { slide(peak, curve, from, to) }
+        case .crossfade:
+            crossfadePeak(from: start.peak)
         }
+        if let from = start.current, let to = end.current { slide(current, curve, from, to) }
+    }
+
+    /// One dot's position, sliding from one point to the other: what both the `.move` peak and the
+    /// current-reading dot always do.
+    private func slide(_ dot: CAShapeLayer, _ curve: MotionChoice.Curve, _ from: CGPoint, _ to: CGPoint) {
+        dot.add(spring(curve, keyPath: "position", from: NSValue(point: from), to: NSValue(point: to)),
+                forKey: "travel")
+    }
+
+    /// A peak that moved to a DIFFERENT reading, rather than travelling within the same one: there
+    /// is no path between two unrelated points that reads as motion, so instead the dot fades in
+    /// where `redraw()` has already put it (a stand-in fades out where it used to be, if it stood
+    /// anywhere). The stand-in is a throwaway layer rather than the peak layer itself, because the
+    /// peak layer is already the new dot by the time this runs.
+    private func crossfadePeak(from: CGPoint?) {
+        if !peak.isHidden {
+            peak.add(fade("opacity", from: 0, to: 1, seconds: CardMotion.figureDuration),
+                     forKey: "travel")
+        }
+        guard let from, let path = peak.path else { return }
+        let ghost = CAShapeLayer()
+        ghost.path = path
+        ghost.fillColor = peak.fillColor
+        ghost.bounds = peak.bounds
+        ghost.position = from
+        plot.addSublayer(ghost)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { ghost.removeFromSuperlayer() }
+        ghost.add(fade("opacity", from: 1, to: 0, seconds: CardMotion.figureDuration), forKey: "fade")
+        CATransaction.commit()
     }
 
     /// The first drawing, once per figure: the outline strokes itself in rather than appearing
@@ -386,9 +424,9 @@ final class FootprintSparklineLayerHost: NSView {
         animation.keyPath = keyPath
         animation.fromValue = from
         animation.toValue = to
-        // A spring is over when it has settled, not when its perceptual duration is up; left at the
-        // default this would be cut off partway and snap the rest of the way.
-        animation.duration = animation.settlingDuration
+        // Nothing sets `duration` here: the `perceptualDuration:bounce:` initializer already sets
+        // it equal to `settlingDuration` (measured 2026-09-04 for all three bounce values this app
+        // uses; an explicit assignment to the same value was here and was a no-op).
         return animation
     }
 

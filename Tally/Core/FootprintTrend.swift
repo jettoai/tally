@@ -394,8 +394,11 @@ enum FootprintSparkline {
     /// every frame of the other style.
     ///
     /// The step is the gap between two readings, so one whole step is exactly one reading's width
-    /// whatever the window's length has got to. What runs off the right edge is drawn outside the
-    /// frame and clipped by it, which is the same thing a chart's own plot area does.
+    /// whatever the window's length has got to. What runs off the right edge is drawn there and
+    /// left UNCLIPPED (checked 2026-09-04: `masksToBounds` is CALayer's own default of false on
+    /// every layer this draws into, and nothing sets it or `.clipped()` on the SwiftUI shell), which
+    /// is fine because the overshoot is off-frame for only the moment it takes the slide to settle
+    /// back, not because anything is cutting it off the way a chart's own plot area would.
     /// - Parameter grow: how much of the FINAL segment has been drawn, from nothing to all of it.
     ///   The last point is held back along the segment it arrived on, which is what lets a line be
     ///   replaced whole and still show its newest reading arriving
@@ -465,5 +468,23 @@ enum FootprintSparkline {
         guard values.count >= minimumReadings, let top = values.max(), let bottom = values.min(),
               top > bottom else { return nil }
         return values.firstIndex(of: top)
+    }
+
+    /// Whether the peak dot has anywhere to travel FROM, between two series: the same reading is
+    /// still the highest one, so the dot has one point to slide between, or a different reading has
+    /// taken the ceiling (or given it up, or there was none before), and there is no single path
+    /// between two unrelated readings that would read as motion rather than as a dot cutting across
+    /// the figure (codex review of c99f4a6, where the dot tweened `position` between two peaks that
+    /// were not the same reading).
+    enum PeakMotion: Equatable {
+        /// The peak is the same reading in both series: slide the dot from where it was.
+        case move
+        /// The peak moved to a different reading, or appeared, or vanished: fade the old dot out
+        /// where it stood and the new one in where it now stands, rather than sliding between them.
+        case crossfade
+    }
+
+    static func peakMotion(from previous: [Double], to values: [Double]) -> PeakMotion {
+        peakIndex(previous) == peakIndex(values) ? .move : .crossfade
     }
 }

@@ -150,6 +150,12 @@ func runProjectLoadChecks() {
     let reaped = reaping.load(sessions: [], strays: [900: root], at: later)
     check("a pool member reaping another reads what the pool is doing, not what the dead one did",
           reaped.projects.first?.cpuPercent == 50)
+    // AND THE POOL'S FIGURE REACHES THE CARD THAT IS ABOUT THE POOL. Every rate measured in this
+    // file is the strays' own, and the row carries it in a field of its own so the card about the
+    // leftovers has something to draw that is not the checkout's total (`ProjectLoad
+    // .strayCpuPercent`, `SessionGhostCardView.figures`).
+    check("…and that figure is the strays' own, in the field the unclaimed card reads",
+          reaped.projects.first?.strayCpuPercent == 50)
 
     // AND DEATH AND COLLECTION ARE TWO EVENTS THAT NOTHING MAKES LAND IN ONE INTERVAL. The table
     // drops a process at its exit and its seconds arrive at its collection, so a pool that settles

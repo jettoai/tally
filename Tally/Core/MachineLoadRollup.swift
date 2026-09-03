@@ -42,6 +42,12 @@ struct ProjectLoad: Equatable, Identifiable {
     var sessions: Int
     /// How many processes here belong to no live session: the strays.
     var strayProcesses: Int
+    /// THE STRAYS' OWN SHARE OF THE TWO FIGURES ABOVE, which is what the card ABOUT the leftovers
+    /// draws (`SessionGhostCardView`): a total includes the live sessions' own cores, and drawing
+    /// one under "nobody is answering for this" states them twice, beside the cards they are on.
+    var strayCpuPercent: Double?
+    /// And what the strays alone are holding, in bytes.
+    var strayMemoryBytes: UInt64 = 0
     var id: String { root }
 }
 
@@ -368,6 +374,8 @@ enum MachineLoadRollup {
             var held = row(stray.root)
             held.cpuPercent = add(stray.cpuPercent, to: held.cpuPercent)
             held.memoryBytes += stray.memoryBytes
+            held.strayCpuPercent = add(stray.cpuPercent, to: held.strayCpuPercent)
+            held.strayMemoryBytes += stray.memoryBytes
             held.strayProcesses += stray.processes
             byRoot[stray.root] = held
         }

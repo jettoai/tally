@@ -104,9 +104,14 @@ extension PopoverRootView {
         // section above the board (`SessionGhostCardView`). Under Connected only sessions that can
         // report themselves are listed, and an unclaimed card reports nothing by construction - the
         // whole of what it says is that nobody is answering for what is running.
-        let everyUnclaimed = SessionBoardGhosts.unclaimed(
-            in: ProcessFootprintStore.shared.machineLoad)
-        let unclaimed = tabState.sessionFilter == .all ? everyUnclaimed : []
+        let everyUnclaimed = sessionUnclaimedCards
+        // AND THIS SET IS HELD STILL WHILE A CARD IS IN FLIGHT, for the reason the roster above is:
+        // the sampler runs every two seconds, and a stray appearing or ending mid-drag would insert
+        // or remove a card in the grid under the pointer - which moves every card after it and
+        // re-hit-tests the drag against seats nobody was aiming at. The SUMMARY still reads live,
+        // exactly as the four session counts beside it do: what must not move is the grid.
+        let seated = sessionLift?.unclaimed ?? everyUnclaimed
+        let unclaimed = tabState.sessionFilter == .all ? seated : []
         // WHERE EACH CARD IS WORKING, from the sampler's own resolved answer where there is one and
         // from the row itself where there is not. The map is preferred because it is CANONICAL: it
         // is `realpath` of the row's directory, computed by the very pass that produced the roots
@@ -121,21 +126,30 @@ extension PopoverRootView {
             },
             unclaimed: unclaimed.map(\.root),
             sortsByState: settings.sessionBoardSortsByState)
+        // WHICH OF THE THREE THINGS THIS PAGE IS, asked of the unclaimed cards as well as of the
+        // sessions (`SessionBoardGhosts.board` carries what asking about the sessions alone cost).
+        // Counted over what is RUNNING unclaimed rather than over the cards, which outlast it by a
+        // record apiece (`SessionBoardGhosts.running`), and read once for both the page's state and
+        // the figure the summary draws.
+        let running = SessionBoardGhosts.running(everyUnclaimed)
+        let state = SessionBoardGhosts.board(sessions: board.count, unclaimed: running,
+                                             seats: seats.count)
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
-            if board.isEmpty {
+            switch state {
+            case .nothing:
                 sessionsEmptyState(L("No supervised sessions are running"))
-            } else {
+            case .nothingListed, .cards:
                 sessionsBoardControls
                 // The whole machine's count rather than this filter's, exactly as the four beside it
                 // are: the cards below can be narrowed to none and the reading stays true.
-                sessionsSummary(roster, unclaimed: everyUnclaimed.count)
-                if seats.isEmpty {
+                sessionsSummary(roster, unclaimed: running)
+                if state == .cards {
+                    sessionsGrid(seats, listed: listed, unclaimed: unclaimed, board: board)
+                } else {
                     // The filter is holding everything back, which is a different sentence from
                     // "nothing is running" - and saying the wrong one would read as the board
                     // having lost the sessions the summary above is still counting.
                     sessionsEmptyState(L("No sessions are reporting yet"))
-                } else {
-                    sessionsGrid(seats, listed: listed, unclaimed: unclaimed, board: board)
                 }
             }
         }
@@ -190,6 +204,21 @@ extension PopoverRootView {
         }
     }
 
+    /// THE UNCLAIMED CARDS THE BOARD WOULD DRAW RIGHT NOW, unfiltered, in one spelling because two
+    /// surfaces take it: the page, which seats them, and the drag, which holds the set still for
+    /// the length of a carry (`SessionLift.unclaimed`). Two readings of this would be a drag frozen
+    /// against a set the page never drew.
+    ///
+    /// WHAT THIS APP IS WATCHING OR HAS ACTED ON KEEPS A CARD even once the work is gone, which is
+    /// where a reclaim is reported now that the section that used to report it is gone
+    /// (`SessionBoardGhosts.unclaimed(in:remembering:)`).
+    var sessionUnclaimedCards: [ProjectLoad] {
+        let reclaim = OrphanReclaimStore.shared
+        return SessionBoardGhosts.unclaimed(
+            in: ProcessFootprintStore.shared.machineLoad,
+            remembering: Set(reclaim.watching.map(\.project) + reclaim.records.map(\.project)))
+    }
+
     /// The board's own line of controls: which order it is in on the left, what it is listing on
     /// the right.
     ///
@@ -237,14 +266,24 @@ extension PopoverRootView {
     /// question. What it costs is stated rather than implied - under Connected, a heaviest project
     /// whose only session cannot report itself has its mark on a card that is not on the page, and
     /// nothing is flamed until the filter comes off.
-    var sessionMarkedCard: String? {
+    ///
+    /// BOTH KINDS OF CARD ARE HANDED IN, in ONE comparison: the heaviest checkout is heaviest on
+    /// its sessions AND its leftovers, so an abandoned dev server burning ten times what the
+    /// session beside it spends is the card the mark is for (`SessionBoardGhosts.marked`). Only the
+    /// projects with something left running are candidates - a card kept for its records alone has
+    /// no load to be heaviest with.
+    var sessionMarkedCard: SessionBoardGhosts.Mark? {
         let store = ProcessFootprintStore.shared
-        return SessionBoardGhosts.marked(
-            heaviest: store.machineLoad.heaviest,
-            among: store.sessionProjects.map {
-                SessionBoardGhosts.CardLoad(key: $0.key, root: $0.value,
-                                            cpuPercent: store.footprints[$0.key]?.cpuPercent)
-            })
+        let sessions = store.sessionProjects.map {
+            SessionBoardGhosts.CardLoad(key: $0.key, root: $0.value,
+                                        cpuPercent: store.footprints[$0.key]?.cpuPercent)
+        }
+        let ghosts = store.machineLoad.projects.filter { $0.strayProcesses > 0 }.map {
+            SessionBoardGhosts.CardLoad(key: $0.root, root: $0.root,
+                                        cpuPercent: $0.strayCpuPercent, unclaimed: true)
+        }
+        return SessionBoardGhosts.marked(heaviest: store.machineLoad.heaviest,
+                                         among: sessions + ghosts)
     }
 
     /// The whole board in four numbers, and a fifth when there is one. ALWAYS THE WHOLE BOARD, never

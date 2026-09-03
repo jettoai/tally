@@ -13,6 +13,12 @@ import SwiftUI
 /// they could not - the leftovers - as a field at the end of a row. The reading is worth a card; the
 /// layer was not (Albert, 2026-09-03).
 ///
+/// AND IT IS ALSO WHERE A RECLAIM IS REPORTED, which is why one can outlive the leftovers it was
+/// drawn for: ending the last stray of a checkout is exactly what makes that checkout stop having
+/// any, and a card that went with them would take "Tally ended your dev server" off the page in the
+/// same tick it was written (`SessionBoardGhosts.unclaimed(in:remembering:)`). Such a card draws
+/// its name and what happened, and none of the fields that would be zero.
+///
 /// NOT A SESSION, AND IT NEVER PRETENDS TO BE ONE. There is no terminal to jump to, so it is not a
 /// button: no hover, no press, no pointer. It cannot be arranged either - the drag arranges PROJECTS
 /// by the sessions sitting in them (`SessionBoardOrder`), and this card holds no session - so it
@@ -23,17 +29,24 @@ struct SessionGhostCardView: View {
     /// The project as the rollup states it: what it is called, what its leftovers are spending, and
     /// how many of them there are (`ProjectLoad`).
     let project: ProjectLoad
-    /// Whether this is the heaviest project on the machine AND has no session card to carry the
-    /// mark (`SessionBoardGhosts.marked`).
+    /// Whether this card is the busiest one of the heaviest project on the machine, which an
+    /// unclaimed card can be on its own leftovers (`SessionBoardGhosts.marked`).
     var marked: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             headline
-            Text(verbatim: sentence)
-                .font(.caption2).foregroundStyle(.secondary)
-                .lineLimit(1).truncationMode(.tail)
-            figures
+            // NOTHING IS SAID ABOUT LEFTOVERS THAT ARE NO LONGER THERE. A card also stays for a
+            // while after this app has ended what was running here, to say that it did
+            // (`SessionBoardGhosts.unclaimed(in:remembering:)`); on that card a sentence reading
+            // "0 procs, no session is running them" and a row of zeroes would be two readings
+            // nobody took. What is left is the project's name and what happened to it.
+            if project.strayProcesses > 0 {
+                Text(verbatim: sentence)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+                figures
+            }
             // WHAT THIS APP DID ABOUT ANY OF IT, on the card it is about rather than in a section of
             // its own further up the page. A kill nobody is told about is indistinguishable from a
             // crash, and the durable half of telling is the message written into the project's inbox
@@ -79,9 +92,15 @@ struct SessionGhostCardView: View {
             // the whole card is that reading, so the colour goes on the word that says so rather
             // than on a figure. Amber rather than red: it is a fact to notice, not a fault, and a
             // session legitimately leaves a dev server running all day.
-            Text(L("unclaimed"))
-                .font(.caption2).foregroundStyle(TallyColor.warning)
-                .lineLimit(1).fixedSize()
+            //
+            // And only while it is TRUE: a card kept for its records alone has nothing unclaimed
+            // running in it any more, and a word in the colour of "somebody should look at this"
+            // would be asking for a look at something this app has already dealt with.
+            if project.strayProcesses > 0 {
+                Text(L("unclaimed"))
+                    .font(.caption2).foregroundStyle(TallyColor.warning)
+                    .lineLimit(1).fixedSize()
+            }
             Spacer(minLength: 6)
             if marked { SessionCardView.flameMark }
         }
@@ -100,6 +119,12 @@ struct SessionGhostCardView: View {
 
     /// What those processes are costing, in the font every figure on this board is drawn in.
     ///
+    /// THE STRAYS' OWN FIGURES, NEVER THE PROJECT'S TOTAL (`ProjectLoad.strayCpuPercent`). The
+    /// total is the sessions' cores plus these, and a checkout running a session at 300% and one
+    /// abandoned server at 20 drew 320% under the sentence "no session is running them" - a figure
+    /// that is true of the project, false of this card, and counted a second time on the session
+    /// card sitting immediately before it. What is unclaimed is what this card is about.
+    ///
     /// NO SHAPES AND NO CEILINGS, unlike a session card's own readings (`SessionCardView
     /// .sessionFootprintTrends`): the trend rings are kept per SESSION, and a pool of leftovers has
     /// no history to draw. Two figures rather than three - the strays are sampled for CPU and memory
@@ -113,8 +138,8 @@ struct SessionGhostCardView: View {
     /// tree is, which is a reading this package did not take.
     private var figures: some View {
         HStack(spacing: 6) {
-            Text(verbatim: project.cpuPercent.map { "\(Int($0.rounded()))% CPU" } ?? "")
-            Text(verbatim: ProcessTree.memoryText(project.memoryBytes) ?? "")
+            Text(verbatim: project.strayCpuPercent.map { "\(Int($0.rounded()))% CPU" } ?? "")
+            Text(verbatim: ProcessTree.memoryText(project.strayMemoryBytes) ?? "")
             Spacer(minLength: 0)
         }
         .font(.caption2.monospacedDigit())

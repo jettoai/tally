@@ -15,15 +15,72 @@ import Foundation
 /// the order a grid lays out.
 enum SessionBoardGhosts {
 
-    /// The projects that get a card of their own: the ones running work no session accounts for.
+    /// The projects that get a card of their own: the ones running work no session accounts for,
+    /// and the ones this app has just finished doing something about.
     ///
     /// A PROJECT RUNNING SEVERAL SESSIONS NO LONGER PRODUCES A ROW, which the rollup's own draw test
     /// counted as one of its two reasons to exist (`MachineLoadRollup.isWorthDrawing`). Its cards
     /// are on the page and each states its own figures; what nothing states is their TOTAL, and that
     /// is deliberately still missing rather than quietly restored as a second layer.
+    ///
+    /// AND A CARD OUTLIVES THE LEFTOVERS IT WAS DRAWN FOR, which is what `remembering` is: this card
+    /// is where a reclaim is reported now that the section that used to report it is gone
+    /// (`SessionGhostCardView` draws the watch rows and the records). A successful reclaim ends the
+    /// last stray of that project, so a card admitted on strays alone disappears on the very tick
+    /// its record is written and "Tally ended your dev server" is a sentence nobody can ever have
+    /// read. The record is the reading, and it is kept for as long as the store keeps it
+    /// (`OrphanReclaimStore.keptRecords`, a dozen, in memory only).
+    ///
+    /// Such a card has NO figures and no amber word - there is nothing unclaimed running there any
+    /// more - so it states the project and what happened, and nothing it cannot stand behind.
+    ///
+    /// - Parameters:
+    ///   - remembering: the roots this app is watching or has acted in. A root with no row of its
+    ///     own gets a card with no load, because a project whose work has all ended has no row.
     // TODO: project total line for multi-session projects, direction package follow-up.
-    static func unclaimed(in load: MachineLoad) -> [ProjectLoad] {
-        load.projects.filter { $0.strayProcesses > 0 }
+    static func unclaimed(in load: MachineLoad, remembering roots: Set<String>) -> [ProjectLoad] {
+        var cards = load.projects.filter { $0.strayProcesses > 0 }
+        for root in roots where !cards.contains(where: { $0.root == root }) {
+            cards.append(ProjectLoad(root: root,
+                                     name: URL(fileURLWithPath: root).lastPathComponent,
+                                     cpuPercent: nil, memoryBytes: 0, sessions: 0,
+                                     strayProcesses: 0))
+        }
+        // The rollup's own order, by name, for the reason it sorts that way: a set of cards that
+        // re-ordered itself as the machine breathed would be unreadable (`MachineLoad.projects`).
+        return cards.sorted { ($0.name, $0.root) < ($1.name, $1.root) }
+    }
+
+    /// How many of these cards are about work that is still RUNNING, which is what the board's amber
+    /// count is and what decides whether the page has anything to count at all. Not the number of
+    /// cards: one kept for its record alone has nothing unclaimed in it any more, and counting it
+    /// would be calling for a look at something this app has already dealt with.
+    static func running(_ cards: [ProjectLoad]) -> Int {
+        cards.filter { $0.strayProcesses > 0 }.count
+    }
+
+    /// WHAT THE PAGE HAS TO DRAW, which is a different question from "is anybody running sessions".
+    ///
+    /// THE BOARD IS NOT THE ONLY THING ON THE BOARD ANY MORE. The page used to ask one question -
+    /// are there session rows - and answer an empty one with a single quiet line; every other case
+    /// was reached inside the branch that had rows. An unclaimed card holds no session, so the state
+    /// this whole package exists for - the last session closed and its dev server did not - fell
+    /// into the branch that draws the empty line, and the card, the counts and the controls with it.
+    /// The reading was drawn only while a session was there to make it unnecessary.
+    static func board(sessions: Int, unclaimed: Int, seats: Int) -> BoardState {
+        if seats > 0 { return .cards }
+        return sessions == 0 && unclaimed == 0 ? .nothing : .nothingListed
+    }
+
+    /// The three things this page can be.
+    enum BoardState: Equatable {
+        /// No session and nothing left over anywhere: an ordinary answer, said in one line.
+        case nothing
+        /// Something for the summary to count, and nothing the filter lets through - a different
+        /// sentence, because the wrong one reads as the board having lost what the counts still say.
+        case nothingListed
+        /// Cards, of either kind.
+        case cards
     }
 
     /// One seat on the board: a session's card, or a project's unclaimed one.
@@ -100,12 +157,24 @@ enum SessionBoardGhosts {
 
     /// One card's share of its project, which is all the mark below needs to know about it.
     struct CardLoad: Equatable {
-        /// The card's key, as the board spells it: the supervisor pid.
+        /// The card's key, as the board spells it: the supervisor pid, or the project root for an
+        /// unclaimed card. The two cannot collide, which is what lets one list hold both.
         var key: String
-        /// The project this session is working in, resolved.
+        /// The project this card is working in, resolved.
         var root: String
-        /// What this card's own tree is burning, which is what separates two cards on one project.
+        /// What this card's own share is burning, which is what separates two cards on one project:
+        /// a session's own tree, or the project's strays alone (`ProjectLoad.strayCpuPercent`).
         var cpuPercent: Double?
+        /// Whether this is the project's unclaimed card rather than a session's.
+        var unclaimed: Bool = false
+    }
+
+    /// Which card on the board wears the machine's flame.
+    enum Mark: Equatable {
+        /// The session card with this key.
+        case session(String)
+        /// The unclaimed card of this project root.
+        case unclaimed(String)
     }
 
     /// WHICH CARD WEARS THE FLAME, now that the row that used to wear it is gone.
@@ -121,13 +190,24 @@ enum SessionBoardGhosts {
     /// same figure would otherwise trade the mark from tick to tick, which is the flicker the stable
     /// row order was written to stop (`MachineLoadRollup.rows`).
     ///
-    /// - Returns: the card to mark, or nothing when no listed card is working in that project - in
-    ///   which case its unclaimed card wears the mark instead.
-    static func marked(heaviest: String?, among cards: [CardLoad]) -> String? {
-        guard let heaviest else { return nil }
-        return cards.filter { $0.root == heaviest }.max {
-            ($0.cpuPercent ?? 0) == ($1.cpuPercent ?? 0)
-                ? $0.key > $1.key : ($0.cpuPercent ?? 0) < ($1.cpuPercent ?? 0)
-        }?.key
+    /// AND THE UNCLAIMED CARD IS ONE OF THE CANDIDATES, on its own strays rather than on its
+    /// project's total. It has to be, because the mark is decided on a checkout and the checkout's
+    /// cost is the sessions' AND the leftovers': a project sitting at 205% because a session is
+    /// spending 5 and an abandoned dev server is spending 200 handed its flame to the 5% card,
+    /// which points the eye at the one thing on that board doing nothing wrong. Asked of both kinds
+    /// in one comparison rather than of the sessions first, so the answer is the busiest card on
+    /// the page and never the busiest session with a busier neighbour.
+    ///
+    /// - Returns: the card to mark, or nothing when no card handed in is working in that project -
+    ///   under Connected, where the unclaimed cards are not listed, that is a checkout whose mark is
+    ///   on a card the filter is holding back, and nothing on the page is flamed.
+    static func marked(heaviest: String?, among cards: [CardLoad]) -> Mark? {
+        guard let heaviest,
+              let top = cards.filter({ $0.root == heaviest }).max(by: {
+                  ($0.cpuPercent ?? 0) == ($1.cpuPercent ?? 0)
+                      ? $0.key > $1.key : ($0.cpuPercent ?? 0) < ($1.cpuPercent ?? 0)
+              })
+        else { return nil }
+        return top.unclaimed ? .unclaimed(top.key) : .session(top.key)
     }
 }

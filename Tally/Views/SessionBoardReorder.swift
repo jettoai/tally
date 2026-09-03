@@ -33,6 +33,11 @@ extension PopoverRootView {
         var location: CGPoint
         /// The whole board as it stood when the hand closed, filter and all, unfiltered.
         let frozen: [SessionRosterStore.SessionRow]
+        /// And the unclaimed cards as they stood at the same instant, unfiltered
+        /// (`sessionUnclaimedCards`). Held for the same reason the rows are and read the same way:
+        /// the strays are sampled every two seconds, and one appearing or ending mid-carry would
+        /// insert or remove a card in the middle of the grid the hand is aiming at.
+        let unclaimed: [ProjectLoad]
 
         /// Where the floating copy's centre sits. The single source for BOTH the rendered position
         /// and the hit-test probe, exactly as `CardLift.previewCentre` is: two spellings of this
@@ -85,16 +90,15 @@ extension PopoverRootView {
         let cards = sessionSeatCards(seats, listed: listed, unclaimed: unclaimed)
         let columns = sessionColumnCount(cards: cards.count)
         // Read once for the whole grid rather than per cell: which card wears the flame is a fact
-        // about the machine (`sessionMarkedCard`), and where no session card answers to it the
-        // heaviest project's own card does.
+        // about the machine (`sessionMarkedCard`), decided over both kinds of card at once, so what
+        // comes back already says which kind it landed on.
         let marked = sessionMarkedCard
-        let orphanedMark = marked == nil ? ProcessFootprintStore.shared.machineLoad.heaviest : nil
         return LazyVGrid(columns: sessionGridItems(columns: columns),
                          spacing: Self.sessionCardGap) {
             ForEach(cards) { card in
                 switch card.seat {
                 case let .session(row):
-                    sessionCard(row, marked: marked == row.id)
+                    sessionCard(row, marked: marked == .session(row.id))
                         // The card being carried is drawn by the floating copy instead, at the
                         // pointer (`sessionLiftPreview`); its seat stays empty until it is put down.
                         .opacity(sessionLift?.id == row.id ? 0 : 1)
@@ -105,10 +109,11 @@ extension PopoverRootView {
                         // handed.
                         .cardFrame(id: row.id, in: Self.reorderSpace)
                 case let .unclaimed(project):
-                    // The mark falls to this card only where no session card of its project is on
-                    // the page to wear it (`SessionBoardGhosts.marked` answered with nothing).
+                    // This card wears the mark when its own leftovers are the busiest thing in the
+                    // heaviest checkout, which includes every case where its sessions have ended
+                    // (`SessionBoardGhosts.marked`).
                     SessionGhostCardView(project: project,
-                                         marked: orphanedMark == project.root)
+                                         marked: marked == .unclaimed(project.root))
                 }
             }
         }
@@ -285,7 +290,8 @@ extension PopoverRootView {
                         id: row.id, key: key, row: row, sourceFrame: grabbed.value,
                         touchOffset: CGPoint(x: value.startLocation.x - grabbed.value.minX,
                                              y: value.startLocation.y - grabbed.value.minY),
-                        location: value.location, frozen: board)
+                        location: value.location, frozen: board,
+                        unclaimed: sessionUnclaimedCards)
                 }
                 guard var lift = sessionLift else { return }   // the grab began between two cards
                 lift.location = value.location
@@ -348,7 +354,8 @@ extension PopoverRootView {
             // The mark travels with the card: it is decided on the machine rather than on the seat
             // (`sessionMarkedCard`), so a card losing its flame the moment it is picked up would be
             // the preview disagreeing with the grid it came out of.
-            sessionCard(lift.row, handleProminent: true, marked: sessionMarkedCard == lift.id)
+            sessionCard(lift.row, handleProminent: true,
+                        marked: sessionMarkedCard == .session(lift.id))
                 .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
                             following: lift.location)
         }

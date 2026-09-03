@@ -28,15 +28,62 @@ func runGhostBoardChecks() {
                                       project(tally, sessions: 2, strays: 0),
                                       project(sibling, sessions: 1, strays: 1)])
     check("a card is drawn for every project with work no session accounts for",
-          SessionBoardGhosts.unclaimed(in: load).map(\.root) == [api, sibling])
+          SessionBoardGhosts.unclaimed(in: load, remembering: []).map(\.root) == [api, sibling])
     // A PROJECT RUNNING SEVERAL SESSIONS NO LONGER PRODUCES A ROW, which the old section drew for.
     // Its cards are on the page and each states its own figures; their TOTAL is what nothing states,
     // and it is deliberately still missing rather than restored as a second layer.
     check("…and a busy project with nothing left over gets none",
-          !SessionBoardGhosts.unclaimed(in: load).contains { $0.root == tally })
+          !SessionBoardGhosts.unclaimed(in: load, remembering: []).contains { $0.root == tally })
     check("a machine with nothing left over anywhere draws no such card at all",
           SessionBoardGhosts.unclaimed(in: MachineLoad(projects: [project(tally, sessions: 1,
-                                                                         strays: 0)])).isEmpty)
+                                                                         strays: 0)]),
+                                       remembering: []).isEmpty)
+    // A SUCCESSFUL RECLAIM ENDS THE LAST STRAY OF ITS CHECKOUT, which is the very thing that would
+    // take the card away in the tick the record of it is written - and this card is where a reclaim
+    // is reported now that the section that used to report it is gone (`SessionGhostCardView`). So
+    // "Tally ended your dev server" was a sentence nobody could ever have read.
+    check("a project this app has just acted in keeps its card for as long as the record lasts",
+          SessionBoardGhosts.unclaimed(in: load, remembering: [tally]).map(\.root)
+              == [api, tally, sibling])
+    check("…and that card states no leftovers, because it no longer has any",
+          SessionBoardGhosts.unclaimed(in: load, remembering: [tally])
+              .first { $0.root == tally }
+              .map { $0.strayProcesses == 0 && $0.strayCpuPercent == nil
+                  && $0.strayMemoryBytes == 0 } == true)
+    check("…and a project already drawn for its leftovers is not drawn a second time",
+          SessionBoardGhosts.unclaimed(in: load, remembering: [api, sibling]).map(\.root)
+              == [api, sibling])
+    check("a checkout nothing has happened in is remembered by nobody",
+          SessionBoardGhosts.unclaimed(in: MachineLoad(projects: []), remembering: []).isEmpty)
+    // THE AMBER FIGURE COUNTS WHAT IS RUNNING, NOT WHAT IS DRAWN. A card kept for its record alone
+    // has nothing unclaimed in it any more, and counting it would call for a look at something this
+    // app has already dealt with.
+    check("the count beside the board is of the cards with something still running in them",
+          SessionBoardGhosts.running(SessionBoardGhosts.unclaimed(in: load,
+                                                                  remembering: [tally])) == 2
+              && SessionBoardGhosts.running(SessionBoardGhosts.unclaimed(in: load,
+                                                                         remembering: [])) == 2)
+    check("…and is zero on a board whose cards are all history",
+          SessionBoardGhosts.running(
+              SessionBoardGhosts.unclaimed(in: MachineLoad(projects: []),
+                                           remembering: [tally])) == 0)
+
+    // MARK: which of the three things the page is
+
+    // THE STATE THIS WHOLE PACKAGE EXISTS FOR is a board with no session on it: the last one closed
+    // and its dev server did not. Asked about the sessions alone, that page is empty and says so -
+    // taking the card, the counts and the controls with it, at the moment they are the reading.
+    check("a board of nothing but unclaimed cards is a board rather than an empty page",
+          SessionBoardGhosts.board(sessions: 0, unclaimed: 1, seats: 1) == .cards)
+    check("nothing running anywhere is the one page that says nothing is running",
+          SessionBoardGhosts.board(sessions: 0, unclaimed: 0, seats: 0) == .nothing)
+    // "Nothing is running" and "the filter is holding everything back" are different sentences, and
+    // saying the wrong one reads as the board having lost what the summary is still counting.
+    check("…while anything the summary can count says the filter is holding it back",
+          SessionBoardGhosts.board(sessions: 3, unclaimed: 0, seats: 0) == .nothingListed
+              && SessionBoardGhosts.board(sessions: 0, unclaimed: 2, seats: 0) == .nothingListed)
+    check("…and an ordinary board draws its cards",
+          SessionBoardGhosts.board(sessions: 3, unclaimed: 1, seats: 4) == .cards)
 
     // MARK: where those cards sit
 
@@ -109,35 +156,57 @@ func runGhostBoardChecks() {
     // A mark on every card of a busy project points at nothing, so it goes to the card spending the
     // most of its own - which is the card somebody opening this board is looking for.
     check("the heaviest project's mark lands on its busiest card",
-          SessionBoardGhosts.marked(heaviest: tally, among: cards) == "200")
+          SessionBoardGhosts.marked(heaviest: tally, among: cards) == .session("200"))
     check("…and on the only card of a project running one session",
-          SessionBoardGhosts.marked(heaviest: sibling, among: cards) == "300")
+          SessionBoardGhosts.marked(heaviest: sibling, among: cards) == .session("300"))
     // Below a whole core nothing is marked at all (`MachineLoadRollup.markedAbovePercent`), which
     // reaches here as no heaviest project.
     check("a quiet machine marks nobody",
           SessionBoardGhosts.marked(heaviest: nil, among: cards) == nil)
-    // AND THE MARK FALLS TO THE UNCLAIMED CARD when no session card answers to that project, which
-    // is the whole reason this returns an optional rather than a card: the checkout burning the
-    // machine can be the one whose session has ended.
-    check("a heaviest project with no card on the page hands its mark to nobody here",
+    // Under Connected the unclaimed cards are not listed at all, so a checkout whose only card is
+    // one of those has its mark on a card the filter is holding back, and nothing is flamed.
+    check("a heaviest project with no card handed in at all is flamed nowhere",
           SessionBoardGhosts.marked(heaviest: api, among: cards) == nil)
+    // AND THE UNCLAIMED CARD IS IN THE SAME COMPARISON, ON ITS OWN LEFTOVERS. The mark is decided on
+    // a CHECKOUT, and a checkout costs what its sessions and its leftovers cost together: a project
+    // reading 205% because one session spends 5 and an abandoned dev server spends 200 handed its
+    // flame to the 5% card, pointing the eye at the one thing on that board doing nothing wrong.
+    check("the mark lands on the leftovers when the leftovers are what the checkout is burning",
+          SessionBoardGhosts.marked(
+              heaviest: tally,
+              among: [.init(key: "100", root: tally, cpuPercent: 5),
+                      .init(key: tally, root: tally, cpuPercent: 200, unclaimed: true)])
+              == .unclaimed(tally))
+    check("…and stays on the session card when the session is the busier of the two",
+          SessionBoardGhosts.marked(
+              heaviest: tally,
+              among: [.init(key: "100", root: tally, cpuPercent: 300),
+                      .init(key: tally, root: tally, cpuPercent: 200, unclaimed: true)])
+              == .session("100"))
+    // The state this card exists for: the session has ended and the work has not, so the only card
+    // that project has is the one wearing the mark.
+    check("…and a checkout whose sessions have all ended wears it on the only card it has",
+          SessionBoardGhosts.marked(
+              heaviest: api,
+              among: cards + [.init(key: api, root: api, cpuPercent: 400, unclaimed: true)])
+              == .unclaimed(api))
     // Two cards on one figure would otherwise trade the mark from tick to tick, which is the flicker
     // the board's stable order was written to stop. The smaller key wins, as it does one file over.
     check("two cards on the same figure settle the mark on the key rather than on the order",
           SessionBoardGhosts.marked(
               heaviest: tally,
               among: [.init(key: "900", root: tally, cpuPercent: 300),
-                      .init(key: "100", root: tally, cpuPercent: 300)]) == "100"
+                      .init(key: "100", root: tally, cpuPercent: 300)]) == .session("100")
               && SessionBoardGhosts.marked(
                   heaviest: tally,
                   among: [.init(key: "100", root: tally, cpuPercent: 300),
-                          .init(key: "900", root: tally, cpuPercent: 300)]) == "100")
+                          .init(key: "900", root: tally, cpuPercent: 300)]) == .session("100"))
     // A card whose tree has not been read twice yet has no rate, and it must not beat one that has.
     check("a card with no rate yet does not take the mark from a card with one",
           SessionBoardGhosts.marked(
               heaviest: tally,
               among: [.init(key: "100", root: tally, cpuPercent: nil),
-                      .init(key: "200", root: tally, cpuPercent: 1)]) == "200")
+                      .init(key: "200", root: tally, cpuPercent: 1)]) == .session("200"))
 
     // MARK: the parts that only exist inside a view
 
@@ -199,14 +268,42 @@ func runGhostBoardChecks() {
     // UNDER CONNECTED THE BOARD LISTS SESSIONS THAT CAN REPORT THEMSELVES, and an unclaimed card
     // reports nothing by construction - the whole of what it says is that nobody is answering.
     check("the unclaimed cards are listed under All sessions and not under Connected",
-          page.contains("let unclaimed = tabState.sessionFilter == .all ? everyUnclaimed : []"))
+          page.contains("let unclaimed = tabState.sessionFilter == .all ? seated : []"))
     // …while the COUNT above them is the whole machine's, exactly as the four counts beside it are:
-    // narrowing the list below must not change what the summary says.
+    // narrowing the list below must not change what the summary says. Counted over what is RUNNING
+    // unclaimed rather than over the cards, which outlast it by a record apiece.
     check("…while the count of them is taken over the whole machine, filter or no filter",
-          page.contains("sessionsSummary(roster, unclaimed: everyUnclaimed.count)")
+          page.contains("let running = SessionBoardGhosts.running(everyUnclaimed)")
+              && page.contains("sessionsSummary(roster, unclaimed: running)")
               && page.contains("if unclaimed > 0 {")
               && page.contains(
                   "summaryCount(unclaimed, L(\"unclaimed\"), colour: TallyColor.warning)"))
+    // THE PAGE ASKS ABOUT BOTH KINDS OF CARD BEFORE IT CALLS ITSELF EMPTY. It used to ask only
+    // whether there were session rows, so the state these cards exist for - the last session closed
+    // and the dev server still running - reached the branch that draws one quiet line, and the card,
+    // the counts and the controls went with it (`SessionBoardGhosts.board`).
+    check("the page decides what it is out of the sessions AND the unclaimed cards",
+          page.contains("SessionBoardGhosts.board(sessions: board.count,")
+              && page.contains("case .nothing:") && page.contains("if state == .cards {")
+              && !page.contains("if board.isEmpty {"))
+    // ONE SPELLING OF THE SET, because two surfaces take it: the page seats it and the drag freezes
+    // it, and two readings would freeze a drag against a set the page never drew.
+    check("both the page and the drag read the unclaimed cards from one place",
+          page.contains("var sessionUnclaimedCards: [ProjectLoad]")
+              && page.contains("let everyUnclaimed = sessionUnclaimedCards")
+              && grid.contains("unclaimed: sessionUnclaimedCards)"))
+    // AND THE SET IS HELD STILL WHILE A CARD IS IN FLIGHT, exactly as the roster is: the strays are
+    // sampled every two seconds, and one appearing or ending mid-carry would insert or remove a card
+    // in the grid under the pointer - moving every card after it and re-hit-testing the drag against
+    // seats nobody was aiming at.
+    check("the drag freezes the unclaimed cards along with the board it started on",
+          grid.contains("let unclaimed: [ProjectLoad]")
+              && page.contains("let seated = sessionLift?.unclaimed ?? everyUnclaimed"))
+    // The reclaim rows are kept by a store the page reads, so what a card is kept FOR is stated
+    // where the cards are decided rather than left to the view that draws them.
+    check("a card is kept for what this app is watching and what it has done",
+          page.contains("remembering: Set(reclaim.watching.map(\\.project)"
+                        + " + reclaim.records.map(\\.project))"))
     // ONE WORD, ONE MEANING. The card's own field says what it is counting now, and the page no
     // longer uses the bare word anywhere - which is what stopped it meaning two things at once.
     check("a session's own re-parented jobs are called background jobs on the card",
@@ -256,6 +353,37 @@ func runGhostBoardChecks() {
           before("Text(verbatim: project.name)", "Spacer(minLength: 6)", in: ghostHead)
               && before("Spacer(minLength: 6)", "if marked { SessionCardView.flameMark }",
                         in: ghostHead))
+    // AND THE GRID ASKS WHICH KIND OF CARD THE ONE ANSWER LANDED ON, rather than marking the
+    // sessions first and handing the leftovers whatever was left over: one comparison, both kinds
+    // of card in it (`SessionBoardGhosts.marked`).
+    check("each card asks the one answer whether it is the card",
+          grid.contains("marked: marked == .session(row.id)")
+              && grid.contains("marked: marked == .unclaimed(project.root)")
+              && !grid.contains("orphanedMark")
+              && grid.contains("marked: sessionMarkedCard == .session(lift.id)"))
+    check("…and the leftovers are handed in on what they alone are spending",
+          page.contains("cpuPercent: $0.strayCpuPercent, unclaimed: true"))
+
+    // MARK: what the card draws about the leftovers
+
+    /// The card's body alone, cut out the way the headline above is: this file draws several rows,
+    /// and a question asked of the whole of it would be answered by any of them.
+    let ghostBody = (ghost.components(separatedBy: "    var body: some View {")
+        .dropFirst().first ?? "").components(separatedBy: "\n    }").first ?? ""
+    check("the harness really cut out the card's body", ghostBody.contains("headline"))
+    // THE STRAYS' OWN FIGURES, NEVER THE PROJECT'S TOTAL (`ProjectLoad.strayCpuPercent`): the total
+    // is the sessions' cores plus these, so a checkout running a session at 300% and one abandoned
+    // server at 20 drew 320% under "no session is running them" - true of the project, false of this
+    // card, and counted a second time on the session card sitting immediately before it.
+    check("the card draws what the leftovers are spending and nothing the sessions are",
+          ghost.contains("project.strayCpuPercent.map")
+              && ghost.contains("ProcessTree.memoryText(project.strayMemoryBytes)")
+              && !ghost.contains("project.cpuPercent") && !ghost.contains("project.memoryBytes"))
+    // AND A CARD KEPT ONLY FOR ITS RECORD SAYS NOTHING ABOUT LEFTOVERS IT NO LONGER HAS: no amber
+    // word calling for a look at something already dealt with, and no row of zeroes nobody read.
+    check("…and states neither the amber word nor a figure once nothing is left running",
+          ghostHead.contains("if project.strayProcesses > 0 {")
+              && ghostBody.contains("if project.strayProcesses > 0 {"))
 
     // Every word these cards added, in all four translations: the app ships five languages, and a
     // string that reaches somebody in English on a Japanese machine is a missing translation nobody

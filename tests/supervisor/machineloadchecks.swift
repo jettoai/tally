@@ -59,6 +59,25 @@ func runMachineLoadChecks() {
     check("…and what nobody claims adds up beside them",
           load.projects.last?.cpuPercent == 300 && load.projects.last?.strayProcesses == 6)
     check("…memory included", load.projects.last?.memoryBytes == 2_050_000_000)
+    // AND THE STRAYS' OWN SHARE IS KEPT APART FROM THE TOTAL THEY ARE IN, because the card about
+    // the leftovers draws the leftovers (`SessionGhostCardView.figures`): a total under the sentence
+    // "no session is running them" states the session cards beside it a second time.
+    check("…while what the strays alone are spending stays readable on its own",
+          load.projects.last?.strayCpuPercent == 300
+              && load.projects.last?.strayMemoryBytes == 2_000_000_000)
+    let mixed = MachineLoadRollup.rows(
+        sessions: [MachineLoadRollup.SessionReading(root: tally, cpuPercent: 5,
+                                                    memoryBytes: 1_000_000_000)],
+        strays: [MachineLoadRollup.StrayReading(root: tally, cpuPercent: 200,
+                                                memoryBytes: 3_000_000_000, processes: 2)])
+    check("a checkout running a session and leftovers states each of the two exactly once",
+          mixed.projects.first?.cpuPercent == 205 && mixed.projects.first?.strayCpuPercent == 200
+              && mixed.projects.first?.memoryBytes == 4_000_000_000
+              && mixed.projects.first?.strayMemoryBytes == 3_000_000_000)
+    // A rate nobody has taken is nil rather than zero, here as everywhere else in this app.
+    check("…and a project with nothing left over states no stray rate at all",
+          load.projects.first?.strayCpuPercent == nil
+              && load.projects.first?.strayMemoryBytes == 0)
     // A percentage that has not been established yet is nil everywhere else in this app, and summing
     // it as a zero here would state a reading nobody took.
     check("a project where nothing has been read twice states no rate rather than zero",

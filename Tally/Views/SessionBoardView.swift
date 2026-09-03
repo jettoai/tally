@@ -323,10 +323,18 @@ extension PopoverRootView {
             // them would have said "1" (codex review of 85a6319). The four counts beside it are
             // sessions and say so by sitting on this board at all; this one is about something else
             // and has to say which.
+            //
+            // AND IT IS SPELLED AS SHORT AS SAYING BOTH NOUNS ALLOWS, because this row has to fit
+            // the narrowest surface it is drawn on and it is the item that made it not. Measured on
+            // a live single-column panel in English (380pt, 2026-09-03, capture in
+            // docs/plans/captures): the four session counts and their gutters leave about 113pt for
+            // this one, `4 projects with leftovers` wants 120 and was drawn as
+            // `4 projects with leftov…`, and `4 leftover projects` is 91. The counted noun stays
+            // `projects` - which is the whole of what the last spelling change bought (codex review
+            // of 85a6319) - and what goes is the preposition.
             if unclaimed > 0 {
                 summaryCount(unclaimed,
-                             L(unclaimed == 1 ? "project with leftovers"
-                                 : "projects with leftovers"),
+                             L(unclaimed == 1 ? "leftover project" : "leftover projects"),
                              colour: TallyColor.warning)
             }
             Spacer(minLength: 0)

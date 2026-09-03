@@ -337,8 +337,13 @@ func runProcessTreeLineChecks() {
 
     // MARK: the parts that only exist inside a view
 
-    let cardSource = (try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
-                                  encoding: .utf8)) ?? ""
+    // Both halves of the card's footprint, which was split at the repo's line cap along the seam
+    // its own header names: the value line stayed and the trend row became a file of its own
+    // (SessionCardTrendRow.swift). Read as one string, so a line moving between them does not
+    // silently stop being asserted.
+    let cardSource = ["Tally/Views/SessionCardFootprint.swift",
+                      "Tally/Views/SessionCardTrendRow.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     let boardCardSource = (try? String(contentsOfFile: "Tally/Views/SessionCardView.swift",
                                        encoding: .utf8)) ?? ""
     let boardSource = (try? String(contentsOfFile: "Tally/Views/SessionBoardView.swift",
@@ -433,9 +438,9 @@ func runProcessTreeLineChecks() {
     check("a warned reading is coloured where the reading now is, figure and shape together",
           cardSource.contains("Self.figure(trend.figure, level: trend.segment.level)")
               && cardSource.contains("FootprintSparklineView(values: trend.values,"
-                                     + " level: trend.segment.level)"))
+                                     + " level: trend.segment.level,"))
     check("…and the reader who hears the groups is told the same condition",
-          cardSource.contains(".accessibilityLabel(Self.spokenTrends(trends))")
+          cardSource.contains(".accessibilityLabel([Self.spokenTrends(trends), leftoversSpoken]")
               && cardSource.contains("let reading = spoken([trend.segment])"))
     // THE STATE IS THE SUPERVISOR'S OWN WORD, not a second idleness detector living in the app:
     // only the supervisor can see the transcript, the open tool call and the subagents. `unknown`

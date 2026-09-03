@@ -29,16 +29,24 @@ struct SessionCardView: View {
     /// mark used to sit on a row in a section above the board, which is where it stopped being
     /// worth the layer it needed (`SessionGhostCardView`).
     var marked: Bool = false
-    /// This checkout's leftovers, written along the bottom of this card, on the LAST card of the
-    /// project and nowhere else (`SessionBoardGhosts.Seating.footnotes`). Nothing on every other
+    /// This checkout's leftovers, stated at the end of this card's trend row, on the LAST card of
+    /// the project and nowhere else (`SessionBoardGhosts.Seating.footnotes`). Nothing on every other
     /// card, which is most of them.
+    ///
+    /// IT WAS A FOOTNOTE ALONG THE BOTTOM OF THE CARD for a day, and what it is now is a mark on the
+    /// row where this card's other live figures already are (`SessionLeftoversMark` carries the
+    /// whole of why).
     var unclaimed: ProjectLoad?
     /// Whether the machine's flame belongs to those leftovers rather than to this session: it is
-    /// drawn at the end of the footnote and this card's headline stays unmarked
-    /// (`SessionBoardGhosts.marked`).
+    /// drawn beside their count and this card's headline stays unmarked
+    /// (`SessionBoardGhosts.placement`).
     var unclaimedMarked: Bool = false
 
     @State var isHovering = false
+    /// A need, not a preference: the live figures on this card roll to their new values and the
+    /// lines behind them travel, and both are held still for a reader who has asked for that
+    /// (`SessionCardView.sessionFootprintTrends`, `FootprintSparklineView`).
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     /// Colour dot diameter: enough that four states are told apart at a glance, small enough that
     /// the card's first line still reads as a line of text rather than as a bullet list.
@@ -129,25 +137,21 @@ struct SessionCardView: View {
                 // first, because the first already truncates on a narrow card, and a slot of its
                 // own on every card for the reason all the others have one - a card that dropped
                 // the row while its neighbour drew it would stand a line shorter than the board.
+                //
+                // AND WHAT IS RUNNING IN THIS CHECKOUT THAT NO SESSION ANSWERS FOR IS AT THE END OF
+                // THAT SAME ROW, on the last card of the project and on no other
+                // (`SessionLeftoversMark`, which carries why it is no longer a line of its own).
                 sessionCardLine { sessionFootprintTrends }
-                // AND WHAT IS RUNNING IN THIS CHECKOUT THAT NO SESSION ANSWERS FOR, on the last
-                // card of the project and on no other (`SessionUnclaimedFootnote`). A card of its
-                // own is what this used to be, which left a short card in a tall grid cell and
-                // pushed the columns out of step; a line about the checkout the card above is
-                // working in belongs on that card.
-                if let unclaimed {
-                    SessionUnclaimedFootnote(project: unclaimed, namesItself: true,
-                                             marked: unclaimedMarked)
-                }
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)
             // AS TALL AS THE ROW IT IS IN, WITH ITS LINES AGAINST THE TOP. A grid row is as tall as
-            // the tallest card in it, and the footnote makes some cards a line taller than others
-            // (`SessionUnclaimedFootnote`): laid out at its own height, the card beside one of those
-            // stopped short and left the row's space showing under it, which is the same defect the
-            // unclaimed card was given this line for (`SessionGhostCardView`, codex review of
-            // b226640). Both kinds of card now answer the row the same way.
+            // the tallest card in it, and a session card shares its rows with the cards of checkouts
+            // nobody is working in any more, which are three lines where this is five
+            // (`SessionGhostCardView`): laid out at its own height, the shorter card stopped
+            // halfway down its cell and left the row's space showing under it, and so did a session
+            // card seated beside a taller one (codex review of b226640). Both kinds of card now
+            // answer the row the same way.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // AND THE CARD'S OWN EDGE IS THE FOURTH CHANNEL THE WAIT IS SAID ON, after the dot, the
             // state word and the reason line. Those three are all INSIDE the card, so finding the

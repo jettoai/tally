@@ -43,16 +43,16 @@ extension PopoverRootView {
         /// closed on it (`SessionBoardGhosts.Seating.footnotes`).
         ///
         /// THE FLOATING COPY IS A COPY, and without this it was not one: the preview was built with
-        /// no footnote, so a card carrying one shrank by a line the instant it left its seat and
+        /// no footnote, so a card carrying one lost the reading the instant it left its seat and
         /// jumped under the pointer - and when the mark was on those leftovers rather than on the
         /// session, the flame went out for the length of the carry (codex review of b226640). Taken
         /// from the grid's own pass rather than recomputed, for the reason every other field here
         /// is frozen: the seating is a function of a board that is still moving.
         let footnote: ProjectLoad?
-        /// And whether that reading was wearing the machine's flame at the same instant
-        /// (`SessionBoardGhosts.markedAtGrab`, which carries why this is a snapshot and the card's
-        /// own mark is not).
-        let footnoteMarked: Bool
+        /// AND THE MACHINE'S FLAME, WHOLE, as it stood at the same instant: which card wears it,
+        /// not merely whether these leftovers did (`SessionBoardGhosts.placement` carries why the
+        /// whole page reads this one while a hand is closed).
+        let mark: SessionBoardGhosts.Mark?
 
         /// Where the floating copy's centre sits. The single source for BOTH the rendered position
         /// and the hit-test probe, exactly as `CardLift.previewCentre` is: two spellings of this
@@ -116,7 +116,14 @@ extension PopoverRootView {
         // Read once for the whole grid rather than per cell: which card wears the flame is a fact
         // about the machine (`sessionMarkedCard`), decided over both kinds of card at once, so what
         // comes back already says which kind it landed on.
-        let marked = sessionMarkedCard
+        //
+        // AND FROZEN FOR AS LONG AS A HAND IS CLOSED, which is what keeps exactly one flame on the
+        // page: the floating copy is drawn from the grab's snapshot, so a board still reading the
+        // mark live would light a second one the moment the machine moved it. One rule answers here
+        // and for the copy (`SessionBoardGhosts.placement`).
+        let marked = SessionBoardGhosts.placement(sessionLift?.mark ?? sessionMarkedCard,
+                                                  carrying: sessionLift?.id,
+                                                  footnote: sessionLift?.footnote?.root).seat
         // WHICH CARD IS CARRYING WHICH READING, out of the very cards being laid out: the drag
         // takes this away with the card it picks up, so the floating copy is drawn from the same
         // pass as the seat it left (`SessionLift.footnote`).
@@ -364,8 +371,7 @@ extension PopoverRootView {
                                              y: value.startLocation.y - grabbed.value.minY),
                         location: value.location, frozen: board,
                         unclaimed: unclaimed, footnote: footnotes[row.id],
-                        footnoteMarked: SessionBoardGhosts.markedAtGrab(
-                            sessionMarkedCard, footnote: footnotes[row.id]?.root))
+                        mark: sessionMarkedCard)
                 }
                 guard var lift = sessionLift else { return }   // the grab began between two cards
                 lift.location = value.location
@@ -425,17 +431,18 @@ extension PopoverRootView {
     @ViewBuilder
     var sessionLiftPreview: some View {
         if let lift = sessionLift {
-            // The mark travels with the card: it is decided on the machine rather than on the seat
-            // (`sessionMarkedCard`), so a card losing its flame the moment it is picked up would be
-            // the preview disagreeing with the grid it came out of. THE FOOTNOTE TRAVELS WITH IT
-            // TOO, from the snapshot the grab took (`SessionLift.footnote`), which is what keeps
-            // the copy the same height as the seat it came out of - and keeps the flame lit when it
-            // is the leftovers that are wearing it, as they were AT THE GRAB
-            // (`SessionBoardGhosts.markedAtGrab`).
+            // BOTH OF THE COPY'S FLAMES COME OUT OF ONE SNAPSHOT, which is what this pair had
+            // wrong: the headline asked the machine live while the leftovers read the grab's
+            // answer, so a tick that moved the mark mid-carry lit both halves of one card, or lit a
+            // seated card while this one kept the stale one (codex review of fceaeec). Asked of the
+            // rule the grid above asks, so the page draws exactly one flame at every instant of a
+            // drag (`SessionBoardGhosts.placement`).
+            let flame = SessionBoardGhosts.placement(lift.mark, carrying: lift.id,
+                                                     footnote: lift.footnote?.root)
             sessionCard(lift.row, handleProminent: true,
-                        marked: sessionMarkedCard == .session(lift.id),
+                        marked: flame.carriedHeadline,
                         unclaimed: lift.footnote,
-                        unclaimedMarked: lift.footnoteMarked)
+                        unclaimedMarked: flame.carriedLeftovers)
                 // AT THE SIZE OF THE SEAT IT LEFT, BOTH WAYS. The card asks for the whole height it
                 // is offered, which is what makes a row of cards level (`SessionCardView`); offered
                 // the panel, as it is here - this is drawn into a ZStack over the whole surface and

@@ -53,6 +53,10 @@ enum CaptureLaunch {
         "TallyTokenGraphPreview",
         "TallyUpdateChip",      // the header's update nudge, with no live feed
         "TallyPickPreview",     // the pick panel, with no MCP client or request on disk
+        // Every motion the board's live figures could use, side by side on one clock: which one a
+        // quarter-second change should have is a question nobody can answer from a diff
+        // (`MotionDemoWindow`).
+        "TallyMotionDemo",
         loginItemPreview,
         // Artefacts written to disk rather than shown.
         "TallyStripSnapshot",   // the menu bar strip as a standalone PNG
@@ -73,7 +77,12 @@ enum CaptureLaunch {
                                // that has never been touched has nothing pending by construction
                                // (`pickColumnSelection`). Reaching it otherwise means synthesized
                                // clicks on somebody's desktop.
-                               "TallyPickPending"]
+                               "TallyPickPending",
+                               // Which motion the live figures use (`CardMotion.chosen`). It shows
+                               // nothing on its own - a board has to be up for there to be a figure
+                               // - and it qualifies whatever surface the launch is opening, the
+                               // samples window included.
+                               "TallyMotion"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

@@ -17,8 +17,13 @@ func runFootprintTrendSurfaceChecks() {
     let store = ["Tally/Stores/ProcessFootprintStore.swift",
                  "Tally/Stores/ProcessFootprintTiming.swift"]
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
-    let card = (try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
-                            encoding: .utf8)) ?? ""
+    // BOTH HALVES OF THE CARD'S FOOTPRINT, for the reason the store's two are read as one: the
+    // trend row became a file of its own at this repository's line cap
+    // (SessionCardTrendRow.swift), along the seam the header of the other one already named, and a
+    // suite that read only the first would have gone quietly green on every assertion about the
+    // row. Read as one string, so a line moving between them cannot stop being asserted.
+    let card = ["Tally/Views/SessionCardFootprint.swift", "Tally/Views/SessionCardTrendRow.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     let spark = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineView.swift",
                              encoding: .utf8)) ?? ""
     check("the three sources this suite reads are readable from it",
@@ -98,7 +103,7 @@ func runFootprintTrendSurfaceChecks() {
     // sits between the shape it arrived by and the ceiling it came off, and the row above it holds
     // only the fields that have no shape.
     check("the figure is drawn inside its own metric's group",
-          card.contains("FootprintSparklineView(values: trend.values, level: trend.segment.level)")
+          card.contains("FootprintSparklineView(values: trend.values, level: trend.segment.level,")
               && card.contains("Self.figure(trend.figure, level: trend.segment.level)"))
     check("…and it is the loudest small text on the card",
           card.contains(".foregroundStyle(.primary)")
@@ -228,10 +233,19 @@ func runFootprintTrendSurfaceChecks() {
     }
     // THE NEGATIVE HALF OF THE SAME CONTRACT, because a mark is the obvious thing to add back to a
     // warning: nothing on this row draws one, at any width, whether or not the group has a line yet.
+    // WHAT IS FORBIDDEN IS A GLYPH IN A FIGURE'S COLUMN, which is what this used to say by proxy: it
+    // banned the string `marked:` anywhere in the file, on the reasoning that a mark would arrive as
+    // a flag on the figure. The row has since gained a mark that is none of those things - the
+    // machine's flame, at the trailing END of the row, on the leftovers count rather than on any
+    // reading (`SessionLeftoversMark`) - so the ban is stated as what it is about instead: the
+    // groups themselves draw no glyph, at any width, warned or not.
+    let groups = (card.components(separatedBy: "ForEach(trends) { trend in").last ?? "")
+        .components(separatedBy: "leftoversMark").first ?? ""
     check("…and no triangle rides on this row at all",
           !spark.contains("exclamationmark.triangle")
               && !card.contains("Self.drawn(trend.figure")
-              && !card.contains("marked:"))
+              && !groups.isEmpty && !groups.contains("Image(systemName:")
+              && !groups.contains("exclamationmark.triangle"))
     // A session in its first half-minute has a figure and no shape, and it is warned the same way:
     // putting the mark back for those thirty seconds would buy a channel this row cannot read
     // anyway, at the price of the reflow the columns exist to prevent.
@@ -345,10 +359,131 @@ func runFootprintTrendSurfaceChecks() {
     // 20% on a session whose card said 400%, the newest KEPT point being up to a bucket old.
     check("the line marks the peak and the newest reading, quiet and bright",
           spark.contains("if let index = FootprintSparkline.peakIndex(values)")
-              && spark.contains("dot(at: points[index], diameter: Self.peakDot)")
-              && spark.contains("dot(at: last, diameter: Self.currentDot)"))
+              && spark.contains("mark(series, at: index, diameter: Self.peakDot)")
+              && spark.contains("mark(series, at: nil, diameter: Self.currentDot * pulse)"))
     check("…and the newest one is this instant's reading, drawn and never stored",
           card.contains("? readings + [now].compactMap { $0 } : []"))
+
+    // THE FIGURE TRAVELS TO ITS NEW READING RATHER THAN BEING REPAINTED (Albert, 2026-09-03). A
+    // board redraws every couple of seconds, and every number and every line on it used to arrive
+    // between two frames: the digits swapped and the whole outline was replaced, which reads as a
+    // flicker rather than as a change.
+    //
+    // THE THREE PIECES OF A GROUP TRAVEL ON ONE ANIMATION, which is the property worth pinning: the
+    // line and both of its dots are drawn from the SAME interpolated series, so a dot can never
+    // leave the line it sits on. The dots were `Circle`s at an `.offset` - which interpolates
+    // between two POSITIONS while the line interpolates between two SERIES - and two interpolations
+    // of one figure is exactly that defect.
+    check("the shape's animatable data is the readings, not the path it draws",
+          spark.contains("get { AnimatablePair(travels ? readings : .zero,"
+                         + " AnimatablePair(slide, grow)) }")
+              && spark.contains("struct FootprintSparklineLine: Shape")
+              && spark.contains("struct FootprintSparklineMark: Shape")
+              && !spark.contains("Circle()"))
+    // AND THE WINDOW IS ONLY INTERPOLATED WHERE THE STYLE SAYS IT TRAVELS. Every one of these
+    // shapes takes the series as its animatable data, so a style whose outline arrives WHOLE would
+    // have ninety readings interpolated on every frame of whatever phase does carry its change -
+    // arithmetic nobody looks at, on the default style, three shapes per metric (Albert, 2026-09-03,
+    // feeling the board lag). Offered as the zero instead, the phase animates alone.
+    check("…and only the styles that travel pay for interpolating it",
+          spark.contains("private var readingsTravel: Bool { !reduceMotion"
+                         + " && lineStyle.interpolatesReadings }")
+              && spark.contains("travels: readingsTravel")
+              && spark.contains("set { if travels { readings = newValue.first }"))
+    check("…both dots being drawn from the same series the line is",
+          spark.contains("private func mark(_ readings: FootprintSparklineValues, at index: Int?,")
+              && spark.components(separatedBy: "FootprintSparkline.slid(readings.series,").count - 1
+                  == 3)
+    // A SERIES THAT GAINS A POINT IS ALIGNED AT ITS NEWEST END, which is where these grow: index 0
+    // of a 40-point window and index 0 of a 41-point one are different instants, while their last
+    // points are the same instant. Padded with the OLDEST READING rather than with zero, because
+    // zero is a value on all three metrics and the line is measured from it - a window growing by a
+    // point would otherwise sprout a spike from the floor at its left edge.
+    check("two lengths of one series are read as one length, padded at the front",
+          FootprintSparkline.padded([4, 5], to: 4) == [4, 4, 4, 5]
+              && FootprintSparkline.padded([4, 5], to: 2) == [4, 5]
+              && FootprintSparkline.padded([], to: 3) == [0, 0, 0])
+    check("…which is what makes the empty series the zero the interpolation starts from",
+          FootprintSparkline.aligned([], [7, 8]).0 == [0, 0]
+              && FootprintSparkline.aligned([1, 2, 3], [9]).1 == [9, 9, 9])
+    // AND IT IS ALL HELD STILL FOR SOMEBODY WHO ASKED FOR THAT, on both surfaces: a need rather
+    // than a preference, and the same environment key the rest of this app reads.
+    let motion = (try? String(contentsOfFile: "Tally/Views/CardReorder.swift",
+                              encoding: .utf8)) ?? ""
+    check("every motion this row gained is off under Reduce Motion",
+          spark.contains("@Environment(\\.accessibilityReduceMotion) private var"
+                         + " motionFromEnvironment")
+              && spark.contains("guard !reduceMotion, lineStyle.interpolatesReadings"
+                                + " else { return nil }")
+              // The one gate every style that is not a travelling series passes through: each of
+              // them is a phase set and animated home from here, and this refuses the lot.
+              && spark.contains("guard !reduceMotion else { return }")
+              && card.contains(".figureMotion(trend.figure, value: trend.value,"
+                               + " still: reduceMotion)")
+              // The figures' own gate, which refuses on two counts: the reader asked for stillness,
+              // or the chosen style is the baseline that never moved (`MotionChoice.Figures.moves`).
+              && motion.contains(".animation(still || !style.moves ? nil : curve, value: text)"))
+    // AND WHICH STYLES TRAVEL IS THE STYLE'S OWN ANSWER rather than a test by name where the line is
+    // drawn, so one added here has to say which half it is in.
+    check("…and whether the readings themselves move is asked of the style",
+          MotionChoice.Lines.allCases.filter(\.interpolatesReadings).map(\.rawValue)
+              == ["morph", "bounce", "comet"])
+    // THE DIRECTION IS THE READING'S OWN, which the spelling cannot supply: "999 MB" to "1.0 GB" is
+    // a rise that reads as a fall, so the transition is handed the quantity and the ANIMATION is
+    // keyed on the spelling - a CPU wandering between 9.1 and 9.4 per cent draws nothing at all.
+    check("the digits roll in the direction the reading moved",
+          motion.contains("content.contentTransition(value.map { .numericText(value: $0) }")
+              && card.contains("let value: Double?")
+              && card.contains("figure: figure, value: now,"))
+    // WHICH MOTION IS A LAUNCH FLAG ON A DEV BUILD, because how a quarter-second change LOOKS cannot
+    // be judged from a diff: the samples window puts every combination on one clock and the board
+    // runs whichever was picked, out of the same styles (`MotionDemoWindow`, `-TallyMotion`).
+    check("the board and the samples window choose from one set of styles",
+          motion.contains("typealias FigureStyle = MotionChoice.Figures")
+              && motion.contains("typealias LineStyle = MotionChoice.Lines")
+              && motion.contains("typealias Curve = MotionChoice.Curve")
+              && ((try? String(contentsOfFile: "Tally/Views/MotionDemoWindow.swift",
+                               encoding: .utf8)) ?? "").contains("CardMotion.FigureStyle.allCases"))
+    // A TOKEN NOTHING RECOGNISES CHANGES NOTHING, which is what keeps a typo from turning the
+    // board's motion off: each axis takes the tokens it knows and keeps its default otherwise, in
+    // any order and with anything missing.
+    check("the flag is parsed per axis, so order and case and spacing do not matter",
+          MotionChoice("push,scroll,bouncy") == MotionChoice("bouncy , SCROLL,push"))
+    check("…a token nothing recognises leaving its axis at the default",
+          MotionChoice("wobble,fade") == MotionChoice("fade")
+              && MotionChoice("fade").lines == MotionChoice(nil).lines
+              && MotionChoice("fade").curve == MotionChoice(nil).curve)
+    // THE DEFAULTS ARE THE ONES THAT WERE CHOSEN BY LOOKING (Albert, 2026-09-03, samples N3 and L6),
+    // written out here rather than read off the type: an edit that changes what an ordinary launch
+    // does has to change this line too.
+    check("…and an absent flag being the pair that was picked out of the samples",
+          MotionChoice(nil) == MotionChoice("")
+              && MotionChoice(nil) == MotionChoice("roll,grow,bouncy"))
+    check("…with every style the samples window offers reachable through it",
+          MotionChoice.Figures.allCases.allSatisfy { MotionChoice($0.rawValue).figures == $0 }
+              && MotionChoice.Lines.allCases.allSatisfy { MotionChoice($0.rawValue).lines == $0 }
+              && MotionChoice.Curve.allCases.allSatisfy { MotionChoice($0.rawValue).curve == $0 })
+
+    // THE FLAME NAMES A CARD AND THE FIGURE NAMES WHICH READING EARNED IT (Albert, 2026-09-03). The
+    // mark on the headline says this checkout is the heaviest thing on the machine and this is the
+    // card spending it (`SessionBoardGhosts.marked`), which is decided on CPU and on nothing else -
+    // so the CPU figure is the one it is pointing at, and it is the only figure this lights.
+    check("the flamed card says which of its readings the flame is about",
+          card.contains("marked && trend.metric == .cpu && trend.segment.level == .calm")
+              && card.contains("flamesTheFigure(trend) ? Self.flamed(trend.figure)"))
+    // ASKED OF THE FLAME FOR THE COLOUR, not of an amber spelled here: a mark and the figure it
+    // points at have to be one colour or the pointing is not visible, and this row's standing rule
+    // is that it names no colour of its own (asserted just above, over both halves of the file).
+    check("…in the flame's own colour, from the one spelling of it",
+          card.contains("Text(verbatim: text).foregroundStyle(SessionCardView.flameTint)")
+              && ((try? String(contentsOfFile: "Tally/Views/SessionCardState.swift",
+                               encoding: .utf8)) ?? "")
+                  .contains("static let flameTint: Color = TallyColor.warning"))
+    // AND THE TIER WINS WHEREVER BOTH ARE TRUE. The alert levels are a different axis read off the
+    // same figure, and this amber over the machine-level RED would take "somebody has to do
+    // something now" and print it as "worth an eye".
+    check("…and never over a figure that already has a colour of its own",
+          card.contains("trend.segment.level == .calm"))
 
     // A CAPTURE MUST NOT SHIP THIS MACHINE'S OWN PORTS. These fixtures exist for the README and
     // marketing shots, and the branch that leaves a field alone keeps whatever the real reading

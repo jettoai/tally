@@ -258,12 +258,17 @@ func runGhostBoardChecks() {
                             encoding: .utf8)) ?? ""
     let ghost = (try? String(contentsOfFile: "Tally/Views/SessionGhostCardView.swift",
                              encoding: .utf8)) ?? ""
-    let card = (try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
-                            encoding: .utf8)) ?? ""
+    // Both halves of the card's footprint, split at the repo's line cap along the seam its own
+    // header names: the value line stayed and the trend row - where the leftovers are now stated -
+    // became a file of its own. Read as one string so a line moving between them stays asserted.
+    let card = ["Tally/Views/SessionCardFootprint.swift", "Tally/Views/SessionCardTrendRow.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     // The card's first line and the mark that rides on it (`sessionCardHeadline`, `flameMark`).
     let state = (try? String(contentsOfFile: "Tally/Views/SessionCardState.swift",
                              encoding: .utf8)) ?? ""
-    // THE READING ITSELF, which is now one view drawn under two different cards.
+    // THE READING ITSELF, and both of the shapes the board states it in: a whole line on the card of
+    // a checkout nobody is working in any more, and a mark at the end of a session card's trend row
+    // (`SessionUnclaimedFootnote`, `SessionLeftoversMark`, one file because they are one reading).
     let footnote = (try? String(contentsOfFile: "Tally/Views/SessionUnclaimedFootnote.swift",
                                 encoding: .utf8)) ?? ""
     let session = (try? String(contentsOfFile: "Tally/Views/SessionCardView.swift",
@@ -280,26 +285,44 @@ func runGhostBoardChecks() {
     // The reclaim rows themselves are NOT gone: they moved onto the card of the project they are
     // about, which is the one surface that answers "is it about to do that again".
     check("…the reclaim rows now being drawn with the leftovers of the project they are about",
-          footnote.contains(
-              "OrphanReclaimStore.shared.watching.filter { $0.project == project.root }")
-              && footnote.contains(
-                  "OrphanReclaimStore.shared.records.filter { $0.project == project.root }")
+          footnote.contains("OrphanReclaimStore.shared.watching.filter { $0.project == root }")
+              && footnote.contains("OrphanReclaimStore.shared.records.filter { $0.project == root }")
               && footnote.contains("reclaimRow(icon: \"eye\", tint: TallyColor.warning"))
-    // ONE VIEW FOR BOTH PLACES IT IS DRAWN, which is the whole reason it is a file: a reading
-    // written twice drifts twice, and this one is written under a session card and on the card of a
-    // checkout whose sessions have ended.
-    check("the leftovers are drawn by one view, on the session card and on the unclaimed one",
+    // ONE READING FOR BOTH PLACES IT IS DRAWN, which is the whole reason it is a file: a reading
+    // written twice drifts twice, and this one is written on the card of a checkout whose sessions
+    // have ended AND stated at the end of a session card's trend row. The two shapes differ, the
+    // spellings do not - every word and figure comes off the same set of functions.
+    check("the leftovers are drawn from one reading, on the session card and on the unclaimed one",
           footnote.contains("struct SessionUnclaimedFootnote: View")
+              && footnote.contains("struct SessionLeftoversMark: View")
               && ghost.contains("SessionUnclaimedFootnote(project: project)")
-              && session.contains("SessionUnclaimedFootnote(project: unclaimed,"
-                                  + " namesItself: true,"))
-    // AND THE FOOTNOTE NAMES ITSELF ONLY WHERE NOTHING ELSE DOES. Under a session card everything
-    // else is about the session, so figures with no word on them would read as more of the
-    // session's own; on the project's own card the headline one line up has already said it.
-    check("the footnote says the amber word under a session card, and not on the card that has one",
-          footnote.contains("if namesItself {")
-              && footnote.contains("Text(L(\"leftovers\"))")
-              && ghost.contains("SessionUnclaimedFootnote(project: project)\n"))
+              && card.contains("SessionLeftoversMark(project: leftovers,"
+                               + " flamed: unclaimedMarked)"))
+    // AND UNDER A SESSION CARD IT IS A MARK RATHER THAN A LINE (Albert, 2026-09-03). A line of its
+    // own is what a card spends on a reading most of its neighbours do not have, and the figures on
+    // it are the same KIND the trend row already holds; what does not fit on a row - the sentence,
+    // the watch list, what this app has already ended - is one hover away instead.
+    check("the reading under a session card is a mark on the trend row, not a line under the card",
+          !session.contains("SessionUnclaimedFootnote(")
+              && !footnote.contains("namesItself")
+              && card.contains("private var leftoversMark: some View"))
+    // AND IT IS LAID OUT INSIDE THE ROW'S CANDIDATE LIST, not after it: `ViewThatFits` measures what
+    // is in a candidate, so a fourth group beyond the row is a group the ladder never made room for
+    // - the card would give up its width instead of a ceiling (`sessionFootprintTrends`).
+    let candidate = (card.components(separatedBy: "private func trendRow(").last ?? "")
+        .components(separatedBy: "\n    }").first ?? ""
+    check("…inside the candidates, so a narrow card drops a ceiling rather than truncating it",
+          candidate.contains("ForEach(trends) { trend in") && candidate.contains("leftoversMark"))
+    // AND THE ROW IS DRAWN FOR THE LEFTOVERS ALONE. The groups are built from a footprint the store
+    // has read, and a project's last session can be one whose tree could not be read on this tick;
+    // the checkout's leftovers are a reading about the DIRECTORY and are known either way.
+    check("…and a card whose own tree could not be read still states them",
+          card.contains("if !trends.isEmpty || leftovers != nil {"))
+    // NOTHING IS COUNTED THAT IS NO LONGER RUNNING: a card kept for its record alone has no
+    // leftovers left, and a mark reading "0" would be calling for a look at something this app has
+    // already dealt with.
+    check("…and states nothing at all once the last of them has been ended",
+          card.contains("guard let unclaimed, unclaimed.strayProcesses > 0 else { return nil }"))
     // NOT A SESSION, AND IT NEVER PRETENDS TO BE ONE: no terminal to jump to, so no button, no
     // hover and no pointer; no session to arrange by, so no grip and no frame for the drag to
     // hit-test against. Each of these is a promise the card would otherwise make and not keep.
@@ -326,23 +349,35 @@ func runGhostBoardChecks() {
     // ever looking at this leaf's own source (codex review of b226640). What is true of the leaf is
     // that it adds no target: no button, no hover, no grip, and no frame of its own for the
     // hit-test to find, so everything it is drawn inside keeps answering for it.
+    //
+    // ASKED OF THE LINE-SHAPED FORM ALONE, which is the half this is true of: the mark that states
+    // the same reading at the end of a session card's trend row DOES answer a hover, deliberately
+    // and as the one exception on this board (`SessionLeftoversMark` carries what earns it). So the
+    // file is cut at that type and the claim is made about the view above it.
+    let footnoteOnly = footnote.components(separatedBy: "struct SessionLeftoversMark").first ?? ""
     check("the footnote registers no target of its own, so presses and drags belong to its card",
-          !code(footnote).contains("Button") && !code(footnote).contains("onHover")
-              && !code(footnote).contains("onTapGesture")
-              && !code(footnote).contains("tallyTooltip")
-              && !code(footnote).contains("dragHandle")
-              && !code(footnote).contains("showsDragHandle")
-              && !code(footnote).contains("cardFrame")
+          !code(footnoteOnly).contains("Button") && !code(footnoteOnly).contains("onHover")
+              && !code(footnoteOnly).contains("onTapGesture")
+              && !code(footnoteOnly).contains("tallyTooltip")
+              && !code(footnoteOnly).contains("dragHandle")
+              && !code(footnoteOnly).contains("showsDragHandle")
+              && !code(footnoteOnly).contains("cardFrame")
+              && !code(footnoteOnly).contains("gesture"))
+    // AND THE MARK TAKES A HOVER AND NOTHING ELSE. A session card is one `Button`, and anything on
+    // it that swallowed a press would put a dead patch on the way to that terminal; a hover is the
+    // one channel that costs the press nothing.
+    check("…while the mark answers a hover and still takes no press of its own",
+          footnote.contains(".tallyTooltip(blocks: blocks,")
+              && !code(footnote).contains("Button") && !code(footnote).contains("onTapGesture")
               && !code(footnote).contains("gesture"))
-    // WHICH IS WHAT KEEPS THE CARD IT IS WRITTEN ON WHOLE: a session card is one `Button`, and a
-    // footnote that took a press of its own would put a dead patch on the way to that terminal.
-    // What makes the press land is WHERE the footnote is drawn - inside the button's label - so
-    // that is what is asserted here, by position. The check that stood here read the card's
-    // accessibility hint instead, which says what the CARD does and nothing at all about the
-    // footnote's place in it (codex review of b226640).
+    // WHICH IS WHAT KEEPS THE CARD IT IS WRITTEN ON WHOLE. What makes the press land is WHERE the
+    // reading is drawn - inside the button's label - so that is what is asserted here, by position.
+    // The check that stood here read the card's accessibility hint instead, which says what the
+    // CARD does and nothing at all about the reading's place in it (codex review of b226640). It
+    // now travels with the trend row, which is inside that same label.
     let labelEnd = session.range(of: "}\n        .buttonStyle(.plain)")
-    let footnoteDrawn = session.range(of: "SessionUnclaimedFootnote(project: unclaimed,")
-    check("the footnote is drawn inside the card's Button label, which is what a press lands on",
+    let footnoteDrawn = session.range(of: "sessionCardLine { sessionFootprintTrends }")
+    check("the leftovers are drawn inside the card's Button label, which is what a press lands on",
           (labelEnd.flatMap { end in footnoteDrawn.map { $0.upperBound < end.lowerBound } })
               == true)
     check("…and that button is still the one that says what a press does",
@@ -413,9 +448,14 @@ func runGhostBoardChecks() {
     // spend on a count of PROCESSES, "4 leftovers" read as four processes: a single project with
     // eight of them would have said "1" (codex review of 85a6319). The unit is in the label, and
     // the count word is chosen where the bundle is, exactly as the cards choose `proc`/`procs`.
+    //
+    // AND IT IS SPELLED AS SHORT AS SAYING BOTH NOUNS ALLOWS, because this row has to fit the
+    // narrowest surface it is drawn on and this item is what made it not: measured on a live
+    // single-column panel in English, `4 projects with leftovers` was drawn as
+    // `4 projects with leftov…` (380pt, 2026-09-03). The counted noun stays `projects`, which is
+    // the whole of what the change above bought; the preposition is what went.
     check("the summary count names its unit, the figure being one per checkout rather than per job",
-          page.contains("L(unclaimed == 1 ? \"project with leftovers\"")
-              && page.contains("                                 : \"projects with leftovers\"),")
+          page.contains("L(unclaimed == 1 ? \"leftover project\" : \"leftover projects\"),")
               && page.contains("colour: TallyColor.warning)"))
     // THE PAGE ASKS ABOUT BOTH KINDS OF CARD BEFORE IT CALLS ITSELF EMPTY. It used to ask only
     // whether there were session rows, so the state these cards exist for - the last session closed
@@ -471,29 +511,91 @@ func runGhostBoardChecks() {
               && grid.contains("let footnotes = sessionCardFootnotes(cards)")
               && grid.contains("unclaimed: unclaimed, footnote: footnotes[row.id],")
               && grid.contains("unclaimed: lift.footnote,"))
-    // AND THE FLAME ON IT IS FROZEN AT THE SAME INSTANT. It was the one thing still asked live while
-    // everything around it was a snapshot, so a sampler tick that moved the mark mid-carry left the
-    // copy drawing a frozen footnote with the flame taken off it - two moments in one card (codex
-    // review of 4e73a24). THE TWO MOMENTS REALLY DO ANSWER DIFFERENTLY, which is what makes "which
-    // moment" a question worth asking rather than a distinction without a difference.
-    check("the flame on a carried footnote is decided at the grab, and the machine can move it after",
-          SessionBoardGhosts.markedAtGrab(.unclaimed(tally), footnote: tally)
-              != SessionBoardGhosts.markedAtGrab(.session("100"), footnote: tally))
-    check("…lit when the grab found the mark on those very leftovers",
-          SessionBoardGhosts.markedAtGrab(.unclaimed(tally), footnote: tally))
-    check("…and out for a mark on the session, on another checkout's leftovers, or on nothing",
-          !SessionBoardGhosts.markedAtGrab(.session("100"), footnote: tally)
-              && !SessionBoardGhosts.markedAtGrab(.unclaimed(api), footnote: tally)
-              && !SessionBoardGhosts.markedAtGrab(nil, footnote: tally))
-    check("…and never on a card that was carrying no footnote at all",
-          !SessionBoardGhosts.markedAtGrab(.unclaimed(tally), footnote: nil))
-    // The card's OWN mark stays live on purpose: it is about the session the hand is holding, and a
-    // card that lost its flame on being picked up would disagree with the board it came out of.
-    check("…the copy reading the stored answer while its own mark is still the machine's",
-          grid.contains("let footnoteMarked: Bool")
-              && grid.contains("footnoteMarked: SessionBoardGhosts.markedAtGrab(")
-              && grid.contains("unclaimedMarked: lift.footnoteMarked)")
-              && grid.contains("marked: sessionMarkedCard == .session(lift.id),"))
+    // AND THE MACHINE'S FLAME IS FROZEN WITH THEM, WHOLE. It was frozen in PART for a day, which is
+    // worse than either extreme: the copy's leftovers read the grab's answer while the copy's own
+    // headline and every seated card read the mark live, so a sampler tick that moved the mark
+    // mid-carry lit two flames on one page - the copy's stale one and the live one wherever it had
+    // gone - or lit both halves of the copy at once (codex review of fceaeec; 4e73a24 froze the
+    // leftovers and left the other two live, which is how a half-frozen page got shipped).
+    //
+    // ASSERTED AS A CARRY RATHER THAN AS TWO CALLS TO ONE PREDICATE. What stood here compared a
+    // `markedAtGrab` predicate on two unrelated arguments, which says only that the function is not
+    // constant and left the COMBINATION - a frozen leftovers flag beside a live headline - locked in
+    // as the expectation. What the page has to keep is a property of the whole placement, so the
+    // mark is taken at a grab, the machine is allowed to move it three different ways, and the page
+    // is asked what it draws. That predicate is now one line inside the placement, which is the
+    // other half of the same repair: there is no longer a half-answer for a caller to reach.
+    let carried = "100"
+    func heaviest(_ cards: [SessionBoardGhosts.CardLoad]) -> SessionBoardGhosts.Mark? {
+        SessionBoardGhosts.marked(heaviest: tally, among: cards)
+    }
+    /// What the page draws while THIS card is in the hand, stating that checkout's leftovers.
+    func drawn(_ mark: SessionBoardGhosts.Mark?) -> SessionBoardGhosts.FlamePlacement {
+        SessionBoardGhosts.placement(mark, carrying: carried, footnote: tally)
+    }
+    // The grab: the checkout is heaviest on its LEFTOVERS rather than on the session being carried.
+    let atGrab = heaviest([.init(key: carried, root: tally, cpuPercent: 5),
+                           .init(key: tally, root: tally, cpuPercent: 200, unclaimed: true)])
+    check("the grab finds the flame on the leftovers the carried card is stating",
+          atGrab == .unclaimed(tally))
+    // And the three ways the machine can move it before the hand opens again.
+    let ontoTheCarriedSession = heaviest([.init(key: carried, root: tally, cpuPercent: 300),
+                                          .init(key: tally, root: tally, cpuPercent: 20,
+                                                unclaimed: true)])
+    let ontoAnotherCard = heaviest([.init(key: carried, root: tally, cpuPercent: 5),
+                                    .init(key: "200", root: tally, cpuPercent: 400)])
+    let goneAltogether = SessionBoardGhosts.marked(heaviest: nil, among: [])
+    check("…and the machine really can move it three ways while the hand is closed",
+          ontoTheCarriedSession == .session(carried) && ontoAnotherCard == .session("200")
+              && goneAltogether == nil)
+    // THE PAGE GOES ON DRAWING THE GRAB'S ANSWER, in all three, and in the one place the grab put
+    // it: the leftovers the copy is carrying.
+    check("the copy draws the flame the grab found, wherever the machine has since moved it",
+          drawn(atGrab) == SessionBoardGhosts.FlamePlacement(carriedLeftovers: true)
+              && drawn(atGrab) != drawn(ontoTheCarriedSession)
+              && drawn(atGrab) != drawn(ontoAnotherCard)
+              && drawn(atGrab) != drawn(goneAltogether))
+    check("…both of the copy's positions coming from that one snapshot",
+          drawn(ontoTheCarriedSession)
+              == SessionBoardGhosts.FlamePlacement(carriedHeadline: true)
+              && drawn(ontoAnotherCard)
+                  == SessionBoardGhosts.FlamePlacement(seat: .session("200")))
+    // EXACTLY ONE FLAME ON THE PAGE AT EVERY INSTANT, carried or seated, which is the property the
+    // half-frozen version broke: a mark names one card, so the page lights one card, and a mark
+    // that names nobody lights nothing.
+    for mark in [atGrab, ontoTheCarriedSession, ontoAnotherCard, goneAltogether] {
+        check("the whole board draws one flame, or none when the machine names no checkout",
+              drawn(mark).lit == (mark == nil ? 0 : 1)
+                  && SessionBoardGhosts.placement(mark, carrying: nil, footnote: nil).lit
+                      == (mark == nil ? 0 : 1))
+    }
+    // AND A CARRIED CARD'S SEAT IS NEVER ALSO LIT, because the grid draws that seat empty while the
+    // card is in flight: reported to both, the count would be right and one of them invisible.
+    check("…and never on the seat of the card that is in the hand",
+          drawn(ontoTheCarriedSession).seat == nil && drawn(atGrab).seat == nil
+              && drawn(ontoAnotherCard).carriedHeadline == false
+              && drawn(ontoAnotherCard).carriedLeftovers == false)
+    // At rest the mark is simply the seated one, which is the state the board spends its life in.
+    check("…and with nothing in the hand the flame is on whichever card the machine names",
+          SessionBoardGhosts.placement(.unclaimed(tally), carrying: nil, footnote: nil)
+              == SessionBoardGhosts.FlamePlacement(seat: .unclaimed(tally)))
+    // A MARK ON SOMEBODY ELSE'S LEFTOVERS IS SOMEBODY ELSE'S, and a card carrying no leftovers at
+    // all - which is most of them - can never light that half.
+    check("…the copy's leftovers lighting for its own checkout and for no other",
+          drawn(.unclaimed(api)) == SessionBoardGhosts.FlamePlacement(seat: .unclaimed(api))
+              && SessionBoardGhosts.placement(.unclaimed(tally), carrying: carried, footnote: nil)
+                  == SessionBoardGhosts.FlamePlacement(seat: .unclaimed(tally)))
+    check("the drag freezes the whole mark and both surfaces read it from there",
+          grid.contains("let mark: SessionBoardGhosts.Mark?")
+              && grid.contains("mark: sessionMarkedCard)")
+              && grid.contains("SessionBoardGhosts.placement(sessionLift?.mark"
+                               + " ?? sessionMarkedCard,")
+              && grid.contains("SessionBoardGhosts.placement(lift.mark, carrying: lift.id,")
+              && grid.contains("marked: flame.carriedHeadline,")
+              && grid.contains("unclaimedMarked: flame.carriedLeftovers)"))
+    check("…and nothing on the copy asks the machine again while the hand is closed",
+          !grid.contains("marked: sessionMarkedCard == .session(lift.id)")
+              && !grid.contains("footnoteMarked"))
     // The reclaim rows are kept by a store the page reads, so what a card is kept FOR is stated
     // where the cards are decided rather than left to the view that draws them.
     check("a card is kept for what this app is watching and what it has done",
@@ -555,24 +657,30 @@ func runGhostBoardChecks() {
           grid.contains("marked: marked == .session(row.id)")
               && grid.contains("marked: marked == .unclaimed(project.root)")
               && !grid.contains("orphanedMark")
-              && grid.contains("marked: sessionMarkedCard == .session(lift.id)"))
+              && grid.contains("marked: flame.carriedHeadline,"))
     check("…and the leftovers are handed in on what they alone are spending",
           page.contains("cpuPercent: $0.strayCpuPercent, unclaimed: true"))
-    // AND WHERE THE LEFTOVERS ARE A FOOTNOTE, THE FLAME IS DRAWN ON THAT LINE. The mark says which
-    // card is burning the machine's cores, and on a card whose project is heaviest on its LEFTOVERS
-    // the session is not the thing burning them: a flame on that headline would point the eye at
-    // the one session on the board doing nothing wrong (`SessionBoardGhosts.marked` was written for
-    // exactly this shape, and the footnote is where the answer now lands).
-    check("the footnote wears the mark at the end of its own line",
-          footnote.contains("if marked { SessionCardView.flameMark }")
-              && before("Spacer(minLength: 0)", "if marked { SessionCardView.flameMark }",
-                        in: footnote))
+    // AND WHERE THE LEFTOVERS ARE A MARK ON THE TREND ROW, THE FLAME IS DRAWN BESIDE THEIR COUNT.
+    // The mark says which card is burning the machine's cores, and on a card whose project is
+    // heaviest on its LEFTOVERS the session is not the thing burning them: a flame on that headline
+    // would point the eye at the one session on the board doing nothing wrong
+    // (`SessionBoardGhosts.marked` was written for exactly this shape).
+    check("the leftovers wear the mark beside their own count",
+          footnote.contains("if flamed { SessionCardView.flameMark }")
+              && before("Text(verbatim: \"\\(project.strayProcesses)\")",
+                        "if flamed { SessionCardView.flameMark }", in: footnote))
     check("…asked of the project rather than of the session sitting above it",
           grid.contains("unclaimedMarked: footnote.map { marked == .unclaimed($0.root) }")
-              && session.contains("marked: unclaimedMarked)"))
+              && card.contains("SessionLeftoversMark(project: leftovers,"
+                               + " flamed: unclaimedMarked)"))
+    // AND THE SESSION'S OWN CPU FIGURE IS WHAT THE FLAME LIGHTS WHEN IT IS THE SESSION'S. The mark
+    // names a card; the amber on the figure names which of that card's readings earned it, which is
+    // always the cores because that is what the heaviest checkout is decided on.
+    check("…and a flame on the session lights the reading it is about, not the leftovers' count",
+          card.contains("marked && trend.metric == .cpu && trend.segment.level == .calm"))
     // And a session card whose project is heaviest on the leftovers is handed no mark of its own:
     // one comparison answers `.unclaimed`, so the card's own test is false by construction.
-    check("…so the session's headline stays unmarked while its footnote is flamed",
+    check("…so the session's headline stays unmarked while its leftovers are flamed",
           SessionBoardGhosts.marked(
               heaviest: tally,
               among: [.init(key: "100", root: tally, cpuPercent: 5),
@@ -611,9 +719,9 @@ func runGhostBoardChecks() {
     // WHAT IS LEFT IN THAT STATE IS THE RECLAIM ROWS, which is what keeps the reading on the page at
     // all once the last stray of a checkout has been ended: the rows are outside that test.
     check("…while what this app did about it is drawn whether or not anything is still running",
-          before("if project.strayProcesses > 0 {", "ForEach(watching) { watch in",
-                 in: footnoteBody)
-              && footnoteBody.contains("ForEach(records) { record in"))
+          before("if project.strayProcesses > 0 {",
+                 "ForEach(Self.watching(in: project.root)) { watch in", in: footnoteBody)
+              && footnoteBody.contains("ForEach(Self.records(in: project.root)) { record in"))
 
     // Every word these cards added, in all four translations: the app ships five languages, and a
     // string that reaches somebody in English on a Japanese machine is a missing translation nobody
@@ -623,8 +731,11 @@ func runGhostBoardChecks() {
         .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["strings"]
         as? [String: Any] ?? [:]
     check("the string catalogue is readable from this suite", !strings.isEmpty)
-    for key in ["leftovers", "project with leftovers", "projects with leftovers",
-                "unknown project", "background jobs", "%@, no session is running them"] {
+    for key in ["leftovers", "leftover project", "leftover projects",
+                "unknown project", "background jobs", "%@, no session is running them",
+                // The mark's callout: two labels on its figures, and a heading over each of the
+                // two lists under them.
+                "CPU", "Memory", "Watching", "Handled"] {
         let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             ?? [:]
         check("\"\(key)\" is translated into every language Tally ships",
@@ -635,20 +746,35 @@ func runGhostBoardChecks() {
     check("…the sentence carrying the one placeholder the count is put into",
           "%@, no session is running them".components(separatedBy: "%@").count == 2
               && footnote.contains("L(project.strayProcesses == 1 ? \"proc\" : \"procs\")"))
-    // AND NO NEW WORD WAS COINED FOR THE FOOTNOTE. Under a session card the whole reading is one
-    // line, so it states the count rather than the sentence - out of the same catalogue entry the
-    // sentence puts into itself, which is what keeps one spelling of "3 procs" on this board.
-    check("…and the one-line form states that same count rather than a string of its own",
-          footnote.contains("String(format: L(\"%@, no session is running them\"), counted)")
-              && footnote.contains("Text(verbatim: counted)"))
+    // AND NO NEW WORD WAS COINED FOR THE MARK'S CALLOUT. It opens with the very sentence the
+    // project's own card leads with, out of the same catalogue entry, which is what keeps one
+    // spelling of "3 procs" on this board.
+    check("…and the callout opens with that same sentence rather than a string of its own",
+          footnote.contains("String(format: L(\"%@, no session is running them\"),"
+                            + " counted(project))")
+              && footnote.contains("TallyTooltipBlock(title: sentence(project),"))
+    // AND EVERY WORD IT ADDS IS A LABEL ON A FIGURE, in a column the reader takes in at a glance
+    // rather than a paragraph they have to parse (`TallyTooltipRow`). An empty section is not drawn
+    // at all: a machine watching nothing gets no heading over nothing.
+    check("…the callout naming its figures and dropping the sections it has nothing for",
+          footnote.contains("TallyTooltipRow(label, $0)")
+              && footnote.contains("if !watched.isEmpty {") && footnote.contains("if !done.isEmpty {")
+              && footnote.contains("TallyTooltipBlock(title: L(\"Watching\"),")
+              && footnote.contains("TallyTooltipBlock(title: L(\"Handled\"),"))
+    // A LISTENER GETS THE WHOLE CALLOUT, because the row it is drawn on is one accessibility element
+    // and would otherwise swallow it: what a hover would have shown is appended to the row's own
+    // label, from the same content, so the two cannot drift.
+    check("…and what a hover would show is said to a reader who has no pointer",
+          card.contains("SessionUnclaimedFootnote.callout($0).spoken")
+              && card.contains(".accessibilityLabel([Self.spokenTrends(trends), leftoversSpoken]"))
     // The word the old section's amber was spent on is the word this reading's amber is spent on:
-    // the reading somebody would act on, rather than a figure beside it. On both surfaces - the
-    // card's headline, and the footnote under a session card, where nothing else names it.
-    for source in [ghost, footnote] {
-        check("the leftovers say so in the colour the stray count used to be drawn in",
-              source.contains("Text(L(\"leftovers\"))")
-                  && source.contains(".font(.caption2).foregroundStyle(TallyColor.warning)"))
-    }
+    // the reading somebody would act on, rather than a figure beside it. On the project's own card
+    // it is that word; on a session card's row the whole mark is drawn in it, there being no room
+    // for a word beside three readings.
+    check("the leftovers say so in the colour the stray count used to be drawn in",
+          ghost.contains("Text(L(\"leftovers\"))")
+              && ghost.contains(".font(.caption2).foregroundStyle(TallyColor.warning)")
+              && footnote.contains(".foregroundStyle(TallyColor.warning)"))
     // AND THE WORD IT SHIPPED WITH FOR A DAY IS GONE FROM EVERY SURFACE somebody reads, the summary
     // count included. `unclaimed` is a word about a CLAIM nobody on this page ever makes: what
     // these processes are is what a session left behind (Albert, 2026-09-03). The spelling survives
@@ -663,6 +789,6 @@ func runGhostBoardChecks() {
               !source.contains("L(\"unclaimed\")"))
     }
     check("…the count beside the board saying it in the same vocabulary its cards do",
-          page.contains("L(unclaimed == 1 ? \"project with leftovers\"")
+          page.contains("L(unclaimed == 1 ? \"leftover project\"")
               && ((strings["unclaimed"] as? [String: Any]) == nil))
 }

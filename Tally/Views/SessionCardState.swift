@@ -71,8 +71,15 @@ extension SessionCardView {
     static var flameMark: some View {
         Image(systemName: "flame.fill")
             .font(.caption2)
-            .foregroundStyle(TallyColor.warning)
+            .foregroundStyle(Self.flameTint)
     }
+
+    /// The flame's colour, spelled once because the mark is no longer the only thing wearing it: the
+    /// CPU figure the flame is ABOUT is drawn in it too, one row down, so that a reader who has
+    /// found the flamed card can see which of its readings earned the mark
+    /// (`SessionCardView.flamed`). A mark and the figure it points at in two different ambers would
+    /// read as two unrelated warnings.
+    static let flameTint: Color = TallyColor.warning
 
     /// The word `blocked`, and the whole of what the session is waiting FOR under a hover of it.
     ///

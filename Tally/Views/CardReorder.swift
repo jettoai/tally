@@ -10,6 +10,121 @@ import AppKit
 
 enum CardMotion {
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.80)
+
+    /// How long a LIVE FIGURE takes to reach its new value, on the session board: the digits change
+    /// and the line behind them travels, rather than both being repainted between two frames
+    /// (Albert, 2026-09-03, on the first live board).
+    ///
+    /// A DIFFERENT MOTION FROM THE SPRING ABOVE, and deliberately so. That one carries a card the
+    /// hand moved, where the overshoot is the feedback; this one carries a number nobody touched.
+    /// Short enough to be finished well inside the two seconds until the next reading, so a figure
+    /// is never still travelling when its successor arrives.
+    static let figureDuration: Double = 0.25
+    /// How long a line takes to draw itself the first time a card appears. Longer than a figure's
+    /// change because it is a stroke being drawn rather than a value moving, and it happens once.
+    static let firstDrawDuration: Double = 0.35
+
+    /// WHICH OF THESE THE BOARD USES IS A LAUNCH FLAG ON A DEV BUILD, because it is a question about
+    /// how something LOOKS and the only way to answer that is to look at it side by side. The styles
+    /// themselves and the flag's spelling are a pure rule next door (`MotionChoice`); what is here
+    /// is what a curve MEANS, which is a SwiftUI animation and cannot be.
+    typealias FigureStyle = MotionChoice.Figures
+    typealias LineStyle = MotionChoice.Lines
+    typealias Curve = MotionChoice.Curve
+
+    /// What this launch asked for, read ONCE. The argument domain, like every other flag in this
+    /// family, so it is volatile by construction and an ordinary launch is unaffected
+    /// (`CaptureLaunch`). Gated on a dev build or the fixtures for the same reason they are: a
+    /// release instance somebody is using must not be reachable.
+    static let chosen = MotionChoice(
+        BuildVariant.isDev || DemoUsage.isActive
+            ? UserDefaults.standard.string(forKey: "TallyMotion") : nil)
+
+    static var figures: FigureStyle { chosen.figures }
+    static var lines: LineStyle { chosen.lines }
+    /// The one animation every live figure on the board travels on.
+    static var figureFlip: Animation { chosen.curve.animation }
+}
+
+extension MotionChoice.Curve {
+    /// The same three curves at the same duration, so a comparison between them is about the shape
+    /// of the motion rather than about its length.
+    var animation: Animation {
+        switch self {
+        case .snappy: .snappy(duration: CardMotion.figureDuration)
+        case .smooth: .smooth(duration: CardMotion.figureDuration)
+        case .bouncy: .bouncy(duration: CardMotion.figureDuration)
+        }
+    }
+}
+
+/// ONE LIVE FIGURE'S CHANGE, in whichever style this build was launched with. The board's readings
+/// and the demo window's samples both come through here, so what is being chosen between in the
+/// samples is the very code the board will run (`MotionDemoWindow`).
+///
+/// KEYED ON THE SPELLING RATHER THAN ON THE QUANTITY, which is what keeps a card still: a CPU
+/// wandering between 9.1 and 9.4 per cent is one reading to a reader and two to a `Double`, and
+/// animating the second would be a figure in perpetual motion that never visibly changes.
+///
+/// THE DIRECTION IS THE QUANTITY'S, though, because the spelling cannot supply it: "999 MB" to
+/// "1.0 GB" is a rise that reads as a fall. Both styles that have a direction are handed the
+/// previous reading, which is kept here rather than asked of the caller - a figure knows what it
+/// last was, and every call site would otherwise have to.
+private struct FigureMotion: ViewModifier {
+    let text: String
+    let value: Double?
+    let still: Bool
+    let style: CardMotion.FigureStyle
+    let curve: Animation
+
+    @State private var previous: Double?
+
+    func body(content: Content) -> some View {
+        let rising = (value ?? 0) >= (previous ?? value ?? 0)
+        return figured(content, rising: rising)
+            .animation(still || !style.moves ? nil : curve, value: text)
+            // THE TRANSITION MUST NOT REACH THE LAYOUT AROUND IT, for the reason the shape beside it
+            // carries in full (`FootprintSparklineView`): this column sits inside a `ViewThatFits`
+            // that re-measures seven candidates whenever anything under it invalidates, and a
+            // figure changing every couple of seconds on fifteen cards was re-laying the board out
+            // frame by frame. The width is pinned by the hidden widest copy inside
+            // (`SessionCardView.column`) and always was; what leaked was the invalidation.
+            .geometryGroup()
+            .onChange(of: value) { old, _ in previous = old }
+    }
+
+    @ViewBuilder
+    private func figured(_ content: Content, rising: Bool) -> some View {
+        switch style {
+        case .plain:
+            content
+        case .roll:
+            // Handed the quantity, so the digits know which way to turn. A figure with no reading
+            // behind it (a metric this tick could not state) still rolls, with no direction claimed.
+            content.contentTransition(value.map { .numericText(value: $0) } ?? .numericText())
+        case .fade:
+            content.contentTransition(.opacity)
+        case .push:
+            // An identity change is what a transition needs, and the spelling is the identity: the
+            // column around it holds the width either way (`SessionCardView.column`), so nothing
+            // moves except the figure being replaced.
+            content.id(text).transition(.push(from: rising ? .bottom : .top))
+        }
+    }
+}
+
+extension View {
+    /// - Parameters:
+    ///   - text: the figure as it is spelled, which is what a change is judged on.
+    ///   - value: the same reading as a quantity, for the styles that have a direction.
+    ///   - still: hold it still, for a reader who has asked for that.
+    ///   - style: which motion, defaulting to this launch's.
+    ///   - curve: which curve, defaulting to this launch's.
+    func figureMotion(_ text: String, value: Double?, still: Bool,
+                      style: CardMotion.FigureStyle = CardMotion.figures,
+                      curve: Animation = CardMotion.figureFlip) -> some View {
+        modifier(FigureMotion(text: text, value: value, still: still, style: style, curve: curve))
+    }
 }
 
 /// Trackpad haptic via the Force Touch Taptic Engine; silent no-op without one. Fire only when a drag

@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyPreviewAppearance()
         openPanelForCapture()
+        // The motion samples, when a launch asks for them: a window of its own, gated inside the
+        // controller on the same terms every other observation flag is (`MotionDemoWindow`).
+        MotionDemoWindowController.shared.showIfAsked()
         // Notification delegate first: a response can arrive the instant the app is up (the user
         // clicked a banked-reset hint that launched it), and the action button only exists if its
         // category was registered before the alert landed.

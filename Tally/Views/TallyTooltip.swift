@@ -69,6 +69,12 @@ enum TallyTooltip {
         /// the card asks `DemoUsage.isActive` alongside this. Same guarantee the identity target
         /// buys by naming one fixture account, bought by a different means.
         case supervisor
+        /// The session board's leftovers mark (`SessionLeftoversMark`), on the same terms as the
+        /// badge above and for the same reason: a real machine can have several checkouts with work
+        /// nobody is answering for, and every one of those marks would publish into this single
+        /// slot. The demo board carries leftovers in exactly ONE project by construction
+        /// (`DemoSessions.strayReadings`), so under the fixtures there is nothing to race with.
+        case leftovers
     }
 
     static func previewForced(_ target: PreviewTarget) -> Bool {

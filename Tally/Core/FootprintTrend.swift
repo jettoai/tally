@@ -388,6 +388,61 @@ enum FootprintSparkline {
         }
     }
 
+    /// The same points, carried `steps` whole readings to the RIGHT, which is how a strip chart
+    /// arrives: the finished outline is put up where it stood before the newest reading landed and
+    /// slid back into place (`CardMotion.LineStyle.scroll`). Nothing at all at zero steps, which is
+    /// every frame of the other style.
+    ///
+    /// The step is the gap between two readings, so one whole step is exactly one reading's width
+    /// whatever the window's length has got to. What runs off the right edge is drawn outside the
+    /// frame and clipped by it, which is the same thing a chart's own plot area does.
+    /// - Parameter grow: how much of the FINAL segment has been drawn, from nothing to all of it.
+    ///   The last point is held back along the segment it arrived on, which is what lets a line be
+    ///   replaced whole and still show its newest reading arriving
+    ///   (`CardMotion.LineStyle.grow`). One at rest, which is every frame of every other style.
+    static func slid(_ values: [Double], in size: CGSize, inset: CGFloat = 0.5,
+                     steps: Double, grow: Double = 1) -> [CGPoint] {
+        var points = points(values, in: size, inset: inset)
+        guard points.count >= minimumReadings else { return points }
+        if grow < 1, let last = points.last {
+            let previous = points[points.count - 2]
+            points[points.count - 1] = CGPoint(x: previous.x + (last.x - previous.x) * grow,
+                                               y: previous.y + (last.y - previous.y) * grow)
+        }
+        guard steps != 0 else { return points }
+        let step = size.width / CGFloat(values.count - 1)
+        return points.map { CGPoint(x: $0.x + step * CGFloat(steps), y: $0.y) }
+    }
+
+    /// TWO READINGS OF ONE SERIES READ AS ONE LENGTH, which is what lets a line TRAVEL from the
+    /// shape it had to the shape it has instead of being repainted between two frames
+    /// (`FootprintSparklineValues`, the view's own interpolation).
+    ///
+    /// THE SHORTER ONE IS PADDED AT ITS FRONT, and that is the whole of the decision here. These
+    /// series grow at the NEWEST end - a reading is appended and the oldest is dropped once the ring
+    /// is full (`FootprintTrendSeries.record`) - so index 0 of a 40-point window and index 0 of a
+    /// 41-point one are different instants, while their last points are the same instant. Aligned at
+    /// the front, every pair of points being interpolated is a pair about the same moment; aligned
+    /// at the back, a session in its first minutes would have its whole history slide sideways under
+    /// the line every ten seconds.
+    ///
+    /// PADDED WITH ITS OWN OLDEST READING rather than with zero, because zero is a VALUE on all
+    /// three of these metrics and the line is measured from it (`points`): a window growing from 40
+    /// points to 41 would sprout a spike from the floor at its left edge, which is a reading the
+    /// machine never took.
+    static func aligned(_ one: [Double], _ other: [Double]) -> ([Double], [Double]) {
+        let width = max(one.count, other.count)
+        return (padded(one, to: width), padded(other, to: width))
+    }
+
+    /// One series stretched to `width` by repeating its oldest reading in front of it (see
+    /// `aligned`). An empty series has no reading to repeat and is a run of zeroes, which is what
+    /// makes the empty series the additive identity the interpolation needs.
+    static func padded(_ values: [Double], to width: Int) -> [Double] {
+        guard values.count < width else { return values }
+        return Array(repeating: values.first ?? 0, count: width - values.count) + values
+    }
+
     /// Which reading to mark with a dot, or nothing when there is no peak to point at: a flat line
     /// is at its maximum everywhere, and a dot on the first of those would be pointing at an
     /// arbitrary moment.

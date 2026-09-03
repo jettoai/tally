@@ -277,23 +277,58 @@ enum SessionBoardGhosts {
         return top.unclaimed ? .unclaimed(top.key) : .session(top.key)
     }
 
-    /// WHETHER THE LEFTOVERS A HAND IS CARRYING WERE WEARING THE FLAME WHEN IT PICKED THEM UP.
+    /// WHERE THE ONE FLAME IS DRAWN, over the whole page, in the two states the page can be in:
+    /// resting, and with a card in the hand.
     ///
-    /// ASKED ONCE, AT THE GRAB, AND NOT AGAIN. The drag freezes what it is carrying - the board, the
-    /// unclaimed readings, and which of them was written under this card (`SessionLift`) - because
-    /// the sampler runs every two seconds and a carry outlasts several ticks. The mark was the one
-    /// thing still being asked live, so a tick that moved it somewhere else left the floating copy
-    /// drawing a frozen footnote with the flame taken off it, or off a card that no longer has it:
-    /// two readings from two different moments in one card (codex review of 4e73a24).
+    /// IT EXISTS BECAUSE THE PAGE HAS THREE PLACES TO DRAW A FLAME AND ONLY ONE FLAME. A seated
+    /// card wears it (`SessionCardView.sessionCardHeadline`, `SessionGhostCardView`), the floating
+    /// copy's own headline wears it, and so do the leftovers that copy is stating - and each of
+    /// those three used to answer the question for itself. Two of them read the mark LIVE and the
+    /// third read a snapshot taken at the grab, so a sampler tick that moved the mark mid-carry put
+    /// a flame in two places at once: one where the machine says it is now, and one where it was
+    /// when the hand closed (codex review of fceaeec).
     ///
-    /// The card's OWN mark is a different question and stays live: it is about the session, which is
-    /// what the hand is actually holding, and a card that lost its flame on being picked up would be
-    /// the copy disagreeing with the board it came out of.
+    /// SO THE CARRY FREEZES THE MARK FOR THE WHOLE PAGE, not only for the copy. That is what the
+    /// carry already does with everything else the seating is a function of - the board's
+    /// membership, the unclaimed readings, and which card each of them is written under
+    /// (`SessionLift`) - and it is the only arrangement in which the page draws exactly one flame at
+    /// every instant. Frozen for the copy alone, a mark that moved to a seated card left two lit
+    /// (the copy's stale one and the seat's live one); frozen nowhere, the copy's leftovers went
+    /// dark mid-carry, which is the defect this pair was first written for. The freeze lasts as long
+    /// as the hand does, and the next pass after the drop is live again.
     ///
-    /// - Parameter footnote: the project whose leftovers this card was carrying, or nothing for a
-    ///   card that was carrying none - which is most of them, and never wears this mark.
-    static func markedAtGrab(_ mark: Mark?, footnote root: String?) -> Bool {
-        guard let root else { return false }
-        return mark == .unclaimed(root)
+    /// THE CARRIED CARD'S SEAT IS EMPTY WHILE IT IS IN FLIGHT (`sessionsGrid` draws it at zero
+    /// opacity), which is why a mark landing on it is reported to the copy and to no seat: reported
+    /// to both, the count would be right and one of them would be invisible.
+    struct FlamePlacement: Equatable {
+        /// The floating copy's own headline: the mark is on the session in the hand.
+        var carriedHeadline = false
+        /// The leftovers that copy is stating: the mark is on the checkout's own strays.
+        var carriedLeftovers = false
+        /// The seated card that wears it, or nothing when the flame is in the hand or the machine
+        /// has no heaviest checkout on this page.
+        var seat: Mark? = nil
+
+        /// How many flames the page draws. Never more than one, whatever the state - which is the
+        /// property this type exists to make sayable in one place.
+        var lit: Int {
+            (carriedHeadline ? 1 : 0) + (carriedLeftovers ? 1 : 0) + (seat == nil ? 0 : 1)
+        }
+    }
+
+    /// - Parameters:
+    ///   - mark: the mark the page is reading. Live while nothing is being carried, and the one
+    ///     frozen at the grab for as long as something is.
+    ///   - carrying: the session in the hand, or nothing when the board is at rest.
+    ///   - footnote: the checkout whose leftovers the carried card is stating, if any.
+    static func placement(_ mark: Mark?, carrying: String?,
+                          footnote root: String?) -> FlamePlacement {
+        guard let carrying else { return FlamePlacement(seat: mark) }
+        let headline = mark == .session(carrying)
+        // A card carrying no leftovers - which is most of them - can never light that half, and a
+        // mark on somebody else's leftovers is somebody else's.
+        let leftovers = root.map { mark == .unclaimed($0) } ?? false
+        return FlamePlacement(carriedHeadline: headline, carriedLeftovers: leftovers,
+                              seat: headline || leftovers ? nil : mark)
     }
 }

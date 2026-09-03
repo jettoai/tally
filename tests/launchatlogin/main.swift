@@ -432,10 +432,11 @@ let expectedFamily: Set<String> = [
     "TallyPanelCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
     "TallyEmptyStatePreview",
     "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
+    "TallyMotionDemo",
     "TallyStripSnapshot", "TallyWindowSnapshot",
     "TallyDryNotifyTest", "TallyResetHintTest", "TallyLoginExpiryTest",
 ]
-check("the family is exactly these eighteen flags",
+check("the family is exactly these nineteen flags",
       Set(CaptureLaunch.backgroundKeys) == expectedFamily)
 check("and it carries no duplicates",
       CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -488,8 +489,8 @@ check("every flag spelled in the source is classified",
       scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
 check("and every flag classified is spelled in the source",
       Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-check("which comes to twenty-six, in three buckets",
-      CaptureLaunch.allFlagKeys.count == 26 && scanned.count == 26)
+check("which comes to twenty-eight, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 28 && scanned.count == 28)
 check("with nothing counted twice",
       Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",

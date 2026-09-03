@@ -34,6 +34,11 @@ extension SessionCardView {
         /// few kept ones to be a line at all. The live reading is drawn and never stored, so the
         /// line's bright end point is the figure printed beside it (`FootprintSparklineView`).
         let values: [Double]
+        /// How many readings have left the window's oldest end since the series began
+        /// (`FootprintTrendSeries.origin`): what tells the shape whether the peak it draws this
+        /// tick is the reading it drew last tick, which its indices cannot
+        /// (`FootprintSparkline.peakMotion`).
+        let origin: Int
         /// The highest reading in the window, or nothing when there is none worth printing.
         ///
         /// A PEAK THAT EQUALS THE READING IS NOT PRINTED, which is what makes this row fit a narrow
@@ -82,10 +87,10 @@ extension SessionCardView {
                 .flatMap(metric.peakText)
             // Drawn from the kept readings plus this instant's, so the line ends where the figure
             // beside it says the session is; the ring itself is never told about that last point.
-            let drawn = readings.count >= FootprintSparkline.minimumReadings
-                ? readings + [now].compactMap { $0 } : []
+            let drawn = FootprintSparkline.drawn(readings, now: now)
             return Trend(metric: metric, segment: segment, figure: figure, value: now,
-                         aside: segment.aside, values: drawn, peak: peak == figure ? nil : peak)
+                         aside: segment.aside, values: drawn, origin: series?.origin ?? 0,
+                         peak: peak == figure ? nil : peak)
         }
     }
 
@@ -257,6 +262,7 @@ extension SessionCardView {
                         // subtrees whenever the figures change width class
                         // (`FootprintSparklineView.identity`).
                         FootprintSparklineView(values: trend.values, level: trend.segment.level,
+                                               origin: trend.origin,
                                                identity: "\(row.id)/\(trend.metric)")
                     }
                     // THE DIGITS ROLL TO THEIR NEW VALUE rather than being replaced between two

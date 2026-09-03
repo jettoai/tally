@@ -80,6 +80,9 @@ private struct MotionDemoView: View {
     /// The window the lines are drawn from, at the length a real one runs to
     /// (`FootprintTrendSeries.capacity`).
     @State private var window: [Double] = MotionDemoView.opening
+    /// How many readings the strip has dropped off its oldest end, which is what a card's series
+    /// tells its shape (`FootprintTrendSeries.origin`) and this window has to tell its own.
+    @State private var origin = 0
     /// Bumped to build the lines again, so the once-only first drawing can be seen more than once.
     @State private var replay = 0
 
@@ -119,7 +122,7 @@ private struct MotionDemoView: View {
         .onReceive(Timer.publish(every: Self.cadence, on: .main, in: .common).autoconnect()) { _ in
             step += 1
             window.append(reading)
-            if window.count > FootprintTrendSeries.capacity { window.removeFirst() }
+            if window.count > FootprintTrendSeries.capacity { window.removeFirst(); origin += 1 }
         }
     }
 
@@ -268,10 +271,11 @@ private struct MotionDemoView: View {
     private func lineSample(style: CardMotion.LineStyle, firstDraw: Bool,
                             animated: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            FootprintSparklineView(values: window, lineStyle: style, firstDraw: firstDraw,
-                                   still: !animated)
-            FootprintSparklineView(values: window, lineStyle: style, firstDraw: firstDraw,
-                                   still: !animated, magnified: Self.magnification)
+            FootprintSparklineView(values: window, origin: origin, lineStyle: style,
+                                   firstDraw: firstDraw, still: !animated)
+            FootprintSparklineView(values: window, origin: origin, lineStyle: style,
+                                   firstDraw: firstDraw, still: !animated,
+                                   magnified: Self.magnification)
                 .scaleEffect(Self.magnification, anchor: .topLeading)
                 .frame(width: FootprintSparklineView.size.width * Self.magnification,
                        height: FootprintSparklineView.size.height * Self.magnification,

@@ -54,6 +54,10 @@ struct FootprintSparklineView: View {
     /// their marks everywhere this convention appears, for the same reason. (Albert, 2026-08-16,
     /// having seen both the mark in the text flow and the mark on the shape.)
     var level: FootprintAlertLevel = .calm
+    /// How far the window has slid since the series began (`FootprintTrendSeries.origin`), which
+    /// is what the layers read the peak's identity off between two readings. Zero where there is
+    /// no series behind the values, which is the samples window's own strip until it fills.
+    var origin: Int = 0
     /// How the outline changes when a reading arrives, defaulting to this launch's choice
     /// (`CardMotion.LineStyle`). Named per instance so the samples window can put both on screen at
     /// once and the board still runs whichever was chosen (`MotionDemoWindow`).
@@ -158,8 +162,9 @@ struct FootprintSparklineView: View {
     @State private var reveal: FootprintSparklineReveal = .pending
 
     var body: some View {
-        FootprintSparklineLayerView(values: values, level: level, lineStyle: lineStyle,
-                                    still: reduceMotion, reveal: reveal, magnified: magnified)
+        FootprintSparklineLayerView(values: values, origin: origin, level: level,
+                                    lineStyle: lineStyle, still: reduceMotion, reveal: reveal,
+                                    magnified: magnified)
             .frame(width: Self.size.width, height: Self.size.height)
             // The line says nothing a reader who cannot see it can use; the figures beside it do,
             // and the row states them in words (`SessionCardView.spokenTrends`).

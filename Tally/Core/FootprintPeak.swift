@@ -45,42 +45,41 @@ extension FootprintSparkline {
         case crossfade
     }
 
-    /// HOW MANY OF THE OLDEST READINGS LEFT THE WINDOW between one series and the next.
-    ///
-    /// READ FROM THE READINGS THEMSELVES, because the two series are the whole of what a figure is
-    /// handed: nothing tells the drawing side how many readings arrived. The ring appends until it
-    /// is full and only then drops from the front (`FootprintTrendSeries.record`), so the older
-    /// series' tail IS the newer one's head, and how far along the older series that overlap starts
-    /// is how many readings fell off. Nothing at all while the window is still filling, which is
-    /// what makes this free on a session's first quarter of an hour.
-    ///
-    /// THE SMALLEST SUCH OFFSET IS THE ANSWER: one dropped and one gained is the ordinary tick, and
-    /// a longer match would be reading a coincidence in the numbers as history. No overlap at all
-    /// is every reading the older series held, which is what a series that starts again after a
-    /// sleep looks like (`FootprintTrendSeries.isStale`).
-    static func dropped(from previous: [Double], to values: [Double]) -> Int {
-        (0 ..< previous.count).first {
-            previous.dropFirst($0).elementsEqual(values.prefix(previous.count - $0))
-        } ?? previous.count
+    /// THE SERIES AS A CARD DRAWS IT: the kept readings with this instant's own on the end, so
+    /// the line ends where the figure beside it says the session is, or nothing at all while there
+    /// are too few kept ones to be a line (`SessionCardView.sessionFootprintTrendGroups`). Spelled
+    /// here, next to the rule it matters most to, because the live reading is never kept: any
+    /// fixture that judges the peak's motion off the ring alone is judging a shape no card draws
+    /// (codex review of c2a932d).
+    static func drawn(_ readings: [Double], now: Double?) -> [Double] {
+        readings.count >= minimumReadings ? readings + [now].compactMap { $0 } : []
     }
 
-    /// WHICH MOTION THE DOT ARRIVES ON, asked of the two series and of how far they have slid past
-    /// each other.
+    /// WHICH MOTION THE DOT ARRIVES ON, asked of the two series and of how far the window slid
+    /// between them.
     ///
-    /// THE INDEX ALONE IS NOT AN IDENTITY, which is the whole of why `dropped` is here (codex
+    /// THE INDEX ALONE IS NOT AN IDENTITY, which is the whole of why `shifted` is here (codex
     /// review of 36b653b). Once the window is full every kept reading moves one place left on every
     /// tick, so the reading that is still the ceiling is at a DIFFERENT index and a comparison of
     /// bare indices would say `.crossfade` on every tick of a full window, which is every session
     /// past its first quarter of an hour. It fails the other way too: a new reading landing on the
     /// old peak's index is a different reading being slid to as though it were the same one.
     ///
-    /// - Parameter dropped: how many of the oldest readings fell out between the two, from
-    ///   `dropped(from:to:)`. Zero for a window still filling, and for the hand-written pairs that
-    ///   state what this rule means at one length.
+    /// TOLD, NOT READ OFF THE READINGS. A first version searched the two series for the overlap
+    /// the ring's rolling leaves, and never found it: the series a card draws ends in a live
+    /// reading the ring never keeps, so the two disagreed at every offset and every peak under a
+    /// moving line faded when it should have slid (codex review of c2a932d, `[1, 9, 3]` to
+    /// `[1, 9, 4]` read as three readings gone). The series knows how far it slid
+    /// (`FootprintTrendSeries.origin`), and that is what is asked.
+    ///
+    /// - Parameter shifted: how many readings left the window's oldest end between the two, the
+    ///   difference of the two series' `origin`. Zero for a window still filling, and for the
+    ///   hand-written pairs that state this rule at one length; negative is a different series
+    ///   altogether (a session's history begun again), which holds no reading in common.
     static func peakMotion(from previous: [Double], to values: [Double],
-                           dropped: Int = 0) -> PeakMotion {
-        guard let was = peakIndex(previous), let now = peakIndex(values),
-              was - dropped == now else { return .crossfade }
+                           shifted: Int = 0) -> PeakMotion {
+        guard shifted >= 0, let was = peakIndex(previous), let now = peakIndex(values),
+              was - shifted == now else { return .crossfade }
         return .move
     }
 }

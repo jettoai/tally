@@ -128,7 +128,8 @@ func runFootprintTrendSurfaceChecks() {
     // A metric sampled once has a number and no line: the group falls back to the figure alone
     // rather than waiting half a minute to say anything at all.
     check("a metric with too few readings draws its figure without a line",
-          card.contains("let drawn = readings.count >= FootprintSparkline.minimumReadings"))
+          card.contains("let drawn = FootprintSparkline.drawn(readings, now: now)")
+              && FootprintSparkline.drawn([1], now: 3).isEmpty)
     // BUILT FROM THE READINGS AND NEVER FROM THE HISTORY, which is what keeps an idle session's
     // figures on its card: a group whose existence depended on having a peak worth printing would
     // take the whole CPU group off every session sitting at nought per cent, which is most of the
@@ -395,7 +396,8 @@ func runFootprintTrendSurfaceChecks() {
               && layers.contains("place(current, diameter: FootprintSparklineView.currentDot,"
                                  + " at: now.current)"))
     check("…and the newest one is this instant's reading, drawn and never stored",
-          card.contains("? readings + [now].compactMap { $0 } : []"))
+          card.contains("let drawn = FootprintSparkline.drawn(readings, now: now)")
+              && FootprintSparkline.drawn([1, 9], now: 3) == [1, 9, 3])
 
     // THE FIGURE TRAVELS TO ITS NEW READING RATHER THAN BEING REPAINTED (Albert, 2026-09-03). A
     // board redraws every couple of seconds, and every number and every line on it used to arrive
@@ -446,15 +448,18 @@ func runFootprintTrendSurfaceChecks() {
     // alignment repeats a reading and puts the two oldest ends out of step - and told how far the
     // window slid (codex review of 36b653b, where bare indices misjudged 84 of 120 rollovers).
     check("…and whether it is the same reading is asked of the shift, not of the index",
-          layers.contains("let dropped = FootprintSparkline.dropped(from: previous, to: values)")
+          layers.contains("let shifted = origin - shownOrigin")
+              && layers.contains("shown = values\n        shownOrigin = origin")
               && layers.contains("FootprintSparkline.peakMotion(from: previous, to: values,"
-                                 + " dropped: dropped)"))
+                                 + " shifted: shifted)")
+              && card.contains("origin: series?.origin ?? 0")
+              && card.contains("origin: trend.origin,"))
     // AND THE OUTLINE ONLY TRAVELS WHERE THE STYLE SAYS IT DOES. The styles that arrive whole put
     // their outline up in one step and announce the reading with a phase instead, which is the same
     // fork the shapes drew and is still the style's own answer (`MotionChoice.Lines`).
     check("…and only the styles that travel interpolate the readings",
           layers.contains("case .morph, .bounce:\n            travel(from: previous, to: values,"
-                          + " curve: curve)")
+                          + " shifted: shifted, curve: curve)")
               && layers.contains("case .plain:\n            redraw()")
               && layers.contains("plot.add(spring(curve, keyPath: \"transform.translation.x\","
                                  + " from: step, to: 0),"))

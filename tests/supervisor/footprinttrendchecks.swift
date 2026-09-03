@@ -355,43 +355,106 @@ func runFootprintTrendChecks() {
     // (`record`), so every reading kept moves one place left. Read as bare indices, the ceiling
     // therefore "changed" on every tick of every session past its first quarter of an hour, and did
     // NOT change whenever a new reading happened to land on the old peak's index - 84 of the 120
-    // four-reading rollovers judged wrongly (codex review of 36b653b). How far the window has slid
-    // is read from the readings themselves, the two series being the whole of what the figure is
-    // handed.
-    check("a window still filling has dropped nothing",
-          FootprintSparkline.dropped(from: [1, 9], to: [1, 9, 3]) == 0)
-    check("…a full one has dropped the reading that fell off its oldest end",
-          FootprintSparkline.dropped(from: [0, 1, 2, 4], to: [1, 2, 4, 3]) == 1)
-    check("…and a series that starts again has dropped every reading it held",
-          FootprintSparkline.dropped(from: [5, 6], to: [1, 2]) == 2)
+    // four-reading rollovers judged wrongly (codex review of 36b653b).
+    //
+    // HOW FAR THE WINDOW SLID IS TOLD BY THE SERIES, not read off the readings. The first fix
+    // searched the two series for the overlap a roll leaves and never found it: what a card draws
+    // is the kept readings WITH A LIVE TAIL the ring never keeps (`drawn`), so two drawn series
+    // disagree at every offset, and every peak under a moving line faded when it should have slid
+    // (codex review of c2a932d, `[1, 9, 3]` to `[1, 9, 4]` read as three readings gone). So every
+    // pair below is built the way a card builds it: through the ring, then `drawn` with a live
+    // reading on the end that the ring is never told about.
+    check("a series counts the readings that left its oldest end, a filling one having lost none",
+          FootprintTrendSeries().origin == 0 && peaked.origin == 0)
     check("the peak dot slides when the window shifts under the same reading",
-          FootprintSparkline.peakMotion(from: [0, 1, 2, 4], to: [1, 2, 4, 3], dropped: 1) == .move)
+          FootprintSparkline.peakMotion(from: [0, 1, 2, 4], to: [1, 2, 4, 3], shifted: 1) == .move)
     check("…and fades across when a NEW reading lands on the old peak's index",
-          FootprintSparkline.peakMotion(from: [0, 1, 9, 2], to: [1, 9, 2, 9.5], dropped: 1)
+          FootprintSparkline.peakMotion(from: [0, 1, 9, 2], to: [1, 9, 2, 9.5], shifted: 1)
               == .crossfade)
-    check("…and slides while the window is still filling, which shifts nothing",
-          FootprintSparkline.peakMotion(from: [1, 9], to: [1, 9, 3],
-                                        dropped: FootprintSparkline.dropped(from: [1, 9],
-                                                                            to: [1, 9, 3]))
-              == .move)
-    // THE RING ITSELF ROLLING OVER, rather than a pair of series written out by hand: what a full
-    // window holds, one more reading taken, and a peak that is still the highest reading in it.
+    check("…and when the series is a different one altogether, whatever its indices say",
+          FootprintSparkline.peakMotion(from: [1, 9, 3], to: [2, 9, 4], shifted: -3) == .crossfade)
+    // A WINDOW STILL FILLING: two kept readings and a live one make the first line; the next tick
+    // keeps a point the live reading only approximated (a fold of the samples since) and draws a
+    // new live one. The peak is the same kept reading, one index in from the start, both times.
+    var filling = FootprintTrendSeries()
+    filling.record(reading(1), at: t0)
+    filling.record(reading(9), at: t0.addingTimeInterval(FootprintTrendSeries.cadence))
+    let fillingBefore = FootprintSparkline.drawn(filling.values(of: .cpu), now: 3)
+    let fillingOrigin = filling.origin
+    filling.record(reading(2), at: t0.addingTimeInterval(2 * FootprintTrendSeries.cadence))
+    let fillingAfter = FootprintSparkline.drawn(filling.values(of: .cpu), now: 4)
+    check("the shape a card draws is the kept readings with the live one on the end",
+          fillingBefore == [1, 9, 3] && fillingAfter == [1, 9, 2, 4]
+              && FootprintSparkline.drawn([1], now: 3).isEmpty
+              && FootprintSparkline.drawn([1, 9], now: nil) == [1, 9])
+    check("…and while the window fills the peak slides, the window having shifted nothing",
+          filling.origin - fillingOrigin == 0
+              && FootprintSparkline.peakMotion(from: fillingBefore, to: fillingAfter,
+                                               shifted: filling.origin - fillingOrigin) == .move)
+    // THE RING ROLLING OVER: a full window, its ceiling forty readings in, one more reading kept
+    // that is NOT the live one drawn last tick (the board open folds five samples into it), and a
+    // new live reading on the end. The ceiling is the same kept reading, one index nearer the
+    // start; read off the readings, the two drawn series overlap nowhere.
     var atCapacity = FootprintTrendSeries()
     for index in 0 ..< FootprintTrendSeries.capacity {
         atCapacity.record(reading(index == 40 ? 500 : Double(index % 7)),
                           at: t0.addingTimeInterval(Double(index) * FootprintTrendSeries.cadence))
     }
-    let filled = atCapacity.values(of: .cpu)
-    atCapacity.record(reading(3), at: t0.addingTimeInterval(
+    let filledDrawn = FootprintSparkline.drawn(atCapacity.values(of: .cpu), now: 3)
+    let filledOrigin = atCapacity.origin
+    atCapacity.record(reading(5), at: t0.addingTimeInterval(
         Double(FootprintTrendSeries.capacity) * FootprintTrendSeries.cadence))
-    let rolled = atCapacity.values(of: .cpu)
-    check("a tick of a full window drops exactly one reading",
-          filled.count == rolled.count && FootprintSparkline.dropped(from: filled, to: rolled) == 1)
-    check("…so the peak that is still the ceiling is read as the reading it already was",
-          FootprintSparkline.peakIndex(filled) == 40 && FootprintSparkline.peakIndex(rolled) == 39
-              && FootprintSparkline.peakMotion(
-                  from: filled, to: rolled,
-                  dropped: FootprintSparkline.dropped(from: filled, to: rolled)) == .move)
+    let rolledDrawn = FootprintSparkline.drawn(atCapacity.values(of: .cpu), now: 2)
+    check("a tick of a full window shifts it by exactly one reading",
+          filledOrigin == 0 && atCapacity.origin == 1
+              && filledDrawn.count == rolledDrawn.count
+              && filledDrawn.count == FootprintTrendSeries.capacity + 1)
+    check("…so the peak that is still the ceiling slides, read as the reading it already was",
+          FootprintSparkline.peakIndex(filledDrawn) == 40
+              && FootprintSparkline.peakIndex(rolledDrawn) == 39
+              && FootprintSparkline.peakMotion(from: filledDrawn, to: rolledDrawn,
+                                               shifted: atCapacity.origin - filledOrigin) == .move)
+    // A NEW CEILING KEPT AT THE OLD ONE'S INDEX: the old ceiling was the newest kept reading, the
+    // roll moves it one in, and the reading kept after it is higher still, so the newest index
+    // holds a different reading than it did. Bare indices would slide the dot to it.
+    var overtaken = FootprintTrendSeries()
+    for index in 0 ..< FootprintTrendSeries.capacity {
+        let last = index == FootprintTrendSeries.capacity - 1
+        overtaken.record(reading(last ? 500 : Double(index % 7)),
+                         at: t0.addingTimeInterval(Double(index) * FootprintTrendSeries.cadence))
+    }
+    let overtakenBefore = FootprintSparkline.drawn(overtaken.values(of: .cpu), now: 1)
+    let overtakenOrigin = overtaken.origin
+    overtaken.record(reading(600), at: t0.addingTimeInterval(
+        Double(FootprintTrendSeries.capacity) * FootprintTrendSeries.cadence))
+    let overtakenAfter = FootprintSparkline.drawn(overtaken.values(of: .cpu), now: 1)
+    check("…and fades across when the roll puts a new ceiling at the old ceiling's index",
+          FootprintSparkline.peakIndex(overtakenBefore)
+              == FootprintSparkline.peakIndex(overtakenAfter)
+              && FootprintSparkline.peakMotion(from: overtakenBefore, to: overtakenAfter,
+                                               shifted: overtaken.origin - overtakenOrigin)
+              == .crossfade)
+    // A SERIES THAT STARTS AGAIN after a silence: nothing it now holds is a reading it held, so
+    // its origin carries on past everything the old one had, and a peak at the same index as the
+    // old one is a different reading whatever the indices say.
+    var restarted = FootprintTrendSeries()
+    restarted.record(reading(1), at: t0)
+    restarted.record(reading(9), at: t0.addingTimeInterval(FootprintTrendSeries.cadence))
+    let restartedBefore = FootprintSparkline.drawn(restarted.values(of: .cpu), now: 3)
+    let restartedOrigin = restarted.origin
+    let later = t0.addingTimeInterval(
+        FootprintTrendSeries.cadence + FootprintTrendSeries.staleAfter + 1)
+    restarted.record(reading(2), at: later)
+    restarted.record(reading(8), at: later.addingTimeInterval(FootprintTrendSeries.cadence))
+    let restartedAfter = FootprintSparkline.drawn(restarted.values(of: .cpu), now: 1)
+    check("a series that starts again counts everything the old one held as having left",
+          restarted.origin == 2 && restarted.values(of: .cpu) == [2, 8])
+    check("…so its peak fades in rather than sliding from a reading it never had",
+          FootprintSparkline.peakIndex(restartedBefore)
+              == FootprintSparkline.peakIndex(restartedAfter)
+              && FootprintSparkline.peakMotion(from: restartedBefore, to: restartedAfter,
+                                               shifted: restarted.origin - restartedOrigin)
+              == .crossfade)
 
     runFootprintTrendSurfaceChecks()
 }

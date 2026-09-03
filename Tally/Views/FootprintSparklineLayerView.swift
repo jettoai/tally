@@ -27,6 +27,8 @@ import SwiftUI
 /// never leave the line it sits on.
 struct FootprintSparklineLayerView: NSViewRepresentable {
     let values: [Double]
+    /// How far the window has slid since the series began (`FootprintTrendSeries.origin`).
+    let origin: Int
     let level: FootprintAlertLevel
     let lineStyle: CardMotion.LineStyle
     /// Every motion off, for the reader who asked the system for that or the cell that exists to
@@ -59,7 +61,8 @@ struct FootprintSparklineLayerView: NSViewRepresentable {
 
     private func update(_ view: FootprintSparklineLayerHost) {
         view.magnified = magnified
-        view.apply(values: values, level: level, lineStyle: lineStyle, still: still, reveal: reveal)
+        view.apply(values: values, origin: origin, level: level, lineStyle: lineStyle, still: still,
+                   reveal: reveal)
     }
 }
 
@@ -101,6 +104,10 @@ final class FootprintSparklineLayerHost: NSView {
     /// arrives still can cut them off rather than leave a half-faded dot on the figure, which is
     /// the same reason the rolled digits hold theirs (`RollingFigureLayerHost.ghosts`).
     private var ghosts: [CAShapeLayer] = []
+    /// The `origin` of the series `shown` is, kept with it: what the next reading's origin is
+    /// measured against to say how far the window slid, which is a fact about the SERIES DRAWN and
+    /// not about the last one offered, so a reading refused for changing nothing leaves it alone.
+    private var shownOrigin = 0
 
     var magnified: CGFloat = 1 { didSet { if magnified != oldValue { rescale() } } }
 
@@ -170,14 +177,16 @@ final class FootprintSparklineLayerHost: NSView {
     /// EVERYTHING THIS VIEW DOES, ONCE PER READING. Whatever changed decides which animation is
     /// committed; nothing at all is committed when nothing changed, which matters because SwiftUI
     /// re-runs an update for reasons that are not a new reading.
-    func apply(values: [Double], level: FootprintAlertLevel, lineStyle: CardMotion.LineStyle,
-               still: Bool, reveal: FootprintSparklineReveal) {
+    func apply(values: [Double], origin: Int, level: FootprintAlertLevel,
+               lineStyle: CardMotion.LineStyle, still: Bool, reveal: FootprintSparklineReveal) {
         let previous = shown
+        let shifted = origin - shownOrigin
         let arriving = previous != nil && previous != values
         let restyled = self.level != level || self.lineStyle != lineStyle || self.still != still
         let revealing = self.reveal != reveal
         guard previous == nil || arriving || restyled || revealing else { return }
         shown = values
+        shownOrigin = origin
         self.level = level
         self.lineStyle = lineStyle
         self.still = still
@@ -204,7 +213,7 @@ final class FootprintSparklineLayerHost: NSView {
         ghosts.removeAll { $0.superlayer == nil }
         if restyled || previous == nil { recolour() }
         if arriving, !still, lineStyle.moves {
-            announce(from: previous ?? [], to: values)
+            announce(from: previous ?? [], to: values, shifted: shifted)
         } else {
             redraw()
         }
@@ -219,15 +228,15 @@ final class FootprintSparklineLayerHost: NSView {
     /// travels to its new value, or the outline is replaced whole and one phase announces the
     /// change. The phases are committed as animations off the value the layer now holds, so a
     /// figure interrupted mid-flight by the next reading lands on the newer one.
-    private func announce(from previous: [Double], to values: [Double]) {
+    private func announce(from previous: [Double], to values: [Double], shifted: Int) {
         let curve = lineStyle == .bounce ? MotionChoice.Curve.bouncy : CardMotion.chosen.curve
         switch lineStyle {
         case .plain:
             redraw()
         case .morph, .bounce:
-            travel(from: previous, to: values, curve: curve)
+            travel(from: previous, to: values, shifted: shifted, curve: curve)
         case .comet:
-            travel(from: previous, to: values, curve: curve)
+            travel(from: previous, to: values, shifted: shifted, curve: curve)
             // The newest segment, overdrawn in the reading's own bright colour and fading back into
             // the line over rather longer than the outline itself takes: the fade is what is being
             // read, and at a quarter of a second it is a flicker.
@@ -253,7 +262,7 @@ final class FootprintSparklineLayerHost: NSView {
             // before it to where the reading now is. The dot rides that segment: it is the same
             // point, and a dot that jumped ahead of it would be the defect the shapes were built to
             // rule out.
-            travel(from: values, to: values, curve: curve, grow: 0)
+            travel(from: values, to: values, shifted: 0, curve: curve, grow: 0)
         }
     }
 
@@ -262,7 +271,10 @@ final class FootprintSparklineLayerHost: NSView {
     /// TWO LENGTHS ARE READ AS ONE, by the same rule the interpolation used (`FootprintSparkline`
     /// `.aligned`): a window still filling gains a point at its newest end, and Core Animation
     /// needs the two paths to have the same number of points to travel between them at all.
-    private func travel(from previous: [Double], to values: [Double],
+    ///
+    /// - Parameter shifted: how far the window slid between the two, told by the series
+    ///   (`apply`); the shape cannot read it off its own readings.
+    private func travel(from previous: [Double], to values: [Double], shifted: Int,
                         curve: MotionChoice.Curve, grow: Double = 1) {
         let (before, after) = FootprintSparkline.aligned(previous, values)
         guard after.count == values.count else { redraw(); return }
@@ -282,11 +294,12 @@ final class FootprintSparklineLayerHost: NSView {
         if lineStyle == .comet {
             tail.add(spring(curve, keyPath: "path", from: start.tail, to: end.tail), forKey: "tail")
         }
-        // ASKED OF THE RAW SERIES rather than of the aligned pair, and told how far the window has
-        // slid: padding repeats a reading and would put the two series' oldest ends out of step
-        // with each other, which is the one thing this identity turns on.
-        let dropped = FootprintSparkline.dropped(from: previous, to: values)
-        switch FootprintSparkline.peakMotion(from: previous, to: values, dropped: dropped) {
+        // ASKED OF THE RAW SERIES rather than of the aligned pair (padding repeats a reading, and
+        // a repeated reading is not a slid one), and TOLD how far the window slid rather than
+        // reading it off the values: the drawn series ends in a live reading the ring never keeps,
+        // so two of them never overlap, and the first version that looked for that overlap faded
+        // every peak under a moving line (codex review of c2a932d).
+        switch FootprintSparkline.peakMotion(from: previous, to: values, shifted: shifted) {
         case .move:
             if let from = start.peak, let to = end.peak { slide(peak, curve, from, to) }
         case .crossfade:

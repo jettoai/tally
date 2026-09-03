@@ -288,6 +288,17 @@ struct FootprintTrendSeries: Equatable {
     /// the background rate this holds the one reading that becomes the point; with the board open
     /// it holds the five that make it up.
     private(set) var pending: [FootprintTrendSample] = []
+    /// HOW MANY READINGS HAVE LEFT THE OLDEST END since this series began: the kept reading at
+    /// index `i` is the `origin + i`th one kept, which is the one fact about two readings of a
+    /// series that the numbers in them cannot supply (`FootprintSparkline.peakMotion`). Read off
+    /// the readings instead, the answer was whatever they happened to repeat: the series a card
+    /// draws ends in a live reading that is never kept, so two of them never overlapped at all, and
+    /// a count sitting at 4 for an hour overlaps at every offset (codex review of c2a932d).
+    ///
+    /// A series that starts again after a silence carries on counting from where the old one
+    /// stopped, so that everything the old one held reads as having left: nothing in the new
+    /// series is a reading the old one had.
+    private(set) var origin = 0
 
     /// Whether a reading taken at `at` closes the point being assembled, rather than joining it.
     func accepts(_ at: Date) -> Bool {
@@ -311,7 +322,11 @@ struct FootprintTrendSeries: Equatable {
     mutating func record(_ sample: FootprintTrendSample, at: Date) {
         // A line that starts again says "the last quarter hour" honestly from its first point; one
         // that carried on would say it about readings taken before the machine slept.
-        if isStale(at: at) { self = FootprintTrendSeries() }
+        if isStale(at: at) {
+            let held = origin + samples.count
+            self = FootprintTrendSeries()
+            origin = held
+        }
         // Every offer, kept or folded, is evidence that something was sampling at this instant,
         // which is the whole of what the silence above is measured over.
         lastOfferedAt = at
@@ -319,7 +334,11 @@ struct FootprintTrendSeries: Equatable {
         guard accepts(at) else { return }
         if let point = FootprintTrendSample.folded(pending) { samples.append(point) }
         pending = []
-        if samples.count > Self.capacity { samples.removeFirst(samples.count - Self.capacity) }
+        if samples.count > Self.capacity {
+            let excess = samples.count - Self.capacity
+            samples.removeFirst(excess)
+            origin += excess
+        }
         lastAcceptedAt = at
     }
 

@@ -225,23 +225,22 @@ func removeSeededFolderTrust(from target: URL) -> Int {
 ///
 /// So "genuinely missing" is asked with `lstat` and means ENOENT ALONE: the kernel looked at that
 /// path and there was nothing there. Only that starts from an empty root. Anything `lstat` CAN see
-/// (a regular file, a directory, a symlink of any kind) has to be read and parsed, and a read or a
-/// parse that fails declines. Any other errno declines as well: EACCES on a parent directory,
+/// has to be read and parsed, and a read or a parse that fails declines; a symlink is declined on
+/// sight, for the reason below. Any other errno declines as well: EACCES on a parent directory,
 /// ENOTDIR, ELOOP are all "I could not find out", which is not an absence.
 ///
 /// `FileManager.fileExists(atPath:)` cannot draw that line, which is why it is not the question
 /// asked here. It follows symlinks and answers false for BOTH "nothing is there" and "I could not
 /// find out", so a `.claude.json` that is a symlink to a target that has gone, or to one this
 /// process cannot reach, read as absent - and the atomic write below then replaced the LINK with a
-/// real file holding one key of ours. `lstat` sees the link itself, the read through it fails, and
-/// this declines.
+/// real file holding one key of ours. `lstat` sees the link itself, and this declines.
 ///
-/// STATED LIMITATION, measured on macOS 2026-09-03: a `.claude.json` that IS a symlink to a
-/// readable file is seeded, and the atomic write replaces the link with a regular file carrying the
-/// merged content. The original target keeps its old content and the path stops leading to it. That
-/// is left as it is rather than followed, because a symlinked state file is not a supported layout:
-/// the file is an identity document that every running session rewrites, which is exactly why the
-/// shared harness (SharedHarness.swift) refuses to link it in the first place.
+/// A SYMLINK IS DECLINED WHATEVER IT LEADS TO, including a target that reads perfectly well.
+/// Reading through the link works, but the write does not go back through it: an atomic write
+/// renames a temp file over THIS path, so the link is replaced by a regular file, and from that
+/// moment the path and the old target are two separate documents that two sessions can hold and
+/// rewrite as one. Tally never creates such a layout, which is no licence to overwrite one a user
+/// made; declining costs that home the trust dialog once, and the alternative costs a state file.
 ///
 /// The same rule covers a file that will not parse, which is left alone rather than replaced by a
 /// valid one of ours.
@@ -255,8 +254,9 @@ func seedFolderTrust(forDirectory directory: String, inConfigDir home: URL) -> B
     let key = URL(fileURLWithPath: directory).resolvingSymlinksInPath().path
     let file = claudeStateFile(forConfigDir: home)
     var root: [String: Any] = [:]
-    // `lstat`, so a symlink answers for itself rather than for what it leads to. Nothing here reads
-    // the buffer it fills: the only question is whether the kernel found anything at that path.
+    // `lstat`, so a symlink answers for itself rather than for what it leads to. Two questions are
+    // asked of it: whether the kernel found anything at that path, and then whether that thing is a
+    // link.
     var info = stat()
     let present = lstat(file.path, &info) == 0
     // Absent means ENOENT and nothing else. Every other errno is "I could not find out", and an
@@ -265,7 +265,10 @@ func seedFolderTrust(forDirectory directory: String, inConfigDir home: URL) -> B
     guard present || errno == ENOENT else { return false }
     if present {
         // Something is there, so from here on the only safe outcomes are "read it" and "leave it
-        // alone". A dangling symlink lands here too, and declines because the read through it fails.
+        // alone". A symlink is neither: the read would follow it, the atomic write would not, and
+        // what the write left behind would be a regular file standing where the link stood. So a
+        // link of any kind declines here, before anything is read.
+        guard (info.st_mode & S_IFMT) != S_IFLNK else { return false }
         guard let raw = try? Data(contentsOf: file),
               let parsed = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
         else { return false }

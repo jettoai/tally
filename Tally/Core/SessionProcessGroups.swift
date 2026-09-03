@@ -371,13 +371,35 @@ enum SessionProcessGroups {
     /// ONLY EVER CALLED ON A NON-EMPTY WALK, which is the unit `groupGrace` is stated in: a tick
     /// that walked nothing saw nothing, and counting it would retire a live job over a question
     /// nobody asked (the same rule `swept` applies to an empty `sessions`).
+    ///
+    /// AND A WALK'S SILENCE IS NOT AN ABSENCE, which is the whole reason this takes a second
+    /// witness. Missing from the walk means "not seen": `proc_pidinfo` answers for neither a
+    /// process the caller may not read nor one that exits mid-walk (`ProcessTreeReaders`), so a job
+    /// a session started under `sudo` is missing from EVERY walk this app makes while it goes on
+    /// burning cores, and three misses running would retire its claim for good. Only `stillAlive`
+    /// means "really gone", and it is asked of the kernel rather than of a table
+    /// (`SessionProcessGroups.stillAlive`, where `ESRCH` is no such group and `EPERM` is the case
+    /// the walk cannot see: there are members and they are not ours).
+    ///
+    /// - Parameter stillAlive: whether a group has any member left on this machine. Injected
+    ///   rather than called here so this stays a rule that can be asserted against a literal, and
+    ///   so a test can say a group is alive without a process being alive.
     static func absences(in ledger: Index, seeing liveGroups: Set<pid_t>,
-                         after previous: [pid_t: Int]) -> Absences {
+                         after previous: [pid_t: Int],
+                         stillAlive: (pid_t) -> Bool) -> Absences {
         var ticks: [pid_t: Int] = [:]
+        // A group is asked about ONCE however many claims stand on it: the answer is a syscall, and
+        // a ledger at its cap holds thousands of claims over hundreds of groups (`limit`).
+        var asked: Set<pid_t> = []
         var expired = false
         for record in ledger.entries where !liveGroups.contains(record.group) {
-            let count = (previous[record.group] ?? 0) + 1
-            ticks[record.group] = count
+            let group = record.group
+            guard asked.insert(group).inserted else { continue }
+            // NOT COUNTED AND NOT CARRIED EITHER: the probe outranks the walk, so a group the
+            // kernel says is there resets to nothing rather than holding the misses it had.
+            guard !stillAlive(group) else { continue }
+            let count = (previous[group] ?? 0) + 1
+            ticks[group] = count
             expired = expired || count >= groupGrace
         }
         return Absences(ticks: ticks, expired: expired)
@@ -420,81 +442,7 @@ enum SessionProcessGroups {
         }.suffix(limit))
     }
 
-    // MARK: The file
-
-    /// The claims on file, oldest first; empty when the file is absent or unreadable. Fail-open in
-    /// the direction attribution already fails: not knowing costs a card its background job, and a
-    /// decode that threw would cost the whole board its readings.
-    static func load(from url: URL = fileURL()) -> [SessionProcessGroup] {
-        guard let data = try? Data(contentsOf: url),
-              let document = try? JSONDecoder().decode(Document.self, from: data)
-        else { return [] }
-        return document.entries
-    }
-
-    /// The instant a claim was written, spelled the way this folder's ledgers spell instants
-    /// (`WorktreeOrigins.timestamp`): fractional seconds, because two claims of one tick are
-    /// microseconds apart and whole seconds would call that a tie.
-    static func timestamp(_ instant: Date = Date()) -> String {
-        fractionalClock.string(from: instant)
-    }
-
-    nonisolated(unsafe) private static let fractionalClock: ISO8601DateFormatter = {
-        let clock = ISO8601DateFormatter()
-        clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return clock
-    }()
-
-    /// Add claims and drop the ones whose sessions have gone, under the write lock.
-    ///
-    /// NOTHING TO SAY WRITES NOTHING, which is what makes this affordable on a two-second tick: the
-    /// common case is a session running the jobs it was already running, so `claims` is empty and
-    /// the sweep changes nothing, and the file is neither locked nor rewritten.
-    ///
-    /// Serialised across processes and written atomically, exactly as the worktree ledger beside it
-    /// is: this app is the only writer today, and a second instance of it (a dev build beside the
-    /// installed one) is an ordinary state on this machine rather than a hypothetical.
-    static func record(_ claims: [SessionProcessGroup], sessions: [String: Int64],
-                       liveGroups: Set<pid_t> = [], absentFor: (pid_t) -> Int = { _ in 0 },
-                       in url: URL = fileURL()) -> [SessionProcessGroup] {
-        var result: [SessionProcessGroup] = []
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        withWriteLock(for: url) {
-            let held = load(from: url)
-            let next = swept(held + claims, sessions: sessions, liveGroups: liveGroups,
-                             absentFor: absentFor)
-            result = next
-            guard next != held else { return }
-            write(next, to: url)
-        }
-        return result
-    }
-
-    private static func write(_ entries: [SessionProcessGroup], to url: URL) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(Document(version: 1, entries: entries)) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    /// Run `body` holding an exclusive `flock` on `<file>.lock`. Fail-open in both directions, on
-    /// the terms `WorktreeOrigins.withWriteLock` states: bookkeeping must never be the thing that
-    /// stops a reading being taken.
-    private static func withWriteLock(for url: URL, _ body: () -> Void) {
-        let descriptor = open(url.appendingPathExtension("lock").path,
-                              O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
-        guard descriptor >= 0 else { return body() }
-        defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { return body() }
-        defer { flock(descriptor, LOCK_UN) }
-        body()
-    }
-
-    /// The file itself. `version` is written and never gated on: the contract is additive, so a
-    /// reader from an older build must keep understanding what a newer one wrote.
-    private struct Document: Codable {
-        var version: Int
-        var entries: [SessionProcessGroup]
-    }
+    // The file this ledger is kept in, and the one question about a group that the process
+    // table cannot answer, are both in `SessionProcessGroupsFile.swift`: everything above is a
+    // pure rule, and everything there reaches for the machine.
 }

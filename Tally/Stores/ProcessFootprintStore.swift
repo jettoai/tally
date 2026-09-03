@@ -242,7 +242,8 @@ final class ProcessFootprintStore {
         // silence for an answer (`SessionProcessGroups.absences`).
         let absences = processes.isEmpty
             ? SessionProcessGroups.Absences(ticks: groupAbsentTicks, expired: false)
-            : SessionProcessGroups.absences(in: ledger, seeing: liveGroups, after: groupAbsentTicks)
+            : SessionProcessGroups.absences(in: ledger, seeing: liveGroups, after: groupAbsentTicks,
+                                            stillAlive: SessionProcessGroups.stillAlive)
         groupAbsentTicks = absences.ticks
         // The claims this tick has to add to the ledger, gathered across every card and written
         // once: each write is a lock and a whole-file rewrite, and a board of ten sessions starting

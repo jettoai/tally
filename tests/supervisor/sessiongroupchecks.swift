@@ -343,7 +343,8 @@ func runSessionGroupChecks() {
     var retiredOn: Int?
     for walk in 1...(SessionProcessGroups.groupGrace + 1) {
         let round = SessionProcessGroups.absences(in: SessionProcessGroups.Index(ledger),
-                                                  seeing: liveOnly, after: counts)
+                                                  seeing: liveOnly, after: counts,
+                                                  stillAlive: { _ in false })
         counts = round.ticks
         if round.expired, retiredOn == nil { retiredOn = walk }
     }
@@ -352,7 +353,64 @@ func runSessionGroupChecks() {
               && counts == [300: SessionProcessGroups.groupGrace + 1])
     check("…while a group the walk saw again is not counted at all, which is how a count resets",
           SessionProcessGroups.absences(in: SessionProcessGroups.Index(ledger),
-                                        seeing: [100, 300], after: counts).ticks.isEmpty)
+                                        seeing: [100, 300], after: counts,
+                                        stillAlive: { _ in false }).ticks.isEmpty)
+
+    // MARK: and the walk's silence, which is not the same thing as an absence
+
+    // THE DEFECT THIS CLOSES, stated as the job it lost: a session runs something under `sudo`, its
+    // children belong to root, and `proc_pidinfo` will not answer for them - so the group is
+    // missing from EVERY walk this app makes while sixteen cores are busy with it. On the walk
+    // alone that is three misses and a retired claim, and the attribution of exactly the long job
+    // the ledger exists for is gone for good. `killpg(group, 0)` answers what the walk cannot:
+    // EPERM is "there are members and they are not yours".
+    var deniedCounts: [pid_t: Int] = [:]
+    var deniedExpired = false
+    for _ in 1...SessionProcessGroups.groupGrace {
+        let round = SessionProcessGroups.absences(in: SessionProcessGroups.Index(ledger),
+                                                  seeing: liveOnly, after: deniedCounts,
+                                                  stillAlive: { _ in true })
+        deniedCounts = round.ticks
+        deniedExpired = deniedExpired || round.expired
+    }
+    check("a group no walk can see but the kernel says is there is never counted absent",
+          deniedCounts.isEmpty)
+    check("…so the grace never runs out on it, and the sweep leaves its claim alone",
+          !deniedExpired
+              && SessionProcessGroups.swept(ledger, sessions: sessions, liveGroups: liveOnly,
+                                            absentFor: { deniedCounts[$0] ?? 0 })
+                  .map(\.group) == [100, 300])
+    // AND THE PROBE ZEROES THE COUNT RATHER THAN PAUSING IT, which is the half that a mere "not
+    // counted this round" would leave wrong: the kernel outranks the walk, so an answer of "still
+    // there" makes the misses before it worthless rather than banked. Two misses, then two rounds
+    // in which the kernel says the group is there, then it really goes. Counting from one again
+    // puts the retirement three rounds after that, on the seventh; banking the first two would
+    // have retired it on the fifth, and ignoring the probe entirely on the third.
+    var mixedCounts: [pid_t: Int] = [:]
+    var mixedRetiredOn: Int?
+    for walk in 1...(SessionProcessGroups.groupGrace + 4) {
+        let round = SessionProcessGroups.absences(in: SessionProcessGroups.Index(ledger),
+                                                  seeing: liveOnly, after: mixedCounts,
+                                                  stillAlive: { _ in walk == 3 || walk == 4 })
+        mixedCounts = round.ticks
+        if round.expired, mixedRetiredOn == nil { mixedRetiredOn = walk }
+    }
+    check("a group the kernel confirmed is counted from one again, not from where the walk was",
+          mixedRetiredOn == SessionProcessGroups.groupGrace + 4
+              && mixedCounts == [300: SessionProcessGroups.groupGrace])
+
+    // AND THE PROBE ITSELF ERRS TOWARDS KEEPING THE CLAIM. `killpg(group, 0)` is asked of the
+    // kernel, so no assertion can make it fail in a chosen way; the verdict it takes on the failure
+    // is the half that can be. The two mistakes do not cost the same - a wrong "gone" loses an
+    // attribution for good and a wrong "alive" costs one more tick of grace - so only the one errno
+    // that MEANS "no such group" is read as gone (`SessionProcessGroups.stillAlive`).
+    check("no such group is the only answer that retires a claim",
+          !SessionProcessGroups.stillAliveAfter(ESRCH))
+    check("…while members that are somebody else's are members all the same",
+          SessionProcessGroups.stillAliveAfter(EPERM))
+    check("…and an answer the probe cannot read is not evidence that the group has gone",
+          SessionProcessGroups.stillAliveAfter(EINVAL)
+              && SessionProcessGroups.stillAliveAfter(EFAULT))
 
     // MARK: the file
 

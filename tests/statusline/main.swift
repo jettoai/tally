@@ -77,10 +77,54 @@ check("both fields come from one reading of the context",
 // so the token is built by mapping over the depth rather than by interpolating an optional.
 check("an unknown depth leaves the model token untouched",
       lineSource.contains("""
-    let modelToken = sessionModel.map { model in
-        depth.map { "\\(model) \\(dim)\\($0)\\(reset)" } ?? model
+    let modelToken = sessionModel.map { model -> String in
+        let base = depth.map { "\\(model) \\(dim)\\($0)\\(reset)" } ?? model
+        return flagshipPiece.map { "\\(base) \\($0)" } ?? base
     }
 """))
+
+// MARK: - The flagship window rides beside the model, not as a third quota slot
+
+// SESSION MODEL, NOT ACCOUNT WINDOW: the flagship piece only fills in when the window an account
+// publishes actually names the model this session is running. Asserted as the exact match rule
+// (a prefix test on both sides lower-cased) so a looser or reversed comparison fails this rather
+// than passing on a coincidence.
+check("the flagship window is matched by name against the session's own model",
+      lineSource.contains("model.hasPrefix(windowName)"))
+check("…both sides lower-cased, so \"Fable\" matches \"Fable 5.1\" case-insensitively",
+      lineSource.contains("account.modelWindowName?.lowercased()")
+          && lineSource.contains("sessionModel?.lowercased()"))
+// AND NOT EMPTY: `hasPrefix("")` is true of every string, so an empty window name must be turned
+// away before it ever reaches the prefix test - otherwise it would match every session's model.
+check("an empty flagship window name is turned away before the prefix test",
+      lineSource.contains("!windowName.isEmpty"))
+// ONE ASSIGNMENT, ONLY INSIDE THE MATCH: `flagshipPiece` starts nil (declared as `var ... : String?`
+// with no initial value) and the only place anything is ever assigned to it is behind the match
+// guard above - a fallback model, a Codex account, or either field missing all fall through that
+// guard and leave the var exactly as declared, which is what the model token's own `?? base`
+// fallback (pinned above) renders unchanged.
+check("the flagship piece starts unset",
+      lineSource.contains("var flagshipPiece: String?"))
+check("…and is assigned in exactly one place: inside the match guard",
+      lineSource.components(separatedBy: "flagshipPiece = ").count == 2)
+// NO NAME ON THE FLAGSHIP PIECE: the window's own name already rides on the model token it
+// follows, so the piece itself must not repeat it - that is the whole reason `piece()`'s name
+// became optional rather than gaining a second formula.
+check("the flagship piece asks `piece()` for no name of its own",
+      lineSource.contains("flagshipPiece = piece(nil, account.modelRemaining, account.modelResetsAt)"))
+// SAME METER FORMULA, NOT A COPY: `piece()`'s name parameter turned optional rather than a second
+// nameless function appearing beside it - the tint/meter/ETA rules the 5h and 7d slots use are the
+// exact same call for the flagship piece.
+check("`piece()` grew an optional name rather than being duplicated",
+      lineSource.contains("func piece(_ name: String?, _ remaining: Double?, _ resetsAt: Date?) -> String?")
+          && lineSource.components(separatedBy: "func piece(").count == 2)
+// NOT A THIRD QUOTA SLOT: the flagship piece must never join the `quota` array the 5h/7d slots
+// build (asserted above as "built together, with nothing between them") - it rides the model
+// token instead, appended in the `modelToken` fallback pinned above.
+check("the flagship piece never joins the account's own quota array",
+      !lineSource.contains("quota = [piece(\"5h\", account.sessionRemaining, account.sessionResetsAt),\n"
+          + "                 piece(\"7d\", account.weeklyRemaining, account.weeklyResetsAt),\n")
+          && !lineSource.contains(", flagshipPiece]"))
 // And the read is inside the liveness guard the other per-pid readings sit behind: a dead
 // supervisor's leftover file must not paint a depth this session is not running at.
 if let guardRange = lineSource.range(of: "supervisorAlive(pid) {"),

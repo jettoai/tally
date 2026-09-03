@@ -150,19 +150,19 @@ func runStatusline(args: [String]) -> Never {
                                 cwd: sessionJSON?["cwd"] as? String)
 
     var quota: [String] = []
-    /// Identity slot 3: the model this session is running, with the depth it runs at beside it -
-    /// name only, every model the same shape. The pair is what a person sets in one breath
-    /// (`tally model fable high`), so the line reports it in one; the depth is dim because the
-    /// model is the word being read and the depth qualifies it. No depth, no token of its own: an
-    /// unknown one is left unsaid rather than drawn as a gap or a placeholder.
+    /// The flagship window's own remaining, read only when THIS SESSION is spending it: matched
+    /// by name against the model Claude Code reports below, not trusted blindly, because an
+    /// account's published flagship can name a DIFFERENT model than the one running (a session
+    /// degraded onto a fallback, a Codex account with no flagship concept, a stale or missing
+    /// field) - showing someone else's sub-allowance beside this session's model would read as
+    /// this session's own room when it is not.
     ///
-    /// TWO SOURCES IN ONE TOKEN, worth saying out loud: the model is what Claude Code reports it
-    /// is rendering for (the session JSON below, which tracks a live switch or a degradation),
-    /// while the depth comes from the supervisor's own per-pid reading - the only channel that
-    /// carries one, with the precedence and the blind spot stated where it is read above.
-    let modelToken = sessionModel.map { model in
-        depth.map { "\(model) \(dim)\($0)\(reset)" } ?? model
-    }
+    /// IT RIDES BESIDE THE MODEL NAME, not among the account's two windows below: it is a
+    /// sub-allowance of the same week those windows already cover (`Tally/Core/AccountReserve.swift`
+    /// - "a sub-allowance of the same week" - is the same fact stated for the reserve feature), so
+    /// counting it as a third slot would present one week's room twice. It is the allowance THIS
+    /// SESSION is actually spending, which is what belongs next to the word naming that session.
+    var flagshipPiece: String?
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
         // The number and bar follow the panel's used/remaining toggle; the tint always keys
@@ -182,11 +182,15 @@ func runStatusline(args: [String]) -> Never {
             return tint + String(repeating: "█", count: filled) + reset
                 + dim + String(repeating: "░", count: cells - filled) + reset
         }
-        func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
+        // The name is optional so the flagship window above can borrow this same formula with its
+        // name left out (it already carries one, riding on the model token it follows) rather than
+        // duplicating the meter/tint/ETA formula for a nameless variant.
+        func piece(_ name: String?, _ remaining: Double?, _ resetsAt: Date?) -> String? {
             guard let remaining else { return nil }
             let tint = tintFor(remaining)
             let shown = usedMode ? 100 - remaining : remaining
-            var text = "\(dim)\(name)\(reset) \(meter(shown, tint)) \(tint)\(Int(shown.rounded()))%\(reset)"
+            var text = name.map { "\(dim)\($0)\(reset) " } ?? ""
+            text += "\(meter(shown, tint)) \(tint)\(Int(shown.rounded()))%\(reset)"
             if let resetsAt, resetsAt > now {
                 text += " \(dim)(\(shortETA(resetsAt.timeIntervalSince(now))))\(reset)"
             }
@@ -203,6 +207,35 @@ func runStatusline(args: [String]) -> Never {
         quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
                  piece("7d", account.weeklyRemaining, account.weeklyResetsAt)]
             .compactMap { $0 }
+        // THE MATCH: the flagship window's own name, lower-cased, is a PREFIX of the session
+        // model's name, lower-cased ("fable" of "Fable 5.1"). A fallback model, a Codex account,
+        // or either field missing all fail this and leave the piece unset.
+        //
+        // AND NOT EMPTY: `hasPrefix("")` is true of every string, so a mapper that ever hands back
+        // an empty window name would otherwise hang the flagship meter on whatever model happened
+        // to be running - guarded here rather than trusted to never occur upstream.
+        if let windowName = account.modelWindowName?.lowercased(), !windowName.isEmpty,
+           let model = sessionModel?.lowercased(), model.hasPrefix(windowName) {
+            flagshipPiece = piece(nil, account.modelRemaining, account.modelResetsAt)
+        }
+    }
+    /// Identity slot 3: the model this session is running, with the depth it runs at beside it -
+    /// name only, every model the same shape. The pair is what a person sets in one breath
+    /// (`tally model fable high`), so the line reports it in one; the depth is dim because the
+    /// model is the word being read and the depth qualifies it. No depth, no token of its own: an
+    /// unknown one is left unsaid rather than drawn as a gap or a placeholder.
+    ///
+    /// TWO SOURCES IN ONE TOKEN, worth saying out loud: the model is what Claude Code reports it
+    /// is rendering for (the session JSON below, which tracks a live switch or a degradation),
+    /// while the depth comes from the supervisor's own per-pid reading - the only channel that
+    /// carries one, with the precedence and the blind spot stated where it is read above.
+    ///
+    /// AND THE FLAGSHIP WINDOW, WHEN THERE IS ONE, closes the token: it is this session's own
+    /// spend, computed above and appended here rather than woven into the map so an unmatched
+    /// session (nearly all of them) leaves this exactly as it was before the window existed.
+    let modelToken = sessionModel.map { model -> String in
+        let base = depth.map { "\(model) \(dim)\($0)\(reset)" } ?? model
+        return flagshipPiece.map { "\(base) \($0)" } ?? base
     }
 
     // Wrapped mode: the user's own status line (carried as base64 - see IntegrationsStore)

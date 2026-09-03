@@ -12348,31 +12348,31 @@
         }
       }
     },
-    "unclaimed": {
+    "leftovers": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無人認領"
+            "value": "殘留"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无人认领"
+            "value": "残留"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未管理"
+            "value": "残留"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "미관리"
+            "value": "잔류"
           }
         }
       }

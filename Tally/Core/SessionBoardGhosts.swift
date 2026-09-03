@@ -31,8 +31,8 @@ enum SessionBoardGhosts {
     /// read. The record is the reading, and it is kept for as long as the store keeps it
     /// (`OrphanReclaimStore.keptRecords`, a dozen, in memory only).
     ///
-    /// Such a card has NO figures and no amber word - there is nothing unclaimed running there any
-    /// more - so it states the project and what happened, and nothing it cannot stand behind.
+    /// Such a card has NO figures and no amber `leftovers` - there is nothing left running there
+    /// any more - so it states the project and what happened, and nothing it cannot stand behind.
     ///
     /// AND A ROOT NOBODY COULD NAME IS NOT A PROJECT. A reclaim whose tree the machine would not
     /// place is recorded with an empty project, deliberately - the kill still has to happen and has

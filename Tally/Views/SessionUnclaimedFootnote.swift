@@ -25,8 +25,8 @@ struct SessionUnclaimedFootnote: View {
     let project: ProjectLoad
     /// Whether this footnote has to say WHAT it is. Under a session card it does: everything else on
     /// that card is about the session, and figures with nothing naming them would read as more of
-    /// the session's own. On the project's own card the headline one line up has already said the
-    /// word, so saying it again here would be the same card saying it twice.
+    /// the session's own. On the project's own card the headline one line up has already said
+    /// `leftovers`, so saying it again here would be the same card saying it twice.
     ///
     /// It also decides how much room this has. Under a session card the whole reading is one line -
     /// the count and the figures, at the width a compact card is laid out at - while the project's
@@ -79,8 +79,8 @@ struct SessionUnclaimedFootnote: View {
     }
 
     /// THE WHOLE READING ON ONE LINE, which is what a footnote under a session card has room for:
-    /// the amber word that says these figures are not that session's, the count, and what the count
-    /// is spending.
+    /// the amber `leftovers` that says these figures are not that session's, the count, and what
+    /// the count is spending.
     ///
     /// THE FIGURES ARE HELD AT THEIR OWN WIDTH AND THE COUNT GIVES ROOM UP, which is the rule this
     /// board already keeps one card over (`SessionCardView.sessionIdentityRow`): a truncated figure
@@ -90,7 +90,13 @@ struct SessionUnclaimedFootnote: View {
             // AMBER, AND ON THE WORD RATHER THAN ON A FIGURE. It is the reading somebody would act
             // on, and amber rather than red because it is a fact to notice rather than a fault: a
             // session legitimately leaves a dev server running all day.
-            Text(L("unclaimed"))
+            //
+            // THE WORD IS `leftovers`. It read `unclaimed` for a day, which is a word about a
+            // CLAIM nobody on this page ever makes: what these processes are is what a session left
+            // behind, and that is the word for it (Albert, 2026-09-03). The spelling in this file's
+            // own names is unchanged - a rename of the type would be churn in every file that draws
+            // it, and none of those names reaches anybody reading the board.
+            Text(L("leftovers"))
                 .font(.caption2).foregroundStyle(TallyColor.warning)
                 .lineLimit(1).fixedSize()
             Text(verbatim: counted)

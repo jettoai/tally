@@ -277,7 +277,7 @@ func runGhostBoardChecks() {
     // session's own; on the project's own card the headline one line up has already said it.
     check("the footnote says the amber word under a session card, and not on the card that has one",
           footnote.contains("if namesItself {")
-              && footnote.contains("Text(L(\"unclaimed\"))")
+              && footnote.contains("Text(L(\"leftovers\"))")
               && ghost.contains("SessionUnclaimedFootnote(project: project)\n"))
     // NOT A SESSION, AND IT NEVER PRETENDS TO BE ONE: no terminal to jump to, so no button, no
     // hover and no pointer; no session to arrange by, so no grip and no frame for the drag to
@@ -349,7 +349,7 @@ func runGhostBoardChecks() {
               && page.contains("sessionsSummary(roster, unclaimed: running)")
               && page.contains("if unclaimed > 0 {")
               && page.contains(
-                  "summaryCount(unclaimed, L(\"unclaimed\"), colour: TallyColor.warning)"))
+                  "summaryCount(unclaimed, L(\"leftovers\"), colour: TallyColor.warning)"))
     // THE PAGE ASKS ABOUT BOTH KINDS OF CARD BEFORE IT CALLS ITSELF EMPTY. It used to ask only
     // whether there were session rows, so the state these cards exist for - the last session closed
     // and the dev server still running - reached the branch that draws one quiet line, and the card,
@@ -521,7 +521,7 @@ func runGhostBoardChecks() {
         .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["strings"]
         as? [String: Any] ?? [:]
     check("the string catalogue is readable from this suite", !strings.isEmpty)
-    for key in ["unclaimed", "background jobs", "%@, no session is running them"] {
+    for key in ["leftovers", "background jobs", "%@, no session is running them"] {
         let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             ?? [:]
         check("\"\(key)\" is translated into every language Tally ships",
@@ -542,8 +542,21 @@ func runGhostBoardChecks() {
     // the reading somebody would act on, rather than a figure beside it. On both surfaces - the
     // card's headline, and the footnote under a session card, where nothing else names it.
     for source in [ghost, footnote] {
-        check("the unclaimed reading says so in the colour the stray count used to be drawn in",
-              source.contains("Text(L(\"unclaimed\"))")
+        check("the leftovers say so in the colour the stray count used to be drawn in",
+              source.contains("Text(L(\"leftovers\"))")
                   && source.contains(".font(.caption2).foregroundStyle(TallyColor.warning)"))
     }
+    // AND THE WORD IT SHIPPED WITH FOR A DAY IS GONE FROM EVERY SURFACE somebody reads, the summary
+    // count included. `unclaimed` is a word about a CLAIM nobody on this page ever makes: what
+    // these processes are is what a session left behind (Albert, 2026-09-03). The spelling survives
+    // in this package's own type and case names on purpose - renaming those would be churn in every
+    // file that draws one, and none of them reaches anybody reading the board - so what is asserted
+    // is the catalogue lookups rather than the identifiers.
+    for source in [page, grid, ghost, footnote, session] {
+        check("…and no surface of this page still looks the retired word up",
+              !source.contains("L(\"unclaimed\")"))
+    }
+    check("…the count beside the board saying the same word its cards do",
+          page.contains("summaryCount(unclaimed, L(\"leftovers\"), colour: TallyColor.warning)")
+              && ((strings["unclaimed"] as? [String: Any]) == nil))
 }

@@ -312,11 +312,11 @@ extension PopoverRootView {
                 summaryCount(roster.updatingCount, L("updating"), colour: .secondary)
             }
             // AND THE OTHER SLOT THAT IS ONLY THERE WHEN IT SAYS SOMETHING, on the same rule and in
-            // the colour its cards carry the word in: this counts the checkouts running work no
+            // the colour the cards say the same word in: this counts the checkouts running work no
             // session accounts for (`SessionBoardGhosts.unclaimed`), which on an ordinary machine is
-            // none, and a permanent "0 unclaimed" would spend a slot on the answer nobody needs.
+            // none, and a permanent "0 leftovers" would spend a slot on the answer nobody needs.
             if unclaimed > 0 {
-                summaryCount(unclaimed, L("unclaimed"), colour: TallyColor.warning)
+                summaryCount(unclaimed, L("leftovers"), colour: TallyColor.warning)
             }
             Spacer(minLength: 0)
         }

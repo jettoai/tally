@@ -83,11 +83,15 @@ struct SessionGhostCardView: View {
             // than on a figure. Amber rather than red: it is a fact to notice, not a fault, and a
             // session legitimately leaves a dev server running all day.
             //
-            // And only while it is TRUE: a card kept for its records alone has nothing unclaimed
+            // And only while it is TRUE: a card kept for its records alone has nothing left over
             // running in it any more, and a word in the colour of "somebody should look at this"
             // would be asking for a look at something this app has already dealt with.
+            //
+            // The same word the footnote under a session card says, from the same catalogue entry
+            // (`SessionUnclaimedFootnote.line` carries why it is `leftovers` rather than the
+            // `unclaimed` this shipped with for a day).
             if project.strayProcesses > 0 {
-                Text(L("unclaimed"))
+                Text(L("leftovers"))
                     .font(.caption2).foregroundStyle(TallyColor.warning)
                     .lineLimit(1).fixedSize()
             }

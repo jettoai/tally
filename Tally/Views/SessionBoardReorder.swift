@@ -49,6 +49,10 @@ extension PopoverRootView {
         /// from the grid's own pass rather than recomputed, for the reason every other field here
         /// is frozen: the seating is a function of a board that is still moving.
         let footnote: ProjectLoad?
+        /// And whether that reading was wearing the machine's flame at the same instant
+        /// (`SessionBoardGhosts.markedAtGrab`, which carries why this is a snapshot and the card's
+        /// own mark is not).
+        let footnoteMarked: Bool
 
         /// Where the floating copy's centre sits. The single source for BOTH the rendered position
         /// and the hit-test probe, exactly as `CardLift.previewCentre` is: two spellings of this
@@ -359,7 +363,9 @@ extension PopoverRootView {
                         touchOffset: CGPoint(x: value.startLocation.x - grabbed.value.minX,
                                              y: value.startLocation.y - grabbed.value.minY),
                         location: value.location, frozen: board,
-                        unclaimed: unclaimed, footnote: footnotes[row.id])
+                        unclaimed: unclaimed, footnote: footnotes[row.id],
+                        footnoteMarked: SessionBoardGhosts.markedAtGrab(
+                            sessionMarkedCard, footnote: footnotes[row.id]?.root))
                 }
                 guard var lift = sessionLift else { return }   // the grab began between two cards
                 lift.location = value.location
@@ -424,12 +430,25 @@ extension PopoverRootView {
             // the preview disagreeing with the grid it came out of. THE FOOTNOTE TRAVELS WITH IT
             // TOO, from the snapshot the grab took (`SessionLift.footnote`), which is what keeps
             // the copy the same height as the seat it came out of - and keeps the flame lit when it
-            // is the leftovers that are wearing it.
+            // is the leftovers that are wearing it, as they were AT THE GRAB
+            // (`SessionBoardGhosts.markedAtGrab`).
             sessionCard(lift.row, handleProminent: true,
                         marked: sessionMarkedCard == .session(lift.id),
                         unclaimed: lift.footnote,
-                        unclaimedMarked: lift.footnote
-                            .map { sessionMarkedCard == .unclaimed($0.root) } ?? false)
+                        unclaimedMarked: lift.footnoteMarked)
+                // AT THE SIZE OF THE SEAT IT LEFT, BOTH WAYS. The card asks for the whole height it
+                // is offered, which is what makes a row of cards level (`SessionCardView`); offered
+                // the panel, as it is here - this is drawn into a ZStack over the whole surface and
+                // `liftedCard` fixes only the width - it took the panel, so the copy's background
+                // ran from the top of the window to the bottom while its POSITION went on being
+                // computed from the card's own height (`previewCentre`). Measured in an isolated
+                // layout probe: unconstrained, the copy drew 400 of a 400pt container; held here,
+                // it draws exactly the seat's height (codex review of 4e73a24).
+                //
+                // The seat's height rather than the content's, because that is the number the
+                // centring already assumes, and because the copy should be the card that was picked
+                // up - including the room a taller neighbour gave it.
+                .frame(height: lift.sourceFrame.height, alignment: .topLeading)
                 .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
                             following: lift.location)
         }

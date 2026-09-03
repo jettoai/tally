@@ -360,6 +360,16 @@ func runGhostBoardChecks() {
     check("…and so does a session card, so a footnote cannot leave its neighbour short",
           session.contains(".frame(maxWidth: .infinity, maxHeight: .infinity,"
                            + " alignment: .topLeading)"))
+    // AND THAT SAME APPETITE HAS TO BE FED A HEIGHT WHEREVER THE CARD IS DRAWN OUTSIDE A GRID CELL.
+    // The floating copy is put into a ZStack over the whole surface and `liftedCard` fixes only the
+    // width, so the card took the panel's height: its background ran the full window while its
+    // position went on being computed from the seat's height (`previewCentre`). Measured in an
+    // isolated layout probe - 400 of a 400pt container unconstrained, exactly the seat's height
+    // with this line (codex review of 4e73a24). Held to the SEAT rather than to the content,
+    // because that is the number the centring already assumes.
+    check("the floating copy is laid out at the height of the seat it was lifted from",
+          grid.contains(".frame(height: lift.sourceFrame.height, alignment: .topLeading)")
+              && grid.contains(".liftedCard(width: lift.sourceFrame.width,"))
     // Drawn at the board's existing word for "quieter than the others and every bit as true", from
     // the one constant the session card already spells it with.
     check("…drawn at the same opacity a card that cannot report itself is",
@@ -397,9 +407,16 @@ func runGhostBoardChecks() {
     check("…while the count of them is taken over the whole machine, filter or no filter",
           page.contains("let running = SessionBoardGhosts.running(everyUnclaimed)")
               && page.contains("sessionsSummary(roster, unclaimed: running)")
-              && page.contains("if unclaimed > 0 {")
-              && page.contains(
-                  "summaryCount(unclaimed, L(\"leftovers\"), colour: TallyColor.warning)"))
+              && page.contains("if unclaimed > 0 {"))
+    // AND IT SAYS WHAT IT IS COUNTING. The figure is one per CARD - checkouts with something still
+    // running in them (`running`) - and beside four counts of sessions, under a word the cards
+    // spend on a count of PROCESSES, "4 leftovers" read as four processes: a single project with
+    // eight of them would have said "1" (codex review of 85a6319). The unit is in the label, and
+    // the count word is chosen where the bundle is, exactly as the cards choose `proc`/`procs`.
+    check("the summary count names its unit, the figure being one per checkout rather than per job",
+          page.contains("L(unclaimed == 1 ? \"project with leftovers\"")
+              && page.contains("                                 : \"projects with leftovers\"),")
+              && page.contains("colour: TallyColor.warning)"))
     // THE PAGE ASKS ABOUT BOTH KINDS OF CARD BEFORE IT CALLS ITSELF EMPTY. It used to ask only
     // whether there were session rows, so the state these cards exist for - the last session closed
     // and the dev server still running - reached the branch that draws one quiet line, and the card,
@@ -433,7 +450,7 @@ func runGhostBoardChecks() {
                                + " -> some Gesture {")
               && grid.contains("location: value.location, frozen: board,\n"
                                + "                        unclaimed: unclaimed,"
-                               + " footnote: footnotes[row.id])")
+                               + " footnote: footnotes[row.id],")
               && !grid.contains("unclaimed: sessionUnclaimedCards)")
               && grid.contains("sessionsReorderGesture(listed: listed, board: board,\n"
                                + "                                                    unclaimed:"
@@ -452,10 +469,31 @@ func runGhostBoardChecks() {
     check("the copy in the hand carries the footnote the grab found on that card",
           grid.contains("let footnote: ProjectLoad?")
               && grid.contains("let footnotes = sessionCardFootnotes(cards)")
-              && grid.contains("unclaimed: unclaimed, footnote: footnotes[row.id])")
+              && grid.contains("unclaimed: unclaimed, footnote: footnotes[row.id],")
               && grid.contains("unclaimed: lift.footnote,"))
-    check("…and the flame with it, when it is the leftovers that are wearing it",
-          grid.contains("unclaimedMarked: lift.footnote"))
+    // AND THE FLAME ON IT IS FROZEN AT THE SAME INSTANT. It was the one thing still asked live while
+    // everything around it was a snapshot, so a sampler tick that moved the mark mid-carry left the
+    // copy drawing a frozen footnote with the flame taken off it - two moments in one card (codex
+    // review of 4e73a24). THE TWO MOMENTS REALLY DO ANSWER DIFFERENTLY, which is what makes "which
+    // moment" a question worth asking rather than a distinction without a difference.
+    check("the flame on a carried footnote is decided at the grab, and the machine can move it after",
+          SessionBoardGhosts.markedAtGrab(.unclaimed(tally), footnote: tally)
+              != SessionBoardGhosts.markedAtGrab(.session("100"), footnote: tally))
+    check("…lit when the grab found the mark on those very leftovers",
+          SessionBoardGhosts.markedAtGrab(.unclaimed(tally), footnote: tally))
+    check("…and out for a mark on the session, on another checkout's leftovers, or on nothing",
+          !SessionBoardGhosts.markedAtGrab(.session("100"), footnote: tally)
+              && !SessionBoardGhosts.markedAtGrab(.unclaimed(api), footnote: tally)
+              && !SessionBoardGhosts.markedAtGrab(nil, footnote: tally))
+    check("…and never on a card that was carrying no footnote at all",
+          !SessionBoardGhosts.markedAtGrab(.unclaimed(tally), footnote: nil))
+    // The card's OWN mark stays live on purpose: it is about the session the hand is holding, and a
+    // card that lost its flame on being picked up would disagree with the board it came out of.
+    check("…the copy reading the stored answer while its own mark is still the machine's",
+          grid.contains("let footnoteMarked: Bool")
+              && grid.contains("footnoteMarked: SessionBoardGhosts.markedAtGrab(")
+              && grid.contains("unclaimedMarked: lift.footnoteMarked)")
+              && grid.contains("marked: sessionMarkedCard == .session(lift.id),"))
     // The reclaim rows are kept by a store the page reads, so what a card is kept FOR is stated
     // where the cards are decided rather than left to the view that draws them.
     check("a card is kept for what this app is watching and what it has done",
@@ -585,7 +623,8 @@ func runGhostBoardChecks() {
         .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["strings"]
         as? [String: Any] ?? [:]
     check("the string catalogue is readable from this suite", !strings.isEmpty)
-    for key in ["leftovers", "background jobs", "%@, no session is running them"] {
+    for key in ["leftovers", "project with leftovers", "projects with leftovers",
+                "unknown project", "background jobs", "%@, no session is running them"] {
         let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             ?? [:]
         check("\"\(key)\" is translated into every language Tally ships",
@@ -616,11 +655,14 @@ func runGhostBoardChecks() {
     // in this package's own type and case names on purpose - renaming those would be churn in every
     // file that draws one, and none of them reaches anybody reading the board - so what is asserted
     // is the catalogue lookups rather than the identifiers.
-    for source in [page, grid, ghost, footnote, session] {
+    // ASKED OF EVERY SOURCE THIS SUITE HAS OPEN, which is what the name claims and what the list
+    // did not do: `card` and `state` are two more surfaces of this same page and were sitting in
+    // this file unread by it (codex review of 85a6319).
+    for source in [page, grid, ghost, footnote, session, card, state] {
         check("…and no surface of this page still looks the retired word up",
               !source.contains("L(\"unclaimed\")"))
     }
-    check("…the count beside the board saying the same word its cards do",
-          page.contains("summaryCount(unclaimed, L(\"leftovers\"), colour: TallyColor.warning)")
+    check("…the count beside the board saying it in the same vocabulary its cards do",
+          page.contains("L(unclaimed == 1 ? \"project with leftovers\"")
               && ((strings["unclaimed"] as? [String: Any]) == nil))
 }

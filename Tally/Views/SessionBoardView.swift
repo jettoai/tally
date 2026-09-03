@@ -314,9 +314,20 @@ extension PopoverRootView {
             // AND THE OTHER SLOT THAT IS ONLY THERE WHEN IT SAYS SOMETHING, on the same rule and in
             // the colour the cards say the same word in: this counts the checkouts running work no
             // session accounts for (`SessionBoardGhosts.unclaimed`), which on an ordinary machine is
-            // none, and a permanent "0 leftovers" would spend a slot on the answer nobody needs.
+            // none, and a permanent "0" of it would spend a slot on the answer nobody needs.
+            //
+            // AND IT NAMES ITS UNIT, which the bare word did not. This figure is one per CARD - the
+            // number of checkouts with something left running in them (`SessionBoardGhosts
+            // .running`) - and beside four counts of sessions, under a word the cards spend on a
+            // count of PROCESSES, "4 leftovers" read as four processes: one project with eight of
+            // them would have said "1" (codex review of 85a6319). The four counts beside it are
+            // sessions and say so by sitting on this board at all; this one is about something else
+            // and has to say which.
             if unclaimed > 0 {
-                summaryCount(unclaimed, L("leftovers"), colour: TallyColor.warning)
+                summaryCount(unclaimed,
+                             L(unclaimed == 1 ? "project with leftovers"
+                                 : "projects with leftovers"),
+                             colour: TallyColor.warning)
             }
             Spacer(minLength: 0)
         }

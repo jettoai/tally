@@ -276,4 +276,24 @@ enum SessionBoardGhosts {
         else { return nil }
         return top.unclaimed ? .unclaimed(top.key) : .session(top.key)
     }
+
+    /// WHETHER THE LEFTOVERS A HAND IS CARRYING WERE WEARING THE FLAME WHEN IT PICKED THEM UP.
+    ///
+    /// ASKED ONCE, AT THE GRAB, AND NOT AGAIN. The drag freezes what it is carrying - the board, the
+    /// unclaimed readings, and which of them was written under this card (`SessionLift`) - because
+    /// the sampler runs every two seconds and a carry outlasts several ticks. The mark was the one
+    /// thing still being asked live, so a tick that moved it somewhere else left the floating copy
+    /// drawing a frozen footnote with the flame taken off it, or off a card that no longer has it:
+    /// two readings from two different moments in one card (codex review of 4e73a24).
+    ///
+    /// The card's OWN mark is a different question and stays live: it is about the session, which is
+    /// what the hand is actually holding, and a card that lost its flame on being picked up would be
+    /// the copy disagreeing with the board it came out of.
+    ///
+    /// - Parameter footnote: the project whose leftovers this card was carrying, or nothing for a
+    ///   card that was carrying none - which is most of them, and never wears this mark.
+    static func markedAtGrab(_ mark: Mark?, footnote root: String?) -> Bool {
+        guard let root else { return false }
+        return mark == .unclaimed(root)
+    }
 }

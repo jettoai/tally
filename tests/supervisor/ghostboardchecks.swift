@@ -158,16 +158,37 @@ func runGhostBoardChecks() {
           SessionBoardGhosts.seating(sessionDirectories: [tally], unclaimed: [tally, api],
                                      listsUnclaimedCards: false)
               == .init(seats: [.session(0)], footnotes: [0: tally]))
-    // A ROOT NOBODY COULD NAME IS NOT A PROJECT, and an empty one is a prefix of every path on the
-    // machine: left in, it would win the match for any directory no real checkout claimed and write
-    // one nameless project's footnote under half the board (codex review of a54059c).
-    check("an empty root takes no card and no footnote",
-          SessionBoardGhosts.seating(sessionDirectories: [tally], unclaimed: [""])
-              == .init(seats: [.session(0)], footnotes: [:]))
-    check("…and the cards are not synthesized for one in the first place",
-          SessionBoardGhosts.unclaimed(in: MachineLoad(projects: [project("", sessions: 0,
-                                                                         strays: 2)]),
-                                       remembering: [""]).isEmpty)
+    // A ROOT NOBODY COULD NAME IS NOT A PATH, and an empty one is a prefix of every path on the
+    // machine: matched by containment it would win for any directory no real checkout claimed and
+    // write one project's footnote under half the board (codex review of a54059c). The match
+    // refuses it (`MachineLoadRollup.project(of:roots:)`), so it owns no session card.
+    check("a root nobody could name takes no session's footnote",
+          SessionBoardGhosts.seating(sessionDirectories: [tally, api], unclaimed: [""])
+              == .init(seats: [.session(0), .session(1), .unclaimed("")], footnotes: [:]))
+    // BUT IT DOES TAKE A CARD, which is the whole of what this page can still do for it. A reclaim
+    // whose tree the machine would not place is recorded with an empty project on purpose - the
+    // kill happens and has to be reported (`OrphanReclaimStore.round`) - and the project inbox
+    // cannot take that one, having no repository to write into. Refusing it here as well left a
+    // tree this app really did SIGTERM and SIGKILL reported nowhere at all (codex review of
+    // b226640).
+    check("a reclaim this app could not file under a project still gets a card of its own",
+          SessionBoardGhosts.unclaimed(in: MachineLoad(projects: []), remembering: [""])
+              .map(\.root) == [""])
+    // AND IT IS NAMED FOR WHAT IT IS. `URL(fileURLWithPath: "").lastPathComponent` is the empty
+    // string, so the card that shape produced carried no name at all, which is worse than the
+    // silence it replaced.
+    check("…under a word rather than the blank a path component would have given it",
+          SessionBoardGhosts.unclaimed(in: MachineLoad(projects: []), remembering: [""])
+              .first.map { !$0.name.isEmpty && $0.name == L("unknown project") } == true)
+    check("…last on the board, behind every checkout that has a name to be looked up by",
+          SessionBoardGhosts.unclaimed(in: load, remembering: [tally, ""]).map(\.root)
+              == [api, tally, sibling, ""])
+    // It is a card kept for a record, so it counts for what the page has to DRAW and not for the
+    // amber figure, which is a call to look at something still running.
+    check("…counted as a card the page must show and not as work anybody has to act on",
+          SessionBoardGhosts.running(
+              SessionBoardGhosts.unclaimed(in: MachineLoad(projects: []), remembering: [""])) == 0
+              && SessionBoardGhosts.board(sessions: 0, unclaimed: 1, seats: 1) == .cards)
 
     // MARK: which card wears the flame
 
@@ -290,18 +311,41 @@ func runGhostBoardChecks() {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
     }
-    for source in [code(ghost), code(footnote)] {
-        check("the unclaimed reading is not a button and answers no pointer",
-              !source.contains("Button") && !source.contains("onHover")
-                  && !source.contains("onTapGesture") && !source.contains("tallyTooltip"))
-        check("…and is not offered to the drag at all",
-              !source.contains("dragHandle") && !source.contains("showsDragHandle")
-                  && !source.contains("cardFrame"))
-    }
+    check("the unclaimed card is not a button and answers no pointer",
+          !code(ghost).contains("Button") && !code(ghost).contains("onHover")
+              && !code(ghost).contains("onTapGesture") && !code(ghost).contains("tallyTooltip"))
+    // NO FRAME, WHICH IS WHAT PUTS IT OUT OF THE DRAG'S REACH: the gesture looks a grabbed point up
+    // in the frames the cards registered, and this card registers none (`sessionsGrid`).
+    check("…and is not offered to the drag at all",
+          !code(ghost).contains("dragHandle") && !code(ghost).contains("showsDragHandle")
+              && !code(ghost).contains("cardFrame"))
+    // THE FOOTNOTE'S CLAIM IS NARROWER, AND SAYING THE CARD'S WOULD BE FALSE. The drag lives on the
+    // GRID rather than on a card (`sessionsGrid` hangs it on the `LazyVGrid`), so a hand that
+    // starts inside a footnote is dragging the session card it is written on - which is correct,
+    // and which an assertion reading "not offered to the drag at all" would have denied while only
+    // ever looking at this leaf's own source (codex review of b226640). What is true of the leaf is
+    // that it adds no target: no button, no hover, no grip, and no frame of its own for the
+    // hit-test to find, so everything it is drawn inside keeps answering for it.
+    check("the footnote registers no target of its own, so presses and drags belong to its card",
+          !code(footnote).contains("Button") && !code(footnote).contains("onHover")
+              && !code(footnote).contains("onTapGesture")
+              && !code(footnote).contains("tallyTooltip")
+              && !code(footnote).contains("dragHandle")
+              && !code(footnote).contains("showsDragHandle")
+              && !code(footnote).contains("cardFrame")
+              && !code(footnote).contains("gesture"))
     // WHICH IS WHAT KEEPS THE CARD IT IS WRITTEN ON WHOLE: a session card is one `Button`, and a
     // footnote that took a press of its own would put a dead patch on the way to that terminal.
-    // Nothing is added to the card except the view above (`SessionCardView.body`).
-    check("a press on the footnote is a press on the card, which is the way to the terminal",
+    // What makes the press land is WHERE the footnote is drawn - inside the button's label - so
+    // that is what is asserted here, by position. The check that stood here read the card's
+    // accessibility hint instead, which says what the CARD does and nothing at all about the
+    // footnote's place in it (codex review of b226640).
+    let labelEnd = session.range(of: "}\n        .buttonStyle(.plain)")
+    let footnoteDrawn = session.range(of: "SessionUnclaimedFootnote(project: unclaimed,")
+    check("the footnote is drawn inside the card's Button label, which is what a press lands on",
+          (labelEnd.flatMap { end in footnoteDrawn.map { $0.upperBound < end.lowerBound } })
+              == true)
+    check("…and that button is still the one that says what a press does",
           session.contains(".accessibilityHint(Text(L(\"Click to bring its terminal"
                            + " to the front\")))"))
     // AS TALL AS WHATEVER IT IS SEATED BESIDE. A grid row is as tall as the tallest card in it, and
@@ -310,6 +354,12 @@ func runGhostBoardChecks() {
     check("the unclaimed card fills the height of the row it is seated in",
           ghost.contains(".frame(maxWidth: .infinity, maxHeight: .infinity,"
                          + " alignment: .topLeading)"))
+    // AND SO DOES THE SESSION CARD, for the same reason one card over: the footnote makes some
+    // cards a line taller than the rest, and a card laid out at its own height beside one of those
+    // stopped short with the row's space showing under it (codex review of b226640).
+    check("…and so does a session card, so a footnote cannot leave its neighbour short",
+          session.contains(".frame(maxWidth: .infinity, maxHeight: .infinity,"
+                           + " alignment: .topLeading)"))
     // Drawn at the board's existing word for "quieter than the others and every bit as true", from
     // the one constant the session card already spells it with.
     check("…drawn at the same opacity a card that cannot report itself is",
@@ -378,13 +428,16 @@ func runGhostBoardChecks() {
     // of a54059c). The store is not reachable from the gesture at all any more.
     check("the drag carries the very list the grid drew, not a fresh reading of the store",
           grid.contains("func sessionsReorderGesture(listed: [SessionRosterStore.SessionRow],")
-              && grid.contains("unclaimed: [ProjectLoad]) -> some Gesture {")
+              && grid.contains("unclaimed: [ProjectLoad],\n"
+                               + "                                footnotes: [String: ProjectLoad])"
+                               + " -> some Gesture {")
               && grid.contains("location: value.location, frozen: board,\n"
-                               + "                        unclaimed: unclaimed)")
+                               + "                        unclaimed: unclaimed,"
+                               + " footnote: footnotes[row.id])")
               && !grid.contains("unclaimed: sessionUnclaimedCards)")
               && grid.contains("sessionsReorderGesture(listed: listed, board: board,\n"
                                + "                                                    unclaimed:"
-                               + " unclaimed))"))
+                               + " unclaimed, footnotes: footnotes))"))
     // AND THE SET IS HELD STILL WHILE A CARD IS IN FLIGHT, exactly as the roster is: the strays are
     // sampled every two seconds, and one appearing or ending mid-carry would insert or remove a card
     // in the grid under the pointer - moving every card after it and re-hit-testing the drag against
@@ -392,6 +445,17 @@ func runGhostBoardChecks() {
     check("the drag freezes the unclaimed cards along with the board it started on",
           grid.contains("let unclaimed: [ProjectLoad]")
               && page.contains("let seated = sessionLift?.unclaimed ?? everyUnclaimed"))
+    // AND THE FLOATING COPY IS A COPY. It was built with no footnote at all, so a card carrying one
+    // lost a line the instant it left its seat - it shrank and jumped under the pointer - and where
+    // the mark was on those leftovers rather than on the session, the flame went out for the whole
+    // carry (codex review of b226640). Taken from the pass that drew the grid, not recomputed.
+    check("the copy in the hand carries the footnote the grab found on that card",
+          grid.contains("let footnote: ProjectLoad?")
+              && grid.contains("let footnotes = sessionCardFootnotes(cards)")
+              && grid.contains("unclaimed: unclaimed, footnote: footnotes[row.id])")
+              && grid.contains("unclaimed: lift.footnote,"))
+    check("…and the flame with it, when it is the leftovers that are wearing it",
+          grid.contains("unclaimedMarked: lift.footnote"))
     // The reclaim rows are kept by a store the page reads, so what a card is kept FOR is stated
     // where the cards are decided rather than left to the view that draws them.
     check("a card is kept for what this app is watching and what it has done",

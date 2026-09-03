@@ -142,7 +142,13 @@ struct SessionCardView: View {
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // AS TALL AS THE ROW IT IS IN, WITH ITS LINES AGAINST THE TOP. A grid row is as tall as
+            // the tallest card in it, and the footnote makes some cards a line taller than others
+            // (`SessionUnclaimedFootnote`): laid out at its own height, the card beside one of those
+            // stopped short and left the row's space showing under it, which is the same defect the
+            // unclaimed card was given this line for (`SessionGhostCardView`, codex review of
+            // b226640). Both kinds of card now answer the row the same way.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // AND THE CARD'S OWN EDGE IS THE FOURTH CHANNEL THE WAIT IS SAID ON, after the dot, the
             // state word and the reason line. Those three are all INSIDE the card, so finding the
             // session that is asking for somebody means reading the cards one by one; an outline is

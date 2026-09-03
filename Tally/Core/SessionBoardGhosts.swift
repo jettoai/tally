@@ -34,21 +34,35 @@ enum SessionBoardGhosts {
     /// Such a card has NO figures and no amber `leftovers` - there is nothing left running there
     /// any more - so it states the project and what happened, and nothing it cannot stand behind.
     ///
-    /// AND A ROOT NOBODY COULD NAME IS NOT A PROJECT. A reclaim whose tree the machine would not
-    /// place is recorded with an empty project, deliberately - the kill still has to happen and has
-    /// to be reported (`OrphanReclaimStore.round`) - and an empty string reaching here synthesized a
-    /// card with no name at all. Worse than the blank card: an empty root is a PREFIX of every path
-    /// on the machine, so anything asked which project it belongs to came back with this one
-    /// (`MachineLoadRollup.project(of:roots:)` now refuses it on its own side too), which would put
-    /// every session card on the board under one nameless project's footnote.
+    /// AND THE ONE THIS APP COULD NOT NAME STILL GETS A CARD, under a word instead of a path.
+    ///
+    /// A KILL NOBODY IS TOLD ABOUT IS INDISTINGUISHABLE FROM A CRASH, and for one shape of kill that
+    /// is exactly what this page had become. A reclaim whose tree the machine would not place is
+    /// recorded with an EMPTY project, deliberately - the kill still has to happen and be reported
+    /// (`OrphanReclaimStore.round`) - and the project inbox cannot take that one, having no
+    /// repository to write into (`OrphanReclaimStore.deliver` returns on an empty project). The
+    /// panel is therefore its only channel, and for a day this refused it too: an empty root was
+    /// dropped here, so a tree this app really did send SIGTERM and SIGKILL to was reported nowhere
+    /// at all (codex review of b226640).
+    ///
+    /// WHAT IT IS NOT ALLOWED TO BE IS A BLANK CARD. `URL(fileURLWithPath: "").lastPathComponent` is
+    /// the empty string, so the card that shape produced had no name on it, and a card naming
+    /// nothing is worse than the silence it replaced. It is named for what it is instead, and the
+    /// naming happens HERE rather than in the view because this is where a card's name is decided
+    /// for every other card too (`MachineLoadRollup.rows`).
+    ///
+    /// AND IT TAKES NO SESSION'S FOOTNOTE, which is what makes the card safe to draw at all: an
+    /// empty root is a PREFIX of every path on this machine, so a rule matching on containment would
+    /// file every session on the board under it. The match refuses it on its own side
+    /// (`MachineLoadRollup.project(of:roots:)`), so nothing here has to remember to.
     ///
     /// - Parameters:
     ///   - remembering: the roots this app is watching or has acted in. A root with no row of its
     ///     own gets a card with no load, because a project whose work has all ended has no row.
     // TODO: project total line for multi-session projects, direction package follow-up.
     static func unclaimed(in load: MachineLoad, remembering roots: Set<String>) -> [ProjectLoad] {
-        var cards = load.projects.filter { $0.strayProcesses > 0 && !$0.root.isEmpty }
-        for root in roots where !root.isEmpty && !cards.contains(where: { $0.root == root }) {
+        var cards = load.projects.filter { $0.strayProcesses > 0 }
+        for root in roots where !cards.contains(where: { $0.root == root }) {
             cards.append(ProjectLoad(root: root,
                                      name: URL(fileURLWithPath: root).lastPathComponent,
                                      cpuPercent: nil, memoryBytes: 0, sessions: 0,
@@ -56,7 +70,15 @@ enum SessionBoardGhosts {
         }
         // The rollup's own order, by name, for the reason it sorts that way: a set of cards that
         // re-ordered itself as the machine breathed would be unreadable (`MachineLoad.projects`).
-        return cards.sorted { ($0.name, $0.root) < ($1.name, $1.root) }
+        // The unnameable one is not in that order because it is not in that alphabet: it goes last,
+        // where a card nobody can look up by name is found without moving the ones that can.
+        let named = cards.filter { !$0.root.isEmpty }
+            .sorted { ($0.name, $0.root) < ($1.name, $1.root) }
+        return named + cards.filter(\.root.isEmpty).map {
+            var card = $0
+            card.name = L("unknown project")
+            return card
+        }
     }
 
     /// How many of these cards are about work that is still RUNNING, which is what the board's amber
@@ -159,6 +181,13 @@ enum SessionBoardGhosts {
     /// one directory deeper (the reading drifts to the end of the board, where it reads as a project
     /// nobody on the page is working in).
     ///
+    /// THE ROOT THIS APP COULD NOT NAME IS SEATED LIKE ANY OTHER CHECKOUT WITH NO SESSION ON IT,
+    /// which is a reversal: it was refused here for a day, on the ground that it could only arrive
+    /// as a card with no name. It arrives as a NAMED card now (`unclaimed(in:remembering:)`), and
+    /// refusing it was refusing the only surface a reclaim in an unplaceable tree has left. Nothing
+    /// special is needed to keep it off the session cards: the containment rule declines to match an
+    /// empty root, so it owns no card and therefore takes a seat of its own, at the end.
+    ///
     /// - Parameters:
     ///   - sessionDirectories: where each listed session card is working, in board order, at
     ///     whatever depth it published. Nothing for a session that published no directory at all -
@@ -171,12 +200,8 @@ enum SessionBoardGhosts {
     ///     WAY: one is a fact about the checkout a listed card is working in, which is not a thing
     ///     the filter is narrowing.
     ///
-    /// A root that is the empty string is refused here as well as where the cards are decided
-    /// (`unclaimed(in:remembering:)`): the containment rule already declines to match one, so it
-    /// could only ever arrive as a card with no name at the end of the board.
-    static func seating(sessionDirectories: [String?], unclaimed roots: [String],
+    static func seating(sessionDirectories: [String?], unclaimed: [String],
                         listsUnclaimedCards: Bool = true) -> Seating {
-        let unclaimed = roots.filter { !$0.isEmpty }
         // The LAST card of each project, which is the one its leftovers are written under.
         var last: [String: Int] = [:]
         for (index, directory) in sessionDirectories.enumerated() {

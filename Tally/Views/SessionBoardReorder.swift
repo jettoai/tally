@@ -39,6 +39,16 @@ extension PopoverRootView {
         /// sampled every two seconds, and one appearing or ending mid-carry would insert or remove
         /// a card - or move a footnote from one card to another - in the grid the hand is aiming at.
         let unclaimed: [ProjectLoad]
+        /// And which of those readings was written along the bottom of THIS card when the hand
+        /// closed on it (`SessionBoardGhosts.Seating.footnotes`).
+        ///
+        /// THE FLOATING COPY IS A COPY, and without this it was not one: the preview was built with
+        /// no footnote, so a card carrying one shrank by a line the instant it left its seat and
+        /// jumped under the pointer - and when the mark was on those leftovers rather than on the
+        /// session, the flame went out for the length of the carry (codex review of b226640). Taken
+        /// from the grid's own pass rather than recomputed, for the reason every other field here
+        /// is frozen: the seating is a function of a board that is still moving.
+        let footnote: ProjectLoad?
 
         /// Where the floating copy's centre sits. The single source for BOTH the rendered position
         /// and the hit-test probe, exactly as `CardLift.previewCentre` is: two spellings of this
@@ -103,6 +113,10 @@ extension PopoverRootView {
         // about the machine (`sessionMarkedCard`), decided over both kinds of card at once, so what
         // comes back already says which kind it landed on.
         let marked = sessionMarkedCard
+        // WHICH CARD IS CARRYING WHICH READING, out of the very cards being laid out: the drag
+        // takes this away with the card it picks up, so the floating copy is drawn from the same
+        // pass as the seat it left (`SessionLift.footnote`).
+        let footnotes = sessionCardFootnotes(cards)
         return LazyVGrid(columns: sessionGridItems(columns: columns),
                          spacing: Self.sessionCardGap) {
             ForEach(cards) { card in
@@ -150,7 +164,7 @@ extension PopoverRootView {
         // this is the arrangement the account cards have shipped with since the drag existed, and
         // their pin, renew and retry buttons sit under the very same gesture.
         .highPriorityGesture(sessionsReorderGesture(listed: listed, board: board,
-                                                    unclaimed: unclaimed))
+                                                    unclaimed: unclaimed, footnotes: footnotes))
         // Cancellation safety net, mirroring the account grid: @GestureState resets on cancel as
         // well as on end, which is the only hook a cancelled gesture guarantees.
         .onChange(of: isSessionDragActive) { _, active in if !active { sessionLift = nil } }
@@ -202,6 +216,18 @@ extension PopoverRootView {
         }
     }
 
+    /// The footnote each session card is carrying, keyed the way this board keys its cards. Built
+    /// from the resolved seats rather than from the seating, so what the drag freezes is what the
+    /// grid actually drew - a seat pointing at a reading that ended between two passes is dropped
+    /// before it reaches here (`sessionSeatCards`).
+    func sessionCardFootnotes(_ cards: [SessionSeatCard]) -> [String: ProjectLoad] {
+        cards.reduce(into: [:]) { map, card in
+            if case let .session(row, footnote) = card.seat, let footnote {
+                map[row.id] = footnote
+            }
+        }
+    }
+
     /// One session's card, built the one way for both places that draw it: the grid, and the
     /// floating copy the drag carries (`sessionLiftPreview`). What the hand is holding cannot drift
     /// from what the grid draws, which is why the preview asks for this rather than for its own.
@@ -211,8 +237,8 @@ extension PopoverRootView {
     /// - Parameter marked: wear the machine's flame (`SessionBoardGhosts.marked`). The preview
     ///   passes what the grid passed, so a card does not lose its mark while it is being carried.
     /// - Parameter unclaimed: this checkout's leftovers, written along the bottom of the card. The
-    ///   preview passes none: a card in flight is a card being ARRANGED, and the footnote belongs to
-    ///   whichever card of that project ends up last once it is put down.
+    ///   preview passes what the grab found on it, so the copy in the hand is the card that was
+    ///   picked up; where the footnote ends up once it is put down is the next pass's answer.
     func sessionCard(_ row: SessionRosterStore.SessionRow,
                      handleProminent: Bool = false, marked: Bool = false,
                      unclaimed: ProjectLoad? = nil, unclaimedMarked: Bool = false) -> some View {
@@ -310,9 +336,12 @@ extension PopoverRootView {
     ///   in between meant the drag was frozen against a set the page had never drawn - one card off,
     ///   for the whole carry, in the middle of the grid the hand is aiming at (codex review of
     ///   a54059c). Handed in, the two cannot differ: it is the same array.
+    /// - Parameter footnotes: which reading each card was drawn with this pass, so the copy the
+    ///   hand carries is the card it picked up rather than a shorter one (`SessionLift.footnote`).
     func sessionsReorderGesture(listed: [SessionRosterStore.SessionRow],
                                 board: [SessionRosterStore.SessionRow],
-                                unclaimed: [ProjectLoad]) -> some Gesture {
+                                unclaimed: [ProjectLoad],
+                                footnotes: [String: ProjectLoad]) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.reorderSpace))
             .updating($isSessionDragActive) { _, state, _ in state = true }
             .onChanged { value in
@@ -330,7 +359,7 @@ extension PopoverRootView {
                         touchOffset: CGPoint(x: value.startLocation.x - grabbed.value.minX,
                                              y: value.startLocation.y - grabbed.value.minY),
                         location: value.location, frozen: board,
-                        unclaimed: unclaimed)
+                        unclaimed: unclaimed, footnote: footnotes[row.id])
                 }
                 guard var lift = sessionLift else { return }   // the grab began between two cards
                 lift.location = value.location
@@ -392,9 +421,15 @@ extension PopoverRootView {
         if let lift = sessionLift {
             // The mark travels with the card: it is decided on the machine rather than on the seat
             // (`sessionMarkedCard`), so a card losing its flame the moment it is picked up would be
-            // the preview disagreeing with the grid it came out of.
+            // the preview disagreeing with the grid it came out of. THE FOOTNOTE TRAVELS WITH IT
+            // TOO, from the snapshot the grab took (`SessionLift.footnote`), which is what keeps
+            // the copy the same height as the seat it came out of - and keeps the flame lit when it
+            // is the leftovers that are wearing it.
             sessionCard(lift.row, handleProminent: true,
-                        marked: sessionMarkedCard == .session(lift.id))
+                        marked: sessionMarkedCard == .session(lift.id),
+                        unclaimed: lift.footnote,
+                        unclaimedMarked: lift.footnote
+                            .map { sessionMarkedCard == .unclaimed($0.root) } ?? false)
                 .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
                             following: lift.location)
         }

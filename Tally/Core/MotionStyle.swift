@@ -113,6 +113,25 @@ struct MotionChoice: Equatable {
     var lines: Lines = .plain
     var curve: Curve = .bouncy
 
+    /// WHICH WAY A READING MOVED, which is what the two styles that have a direction turn on
+    /// (`Figures.roll` and `Figures.push`).
+    ///
+    /// ASKED OF THE QUANTITY, NEVER OF THE SPELLING, because the spelling cannot answer it: `999
+    /// MB` becoming `1.0 GB` is a rise that reads as a fall, and 9.1% and 9.4% are both `9%`, so a
+    /// figure spelled the same has still moved.
+    ///
+    /// A READING THAT DID NOT MOVE RISES, and so does the first one a figure ever holds: the
+    /// direction is only ever read to turn a change one way or the other, and there is no third
+    /// answer to give where there is nothing to compare against.
+    ///
+    /// HERE RATHER THAN AT THE TWO SURFACES THAT ASK IT, which is what makes it assertable at all:
+    /// the rule was written out twice, once in the view tree's push and once in the layers' roll
+    /// (`CardMotion.FigureMotion`, `RollingFigureLayerHost.apply`), and the only thing a harness
+    /// could state about either was that the line was present (codex review of 40054b3).
+    static func rising(from previous: Double?, to value: Double?) -> Bool {
+        (value ?? 0) >= (previous ?? value ?? 0)
+    }
+
     /// EACH AXIS IS READ OFF ITS OWN POSITION, `<figures>,<lines>,<curve>`, which is the grammar
     /// this flag has always been documented in (`MotionDemoWindow.footer`) and the only one it can
     /// have. `none` IS A STYLE ON TWO OF THE THREE AXES, so a parser that offered every token to

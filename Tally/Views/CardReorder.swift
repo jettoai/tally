@@ -87,7 +87,7 @@ private struct FigureMotion: ViewModifier {
     private var rollsInLayers: Bool { style == .roll && roller == .layers }
 
     func body(content: Content) -> some View {
-        let rising = (value ?? 0) >= (previous ?? value ?? 0)
+        let rising = MotionChoice.rising(from: previous, to: value)
         return figured(content, rising: rising)
             .animation(still || !style.moves || rollsInLayers ? nil : curve.animation, value: text)
             // THIS DOES NOT STOP THE BOARD BEING RE-LAID-OUT, WHICH IS WHAT IT WAS PUT HERE FOR
@@ -147,7 +147,7 @@ private struct FigureMotion: ViewModifier {
 /// the view tree's version is what held the whole panel in a layout pass per frame, which is the
 /// measurement all of this is about (`RollingFigureLayerView`).
 enum FigureRoller {
-    /// One `CATextLayer` per character, and no main thread work between two readings.
+    /// One `CATextLayer` per character, and no per-frame SwiftUI layout between two readings.
     case layers
     /// `contentTransition(.numericText)`, which is the same motion drawn in the view tree.
     case viewTree

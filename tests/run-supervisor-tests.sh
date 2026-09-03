@@ -167,7 +167,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/OrphanReaders.swift Tally/Core/OrphanNotice.swift \
   Tally/Stores/OrphanReclaimStore.swift Tally/Stores/OrphanReclaimStoreSweep.swift \
   Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift \
-  Tally/Core/FootprintTrend.swift Tally/Core/MotionStyle.swift \
+  Tally/Core/FootprintTrend.swift Tally/Core/FootprintPeak.swift Tally/Core/MotionStyle.swift \
   Tally/Core/DemoSessions.swift Tally/Core/DemoUsage.swift \
   Tally/Providers/ProviderModels.swift Tally/Core/FleetForecast.swift \
   Tally/Core/UsageHistory.swift Tally/Core/TokenStats/TokenTotals.swift \

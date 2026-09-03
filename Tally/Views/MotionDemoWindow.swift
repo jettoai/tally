@@ -300,9 +300,9 @@ private struct MotionDemoView: View {
              + "written as an empty one (-TallyMotion ,,smooth is the curve alone) and none on its "
              + "own is every motion off. Defaults are roll, none, bouncy (N3, and L0 for the line, "
              + "which is now a preference rather than a price: both axes are a layer's work now "
-             + "and cost the board nothing - see MotionChoice.lines for what each one used to "
-             + "cost). N3v is the digits drawn the old way, in the view tree, for the one "
-             + "difference a layer cannot spell: numericText's own blur.")
+             + "and no longer lay the board out on every frame - see MotionChoice.lines for what "
+             + "each one used to cost). N3v is the digits drawn the old way, in the view tree, for "
+             + "the one difference a layer cannot spell: numericText's own blur.")
             .font(.caption2).foregroundStyle(.secondary)
     }
 }

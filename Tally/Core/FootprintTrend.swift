@@ -470,21 +470,6 @@ enum FootprintSparkline {
         return values.firstIndex(of: top)
     }
 
-    /// Whether the peak dot has anywhere to travel FROM, between two series: the same reading is
-    /// still the highest one, so the dot has one point to slide between, or a different reading has
-    /// taken the ceiling (or given it up, or there was none before), and there is no single path
-    /// between two unrelated readings that would read as motion rather than as a dot cutting across
-    /// the figure (codex review of c99f4a6, where the dot tweened `position` between two peaks that
-    /// were not the same reading).
-    enum PeakMotion: Equatable {
-        /// The peak is the same reading in both series: slide the dot from where it was.
-        case move
-        /// The peak moved to a different reading, or appeared, or vanished: fade the old dot out
-        /// where it stood and the new one in where it now stands, rather than sliding between them.
-        case crossfade
-    }
-
-    static func peakMotion(from previous: [Double], to values: [Double]) -> PeakMotion {
-        peakIndex(previous) == peakIndex(values) ? .move : .crossfade
-    }
+    /// WHAT THE DOT AT THAT INDEX DOES BETWEEN TWO SERIES, and how a card spells the reading it
+    /// marks, are next door on the 500 line rule (`FootprintPeak.swift`).
 }

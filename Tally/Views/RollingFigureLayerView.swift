@@ -10,9 +10,12 @@ import SwiftUI
 /// nothing between that leaf and the root truncates an invalidation travelling up, `.geometryGroup`
 /// included, so the digits rolling ALONE cost 38.9% of one core against 13.2% with nothing moving on
 /// the same board in the same minute (measured 2026-09-04, the line already being a layer's work).
-/// A layer's roll is one commit per reading and no main thread work at all in between, which is the
-/// only shape of fix that reaches the threshold rather than trimming it (`FootprintSparklineLayerView`
-/// carries the whole of that reasoning for the outline).
+/// A layer's roll is one commit per reading and no per-frame SwiftUI layout between two readings,
+/// which is the only shape of fix that reaches the threshold rather than trimming it
+/// (`FootprintSparklineLayerView` carries the whole of that reasoning for the outline). NOT
+/// LITERALLY NO MAIN THREAD WORK, which this used to claim: the frames themselves are the window
+/// server's, and what this process still runs is one completion block per departing character
+/// (`depart`), which is that layer taking itself off when its fade is over.
 ///
 /// ONE LAYER PER CHARACTER, which is what makes a roll a roll: the digits that changed travel and
 /// fade while the ones that did not stay exactly where they are, so `459 MB` becoming `460 MB` moves
@@ -200,7 +203,7 @@ final class RollingFigureLayerHost: NSView {
         // THE DIRECTION IS READ BEFORE THE GUARD BELOW, because a reading that is spelled the same
         // is still a reading: 9.1% and 9.4% are both `9%`, and the rise from 9.4% to 10% is a rise
         // from the reading that arrived rather than from the last one that changed the digits.
-        let rising = (value ?? 0) >= (self.value ?? value ?? 0)
+        let rising = MotionChoice.rising(from: self.value, to: value)
         self.value = value
         let previous = shown
         let arriving = previous != nil && previous != text

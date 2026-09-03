@@ -303,15 +303,21 @@ extension SessionCardView {
                     // both ways. A metric that is being tracked at all keeps its column, so
                     // everything a candidate lays out is the same width from tick to tick.
                     if named.contains(trend.metric), !trend.values.isEmpty {
-                        Self.column(Self.peakMark + trend.metric.widestFigure) {
-                            Text(verbatim: trend.peak.map { Self.peakMark + $0 } ?? "")
+                        Self.column(FootprintPeak.mark + trend.metric.widestFigure) {
+                            Text(verbatim: FootprintPeak.spelled(trend.peak))
                                 .foregroundStyle(.tertiary)
                         }
                         // THE SAME MOTION, WITH NO DIRECTION STATED. A ceiling only ever climbs
                         // while the window holds it and only ever falls when an old maximum ages
                         // out of it, so the two cases are not a rise and a fall about one reading.
-                        .figureMotion(trend.peak ?? "", value: nil, still: reduceMotion,
-                                      tone: .tertiary)
+                        //
+                        // AND THE SAME STRING THE `Text` SPELLS, arrow and all, which is why both
+                        // of them ask for it rather than compose it: under the default roller that
+                        // `Text` is hidden and what a reader sees is the layers' copy, so a figure
+                        // handed the bare number here printed the ceiling with no arrow in front of
+                        // it on every card that had one (codex review of 40054b3).
+                        .figureMotion(FootprintPeak.spelled(trend.peak), value: nil,
+                                      still: reduceMotion, tone: .tertiary)
                     }
                 }
             }
@@ -353,11 +359,6 @@ extension SessionCardView {
     static let trendGap: CGFloat = PopoverRootView.sessionCardGap
     /// Between the three pieces that are all about one number.
     static let trendSpacing: CGFloat = 3
-
-    /// What marks a figure as the ceiling rather than the current reading. A glyph rather than the
-    /// word, because "peak" three times costs about a third of the card's width and this row has to
-    /// hold three of everything; the word itself is what VoiceOver is given instead.
-    static let peakMark = "\u{2191}"
 
     /// The row in words, for a reader who gets no shape at all: each metric said in the VALUE
     /// LINE'S own sentence rather than in the terse figure the row draws ("4 procs", not "4"), each

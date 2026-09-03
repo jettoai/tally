@@ -15,9 +15,10 @@ import SwiftUI
 ///
 /// A LAYER IS THE ONE PLACE THE INTERPOLATION IS NOT THIS PROCESS'S WORK. The app commits one
 /// animation per reading, every couple of seconds, and the frames between them are the window
-/// server's: nothing on the main thread runs at all. That is the whole of the mechanism, and it is
-/// what no cheaper geometry could buy back, the cheapest style there is having still cost thirty
-/// points (`MotionChoice.lines`).
+/// server's: no SwiftUI layout runs between two readings, the one thing this process still does
+/// being to take a faded stand-in off the figure when its own fade is over (`crossfadePeak`). That
+/// is the whole of the mechanism, and it is what no cheaper geometry could buy back, the cheapest
+/// style there is having still cost thirty points (`MotionChoice.lines`).
 ///
 /// THE ARITHMETIC IS STILL THE PURE ONE NEXT DOOR (`FootprintSparkline`), read at the two instants
 /// an animation is built from rather than at sixty per second: what changes here is who interpolates
@@ -96,6 +97,10 @@ final class FootprintSparklineLayerHost: NSView {
     private var reveal: FootprintSparklineReveal = .pending
     /// Whether the stroking-in has already run, so a rebuild does not run it twice.
     private var strokedIn = false
+    /// The stand-in dots on their way out, still fading (`crossfadePeak`). Held so a reading that
+    /// arrives still can cut them off rather than leave a half-faded dot on the figure, which is
+    /// the same reason the rolled digits hold theirs (`RollingFigureLayerHost.ghosts`).
+    private var ghosts: [CAShapeLayer] = []
 
     var magnified: CGFloat = 1 { didSet { if magnified != oldValue { rescale() } } }
 
@@ -184,9 +189,19 @@ final class FootprintSparklineLayerHost: NSView {
         // finish: Reduce Motion switched on mid-spring must stop the spring then, not up to a
         // settling duration later (codex review of c99f4a6). All four pieces, because each holds
         // its own explicit animation and none of them inherits from `plot`.
+        //
+        // AND EVERY LAYER THAT HOLDS ONE IS NAMED HERE, because `removeAllAnimations` reaches one
+        // layer and does not recurse (codex review of 36b653b): the scroll style slides `plot`
+        // itself and a stand-in dot holds its own fade, so clearing the four left a figure still
+        // sliding under a reader who had just asked for stillness, and a dot fading on top of it.
         if still {
             for piece in [line, tail, peak, current] { piece.removeAllAnimations() }
+            plot.removeAllAnimations()
+            for ghost in ghosts { ghost.removeAllAnimations(); ghost.removeFromSuperlayer() }
+            ghosts.removeAll()
         }
+        // The ones whose fade has already finished have taken themselves off (`crossfadePeak`).
+        ghosts.removeAll { $0.superlayer == nil }
         if restyled || previous == nil { recolour() }
         if arriving, !still, lineStyle.moves {
             announce(from: previous ?? [], to: values)
@@ -251,6 +266,15 @@ final class FootprintSparklineLayerHost: NSView {
                         curve: MotionChoice.Curve, grow: Double = 1) {
         let (before, after) = FootprintSparkline.aligned(previous, values)
         guard after.count == values.count else { redraw(); return }
+        // WHERE THE DOT IS ACTUALLY STANDING, read before `redraw()` moves it, and off the
+        // presentation layer so a dot caught mid-slide is read where it is rather than where it was
+        // heading. THIS IS THE STAND-IN'S BUSINESS ONLY: a window still filling is aligned by
+        // repeating its newest reading, which re-spaces every point at the NEW gap, so the dot that
+        // was drawn at x=24 of a two point series is at x=12 of the three point one it is being
+        // read as (codex review of 36b653b). The dot that TRAVELS has to start from that re-spaced
+        // point, because that is where the outline it sits on starts from; the one that fades out
+        // is on no line at all and belongs where the reader last saw it.
+        let stood = peak.isHidden ? nil : (peak.presentation()?.position ?? peak.position)
         redraw()
         let start = geometry(before, grow: grow)
         let end = geometry(after)
@@ -258,11 +282,15 @@ final class FootprintSparklineLayerHost: NSView {
         if lineStyle == .comet {
             tail.add(spring(curve, keyPath: "path", from: start.tail, to: end.tail), forKey: "tail")
         }
-        switch FootprintSparkline.peakMotion(from: before, to: after) {
+        // ASKED OF THE RAW SERIES rather than of the aligned pair, and told how far the window has
+        // slid: padding repeats a reading and would put the two series' oldest ends out of step
+        // with each other, which is the one thing this identity turns on.
+        let dropped = FootprintSparkline.dropped(from: previous, to: values)
+        switch FootprintSparkline.peakMotion(from: previous, to: values, dropped: dropped) {
         case .move:
             if let from = start.peak, let to = end.peak { slide(peak, curve, from, to) }
         case .crossfade:
-            crossfadePeak(from: start.peak)
+            crossfadePeak(from: stood)
         }
         if let from = start.current, let to = end.current { slide(current, curve, from, to) }
     }
@@ -276,9 +304,11 @@ final class FootprintSparklineLayerHost: NSView {
 
     /// A peak that moved to a DIFFERENT reading, rather than travelling within the same one: there
     /// is no path between two unrelated points that reads as motion, so instead the dot fades in
-    /// where `redraw()` has already put it (a stand-in fades out where it used to be, if it stood
-    /// anywhere). The stand-in is a throwaway layer rather than the peak layer itself, because the
-    /// peak layer is already the new dot by the time this runs.
+    /// where `redraw()` has already put it, and a stand-in fades out WHERE THE OLD DOT ACTUALLY
+    /// STOOD, if it stood anywhere (`travel`, which reads that off the layer before moving it). The
+    /// stand-in is a throwaway layer rather than the peak layer itself, because the peak layer is
+    /// already the new dot by the time this runs; it is held until its fade is over so that
+    /// stillness can cut it off (`apply`).
     private func crossfadePeak(from: CGPoint?) {
         if !peak.isHidden {
             peak.add(fade("opacity", from: 0, to: 1, seconds: CardMotion.figureDuration),
@@ -290,7 +320,12 @@ final class FootprintSparklineLayerHost: NSView {
         ghost.fillColor = peak.fillColor
         ghost.bounds = peak.bounds
         ghost.position = from
+        // The scale the dot it stands in for is drawn at: a fresh layer rasterises at 1x, so
+        // without this the fading dot was the one blurred thing on a retina figure. Copied rather
+        // than walked by `rescale()`, because a ghost lives for one fade and outlives no rescale.
+        ghost.contentsScale = peak.contentsScale
         plot.addSublayer(ghost)
+        ghosts.append(ghost)
         CATransaction.begin()
         CATransaction.setCompletionBlock { ghost.removeFromSuperlayer() }
         ghost.add(fade("opacity", from: 1, to: 0, seconds: CardMotion.figureDuration), forKey: "fade")

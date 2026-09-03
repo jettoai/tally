@@ -350,5 +350,48 @@ func runFootprintTrendChecks() {
     check("…and fades out when the peak goes flat",
           FootprintSparkline.peakMotion(from: [1, 9, 3], to: [4, 4, 4]) == .crossfade)
 
+    // AND AN INDEX IS NOT A READING, which is what a FULL window makes of that distinction: the
+    // ring appends until it is at capacity and drops its oldest reading on every tick after that
+    // (`record`), so every reading kept moves one place left. Read as bare indices, the ceiling
+    // therefore "changed" on every tick of every session past its first quarter of an hour, and did
+    // NOT change whenever a new reading happened to land on the old peak's index - 84 of the 120
+    // four-reading rollovers judged wrongly (codex review of 36b653b). How far the window has slid
+    // is read from the readings themselves, the two series being the whole of what the figure is
+    // handed.
+    check("a window still filling has dropped nothing",
+          FootprintSparkline.dropped(from: [1, 9], to: [1, 9, 3]) == 0)
+    check("…a full one has dropped the reading that fell off its oldest end",
+          FootprintSparkline.dropped(from: [0, 1, 2, 4], to: [1, 2, 4, 3]) == 1)
+    check("…and a series that starts again has dropped every reading it held",
+          FootprintSparkline.dropped(from: [5, 6], to: [1, 2]) == 2)
+    check("the peak dot slides when the window shifts under the same reading",
+          FootprintSparkline.peakMotion(from: [0, 1, 2, 4], to: [1, 2, 4, 3], dropped: 1) == .move)
+    check("…and fades across when a NEW reading lands on the old peak's index",
+          FootprintSparkline.peakMotion(from: [0, 1, 9, 2], to: [1, 9, 2, 9.5], dropped: 1)
+              == .crossfade)
+    check("…and slides while the window is still filling, which shifts nothing",
+          FootprintSparkline.peakMotion(from: [1, 9], to: [1, 9, 3],
+                                        dropped: FootprintSparkline.dropped(from: [1, 9],
+                                                                            to: [1, 9, 3]))
+              == .move)
+    // THE RING ITSELF ROLLING OVER, rather than a pair of series written out by hand: what a full
+    // window holds, one more reading taken, and a peak that is still the highest reading in it.
+    var atCapacity = FootprintTrendSeries()
+    for index in 0 ..< FootprintTrendSeries.capacity {
+        atCapacity.record(reading(index == 40 ? 500 : Double(index % 7)),
+                          at: t0.addingTimeInterval(Double(index) * FootprintTrendSeries.cadence))
+    }
+    let filled = atCapacity.values(of: .cpu)
+    atCapacity.record(reading(3), at: t0.addingTimeInterval(
+        Double(FootprintTrendSeries.capacity) * FootprintTrendSeries.cadence))
+    let rolled = atCapacity.values(of: .cpu)
+    check("a tick of a full window drops exactly one reading",
+          filled.count == rolled.count && FootprintSparkline.dropped(from: filled, to: rolled) == 1)
+    check("…so the peak that is still the ceiling is read as the reading it already was",
+          FootprintSparkline.peakIndex(filled) == 40 && FootprintSparkline.peakIndex(rolled) == 39
+              && FootprintSparkline.peakMotion(
+                  from: filled, to: rolled,
+                  dropped: FootprintSparkline.dropped(from: filled, to: rolled)) == .move)
+
     runFootprintTrendSurfaceChecks()
 }

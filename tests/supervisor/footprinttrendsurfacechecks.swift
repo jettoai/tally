@@ -121,7 +121,7 @@ func runFootprintTrendSurfaceChecks() {
           card.contains(".foregroundStyle(.primary)")
               && card.contains(".font(.caption2.monospacedDigit())"))
     check("…with the peak beside it the quietest",
-          card.contains("Text(verbatim: trend.peak.map { Self.peakMark + $0 } ?? \"\")\n")
+          card.contains("Text(verbatim: FootprintPeak.spelled(trend.peak))\n")
               && card.contains(".foregroundStyle(.tertiary)"))
     check("the row above the readings is quieter than they are",
           card.contains(".font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)"))
@@ -354,7 +354,7 @@ func runFootprintTrendSurfaceChecks() {
     // every two seconds, so a CPU going from 9% to 10% pushed the memory figure along with it.
     check("every figure is held in a column as wide as its own widest reading",
           card.contains("Self.column(trend.metric.widestFigure)")
-              && card.contains("Self.column(Self.peakMark + trend.metric.widestFigure)"))
+              && card.contains("Self.column(FootprintPeak.mark + trend.metric.widestFigure)"))
     check("…sized by a hidden copy of that reading rather than by a number in points",
           card.contains("ZStack(alignment: .trailing)")
               && card.contains("Text(verbatim: widest).hidden()"))
@@ -363,7 +363,23 @@ func runFootprintTrendSurfaceChecks() {
     // there is something to put in it would take the group beside it along both ways.
     check("…and a tracked metric keeps its ceiling's column whether or not it has one to print",
           card.contains("if named.contains(trend.metric), !trend.values.isEmpty {")
-              && card.contains("Text(verbatim: trend.peak.map { Self.peakMark + $0 } ?? \"\")"))
+              && card.contains("Text(verbatim: FootprintPeak.spelled(trend.peak))")
+              && FootprintPeak.spelled(nil).isEmpty)
+    // HOW A CEILING IS SPELLED, stated as a value rather than as a line of source. The arrow is the
+    // whole of what marks a figure as the ceiling rather than as the current reading.
+    check("…a ceiling being spelled with the arrow that marks it",
+          FootprintPeak.spelled("42%") == FootprintPeak.mark + "42%"
+              && FootprintPeak.mark == "\u{2191}")
+    // AND BOTH SURFACES ASK FOR IT rather than composing it. Under the default roller the `Text` is
+    // hidden and what a reader sees is the layers' copy of the string (`FigureRoller.layers`), so
+    // the figure handed to the motion is not a second-best spelling of that reading: it IS what is
+    // read, and written out twice the two drifted the day they were introduced - the motion was
+    // handed the bare number, so every ceiling on the board lost its arrow (codex review of
+    // 40054b3, where nine new assertions all stayed green).
+    check("…and the ceiling the layers draw is spelled by the very function the Text asks",
+          card.contains("Text(verbatim: FootprintPeak.spelled(trend.peak))")
+              && card.contains(".figureMotion(FootprintPeak.spelled(trend.peak), value: nil,")
+              && !card.contains("trend.peak.map {"))
     check("…and the widest cases are the ones a session actually reaches",
           FootprintTrendMetric.cpu.widestFigure == "100%"
               && FootprintTrendMetric.memory.widestFigure == "99.9 GB"
@@ -415,6 +431,24 @@ func runFootprintTrendSurfaceChecks() {
               && layers.contains("let start = geometry(before, grow: grow)")
               && layers.contains("let end = geometry(after)")
               && layers.contains("private func geometry(_ values: [Double], grow: Double = 1)"))
+    // AND THE ONE DOT THAT IS NOT ON THAT PAIR OF SERIES IS THE ONE FADING OUT. A window still
+    // filling is aligned by repeating its newest reading, which re-spaces every point at the NEW
+    // gap: the dot drawn at x=24 of a two point series is at x=12 of the three point one it is read
+    // as. The dot that TRAVELS has to start from that re-spaced point, being on an outline that
+    // starts there too; the stand-in is on no line at all and belongs where the reader last saw it,
+    // which is what its own prose already claimed (codex review of 36b653b).
+    check("…and the dot that fades out does so where it was actually standing",
+          layers.contains("let stood = peak.isHidden ? nil :"
+                          + " (peak.presentation()?.position ?? peak.position)\n        redraw()")
+              && layers.contains("crossfadePeak(from: stood)"))
+    // AND WHICH READING THE DOT IS ON IS NOT ITS INDEX. Every reading kept moves one place left on
+    // every tick of a full window (`FootprintTrendSeries.record`), so the pair is read raw - the
+    // alignment repeats a reading and puts the two oldest ends out of step - and told how far the
+    // window slid (codex review of 36b653b, where bare indices misjudged 84 of 120 rollovers).
+    check("…and whether it is the same reading is asked of the shift, not of the index",
+          layers.contains("let dropped = FootprintSparkline.dropped(from: previous, to: values)")
+              && layers.contains("FootprintSparkline.peakMotion(from: previous, to: values,"
+                                 + " dropped: dropped)"))
     // AND THE OUTLINE ONLY TRAVELS WHERE THE STYLE SAYS IT DOES. The styles that arrive whole put
     // their outline up in one step and announce the reading with a phase instead, which is the same
     // fork the shapes drew and is still the style's own answer (`MotionChoice.Lines`).
@@ -497,7 +531,17 @@ func runFootprintTrendSurfaceChecks() {
               && rolling.contains("if still {\n            for glyph in glyphs"
                                   + " { glyph.removeAllAnimations() }")
               && rolling.contains("for ghost in ghosts { ghost.removeAllAnimations();"
-                                  + " ghost.removeFromSuperlayer() }"))
+                                  + " ghost.removeFromSuperlayer() }")
+              // AND THE OUTLINE'S ARE CUT OFF THE SAME WAY, where the four pieces were not the
+              // whole of it: the scroll style slides their PARENT and a stand-in dot holds its own
+              // fade, and `removeAllAnimations` reaches one layer without recursing, so a reader
+              // who asked for stillness mid-slide got the rest of the slide and a dot fading on top
+              // of it anyway (codex review of 36b653b).
+              && layers.contains("for piece in [line, tail, peak, current]"
+                                 + " { piece.removeAllAnimations() }\n"
+                                 + "            plot.removeAllAnimations()")
+              && layers.contains("for ghost in ghosts { ghost.removeAllAnimations();"
+                                 + " ghost.removeFromSuperlayer() }"))
     // AND WHICH STYLES TRAVEL IS THE STYLE'S OWN ANSWER rather than a test by name where the line is
     // drawn, so one added here has to say which half it is in.
     check("…and whether the readings themselves move is asked of the style",
@@ -507,7 +551,8 @@ func runFootprintTrendSurfaceChecks() {
     // a rise that reads as a fall, so the layers are handed the quantity and the CHANGE is keyed on
     // the spelling - a CPU wandering between 9.1 and 9.4 per cent draws nothing at all.
     check("the digits roll in the direction the reading moved",
-          rolling.contains("let rising = (value ?? 0) >= (self.value ?? value ?? 0)")
+          rolling.contains("let rising = MotionChoice.rising(from: self.value, to: value)")
+              && motion.contains("let rising = MotionChoice.rising(from: previous, to: value)")
               && card.contains("let value: Double?")
               && card.contains("figure: figure, value: now,"))
     // AND THE ROLL IS THE RENDER SERVER'S, which is the whole of what this cost: a transition in
@@ -594,6 +639,28 @@ func runFootprintTrendSurfaceChecks() {
               // An empty position is the same as a missing one, which is how a launch asks for the
               // curve alone.
               && MotionChoice(",,smooth") == MotionChoice("roll,none,smooth"))
+    // WHICH WAY A READING MOVED, which is the one thing the spelling cannot supply and the one
+    // thing both styles that have a direction turn on. It was written out at each of them and could
+    // only be read as a string there, so reversing either left every assertion green (codex review
+    // of 40054b3): what is stated here is the rule itself.
+    check("a reading that went up rises, and one that went down falls",
+          MotionChoice.rising(from: 9.4, to: 10) && !MotionChoice.rising(from: 10, to: 9.4))
+    // 999 MB becoming 1.0 GB is a rise that reads as a fall, which is why the quantity is asked for
+    // at all: the spelling of these figures does not order them.
+    check("…the quantity deciding it rather than the spelling it arrives in",
+          MotionChoice.rising(from: 999_000_000, to: 1_000_000_000))
+    // There are two answers and no third one, so the cases with nothing to compare against have to
+    // land somewhere: a first reading has nothing to have fallen from, and one that did not move
+    // has not fallen either.
+    check("…a first reading rising, having nothing behind it",
+          MotionChoice.rising(from: nil, to: 42) && MotionChoice.rising(from: nil, to: nil))
+    check("…and a reading that did not move rising too",
+          MotionChoice.rising(from: 42, to: 42))
+    // A metric that stops being stateable turns downward, which is the one case where the direction
+    // carries no meaning: it is a figure going quiet rather than a reading that fell.
+    check("…while a metric this tick could not state turns down rather than up",
+          !MotionChoice.rising(from: 5, to: nil) && MotionChoice.rising(from: nil, to: 0))
+
     // AND `none` ON ITS OWN IS THE BASELINE, both axes off: the state the cost of the motion is
     // measured against, rather than a figures style with the line left running.
     check("…and none on its own being every motion off",

@@ -643,7 +643,7 @@ func runFootprintTrendSurfaceChecks() {
               && MotionChoice("fade").curve == MotionChoice(nil).curve
               // An empty position is the same as a missing one, which is how a launch asks for the
               // curve alone.
-              && MotionChoice(",,smooth") == MotionChoice("roll,none,smooth"))
+              && MotionChoice(",,smooth") == MotionChoice("roll,grow,smooth"))
     // WHICH WAY A READING MOVED, which is the one thing the spelling cannot supply and the one
     // thing both styles that have a direction turn on. It was written out at each of them and could
     // only be read as a string there, so reversing either left every assertion green (codex review
@@ -671,14 +671,16 @@ func runFootprintTrendSurfaceChecks() {
     check("…and none on its own being every motion off",
           MotionChoice("none").figures == .plain && MotionChoice("none").lines == .plain
               && MotionChoice("none") == MotionChoice("none,none"))
-    // THE FIGURES ARE THE ONES CHOSEN BY LOOKING (Albert, 2026-09-03, sample N3) AND THE LINE DOES
-    // NOT MOVE, which is a price rather than a preference: a moving outline costs the whole panel a
-    // layout pass per frame, measured at 70.6% of a core against 27.3% with the digits alone
-    // (2026-09-03; `MotionChoice.lines` carries the readings). Written out here rather than read off
+    // BOTH AXES ARE THE ONES CHOSEN BY LOOKING: rolling digits on the bouncy curve (Albert,
+    // 2026-09-03, sample N3) and a growing line (Albert, 2026-09-04). The line was still while it
+    // was a price - a moving outline cost the whole panel a layout pass per frame, 70.6% of a core
+    // against 27.3% with the digits alone - and it stopped being one when the motion moved into the
+    // render server, where the same board measured 14.8% still against 14.7% growing
+    // (`FootprintSparklineLayerView`, `MotionChoice.lines`). Written out here rather than read off
     // the type: an edit that changes what an ordinary launch does has to change this line too.
-    check("…and an absent flag being the figures that were picked, on a still line",
+    check("…and an absent flag being the two styles that were picked, line included",
           MotionChoice(nil) == MotionChoice("")
-              && MotionChoice(nil) == MotionChoice("roll,none,bouncy"))
+              && MotionChoice(nil) == MotionChoice("roll,grow,bouncy"))
     check("…with every style the samples window offers reachable through it",
           MotionChoice.Figures.allCases.allSatisfy { MotionChoice($0.rawValue).figures == $0 }
               && MotionChoice.Lines.allCases.allSatisfy { MotionChoice(",\($0.rawValue)").lines == $0 }

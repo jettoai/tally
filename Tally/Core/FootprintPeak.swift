@@ -37,6 +37,14 @@ extension FootprintSparkline {
     /// between two unrelated readings that would read as motion rather than as a dot cutting across
     /// the figure (codex review of c99f4a6, where the dot tweened `position` between two peaks that
     /// were not the same reading).
+    ///
+    /// THE LIVE TAIL IS ONE POINT BEING UPDATED, NOT TWO READINGS. The reading on the end of a
+    /// drawn series is this instant's own and is never kept (`drawn`), so the tick that replaces it
+    /// with this instant's is the SAME point moving rather than a different reading taking the
+    /// ceiling. A peak sitting on that tail therefore slides with the line's end (`.move`), which
+    /// is the answer this rule already gives and the one the growing line made visible
+    /// (`MotionChoice.lines`, default `grow` since 2026-09-04): a crossfade there would fade a
+    /// ghost dot out at an end the line no longer has while fading an identical one in beside it.
     enum PeakMotion: Equatable {
         /// The peak is the same reading in both series: slide the dot from where it was.
         case move

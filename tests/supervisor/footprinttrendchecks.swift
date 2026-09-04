@@ -349,6 +349,13 @@ func runFootprintTrendChecks() {
           FootprintSparkline.peakMotion(from: [4, 4, 4], to: [1, 9, 3]) == .crossfade)
     check("…and fades out when the peak goes flat",
           FootprintSparkline.peakMotion(from: [1, 9, 3], to: [4, 4, 4]) == .crossfade)
+    // THE LIVE TAIL IS ONE POINT BEING UPDATED, which is the case the growing line made visible
+    // (`MotionChoice.lines`, default `grow` since 2026-09-04): the reading on the end is this
+    // instant's own and is never kept (`drawn`), so a tick that replaces it with the next instant's
+    // moves the SAME point rather than handing the ceiling to a different reading. The dot slides
+    // with the line's end; a crossfade would fade a ghost out at an end the line no longer has.
+    check("a peak sitting on the live tail slides with the line's end when the tail is updated",
+          FootprintSparkline.peakMotion(from: [1, 2, 3], to: [1, 2, 4], shifted: 0) == .move)
 
     // AND AN INDEX IS NOT A READING, which is what a FULL window makes of that distinction: the
     // ring appends until it is at capacity and drops its oldest reading on every tick after that

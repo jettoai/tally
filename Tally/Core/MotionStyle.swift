@@ -80,7 +80,7 @@ struct MotionChoice: Equatable {
     /// every combination was put on one screen under one clock and this is the one that came back
     /// (Albert, 2026-09-03, sample N3). Rolling digits on the bouncy curve.
     ///
-    /// THE LINE DOES NOT MOVE, AND IT IS NOW A PREFERENCE RATHER THAN A PRICE. It was a price: L6
+    /// WHETHER THE LINE MOVES IS A PREFERENCE RATHER THAN A PRICE, and it was a price once: L6
     /// was picked at the same sitting and could not be afforded, a minute of CPU time per state on
     /// a nine card board putting the growing line at 41.6% of one core against 20.8% with nothing
     /// moving. The reason was never this app's arithmetic. Any continuous motion in the VIEW TREE
@@ -101,16 +101,18 @@ struct MotionChoice: Equatable {
     /// rolling alone, 51.2% with both axes, against 14.8% still. Which is the same shape of cost the
     /// line had, for the same reason, and it is the one this row has left.
     ///
-    /// SO WHICH STYLE THE LINE RUNS IS A QUESTION ABOUT HOW IT SHOULD LOOK AGAIN, and the default
-    /// stays `none` until it is answered by looking rather than by arithmetic (Albert, to decide;
-    /// `-TallyMotion` still reaches every combination, and the samples window puts them on one
-    /// clock).
+    /// SO WHICH STYLE THE LINE RUNS WAS A QUESTION ABOUT HOW IT SHOULD LOOK AGAIN, AND IT WAS
+    /// ANSWERED BY LOOKING RATHER THAN BY ARITHMETIC: the line grows (Albert, 2026-09-04). The
+    /// arithmetic above has nothing left to say about this choice, the motion being the render
+    /// server's and costing this process nothing, so the default is the one that was preferred on
+    /// screen (`-TallyMotion` still reaches every combination, and the samples window still puts
+    /// them on one clock).
     ///
     /// THE STYLES ALL STAY, and that is deliberate rather than leftover: they are what the samples
     /// window is for, the flag still reaches every one of them, and the question they answer comes
     /// back every time this row changes. What changed is which of them an ordinary launch runs.
     var figures: Figures = .roll
-    var lines: Lines = .plain
+    var lines: Lines = .grow
     var curve: Curve = .bouncy
 
     /// WHICH WAY A READING MOVED, which is what the two styles that have a direction turn on

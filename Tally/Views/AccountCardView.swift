@@ -190,7 +190,7 @@ struct AccountCardView: View {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
                     .foregroundStyle(TallyColor.warning)
-                    .tallyTooltip(usage.error ?? "")
+                    .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
             }
             Spacer()
             // Launch affordances live at the TRAILING edge so the identity (name · plan) never
@@ -288,10 +288,14 @@ struct AccountCardView: View {
 
     private var errorRow: some View {
         HStack(alignment: .top, spacing: 8) {
+            // The line stays the app's own short sentence and the REASON hovers: a vendor's error
+            // is written for a log, and one of them in this row would set the card's width from
+            // outside the app (`AccountUsage.errorDetail`, `CodexProvider.detail`).
             Label(usage.error ?? "", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(TallyColor.warning)
                 .fixedSize(horizontal: false, vertical: true)
+                .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
             Spacer(minLength: 4)
             Button(L("Retry")) {
                 Task { await UsageStore.shared.refresh(userInitiated: true) }

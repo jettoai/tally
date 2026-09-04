@@ -29,10 +29,13 @@ let good = AccountUsage(id: "A", providerID: "claude", accountLabel: "Claude",
                         planName: "Max 20x", accountEmail: "a@example.com",
                         metrics: [window], refreshedAt: fetched)
 /// The same account's failing round: providers return the failure rather than throwing, so it
-/// arrives with no metrics at all and an error string.
+/// arrives with no metrics at all and an error string. It carries a REASON as well, the way a
+/// provider that could tell one does: the short line is the app's own and the detail is why
+/// (`CodexProvider.detail`, where a vendor's 404 becomes the second half of a hover).
 let failure = AccountUsage.failure(account: ProviderAccount(id: "A", providerID: "claude",
                                                             label: "Claude", locator: [:]),
-                                   providerID: "claude", message: "network down")
+                                   providerID: "claude", message: "network down",
+                                   errorDetail: "Codex app-server said: 404 Not Found")
 
 func fold(_ usage: AccountUsage, previous: AccountUsage?, streak: Int) -> AccountUsage {
     foldLastGood(usage, previous: previous, failureStreak: streak, staleAfterFailures: 2)
@@ -55,15 +58,26 @@ check("a first failure keeps the last-good numbers", first.metrics.first?.remain
 check("…and says the latest refresh failed, with no debounce at all", first.lastRefreshFailed)
 check("…while the badge has not moved", !first.isStale)
 check("…nor the tooltip behind it", first.error == nil)
+// The callout has two halves and the debounce holds BOTH: a reason arriving one round before the
+// badge that is supposed to carry it would be a tooltip on nothing.
+check("…nor the reason under it", first.errorDetail == nil && first.errorDetail == fresh.errorDetail)
 check("…so the card is unchanged, which is what the debounce is for",
       first.isStale == fresh.isStale && first.error == fresh.error
-          && first.metrics == fresh.metrics)
+          && first.errorDetail == fresh.errorDetail && first.metrics == fresh.metrics)
 
 // MARK: - The second failure: now the person is told too
 
 let second = fold(failure, previous: first, streak: 2)
 check("a sustained failure raises the badge", second.isStale)
 check("…with the reason behind it", second.error == "network down")
+// AND WITH THE WHY UNDER THE REASON, which is the half a provider fills in and the half this fold
+// used to drop. An account with numbers behind it is folded through HERE on every failing round,
+// so carrying only the short line left the last GOOD round's detail standing (nil), and a reason
+// the provider had gone to the trouble of establishing was visible on no card that had ever
+// loaded: the commonest path there is, and the one 2026-09-03's Codex 404 actually took.
+check("…and the why under the reason, carried off the failing round rather than the good one",
+      second.errorDetail == "Codex app-server said: 404 Not Found"
+          && second.errorDetail == failure.errorDetail && fresh.errorDetail == nil)
 check("…and the flag is still set, rather than handed over to the badge",
       second.lastRefreshFailed)
 

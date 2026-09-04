@@ -123,13 +123,26 @@ struct AccountListRowView: View {
     /// (`AccountFacts.showsStaleMark`), so this row never lights two triangles that mean one thing.
     /// A renewal merely running does not suppress it, for the reason spelled out there. Asked of the
     /// facts rather than spelled out here, so the card answers it identically.
+    ///
+    /// What the stale mark says under the account's name: the failure's short line and the reason
+    /// under it, as the two lines they are. Empty where the round said nothing at all, which is
+    /// the one word the mark itself means.
+    private var staleDetail: String {
+        let said = [usage.error, usage.errorDetail].compactMap { $0 }.joined(separator: "\n")
+        return said.isEmpty ? L("Outdated") : said
+    }
+
     @ViewBuilder
     private var usageMarks: some View {
         if facts.showsStaleMark {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 9))
                 .foregroundStyle(TallyColor.warning)
-                .tallyTooltip(facts.markOwner, detail: usage.error ?? L("Outdated"))
+                // Both halves of the callout, the card's rule at this width: the short line and
+                // the reason under it are one answer, and the callout splits an embedded newline
+                // into its own lines. Nothing to say at all falls back to the one word the mark
+                // itself means (`AccountUsage.errorDetail`).
+                .tallyTooltip(facts.markOwner, detail: staleDetail)
                 .accessibilityLabel(L("Outdated"))
         }
         if let outcome = redeemOutcome {
@@ -278,9 +291,12 @@ struct AccountListRowView: View {
     /// none of.
     private var errorTail: some View {
         HStack(spacing: 6) {
+            // One line at this width, so the callout is where the whole sentence lives, reason
+            // included: the compact row folds every other word it cannot fit into one too.
             Text(usage.error ?? "")
                 .foregroundStyle(TallyColor.warning)
                 .lineLimit(1)
+                .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
             Button(L("Retry")) {
                 Task { await UsageStore.shared.refresh(userInitiated: true) }
             }

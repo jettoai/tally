@@ -82,6 +82,71 @@ let credentialShape = line([
 check("the login record is not a place this reader looks",
       CodexIdentity.email(inAccountRead: credentialShape) == nil)
 
+// MARK: - Why a read came home without numbers (CodexReadFailure)
+
+// THREE FAILURES USED TO WEAR ONE COAT. "Codex CLI read failed" was the whole of what a card said
+// whether the vendor had answered with an error of its own (OpenAI's endpoint answered 404 through
+// the app-server on 2026-09-03), an answer had arrived in a shape nobody could read, or nothing had
+// arrived at all - three different things to go and check, under one sentence that named none of
+// them. The classification is asked of the line that came back, so it can be stated here.
+
+func rpcError(_ error: Any) -> Data {
+    line(["jsonrpc": "2.0", "id": 2, "error": error])
+}
+func resultLine(_ result: Any) -> Data {
+    line(["jsonrpc": "2.0", "id": 2, "result": result])
+}
+
+check("an error answer is the server's own words",
+      CodexReadFailure.of(limitsLine: rpcError(["code": -32000, "message": "404 Not Found"]),
+                          processDied: false, timeout: 20) == .serverSaid("404 Not Found"))
+// The fixture is a whole response line rather than the error object alone: one stripped down to
+// the payload would let the check pass while testing nothing (the same guard the identity fixtures
+// above carry).
+check("…out of a whole response line, envelope and all",
+      String(data: rpcError(["message": "404 Not Found"]), encoding: .utf8)!.contains("\"jsonrpc\""))
+// A message written for a log arrives with a newline on it as often as not, and the callout puts
+// it beside a sentence.
+check("…trimmed of the whitespace a logged message arrives with",
+      CodexReadFailure.of(limitsLine: rpcError(["message": "  upstream 404\n"]),
+                          processDied: false, timeout: 20) == .serverSaid("upstream 404"))
+// One that runs on is cut, because the callout is anchored to a panel and a stack trace would push
+// it off the screen. What a reader needs is at the front: which system is complaining.
+let longMessage = String(repeating: "x", count: CodexReadFailure.messageLimit + 40)
+check("…and capped where the server wrote a paragraph",
+      CodexReadFailure.of(limitsLine: rpcError(["message": longMessage]),
+                          processDied: false, timeout: 20)
+          == .serverSaid(String(repeating: "x", count: CodexReadFailure.messageLimit) + "\u{2026}"))
+
+// ANYTHING ELSE THAT CAME BACK is a shape nobody could read. This is only ever asked once the
+// decode the reader needs has already failed, so a result here is by construction one this app
+// could not use.
+check("an answer this app cannot read is a shape rather than a quotation",
+      CodexReadFailure.of(limitsLine: resultLine(["somethingElse": true]),
+                          processDied: false, timeout: 20) == .unreadableAnswer)
+check("…as is an error object with nothing to say, which is not the server's words",
+      CodexReadFailure.of(limitsLine: rpcError(["code": -32000]),
+                          processDied: false, timeout: 20) == .unreadableAnswer
+          && CodexReadFailure.of(limitsLine: rpcError(["message": "   "]),
+                                 processDied: false, timeout: 20) == .unreadableAnswer)
+check("…and a line that is not JSON at all",
+      CodexReadFailure.of(limitsLine: Data("not json at all".utf8),
+                          processDied: false, timeout: 20) == .unreadableAnswer)
+// A codex that answers "404" and then quits has still told the reader more than its exit did, so
+// the words survive the process.
+check("…while a line that came back is read even if the process then exited",
+      CodexReadFailure.of(limitsLine: rpcError(["message": "404 Not Found"]),
+                          processDied: true, timeout: 20) == .serverSaid("404 Not Found"))
+
+// NOTHING CAME BACK, and the two reasons for that are not one: an app-server still running has
+// gone quiet, and one that died is a broken CLI the caller already has its own word for.
+check("no answer from a running app-server is a silence, and it says how long",
+      CodexReadFailure.of(limitsLine: nil, processDied: false, timeout: 20) == .silent(seconds: 20)
+          && CodexReadFailure.of(limitsLine: nil, processDied: false, timeout: 7.6)
+              == .silent(seconds: 8))
+check("…and a process that died is not this question at all",
+      CodexReadFailure.of(limitsLine: nil, processDied: true, timeout: 20) == nil)
+
 // …and the same promise one level up, where a fixture cannot reach: no file in the Codex provider
 // OPENS that record. The app said in three places that it never does while one of them read the
 // whole thing (codex review, 2026-08-04), so the claim is a check now rather than a comment. Every
@@ -90,7 +155,7 @@ func source(_ name: String) -> String {
     (try? String(contentsOfFile: "Tally/Providers/Codex/\(name)", encoding: .utf8)) ?? ""
 }
 let codexFiles = ["CodexIdentity.swift", "CodexProvider.swift", "CodexAppServerClient.swift",
-                  "CodexAccounts.swift"]
+                  "CodexAccounts.swift", "CodexReadFailure.swift"]
 let codexSources = codexFiles.map(source)
 check("every file in the Codex provider was found to read",
       codexSources.allSatisfy { !$0.isEmpty })
@@ -109,6 +174,14 @@ check("discovery still checks that the record EXISTS, which is what makes a home
 check("identity is asked of the app-server instead",
       source("CodexAppServerClient.swift").contains(#""method":"account/read""#)
           && source("CodexAppServerClient.swift").contains("CodexIdentity.email(inAccountRead:)"))
+
+// AND THE ROW'S OWN SENTENCE IS THE ONE THE APP WROTE, whatever the vendor said: the reason rides
+// in the hover callout, so no message this app did not write can set a card's width. Only readable
+// as source, the two being a view and a provider away from any harness.
+check("the card keeps its own short line and hovers the reason",
+      source("CodexProvider.swift").contains(#"failed(L("Codex CLI read failed"), detail:"#)
+          && ((try? String(contentsOfFile: "Tally/Views/AccountCardView.swift", encoding: .utf8))
+              ?? "").contains(#".tallyTooltip(usage.error ?? "", detail: usage.errorDetail)"#))
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

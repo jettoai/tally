@@ -430,10 +430,17 @@ expect(rowUsageMarks.contains("if facts.showsStaleMark {") && !rowUsageMarks.con
 // A glyph in a list of eight rows cannot say "this account" and be understood, so each callout
 // names the login it belongs to on its FIRST line and qualifies it on the second - the two-line
 // shape every other callout in the panel already has, rather than one prefixed sentence.
-expect(rowUsageMarks.contains("tallyTooltip(facts.markOwner, detail: usage.error ?? L(\"Outdated\"))")
+expect(rowUsageMarks.contains("tallyTooltip(facts.markOwner, detail: staleDetail)")
         && rowLoginMarks.contains("tallyTooltipAroundControl(")
         && rowLoginMarks.contains("facts.markOwner,"),
        "both of the row's marks name their account on the callout's first line")
+// …and what qualifies it is BOTH halves of the failure, the card's rule at this width: the short
+// line and the reason under it, which a provider fills in separately (`AccountUsage.errorDetail`).
+// The one word the mark itself means is the fallback rather than the answer, so a round that did
+// say why is never reduced to it.
+expect(rowSource.contains("[usage.error, usage.errorDetail].compactMap { $0 }.joined(separator: \"\\n\")")
+        && rowSource.contains("said.isEmpty ? L(\"Outdated\") : said"),
+       "…and the stale one qualifies it with the reason and the why, falling back to the one word")
 expect(factsSource.contains("var markOwner: String { identityEmail.isEmpty ? label : identityEmail }"),
        "…by the signed-in address where there is one, and the row's own name otherwise")
 // AND THE EXPIRY SAYS WHAT PRESSING IT DOES. The card writes "Login expired" on a chip; the row

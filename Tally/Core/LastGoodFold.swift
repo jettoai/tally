@@ -65,7 +65,14 @@ func foldLastGood(_ usage: AccountUsage, previous: AccountUsage?, failureStreak 
     previous.pollsKeepFailing = sustained
     if sustained {
         previous.isStale = true
-        previous.error = usage.error  // reason, shown as an "Outdated" tooltip
+        // The reason, shown as an "Outdated" tooltip. BOTH HALVES OF IT: the short line the badge
+        // hovers and the longer WHY under it travel together or the second one never arrives on
+        // the commonest path there is. An account with numbers behind it that starts failing is
+        // folded here on every round, so a fold that carried only `error` would leave the last
+        // GOOD round's `errorDetail` standing, which is nil, and the provider's reason would be
+        // visible on no card that had ever loaded (`AccountUsage.errorDetail`, `CodexProvider`).
+        previous.error = usage.error
+        previous.errorDetail = usage.errorDetail
     }
     return previous
 }

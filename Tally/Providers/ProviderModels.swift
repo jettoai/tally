@@ -104,6 +104,11 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     var metrics: [UsageMetric]
     var refreshedAt: Date
     var error: String?
+    /// WHY, WHERE THE PROVIDER COULD TELL, for the hover callout under the same triangle. `error`
+    /// is the line the card DRAWS and its width is the card's, so a vendor's own sentence must not
+    /// land in it; this is the half a reader asks for by hovering, and it is nil wherever the
+    /// failure was already its own explanation (`CodexProvider.detail`).
+    var errorDetail: String?
     /// True when these metrics are the last-good snapshot shown because the latest refresh failed.
     /// `error` then carries the reason (for a tooltip) while the numbers stay visible.
     ///
@@ -143,10 +148,11 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// reads plan and email from a local config file), so a card that never fetched still names its
     /// account and a re-signed-in dir corrects itself while showing last-good numbers.
     static func failure(account: ProviderAccount, providerID: String, message: String,
-                        planName: String? = nil, accountEmail: String? = nil) -> AccountUsage {
+                        planName: String? = nil, accountEmail: String? = nil,
+                        errorDetail: String? = nil) -> AccountUsage {
         AccountUsage(id: account.id, providerID: providerID, accountLabel: account.label,
                      planName: planName, accountEmail: accountEmail,
-                     metrics: [], refreshedAt: Date(), error: message)
+                     metrics: [], refreshedAt: Date(), error: message, errorDetail: errorDetail)
     }
 }
 

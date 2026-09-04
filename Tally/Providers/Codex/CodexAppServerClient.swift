@@ -55,10 +55,15 @@ enum CodexAppServerClient {
     /// Distinguishes the failure the user can act on: `cliBroken` means the app-server process
     /// died before answering (a codex too old to know `app-server`, or one that crashes on
     /// launch), where "read failed" would send the user chasing network or login ghosts.
+    ///
+    /// A read that failed CARRIES WHY where it could tell, for the same reason: the vendor
+    /// answering the usage request with an error of its own is not this app being broken, and
+    /// three failures under one word left nothing to act on either (`CodexReadFailure`). Nil where
+    /// this path could not tell, which no surface treats as a fourth kind.
     enum Outcome {
         case ok(Reading)
         case cliBroken
-        case failed
+        case failed(CodexReadFailure?)
     }
 
     /// What one read came home with. Identity sits BESIDE the outcome rather than inside `Reading`
@@ -71,7 +76,7 @@ enum CodexAppServerClient {
     }
 
     static func read(codexHome: String, timeout: TimeInterval = 20) async -> Answer {
-        guard let binary = CLIRunner.resolve("codex") else { return Answer(outcome: .failed) }
+        guard let binary = CLIRunner.resolve("codex") else { return Answer(outcome: .failed(nil)) }
         let attempt: Exchange = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: readExchange(binary: binary, codexHome: codexHome,
@@ -82,11 +87,17 @@ enum CodexAppServerClient {
         func answer(_ outcome: Outcome) -> Answer {
             Answer(outcome: outcome, accountEmail: email)
         }
+        // Asked only where the read has already failed: classifying it reads the line again, and a
+        // poll that WORKED must not pay for a question about failure (`CodexReadFailure`).
+        func why() -> CodexReadFailure? {
+            CodexReadFailure.of(limitsLine: attempt.limits, processDied: attempt.processDied,
+                                timeout: timeout)
+        }
         guard let raw = attempt.limits else {
-            return answer(attempt.processDied ? .cliBroken : .failed)
+            return answer(attempt.processDied ? .cliBroken : .failed(why()))
         }
         guard let line = try? JSONDecoder().decode(RPCLine.self, from: raw),
-              let limits = line.result?.rateLimits else { return answer(.failed) }
+              let limits = line.result?.rateLimits else { return answer(.failed(why())) }
 
         var metrics: [UsageMetric] = []
         for window in [limits.primary, limits.secondary].compactMap({ $0 }) {

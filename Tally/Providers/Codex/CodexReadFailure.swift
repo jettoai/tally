@@ -53,10 +53,17 @@ enum CodexReadFailure: Equatable {
         return .unreadableAnswer
     }
 
-    /// The `error.message` of a JSON-RPC answer, trimmed and capped, or nil for anything else: a
-    /// result this app could not read, an error object carrying no message, a line that is not
-    /// JSON at all. An error with nothing to say is not the server's words, so it reads as a shape
-    /// nobody could read rather than as an empty quotation.
+    /// The `error.message` of a JSON-RPC answer, folded onto one line and capped, or nil for
+    /// anything else: a result this app could not read, an error object carrying no message, a line
+    /// that is not JSON at all. An error with nothing to say is not the server's words, so it reads
+    /// as a shape nobody could read rather than as an empty quotation, and a message that is
+    /// nothing but whitespace has nothing to say either.
+    ///
+    /// FOLDED BECAUSE THE CALLOUT SPENDS A ROW ON EVERY LINE BREAK. The server writes for a log,
+    /// where a stack trace or a multi-line HTTP error is ordinary, while `tallyTooltip` renders
+    /// each `\n` as a row of its own and the callout has no ceiling: 160 characters arriving as
+    /// forty lines would overflow the very panel the cap is there to protect. Every run of
+    /// whitespace becomes one space, which is also what trims the ends.
     ///
     /// Read with `JSONSerialization` rather than a `Decodable` shape, the same way the redeem flow
     /// reads its own outcome line: what is wanted here is one string out of an envelope whose
@@ -65,9 +72,9 @@ enum CodexReadFailure: Equatable {
         guard let root = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let error = root["error"] as? [String: Any],
               let message = error["message"] as? String else { return nil }
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed.count > messageLimit ? String(trimmed.prefix(messageLimit)) + "\u{2026}"
-                                            : trimmed
+        let folded = message.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !folded.isEmpty else { return nil }
+        return folded.count > messageLimit ? String(folded.prefix(messageLimit)) + "\u{2026}"
+                                           : folded
     }
 }

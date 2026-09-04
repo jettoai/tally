@@ -110,6 +110,14 @@ check("…out of a whole response line, envelope and all",
 check("…trimmed of the whitespace a logged message arrives with",
       CodexReadFailure.of(limitsLine: rpcError(["message": "  upstream 404\n"]),
                           processDied: false, timeout: 20) == .serverSaid("upstream 404"))
+// A logged message breaks its own lines, and the callout spends a row on every one of them: a
+// stack trace under the cap would still be forty rows tall on a panel with no ceiling. So the
+// breaks come home as spaces, and a run of them as one.
+let brokenMessage = "upstream 404\nGET /usage\r\n\tretry: 3   soon"
+check("…and folded onto one line, however the log broke it",
+      CodexReadFailure.of(limitsLine: rpcError(["message": brokenMessage]),
+                          processDied: false, timeout: 20)
+          == .serverSaid("upstream 404 GET /usage retry: 3 soon"))
 // One that runs on is cut, because the callout is anchored to a panel and a stack trace would push
 // it off the screen. What a reader needs is at the front: which system is complaining.
 let longMessage = String(repeating: "x", count: CodexReadFailure.messageLimit + 40)
@@ -129,6 +137,11 @@ check("…as is an error object with nothing to say, which is not the server's w
                           processDied: false, timeout: 20) == .unreadableAnswer
           && CodexReadFailure.of(limitsLine: rpcError(["message": "   "]),
                                  processDied: false, timeout: 20) == .unreadableAnswer)
+// Whitespace is nothing to say whichever keys wrote it: a message of blank lines and tabs folds
+// down to an empty quotation, which is not the server's words either.
+check("…including one written entirely in line breaks and tabs",
+      CodexReadFailure.of(limitsLine: rpcError(["message": "\n\r\n \t\n  "]),
+                          processDied: false, timeout: 20) == .unreadableAnswer)
 check("…and a line that is not JSON at all",
       CodexReadFailure.of(limitsLine: Data("not json at all".utf8),
                           processDied: false, timeout: 20) == .unreadableAnswer)

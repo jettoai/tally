@@ -230,13 +230,25 @@ final class FootprintSparklineLayerHost: NSView {
     /// figure interrupted mid-flight by the next reading lands on the newer one.
     private func announce(from previous: [Double], to values: [Double], shifted: Int) {
         let curve = lineStyle == .bounce ? MotionChoice.Curve.bouncy : CardMotion.chosen.curve
+        // WHICH READING THE CEILING IS ON IS ASKED OF THE PAIR THAT ARRIVED, once, here, rather
+        // than of the pair a style hands the geometry: `grow` replaces the outline whole and
+        // travels between the new series and ITSELF, so asked of THAT pair the rule could only
+        // ever answer `.move`, and a peak the live tail overtook slid across the figure instead of
+        // fading out where it stood (codex review of 9e3b89d, `[10, 1, 1]` to `[10, 1, 11]`).
+        //
+        // ASKED OF THE RAW SERIES rather than of an aligned pair (padding repeats a reading, and a
+        // repeated reading is not a slid one), and TOLD how far the window slid rather than
+        // reading it off the values: the drawn series ends in a live reading the ring never keeps,
+        // so two of them never overlap, and the first version that looked for that overlap faded
+        // every peak under a moving line (codex review of c2a932d).
+        let ceiling = FootprintSparkline.peakMotion(from: previous, to: values, shifted: shifted)
         switch lineStyle {
         case .plain:
             redraw()
         case .morph, .bounce:
-            travel(from: previous, to: values, shifted: shifted, curve: curve)
+            travel(from: previous, to: values, curve: curve, ceiling: ceiling)
         case .comet:
-            travel(from: previous, to: values, shifted: shifted, curve: curve)
+            travel(from: previous, to: values, curve: curve, ceiling: ceiling)
             // The newest segment, overdrawn in the reading's own bright colour and fading back into
             // the line over rather longer than the outline itself takes: the fade is what is being
             // read, and at a quarter of a second it is a flicker.
@@ -261,8 +273,10 @@ final class FootprintSparklineLayerHost: NSView {
             // The outline is replaced except for its newest segment, which is drawn from the point
             // before it to where the reading now is. The dot rides that segment: it is the same
             // point, and a dot that jumped ahead of it would be the defect the shapes were built to
-            // rule out.
-            travel(from: values, to: values, shifted: 0, curve: curve, grow: 0)
+            // rule out. THE PAIR IS THE NEW SERIES TWICE OVER, which is a fact about the geometry
+            // and about nothing else: what the ceiling's dot does is decided above, off the two
+            // readings this pair is not.
+            travel(from: values, to: values, curve: curve, grow: 0, ceiling: ceiling)
         }
     }
 
@@ -272,10 +286,15 @@ final class FootprintSparklineLayerHost: NSView {
     /// `.aligned`): a window still filling gains a point at its newest end, and Core Animation
     /// needs the two paths to have the same number of points to travel between them at all.
     ///
-    /// - Parameter shifted: how far the window slid between the two, told by the series
-    ///   (`apply`); the shape cannot read it off its own readings.
-    private func travel(from previous: [Double], to values: [Double], shifted: Int,
-                        curve: MotionChoice.Curve, grow: Double = 1) {
+    /// THE PAIR PASSED HERE IS THE GEOMETRY'S, NOT THE READINGS'. A style may travel between a pair
+    /// of its own making (`announce`, `.grow`), and there is no shift to be told here because
+    /// nothing left here would answer one.
+    ///
+    /// - Parameter ceiling: what the peak's dot does between the two READINGS, decided where those
+    ///   are known (`announce`, `peakMotion`).
+    private func travel(from previous: [Double], to values: [Double],
+                        curve: MotionChoice.Curve, grow: Double = 1,
+                        ceiling: FootprintSparkline.PeakMotion) {
         let (before, after) = FootprintSparkline.aligned(previous, values)
         guard after.count == values.count else { redraw(); return }
         // WHERE THE DOT IS ACTUALLY STANDING, read before `redraw()` moves it, and off the
@@ -294,12 +313,9 @@ final class FootprintSparklineLayerHost: NSView {
         if lineStyle == .comet {
             tail.add(spring(curve, keyPath: "path", from: start.tail, to: end.tail), forKey: "tail")
         }
-        // ASKED OF THE RAW SERIES rather than of the aligned pair (padding repeats a reading, and
-        // a repeated reading is not a slid one), and TOLD how far the window slid rather than
-        // reading it off the values: the drawn series ends in a live reading the ring never keeps,
-        // so two of them never overlap, and the first version that looked for that overlap faded
-        // every peak under a moving line (codex review of c2a932d).
-        switch FootprintSparkline.peakMotion(from: previous, to: values, shifted: shifted) {
+        // The dot that TRAVELS moves between this pair's own points, which is what keeps it on the
+        // line; whether it is the same reading in both was answered off the readings (`announce`).
+        switch ceiling {
         case .move:
             if let from = start.peak, let to = end.peak { slide(peak, curve, from, to) }
         case .crossfade:

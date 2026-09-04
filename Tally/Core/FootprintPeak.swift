@@ -38,13 +38,22 @@ extension FootprintSparkline {
     /// the figure (codex review of c99f4a6, where the dot tweened `position` between two peaks that
     /// were not the same reading).
     ///
-    /// THE LIVE TAIL IS ONE POINT BEING UPDATED, NOT TWO READINGS. The reading on the end of a
-    /// drawn series is this instant's own and is never kept (`drawn`), so the tick that replaces it
-    /// with this instant's is the SAME point moving rather than a different reading taking the
-    /// ceiling. A peak sitting on that tail therefore slides with the line's end (`.move`), which
-    /// is the answer this rule already gives and the one the growing line made visible
-    /// (`MotionChoice.lines`, default `grow` since 2026-09-04): a crossfade there would fade a
-    /// ghost dot out at an end the line no longer has while fading an identical one in beside it.
+    /// THE LIVE TAIL IS ONE POINT BEING UPDATED, NOT TWO READINGS, ON A TICK THAT KEEPS NOTHING.
+    /// The reading on the end of a drawn series is this instant's own and is never kept (`drawn`),
+    /// so a tick that only redraws that end moves the SAME point rather than handing the ceiling to
+    /// a different reading: a peak sitting there slides with the line's end (`.move`), which is
+    /// what the growing line made visible (`MotionChoice.lines`, default `grow` since 2026-09-04),
+    /// a crossfade there fading a ghost dot out at an end the line no longer has while fading an
+    /// identical one in beside it.
+    ///
+    /// A TICK THAT KEEPS ONE IS TWO READINGS AGAIN, and this rule is already told which kind it is
+    /// (`shifted`): the tail the reader was looking at becomes a kept reading and a new live one is
+    /// drawn after it, so both of the answers it gives there are about two readings and both are
+    /// right. A new tail that is HIGHER takes the ceiling, being a reading the old peak never was,
+    /// and the dot fades across (`[1, 2, 3]` to `[2, 3, 4]`, shifted by one). A new tail that is
+    /// LOWER leaves the ceiling on the reading just kept, one place further in, and the dot slides
+    /// to it (`[1, 2, 5]` to `[2, 5, 3]`) - which is a slide because of the shift and not because
+    /// of the index, the distinction the paragraph below is entirely about.
     enum PeakMotion: Equatable {
         /// The peak is the same reading in both series: slide the dot from where it was.
         case move

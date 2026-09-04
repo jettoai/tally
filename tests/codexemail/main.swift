@@ -139,8 +139,14 @@ check("…as is an error object with nothing to say, which is not the server's w
                                  processDied: false, timeout: 20) == .unreadableAnswer)
 // Whitespace is nothing to say whichever keys wrote it: a message of blank lines and tabs folds
 // down to an empty quotation, which is not the server's words either.
-check("…including one written entirely in line breaks and tabs",
-      CodexReadFailure.of(limitsLine: rpcError(["message": "\n\r\n \t\n  "]),
+//
+// AND THE ZERO WIDTH SPACE IS IN THAT SENTENCE, which is the one character the two definitions of
+// whitespace disagree about: a `Character` is not whitespace by Unicode's property while
+// Foundation's set holds it, so U+200B survived the fold as itself and was quoted invisibly
+// (codex review of 9e3b89d). It is written into this input rather than into one of its own, so
+// what states the rule is the same assertion rather than a second one somebody could delete.
+check("…including one written entirely in line breaks, tabs and zero width spaces",
+      CodexReadFailure.of(limitsLine: rpcError(["message": "\n\u{200B}\r\n \t\u{200B}\n  "]),
                           processDied: false, timeout: 20) == .unreadableAnswer)
 check("…and a line that is not JSON at all",
       CodexReadFailure.of(limitsLine: Data("not json at all".utf8),
@@ -194,9 +200,16 @@ check("identity is asked of the app-server instead",
 let cardSource = (try? String(contentsOfFile: "Tally/Views/AccountCardView.swift",
                               encoding: .utf8)) ?? ""
 check("the card was found to read", !cardSource.isEmpty)
+// BOTH LINES OF THAT CALL, because the reason is on the SECOND one: matched by its first line
+// alone, this assertion said only that the callout is conditional and stayed green with the
+// detail handed nothing at all, which is the whole of what it exists to state (codex review of
+// dac96b7). Read as the slice after the condition rather than as one wrapped literal, the way the
+// mark below it is, so that reindenting the call cannot quietly stop asserting it.
 check("the card keeps its own short line and hovers the reason",
       source("CodexProvider.swift").contains(#"failed(L("Codex CLI read failed"), detail:"#)
-          && cardSource.contains(#".tallyTooltip(usage.errorDetail == nil ? "" : (usage.error ?? ""),"#))
+          && cardSource.range(of: #".tallyTooltip(usage.errorDetail == nil ? "" : (usage.error ?? ""),"#)
+              .map { String(cardSource[$0.upperBound...].prefix(120))
+                  .contains("detail: usage.errorDetail)") } == true)
 // …and hovers it ONLY THEN: with no reason to add, the callout would repeat the card's own line,
 // middle-truncated to one. The header's "Outdated" mark is the opposite case, a glyph plus one
 // word with no room to say anything itself, so it is asserted apart and read as the slice AFTER

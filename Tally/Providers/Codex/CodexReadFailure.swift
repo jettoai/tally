@@ -59,6 +59,14 @@ enum CodexReadFailure: Equatable {
     /// as a shape nobody could read rather than as an empty quotation, and a message that is
     /// nothing but whitespace has nothing to say either.
     ///
+    /// AND "WHITESPACE" IS ASKED TWICE, OF TWO DEFINITIONS THAT DISAGREE. A `Character` is
+    /// whitespace by Unicode's own property, which U+200B (zero width space) does not carry, while
+    /// Foundation's `.whitespacesAndNewlines` does hold it: a message written in zero width spaces
+    /// survived the fold as itself, non-empty and invisible, and was quoted as the empty quotation
+    /// this rule exists to rule out (codex review of 9e3b89d). The fold wants the narrower
+    /// definition, every run of it collapsing to one space; what is LEFT is judged by the wider
+    /// one, so anything a reader cannot see counts as nothing to say.
+    ///
     /// FOLDED BECAUSE THE CALLOUT SPENDS A ROW ON EVERY LINE BREAK. The server writes for a log,
     /// where a stack trace or a multi-line HTTP error is ordinary, while `tallyTooltip` renders
     /// each `\n` as a row of its own and the callout has no ceiling: 160 characters arriving as
@@ -73,6 +81,7 @@ enum CodexReadFailure: Equatable {
               let error = root["error"] as? [String: Any],
               let message = error["message"] as? String else { return nil }
         let folded = message.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !folded.isEmpty else { return nil }
         return folded.count > messageLimit ? String(folded.prefix(messageLimit)) + "\u{2026}"
                                            : folded

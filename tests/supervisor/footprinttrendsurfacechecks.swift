@@ -454,12 +454,30 @@ func runFootprintTrendSurfaceChecks() {
                                  + " shifted: shifted)")
               && card.contains("origin: series?.origin ?? 0")
               && card.contains("origin: trend.origin,"))
+    // AND IT IS ASKED OF THE PAIR THAT ARRIVED, NOT OF THE PAIR A STYLE HANDS THE GEOMETRY. The
+    // growing line replaces its outline whole and travels between the new series and ITSELF,
+    // holding back only its newest segment, so the rule asked of THAT pair could only ever answer
+    // `.move`: a peak the live tail overtook slid across the figure instead of fading out where it
+    // stood (codex review of 9e3b89d). So the answer is read once, before the styles fork, and the
+    // travelling is TOLD it - there is no shift left in that signature for a style to be wrong
+    // about, which is what makes this structural rather than a rule somebody has to remember.
+    check("…and asked of the readings that arrived, not of the pair the style draws",
+          layers.contains("let ceiling = FootprintSparkline.peakMotion(from: previous, to: values,"
+                          + " shifted: shifted)\n        switch lineStyle {")
+              && layers.contains("travel(from: values, to: values, curve: curve, grow: 0,"
+                                 + " ceiling: ceiling)")
+              && layers.contains("private func travel(from previous: [Double], to values: [Double],"
+                                 + "\n                        curve: MotionChoice.Curve,"
+                                 + " grow: Double = 1,\n                        "
+                                 + "ceiling: FootprintSparkline.PeakMotion) {")
+              && layers.contains("switch ceiling {")
+              && !layers.contains("peakMotion(from: values"))
     // AND THE OUTLINE ONLY TRAVELS WHERE THE STYLE SAYS IT DOES. The styles that arrive whole put
     // their outline up in one step and announce the reading with a phase instead, which is the same
     // fork the shapes drew and is still the style's own answer (`MotionChoice.Lines`).
     check("…and only the styles that travel interpolate the readings",
           layers.contains("case .morph, .bounce:\n            travel(from: previous, to: values,"
-                          + " shifted: shifted, curve: curve)")
+                          + " curve: curve, ceiling: ceiling)")
               && layers.contains("case .plain:\n            redraw()")
               && layers.contains("plot.add(spring(curve, keyPath: \"transform.translation.x\","
                                  + " from: step, to: 0),"))
@@ -681,6 +699,20 @@ func runFootprintTrendSurfaceChecks() {
     check("…and an absent flag being the two styles that were picked, line included",
           MotionChoice(nil) == MotionChoice("")
               && MotionChoice(nil) == MotionChoice("roll,grow,bouncy"))
+    // AND THE WINDOW THAT SHOWS THEM SAYS WHICH TWO THEY ARE. Its footer is the one place a reader
+    // is told what an ordinary launch does, and it is prose: it went on naming the old default for
+    // a day after the line started growing (codex review of 9e3b89d), which is a sample cell the
+    // reader would be comparing everything against and looking at the wrong one.
+    let samples = (try? String(contentsOfFile: "Tally/Views/MotionDemoWindow.swift",
+                               encoding: .utf8)) ?? ""
+    // L6 IS AN ORDINAL, so what makes the second half of that sentence true is where the cell sits
+    // rather than what it says: counted here, in the list the labels number, so that a cell
+    // inserted before the growing one moves the number the footer prints and is caught, while an
+    // edit to any of their descriptions is not.
+    let growCell = samples.components(separatedBy: "LineCell(style: ")
+        .dropFirst().prefix { !$0.hasPrefix(".grow") }.count
+    check("…and the samples window's footer naming those same two, by name and by cell",
+          samples.contains("Defaults are roll, grow, bouncy (N3 and L6)") && growCell == 6)
     check("…with every style the samples window offers reachable through it",
           MotionChoice.Figures.allCases.allSatisfy { MotionChoice($0.rawValue).figures == $0 }
               && MotionChoice.Lines.allCases.allSatisfy { MotionChoice(",\($0.rawValue)").lines == $0 }

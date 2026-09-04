@@ -356,6 +356,26 @@ func runFootprintTrendChecks() {
     // with the line's end; a crossfade would fade a ghost out at an end the line no longer has.
     check("a peak sitting on the live tail slides with the line's end when the tail is updated",
           FootprintSparkline.peakMotion(from: [1, 2, 3], to: [1, 2, 4], shifted: 0) == .move)
+    // AND A PEAK THE LIVE TAIL OVERTAKES IS A DIFFERENT READING, which is the other answer on the
+    // same tick of the same window and the pair the growing line could not tell apart: its outline
+    // travels between the new series and ITSELF (only the newest segment is held back), and asked
+    // of that pair the ceiling never changes, so the dot slid from the old peak to the tail instead
+    // of fading across (codex review of 9e3b89d, fixed by asking this of the readings that
+    // arrived: `FootprintSparklineLayerHost.announce`).
+    check("…while one a new reading climbs past fades across, the tail being another reading",
+          FootprintSparkline.peakMotion(from: [10, 1, 1], to: [10, 1, 11], shifted: 0)
+              == .crossfade)
+    // AND THE TAIL IS ONLY ONE POINT WHILE THE TICK KEEPS NOTHING. A tick that keeps one makes the
+    // tail the reader was looking at a kept reading and draws a new live one after it, which is
+    // two readings again and both answers below are about that: a higher new tail is a reading the
+    // old peak never was, and a lower one leaves the ceiling on what was just kept, one place
+    // further in. The board's own styles all ask this of the series' `origin` difference
+    // (`FootprintSparklineLayerHost.apply`), the growing line included, so these are the pairs it
+    // walks rather than a shape only a fixture has.
+    check("…and a tail the tick KEEPS fades across when the reading after it is higher",
+          FootprintSparkline.peakMotion(from: [1, 2, 3], to: [2, 3, 4], shifted: 1) == .crossfade)
+    check("…and slides when it is lower, the kept reading still being the ceiling",
+          FootprintSparkline.peakMotion(from: [1, 2, 5], to: [2, 5, 3], shifted: 1) == .move)
 
     // AND AN INDEX IS NOT A READING, which is what a FULL window makes of that distinction: the
     // ring appends until it is at capacity and drops its oldest reading on every tick after that

@@ -191,10 +191,21 @@ check("identity is asked of the app-server instead",
 // AND THE ROW'S OWN SENTENCE IS THE ONE THE APP WROTE, whatever the vendor said: the reason rides
 // in the hover callout, so no message this app did not write can set a card's width. Only readable
 // as source, the two being a view and a provider away from any harness.
+let cardSource = (try? String(contentsOfFile: "Tally/Views/AccountCardView.swift",
+                              encoding: .utf8)) ?? ""
+check("the card was found to read", !cardSource.isEmpty)
 check("the card keeps its own short line and hovers the reason",
       source("CodexProvider.swift").contains(#"failed(L("Codex CLI read failed"), detail:"#)
-          && ((try? String(contentsOfFile: "Tally/Views/AccountCardView.swift", encoding: .utf8))
-              ?? "").contains(#".tallyTooltip(usage.error ?? "", detail: usage.errorDetail)"#))
+          && cardSource.contains(#".tallyTooltip(usage.errorDetail == nil ? "" : (usage.error ?? ""),"#))
+// …and hovers it ONLY THEN: with no reason to add, the callout would repeat the card's own line,
+// middle-truncated to one. The header's "Outdated" mark is the opposite case, a glyph plus one
+// word with no room to say anything itself, so it is asserted apart and read as the slice AFTER
+// its label - one spelling used to stand for both, and either could go missing with it matching.
+check("the header's Outdated mark still hands the reason to its own callout",
+      cardSource.range(of: #"Label(L("Outdated")"#).map {
+          String(cardSource[$0.upperBound...].prefix(300))
+              .contains(#".tallyTooltip(usage.error ?? "", detail: usage.errorDetail)"#)
+      } == true)
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

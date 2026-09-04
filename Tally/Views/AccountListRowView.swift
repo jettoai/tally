@@ -125,8 +125,13 @@ struct AccountListRowView: View {
     /// facts rather than spelled out here, so the card answers it identically.
     ///
     /// What the stale mark says under the account's name: the failure's short line and the reason
-    /// under it, as the two lines they are. Empty where the round said nothing at all, which is
-    /// the one word the mark itself means.
+    /// under it, as the two lines they are.
+    ///
+    /// The one word the mark itself means is a DEFENSIVE fallback, not a state production reaches:
+    /// the mark needs `isStale` (`AccountFacts.showsStaleMark`), which is raised in exactly one
+    /// place, the sustained branch of `foldLastGood`, and that branch writes a non-nil `error` in
+    /// the same breath. So a mark with nothing to say would mean the fold had changed underneath
+    /// this row, and the row says the honest word rather than hovering an empty callout.
     private var staleDetail: String {
         let said = [usage.error, usage.errorDetail].compactMap { $0 }.joined(separator: "\n")
         return said.isEmpty ? L("Outdated") : said

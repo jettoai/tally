@@ -295,7 +295,14 @@ struct AccountCardView: View {
                 .font(.caption)
                 .foregroundStyle(TallyColor.warning)
                 .fixedSize(horizontal: false, vertical: true)
-                .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
+                // Only when there IS a reason. This line wraps to its full length, so with no
+                // detail the callout would repeat the sentence already on screen and repeat it
+                // worse: a chip is one line, middle-truncated, and VoiceOver would read the row
+                // twice (the callout text is the accessibility hint). The compact row is the
+                // opposite case and keeps its own, its line being clipped to one
+                // (`AccountListRowView.errorTail`).
+                .tallyTooltip(usage.errorDetail == nil ? "" : (usage.error ?? ""),
+                              detail: usage.errorDetail)
             Spacer(minLength: 4)
             Button(L("Retry")) {
                 Task { await UsageStore.shared.refresh(userInitiated: true) }

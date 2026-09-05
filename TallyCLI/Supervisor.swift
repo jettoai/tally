@@ -105,6 +105,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// The version a self-update exec was aiming for: read from the environment when this process
     /// IS that exec, and written again when this process attempts one of its own.
     var selfUpdateAttempted = consumeSelfUpdateAttempt()
+    var appRelaunch = AppRelaunchState()
     let supervisorPID = String(getpid())
     /// The status line's view of what this supervisor is waiting to do, SEEDED from this pid's own
     /// notice file: a self-update exec keeps the pid and leaves its badge behind for the image it
@@ -674,6 +675,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                                         event: boundary),
                                 quarantine: quarantine, reserves: reserves)
 
+            // The app updated and Sparkle did not start it again (AppRelaunch.swift).
+            applyAppRelaunch(&appRelaunch)
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale
             // version into its child: replace THIS process with the new build (SelfUpdate.swift).
             // An upgrade on its own is a restart the session was not otherwise paying for, so it

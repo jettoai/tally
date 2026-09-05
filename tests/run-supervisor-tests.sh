@@ -75,6 +75,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/keyboardchecks.swift tests/supervisor/openturnchecks.swift \
   tests/supervisor/terminaldrainchecks.swift \
   tests/supervisor/shimchecks.swift tests/supervisor/selfupdatefoldchecks.swift \
+  tests/supervisor/apprelaunchchecks.swift \
   tests/supervisor/rebalancechecks.swift tests/supervisor/rebalanceclaimchecks.swift \
   tests/supervisor/reservechecks.swift \
   tests/supervisor/windowrepickchecks.swift \
@@ -125,7 +126,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/TranscriptWatcher.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift TallyCLI/Reload.swift \
-  TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
+  TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AppRelaunch.swift \
+  TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
   TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/DroughtWatch.swift \
   TallyCLI/CapResume.swift \

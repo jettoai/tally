@@ -204,6 +204,9 @@ func runDraftStashChecks() {
     let pressed = { (steps: [SessionInputStep]) -> [UInt8] in
         steps.compactMap { if case .press(let byte) = $0 { return byte } else { return nil } }
     }
+    let waits = { (steps: [SessionInputStep]) -> [TimeInterval] in
+        steps.compactMap { if case .wait(let seconds) = $0 { return seconds } else { return nil } }
+    }
     /// The keys a full stash presses, in order: the one sequence three checks below compare against.
     let stashKeys = Array(repeating: [sessionInputStashKillByte, sessionInputStashByte],
                           count: sessionInputStashRounds).flatMap { $0 }
@@ -274,9 +277,8 @@ func runDraftStashChecks() {
     // THE MARKERS ARE THE PAYLOAD'S OWN BRACKET, asserted as a position rather than as membership:
     // a plan that opened the paste before the stash, or closed it after the Return, would still
     // contain both sequences.
-    let bracketed = pressed(plan("hi", sessionInputDraftGuard(state: .idle, suspected: false)))
     check("the paste opens immediately before the payload and closes immediately after it",
-          Array(bracketed.dropFirst(stashKeys.count))
+          Array(pressed(stashing).dropFirst(stashKeys.count))
               == pasted([0x68, 0x69]) + [sessionInputReturnByte])
     /// A payload at the channel's own limit, which two rows below ask different questions of.
     let full = String(repeating: "a", count: sessionInputMaxBytes)
@@ -284,9 +286,6 @@ func runDraftStashChecks() {
     // plan carries are the stash's own intervals and the submit pause, and nothing else. A payload
     // of any length adds none of them, which is what makes the poll loop's stall independent of how
     // long a caller's line is (SessionInput.swift's header carries that trade).
-    let waits = { (steps: [SessionInputStep]) -> [TimeInterval] in
-        steps.compactMap { if case .wait(let s) = $0 { return s } else { return nil } }
-    }
     check("a payload of any length adds no waits, so only the stash and the submit pause remain",
           waits(plan("hi", .none)) == [0.4]
               && waits(plan(full, .none)) == [0.4]
@@ -605,7 +604,7 @@ func runDraftStashChecks() {
     // observes them: one that dropped them would give a TUI its Return before it had settled, which
     // is the measurement `sessionInputSubmitPause` carries.
     check("…and it waits out every pause the plan carries, in order",
-          sleptFor == carried.compactMap { if case .wait(let s) = $0 { return s } else { return nil } })
+          sleptFor == waits(carried))
     // THE THREE PLACES A REFUSAL CAN LAND, in the order they sit in the plan: inside the stash,
     // inside the payload, and on the Return itself. Every one of them is a line that never reached
     // the conversation.

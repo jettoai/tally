@@ -218,13 +218,13 @@ func runAppRelaunchChecks() {
     var armReturned = AppRelaunchState()
     _ = tick(&armReturned, old, alive: true, at: 0)
     _ = tick(&armReturned, new, alive: false, at: 10)
-    check("an app Sparkle brought back leaves nothing armed",
-          { _ = tick(&armReturned, new, alive: true, at: 12); return !armReturned.isArmed }())
+    _ = tick(&armReturned, new, alive: true, at: 12)
+    check("an app Sparkle brought back leaves nothing armed", !armReturned.isArmed)
     var armExpired = AppRelaunchState()
     _ = tick(&armExpired, old, alive: true, at: 0)
     _ = tick(&armExpired, new, alive: true, at: 10)
-    check("nor does an app that never left inside the arming window",
-          { _ = tick(&armExpired, new, alive: true, at: 70); return !armExpired.isArmed }())
+    _ = tick(&armExpired, new, alive: true, at: 70)
+    check("nor does an app that never left inside the arming window", !armExpired.isArmed)
     // A supervisor that never had a version to compare cannot hold an upgrade back either.
     var armDev = AppRelaunchState()
     _ = tick(&armDev, nil, alive: true, at: 0)
@@ -315,16 +315,14 @@ func runAppRelaunchChecks() {
     // Everything above tested in one piece: the reading, the decision, and the act.
     var wired = AppRelaunchState()
     var opened: [String] = []
-    var said: [String] = []
     // The announcement is collected rather than printed: `warn` writes to the terminal these
     // assertions are printed on, and a line landing mid-print splits one of them.
+    var said: [String] = []
     var claimed: [String] = []
-    func run(_ version: String?, alive: Bool, at offset: TimeInterval,
-             claim: @escaping (String, String) -> Bool = { _, _ in true }) {
+    func run(_ version: String?, alive: Bool, at offset: TimeInterval) {
         applyAppRelaunch(&wired, now: launch.addingTimeInterval(offset), installed: version,
-                         bundle: paths,
-                         probe: { _ in alive },
-                         claim: { version, bundle in claimed.append(bundle); return claim(version, bundle) },
+                         bundle: paths, probe: { _ in alive },
+                         claim: { _, bundle in claimed.append(bundle); return true },
                          announce: { said.append($0) }, launch: { opened.append($0) })
     }
     run(old, alive: true, at: 0)

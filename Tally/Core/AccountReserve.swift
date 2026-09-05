@@ -121,10 +121,10 @@ enum AccountRoles {
     /// launch says it crossed, the hatching on the bar - inherits the scope from that one marking
     /// without a rule of its own. A window that carries no reserve is a window this feature does
     /// not exist for.
+    /// The three windows as one expression, in the order the rule is stated above: the flagship one
+    /// by shape, then the two by name. A nameless window (the `other` kind) matches neither name.
     static func carriesReserve(window name: String?, isModelWindow: Bool) -> Bool {
-        if isModelWindow { return true }
-        guard let name else { return false }
-        return name == weeklyWindowName || name == sessionWindowName
+        isModelWindow || name == weeklyWindowName || name == sessionWindowName
     }
 
     /// The home holding the personal role, or nil while nobody holds it.

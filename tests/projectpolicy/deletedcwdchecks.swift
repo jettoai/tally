@@ -18,18 +18,20 @@ import Foundation
 
 /// Whatever `body` writes to stdout. `runLaunchDir` prints, and printing nothing at all is exactly
 /// the contract being asserted, so it has to be read from the descriptor rather than from a value.
+/// The same redirection tests/worktree/treechecks.swift does, differing in one thing: a capture
+/// that could not be read back answers "capture failed" rather than the empty string, because here
+/// the empty string is the PASS and a broken capture must not be able to spell it.
 private func capturingStdout(_ body: () -> Void) -> String {
     let path = tmp.appendingPathComponent("stdout-\(UUID().uuidString)").path
-    FileManager.default.createFile(atPath: path, contents: nil)
-    guard let sink = FileHandle(forWritingAtPath: path) else { return "capture failed" }
     fflush(stdout)
     let saved = dup(1)
-    dup2(sink.fileDescriptor, 1)
+    let sink = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+    dup2(sink, 1)
+    close(sink)
     body()
     fflush(stdout)
     dup2(saved, 1)
     close(saved)
-    try? sink.close()
     return (try? String(contentsOfFile: path, encoding: .utf8)) ?? "capture failed"
 }
 

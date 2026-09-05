@@ -381,11 +381,9 @@ func accountReserveIDs(_ snapshot: Snapshot, _ reserves: AccountReserves) -> [St
 /// history records every tier the provider reports and marks none of them as the headline, so
 /// without this the advisor cannot tell a flagship pool from a second tier.
 func accountFlagshipModels(_ snapshot: Snapshot) -> [String: String] {
-    var out: [String: String] = [:]
-    for account in snapshot.accounts {
-        if let model = account.modelWindowName { out[account.id] = model }
-    }
-    return out
+    Dictionary(snapshot.accounts.compactMap { account in
+        account.modelWindowName.map { (account.id, $0) }
+    }, uniquingKeysWith: { first, _ in first })
 }
 
 /// Account id to plan name, for the join above. Accounts the snapshot leaves plan-less are simply

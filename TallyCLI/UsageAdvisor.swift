@@ -210,21 +210,30 @@ enum UsageAdvisor {
         let spent = consumption(weeklyAll)
         let demandPerWeek = spent.total / weeks / 100
 
-        // Binding constraint: the most saturated pool relative to its OWN account capacity - the
-        // account-wide weekly, or any single model window. A fable window can be the wall while
-        // the account-wide weekly still reads healthy.
         /// What each account holds back IN ONE MODEL POOL: its reserve where that pool is the
         /// account's own flagship window, and nothing anywhere else. Built per pool because the
         /// reserve is per ACCOUNT while a pool is per model, and the two only meet on the account
         /// whose headline window this pool is - the other tiers in the history are windows no pick
         /// protects (`PersonalAccount.reserved` refuses to hatch them for the same reason).
         func modelPoolReserve(_ model: String) -> (String) -> Double {
-            { account in
-                flagshipModelOf(account)?.lowercased() == model.lowercased()
-                    ? reserveOf(account) : 0
+            let pool = model.lowercased()
+            return { account in
+                flagshipModelOf(account)?.lowercased() == pool ? reserveOf(account) : 0
             }
         }
 
+        /// The model pools, split once: the ratio and the starvation reading below ask the same
+        /// question of the same rows, and each finding its own models and re-filtering the whole
+        /// series for every one of them walks it twice over. Rows the provider left model-less
+        /// belong to no pool at all, which is what dropping them says.
+        let modelPools = weeklyModel.reduce(into: [String: [Sample]]()) { pools, sample in
+            if let model = sample.model { pools[model, default: []].append(sample) }
+        }
+
+        // Binding constraint: the most saturated pool relative to its OWN account capacity - the
+        // account-wide weekly, or any single model window. A fable window can be the wall while
+        // the account-wide weekly still reads healthy.
+        //
         // EVERY POOL IS RATED ON THE CAPACITY TALLY MAY ACTUALLY SPEND IN IT, the reserve included,
         // and that is NOT a double subtraction: the binding ratio is the MAX over pools, never a
         // sum, so a point held back is counted once inside each pool it is held back from and never
@@ -239,9 +248,8 @@ enum UsageAdvisor {
         // double-counting; it was a pool being rated on capacity nobody has.
         var bindingRatio = poolRatio(weeklyAll, weeks: weeks, live: liveAccounts,
                                      reserveOf: reserveOf)
-        for model in Set(weeklyModel.compactMap(\.model)) {
-            bindingRatio = max(bindingRatio, poolRatio(weeklyModel.filter { $0.model == model },
-                                                       weeks: weeks, live: liveAccounts,
+        for (model, pool) in modelPools {
+            bindingRatio = max(bindingRatio, poolRatio(pool, weeks: weeks, live: liveAccounts,
                                                        reserveOf: modelPoolReserve(model)))
         }
 
@@ -253,12 +261,11 @@ enum UsageAdvisor {
         // absorb a handoff). Provider value = the most-starved pool, mirroring bindingRatio.
         var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, live: liveAccounts,
                                                 observed: observed, reserveOf: reserveOf)
-        for model in Set(weeklyModel.compactMap(\.model)) {
+        for (model, pool) in modelPools {
             // Through the same per-pool reserve the ratio above uses: an account is starved in its
             // flagship pool at the line its owner drew, exactly as it is in the account-wide one.
             starvedSeconds = max(starvedSeconds,
-                                 poolStarvedSeconds(weeklyModel.filter { $0.model == model },
-                                                    now: now, live: liveAccounts,
+                                 poolStarvedSeconds(pool, now: now, live: liveAccounts,
                                                     observed: observed,
                                                     reserveOf: modelPoolReserve(model)))
         }

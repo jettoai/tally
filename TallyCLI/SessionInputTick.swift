@@ -127,7 +127,8 @@ enum SessionInputRepick: Equatable {
 @discardableResult
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
-                       relaunchPlanned: Bool, draftSuspected: Bool, dir: URL = sessionInputDir,
+                       relaunchPlanned: Bool, draftSuspected: Bool, waitingOnPerson: Bool,
+                       dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                        clearBoundary: () -> Snapshot.Account? = { nil },
@@ -157,7 +158,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     /// What this landing was allowed to do about a draft in that composer, and what it therefore has
     /// to say about it in the log. Decided before the landing rather than inside it, because the
     /// account question reads the same value (SessionInputLanding.swift).
-    let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
+    let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
     /// Whether this landing went to the terminal at all, which is what the draft line below turns
     /// on: a refused write may still have got the stash out before it failed, and that is precisely
     /// the case whose draft is sitting in a kill buffer nobody has been told about, while a landing

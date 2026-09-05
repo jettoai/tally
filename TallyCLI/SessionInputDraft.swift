@@ -218,15 +218,28 @@ struct SessionInputDraftGuard: Equatable {
     var stash: Bool { touching }
 }
 
-/// The guard for a landing into a session in this state.
+/// The guard for a landing into a session with, or without, a dialog in front of its composer.
 ///
-/// `blocked` TOUCHES NOTHING, and it is the one row that is about the session rather than about the
-/// draft. A blocked session is sitting on a dialog - a permission request, a plan approval - and its
-/// composer is behind that dialog: the kill keys were measured inert there (case A7), and the draft
-/// is already safe, since answering the dialog gives the composer back untouched (case A7e). So a
-/// stash that would find nothing is not performed.
-func sessionInputDraftGuard(state: SupervisedState, suspected: Bool) -> SessionInputDraftGuard {
-    SessionInputDraftGuard(suspected: suspected, touching: state != .blocked)
+/// A DIALOG TOUCHES NOTHING, and it is the one row that is about the session rather than about the
+/// draft. A session on a dialog - a permission request, a plan approval, an open question - has its
+/// composer behind it: the kill keys were measured inert there (case A7), and the draft is already
+/// safe, since answering the dialog gives the composer back untouched (case A7e). So a stash that
+/// would find nothing is not performed, and the payload is typed rather than pasted, which is an
+/// authorisation boundary rather than a style (`sessionInputInjectionPlan` carries the measurement).
+///
+/// WHAT A CALLER PASSES IS `SessionTick.waitingOnPerson`, NEVER `state == .blocked`, and until
+/// 2026-09-05 this function asked the second of those itself. It is the regression the movers had
+/// fixed a fortnight earlier, arriving here (SessionStateSync.swift carries the codex review of
+/// e52a436): Claude Code fires `idle_prompt` about sixty seconds after it stops speaking, and
+/// `supervisedSessionState` folds that SOFT wait into `blocked` for a session that is otherwise
+/// quiet. So on every machine with the notification hook installed, an ordinary idle session read
+/// as a dialog. Nothing was stashed in a composer that was sitting right there, and every line
+/// landing in it was typed one key at a time: at `sessionInputByteGap` a 200-byte payload is six
+/// seconds of a poll loop that cannot tick, which is exactly the stall the paste was introduced to
+/// end. Only a HARD wait puts something in front of that composer, and `waitingOnPerson` is the
+/// reading that says so.
+func sessionInputDraftGuard(dialog: Bool, suspected: Bool) -> SessionInputDraftGuard {
+    SessionInputDraftGuard(suspected: suspected, touching: !dialog)
 }
 
 // MARK: - The keystrokes, as a value
@@ -289,10 +302,12 @@ func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
         } else {
             // A DIALOG IS TYPED AT, NEVER PASTED INTO, and this branch is an authorisation boundary
             // rather than a performance choice. `touching` is false exactly when the composer is
-            // NOT what this line reaches, which today means a session sitting on a permission or
-            // plan dialog, and a chooser reads KEYS: a paste is one edit event, so the answer is
-            // swallowed by the dialog layer and never picks anything. The Return that follows then
-            // activates whatever was highlighted, and what is highlighted is the first option.
+            // NOT what this line reaches, which is a session waiting on a PERSON: a permission
+            // request, a plan approval, an open question, and never the soft `idle_prompt` the
+            // board also calls blocked (`sessionInputDraftGuard` carries that correction). A
+            // chooser reads KEYS: a paste is one edit event, so the answer is swallowed by the
+            // dialog layer and never picks anything. The Return that follows then activates
+            // whatever was highlighted, and what is highlighted is the first option.
             //
             // MEASURED 2026-09-05, twice, on a real Bash permission dialog in a pty sandbox: a
             // pasted `4` (No) left no trace in the composer or the transcript and the Return ran

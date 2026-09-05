@@ -836,7 +836,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let action = applySessionInput(
                 &sessionInput, session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
-                draftSuspected: draftSuspected,
+                draftSuspected: draftSuspected, waitingOnPerson: board.waitingOnPerson,
                 clearBoundary: {
                     windowRepickMove(provider: provider.id, account: account,
                                      primaryModel: effectivePrimary, mode: policy.mode,
@@ -887,6 +887,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                          keyboardIdle: composerIdle,
                                          relaunchPlanned: replacingChild,
                                          draftSuspected: draftSuspected,
+                                         waitingOnPerson: board.waitingOnPerson,
                                          userTurnAt: watcher.lastUserTurnAt,
                                          // WHICH conversation is in this window right now, which is
                                          // what says the offer still belongs to it: a relaunch that
@@ -908,7 +909,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
                                           relaunchPlanned: replacingChild,
-                                          draftSuspected: draftSuspected, quarantine: quarantine,
+                                          draftSuspected: draftSuspected,
+                                          waitingOnPerson: board.waitingOnPerson,
+                                          quarantine: quarantine,
                                           reserves: reserves,
                                           // The reading taken when THIS child was launched, not one
                                           // taken now: a settings.json edited since says nothing
@@ -930,7 +933,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 typedAlready: action.typed != nil || resumed != nil || knocked != nil,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
-                draftSuspected: draftSuspected,
+                draftSuspected: draftSuspected, waitingOnPerson: board.waitingOnPerson,
                 // The reading taken when THIS child was launched, for the reason the knock beside
                 // it states: a settings.json edited since says nothing about the hooks the running
                 // process holds.

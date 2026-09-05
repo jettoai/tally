@@ -494,7 +494,7 @@ func runSessionSendChecks() {
     applySessionInput(&agentInput, session: withAgents.state, quiet: withAgents.quiet,
                       turnEnded: { false },
                       keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
-                      dir: dir,
+                      waitingOnPerson: false, dir: dir,
                       log: dir.appendingPathComponent("dispatch.log")) { text, _ in
         agentTyped.append(text)
         return .done
@@ -535,7 +535,7 @@ func runSessionSendChecks() {
     var handOverTyped: [String] = []
     applySessionInput(&handOver, session: withAgents.state, quiet: withAgents.quiet,
                       turnEnded: { false }, keyboardIdle: true, relaunchPlanned: false,
-                      draftSuspected: false, dir: dir,
+                      draftSuspected: false, waitingOnPerson: false, dir: dir,
                       log: dir.appendingPathComponent("handover.log"),
                       agents: { _ in 2 }) { text, _ in
         handOverTyped.append(text)
@@ -558,7 +558,7 @@ func runSessionSendChecks() {
     var ordinaryTyped: [String] = []
     applySessionInput(&ordinary, session: withAgents.state, quiet: withAgents.quiet,
                       turnEnded: { false }, keyboardIdle: true, relaunchPlanned: false,
-                      draftSuspected: false, dir: dir,
+                      draftSuspected: false, waitingOnPerson: false, dir: dir,
                       log: dir.appendingPathComponent("handover.log"),
                       agents: { _ in rosterReads += 1; return 2 }) { text, _ in
         ordinaryTyped.append(text)

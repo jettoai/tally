@@ -722,7 +722,8 @@ func runWindowRepickChecks() {
             sessionKey: "9910", dir: inputDir)
         return applySessionInput(&input, session: state, quiet: quiet, turnEnded: { false },
                                  keyboardIdle: true,
-                                 relaunchPlanned: false, draftSuspected: false, dir: inputDir,
+                                 relaunchPlanned: false, draftSuspected: false,
+                                 waitingOnPerson: false, dir: inputDir,
                                  log: inputLog,
                                  inject: { _, _ in inject }).typed
     }

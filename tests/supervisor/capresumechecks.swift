@@ -309,7 +309,7 @@ func runCapResumeChecks() {
         applyCapResume(&state, pid: fixturePid, typedAlready: typedAlready, session: session,
                        quiet: .quiet, turnEnded: { asked += 1; return false },
                        keyboardIdle: true, relaunchPlanned: false, draftSuspected: draftSuspected,
-                       userTurnAt: userTurnAt, conversation: conversation,
+                       waitingOnPerson: false, userTurnAt: userTurnAt, conversation: conversation,
                        now: wall.addingTimeInterval(moment), log: log,
                        // The clock read after the write, which in a suite is the same instant: what
                        // the production call buys with the second reading is the seconds an

@@ -60,7 +60,7 @@ func runQuotaKnockChecks() {
                         primaryModel: "fable", typedAlready: typedAlready, session: session,
                         quiet: quiet, turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
                         relaunchPlanned: relaunchPlanned, draftSuspected: draftSuspected,
-                        quarantine: quarantine,
+                        waitingOnPerson: false, quarantine: quarantine,
                         counting: { _ in sessions }, loaded: loaded(), now: moment, log: log,
                         inject: { text, guarded in
                             sent.append(text)
@@ -88,7 +88,7 @@ func runQuotaKnockChecks() {
     // the writer nobody asked for: a sentence that appended itself to somebody's half-written prompt
     // and pressed Return would send their draft as part of the knock (SessionInputDraft.swift).
     check("the knock types under the same draft guard a requested line does",
-          guardedBy == [sessionInputDraftGuard(state: .idle, suspected: false)])
+          guardedBy == [sessionInputDraftGuard(dialog: false, suspected: false)])
     check("…and leaves the same trail about the draft it moved",
           audit.contains("pid=\(fixturePid) input=draft-stashed rounds=12"))
     // The other half, against a session somebody has been typing in: the sentence still lands, the

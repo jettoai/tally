@@ -112,9 +112,11 @@ let sessionInputReturnByte: UInt8 = 13
 /// what has to settle before the Return is the composer's reaction to the text, not the text
 /// itself.
 ///
-/// AND ONLY WHERE THE COMPOSER IS THE TARGET. A session on a dialog is typed at instead, because a
-/// chooser reads keys and drops a paste on the floor: `sessionInputInjectionPlan` carries that
-/// branch, the measurement, and the reason it is an authorisation boundary.
+/// AND ONLY WHERE THE COMPOSER IS THE TARGET. A session waiting on a PERSON (a hard wait: a
+/// permission request, a plan approval, an open question, and never the soft `idle_prompt` the
+/// board also calls blocked) is typed at instead, because a chooser reads keys and drops a paste on
+/// the floor: `sessionInputInjectionPlan` carries that branch, the measurement, and the reason it
+/// is an authorisation boundary.
 ///
 /// CLAUDE CODE ASKS FOR THIS MODE, which is why the markers are the delivery rather than an
 /// optimisation this file hopes for: its TUI turns bracketed paste on, and this repo already knows

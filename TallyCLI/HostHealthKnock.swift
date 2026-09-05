@@ -78,6 +78,7 @@ func loadHostHealthReport(_ file: URL = hostHealthReportFile) -> HostHealthRepor
 func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, typedAlready: Bool,
                           session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                           keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
+                          waitingOnPerson: Bool,
                           filing: () -> Bool = { false },
                           file: URL = hostHealthReportFile,
                           modified: (URL) -> Date? = { hostHealthReportModified($0) },
@@ -129,7 +130,7 @@ func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, type
     state.announced = alarm.at
     // The same protection a requested line gets, decided from the same reading: a sentence nobody
     // asked for is the last thing that should cost somebody their draft.
-    let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
+    let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
     let written = inject(line, draft)
     switch written {
     case .done:

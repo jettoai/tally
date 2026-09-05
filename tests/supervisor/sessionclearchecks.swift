@@ -90,10 +90,10 @@ func runSessionClearChecks() {
     // account is asked again every time this window closes, the draft is gone for good.
     check("a session that may hold an unsent draft is cleared by typing, not moved away from it",
           !sessionClearMovesAccounts(request: clearRequest(), state: .idle,
-                                     draft: sessionInputDraftGuard(state: .idle, suspected: true)))
+                                     draft: sessionInputDraftGuard(dialog: false, suspected: true)))
     check("…while the same session with nothing suspected still moves",
           sessionClearMovesAccounts(request: clearRequest(), state: .idle,
-                                    draft: sessionInputDraftGuard(state: .idle, suspected: false)))
+                                    draft: sessionInputDraftGuard(dialog: false, suspected: false)))
 
     // MARK: - The landing's three endings
 
@@ -139,7 +139,7 @@ func runSessionClearChecks() {
     // could be got wrong, and the outcome (`typed`) is the only thing that says which ending ran.
     check("a landing that suspects a draft types instead of moving, however good the account is",
           land(clearRequest(), boundary: healthy,
-               draft: sessionInputDraftGuard(state: .idle, suspected: true))
+               draft: sessionInputDraftGuard(dialog: false, suspected: true))
               == .typed(.done, agents: nil)
               && typedLines == [windowClearCommand])
 
@@ -155,7 +155,7 @@ func runSessionClearChecks() {
         let action = applySessionInput(&input, session: state, quiet: .quiet,
                                        turnEnded: { false }, keyboardIdle: true,
                                        relaunchPlanned: false, draftSuspected: draftSuspected,
-                                       dir: dir, log: log,
+                                       waitingOnPerson: false, dir: dir, log: log,
                                        now: t0.addingTimeInterval(offset),
                                        agents: { _ in agents },
                                        clearBoundary: { boundary }) { text, _ in

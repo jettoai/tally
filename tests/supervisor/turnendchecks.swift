@@ -260,7 +260,8 @@ func runTurnEndChecks() {
         var typed: [String] = []
         applySessionInput(&input, session: board.state, quiet: board.quiet,
                           turnEnded: { turnEnded }, keyboardIdle: true, relaunchPlanned: false,
-                          draftSuspected: false, dir: gate, log: gateLog) { text, _ in
+                          draftSuspected: false, waitingOnPerson: false,
+                          dir: gate, log: gateLog) { text, _ in
             typed.append(text)
             return .done
         }

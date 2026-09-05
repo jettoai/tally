@@ -295,8 +295,8 @@ func runSessionInputChecks() {
         var typed: [String] = []
         applySessionInput(&input, session: state, quiet: quiet ?? (state == .working ? .busy
                               : .quiet), turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
-                          relaunchPlanned: relaunchPlanned, draftSuspected: false, dir: dir,
-                          log: log,
+                          relaunchPlanned: relaunchPlanned, draftSuspected: false,
+                          waitingOnPerson: false, dir: dir, log: log,
                           now: t0.addingTimeInterval(offset), agents: agents) { text, _ in
             typed.append(text)
             return inject(text)
@@ -585,7 +585,8 @@ func runSessionInputChecks() {
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostTyped: [String] = []
     applySessionInput(&lost, session: .idle, quiet: .quiet, turnEnded: { false },
-                      keyboardIdle: true, relaunchPlanned: false, draftSuspected: false, dir: dir,
+                      keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
+                      waitingOnPerson: false, dir: dir,
                       log: lostLog, now: t0.addingTimeInterval(1)) { text, _ in
         lostTyped.append(text)
         return .done
@@ -611,7 +612,8 @@ func runSessionInputChecks() {
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostAgain: [String] = []
     applySessionInput(&lost, session: .idle, quiet: .quiet, turnEnded: { false },
-                      keyboardIdle: true, relaunchPlanned: false, draftSuspected: false, dir: dir,
+                      keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
+                      waitingOnPerson: false, dir: dir,
                       log: lostLog, now: t0.addingTimeInterval(2)) { text, _ in
         lostAgain.append(text)
         return .done
@@ -627,14 +629,17 @@ func runSessionInputChecks() {
     // than merely greppable, because the number is what says no branch here writes a line nobody
     // accounted for.
     let audited = written.components(separatedBy: "\n").filter { $0.contains("input=") }
-    check("every served request left a line", audited.count == 36)
-    // THE DRAFT LINE: sixteen landings reached the writer in this suite, and all sixteen moved
-    // whatever was in that composer into its kill buffer. A build that stopped stashing moves this
-    // number without moving the outcome of any check above. Nothing follows it, because nothing puts
-    // a draft back since 2026-08-20 - asserted here as an absence, since a build that brought the
-    // restore back would write one of these words and change nothing else this suite reads.
+    check("every served request left a line", audited.count == 37)
+    // THE DRAFT LINE: seventeen landings reached the writer in this suite, and all seventeen moved
+    // whatever was in that composer into its kill buffer, the one into a session the board calls
+    // blocked included: since 2026-09-05 that state is a composer unless a PERSON is being waited
+    // for, and this suite waits on nobody (SessionInputDraft.swift carries the correction). A build
+    // that stopped stashing moves this number without moving the outcome of any check above.
+    // Nothing follows it, because nothing puts a draft back since 2026-08-20 - asserted here as an
+    // absence, since a build that brought the restore back would write one of these words and
+    // change nothing else this suite reads.
     check("…and every line that reached a terminal said where the draft under it went",
-          audited.filter { $0.contains("input=draft-stashed rounds=12") }.count == 16
+          audited.filter { $0.contains("input=draft-stashed rounds=12") }.count == 17
               && !written.contains("input=draft-restore"))
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))

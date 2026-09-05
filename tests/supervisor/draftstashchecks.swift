@@ -168,24 +168,24 @@ func runDraftStashChecks() {
 
     // MARK: - The guard: what the injection may do about it
 
-    /// Every state the board can publish, so the table below is a table rather than three examples.
-    let states: [SupervisedState] = [.idle, .working, .blocked, .unknown]
-    for state in states {
+    // BOTH ANSWERS THE QUESTION HAS, which is the whole of the table since 2026-09-05: the guard
+    // no longer reads a board state at all, because the board's `blocked` covers a soft wait too
+    // (the rows through the writer, further down, are where that distinction is asserted).
+    for onDialog in [false, true] {
         for evidence in [false, true] {
-            let guarded = sessionInputDraftGuard(state: state, suspected: evidence)
-            // BLOCKED TOUCHES NOTHING: the composer is behind a permission dialog, both keys were
-            // measured inert there (case A7), and the draft is already safe - answering the dialog
-            // gives the composer back untouched (case A7e).
-            let touching = state != .blocked
-            check("\(state) with suspected=\(evidence) stashes only where the composer is reachable",
-                  guarded.stash == touching)
-            // AND THE EVIDENCE CHANGES NOTHING ABOUT WHAT IS TYPED, in every state: it is read by
+            let guarded = sessionInputDraftGuard(dialog: onDialog, suspected: evidence)
+            // A DIALOG TOUCHES NOTHING: the composer is behind a permission request or a plan
+            // approval, both keys were measured inert there (case A7), and the draft is already
+            // safe - answering the dialog gives the composer back untouched (case A7e).
+            check("dialog=\(onDialog) with suspected=\(evidence) stashes only where the composer "
+                      + "is reachable", guarded.stash == !onDialog)
+            // AND THE EVIDENCE CHANGES NOTHING ABOUT WHAT IS TYPED, on either row: it is read by
             // the account question alone since 2026-08-20, and the row that used to differ here is
             // the restore this build no longer performs.
             check("…and what it types does not depend on whether a draft is suspected",
                   sessionInputInjectionPlan(text: "hi", draft: guarded)
                       == sessionInputInjectionPlan(
-                          text: "hi", draft: sessionInputDraftGuard(state: state,
+                          text: "hi", draft: sessionInputDraftGuard(dialog: onDialog,
                                                                    suspected: !evidence)))
             check("…and carries the evidence for the account question next door",
                   guarded.suspected == evidence)
@@ -219,13 +219,15 @@ func runDraftStashChecks() {
     func typedOut(_ bytes: [UInt8]) -> [SessionInputStep] {
         bytes.flatMap { [SessionInputStep.press($0), .wait(0.03)] }
     }
-    /// The guard a session sitting on a permission or plan dialog gets.
-    let dialog = sessionInputDraftGuard(state: .blocked, suspected: true)
+    /// The guard a session waiting on a person gets: a permission request, a plan approval, an
+    /// open question, with the composer behind it.
+    let dialog = sessionInputDraftGuard(dialog: true, suspected: true)
     // WHAT A LINE THAT IS NOT REACHING A COMPOSER DOES, asserted whole rather than by its length:
-    // this is the shape a blocked session gets, and the one a caller with no reading to offer gets.
-    check("a landing with no guard types the payload one key at a time, as it always did",
+    // this is the shape a dialog answer takes, and the one a caller with no reading to offer gets.
+    check("a landing with no guard types the payload one key at a time, which is where an answer "
+              + "nobody vouched for belongs",
           plan("hi", .none) == typedOut([0x68, 0x69]) + [.wait(0.4), .press(13)])
-    check("…and a blocked session's landing is byte for byte that same line",
+    check("…and a dialog answer's landing is byte for byte that same line",
           plan("hi", dialog) == plan("hi", .none))
     // A DIALOG IS NEVER HANDED A PASTE, and this is the authorisation boundary of 2026-09-05 stated
     // as bytes. A chooser reads KEYS: an answer delivered as one paste event is dropped by the
@@ -237,7 +239,7 @@ func runDraftStashChecks() {
     check("no answer to a dialog carries a paste marker, whatever the evidence says",
           !pressed(plan("4", dialog)).contains(0x1B)
               && !pressed(plan("4", .none)).contains(0x1B)
-              && !pressed(plan("no", sessionInputDraftGuard(state: .blocked, suspected: false)))
+              && !pressed(plan("no", sessionInputDraftGuard(dialog: true, suspected: false)))
                   .contains(0x1B))
     // AND IT IS TYPED AT THE INTERVAL A CHOOSER REDRAWS AT, which is the other half of the same
     // rule: markers absent is not enough if the bytes arrive with nothing between them, since what
@@ -248,11 +250,11 @@ func runDraftStashChecks() {
     // AND A COMPOSER STILL GETS THE PASTE, which is the row that says this fix did not undo the
     // change it is a correction to.
     check("…while a session whose composer is the target still gets one paste",
-          pressed(plan("hi", sessionInputDraftGuard(state: .idle, suspected: false)))
+          pressed(plan("hi", sessionInputDraftGuard(dialog: false, suspected: false)))
               .contains(sessionInputPasteStart[0]))
     // THE STASH GOES FIRST AND ALL OF IT GOES FIRST: a press that landed after the payload had
     // started would kill the payload itself.
-    let stashing = plan("hi", sessionInputDraftGuard(state: .idle, suspected: false))
+    let stashing = plan("hi", sessionInputDraftGuard(dialog: false, suspected: false))
     check("a stash is the whole of the prefix, one round per line it may have to kill",
           pressed(stashing) == stashKeys + pasted([0x68, 0x69]) + [13])
     // FORWARD THEN BACKWARD WITHIN EACH ROUND, which is the order the measurement settled: the kill
@@ -270,7 +272,7 @@ func runDraftStashChecks() {
     // A tail that put the draft back used to hang off `suspected`, and this is the row that would
     // catch it coming back: the sequence for a session that may hold a draft is the sequence for one
     // that certainly does not, byte for byte and pause for pause.
-    let drafting = plan("hi", sessionInputDraftGuard(state: .idle, suspected: true))
+    let drafting = plan("hi", sessionInputDraftGuard(dialog: false, suspected: true))
     check("a line typed over a suspected draft is byte for byte the line typed over nothing",
           drafting == stashing)
     check("…and every plan ends at the Return, with nothing pressed behind it",
@@ -283,20 +285,20 @@ func runDraftStashChecks() {
     // caller's business, so what is asserted is the plans this supervisor builds for itself.
     check("no plan presses Ctrl-Y, whatever the evidence says",
           !pressed(drafting).contains(0x19) && !pressed(stashing).contains(0x19)
-              && !pressed(plan("", sessionInputDraftGuard(state: .idle, suspected: true)))
+              && !pressed(plan("", sessionInputDraftGuard(dialog: false, suspected: true)))
                   .contains(0x19))
     // AN EMPTY SEND IS A REAL REQUEST (pressing Return on a prompt that sits on its default), and it
     // is the row where an off-by-one in the prefix would be invisible: there is no payload to
     // separate the stash from the Return.
     check("an empty send still stashes and still presses Return",
-          pressed(plan("", sessionInputDraftGuard(state: .idle, suspected: true)))
+          pressed(plan("", sessionInputDraftGuard(dialog: false, suspected: true)))
               == stashKeys + [13])
     // AND IT IS NOT WRAPPED, which is the row the marker pair has to be asked about separately: an
     // empty paste is two escape sequences asking a composer to do nothing, and a composer that
     // answered them with anything at all would answer a request whose whole content is the Return.
     // Asserted by the escape byte rather than by the sequence, so a half-written pair is caught too.
     check("…and nothing is pasted around a payload that is not there",
-          !pressed(plan("", sessionInputDraftGuard(state: .idle, suspected: true))).contains(0x1B)
+          !pressed(plan("", sessionInputDraftGuard(dialog: false, suspected: true))).contains(0x1B)
               && !pressed(plan("", .none)).contains(0x1B))
     // THE MARKERS ARE THE PAYLOAD'S OWN BRACKET, asserted as a position rather than as membership:
     // a plan that opened the paste before the stash, or closed it after the Return, would still
@@ -312,22 +314,22 @@ func runDraftStashChecks() {
     // long a caller's line is (SessionInput.swift's header carries that trade).
     let stashWaits = Array(repeating: 0.03, count: 2 * sessionInputStashRounds)
     check("a payload of any length adds no waits, so only the stash and the submit pause remain",
-          waits(plan("hi", sessionInputDraftGuard(state: .idle, suspected: false)))
+          waits(plan("hi", sessionInputDraftGuard(dialog: false, suspected: false)))
               == stashWaits + [0.4]
-              && waits(plan(full, sessionInputDraftGuard(state: .idle, suspected: true)))
+              && waits(plan(full, sessionInputDraftGuard(dialog: false, suspected: true)))
                   == stashWaits + [0.4])
     // THE CONTROL BYTES ARE NOT THE CALLER'S BYTES. `sessionInputMaxBytes` bounds what somebody may
     // type into a conversation; these are the supervisor getting its own way in, and counting them
     // against that limit would shorten every line by twelve characters for a reason no caller could
     // see.
     check("a payload at the byte limit is planned whole, with the stash on top of it",
-          pressed(plan(full, sessionInputDraftGuard(state: .idle, suspected: true))).count
+          pressed(plan(full, sessionInputDraftGuard(dialog: false, suspected: true))).count
               == stashKeys.count + sessionInputPasteStart.count + sessionInputMaxBytes
                   + sessionInputPasteEnd.count + 1)
     // MULTIBYTE TEXT GOES THROUGH AS BYTES, which is what the injection writes: a CJK line is three
     // bytes per character and the plan must carry each of them, in order.
     check("a multibyte payload is planned byte by byte, in order",
-          pressed(plan("字", sessionInputDraftGuard(state: .idle, suspected: false)))
+          pressed(plan("字", sessionInputDraftGuard(dialog: false, suspected: false)))
               == stashKeys + pasted(Array("字".utf8)) + [13]
               && pressed(plan("字", .none)) == Array("字".utf8) + [13])
 
@@ -336,6 +338,7 @@ func runDraftStashChecks() {
     /// One tick, with the injection recorded rather than performed. Answers what the writer was
     /// handed, which is the only way to see the guard from outside.
     func serve(_ key: String, text: String = "/clear", state: SupervisedState = .idle,
+               waitingOnPerson: Bool = false,
                suspected: Bool, injection: SessionInputInjection = .done,
                agents: Int? = nil,
                offset: TimeInterval = 1) -> (guarded: SessionInputDraftGuard?,
@@ -347,6 +350,7 @@ func runDraftStashChecks() {
         let action = applySessionInput(
             &input, session: state, quiet: .quiet, turnEnded: { false },
             keyboardIdle: true, relaunchPlanned: false, draftSuspected: suspected,
+            waitingOnPerson: waitingOnPerson,
             dir: dir, log: log, now: at(offset), agents: { _ in agents },
             inject: { _, guarded in
                 handed = guarded
@@ -356,16 +360,17 @@ func runDraftStashChecks() {
     }
     /// The guard alone, for the checks that are only about what the writer was handed.
     func tick(_ key: String, text: String = "/clear", state: SupervisedState = .idle,
+              waitingOnPerson: Bool = false,
               suspected: Bool, injection: SessionInputInjection = .done,
               offset: TimeInterval = 1) -> SessionInputDraftGuard? {
-        serve(key, text: text, state: state, suspected: suspected, injection: injection,
-              offset: offset).guarded
+        serve(key, text: text, state: state, waitingOnPerson: waitingOnPerson,
+              suspected: suspected, injection: injection, offset: offset).guarded
     }
     /// Everything written to the log so far, since every check below is about a line appearing in it.
     func written() -> String { (try? String(contentsOf: log, encoding: .utf8)) ?? "" }
 
-    check("the tick hands the writer a guard built from this session's state and its draft reading",
-          tick("9501", suspected: true) == sessionInputDraftGuard(state: .idle, suspected: true))
+    check("the tick hands the writer a guard built from its hard-wait and draft readings",
+          tick("9501", suspected: true) == sessionInputDraftGuard(dialog: false, suspected: true))
     check("…and the log says the composer was stashed, in presses rather than in anything it read",
           written().contains("pid=9501 input=draft-stashed rounds=\(sessionInputStashRounds)"))
     // AND IT SAYS NOTHING ABOUT PUTTING IT BACK, because nothing does. Both of the lines that used
@@ -381,12 +386,35 @@ func runDraftStashChecks() {
     _ = tick("9502", suspected: false, offset: 2)
     check("a line with no draft suspected under it stashes exactly as one with a draft does",
           written().contains("pid=9502 input=draft-stashed rounds=\(sessionInputStashRounds)"))
-    // A BLOCKED SESSION TOUCHED NOTHING, so it says nothing: a stash that never ran is not a draft
-    // anybody has to be told about, and a line about it would be the log claiming to have moved text
-    // it never went near.
-    _ = tick("9503", text: "1", state: .blocked, suspected: true, offset: 3)
-    check("a blocked session's line leaves no draft trail, because it touched no composer",
+    // A SESSION ON A DIALOG TOUCHED NOTHING, so it says nothing: a stash that never ran is not a
+    // draft anybody has to be told about, and a line about it would be the log claiming to have
+    // moved text it never went near.
+    _ = tick("9503", text: "1", state: .blocked, waitingOnPerson: true, suspected: true, offset: 3)
+    check("a dialog answer leaves no draft trail, because it touched no composer",
           !written().contains("pid=9503 input=draft-"))
+    // AND A SOFT WAIT IS NOT A DIALOG, which is the 2026-09-05 correction and the reason these two
+    // rows sit side by side on the SAME board state. Claude Code fires `idle_prompt` about sixty
+    // seconds after it stops speaking and `supervisedSessionState` folds that soft wait into
+    // `blocked`, so on any machine with the notification hook installed an ordinary idle session
+    // arrives here looking exactly like a permission dialog. Its composer is in front of it, and
+    // the reading that tells them apart is `SessionTick.waitingOnPerson` rather than the state.
+    check("a session blocked by a soft wait is still a composer: stashed, and pasted into",
+          tick("9520", state: .blocked, waitingOnPerson: false, suspected: true, offset: 20)
+              == sessionInputDraftGuard(dialog: false, suspected: true))
+    check("…and its composer's stash is in the log, which a dialog answer never leaves",
+          written().contains("pid=9520 input=draft-stashed rounds=\(sessionInputStashRounds)"))
+    check("…while the hard wait beside it gets the dialog's guard, off the same board state",
+          tick("9521", text: "1", state: .blocked, waitingOnPerson: true, suspected: true,
+               offset: 21) == sessionInputDraftGuard(dialog: true, suspected: true))
+    // AND WHAT THAT IS WORTH IS THE STALL IT ENDS, stated as bytes rather than as a feeling: the
+    // line a soft-waiting session gets is one paste with no wait inside it, and the line it used to
+    // get is the dialog's, one key every `sessionInputByteGap` with the poll loop stopped for all
+    // of them (six seconds at this channel's own byte limit).
+    check("…so the soft wait's payload goes as one paste, and only the hard wait's key by key",
+          pressed(plan("hi", sessionInputDraftGuard(dialog: false, suspected: true)))
+              .contains(sessionInputPasteStart[0])
+              && !pressed(plan("hi", sessionInputDraftGuard(dialog: true, suspected: true)))
+                  .contains(0x1B))
     // AND THE ONE THAT MEANS SOMETHING IS WRONG: the terminal refused a write part-way through, so
     // the stash may have got out. The line is still written, because the draft may be in that kill
     // buffer; what went wrong is on the served line beside it, under its errno.
@@ -452,13 +480,14 @@ func runDraftStashChecks() {
     let armAfterRefused = serve("9509", suspected: true, injection: .failed(ENXIO), offset: 9)
     check("a clear the terminal refused leaves the repick exactly as it found it",
           armAfterRefused.action.typed == nil && armAfterRefused.action.repick == .untouched)
-    // A BLOCKED SESSION STASHES NOTHING and is the one row where the guard's two fields disagree:
-    // its draft is in the composer behind the dialog rather than in a kill buffer, and a SIGTERM
-    // ends it just the same. This is why the rule keys on `suspected` and not on whether a stash
-    // ran.
-    let armWhileBlocked = serve("9510", text: windowClearCommand, state: .blocked, suspected: true,
-                                offset: 10)
-    check("a blocked session that may hold a draft cancels too, having stashed nothing",
+    // A SESSION ON A DIALOG STASHES NOTHING and is the one row where the guard's two fields
+    // disagree: its draft is in the composer behind the dialog rather than in a kill buffer, and a
+    // SIGTERM ends it just the same. This is why the rule keys on `suspected` and not on whether a
+    // stash ran. It is a HARD wait rather than a `blocked` board state, since 2026-09-05: the soft
+    // one folds into the same state and leaves a composer that is stashed like any other.
+    let armWhileBlocked = serve("9510", text: windowClearCommand, state: .blocked,
+                                waitingOnPerson: true, suspected: true, offset: 10)
+    check("a session on a dialog that may hold a draft cancels too, having stashed nothing",
           armWhileBlocked.guarded?.stash == false && armWhileBlocked.action.typed == "/clear"
               && armWhileBlocked.action.repick == .cancel)
     // AND THE ORDINARY CLEAR IS UNTOUCHED: nothing suspected, so the repick gets its line and the
@@ -540,6 +569,7 @@ func runDraftStashChecks() {
                                   resetCreditsAvailable: nil, isStale: false, error: nil)
     let move = applySessionInput(&moving, session: .idle, quiet: .quiet, turnEnded: { false },
                                  keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
+                                 waitingOnPerson: false,
                                  dir: dir, log: log, now: at(5), agents: { _ in nil },
                                  clearBoundary: { target }) { _, _ in .done }
     check("a clear answered by moving the session says nothing about drafts, having typed nothing",
@@ -599,6 +629,31 @@ func runDraftStashChecks() {
     check("both writers record when they typed, which is what the next reading discounts",
           loop.contains("if action.typed != nil { lastComposerWrite = Date() }")
               && loop.contains("if knocked != nil { lastComposerWrite = Date() }"))
+    // AND WHAT MAKES A DIALOG A DIALOG IS TAKEN FROM THE TICK, never from the board's own word for
+    // it. `supervisedSessionState` folds a soft `idle_prompt` into `blocked`, so a writer handed
+    // `session == .blocked` as this question types one key at a time into the composer of every
+    // idle session on a machine with the notification hook installed, which is the 2026-09-05
+    // correction. All FOUR writers are read here rather than the two above: the reading is per
+    // call, and three of these calls reach no value this suite can inspect from outside.
+    /// The argument list of one call in that loop, from its own name to the statement after it.
+    func arguments(of call: String, until: String) -> String {
+        guard let start = loop.range(of: call),
+              let end = loop.range(of: until, range: start.upperBound ..< loop.endIndex)
+        else { return "" }
+        return String(loop[start.upperBound ..< end.lowerBound])
+    }
+    let writers = [("let action = applySessionInput(", "windowRepick.apply(action.repick,"),
+                   ("applyCapResume(", "if resumed != nil {"),
+                   ("applyQuotaKnock(", "if knocked != nil {"),
+                   ("applyHostHealthKnock(", "if hostKnocked != nil {")]
+    check("every writer into that composer is handed the hard wait, not the board's blocked",
+          writers.allSatisfy {
+              arguments(of: $0.0, until: $0.1).contains("waitingOnPerson: board.waitingOnPerson")
+          })
+    // AND EVERY ONE OF THEM IS ACCOUNTED FOR, which is what stops a fifth writer joining the loop
+    // on a reading nobody looked at: four calls, four arguments.
+    check("…and there are exactly four of them",
+          loop.components(separatedBy: "waitingOnPerson: board.waitingOnPerson").count - 1 == 4)
 
     // MARK: - The loop that carries a plan out
 
@@ -625,7 +680,7 @@ func runDraftStashChecks() {
     }
     /// The line these rows are about, named because the positions below are counted through it.
     let carriedText = "hi"
-    let carried = plan(carriedText, sessionInputDraftGuard(state: .idle, suspected: true))
+    let carried = plan(carriedText, sessionInputDraftGuard(dialog: false, suspected: true))
     let clean = carry(carried)
     check("a plan nothing refuses is done, and every byte of it reached the terminal",
           clean.0 == SessionInputInjection.done && clean.1 == pressed(carried))
@@ -686,6 +741,6 @@ func runDraftStashChecks() {
     // the write fails on the STASH rather than on the payload - and both are the same errno, so what
     // separates them is that this call returns before any payload byte could have been written.
     check("a guarded write on a target that is not a terminal fails rather than pretending",
-          injectSessionInput("hi", draft: sessionInputDraftGuard(state: .idle, suspected: true),
+          injectSessionInput("hi", draft: sessionInputDraftGuard(dialog: false, suspected: true),
                              tty: "/dev/null", gap: 0, pause: 0) != .done)
 }

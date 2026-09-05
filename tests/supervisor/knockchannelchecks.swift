@@ -49,7 +49,7 @@ func runKnockChannelChecks() {
                         primaryModel: "fable", typedAlready: false, session: session, quiet: quiet,
                         turnEnded: { false }, keyboardIdle: keyboardIdle,
                         relaunchPlanned: relaunchPlanned, draftSuspected: false,
-                        filing: { filing }, counting: { _ in 2 }, loaded: loaded(), now: moment,
+                        waitingOnPerson: false, filing: { filing }, counting: { _ in 2 }, loaded: loaded(), now: moment,
                         log: log, dir: notices ?? state,
                         inject: { text, _ in typed.append(text); return .done })
     }

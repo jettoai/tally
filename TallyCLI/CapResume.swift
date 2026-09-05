@@ -450,7 +450,7 @@ struct CapResumeState: Equatable {
 func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bool,
                     session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                     keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                    userTurnAt: Date?, conversation: String?,
+                    waitingOnPerson: Bool, userTurnAt: Date?, conversation: String?,
                     now: Date = Date(), log: URL = sessionInputLog,
                     stamped: () -> Date = { Date() },
                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
@@ -477,7 +477,7 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
         // branch (a suspected draft is a hold, one gate up), and the stash still runs: it is what
         // covers the draft this supervisor CANNOT see, since a paste is a single stamp and reads as
         // terminal chatter (SessionInputDraft.swift names it as the blind spot).
-        let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
+        let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
         let written = inject(line, draft)
         // The moment the bytes stopped arriving, which is what the anti-recursion gate has to
         // discount. Stamped whether or not the write succeeded: a refusal part-way through still

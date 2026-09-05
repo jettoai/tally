@@ -623,7 +623,9 @@ func runDraftStashChecks() {
         }, sleep: { sleptFor.append($0) }, code: { EPERM })
         return (outcome, written)
     }
-    let carried = plan("hi", sessionInputDraftGuard(state: .idle, suspected: true))
+    /// The line these rows are about, named because the positions below are counted through it.
+    let carriedText = "hi"
+    let carried = plan(carriedText, sessionInputDraftGuard(state: .idle, suspected: true))
     let clean = carry(carried)
     check("a plan nothing refuses is done, and every byte of it reached the terminal",
           clean.0 == SessionInputInjection.done && clean.1 == pressed(carried))
@@ -641,7 +643,7 @@ func runDraftStashChecks() {
     let returnPress = pressed(carried).count - 1
     let payloadStart = stashKeys.count + sessionInputPasteStart.count
     let insideOpener = stashKeys.count + 1
-    let insideCloser = payloadStart + 2 + 1
+    let insideCloser = payloadStart + carriedText.utf8.count + 1
     check("a refusal anywhere in the plan sent nothing, and says so",
           carry(carried, refuseAt: 0).0 == SessionInputInjection.failed(EPERM)
               && carry(carried, refuseAt: payloadStart).0 == SessionInputInjection.failed(EPERM)

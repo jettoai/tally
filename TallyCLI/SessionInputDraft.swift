@@ -305,9 +305,7 @@ func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
             // The cost is what a dialog answer is: an option number, one or two bytes, so 30ms or
             // 60ms. Nothing a person waits on, and `.none` (a caller with no reading to offer)
             // takes this branch too, which is the safe direction for an answer nobody vouched for.
-            for byte in payload {
-                plan += [.press(byte), .wait(gap)]
-            }
+            plan += payload.flatMap { [SessionInputStep.press($0), .wait(gap)] }
         }
     }
     // AND THE RETURN, which ends the plan: past this byte the line is somebody's turn, and there is

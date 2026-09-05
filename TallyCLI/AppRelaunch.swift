@@ -148,11 +148,10 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
         state.missingSince = nil
     }
     guard let pending = state.pendingVersion, pending == installed else { return nil }
-    func disarm() -> String? {
+    func disarm() {
         state.pendingVersion = nil
         state.armedAt = nil
         state.missingSince = nil
-        return nil
     }
     if observation.appAlive {
         // The app was here a moment ago and is here now. Which of the two that means depends on
@@ -160,10 +159,11 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
         // is what happens every other time. If it has not, the app simply has not gone yet - the
         // reading can be `appRelaunchScanInterval` old and the incident's app outlived its own
         // installer by 24 milliseconds - so keep waiting, up to the arming window.
-        guard state.missingSince == nil else { return disarm() }
+        guard state.missingSince == nil else { disarm(); return nil }
         guard let armedAt = state.armedAt,
               observation.at.timeIntervalSince(armedAt) < appRelaunchArmWindow else {
-            return disarm()
+            disarm()
+            return nil
         }
         return nil
     }
@@ -175,7 +175,7 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
           !state.openedVersions.contains(pending) else { return nil }
     // Settled either way: this supervisor opens the app, or another one already has.
     state.openedVersions.insert(pending)
-    _ = disarm()
+    disarm()
     return claim(pending) ? pending : nil
 }
 
@@ -287,12 +287,12 @@ func openAppBundle(_ path: String) {
 func applyAppRelaunch(_ state: inout AppRelaunchState, now: Date = Date(),
                       installed: String? = supervisorBuildVersion(),
                       bundle: AppBundlePaths? = bundledAppPaths(),
-                      probe: ((String) -> Bool)? = nil,
-                      claim: @escaping (String) -> Bool = { claimAppRelaunch($0) },
+                      probe: (String) -> Bool = appProcessAlive,
+                      claim: (String) -> Bool = { claimAppRelaunch($0) },
                       announce: (String) -> Void = { warn($0) },
                       launch: (String) -> Void = openAppBundle) {
     guard let bundle else { return }
-    let alive = state.scan.alive(now: now) { (probe ?? appProcessAlive)(bundle.executable) }
+    let alive = state.scan.alive(now: now) { probe(bundle.executable) }
     let seen = AppPresence(installedVersion: installed, appAlive: alive, at: now)
     guard let target = appRelaunchDue(&state, observation: seen, claim: claim) else { return }
     announce("tally updated to \(target) but the app did not come back, opening it")

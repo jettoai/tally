@@ -262,7 +262,7 @@ func runAppRelaunchChecks() {
     // The announcement is collected rather than printed: `warn` writes to the terminal these
     // assertions are printed on, and a line landing mid-print splits one of them.
     func run(_ version: String?, alive: Bool, at offset: TimeInterval,
-             claim: @escaping (String) -> Bool = { _ in true }) {
+             claim: (String) -> Bool = { _ in true }) {
         applyAppRelaunch(&wired, now: launch.addingTimeInterval(offset), installed: version,
                          bundle: paths, probe: { _ in alive }, claim: claim,
                          announce: { said.append($0) }, launch: { opened.append($0) })

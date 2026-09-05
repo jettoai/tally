@@ -93,10 +93,12 @@ func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, type
     guard !typedAlready, !relaunchPlanned else { return nil }
     // The whole of the decision, next door and pure: what the cache does with this tick's stamp,
     // and whether an alarm is owed a sentence at all (HostHealthKnockLogic.swift).
-    guard let alarm = HostHealthKnockLogic.observe(&state, stamp: modified(file),
+    guard let alarm = HostHealthKnockLogic.observe(&state, stamp: modified(file), now: now,
                                                    read: { read(file) })
     else { return nil }
-    let line = String(hostHealthKnockSentence(alarm).prefix(sessionInputMaxBytes))
+    // CUT BY BYTES, WHICH IS WHAT THE CHANNEL BOUNDS, and repaired on the way (the sentence itself
+    // states both): `prefix` counts characters, and the names in here come off the process table.
+    let line = hostHealthKnockSentence(alarm, bytes: sessionInputMaxBytes)
     // WHICH CHANNEL, asked before the composer gate rather than after it, because the answer
     // decides whether that gate applies at all: it keeps keystrokes out of a composer somebody
     // else is using, and a filed sentence is not keystrokes (QuotaKnockNotice.swift).

@@ -151,7 +151,7 @@ func capResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
     let line = "\(capResumeMarker) \(quotaKnockName(from)) hit its usage limit and cut a turn "
         + "short, and this session is now on \(quotaKnockName(to)). "
         + "Continue the work that was interrupted."
-    return quotaKnockClipped(line, bytes: limit)
+    return keystrokeClipped(line, bytes: limit)
 }
 
 /// The line a dropped arm leaves. Pure, and shaped like the other entries in that log: the stamp,

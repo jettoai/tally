@@ -176,6 +176,20 @@ enum HostHealthLogic {
         return (next, crossing.event)
     }
 
+    /// How old a report may be and still be read as NEWS rather than as history: five samples.
+    ///
+    /// A REPORT OUTLIVES THE APP THAT WROTE IT. It is rewritten every minute while Tally runs, so an
+    /// alarmed document nobody has touched since then is an app that was closed mid-alarm, and that
+    /// file on disk reads exactly like a machine in trouble right now - to every supervisor that
+    /// starts afterwards, hours or days later. A reader has to be given the age or the silence, and
+    /// the knock cannot be given the age: it says one sentence into somebody's work.
+    ///
+    /// FIVE RATHER THAN TWO, because a missed tick must not turn into silence: a laptop that slept,
+    /// or a sampler that did not get a turn under exactly the load this watch exists to report on,
+    /// is a late sample rather than a stopped app. `hostHealthStatusLine` needs no rule of this kind
+    /// at all - it prints the age beside the reading, which is open to a reader who is looking.
+    static let staleAfter: TimeInterval = 5 * sampleInterval
+
     /// The document one sample publishes, out of the watch it has just been folded into.
     static func report(_ tracker: HostHealthTracker, reading: HostHealthReading,
                        at now: Date) -> HostHealthReport {
@@ -203,8 +217,16 @@ func hostHealthGigabytes(_ bytes: UInt64) -> String {
 
 /// The three heaviest processes as one phrase, with the unit each caller wants after each figure.
 /// Empty when the scan found nothing, which reads the same way everywhere: the phrase is left out.
+///
+/// THE NAMES ARE REPAIRED HERE, once, for both of the readers built out of this (`tally status`'s
+/// host line and the notification's body): a name is the last component of an executable path and
+/// nothing between the process table and here writes it, so it may hold a newline that would break
+/// a one-line status section in two, or an ESC that a terminal reads as a command rather than as
+/// text. `hostHealthKnockSentence` does not come through this function and repairs its own names
+/// through the same rule (KeystrokeText.swift), so nothing is stripped twice.
 func hostHealthTopText(_ top: [HostHealthProcess], unit: String) -> String {
-    top.map { "\($0.name) \(hostHealthGigabytes($0.rss))\(unit)" }.joined(separator: ", ")
+    top.map { "\(keystrokeStripped($0.name)) \(hostHealthGigabytes($0.rss))\(unit)" }
+        .joined(separator: ", ")
 }
 
 /// One line for `~/.tally/logs/host-health.log`.
@@ -212,10 +234,17 @@ func hostHealthTopText(_ top: [HostHealthProcess], unit: String) -> String {
 /// THE SAME SHAPE AS `~/.tally/logs/input.log`: an ISO instant, then fixed-offset `key=value`
 /// fields for an eye and a `grep`, and the one field that can contain a space last. The names in it
 /// are executable names, never arguments (`HostHealthProcess`).
+///
+/// AND ONE LINE PER EVENT IS THE FORMAT ITSELF, which is why the names are repaired here too: a
+/// newline inside one of them would split a record in half, and a `grep` for `host-health=alarm`
+/// would return a line with no reading on it and leave a second line that belongs to no event. The
+/// entry is kept even when its name strips to nothing, unlike the sentence's: this is a record, and
+/// what it holds is a figure that was measured.
 func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
                        now: Date = Date()) -> String {
     let top = report.state == .alarmed ? (report.lastAlarm?.top ?? []) : []
-    let names = top.map { "\($0.name):\(hostHealthGigabytes($0.rss))G" }.joined(separator: ",")
+    let names = top.map { "\(keystrokeStripped($0.name)):\(hostHealthGigabytes($0.rss))G" }
+        .joined(separator: ",")
     return "\(ISO8601DateFormatter().string(from: now)) host-health=\(event.rawValue) "
         + "load=\(hostHealthFigure(report.load1)) cores=\(report.cores) "
         + "free=\(hostHealthGigabytes(report.freeBytes))G"
@@ -228,11 +257,28 @@ func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
 /// memory, and nothing else: whoever reads it has `~/.tally/logs/host-health.log` and
 /// `~/.tally/host-health.json` for the rest, and a session in the middle of a work package should
 /// not have a report pasted into it.
-func hostHealthKnockSentence(_ alarm: HostHealthAlarm) -> String {
-    let names = alarm.top.map(\.name).joined(separator: ",")
-    return "[host-health] load=\(hostHealthFigure(alarm.load1)) "
+///
+/// THE NAMES ARE REPAIRED RATHER THAN TRUSTED, through the one rule this repository has for what
+/// may go on a terminal's input queue (KeystrokeText.swift): a process name is the last component
+/// of an executable path, nothing between the process table and here writes it, and a filename may
+/// hold a newline or an ESC. Here the STRIP is the answer rather than the refusal `quotaKnockName`
+/// makes, because the two are read for different things: an account name is acted on, so a repaired
+/// one that no longer resolves is worse than none, while this names something to go and look at,
+/// and a name that merely reads right still does that. One that strips to nothing is left out
+/// rather than printed as an empty field.
+///
+/// AND THE WHOLE LINE IS CUT BY BYTES, with `limit` handed in the way `quotaKnockMessage` takes its
+/// own: the budget belongs to the channel the caller owns, which this file knows nothing about
+/// (200 bytes at 30ms each, `sessionInputMaxBytes`). Bytes rather than `String.prefix`, which
+/// counts CHARACTERS: 200 CJK ones are 600 bytes and eighteen seconds of a poll loop that is
+/// blocked for every one of them.
+func hostHealthKnockSentence(_ alarm: HostHealthAlarm, bytes limit: Int) -> String {
+    let names = alarm.top.map { keystrokeStripped($0.name) }.filter { !$0.isEmpty }
+        .joined(separator: ",")
+    let line = "[host-health] load=\(hostHealthFigure(alarm.load1)) "
         + "free=\(hostHealthGigabytes(alarm.freeBytes))GB"
         + (names.isEmpty ? "" : " top=\(names)")
+    return keystrokeClipped(line, bytes: limit)
 }
 
 /// The `Host` line `tally status` prints, or nil when there is nothing honest to print.

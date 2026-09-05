@@ -223,46 +223,11 @@ struct QuotaKnockState: Equatable {
     }
 }
 
-/// Whether a name can go on a terminal's input queue as it stands.
-///
-/// A LABEL IS FREE TEXT AND THIS IS A KEYSTROKE CHANNEL, which is the whole of the danger: the
-/// rename popover trims the ends and accepts everything else, so a label can carry a newline, and
-/// `injectSessionInput` pushes each byte in as though it had been typed. A newline in the middle of
-/// this sentence is a Return: the first half is submitted as a prompt and the rest is typed into
-/// whatever comes up next. ESC and the other control bytes are the same class of accident one step
-/// further, since a TUI reads them as commands rather than as text.
-/// Asked THROUGH the strip below rather than beside it: two spellings of "what a terminal reads as
-/// a keystroke" is one refusal and one repair that can come to disagree, and the disagreement is
-/// silent - a name judged usable by one and rewritten by the other.
-private func quotaKnockTypeable(_ name: String) -> Bool {
-    !name.isEmpty && quotaKnockStripped(name) == name
-}
-
-/// The same string with those scalars dropped, for the last resort below.
-private func quotaKnockStripped(_ name: String) -> String {
-    String(String.UnicodeScalarView(name.unicodeScalars.filter {
-        !CharacterSet.controlCharacters.contains($0) && !$0.properties.isDefaultIgnorableCodePoint
-    }))
-}
-
-/// `text` cut to at most `limit` UTF-8 BYTES, never through a character.
-///
-/// Bytes because bytes are what is being bounded (the channel's limit, and 30ms of the poll loop
-/// per one), and characters because a cut inside a multi-byte scalar is not a shorter string, it is
-/// a broken one. Whole Characters rather than scalars so an emoji built from several does not lose
-/// half of itself either.
-func quotaKnockClipped(_ text: String, bytes limit: Int) -> String {
-    guard text.utf8.count > limit else { return text }
-    var out = ""
-    var used = 0
-    for character in text {
-        let size = String(character).utf8.count
-        guard used + size <= limit else { break }
-        out.append(character)
-        used += size
-    }
-    return out
-}
+// WHAT A TERMINAL READS AS A KEYSTROKE IS DECIDED NEXT DOOR (Tally/Core/KeystrokeText.swift):
+// `keystrokeTypeable`, `keystrokeStripped` and `keystrokeClipped` were this file's own until the
+// machine's alarm needed the same rule for a process name (`hostHealthKnockSentence`). A label is
+// free text from a rename popover and a process name is a filename, and both are typed in byte by
+// byte, so what may go on that queue is one rule for both rather than one per caller.
 
 /// The name the sentence calls an account, safe to type and inside `quotaKnockLabelBytes`.
 ///
@@ -277,13 +242,13 @@ func quotaKnockClipped(_ text: String, bytes limit: Int) -> String {
 func quotaKnockName(_ account: Snapshot.Account, bytes limit: Int = quotaKnockLabelBytes) -> String {
     let directory = account.launchHome.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
     let candidates = [account.label, directory]
-    let name = candidates.first(where: quotaKnockTypeable)
-        ?? candidates.map(quotaKnockStripped).first { !$0.isEmpty }
-        ?? quotaKnockStripped(account.id)
+    let name = candidates.first(where: keystrokeTypeable)
+        ?? candidates.map(keystrokeStripped).first { !$0.isEmpty }
+        ?? keystrokeStripped(account.id)
     // The ellipsis is one character and THREE BYTES, so the room for it is taken out of the budget
     // before the cut rather than added after it: a name clipped to the budget and then marked would
     // be three bytes over the thing that was being bounded.
-    let clipped = quotaKnockClipped(name, bytes: limit - 3)
+    let clipped = keystrokeClipped(name, bytes: limit - 3)
     return clipped.utf8.count == name.utf8.count ? name : clipped + "\u{2026}"
 }
 
@@ -357,7 +322,7 @@ func quotaKnockMessage(account: Snapshot.Account, alternative: Snapshot.Account?
             + "(\(pickReason($0, primaryModel: primaryModel, now: now)))." + advice
     }
     return [full, short].compactMap { $0 }.first { $0.utf8.count <= limit }
-        ?? quotaKnockClipped(short, bytes: limit)
+        ?? keystrokeClipped(short, bytes: limit)
 }
 
 /// An account name as a shell ARGUMENT rather than as prose: quoted when it carries a space, which

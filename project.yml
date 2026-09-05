@@ -135,6 +135,12 @@ targets:
       # printing a limit the app never alarmed on. Only the record and the pure rules are here;
       # the syscalls and the notification stay in the app (HostHealthReaders/Monitor.swift).
       - path: Tally/Core/HostHealthLogic.swift
+      # And the one rule for what may go on a terminal's input queue, which that sentence and the
+      # quota knock's account names are both repaired through (KeystrokeText.swift). Compiled by
+      # both targets because the string is BUILT in the app's half and TYPED in this one: a second
+      # spelling of "what a terminal reads as a keystroke" is one refusal and one repair that can
+      # come to disagree, silently.
+      - path: Tally/Core/KeystrokeText.swift
     settings:
       base:
         PRODUCT_NAME: tally

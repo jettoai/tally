@@ -35,8 +35,10 @@ enum HostHealthKnockLogic {
     /// - Parameter stamp: when the report was last rewritten, or nil when there is no report at
     ///   all. A report that has GONE drops the cache with it: an app closed mid-alarm is not a
     ///   machine that recovered, and a session should be told again when it comes back.
+    /// - Parameter now: this tick's instant, handed in rather than read here so that every case
+    ///   below can be stated with no clock: it is what the report's age is measured against.
     /// - Parameter read: the decode, called only when the stamp has moved.
-    static func observe(_ state: inout HostHealthKnockState, stamp: Date?,
+    static func observe(_ state: inout HostHealthKnockState, stamp: Date?, now: Date,
                         read: () -> HostHealthReport?) -> HostHealthAlarm? {
         guard let stamp else {
             state.seenAt = nil
@@ -52,6 +54,19 @@ enum HostHealthKnockLogic {
         guard let report = state.report, report.state == .alarmed, let alarm = report.lastAlarm,
               state.announced != alarm.at
         else { return nil }
+        // AND A READING NOBODY HAS REWRITTEN IN A WHILE IS HISTORY RATHER THAN NEWS. The gone-report
+        // case above is the same thought one step further along, and this is the half it does not
+        // reach: the document OUTLIVES the app, so an app closed mid-alarm leaves an alarmed file on
+        // disk that reads exactly like a machine in trouble right now, and every supervisor that
+        // starts afterwards would say so - hours or days later, in a sentence with no age in it.
+        // A stale report is treated as no report (`HostHealthLogic.staleAfter`).
+        //
+        // THE CACHE IS DELIBERATELY LEFT STANDING: this is not a decision about the document, only
+        // about what may be said off it. The app coming back rewrites it, the stamp moves, and a
+        // machine still in trouble is announced off that fresh reading, alarm instant and all.
+        guard now.timeIntervalSince(report.sampledAt) <= HostHealthLogic.staleAfter else {
+            return nil
+        }
         return alarm
     }
 }

@@ -160,6 +160,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// spawn below and holds for exactly that child. False until then, so a session that somehow
     /// announced before its first child was up would be typed into rather than filed for.
     var quotaKnockFiling = false
+    /// And what it has been told about the MACHINE the session is running on (HostHealthKnock.swift
+    /// owns the rules). Per session rather than per child, on the arm above's terms: a relaunch
+    /// replaces the conversation's process and not the alarm, and an alarm this session has already
+    /// heard about must not be announced again because its child restarted.
+    var hostHealthKnock = HostHealthKnockState()
     // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
     // replaced image had just raised lives only in its file - where the seeded writer above would
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
@@ -914,6 +919,26 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // typed, since a supervisor that read its own footprints as somebody's draft would
             // decline the preventive move for the rest of that session's life.
             if knocked != nil { lastComposerWrite = Date() }
+            // AND THE ONE LINE THAT IS NOT ABOUT THIS SESSION AT ALL: the machine underneath it is
+            // out of memory or out of cores, which the app sampled and published and nothing else
+            // here can see (HostHealthKnock.swift). Last of the four writers into this composer,
+            // which is the priority it earns: it is the least urgent thing nobody asked for, and a
+            // tick that has already typed has spent this terminal's turn, so it waits for the next
+            // one. Against a one-minute sample that delay is nothing.
+            let hostKnocked = applyHostHealthKnock(
+                &hostHealthKnock, pid: supervisorPID,
+                typedAlready: action.typed != nil || resumed != nil || knocked != nil,
+                session: board.state, quiet: board.quiet, turnEnded: turnOver,
+                keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
+                draftSuspected: draftSuspected,
+                // The reading taken when THIS child was launched, for the reason the knock beside
+                // it states: a settings.json edited since says nothing about the hooks the running
+                // process holds.
+                filing: { quotaKnockFiling })
+            // Recorded on the same terms as the three above it: every writer into this composer has
+            // to say when it typed, or the next tick's draft reading treats its own footprints as
+            // somebody's half-written prompt.
+            if hostKnocked != nil { lastComposerWrite = Date() }
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

@@ -128,6 +128,13 @@ targets:
       # walks straight through. Only the rules are here; who reads which document stays on each side
       # (LaunchPolicyStore owns it, TallyCLI/AccountReserveReader.swift reads it back).
       - path: Tally/Core/AccountReserve.swift
+      # The machine's own health: the app SAMPLES it and writes ~/.tally/host-health.json, while
+      # `tally status` prints it and the supervisor turns an alarm into one sentence for the
+      # session under it. Two processes speaking through one file, so both targets compile the one
+      # record and the one set of thresholds - a drifted second copy would have `tally status`
+      # printing a limit the app never alarmed on. Only the record and the pure rules are here;
+      # the syscalls and the notification stay in the app (HostHealthReaders/Monitor.swift).
+      - path: Tally/Core/HostHealthLogic.swift
     settings:
       base:
         PRODUCT_NAME: tally

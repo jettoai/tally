@@ -65,6 +65,11 @@ enum CaptureLaunch {
         "TallyDryNotifyTest",
         "TallyResetHintTest",
         "TallyLoginExpiryTest",
+        // The host-pressure alarm, which is a banner like the three above it and reaches it the
+        // same way: the flag reports a load of 300 to the watch, and three samples later the
+        // machine is in alarm (`HostHealthMonitor.testLoad`). A background launch for the family's
+        // own reason - a banner needs no focus, so taking one is pure cost.
+        "TallyHostHealthTest",
     ]
 
     /// Flags that qualify another flag and show nothing on their own. Inert alone, and the flag

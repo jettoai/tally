@@ -13536,6 +13536,64 @@
           }
         }
       }
+    },
+    "Host under pressure": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機負載過高"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机负载过高"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが逼迫しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 부하가 높습니다"
+          }
+        }
+      }
+    },
+    "load %1$@ (%2$@ cores) · free %3$@ GB · top: %4$@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "負載 %1$@（%2$@ 核心）· 可用 %3$@ GB · 前幾大：%4$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "负载 %1$@（%2$@ 核心）· 可用 %3$@ GB · 前几大：%4$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "負荷 %1$@（%2$@ コア）· 空き %3$@ GB · 上位: %4$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "부하 %1$@(%2$@ 코어) · 여유 %3$@ GB · 상위: %4$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

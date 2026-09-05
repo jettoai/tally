@@ -167,7 +167,15 @@ extension ProcessFootprintStore {
         guard timerInterval != wanted else { return }
         timer?.invalidate()
         let timer = Timer(timeInterval: wanted, repeats: true) { _ in
-            Task { @MainActor in ProcessFootprintStore.shared.sample() }
+            Task { @MainActor in
+                ProcessFootprintStore.shared.sample()
+                // AND THE ONE READING ON THIS TICK THAT IS ABOUT THE MACHINE RATHER THAN ABOUT A
+                // CARD: whether it is still standing up at all (HostHealthLogic.swift). It rides
+                // this timer rather than owning one because it needs a heartbeat and not a rate:
+                // it throttles itself to one sample a minute by the clock, so both rates above
+                // deliver it the same thing, and on an ordinary tick it costs one comparison.
+                HostHealthMonitor.shared.tick()
+            }
         }
         // `.common`, so the readings keep coming while a menu or a scroll is tracking - the same
         // reason the roster's own timer is registered that way.

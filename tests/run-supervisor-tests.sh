@@ -53,6 +53,12 @@
 # onto a screenshot. The two other suites that compile DemoUsage.swift need none of this, which is
 # why the session fixtures are a file of their own.
 #
+# The HostHealth* files are the machine-health watch, and they are here for two different reasons.
+# The supervisor's own tick runs its knock station (HostHealthKnock.swift), and the footprint timer
+# this suite already compiles is what drives the app-side sampler, so ProcessFootprintTiming.swift
+# will not build without the monitor behind it. SystemAlert.swift comes with the monitor, being the
+# one notification call it makes.
+#
 # TrustSeed.swift and TrustSeedRelaunch.swift are here because the spawn loop now seeds this
 # folder's trust into the home it is launching onto (2026-09-03): the act itself is asserted next
 # to its neighbours in tests/addshare, and what this suite compiles them for is the audit line and
@@ -135,6 +141,9 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/SessionInputCommand.swift TallyCLI/SessionSendWait.swift \
   TallyCLI/QuotaKnock.swift TallyCLI/QuotaKnockLogic.swift \
   TallyCLI/QuotaKnockNotice.swift TallyCLI/QuotaKnockHookContract.swift TallyCLI/HookKnock.swift \
+  TallyCLI/HostHealthKnock.swift TallyCLI/HostHealthKnockLogic.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthReaders.swift \
+  Tally/Core/HostHealthMonitor.swift Tally/Core/SystemAlert.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \

@@ -373,6 +373,12 @@ func runStatus(json: Bool = false) {
     for reading in advisor {
         print("advisor: \(reading.provider) \(UsageAdvisor.englishHeadline(reading))")
     }
+    // AND WHETHER THE MACHINE UNDER ALL OF IT IS STILL STANDING UP, which no other line here can
+    // say: every figure above is about a subscription, and the 2026-09-05 incident was a laptop
+    // with no memory left running sessions whose quota was fine (HostHealthLogic.swift). Fail-open
+    // on the advisor's terms - a Tally that is not running has published no report, and a report
+    // this build cannot read is the same answer, so the section is simply absent.
+    if let host = hostHealthStatusLine(loadHostHealthReport()) { print(host) }
     // …and the way out of this report into everything else the binary does (`tallyStatusHelpHint`).
     // Human output only: the JSON shape returned above, and a line of prose in it would be a parse
     // error for every script reading the contract.

@@ -122,11 +122,11 @@ let capResumeLife: TimeInterval = sessionInputDraftLife * 2
 /// own output and recur.
 ///
 /// IT IS MEASURED FROM THE END OF THE WRITE, which is what makes two seconds enough. An injection is
-/// the stash at `sessionInputByteGap` a key, the payload as one paste, and the submit pause, so a
-/// line of this length spends about a second on the terminal before its Return (five, before the
-/// payload stopped being typed on 2026-09-05): a margin measured from the DECISION would have to be
-/// longer than the longest possible injection, a number that would silently stop tracking the
-/// constants it is made of. `lastComposerWrite` next door is stamped after the write for this too.
+/// the stash at `sessionInputByteGap` a key, the payload as one paste into a composer, and the
+/// submit pause, so a line of this length spends about a second on the terminal before its Return
+/// (five, before the payload stopped being typed on 2026-09-05): a margin measured from the
+/// DECISION would have to be longer than the longest injection there is, a number that would stop
+/// tracking the constants it is made of. `lastComposerWrite` is stamped after the write for this.
 ///
 /// THE RESIDUAL, stated rather than defended against: a person who types a prompt of their own
 /// inside two seconds of the line landing is not counted as having returned, so a genuinely fresh

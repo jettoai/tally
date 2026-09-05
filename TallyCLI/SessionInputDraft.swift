@@ -13,6 +13,10 @@ import Foundation
 //
 //     [(Ctrl-K Ctrl-U) × sessionInputStashRounds]  ESC[200~ payload ESC[201~  CR
 //
+// and, where the composer is NOT what the line reaches (a session on a dialog), neither the stash
+// nor the paste applies and the payload is typed one key at a time, which is an authorisation
+// boundary rather than a style: `sessionInputInjectionPlan` carries the measurement.
+//
 // Claude Code's composer keeps a kill buffer and says so on screen (`Ctrl+Y to paste deleted text`),
 // so the draft can be moved out of the way and its owner can put it back with one key rather than
 // this line waiting for them. Refusing to type while a composer MIGHT hold something would be the
@@ -249,9 +253,10 @@ enum SessionInputStep: Equatable {
 /// THE ORDER IS THE CORRECTNESS, and each boundary in it was measured rather than reasoned:
 ///
 ///   - the stash goes FIRST, so the payload starts from an empty line whatever was in it;
-///   - the payload is ONE PASTE and carries no waits of its own, because a paste is a single edit
-///     rather than a run of keystrokes (`sessionInputPasteStart` carries the 2026-09-05
-///     measurement, and the 4.4 seconds a typed line used to spend on the terminal);
+///   - the payload is ONE PASTE, with no waits of its own, WHEN THE COMPOSER IS WHAT IT REACHES,
+///     because a paste is a single edit rather than a run of keystrokes (`sessionInputPasteStart`
+///     carries the 2026-09-05 measurement, and the 4.4 seconds a typed line used to cost); a
+///     dialog is typed at instead, for the reason the branch below states at length;
 ///   - the Return goes after the submit pause, because a TUI filters its menus between keystrokes
 ///     and a Return that arrives mid-filter picks the wrong entry (SessionInput.swift carries that
 ///     measurement, and the Codex one that disagrees with it);
@@ -274,12 +279,36 @@ func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
     }
     let payload = Array(text.utf8)
     if !payload.isEmpty {
-        // THE MARKERS ARE PART OF THE PAYLOAD OR THERE IS NO PAYLOAD, which is why they are added
-        // here rather than unconditionally: an empty send is a Return pressed on a prompt that sits
-        // on its default (`injectSessionInput` says so where the case is argued), and an empty paste
-        // is a pair of escape sequences asking a composer to do nothing, which is a thing to go
-        // wrong for no gain.
-        plan += (sessionInputPasteStart + payload + sessionInputPasteEnd).map { .press($0) }
+        if draft.touching {
+            // THE MARKERS ARE PART OF THE PAYLOAD OR THERE IS NO PAYLOAD, which is why they are
+            // added here rather than unconditionally: an empty send is a Return pressed on a prompt
+            // that sits on its default (`injectSessionInput` says so where the case is argued), and
+            // an empty paste is a pair of escape sequences asking a composer to do nothing, which
+            // is a thing to go wrong for no gain.
+            plan += (sessionInputPasteStart + payload + sessionInputPasteEnd).map { .press($0) }
+        } else {
+            // A DIALOG IS TYPED AT, NEVER PASTED INTO, and this branch is an authorisation boundary
+            // rather than a performance choice. `touching` is false exactly when the composer is
+            // NOT what this line reaches, which today means a session sitting on a permission or
+            // plan dialog, and a chooser reads KEYS: a paste is one edit event, so the answer is
+            // swallowed by the dialog layer and never picks anything. The Return that follows then
+            // activates whatever was highlighted, and what is highlighted is the first option.
+            //
+            // MEASURED 2026-09-05, twice, on a real Bash permission dialog in a pty sandbox: a
+            // pasted `4` (No) left no trace in the composer or the transcript and the Return ran
+            // the command (`tool_result err=False`), while the same `4` typed one key at a time
+            // refused it (`err=True`, "The user doesn't want to proceed with this tool use"). So
+            // the failure is not "the answer did not land": it is that the more a caller means NO,
+            // the more certainly YES happens. The only shape of request that can say no is exactly
+            // the one this branch protects.
+            //
+            // The cost is what a dialog answer is: an option number, one or two bytes, so 30ms or
+            // 60ms. Nothing a person waits on, and `.none` (a caller with no reading to offer)
+            // takes this branch too, which is the safe direction for an answer nobody vouched for.
+            for byte in payload {
+                plan += [.press(byte), .wait(gap)]
+            }
+        }
     }
     // AND THE RETURN, which ends the plan: past this byte the line is somebody's turn, and there is
     // nothing left for this supervisor to do to that composer.

@@ -210,22 +210,46 @@ func runDraftStashChecks() {
     /// The keys a full stash presses, in order: the one sequence three checks below compare against.
     let stashKeys = Array(repeating: [sessionInputStashKillByte, sessionInputStashByte],
                           count: sessionInputStashRounds).flatMap { $0 }
-    /// The payload as it goes on the wire: wrapped in the markers a terminal puts around a paste.
+    /// The payload as it goes on the wire when the composer is what the line reaches: wrapped in the
+    /// markers a terminal puts around a paste.
     func pasted(_ bytes: [UInt8]) -> [UInt8] {
         sessionInputPasteStart + bytes + sessionInputPasteEnd
     }
-    // WHAT EVERY INJECTION DOES, asserted whole rather than by its length: this is the shape a
-    // session that is not being protected gets, and the one a blocked session gets. THE PAYLOAD
-    // CARRIES NO WAITS OF ITS OWN since 2026-09-05, and this row is where a per-byte interval
-    // creeping back would be caught: it is spelled as a run of presses with the submit pause as the
-    // only wait in the plan.
-    check("a landing with no guard pastes exactly the payload, then waits, then presses Return",
-          plan("hi", .none)
-              == pasted([0x68, 0x69]).map { SessionInputStep.press($0) }
-                  + [.wait(0.4), .press(13)])
+    /// …and as it goes when it is not: one key at a time, at the interval a composer redraws at.
+    func typedOut(_ bytes: [UInt8]) -> [SessionInputStep] {
+        bytes.flatMap { [SessionInputStep.press($0), .wait(0.03)] }
+    }
+    /// The guard a session sitting on a permission or plan dialog gets.
+    let dialog = sessionInputDraftGuard(state: .blocked, suspected: true)
+    // WHAT A LINE THAT IS NOT REACHING A COMPOSER DOES, asserted whole rather than by its length:
+    // this is the shape a blocked session gets, and the one a caller with no reading to offer gets.
+    check("a landing with no guard types the payload one key at a time, as it always did",
+          plan("hi", .none) == typedOut([0x68, 0x69]) + [.wait(0.4), .press(13)])
     check("…and a blocked session's landing is byte for byte that same line",
-          plan("hi", sessionInputDraftGuard(state: .blocked, suspected: true))
-              == plan("hi", .none))
+          plan("hi", dialog) == plan("hi", .none))
+    // A DIALOG IS NEVER HANDED A PASTE, and this is the authorisation boundary of 2026-09-05 stated
+    // as bytes. A chooser reads KEYS: an answer delivered as one paste event is dropped by the
+    // dialog layer, and the Return behind it then activates whatever was highlighted, which is the
+    // FIRST option. Measured twice on a real Bash permission dialog: a pasted `4` (No) ran the
+    // command, the same `4` typed refused it. So the rows below are about the one shape of request
+    // that can say no, and they are asserted by the escape byte rather than by the marker sequence,
+    // so half a marker creeping in is caught too.
+    check("no answer to a dialog carries a paste marker, whatever the evidence says",
+          !pressed(plan("4", dialog)).contains(0x1B)
+              && !pressed(plan("4", .none)).contains(0x1B)
+              && !pressed(plan("no", sessionInputDraftGuard(state: .blocked, suspected: false)))
+                  .contains(0x1B))
+    // AND IT IS TYPED AT THE INTERVAL A CHOOSER REDRAWS AT, which is the other half of the same
+    // rule: markers absent is not enough if the bytes arrive with nothing between them, since what
+    // a menu has to keep up with is exactly what the interval was measured for.
+    check("…and its bytes are spaced by the composer's own interval, one wait per key",
+          waits(plan("4", dialog)) == [0.03, 0.4]
+              && waits(plan("no", dialog)) == [0.03, 0.03, 0.4])
+    // AND A COMPOSER STILL GETS THE PASTE, which is the row that says this fix did not undo the
+    // change it is a correction to.
+    check("…while a session whose composer is the target still gets one paste",
+          pressed(plan("hi", sessionInputDraftGuard(state: .idle, suspected: false)))
+              .contains(sessionInputPasteStart[0]))
     // THE STASH GOES FIRST AND ALL OF IT GOES FIRST: a press that landed after the payload had
     // started would kill the payload itself.
     let stashing = plan("hi", sessionInputDraftGuard(state: .idle, suspected: false))
@@ -286,11 +310,12 @@ func runDraftStashChecks() {
     // plan carries are the stash's own intervals and the submit pause, and nothing else. A payload
     // of any length adds none of them, which is what makes the poll loop's stall independent of how
     // long a caller's line is (SessionInput.swift's header carries that trade).
+    let stashWaits = Array(repeating: 0.03, count: 2 * sessionInputStashRounds)
     check("a payload of any length adds no waits, so only the stash and the submit pause remain",
-          waits(plan("hi", .none)) == [0.4]
-              && waits(plan(full, .none)) == [0.4]
+          waits(plan("hi", sessionInputDraftGuard(state: .idle, suspected: false)))
+              == stashWaits + [0.4]
               && waits(plan(full, sessionInputDraftGuard(state: .idle, suspected: true)))
-                  == Array(repeating: 0.03, count: 2 * sessionInputStashRounds) + [0.4])
+                  == stashWaits + [0.4])
     // THE CONTROL BYTES ARE NOT THE CALLER'S BYTES. `sessionInputMaxBytes` bounds what somebody may
     // type into a conversation; these are the supervisor getting its own way in, and counting them
     // against that limit would shorten every line by twelve characters for a reason no caller could
@@ -302,7 +327,9 @@ func runDraftStashChecks() {
     // MULTIBYTE TEXT GOES THROUGH AS BYTES, which is what the injection writes: a CJK line is three
     // bytes per character and the plan must carry each of them, in order.
     check("a multibyte payload is planned byte by byte, in order",
-          pressed(plan("字", .none)) == pasted(Array("字".utf8)) + [13])
+          pressed(plan("字", sessionInputDraftGuard(state: .idle, suspected: false)))
+              == stashKeys + pasted(Array("字".utf8)) + [13]
+              && pressed(plan("字", .none)) == Array("字".utf8) + [13])
 
     // MARK: - What the log says about it afterwards
 
@@ -605,15 +632,39 @@ func runDraftStashChecks() {
     // is the measurement `sessionInputSubmitPause` carries.
     check("…and it waits out every pause the plan carries, in order",
           sleptFor == waits(carried))
-    // THE THREE PLACES A REFUSAL CAN LAND, in the order they sit in the plan: inside the stash,
-    // inside the payload, and on the Return itself. Every one of them is a line that never reached
-    // the conversation.
+    // EVERY PLACE A REFUSAL CAN LAND, NAMED BY WHAT IS THERE rather than by an offset from the end.
+    // The positions are computed from the constants the plan is built out of, because the version of
+    // this that said `returnPress - 1` meant "inside the payload" and, once the markers arrived,
+    // silently came to mean "the last byte of the closing marker": the check went on passing and the
+    // state it claimed to cover stopped being covered (codex review of b5f48ae). A relative offset
+    // cannot say which part of a plan it is about.
     let returnPress = pressed(carried).count - 1
+    let payloadStart = stashKeys.count + sessionInputPasteStart.count
+    let insideOpener = stashKeys.count + 1
+    let insideCloser = payloadStart + 2 + 1
     check("a refusal anywhere in the plan sent nothing, and says so",
           carry(carried, refuseAt: 0).0 == SessionInputInjection.failed(EPERM)
-              && carry(carried, refuseAt: returnPress - 1).0
-              == SessionInputInjection.failed(EPERM)
+              && carry(carried, refuseAt: payloadStart).0 == SessionInputInjection.failed(EPERM)
               && carry(carried, refuseAt: returnPress).0 == SessionInputInjection.failed(EPERM))
+    // AND THE TWO PLACES THIS COMMIT INVENTED: half a paste marker written, and a paste opened but
+    // never closed. Both are states no plan could reach before the markers existed, so nothing was
+    // asserting them; measured 2026-09-05 on a live composer, what an unclosed paste leaves is half
+    // a line that the next keystrokes append to normally, which is the same residue the typed path
+    // always left. What matters here is that the writer still calls it a failure rather than a line
+    // it delivered.
+    check("a refusal inside a paste marker is a line that never went, opened or half-opened",
+          carry(carried, refuseAt: insideOpener).0 == SessionInputInjection.failed(EPERM)
+              && carry(carried, refuseAt: insideCloser).0 == SessionInputInjection.failed(EPERM)
+              && carry(carried, refuseAt: insideCloser).1
+                  == Array(pressed(carried).prefix(insideCloser)))
+    // AND THE SAME THREE QUESTIONS ON THE PLAN A DIALOG GETS, which has no markers at all: a fixture
+    // written only against the pasted shape would stop covering the typed one the moment that shape
+    // came back (it did, on 2026-09-05).
+    let toDialog = plan("no", dialog)
+    check("…and a typed answer refused part-way through is a refusal too",
+          carry(toDialog, refuseAt: 0).0 == SessionInputInjection.failed(EPERM)
+              && carry(toDialog, refuseAt: 1).0 == SessionInputInjection.failed(EPERM)
+              && carry(toDialog).0 == SessionInputInjection.done)
     // AND IT STOPS THERE rather than pressing on: a terminal that refused byte three will refuse
     // byte four, and continuing would leave a partial line in a composer with a Return still to
     // come.

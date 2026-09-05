@@ -27,11 +27,14 @@ import Foundation
 // could kill the child runs beside it, and that is a concurrency bug waiting for a cap hit to land
 // at the wrong moment. Delay, once, on a rare path, is the cheaper half.
 //
-// THAT WORST CASE NO LONGER DEPENDS ON HOW LONG THE LINE IS, which is the 2026-09-05 change and the
-// reason the number above fell from 7.1s. The payload used to be typed one byte at a time at
-// `sessionInputByteGap`, so a 148-byte resume line held this thread for 4.4s and looked, to the
-// person watching that terminal, exactly like a session that had hung. It is now delivered as one
-// bracketed paste (`sessionInputPasteStart`), which is one write and no waits at all.
+// THAT WORST CASE NO LONGER DEPENDS ON HOW LONG A LINE INTO A COMPOSER IS, which is the 2026-09-05
+// change and the reason the number above fell from 7.1s. The payload used to be typed one byte at a
+// time at `sessionInputByteGap`, so a 148-byte resume line held this thread for 4.4s and looked, to
+// the person watching that terminal, exactly like a session that had hung. It is now delivered as
+// one bracketed paste (`sessionInputPasteStart`): one paste edit for the composer, with no waits
+// inside the payload, though the bytes still go one ioctl each. A line to a session on a DIALOG is
+// still typed key by key, deliberately (`sessionInputInjectionPlan`), and those payloads are option
+// numbers, so the arithmetic above is what a supervisor actually spends.
 //
 // A NOTE ON WHAT INJECTION LOOKS LIKE TO THE REST OF THE TICK: the bytes land on the terminal's
 // input queue, so the child's read stamps the device node's atime, and `KeyboardActivity` sees them
@@ -49,12 +52,12 @@ import Foundation
 /// reached Return before the slash-command menu had settled, and the menu ate it. 30ms is inside
 /// human typing speed and left every stage of that spike green.
 ///
-/// IT NO LONGER SPACES THE PAYLOAD, since 2026-09-05. The text is delivered as one bracketed paste
-/// (`sessionInputPasteStart`), which a TUI reads as a single edit rather than as a run of
-/// keystrokes, so there is no per-keystroke redraw for an interval to stay in step with. What is
-/// still pressed one key at a time is the stash, whose keys ARE keystrokes: each Ctrl-K and Ctrl-U
-/// is an edit the composer acts on, and the measurement above is the one that says how fast a
-/// composer can be handed them.
+/// IT NO LONGER SPACES A PAYLOAD BOUND FOR A COMPOSER, since 2026-09-05. That text is delivered as
+/// one bracketed paste (`sessionInputPasteStart`), which a TUI reads as a single edit rather than as
+/// a run of keystrokes, so there is no per-keystroke redraw for an interval to stay in step with.
+/// What is still pressed one key at a time is the stash, whose keys ARE keystrokes, and a payload
+/// answering a DIALOG, whose chooser reads keys and ignores a paste outright
+/// (`sessionInputInjectionPlan` carries that measurement and the incident behind it).
 let sessionInputByteGap: TimeInterval = 0.030
 
 /// How long to wait after the last byte before pressing Return, for the same reason and from the
@@ -102,9 +105,16 @@ let sessionInputReturnByte: UInt8 = 13
 ///
 /// WHAT IT BUYS IS THE 4.4 SECONDS A LINE USED TO COST. The payload was typed one byte at a time so
 /// that a menu filtering between keystrokes would keep up (`sessionInputByteGap`); a paste is not a
-/// run of keystrokes, so there is nothing to keep up with and the whole line arrives in one write.
-/// The submit pause after it stays, because what has to settle before the Return is the composer's
-/// reaction to the text, not the text itself.
+/// run of keystrokes, so there is nothing to keep up with and the whole line arrives as one paste
+/// edit with no waits inside the payload. The DELIVERY is still one `TIOCSTI` per byte, which that
+/// ioctl's own signature makes unavoidable: what the markers save is the wait between bytes and the
+/// composer's redraw per key, not the number of syscalls. The submit pause after it stays, because
+/// what has to settle before the Return is the composer's reaction to the text, not the text
+/// itself.
+///
+/// AND ONLY WHERE THE COMPOSER IS THE TARGET. A session on a dialog is typed at instead, because a
+/// chooser reads keys and drops a paste on the floor: `sessionInputInjectionPlan` carries that
+/// branch, the measurement, and the reason it is an authorisation boundary.
 ///
 /// CLAUDE CODE ASKS FOR THIS MODE, which is why the markers are the delivery rather than an
 /// optimisation this file hopes for: its TUI turns bracketed paste on, and this repo already knows
@@ -399,12 +409,14 @@ enum SessionInputInjection: Equatable {
 /// defined). An empty `text` is therefore a legitimate request: press Return alone, which is how a
 /// prompt sitting on its default gets answered.
 ///
-/// THE PAYLOAD GOES AS ONE PASTE, wrapped in the markers a terminal would have put around it
-/// (`sessionInputPasteStart`), with no interval between its bytes; the keys that clear the composer
-/// ahead of it are still pressed one at a time, since those are keystrokes a composer redraws for
-/// (`sessionInputByteGap`). STOPS AT THE FIRST FAILURE rather than pressing on: a terminal that
-/// refused byte three will refuse byte four, and continuing would leave a partial line in a composer
-/// with a Return still to come. A failure part-way through a stash therefore leaves the draft in the
+/// THE PAYLOAD GOES AS ONE PASTE WHERE THE COMPOSER IS ITS TARGET, wrapped in the markers a terminal
+/// would have put around it (`sessionInputPasteStart`), with no interval between its bytes; the keys
+/// that clear the composer ahead of it are still pressed one at a time, since those are keystrokes a
+/// composer redraws for (`sessionInputByteGap`), and so is a payload answering a dialog.
+///
+/// STOPS AT THE FIRST FAILURE rather than pressing on: a terminal that refused byte three will
+/// refuse byte four, and continuing would leave a partial line in a composer with a Return still to
+/// come. A failure part-way through a stash therefore leaves the draft in the
 /// kill buffer, which is where every stash leaves it and where Claude Code's own on-screen hint says
 /// to look.
 ///

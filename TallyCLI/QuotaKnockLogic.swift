@@ -84,10 +84,10 @@ let quotaKnockInterval: TimeInterval = 30
 /// Bytes rather than characters because bytes are the thing being bounded: the channel's limit is
 /// 200 of them, so a character budget lets one emoji cost four times what a Latin letter does and
 /// one CJK label spend the whole line. (Until 2026-09-05 each of those bytes also cost 30ms of the
-/// poll loop's own time; the payload is one paste now, and what the limit still bounds is how much
-/// of somebody's conversation a caller may write.) Measured against the fleet this is written for,
-/// whose labels are "Claude" and "Claude 2" (8 bytes), 32 leaves room for a name in any script
-/// while keeping two of them well inside the sentence.
+/// poll loop's own time; a payload bound for a composer is one paste now, and what the limit still
+/// bounds is how much of somebody's conversation a caller may write.) Measured against the fleet
+/// this is written for, whose labels are "Claude" and "Claude 2" (8 bytes), 32 leaves room for a
+/// name in any script while keeping two of them well inside the sentence.
 let quotaKnockLabelBytes = 32
 
 /// Whether this supervisor was asked to knock once on its next eligible tick, whatever the quota

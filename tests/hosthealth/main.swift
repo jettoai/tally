@@ -61,6 +61,8 @@ do {
     expect(third == [.alarm], "the third consecutive reading raises the alarm")
     expect(after.state == .alarmed, "…and the machine reads alarmed from then on")
     expect(after.since == at(2), "…since the instant it crossed")
+    expect(after.over == 0 && after.under == 0,
+           "…and both runs are counted from the crossing rather than from before it")
 }
 
 // And nothing re-announces while it stands, however long it stands: the event is the CROSSING.

@@ -162,22 +162,18 @@ enum HostHealthLogic {
         let over = exceeds(reading)
         next.over = over ? next.over + 1 : 0
         next.under = over ? 0 : next.under + 1
-        switch tracker.state {
-        case .normal where next.over >= consecutiveSamples:
-            next.state = .alarmed
-            next.since = now
-            next.over = 0
-            next.under = 0
-            return (next, .alarm)
-        case .alarmed where next.under >= consecutiveSamples:
-            next.state = .normal
-            next.since = now
-            next.over = 0
-            next.under = 0
-            return (next, .clear)
-        default:
-            return (next, nil)
+        // Which crossing this run has just completed, if any: each state watches its own counter,
+        // and neither may be answered by the other's.
+        let crossing: (phase: HostHealthPhase, event: HostHealthEvent)? = switch tracker.state {
+        case .normal: next.over >= consecutiveSamples ? (.alarmed, .alarm) : nil
+        case .alarmed: next.under >= consecutiveSamples ? (.normal, .clear) : nil
         }
+        guard let crossing else { return (next, nil) }
+        next.state = crossing.phase
+        next.since = now
+        next.over = 0
+        next.under = 0
+        return (next, crossing.event)
     }
 
     /// The document one sample publishes, out of the watch it has just been folded into.
@@ -254,14 +250,15 @@ func hostHealthStatusLine(_ report: HostHealthReport?, now: Date = Date()) -> St
     let load = "load \(hostHealthFigure(report.load1))/\(limit)"
     let free = "free \(hostHealthGigabytes(report.freeBytes)) GB"
     let age = Int(max(0, now.timeIntervalSince(report.sampledAt)).rounded())
+    let sampled = " (sampled \(hostHealthAge(age)) ago)"
     switch report.state {
     case .normal:
-        return "host: \(load) · \(free) · ok (sampled \(hostHealthAge(age)) ago)"
+        return "host: \(load) · \(free) · ok" + sampled
     case .alarmed:
         var text = "host: ALARM since \(hostHealthClock(report.since)) · \(load) · \(free)"
         let top = hostHealthTopText(report.lastAlarm?.top ?? [], unit: "G")
         if !top.isEmpty { text += " · top: \(top)" }
-        return text + " (sampled \(hostHealthAge(age)) ago)"
+        return text + sampled
     }
 }
 

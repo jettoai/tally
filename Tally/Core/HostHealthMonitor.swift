@@ -84,15 +84,13 @@ final class HostHealthMonitor {
     private func publish(_ report: HostHealthReport) {
         guard let data = encodeHostHealthReport(report) else { return }
         let file = hostHealthReportFile
-        let manager = FileManager.default
-        try? manager.createDirectory(at: file.deletingLastPathComponent(),
-                                     withIntermediateDirectories: true)
-        let temp = file.deletingLastPathComponent()
-            .appendingPathComponent(".host-health.\(UUID().uuidString)")
-        guard (try? data.write(to: temp)) != nil else { return }
-        // A rename over the destination is one act for every reader: nobody sees a half-written
-        // document, and nobody sees the file missing either.
-        if rename(temp.path, file.path) != 0 { try? manager.removeItem(at: temp) }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        // `.atomic` is a write to a neighbouring temporary and a `rename(2)` over the destination,
+        // which is one act for every reader: nobody sees a half-written document, and nobody sees
+        // the file missing either. The same primitive `~/.tally/snapshot.json` is published with
+        // (`UsageSnapshot.write`), and for the same reason: another process reads it.
+        try? data.write(to: file, options: .atomic)
     }
 
     /// Append one line to `~/.tally/logs/host-health.log`.

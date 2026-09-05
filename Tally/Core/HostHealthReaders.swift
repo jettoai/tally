@@ -86,7 +86,6 @@ enum HostHealthReaders {
     /// `ProcessTree.executablePath` sets: it has ended, or it belongs to another user.
     static func heaviest(_ limit: Int = 3) -> [HostHealthProcess] {
         let pids = ProcessTree.liveProcesses().map(\.pid)
-        guard !pids.isEmpty else { return [] }
         // The whole-machine reading this file needs is one field of the record the footprint
         // sampler already asks for, so the call is shared rather than spelled a second time.
         let sample = ProcessTree.resourceSample(of: pids)

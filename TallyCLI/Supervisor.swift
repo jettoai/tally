@@ -976,9 +976,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 switchRecord?.commit(&manualMoves)
                 modelRecord?.commit(&sessionModelState)
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
-                let upgrade = selfUpdateFold(captured: supervisorVersion,
-                                             attempted: selfUpdateAttempted,
-                                             home: plan.target.launchHome)
+                let upgrade = appRelaunch.isArmed ? nil : selfUpdateFold(
+                    captured: supervisorVersion, attempted: selfUpdateAttempted,
+                    home: plan.target.launchHome)
                 // Read before the move, because the sentence one line down names it: which account
                 // this conversation is LEAVING is the half of that news that explains why its turn
                 // died, and after the handoff there is nothing left holding it.

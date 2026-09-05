@@ -51,18 +51,23 @@ import Foundation
 // loses everything in memory - including this station's record that the app was alive a moment ago.
 // An automatic update lands when the machine is idle, which is exactly when every session passes
 // the self-update's idle gate, so all of them would replace themselves on the very tick that armed
-// and none would still be watching fifteen seconds later. So `isArmed` is read by the loop's
-// `selfUpdateDue` call as one more relaunch already planned: the upgrade waits out the arming
-// window and the grace (75 seconds at the very worst) and takes the next tick after that.
+// and none would still be watching fifteen seconds later. So `isArmed` is read at BOTH places this
+// process can replace itself: the loop's standalone `selfUpdateDue`, and the fold that rides along
+// on a restart something else is making (`selfUpdateFold`, SelfUpdate.swift). Both wait out the
+// arming window and the grace, 75 seconds at the very worst, and take the next tick after that.
 //
-// KNOWN BLIND SPOT, what is left of it. Another reason can be restarting the child while this
-// station is armed (a cap handoff, a reload request), and a self-update folds into a restart that
-// is happening anyway (`selfUpdateFold`, SelfUpdate.swift): that exec still loses the record and
-// that update is not reopened by THIS supervisor. Accepted rather than carried across:
-// `ResuperviseContract.swift` is the argv contract two different BUILDS have to agree on, and the
-// recovery is one `open` of an app the user can also open themselves. The other supervisors on the
-// machine are not making the same handoff at the same moment, so in the multi-session case that is
-// what covers it.
+// THE FOLD HAD TO BE HELD BACK TOO, and covering only the standalone call would have left the most
+// likely path open. `tally reload` is a request every supervisor on the machine answers in the same
+// window, and asking for one is a normal thing to do right after an update: every session would
+// then restart its child, fold the upgrade into that restart, and exec away its arming together.
+// The cost of holding it is one extra visible restart for a session that happens to take a reload
+// or a cap handoff inside those 75 seconds: it comes back on the build it already had, and takes
+// the upgrade at the next idle tick instead.
+//
+// KNOWN BLIND SPOT, what is left of it. The supervisor PROCESS ending takes the arming with it,
+// which no gate here can hold back: a crash, or the user closing the terminal. Accepted rather than
+// carried across; `ResuperviseContract.swift` is the argv contract two different BUILDS have to
+// agree on, and the recovery is one `open` of an app the user can also open themselves.
 
 /// How long the app may stay away after the swap before this supervisor opens it. A normal Sparkle
 /// relaunch has the app back within a second or two (measured on the two updates that worked the

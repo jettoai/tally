@@ -362,8 +362,13 @@ func runAppRelaunchChecks() {
     check("the poll loop runs this station every tick", loop.contains("applyAppRelaunch(&appRelaunch)"))
     check("and it carries the state across ticks rather than starting fresh",
           loop.contains("var appRelaunch = AppRelaunchState()"))
-    check("an armed station holds the supervisor's own self-update back",
+    // Both places this process can replace itself read the arming, and `tally reload` is why the
+    // second one matters: it is a request every supervisor answers in the same window, so a fold
+    // left unguarded would exec every arming on the machine away at once.
+    check("the loop's standalone self-update call reads it",
           loop.contains("relaunchPlanned: plan != nil || appRelaunch.isArmed"))
+    check("and so does the folded one",
+          loop.contains("appRelaunch.isArmed ? nil : selfUpdateFold("))
     let station = (try? String(contentsOfFile: "TallyCLI/AppRelaunch.swift", encoding: .utf8)) ?? ""
     check("the station source is readable from this suite", !station.isEmpty)
     check("the line it says by default is the one this suite asserted",

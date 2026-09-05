@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -44,13 +45,24 @@ import Foundation
 // state directory with `O_CREAT | O_EXCL`, so the create IS the decision and exactly one process
 // wins it; the losers record the version as handled and stop asking.
 //
-// KNOWN BLIND SPOT. A supervisor that self-updates (`selfUpdateFold`, SelfUpdate.swift) inside the
-// grace window below replaces itself with `execv`, and this station's observations are in memory
-// only: the new image starts with no record that the app was alive under the previous version, so
-// it will not open the app. Accepted rather than carried across: `ResuperviseContract.swift` is the
-// argv contract two different BUILDS have to agree on, and the recovery is one `open` of an app the
-// user can also open themselves. The other supervisors on the machine do not exec in step with this
-// one, so in the multi-session case that is what covers it.
+// AN ARMED STATION HOLDS THE SUPERVISOR'S OWN SELF-UPDATE BACK, and without that the station would
+// never fire at all on the night it matters. The same app update that swaps the bundle also makes
+// every supervisor on the machine due for a self-update, which is an `execv` that keeps the pid and
+// loses everything in memory - including this station's record that the app was alive a moment ago.
+// An automatic update lands when the machine is idle, which is exactly when every session passes
+// the self-update's idle gate, so all of them would replace themselves on the very tick that armed
+// and none would still be watching fifteen seconds later. So `isArmed` is read by the loop's
+// `selfUpdateDue` call as one more relaunch already planned: the upgrade waits out the arming
+// window and the grace (75 seconds at the very worst) and takes the next tick after that.
+//
+// KNOWN BLIND SPOT, what is left of it. Another reason can be restarting the child while this
+// station is armed (a cap handoff, a reload request), and a self-update folds into a restart that
+// is happening anyway (`selfUpdateFold`, SelfUpdate.swift): that exec still loses the record and
+// that update is not reopened by THIS supervisor. Accepted rather than carried across:
+// `ResuperviseContract.swift` is the argv contract two different BUILDS have to agree on, and the
+// recovery is one `open` of an app the user can also open themselves. The other supervisors on the
+// machine are not making the same handoff at the same moment, so in the multi-session case that is
+// what covers it.
 
 /// How long the app may stay away after the swap before this supervisor opens it. A normal Sparkle
 /// relaunch has the app back within a second or two (measured on the two updates that worked the
@@ -63,6 +75,11 @@ let appRelaunchGrace: TimeInterval = 15
 /// the incident's own timing had them 24 milliseconds apart, so an app still running a minute later
 /// was never going anywhere: somebody dropped a new build over the top while the old code kept
 /// running, and whenever they quit it after that is their business, not an owed relaunch.
+//
+// INSIDE the window there is no such judgement to make, and that is a cost taken knowingly: nothing
+// here can tell an app Sparkle is about to quit from one the user quits themselves a few seconds
+// after dropping a new build in. Somebody who does both within a minute has the app reopened once.
+// The alternative is asking Sparkle, which is the thing that cannot be relied on here at all.
 let appRelaunchArmWindow: TimeInterval = 60
 
 /// The shortest gap between two walks of the process table. The poll tick is far faster than this
@@ -70,9 +87,9 @@ let appRelaunchArmWindow: TimeInterval = 60
 /// tick; the app's absence is a state that lasts, so a reading up to this old changes nothing.
 let appRelaunchScanInterval: TimeInterval = 5
 
-/// One file per version some supervisor has already opened the app for. A directory inside the
-/// supervisor state directory rather than beside its per-pid files: the sweeps there read a
-/// filename as a pid (`supervisorStatePid`), and this is not one.
+/// One file per version some supervisor has already opened the app for, under a directory per app
+/// bundle. A directory inside the supervisor state directory rather than beside its per-pid files:
+/// the sweeps there read a filename as a pid (`supervisorStatePid`), and this is not one.
 let appRelaunchClaimDir = supervisorStateDir.appendingPathComponent("app-relaunch")
 
 /// What one tick sees: the version installed in this supervisor's bundle right now, whether the app
@@ -115,6 +132,11 @@ struct AppRelaunchState: Equatable {
     /// The versions this process has already settled: opened the app for, or lost the claim on.
     var openedVersions: Set<String> = []
     var scan = AppPresenceScan()
+
+    /// Whether this station is waiting on an update right now: armed by a swap and not yet settled
+    /// one way or the other. The poll loop reads it to hold its OWN self-update back, for the reason
+    /// the header gives - that exec would take this record with it, on the one night it is needed.
+    var isArmed: Bool { pendingVersion != nil }
 }
 
 /// Fold `observation` into `state` and answer with the version this supervisor should open the app
@@ -179,25 +201,53 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
     return claim(pending) ? pending : nil
 }
 
-/// Claim the one open this version gets across every supervisor on the machine. True means this
-/// process won it. `O_CREAT | O_EXCL` on a name every supervisor derives the same way, so the create
-/// is the whole decision and there is nothing else to protect; a claim that cannot be written loses,
-/// on the same terms as everything else here (not opening costs the user one manual launch, opening
-/// nine times costs them nine).
+/// A bundle's identity as a filename: the first 16 hex of the SHA-256 of its path, spelled the way
+/// the Keychain service name spells the same idea (ClaudeKeychainService.swift), canonical mapping
+/// included so a path arriving in either Unicode normalisation answers the same key.
+///
+/// A path rather than a bundle id on purpose: `bundledAppPaths` already distinguishes bundles by
+/// their location, because two copies of Tally in two places are two apps to this station, and the
+/// Debug build's own id would collide with nothing anyway. A digest rather than the path itself
+/// because the path is not a filename, and `String.hash` because it is not stable across processes.
+func appRelaunchBundleKey(_ bundle: String) -> String {
+    let normalized = bundle.precomposedStringWithCanonicalMapping
+    return SHA256.hash(data: Data(normalized.utf8)).prefix(appRelaunchBundleKeyBytes)
+        .map { String(format: "%02x", $0) }.joined()
+}
+
+/// How many bytes of that digest the key is made of, printed `%02x` so the key is twice this many
+/// characters. Named rather than inlined for the reason its neighbour in ClaudeKeychainService.swift
+/// is: one constant is a question with one answer, two are two that agree until somebody edits one.
+private let appRelaunchBundleKeyBytes = 8
+
+/// Claim the one open this version of this bundle gets across every supervisor on the machine. True
+/// means this process won it. `O_CREAT | O_EXCL` on a name every supervisor derives the same way, so
+/// the create is the whole decision and there is nothing else to protect; a claim that cannot be
+/// written loses, on the same terms as everything else here (not opening costs the user one manual
+/// launch, opening nine times costs them nine).
+///
+/// KEYED BY BUNDLE AS WELL AS VERSION, because everything else about this station is. Two copies of
+/// Tally in two places are two apps here - `bundledAppPaths` watches for the executable of the one
+/// this supervisor lives in, not for a name - and they can carry the same version string. Sharing
+/// one claim across them would let a supervisor of the installed app take the claim and leave a
+/// supervisor of the other copy silent about an app that really did not come back.
 ///
 /// The claims of other versions are removed once a newer one is taken: they are debris from updates
-/// already dealt with, and leaving them would grow one file per release forever.
-func claimAppRelaunch(_ version: String, dir: URL = appRelaunchClaimDir) -> Bool {
-    guard !version.isEmpty,
+/// already dealt with, and leaving them would grow one file per release forever. Only this bundle's
+/// own claims, for the same reason they are separate at all.
+func claimAppRelaunch(_ version: String, bundle: String,
+                      dir: URL = appRelaunchClaimDir) -> Bool {
+    guard !version.isEmpty, !bundle.isEmpty,
           version.allSatisfy({ $0.isNumber || $0.isLetter || $0 == "." || $0 == "-" }),
           version != ".", version != ".." else { return false }
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let fd = open(dir.appendingPathComponent(version).path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+    let home = dir.appendingPathComponent(appRelaunchBundleKey(bundle))
+    try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    let fd = open(home.appendingPathComponent(version).path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
     guard fd >= 0 else { return false }
     close(fd)
-    let stale = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+    let stale = (try? FileManager.default.contentsOfDirectory(atPath: home.path)) ?? []
     for name in stale where name != version {
-        try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+        try? FileManager.default.removeItem(at: home.appendingPathComponent(name))
     }
     return true
 }
@@ -288,13 +338,14 @@ func applyAppRelaunch(_ state: inout AppRelaunchState, now: Date = Date(),
                       installed: String? = supervisorBuildVersion(),
                       bundle: AppBundlePaths? = bundledAppPaths(),
                       probe: (String) -> Bool = appProcessAlive,
-                      claim: (String) -> Bool = { claimAppRelaunch($0) },
+                      claim: (String, String) -> Bool = { claimAppRelaunch($0, bundle: $1) },
                       announce: (String) -> Void = { warn($0) },
                       launch: (String) -> Void = openAppBundle) {
     guard let bundle else { return }
     let alive = state.scan.alive(now: now) { probe(bundle.executable) }
     let seen = AppPresence(installedVersion: installed, appAlive: alive, at: now)
-    guard let target = appRelaunchDue(&state, observation: seen, claim: claim) else { return }
+    guard let target = appRelaunchDue(&state, observation: seen,
+                                      claim: { claim($0, bundle.bundle) }) else { return }
     announce("tally updated to \(target) but the app did not come back, opening it")
     launch(bundle.bundle)
 }

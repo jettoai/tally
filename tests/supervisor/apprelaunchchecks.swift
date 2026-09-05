@@ -182,7 +182,8 @@ func runAppRelaunchChecks() {
     _ = tick(&justArmed, new, alive: true, at: 10)
     _ = tick(&justArmed, new, alive: true, at: 69)
     _ = tick(&justArmed, new, alive: false, at: 70)
-    check("an app that goes a second inside the arming window is still ours to reopen",
+    check("an app that goes a second inside the arming window is reopened, Sparkle or not: "
+          + "the window cannot tell a manual quit apart",
           tick(&justArmed, new, alive: false, at: 85) == new)
 
     var justExpired = AppRelaunchState()
@@ -193,20 +194,76 @@ func runAppRelaunchChecks() {
     check("one that goes a second outside it is not",
           tick(&justExpired, new, alive: false, at: 90) == nil)
 
+    // 26i. WHAT THE POLL LOOP READS OFF THIS STATE. The same app update that swaps the bundle makes
+    // every supervisor due for a self-update, and that `execv` takes this station's memory with it -
+    // on an idle machine, which is when automatic updates land, every session would replace itself
+    // on the very tick that armed. So the loop treats an armed station as a relaunch already
+    // planned and lets the upgrade wait; these are the readings it takes.
+    var armState = AppRelaunchState()
+    check("a station that has seen nothing yet is not armed", !armState.isArmed)
+    _ = tick(&armState, old, alive: true, at: 0)
+    check("nor one merely watching an app that is running", !armState.isArmed)
+    _ = tick(&armState, new, alive: true, at: 10)
+    check("the swap arms it, even while the reading still says alive", armState.isArmed)
+    _ = tick(&armState, new, alive: false, at: 13)
+    check("and it stays armed while the app is away inside the grace", armState.isArmed)
+    // Read left to right: the arming is asserted BEFORE the tick that settles it, so the name and
+    // the assertion say the same thing.
+    check("the station is still armed on the tick that opens the app",
+          armState.isArmed && tick(&armState, new, alive: false, at: 28) == new)
+    check("and settling it disarms, so the upgrade is free to take the next tick",
+          !armState.isArmed)
+
+    // The two ways an arming ends without opening anything disarm just the same.
+    var armReturned = AppRelaunchState()
+    _ = tick(&armReturned, old, alive: true, at: 0)
+    _ = tick(&armReturned, new, alive: false, at: 10)
+    check("an app Sparkle brought back leaves nothing armed",
+          { _ = tick(&armReturned, new, alive: true, at: 12); return !armReturned.isArmed }())
+    var armExpired = AppRelaunchState()
+    _ = tick(&armExpired, old, alive: true, at: 0)
+    _ = tick(&armExpired, new, alive: true, at: 10)
+    check("nor does an app that never left inside the arming window",
+          { _ = tick(&armExpired, new, alive: true, at: 70); return !armExpired.isArmed }())
+    // A supervisor that never had a version to compare cannot hold an upgrade back either.
+    var armDev = AppRelaunchState()
+    _ = tick(&armDev, nil, alive: true, at: 0)
+    _ = tick(&armDev, nil, alive: false, at: 10)
+    check("a dev build with no version is never armed", !armDev.isArmed)
+
     // MARK: - 27. The claim itself, and the process reading behind it
 
     let claimDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-app-relaunch-\(UUID().uuidString)")
+    let installed = "/Applications/Tally.app"
+    let elsewhere = "/Users/someone/Downloads/Tally.app"
     check("the first supervisor to ask wins the version's claim",
-          claimAppRelaunch(new, dir: claimDir))
-    check("every other one loses it", !claimAppRelaunch(new, dir: claimDir))
+          claimAppRelaunch(new, bundle: installed, dir: claimDir))
+    check("every other one loses it", !claimAppRelaunch(new, bundle: installed, dir: claimDir))
+    // Two copies of Tally in two places are two apps to this station, and they can carry the same
+    // version. One claim shared between them would leave the second copy's supervisor silent about
+    // an app that really did not come back.
+    check("a second copy of the app elsewhere claims the same version for itself",
+          claimAppRelaunch(new, bundle: elsewhere, dir: claimDir))
+    check("and loses its own second attempt, like every other claim",
+          !claimAppRelaunch(new, bundle: elsewhere, dir: claimDir))
+    check("the two bundles keep their claims apart",
+          appRelaunchBundleKey(installed) != appRelaunchBundleKey(elsewhere))
+    check("and a bundle's key is the same string every time it is asked for",
+          appRelaunchBundleKey(installed) == appRelaunchBundleKey(installed))
     check("a newer version is a new claim, and it is won",
-          claimAppRelaunch("0.72.0", dir: claimDir))
-    let held = (try? FileManager.default.contentsOfDirectory(atPath: claimDir.path)) ?? []
+          claimAppRelaunch("0.72.0", bundle: installed, dir: claimDir))
+    let home = claimDir.appendingPathComponent(appRelaunchBundleKey(installed))
+    let held = (try? FileManager.default.contentsOfDirectory(atPath: home.path)) ?? []
     check("claiming a newer version clears the ones already dealt with", held == ["0.72.0"])
+    let neighbour = claimDir.appendingPathComponent(appRelaunchBundleKey(elsewhere))
+    let untouched = (try? FileManager.default.contentsOfDirectory(atPath: neighbour.path)) ?? []
+    check("and clears only its own, never the other bundle's", untouched == [new])
     check("a version that is not a plain name is refused rather than written",
-          !claimAppRelaunch("../../escape", dir: claimDir))
-    check("and so is an empty one", !claimAppRelaunch("", dir: claimDir))
+          !claimAppRelaunch("../../escape", bundle: installed, dir: claimDir))
+    check("and so is an empty one", !claimAppRelaunch("", bundle: installed, dir: claimDir))
+    check("a claim with no bundle to name is refused too",
+          !claimAppRelaunch(new, bundle: "", dir: claimDir))
     try? FileManager.default.removeItem(at: claimDir)
 
     // The process table is walked at most every few seconds: the poll tick is far faster than that
@@ -261,10 +318,13 @@ func runAppRelaunchChecks() {
     var said: [String] = []
     // The announcement is collected rather than printed: `warn` writes to the terminal these
     // assertions are printed on, and a line landing mid-print splits one of them.
+    var claimed: [String] = []
     func run(_ version: String?, alive: Bool, at offset: TimeInterval,
-             claim: (String) -> Bool = { _ in true }) {
+             claim: @escaping (String, String) -> Bool = { _, _ in true }) {
         applyAppRelaunch(&wired, now: launch.addingTimeInterval(offset), installed: version,
-                         bundle: paths, probe: { _ in alive }, claim: claim,
+                         bundle: paths,
+                         probe: { _ in alive },
+                         claim: { version, bundle in claimed.append(bundle); return claim(version, bundle) },
                          announce: { said.append($0) }, launch: { opened.append($0) })
     }
     run(old, alive: true, at: 0)
@@ -275,6 +335,8 @@ func runAppRelaunchChecks() {
     check("the tick past it opens the bundle this supervisor lives in", opened == [appBundle.path])
     check("it says what it is about to do, naming the version that landed",
           said == ["tally updated to \(new) but the app did not come back, opening it"])
+    check("and the claim it took names the bundle it is opening, not just the version",
+          claimed == [appBundle.path])
     run(new, alive: false, at: 60)
     check("and no tick after it opens anything again", opened == [appBundle.path])
     check("nor says anything again", said.count == 1)
@@ -287,7 +349,7 @@ func runAppRelaunchChecks() {
     for offset in [0.0, 10.0, 30.0] {
         applyAppRelaunch(&standalone, now: launch.addingTimeInterval(offset), installed: new,
                          bundle: nil, probe: { _ in standaloneProbes += 1; return false },
-                         claim: { _ in true }, launch: { _ in standaloneOpened += 1 })
+                         claim: { _, _ in true }, launch: { _ in standaloneOpened += 1 })
     }
     check("a binary outside a bundle never walks the process table", standaloneProbes == 0)
     check("and never opens anything", standaloneOpened == 0)
@@ -302,6 +364,8 @@ func runAppRelaunchChecks() {
     check("the poll loop runs this station every tick", loop.contains("applyAppRelaunch(&appRelaunch)"))
     check("and it carries the state across ticks rather than starting fresh",
           loop.contains("var appRelaunch = AppRelaunchState()"))
+    check("an armed station holds the supervisor's own self-update back",
+          loop.contains("relaunchPlanned: plan != nil || appRelaunch.isArmed"))
     let station = (try? String(contentsOfFile: "TallyCLI/AppRelaunch.swift", encoding: .utf8)) ?? ""
     check("the station source is readable from this suite", !station.isEmpty)
     check("the line it says by default is the one this suite asserted",

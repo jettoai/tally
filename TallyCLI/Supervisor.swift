@@ -695,7 +695,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                         hasTranscript: watcher.file != nil, childAge: childAge,
                                         bar: followIdleSeconds,
                                         keyboardQuiet: keyboard.idle(followIdleSeconds)),
-                   relaunchPlanned: plan != nil,
+                   relaunchPlanned: plan != nil || appRelaunch.isArmed,
                    uptime: childAge, home: account.launchHome) != nil {
                 plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
             }

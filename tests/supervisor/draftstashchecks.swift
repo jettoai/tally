@@ -207,11 +207,19 @@ func runDraftStashChecks() {
     /// The keys a full stash presses, in order: the one sequence three checks below compare against.
     let stashKeys = Array(repeating: [sessionInputStashKillByte, sessionInputStashByte],
                           count: sessionInputStashRounds).flatMap { $0 }
-    // WHAT EVERY INJECTION DID BEFORE THIS EXISTED, asserted whole rather than by its length: this is
-    // the shape a session that is not being protected still gets, and the one a blocked session gets.
-    check("a landing with no guard types exactly the payload and a Return, as it always did",
-          plan("hi", .none) == [.press(0x68), .wait(0.03), .press(0x69), .wait(0.03),
-                                .wait(0.4), .press(13)])
+    /// The payload as it goes on the wire: wrapped in the markers a terminal puts around a paste.
+    func pasted(_ bytes: [UInt8]) -> [UInt8] {
+        sessionInputPasteStart + bytes + sessionInputPasteEnd
+    }
+    // WHAT EVERY INJECTION DOES, asserted whole rather than by its length: this is the shape a
+    // session that is not being protected gets, and the one a blocked session gets. THE PAYLOAD
+    // CARRIES NO WAITS OF ITS OWN since 2026-09-05, and this row is where a per-byte interval
+    // creeping back would be caught: it is spelled as a run of presses with the submit pause as the
+    // only wait in the plan.
+    check("a landing with no guard pastes exactly the payload, then waits, then presses Return",
+          plan("hi", .none)
+              == pasted([0x68, 0x69]).map { SessionInputStep.press($0) }
+                  + [.wait(0.4), .press(13)])
     check("…and a blocked session's landing is byte for byte that same line",
           plan("hi", sessionInputDraftGuard(state: .blocked, suspected: true))
               == plan("hi", .none))
@@ -219,7 +227,7 @@ func runDraftStashChecks() {
     // started would kill the payload itself.
     let stashing = plan("hi", sessionInputDraftGuard(state: .idle, suspected: false))
     check("a stash is the whole of the prefix, one round per line it may have to kill",
-          pressed(stashing) == stashKeys + [0x68, 0x69, 13])
+          pressed(stashing) == stashKeys + pasted([0x68, 0x69]) + [13])
     // FORWARD THEN BACKWARD WITHIN EACH ROUND, which is the order the measurement settled: the kill
     // to the end of the line is what takes the part of a draft that a cursor left mid-edit shelters
     // from Ctrl-U, and a payload typed in front of that remnant is the original defect in miniature
@@ -256,18 +264,46 @@ func runDraftStashChecks() {
     check("an empty send still stashes and still presses Return",
           pressed(plan("", sessionInputDraftGuard(state: .idle, suspected: true)))
               == stashKeys + [13])
+    // AND IT IS NOT WRAPPED, which is the row the marker pair has to be asked about separately: an
+    // empty paste is two escape sequences asking a composer to do nothing, and a composer that
+    // answered them with anything at all would answer a request whose whole content is the Return.
+    // Asserted by the escape byte rather than by the sequence, so a half-written pair is caught too.
+    check("…and nothing is pasted around a payload that is not there",
+          !pressed(plan("", sessionInputDraftGuard(state: .idle, suspected: true))).contains(0x1B)
+              && !pressed(plan("", .none)).contains(0x1B))
+    // THE MARKERS ARE THE PAYLOAD'S OWN BRACKET, asserted as a position rather than as membership:
+    // a plan that opened the paste before the stash, or closed it after the Return, would still
+    // contain both sequences.
+    let bracketed = pressed(plan("hi", sessionInputDraftGuard(state: .idle, suspected: false)))
+    check("the paste opens immediately before the payload and closes immediately after it",
+          Array(bracketed.dropFirst(stashKeys.count))
+              == pasted([0x68, 0x69]) + [sessionInputReturnByte])
+    /// A payload at the channel's own limit, which two rows below ask different questions of.
+    let full = String(repeating: "a", count: sessionInputMaxBytes)
+    // NO WAIT INSIDE THE PAYLOAD, which is the whole of this change stated as a count: the waits a
+    // plan carries are the stash's own intervals and the submit pause, and nothing else. A payload
+    // of any length adds none of them, which is what makes the poll loop's stall independent of how
+    // long a caller's line is (SessionInput.swift's header carries that trade).
+    let waits = { (steps: [SessionInputStep]) -> [TimeInterval] in
+        steps.compactMap { if case .wait(let s) = $0 { return s } else { return nil } }
+    }
+    check("a payload of any length adds no waits, so only the stash and the submit pause remain",
+          waits(plan("hi", .none)) == [0.4]
+              && waits(plan(full, .none)) == [0.4]
+              && waits(plan(full, sessionInputDraftGuard(state: .idle, suspected: true)))
+                  == Array(repeating: 0.03, count: 2 * sessionInputStashRounds) + [0.4])
     // THE CONTROL BYTES ARE NOT THE CALLER'S BYTES. `sessionInputMaxBytes` bounds what somebody may
     // type into a conversation; these are the supervisor getting its own way in, and counting them
     // against that limit would shorten every line by twelve characters for a reason no caller could
     // see.
-    let full = String(repeating: "a", count: sessionInputMaxBytes)
     check("a payload at the byte limit is planned whole, with the stash on top of it",
           pressed(plan(full, sessionInputDraftGuard(state: .idle, suspected: true))).count
-              == stashKeys.count + sessionInputMaxBytes + 1)
+              == stashKeys.count + sessionInputPasteStart.count + sessionInputMaxBytes
+                  + sessionInputPasteEnd.count + 1)
     // MULTIBYTE TEXT GOES THROUGH AS BYTES, which is what the injection writes: a CJK line is three
     // bytes per character and the plan must carry each of them, in order.
     check("a multibyte payload is planned byte by byte, in order",
-          pressed(plan("字", .none)) == Array("字".utf8) + [13])
+          pressed(plan("字", .none)) == pasted(Array("字".utf8)) + [13])
 
     // MARK: - What the log says about it afterwards
 

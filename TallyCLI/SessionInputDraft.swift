@@ -11,7 +11,7 @@ import Foundation
 //
 // THE SHAPE, and the reason it is two acts rather than a fourth gate:
 //
-//     [(Ctrl-K Ctrl-U) × sessionInputStashRounds]  payload  CR
+//     [(Ctrl-K Ctrl-U) × sessionInputStashRounds]  ESC[200~ payload ESC[201~  CR
 //
 // Claude Code's composer keeps a kill buffer and says so on screen (`Ctrl+Y to paste deleted text`),
 // so the draft can be moved out of the way and its owner can put it back with one key rather than
@@ -249,6 +249,9 @@ enum SessionInputStep: Equatable {
 /// THE ORDER IS THE CORRECTNESS, and each boundary in it was measured rather than reasoned:
 ///
 ///   - the stash goes FIRST, so the payload starts from an empty line whatever was in it;
+///   - the payload is ONE PASTE and carries no waits of its own, because a paste is a single edit
+///     rather than a run of keystrokes (`sessionInputPasteStart` carries the 2026-09-05
+///     measurement, and the 4.4 seconds a typed line used to spend on the terminal);
 ///   - the Return goes after the submit pause, because a TUI filters its menus between keystrokes
 ///     and a Return that arrives mid-filter picks the wrong entry (SessionInput.swift carries that
 ///     measurement, and the Codex one that disagrees with it);
@@ -269,8 +272,14 @@ func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
                      .press(sessionInputStashByte), .wait(gap)]
         }
     }
-    for byte in Array(text.utf8) {
-        plan += [.press(byte), .wait(gap)]
+    let payload = Array(text.utf8)
+    if !payload.isEmpty {
+        // THE MARKERS ARE PART OF THE PAYLOAD OR THERE IS NO PAYLOAD, which is why they are added
+        // here rather than unconditionally: an empty send is a Return pressed on a prompt that sits
+        // on its default (`injectSessionInput` says so where the case is argued), and an empty paste
+        // is a pair of escape sequences asking a composer to do nothing, which is a thing to go
+        // wrong for no gain.
+        plan += (sessionInputPasteStart + payload + sessionInputPasteEnd).map { .press($0) }
     }
     // AND THE RETURN, which ends the plan: past this byte the line is somebody's turn, and there is
     // nothing left for this supervisor to do to that composer.

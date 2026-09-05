@@ -19,14 +19,19 @@ import Foundation
 // nothing to stand down, nothing to hand back, and a relaunch mid-injection would type half a line
 // into a child that is about to be killed.
 //
-// SYNCHRONOUS, ON THE POLL LOOP'S OWN THREAD, and that is a considered trade. The worst case is
-// `sessionInputMaxBytes` * `sessionInputByteGap` plus the submit pause, plus the stash rounds that
-// move the draft under it out of the way (SessionInputDraft.swift), about 7.1s, during
-// which this supervisor's 2s tick does not run: the child is unaffected (it is a separate process
-// reading its own terminal), so what is delayed is the state file, the badge and the next relaunch
-// decision. The alternative is a thread writing to a terminal while the tick that could kill the
-// child runs beside it, and that is a concurrency bug waiting for a cap hit to land at the wrong
-// moment. Delay, once, on a rare path, is the cheaper half.
+// SYNCHRONOUS, ON THE POLL LOOP'S OWN THREAD, and that is a considered trade. The worst case is the
+// stash rounds that move the draft out of the way (SessionInputDraft.swift) plus the submit pause,
+// about 1.1s, during which this supervisor's 2s tick does not run: the child is unaffected (it is a
+// separate process reading its own terminal), so what is delayed is the state file, the badge and
+// the next relaunch decision. The alternative is a thread writing to a terminal while the tick that
+// could kill the child runs beside it, and that is a concurrency bug waiting for a cap hit to land
+// at the wrong moment. Delay, once, on a rare path, is the cheaper half.
+//
+// THAT WORST CASE NO LONGER DEPENDS ON HOW LONG THE LINE IS, which is the 2026-09-05 change and the
+// reason the number above fell from 7.1s. The payload used to be typed one byte at a time at
+// `sessionInputByteGap`, so a 148-byte resume line held this thread for 4.4s and looked, to the
+// person watching that terminal, exactly like a session that had hung. It is now delivered as one
+// bracketed paste (`sessionInputPasteStart`), which is one write and no waits at all.
 //
 // A NOTE ON WHAT INJECTION LOOKS LIKE TO THE REST OF THE TICK: the bytes land on the terminal's
 // input queue, so the child's read stamps the device node's atime, and `KeyboardActivity` sees them
@@ -37,12 +42,19 @@ import Foundation
 // type recently", and it is told when this supervisor last typed rather than left to guess
 // (`sessionInputDraftSuspected`, SessionInputDraft.swift).
 
-/// How long to wait between bytes.
+/// How long to wait between the keys that clear the composer.
 ///
 /// MEASURED, 2026-08-13, on the spike that proved this feature possible (`openpty` + `setsid` +
 /// `TIOCSTI`, three stages green): at 2ms per byte a `/help` typed into Claude Code's composer
 /// reached Return before the slash-command menu had settled, and the menu ate it. 30ms is inside
 /// human typing speed and left every stage of that spike green.
+///
+/// IT NO LONGER SPACES THE PAYLOAD, since 2026-09-05. The text is delivered as one bracketed paste
+/// (`sessionInputPasteStart`), which a TUI reads as a single edit rather than as a run of
+/// keystrokes, so there is no per-keystroke redraw for an interval to stay in step with. What is
+/// still pressed one key at a time is the stash, whose keys ARE keystrokes: each Ctrl-K and Ctrl-U
+/// is an edit the composer acts on, and the measurement above is the one that says how fast a
+/// composer can be handed them.
 let sessionInputByteGap: TimeInterval = 0.030
 
 /// How long to wait after the last byte before pressing Return, for the same reason and from the
@@ -84,6 +96,34 @@ let sessionInputInjectRequest: UInt = TIOCSTI
 /// ICRNL translates it; a raw-mode TUI reads the CR itself. Measured on the same spike: LF typed
 /// into Claude Code's composer did not submit, CR did.
 let sessionInputReturnByte: UInt8 = 13
+
+/// What a terminal puts around text somebody pasted, once the program has asked it to (`ESC[?2004h`,
+/// bracketed paste), and what this supervisor therefore puts around a payload it delivers.
+///
+/// WHAT IT BUYS IS THE 4.4 SECONDS A LINE USED TO COST. The payload was typed one byte at a time so
+/// that a menu filtering between keystrokes would keep up (`sessionInputByteGap`); a paste is not a
+/// run of keystrokes, so there is nothing to keep up with and the whole line arrives in one write.
+/// The submit pause after it stays, because what has to settle before the Return is the composer's
+/// reaction to the text, not the text itself.
+///
+/// CLAUDE CODE ASKS FOR THIS MODE, which is why the markers are the delivery rather than an
+/// optimisation this file hopes for: its TUI turns bracketed paste on, and this repo already knows
+/// it does, since `WorktreeKill.swift` has to send `ESC[?2004l` to turn it back off for a terminal
+/// whose full-screen program died without cleaning up. A session supervised by this build is a
+/// Claude Code session by construction (`runLaunch` starts a supervisor for that provider alone).
+///
+/// MEASURED 2026-09-05, in a pty sandbox on a real supervised session, judged on that session's own
+/// transcript rather than on what the injector reported: a pasted `/clear` opened the slash menu and
+/// ran on the Return (a new transcript, 0.64s end to end, against 0.76s typed); the 148-byte
+/// auto-resume line became one user turn carrying the sentence whole (0.53s, against 5.04s typed);
+/// neither became a `[Pasted text #1]` placeholder, and nor did a payload at the channel's own
+/// 200-byte limit. A CR inside a pasted payload becomes a NEWLINE in that composer rather than a
+/// submit, which is a shape the typed path could not deliver at all.
+let sessionInputPasteStart: [UInt8] = Array("\u{1B}[200~".utf8)
+
+/// The end of that wrapper. Split from the start rather than being one pair, because the payload
+/// goes between them and a suite asserts each side of it.
+let sessionInputPasteEnd: [UInt8] = Array("\u{1B}[201~".utf8)
 
 // MARK: - The decision
 
@@ -359,12 +399,14 @@ enum SessionInputInjection: Equatable {
 /// defined). An empty `text` is therefore a legitimate request: press Return alone, which is how a
 /// prompt sitting on its default gets answered.
 ///
-/// ONE BYTE AT A TIME WITH A PAUSE, because a TUI is a program that redraws between keystrokes and
-/// filters a menu as they arrive; `sessionInputByteGap` carries the measurement that settled the
-/// interval. STOPS AT THE FIRST FAILURE rather than pressing on: a terminal that refused byte three
-/// will refuse byte four, and continuing would leave a partial line in a composer with a Return
-/// still to come. A failure part-way through a stash therefore leaves the draft in the kill buffer,
-/// which is where every stash leaves it and where Claude Code's own on-screen hint says to look.
+/// THE PAYLOAD GOES AS ONE PASTE, wrapped in the markers a terminal would have put around it
+/// (`sessionInputPasteStart`), with no interval between its bytes; the keys that clear the composer
+/// ahead of it are still pressed one at a time, since those are keystrokes a composer redraws for
+/// (`sessionInputByteGap`). STOPS AT THE FIRST FAILURE rather than pressing on: a terminal that
+/// refused byte three will refuse byte four, and continuing would leave a partial line in a composer
+/// with a Return still to come. A failure part-way through a stash therefore leaves the draft in the
+/// kill buffer, which is where every stash leaves it and where Claude Code's own on-screen hint says
+/// to look.
 ///
 /// `draft` HAS NO DEFAULT, on the same terms as `relaunchPlanned` next door: a call site that forgot
 /// it would type over somebody's half-written prompt and report the line delivered, which is the

@@ -151,11 +151,18 @@ enum UsageAdvisor {
     /// the history has no reserve in it and never will retroactively, and what the question here
     /// means - "do these accounts cover the demand" - is about the part of them Tally may actually
     /// spend. An account with 30 points held back is 0.7 of an account-week to this reading, and it
-    /// is starved 30 points earlier than its siblings - in the ACCOUNT-WIDE pool, which is the only
-    /// pool a week's capacity is counted in (the model pools below read it as zero, for the reason
-    /// stated where they are summed). Defaults to no reserve
-    /// anywhere, which is every fleet that has not set one and every caller that has not been taught
-    /// to ask.
+    /// is starved 30 points earlier than its siblings - in the account-wide pool AND in that
+    /// account's flagship model pool, the two the reserve is actually held back from
+    /// (`flagshipModelOf` below says which pool that is). Defaults to no reserve anywhere, which is
+    /// every fleet that has not set one and every caller that has not been taught to ask.
+    ///
+    /// `flagshipModelOf` names the model whose weekly window each account's reserve reaches - its
+    /// HEADLINE model window, the only one the launcher publishes and rates
+    /// (`Snapshot.Account.modelWindowName`). A lookup rather than a fact in the history for the
+    /// reason `planOf` is one, and a sharper one: the history records EVERY model tier the provider
+    /// reports, and which of them was the headline is a live reading that no sample carries. Nil for
+    /// an account - which is the default, and so every caller that has not been taught to ask -
+    /// leaves that account holding nothing back in any model pool, exactly as before this existed.
     ///
     /// `liveAccounts` is the fleet AS IT IS NOW - the accounts still on this machine. The history
     /// outlives a removed account by up to four weeks, and while it does, that account is a whole
@@ -168,16 +175,19 @@ enum UsageAdvisor {
     static func readings(samples: [Sample], now: Date = Date(),
                          planOf: (String) -> String? = { _ in nil },
                          reserveOf: @escaping (String) -> Double = { _ in 0 },
+                         flagshipModelOf: @escaping (String) -> String? = { _ in nil },
                          liveAccounts: Set<String>? = nil) -> [Reading] {
         Dictionary(grouping: samples, by: \.provider).keys.sorted().compactMap { provider in
             reading(provider: provider, samples: samples.filter { $0.provider == provider },
-                    now: now, planOf: planOf, reserveOf: reserveOf, liveAccounts: liveAccounts)
+                    now: now, planOf: planOf, reserveOf: reserveOf,
+                    flagshipModelOf: flagshipModelOf, liveAccounts: liveAccounts)
         }
     }
 
     static func reading(provider: String, samples: [Sample], now: Date = Date(),
                         planOf: (String) -> String? = { _ in nil },
-                        reserveOf: (String) -> Double = { _ in 0 },
+                        reserveOf: @escaping (String) -> Double = { _ in 0 },
+                        flagshipModelOf: @escaping (String) -> String? = { _ in nil },
                         liveAccounts: Set<String>? = nil) -> Reading? {
         guard let earliest = samples.map(\.ts).min() else { return nil }
         let days = now.timeIntervalSince(earliest) / 86_400
@@ -203,19 +213,36 @@ enum UsageAdvisor {
         // Binding constraint: the most saturated pool relative to its OWN account capacity - the
         // account-wide weekly, or any single model window. A fable window can be the wall while
         // the account-wide weekly still reads healthy.
-        // A RESERVE IS TAKEN OFF THE ACCOUNT-WIDE POOL ONLY, and that is a statement about POOLS
-        // rather than a re-run of the window ruling. The question here is "do these accounts cover a
-        // week's demand", and the only pool a week's capacity is counted in is the account-wide one:
-        // the 5h window and the flagship one that the reserve also covers (Tally/Core/AccountReserve.
-        // swift) are respectively a pacing constraint that refills 33 times a week and a slice of
-        // the very week already counted here, so subtracting the reserve from either would hold the
-        // same points back twice and report a pool as saturated on capacity nothing withholds.
+        /// What each account holds back IN ONE MODEL POOL: its reserve where that pool is the
+        /// account's own flagship window, and nothing anywhere else. Built per pool because the
+        /// reserve is per ACCOUNT while a pool is per model, and the two only meet on the account
+        /// whose headline window this pool is - the other tiers in the history are windows no pick
+        /// protects (`PersonalAccount.reserved` refuses to hatch them for the same reason).
+        func modelPoolReserve(_ model: String) -> (String) -> Double {
+            { account in
+                flagshipModelOf(account)?.lowercased() == model.lowercased()
+                    ? reserveOf(account) : 0
+            }
+        }
+
+        // EVERY POOL IS RATED ON THE CAPACITY TALLY MAY ACTUALLY SPEND IN IT, the reserve included,
+        // and that is NOT a double subtraction: the binding ratio is the MAX over pools, never a
+        // sum, so a point held back is counted once inside each pool it is held back from and never
+        // added to itself. The 5h window is the one window left out, and for a reason of its own -
+        // it refills 33 times a week, so it paces work rather than capping it and is not capacity
+        // this question can count.
+        //
+        // THE FLAGSHIP POOL WAS THE MISS (codex review, 2026-09-05). Two accounts owing 1.6
+        // account-weeks of flagship demand with 50% held back on one of them read 1.6/2 = 0.8 and
+        // answered "sufficient", while the capacity automation may actually reach is 1.5 and the
+        // honest reading is 1.6/1.5 = 1.07, past the trigger. The old comment called that
+        // double-counting; it was a pool being rated on capacity nobody has.
         var bindingRatio = poolRatio(weeklyAll, weeks: weeks, live: liveAccounts,
                                      reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
             bindingRatio = max(bindingRatio, poolRatio(weeklyModel.filter { $0.model == model },
                                                        weeks: weeks, live: liveAccounts,
-                                                       reserveOf: { _ in 0 }))
+                                                       reserveOf: modelPoolReserve(model)))
         }
 
         let activeBurnPerHour = spent.activeSeconds > 0
@@ -227,12 +254,13 @@ enum UsageAdvisor {
         var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, live: liveAccounts,
                                                 observed: observed, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
-            // The account-wide pool only, for the reason the ratio above states: this reading is
-            // about a week's CAPACITY, and a model pool is a slice of the week already counted.
+            // Through the same per-pool reserve the ratio above uses: an account is starved in its
+            // flagship pool at the line its owner drew, exactly as it is in the account-wide one.
             starvedSeconds = max(starvedSeconds,
                                  poolStarvedSeconds(weeklyModel.filter { $0.model == model },
                                                     now: now, live: liveAccounts,
-                                                    observed: observed, reserveOf: { _ in 0 }))
+                                                    observed: observed,
+                                                    reserveOf: modelPoolReserve(model)))
         }
         let starvedHoursPerWeek = starvedSeconds / 3_600 / weeks
 

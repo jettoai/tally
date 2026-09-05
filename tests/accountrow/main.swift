@@ -679,16 +679,29 @@ check("…and nothing else at all",
           && !AccountRoles.carriesReserve(window: nil, isModelWindow: false))
 let personalSource = readSource("Tally/Core/PersonalAccount.swift")
 check("the app's per-window reading asks that rule rather than spelling its own list of kinds",
-      personalSource.contains("AccountRoles.carriesReserve(window: windowName(kind), "
-                                  + "isModelWindow: kind == .weeklyModel)")
+      personalSource.contains("AccountRoles.carriesReserve(window: windowName(kind),")
+          && personalSource.contains("isModelWindow: kind == .weeklyModel && isHeadline)")
           && personalSource.contains("case .session: return AccountRoles.sessionWindowName")
           && personalSource.contains("case .weeklyAll: return AccountRoles.weeklyWindowName")
           && personalSource.contains("case .weeklyModel, .other: return nil"))
 check("…and both meters draw the mark through it rather than off the account's number",
-      cardMeter.contains("PersonalAccount.reserved(metric.kind) ? reserve : 0")
+      cardMeter.contains("PersonalAccount.reserved(metric.kind, isHeadline: isHeadline)")
+          && cardMeter.contains("? reserve : 0")
           && cardMeter.contains("ReserveMark(reserve: barReserve)")
-          && listMeter.contains("PersonalAccount.reserved(metric.kind) ? facts.reservePercent : 0")
+          && listMeter.contains("PersonalAccount.reserved(metric.kind, "
+                                    + "isHeadline: metric.id == facts.headlineID)")
           && listMeter.contains("ReserveMark(reserve: barReserve(metric))"))
+// AND THE HEADLINE IS STATED, NOT INFERRED FROM THE STYLING. The card marks its headline row
+// `prominent`, and reading the water line off that flag would put a hatch back on unprotected bars
+// the day `prominent` comes to mean anything else. The identity is passed instead, and the row that
+// gets it is the headline one and no other (codex review, 2026-09-05).
+let cardHost = readSource("Tally/Views/AccountCardView.swift")
+check("the card tells the headline row that it is one, and tells no other row so",
+      cardHost.contains("reserve: facts.reservePercent, isHeadline: true)")
+          && cardHost.components(separatedBy: "isHeadline: true").count == 2)
+check("…and the reading is gated on that fact rather than on `prominent`",
+      !cardMeter.contains("prominent ? reserve")
+          && cardMeter.contains("isHeadline: Bool = false"))
 check("…so neither draws it from the account's number on every window it reports",
       !cardMeter.contains("ReserveMark(reserve: reserve)")
           && !listMeter.contains("ReserveMark(reserve: facts.reservePercent)"))

@@ -335,26 +335,74 @@ check("a reserved account starves at its own line, not at the raw one",
       (starved?.starvedHoursPerWeek ?? 0) > 0)
 check("…and the same fleet reports no starvation without the reserve",
       (notStarved?.starvedHoursPerWeek ?? -1) == 0)
-// 12e. THE ACCOUNT-WIDE POOL IS THE ONLY ONE THAT HAS A RESERVE, and that is a statement about
-//      POOLS rather than a copy of the window ruling. The number is held back from three WINDOWS -
-//      the weekly all-models one, the 5h session one and the flagship model's (Albert's ruling,
-//      2026-09-05; Tally/Core/AccountReserve.swift) - but the question asked here is "does a week's
-//      capacity cover a week's demand", and the only pool a week's capacity is counted in is the
-//      account-wide one: the 5h window refills 33 times a week and paces work rather than capping
-//      it, and a model pool is a slice of the very week already counted. So a model pool reads the reserve as zero - taking it
-//      off there as well would hold the same points back twice and report a flagship pool as
-//      saturated on capacity nothing withholds.
+// 12e. A FLAGSHIP POOL IS RATED ON THE CAPACITY TALLY MAY SPEND IN IT, exactly as the account-wide
+//      pool is (codex review, 2026-09-05, correcting this file's previous contract). The earlier
+//      reading called that double-counting; it is not, because `bindingRatio` and the starvation
+//      reading are a MAX over pools and never a sum, so a point held back is counted once inside
+//      each pool it is held back from and never added to itself. What the old zero actually did
+//      was rate a flagship pool on capacity nobody has.
+//
+//      AND ONLY THE ACCOUNT'S OWN FLAGSHIP POOL. The history records EVERY model tier the provider
+//      reports and marks none of them as the headline, while the launcher publishes and rates
+//      exactly one model window per account - so the pool a reserve reaches is named by the caller
+//      (`flagshipModelOf`) and every other tier reads zero, the same distinction the meters draw
+//      (`PersonalAccount.reserved`).
 let modelOnly = [
     s("a1", "weeklyModel", used: 70, at: daysAgo(9), model: "fable"),
     s("a1", "weeklyModel", used: 70, at: daysAgo(1), model: "fable"),
     s("a2", "weeklyModel", used: 100, at: daysAgo(9), model: "fable"),
     s("a2", "weeklyModel", used: 100, at: daysAgo(1), model: "fable"),
 ]
-check("a reserve moves no reading on a model pool",
+let modelStarved = UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now,
+                                        reserveOf: { $0 == "a1" ? 30 : 0 },
+                                        flagshipModelOf: { $0 == "a1" ? "fable" : nil })
+let modelBare = UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now)
+check("a reserve starves a flagship pool at its owner's line, as it does the account-wide one",
+      (modelStarved?.starvedHoursPerWeek ?? 0) > 0
+          && (modelBare?.starvedHoursPerWeek ?? -1) == 0)
+// The negative half, and the one that keeps this from becoming the meters' old bug: the SAME
+// reserve on a pool that is not that account's flagship window moves nothing at all.
+check("…while a reserve reaches no model pool but the account's own flagship one",
+      UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now,
+                           reserveOf: { $0 == "a1" ? 30 : 0 },
+                           flagshipModelOf: { _ in "opus" })?.starvedHoursPerWeek
+          == modelBare?.starvedHoursPerWeek)
+check("…and neither does one on a fleet whose flagship window nobody named",
       UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now,
                            reserveOf: { $0 == "a1" ? 30 : 0 })?.starvedHoursPerWeek
-          == UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now)?
-              .starvedHoursPerWeek)
+          == modelBare?.starvedHoursPerWeek)
+
+// 12f. THE CAPACITY ARITHMETIC codex worked out, on the flagship pool this time: two accounts owing
+//      1.6 account-weeks of flagship demand, one of them half reserved. Against two whole accounts
+//      that pool reads 1.6/2 = 0.80 and answers "sufficient"; against the 1.5 a half-reserved
+//      account leaves, 1.6/1.5 = 1.07, past the 0.9 trigger. The account-wide pool is deliberately
+//      roomy here, so the verdict can only have come from the model pool.
+let flagshipLoad = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 10, at: daysAgo(1), reset: resetA),
+    s("a2", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a2", "weeklyAll", used: 10, at: daysAgo(1), reset: resetA),
+    s("a1", "weeklyModel", used: 0, at: daysAgo(14), reset: resetA, model: "fable"),
+    s("a1", "weeklyModel", used: 80, at: daysAgo(8), reset: resetA, model: "fable"),
+    s("a1", "weeklyModel", used: 0, at: daysAgo(7), reset: resetB, model: "fable"),
+    s("a1", "weeklyModel", used: 80, at: daysAgo(1), reset: resetB, model: "fable"),
+    s("a2", "weeklyModel", used: 0, at: daysAgo(14), reset: resetA, model: "fable"),
+    s("a2", "weeklyModel", used: 80, at: daysAgo(8), reset: resetA, model: "fable"),
+    s("a2", "weeklyModel", used: 0, at: daysAgo(7), reset: resetB, model: "fable"),
+    s("a2", "weeklyModel", used: 80, at: daysAgo(1), reset: resetB, model: "fable"),
+]
+let flagshipHalf = UsageAdvisor.reading(provider: "claude", samples: flagshipLoad, now: now,
+                                        reserveOf: { $0 == "a1" ? 50 : 0 },
+                                        flagshipModelOf: { _ in "fable" })
+let flagshipWhole = UsageAdvisor.reading(provider: "claude", samples: flagshipLoad, now: now)
+check("half a flagship pool held back turns a sufficient fleet into one that needs a seat",
+      (flagshipHalf.map { $0.verdict } ?? .collecting) == .addAccount
+          && (flagshipWhole.map { $0.verdict } ?? .collecting) == .sufficient)
+check("…and neither reading starves, so the flip is the flagship pool's capacity and nothing else",
+      flagshipHalf?.starvedHoursPerWeek == 0 && flagshipWhole?.starvedHoursPerWeek == 0)
+check("…while the account-wide demand of that fixture is nowhere near the trigger (the premise)",
+      near(flagshipHalf?.demandPerWeek ?? -1, 0.1))
+
 // The same rows in the account-wide window DO move, which is what makes the check above a scope
 // rather than a fixture that could not have starved either way.
 check("…while the identical rows in the account-wide window do",
@@ -544,6 +592,24 @@ check("it passes the live fleet, so a removed account stops counting as capacity
       advisorCallSite.contains("liveAccounts:"))
 check("and it reads the reserve from the shared rule rather than inventing one",
       advisorCallSite.contains("LaunchPolicyStore.shared.reserve(home:"))
+// AND WHICH POOL THAT RESERVE REACHES, for the same reason and with the same failure mode: a call
+// site that passed a reserve but no flagship window would hold nothing back in any model pool and
+// answer a subtly easier question than the CLI's, which is exactly the shape of the defect above.
+// The headline is read off the LIVE rows, because a dormant account has no metrics to have one.
+check("it names the model window each reserve reaches, so flagship pools are rated like the CLI's",
+      advisorCallSite.contains("flagshipModelOf:"))
+check("…off the live rows' own headline rather than a model name of its own",
+      advisorCallSite.contains("accounts.compactMap { usage -> (String, String)? in")
+          && advisorCallSite.contains("usage.headline, headline.isModelScoped")
+          && !advisorCallSite.contains("known.compactMap { account -> (String, String)?"))
+// The CLI's half of the same join, which is where this reading is published from in the first place
+// (`Snapshot.Account.modelWindowName`, written by UsageSnapshot from the very same headline).
+let cliAdvisorCallSite = (try? String(contentsOfFile: "TallyCLI/StatusReport.swift",
+                                      encoding: .utf8)) ?? ""
+check("the CLI's advisor call site is readable from this suite", !cliAdvisorCallSite.isEmpty)
+check("…and it joins the flagship window off the snapshot rather than guessing at one",
+      cliAdvisorCallSite.contains("flagshipModelOf: { flagship[$0] }")
+          && cliAdvisorCallSite.contains("account.modelWindowName"))
 
 print(failures == 0 ? "\nAll advisor tests passed." : "\n\(failures) advisor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

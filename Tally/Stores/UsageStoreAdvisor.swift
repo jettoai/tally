@@ -1,8 +1,9 @@
 import Foundation
 
 /// The usage advisor's half of a refresh: read the recorded burn history and hand the pure engine
-/// (TallyCLI/UsageAdvisor.swift) the three things it cannot learn from a sample - which plan each
-/// account is on, what its owner keeps for themselves, and which accounts still exist.
+/// (TallyCLI/UsageAdvisor.swift) the four things it cannot learn from a sample - which plan each
+/// account is on, what its owner keeps for themselves, which model window that reserve reaches, and
+/// which accounts still exist.
 ///
 /// Split out of UsageStore for file size, and it earns the seam: everything here is about joining
 /// live facts onto a file the refresh path otherwise never touches.
@@ -29,6 +30,21 @@ extension UsageStore {
             let reserve = LaunchPolicyStore.shared.reserve(home: home)
             return reserve > 0 ? (account.id, Double(reserve)) : nil
         }, uniquingKeysWith: { first, _ in first })
+        // AND WHICH MODEL WINDOW EACH OF THOSE RESERVES REACHES: the account's HEADLINE model
+        // window, the one the snapshot publishes and the launcher rates. The history records every
+        // tier the provider reports and marks none of them, so the advisor cannot work this out for
+        // itself - and without it a flagship pool would be rated on capacity its owner has held
+        // back (codex review, 2026-09-05). Same reading the CLI joins from the snapshot's
+        // `modelWindowName`, which is this expression published.
+        //
+        // FROM THE LIVE ROWS, not from `known`: a headline is a reading off this refresh's metrics
+        // and a dormant account has none. An account with no live row holds nothing back in any
+        // model pool, which is the same answer its absent metrics would give.
+        let flagship = Dictionary(accounts.compactMap { usage -> (String, String)? in
+            guard let headline = usage.headline, headline.isModelScoped,
+                  let model = headline.modelName else { return nil }
+            return (usage.id, model)
+        }, uniquingKeysWith: { first, _ in first })
         // The fleet AS IT IS NOW. The history remembers an account for four weeks after it is
         // removed, and every one of those days it is a seat of capacity nobody has, a pip nobody
         // owns, and a member of the starvation intersection that can never starve - so a fleet that
@@ -45,6 +61,7 @@ extension UsageStore {
             let readings = UsageAdvisor.readings(samples: advisorSamples, now: now,
                                                  planOf: { plans[$0] },
                                                  reserveOf: { reserves[$0] ?? 0 },
+                                                 flagshipModelOf: { flagship[$0] },
                                                  liveAccounts: live)
             Task { @MainActor in
                 UsageStore.shared.publishAdvisorReadings(readings)

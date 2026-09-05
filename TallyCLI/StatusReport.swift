@@ -343,12 +343,14 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
 ///
 /// `plans` maps account id to plan name, joined from the snapshot because the history holds no
 /// plan of its own (see `UsageAdvisor.readings`). Empty just leaves the tier split unnamed.
-/// `reserves` is the same shape for the same reason: account id to the points its owner keeps.
+/// `reserves` is the same shape for the same reason: account id to the points its owner keeps, and
+/// `flagship` names the model window each of those reserves reaches - the account's headline one,
+/// which the snapshot already publishes and the history cannot reconstruct (`UsageAdvisor.reading`).
 /// `live` is the fleet the snapshot names - the accounts still on this machine. The history keeps a
 /// removed account for four weeks, and while it does it is a seat of capacity nobody has; nil means
 /// no caller told us, which is every account in the history.
 func loadAdvisorReadings(plans: [String: String] = [:], reserves: [String: Double] = [:],
-                         live: Set<String>? = nil,
+                         flagship: [String: String] = [:], live: Set<String>? = nil,
                          now: Date = Date()) -> [UsageAdvisor.Reading] {
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/history.jsonl")
@@ -356,7 +358,7 @@ func loadAdvisorReadings(plans: [String: String] = [:], reserves: [String: Doubl
     let since = now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)
     return UsageAdvisor.readings(samples: UsageAdvisor.decodeSamples(data, since: since),
                                  now: now, planOf: { plans[$0] }, reserveOf: { reserves[$0] ?? 0 },
-                                 liveAccounts: live)
+                                 flagshipModelOf: { flagship[$0] }, liveAccounts: live)
 }
 
 /// The reserves as the advisor needs them: keyed by ACCOUNT ID, because that is what the burn-rate
@@ -370,6 +372,18 @@ func accountReserveIDs(_ snapshot: Snapshot, _ reserves: AccountReserves) -> [St
     for account in snapshot.accounts {
         let reserve = reserves.reserve(for: account)
         if reserve > 0 { out[account.id] = reserve }
+    }
+    return out
+}
+
+/// Account id to the model its flagship window is on, for the join above: the ONE model window the
+/// snapshot publishes per account (`UsageSnapshot`), which is the only one a reserve reaches. The
+/// history records every tier the provider reports and marks none of them as the headline, so
+/// without this the advisor cannot tell a flagship pool from a second tier.
+func accountFlagshipModels(_ snapshot: Snapshot) -> [String: String] {
+    var out: [String: String] = [:]
+    for account in snapshot.accounts {
+        if let model = account.modelWindowName { out[account.id] = model }
     }
     return out
 }

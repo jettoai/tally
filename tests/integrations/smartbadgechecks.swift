@@ -91,11 +91,42 @@ func runSmartBadgeChecks() {
     // account shares with its owner's browser: the weekly all-models one, the 5h session one and
     // the flagship model's. A hatch outside that scope would be a line nothing enforces, and the bar
     // is the only place a person ever sees what the number does.
+    //
+    // THE FIXTURE CARRIES A FLAGSHIP WINDOW AND A SECOND TIER, because a kind alone cannot tell
+    // them apart and the first version of this check asked one (codex review, 2026-09-05): "Show
+    // every model tier" puts the account's other model windows on the card and in the row, they are
+    // the same `.weeklyModel` kind as the flagship one, and the launcher never sees them - the
+    // snapshot publishes exactly ONE model window per account, the headline one. A line on the
+    // second tier would tell its owner that quota is protected when no pick protects it.
+    let twoTier = AccountUsage(
+        id: "two-tier", providerID: "claude", accountLabel: "two-tier", planName: "Max 20x",
+        accountEmail: nil,
+        metrics: [
+            UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
+                        usedPercent: 20, severity: .normal, resetsAt: nil, isActive: false),
+            UsageMetric(id: "weekly_all", kind: .weeklyAll, label: "Weekly", modelName: nil,
+                        usedPercent: 20, severity: .normal, resetsAt: nil, isActive: false),
+            UsageMetric(id: "weekly_fable", kind: .weeklyModel, label: "Fable", modelName: "fable",
+                        usedPercent: 20, severity: .normal, resetsAt: nil, isActive: true),
+            UsageMetric(id: "weekly_opus", kind: .weeklyModel, label: "Opus", modelName: "opus",
+                        usedPercent: 20, severity: .normal, resetsAt: nil, isActive: false),
+        ],
+        refreshedAt: Date())
+    /// Exactly the expression the list row's bar takes (`AccountListRowView.barReserve`), so this
+    /// asserts the composition both meters perform and not just the rule underneath it.
+    func hatches(_ metric: UsageMetric) -> Bool {
+        PersonalAccount.reserved(metric.kind, isHeadline: metric.id == twoTier.headline?.id)
+    }
+    check("the fixture's headline IS the flagship model window (guard the premise)",
+          twoTier.headline?.id == "weekly_fable"
+              && twoTier.metrics.filter(\.isModelScoped).count == 2)
     check("the flagship bar draws the water line, along with the weekly and 5h ones",
-          PersonalAccount.reserved(.weeklyModel) && PersonalAccount.reserved(.session)
-              && PersonalAccount.reserved(.weeklyAll))
+          hatches(twoTier.metrics[2]) && hatches(twoTier.metrics[0]) && hatches(twoTier.metrics[1]))
+    check("…while the second model tier beside it draws none",
+          !hatches(twoTier.metrics[3]))
     check("…and a kind the launcher rates nothing on draws none",
-          !PersonalAccount.reserved(.other))
+          !PersonalAccount.reserved(.other, isHeadline: false)
+              && !PersonalAccount.reserved(.other, isHeadline: true))
 
     // MARK: - The personal account's reserve, on the same terms the launcher ranks by
     //

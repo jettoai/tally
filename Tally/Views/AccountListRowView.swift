@@ -266,15 +266,16 @@ struct AccountListRowView: View {
             }
             // The personal account's water line, on the same track and at the same boundary the
             // card draws it (ReserveMark.swift): a density is not a reduced feature set. On the same
-            // windows too - the weekly all-models one and the 5h one, and no other
-            // (`PersonalAccount.reserved`).
+            // windows too - the weekly all-models one, the 5h one and the flagship model's, and no
+            // other (`PersonalAccount.reserved`).
             .overlay { ReserveMark(reserve: barReserve(metric)) }
     }
 
     /// The water line this window carries: the account's number where the reserve is held back from
     /// the window, and nothing where it is not, so the hatch and the callout below agree.
     private func barReserve(_ metric: UsageMetric) -> Int {
-        PersonalAccount.reserved(metric.kind) ? facts.reservePercent : 0
+        PersonalAccount.reserved(metric.kind, isHeadline: metric.id == facts.headlineID)
+            ? facts.reservePercent : 0
     }
 
     /// The window's name and its own reset, in the same words the card prints under the bar and in

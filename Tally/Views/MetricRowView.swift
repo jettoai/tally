@@ -14,13 +14,21 @@ struct MetricRowView: View {
     var settlingReset: Bool = false
     /// The personal account's water line, 0 on every other account (ReserveMark.swift). Passed for
     /// every window because the bar is per window, and DRAWN on the ones the reserve is held back
-    /// from: the weekly all-models bar and the 5h one, never the flagship one, which no pick treats
-    /// as reserved (PersonalAccount.reserved, Tally/Core/AccountReserve.swift).
+    /// from: the weekly all-models bar, the 5h one and the FLAGSHIP model's (PersonalAccount.
+    /// reserved, Tally/Core/AccountReserve.swift).
     var reserve: Int = 0
+
+    /// Whether this row is the account's headline window, which the reserve needs and `prominent`
+    /// may not be trusted for: that one is styling, this one decides whether a bar claims quota is
+    /// protected. Only the flagship model window carries the line, and the other tiers "show every
+    /// model tier" reveals are the same kind (`PersonalAccount.reserved`).
+    var isHeadline: Bool = false
 
     /// What this row's own bar reserves: the number above where the window carries one, and zero
     /// where it does not, so the mark and the tooltip cannot disagree about it.
-    private var barReserve: Int { PersonalAccount.reserved(metric.kind) ? reserve : 0 }
+    private var barReserve: Int {
+        PersonalAccount.reserved(metric.kind, isHeadline: isHeadline) ? reserve : 0
+    }
 
     private static let labelWidth: CGFloat = 72
 

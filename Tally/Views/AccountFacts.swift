@@ -86,10 +86,16 @@ struct AccountFacts {
         PersonalAccount.reserve(accountID: usage.id, home: identityHome)
     }
 
+    /// Which window is this account's headline one, asked once for every surface that has to tell
+    /// it apart from the rest. Two do: the split below, and the water line - the reserve reaches
+    /// the account's FLAGSHIP model window and not the other tiers "show every model tier" reveals
+    /// (`PersonalAccount.reserved`), and the flagship one is this.
+    var headlineID: String? { usage.headline?.id }
+
     /// Non-headline windows. Model-scoped rows are hidden unless "show every model tier" is on, so
     /// by default only the highest-tier model (the headline) is featured.
     var secondaryMetrics: [UsageMetric] {
-        let headlineID = usage.headline?.id
+        let headlineID = self.headlineID
         return usage.metrics.filter { metric in
             guard metric.id != headlineID else { return false }
             if metric.isModelScoped && !settings.showAllModels { return false }

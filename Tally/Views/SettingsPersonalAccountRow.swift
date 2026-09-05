@@ -22,8 +22,8 @@ extension SettingsAccountsView {
             .tallyTooltip(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you."))
     }
 
-    /// "Keep at least 30% of both the week and the 5h window for web use", and the ten-cell
-    /// strip that sets it.
+    /// "Keep at least 30% of the week, the 5h window and the flagship one for web use", and the
+    /// ten-cell strip that sets it.
     ///
     /// THE NUMBER IS IN THE SENTENCE rather than in a field beside it, because the sentence is what
     /// the setting means and a bare "30" next to "Reserve" is a number the reader has to translate

@@ -232,15 +232,16 @@ func aboveReserve(_ accounts: [Snapshot.Account], primaryModel: String?,
 /// It names the account and the size of the reserve rather than how far in the launch went: the
 /// reader's next act is either to stop working or to accept it, and neither turns on the depth.
 ///
-/// AND IT NAMES THE WINDOW IT CROSSED, which is what the second reserved window made load-bearing.
-/// Two lines are drawn now (`aboveReserve` above, and AccountReserve.swift for the ruling), and they
-/// mean different things to the reader: a week that will not refill for days, or a 5h window their
-/// browser shares and that comes back this afternoon. A fixed "weekly" would have named the wrong
-/// one half the time, and a bare "reserve" would leave them looking at two bars wondering which.
-/// The names are the windows' own, so the sentence and the meters agree.
+/// AND IT NAMES THE WINDOW IT CROSSED, which is what the arrival of a second reserved window made
+/// load-bearing. Three lines are drawn now (`aboveReserve` above, and AccountReserve.swift for the
+/// ruling), and they mean different things to the reader: a week that will not refill for days, a
+/// 5h window their browser shares and that comes back this afternoon, or the flagship pool they do
+/// their own thinking in. A fixed "weekly" would have named the wrong one most of the time, and a
+/// bare "reserve" would leave them looking at three bars wondering which. The names are the
+/// windows' own, so the sentence and the meters agree.
 ///
-/// Crossing both at once says both, in the order the windows are rated, rather than picking a
-/// winner: the reader is owed the whole of what the launch just spent.
+/// Crossing more than one at once says all of them, in the order the windows are rated, rather than
+/// picking a winner: the reader is owed the whole of what the launch just spent.
 func reserveDipNotice(_ account: Snapshot.Account, primaryModel: String?,
                       reserves: AccountReserves, now: Date = Date()) -> String? {
     let crossed = crossedReserves(account, primaryModel: primaryModel, reserves: reserves, now: now)

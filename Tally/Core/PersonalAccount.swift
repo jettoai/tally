@@ -46,8 +46,22 @@ enum PersonalAccount {
     /// is the one reading here that is not a straight translation. A launch rates that window unless
     /// the project's primary model is another tier, and a project on another tier does not spend the
     /// window either, so the line the hatch promises holds on both branches.
-    static func reserved(_ kind: MetricKind) -> Bool {
-        AccountRoles.carriesReserve(window: windowName(kind), isModelWindow: kind == .weeklyModel)
+    ///
+    /// AND `isHeadline` IS WHY A KIND IS NOT ENOUGH. "Show every model tier" puts the account's
+    /// OTHER model windows on the card and in the row (`AccountFacts.secondaryMetrics`), and they
+    /// are the same `.weeklyModel` kind as the flagship one. The launcher never sees them: the
+    /// snapshot publishes exactly one model window per account, the headline one
+    /// (`UsageSnapshot`, `Snapshot.Account.modelWindowName`). So a line drawn on a secondary tier
+    /// is a line no pick enforces - the failure this whole reading exists to prevent, arrived at
+    /// from the other side (codex review, 2026-09-05).
+    ///
+    /// ASKED AS A FACT AND NOT READ OFF THE STYLING, which is the trap here: the card marks its
+    /// headline row `prominent`, and that flag is one refactor away from meaning something else.
+    /// A styling flag that drifts would put the hatch back on unprotected bars silently, so the
+    /// caller states the identity (`metric.id == headline?.id`) instead.
+    static func reserved(_ kind: MetricKind, isHeadline: Bool) -> Bool {
+        AccountRoles.carriesReserve(window: windowName(kind),
+                                    isModelWindow: kind == .weeklyModel && isHeadline)
     }
 
     /// This window's name in the launcher's vocabulary, and nil where it has none: a per-model

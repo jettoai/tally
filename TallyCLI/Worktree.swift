@@ -299,10 +299,18 @@ func recordWorktreeOrigin(_ wt: WorktreeLaunch, in url: URL = WorktreeOrigins.fi
 func runSetupHook(_ wt: WorktreeLaunch) {
     let script = "\(wt.mainRepo)/.tally/worktree-setup.sh"
     guard FileManager.default.fileExists(atPath: script) else { return }
+    // Through the one guard every subprocess directory in this binary goes through
+    // (`workingDirectoryURL`, GitRepoRoot.swift): a worktree path that is not a directory would
+    // otherwise be an uncatchable abort here rather than a warning, and warning is what this hook
+    // does with every other failure, because tally must never be the reason a session cannot start.
+    guard let directory = workingDirectoryURL(wt.path) else {
+        warn("setup hook could not run: no such directory \(wt.path) - continuing")
+        return
+    }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
     process.arguments = [script]
-    process.currentDirectoryURL = URL(fileURLWithPath: wt.path)
+    process.currentDirectoryURL = directory
     var env = ProcessInfo.processInfo.environment
     env["TALLY_MAIN_REPO"] = wt.mainRepo
     env["TALLY_WORKTREE_NAME"] = wt.name

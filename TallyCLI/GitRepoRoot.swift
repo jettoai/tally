@@ -10,13 +10,44 @@ import Foundation
 //
 // Foundation only, so both the launcher and the small test harnesses compile it standalone.
 
+/// `path` as a directory to start a subprocess in, or nil when it names none: the empty string, a
+/// path that is not there, and a path that is there but is a file all answer nil.
+///
+/// EVERY `Process` in this binary that sets a working directory goes through this, and the guard
+/// has to sit BEFORE the assignment rather than around `run()`. `Process` rejects a
+/// `currentDirectoryURL` that is not a file URL by raising an ObjC exception, which no Swift
+/// `catch` can see, so the process aborts: SIGABRT, exit 134, and a crash report written per call.
+/// The empty string is exactly how that URL gets built, because `getcwd` has nothing to return once
+/// the directory this process was started in has been deleted (a finished sandbox, a torn-down
+/// worktree), and `FileManager.currentDirectoryPath` passes that emptiness straight on.
+///
+/// Measured 2026-09-05: a shell sitting in a deleted directory made `tally launch-dir` abort on
+/// every bare `claude` or `codex`, 74 crash reports in one afternoon, each one dragging ReportCrash
+/// and coresymbolicationd in behind it. The PATH shim's `|| true` hid the failure while the machine
+/// paid for it.
+func workingDirectoryURL(_ path: String) -> URL? {
+    var isDirectory: ObjCBool = false
+    guard !path.isEmpty,
+          FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+          isDirectory.boolValue else { return nil }
+    return URL(fileURLWithPath: path, isDirectory: true)
+}
+
 /// Run git and collect its output. Never throws: a git that cannot be run is reported as exit 127
 /// with the reason on `err`, because every caller here is already prepared for a non-zero code.
+/// A `cwd` that is no longer a directory is one of those cases rather than a crash, for the reason
+/// `workingDirectoryURL` gives; nil `cwd` inherits this process's own, and git reports a deleted one
+/// itself ("unable to read current working directory") as an ordinary non-zero exit.
 func runGit(_ args: [String], cwd: String? = nil) -> (out: String, err: String, code: Int32) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     process.arguments = args
-    if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+    if let cwd {
+        guard let directory = workingDirectoryURL(cwd) else {
+            return ("", "cannot run git: no such directory `\(cwd)`", 127)
+        }
+        process.currentDirectoryURL = directory
+    }
     let outPipe = Pipe(), errPipe = Pipe()
     process.standardOutput = outPipe
     process.standardError = errPipe

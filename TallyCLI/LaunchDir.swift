@@ -182,13 +182,20 @@ func runLaunchDir(_ providerID: String) {
         warn("unknown provider `\(providerID)` - use claude or codex")
         exit(2)
     }
+    // No directory to be steered FROM, because this shell's working directory has been deleted out
+    // from under it and `getcwd` has nothing left to answer. Pass through in silence, which is what
+    // every other "we cannot steer this" branch here does: the shim runs the bare CLI and the person
+    // gets their session. Asked first, before any file is read, so the answer cannot depend on what
+    // a profile happens to say about a directory that is not there.
+    let here = FileManager.default.currentDirectoryPath
+    guard workingDirectoryURL(here) != nil else { return }
     // The "off" gate is asked of the APP's policy, before the project overlay: off is about whether
     // Tally may steer a launch it was not asked into at all, which is a question about the shim and
     // not about what any one project runs.
     let appPolicy = launchPolicy(provider.id)
     guard appPolicy.mode != "off" else { return }
     let (policy, model) = launchSteering(provider, appPolicy: appPolicy,
-                                        project: projectPolicy(provider.id))
+                                        project: projectPolicy(provider.id, cwd: here))
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     // Nothing eligible - stay silent, the shim runs the bare CLI.

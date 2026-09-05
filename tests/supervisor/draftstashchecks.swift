@@ -604,26 +604,30 @@ func runDraftStashChecks() {
                   taken.upperBound < $0.lowerBound
               } ?? false
           } ?? false)
+    /// The four calls in that loop that type into a composer, each named by the call itself and by
+    /// the statement AFTER it rather than by one of its own arguments: those lists grow (the
+    /// channel choice joined one in 0.59), and an anchor naming an argument turns every check built
+    /// on it into a check about argument order (2026-08-20).
+    let requested = (call: "let action = applySessionInput(",
+                     until: "windowRepick.apply(action.repick,")
+    let resume = (call: "applyCapResume(", until: "if resumed != nil {")
+    let knock = (call: "applyQuotaKnock(", until: "if knocked != nil {")
+    let hostKnock = (call: "applyHostHealthKnock(", until: "if hostKnocked != nil {")
+    /// That call's argument list. A call this cannot find yields nothing, so every check reading it
+    /// goes red rather than vacuously green.
+    func arguments(of writer: (call: String, until: String)) -> String {
+        guard let start = loop.range(of: writer.call),
+              let end = loop.range(of: writer.until, range: start.upperBound ..< loop.endIndex)
+        else { return "" }
+        return String(loop[start.upperBound ..< end.lowerBound])
+    }
     // BOTH WRITERS INTO THAT COMPOSER GET IT, which is the half that is easy to leave half done: the
     // requested line and the advisory knock type through the same door, and a draft is destroyed by
     // whichever of them was not told (QuotaKnock.swift).
-    if let request = loop.range(of: "let action = applySessionInput("),
-       let arm = loop.range(of: "windowRepick.apply(action.repick,",
-                            range: request.upperBound ..< loop.endIndex),
-       let knock = loop.range(of: "applyQuotaKnock(", range: arm.upperBound ..< loop.endIndex),
-       // The statement AFTER the call rather than its last argument: the argument list grows (the
-       // channel choice joined it in 0.59) and an anchor that names one of them turns a check about
-       // the draft reading into a check about argument order (2026-08-20).
-       let afterKnock = loop.range(of: "if knocked != nil {",
-                                   range: knock.upperBound ..< loop.endIndex) {
-        check("the requested line is typed under this tick's own draft reading",
-              loop[request.upperBound ..< arm.lowerBound].contains("draftSuspected: draftSuspected"))
-        check("…and so is the one nobody asked for",
-              loop[knock.upperBound ..< afterKnock.upperBound]
-                  .contains("draftSuspected: draftSuspected"))
-    } else {
-        check("both writers into the composer are handed this tick's draft reading", false)
-    }
+    check("the requested line is typed under this tick's own draft reading",
+          arguments(of: requested).contains("draftSuspected: draftSuspected"))
+    check("…and so is the one nobody asked for",
+          arguments(of: knock).contains("draftSuspected: draftSuspected"))
     // AND EACH OF THEM WRITES DOWN THAT IT TYPED, or the next tick reads its own footprints on that
     // terminal as somebody's draft and yanks a stale kill buffer into their composer.
     check("both writers record when they typed, which is what the next reading discounts",
@@ -635,20 +639,9 @@ func runDraftStashChecks() {
     // idle session on a machine with the notification hook installed, which is the 2026-09-05
     // correction. All FOUR writers are read here rather than the two above: the reading is per
     // call, and three of these calls reach no value this suite can inspect from outside.
-    /// The argument list of one call in that loop, from its own name to the statement after it.
-    func arguments(of call: String, until: String) -> String {
-        guard let start = loop.range(of: call),
-              let end = loop.range(of: until, range: start.upperBound ..< loop.endIndex)
-        else { return "" }
-        return String(loop[start.upperBound ..< end.lowerBound])
-    }
-    let writers = [("let action = applySessionInput(", "windowRepick.apply(action.repick,"),
-                   ("applyCapResume(", "if resumed != nil {"),
-                   ("applyQuotaKnock(", "if knocked != nil {"),
-                   ("applyHostHealthKnock(", "if hostKnocked != nil {")]
     check("every writer into that composer is handed the hard wait, not the board's blocked",
-          writers.allSatisfy {
-              arguments(of: $0.0, until: $0.1).contains("waitingOnPerson: board.waitingOnPerson")
+          [requested, resume, knock, hostKnock].allSatisfy {
+              arguments(of: $0).contains("waitingOnPerson: board.waitingOnPerson")
           })
     // AND EVERY ONE OF THEM IS ACCOUNTED FOR, which is what stops a fifth writer joining the loop
     // on a reading nobody looked at: four calls, four arguments.

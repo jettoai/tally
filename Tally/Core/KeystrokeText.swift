@@ -26,9 +26,9 @@ func keystrokeTypeable(_ text: String) -> Bool {
 
 /// The same string with those scalars dropped, for a caller with nothing else to print.
 func keystrokeStripped(_ text: String) -> String {
-    String(String.UnicodeScalarView(text.unicodeScalars.filter {
+    String(text.unicodeScalars.filter {
         !CharacterSet.controlCharacters.contains($0) && !$0.properties.isDefaultIgnorableCodePoint
-    }))
+    })
 }
 
 /// `text` cut to at most `limit` UTF-8 BYTES, never through a character.
@@ -42,7 +42,7 @@ func keystrokeClipped(_ text: String, bytes limit: Int) -> String {
     var out = ""
     var used = 0
     for character in text {
-        let size = String(character).utf8.count
+        let size = character.utf8.count
         guard used + size <= limit else { break }
         out.append(character)
         used += size

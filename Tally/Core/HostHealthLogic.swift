@@ -130,6 +130,20 @@ enum HostHealthLogic {
     /// the news is four minutes old at worst and a sample costs two syscalls.
     static let sampleInterval: TimeInterval = 60
 
+    /// How old a report may be and still be read as NEWS rather than as history: five samples.
+    ///
+    /// A REPORT OUTLIVES THE APP THAT WROTE IT. It is rewritten every minute while Tally runs, so an
+    /// alarmed document nobody has touched since then is an app that was closed mid-alarm, and that
+    /// file on disk reads exactly like a machine in trouble right now - to every supervisor that
+    /// starts afterwards, hours or days later. A reader has to be given the age or the silence, and
+    /// the knock cannot be given the age: it says one sentence into somebody's work.
+    ///
+    /// FIVE RATHER THAN TWO, because a missed tick must not turn into silence: a laptop that slept,
+    /// or a sampler that did not get a turn under exactly the load this watch exists to report on,
+    /// is a late sample rather than a stopped app. `hostHealthStatusLine` needs no rule of this kind
+    /// at all - it prints the age beside the reading, which is open to a reader who is looking.
+    static let staleAfter: TimeInterval = 5 * sampleInterval
+
     /// The load at which this machine is over the line, which is what a report can be read against
     /// without knowing the rule (`hostHealthStatusLine` prints it as the denominator).
     static func loadLimit(cores: Int) -> Double { loadPerCore * Double(cores) }
@@ -175,20 +189,6 @@ enum HostHealthLogic {
         next.under = 0
         return (next, crossing.event)
     }
-
-    /// How old a report may be and still be read as NEWS rather than as history: five samples.
-    ///
-    /// A REPORT OUTLIVES THE APP THAT WROTE IT. It is rewritten every minute while Tally runs, so an
-    /// alarmed document nobody has touched since then is an app that was closed mid-alarm, and that
-    /// file on disk reads exactly like a machine in trouble right now - to every supervisor that
-    /// starts afterwards, hours or days later. A reader has to be given the age or the silence, and
-    /// the knock cannot be given the age: it says one sentence into somebody's work.
-    ///
-    /// FIVE RATHER THAN TWO, because a missed tick must not turn into silence: a laptop that slept,
-    /// or a sampler that did not get a turn under exactly the load this watch exists to report on,
-    /// is a late sample rather than a stopped app. `hostHealthStatusLine` needs no rule of this kind
-    /// at all - it prints the age beside the reading, which is open to a reader who is looking.
-    static let staleAfter: TimeInterval = 5 * sampleInterval
 
     /// The document one sample publishes, out of the watch it has just been folded into.
     static func report(_ tracker: HostHealthTracker, reading: HostHealthReading,

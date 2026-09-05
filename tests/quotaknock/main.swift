@@ -470,10 +470,10 @@ let reserved = AccountReserves(settings: [
     "/tmp/R": AccountRoleSetting(role: AccountRoles.personal, reserve: 30),
 ])
 // THE WINDOWS A BROWSER SHARES ARE WHAT A RESERVE IS ABOUT, so the account this section is about is
-// thin in one of them: the reserve is held back from the weekly all-models window and the 5h session
-// one and from no other (Albert's ruling, 2026-09-02; AccountReserve.swift states it), and a reading
-// taken through the same pair the gates use inherits that without this station knowing anything
-// about it.
+// thin in one of them: the reserve is held back from the weekly all-models window, the 5h session
+// one and the flagship model's, and from no other (Albert's ruling, 2026-09-05; AccountReserve.swift
+// states it), and a reading taken through the same pair the gates use inherits that without this
+// station knowing anything about it.
 let browsing = account("R", session: 90, weekly: 40)
 func knockReading(_ acct: Snapshot.Account, reserves: AccountReserves) -> Double {
     let binding = bindingWindow(acct, primaryModel: nil, reserves: reserves, now: now)
@@ -495,13 +495,20 @@ expect(knockReading(sessionThin, reserves: reserved) <= quotaKnockPercent,
        "…so a session at 40% is already inside the threshold on a reserved account")
 expect(knockReading(sessionThin, reserves: .none) > quotaKnockPercent,
        "…and nowhere near it when nobody reserved anything (guard the premise)")
-// THE FLAGSHIP WINDOW IS STILL OUTSIDE IT, being a sub-allowance of the very week this number is a
-// percentage of: taking it off there as well would hold the same points back twice. Thin enough to
-// BE the binding window, so this is a reading of that window and not of a healthier neighbour.
+// AND THE FLAGSHIP WINDOW CAME WITH IT (Albert's ruling, 2026-09-05), which is the half the earlier
+// scope got wrong in the expensive direction: under a PARTIAL reserve, holding part of the week back
+// says nothing about how the rest of it is spent, so the pool the owner actually browses on could be
+// emptied while the week read healthy - and the knock, waiting for the week, would have said nothing
+// about it. Thin enough to BE the binding window, so this is a reading of that window and not of a
+// healthier neighbour.
 let flagshipThin = account("R", session: 90, weekly: 90, model: 40)
-expect(knockReading(flagshipThin, reserves: reserved) == 40
+expect(knockReading(flagshipThin, reserves: reserved) == 10
            && knockReading(flagshipThin, reserves: .none) == 40,
-       "a reserve moves no reading on the flagship window at all")
+       "a reserve moves the reading on the flagship window exactly as it does on the other two")
+expect(knockReading(flagshipThin, reserves: reserved) <= quotaKnockPercent,
+       "…so a flagship pool at 40% is already inside the threshold on a reserved account")
+expect(knockReading(flagshipThin, reserves: .none) > quotaKnockPercent,
+       "…and nowhere near it when nobody reserved anything (guard the premise)")
 // AND THE SENTENCE STILL QUOTES THE PROVIDER'S OWN PERCENTAGE. What the reader is owed is the
 // number their provider published - it has to mean the same thing here, in the panel and on
 // claude.ai - so the reserve moves the threshold and never the news.

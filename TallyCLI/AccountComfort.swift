@@ -42,10 +42,10 @@ struct ComfortWindow {
     /// account in Settings and read by the CLI from `~/.tally/state.json`). Zero for every account
     /// nobody reserved anything on, which is every account until somebody says otherwise - so this
     /// field changes nothing at all on a fleet that does not use the feature. Zero as well on every
-    /// window but the two the account shares with that browser - its weekly all-models one and its
-    /// 5h session one - whatever the account reserved: the builders of these (`ratedWindows` and its
-    /// app mirror) apply the reserve's scope, so this gate never has to ask which window it is
-    /// weighing (Tally/Core/AccountReserve.swift).
+    /// window but the three the account shares with that browser - its weekly all-models one, its
+    /// 5h session one and its flagship model's - whatever the account reserved: the builders of
+    /// these (`ratedWindows` and its app mirror) apply the reserve's scope, so this gate never has
+    /// to ask which window it is weighing (Tally/Core/AccountReserve.swift).
     ///
     /// A `var` with a default rather than a `let`, because the memberwise initializer only carries
     /// a default for the first kind: the app builds these too (LaunchPolicyStore) and must go on

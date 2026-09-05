@@ -9,22 +9,34 @@ import Foundation
 // out of messages. So one account may be MARKED as theirs, and given a water line: a percentage of
 // each window it SHARES with that browser which Tally's own choices are not allowed to go below.
 //
-// TWO WINDOWS: THE WEEKLY ALL-MODELS ONE AND THE 5H SESSION ONE (Albert's ruling, 2026-09-02, which
-// supersedes the weekly-only ruling of 2026-08-21). The test is whether the browser and Tally spend
-// the same allowance, and for both of these they do: claude.ai and the CLI draw on ONE 5h session
-// window, so an automatic launch that empties it locks the person out of their own browser until it
-// refills - up to five hours, not the cup of tea the earlier ruling assumed. Across a fleet of
-// several accounts, declining to spend the last slice of ONE account's 5h window costs close to
-// nothing, and it is the difference between the browser answering and not.
+// THREE WINDOWS: THE WEEKLY ALL-MODELS ONE, THE 5H SESSION ONE, AND THE FLAGSHIP MODEL'S (Albert's
+// ruling, 2026-09-05, which supersedes the two-window ruling of 2026-09-02 and the weekly-only one
+// of 2026-08-21). The test is whether the browser and Tally spend the same allowance, and for all
+// three they do: claude.ai and the CLI draw on ONE 5h session window and on ONE flagship pool, so
+// an automatic launch that empties either locks the person out of their own browser until it
+// refills - up to five hours for the session window, and until the account's weekly moment for the
+// flagship one. Across a fleet of several accounts, declining to spend the last slice of ONE
+// account's window costs close to nothing, and it is the difference between the browser answering
+// and not.
 //
-// THE PER-MODEL FLAGSHIP WINDOW STAYS OUTSIDE THE FEATURE, for the reason it always did: it is a
-// sub-allowance of the same week, so reserving it as well would hold the same points back twice.
+// THE ARGUMENT THAT KEPT THE FLAGSHIP WINDOW OUT DOES NOT SURVIVE A PARTIAL RESERVE. That argument
+// was that the flagship pool is a sub-allowance of the same week, so reserving it as well would
+// hold the same points back twice. It holds only while the reserve is the whole of the account's
+// spending rule. At 50%, holding half the week back says nothing whatever about how the other half
+// is spent: Tally may put every point of it through the flagship window and leave its owner a week
+// that is half full and a flagship pool at zero, which is the window they would actually have
+// noticed. A floor under the week is not a floor under the pool inside it, so the pool needs its
+// own.
 //
-// ONE NUMBER OVER BOTH, rather than a knob per window. The figure is a rough "leave me room to
+// AND IT CARRIES THE LINE ONLY WHERE IT IS RATED AT ALL. A project whose primary model is another
+// tier does not rate the flagship window (the mirrors' `modelWindowCounts`), and it does not spend
+// that window either, so there is nothing there for a line to hold back.
+//
+// ONE NUMBER OVER ALL THREE, rather than a knob per window. The figure is a rough "leave me room to
 // work", and it says the same thing about each window the browser and Tally share; a second setting
 // would be a second thing to keep in step for a difference nobody can feel.
-// `AccountRoles.reservedWindowNames` below is that rule, asked at the one place each burn-rate
-// mirror builds a window.
+// `AccountRoles.carriesReserve` below is that rule, asked at the one place each burn-rate mirror
+// builds a window.
 //
 // TWO FACTS, ONE MARKING. The role also answers the question the Artifact guard asks (which account
 // this machine's browser is signed into - Tally/Core/ArtifactHookContract.swift), which is why the
@@ -46,8 +58,8 @@ struct AccountRoleSetting: Codable, Equatable {
     /// `AccountRoles.personal`, or nil for an account holding no role.
     var role: String?
     /// The percentage Tally's own choices must leave standing (0-100) in each window this account
-    /// shares with the user's browser: its weekly all-models one and its 5h session one, and no
-    /// other (`reservedWindowNames`). One number, read against both.
+    /// shares with the user's browser: its weekly all-models one, its 5h session one and its
+    /// flagship model's, and no other (`carriesReserve`). One number, read against all three.
     /// Absent is zero: no reserve at all, which is what every account starts as.
     var reserve: Int?
 
@@ -83,27 +95,37 @@ enum AccountRoles {
     /// The account's 7-day all-models pool and its 5h session pool, spelled the way both burn-rate
     /// mirrors label them.
     ///
-    /// NAMES RATHER THAN A PREDICATE OVER WINDOWS, because the two mirrors build their windows from
-    /// different types (a snapshot row on one side, a `UsageMetric` on the other) and the only thing
-    /// they share is these labels.
+    /// NAMES RATHER THAN A TYPE THE MIRRORS SHARE, because they build their windows from different
+    /// ones (a snapshot row on one side, a `UsageMetric` on the other) and the only thing they have
+    /// in common is these labels. The account's flagship pool has no constant here for the reason
+    /// `carriesReserve` gives: its label is the provider's, not ours.
     static let weeklyWindowName = "weekly"
     static let sessionWindowName = "session"
 
-    /// The windows a reserve is held back from, and the whole of the ruling at the top of this file
-    /// said as a value.
+    /// Whether a reserve is held back from the window a mirror is building, and the whole of the
+    /// ruling at the top of this file said as a rule.
+    ///
+    /// A RULE RATHER THAN THE SET OF NAMES THIS REPLACED, which the flagship window is what forced:
+    /// it is named after whichever model the provider put that tier on, so no set written here can
+    /// name it, and a set was exactly how the earlier ruling kept it out of the feature. What both
+    /// mirrors can say instead is WHICH of their three windows they are building, and the flagship
+    /// one is the one they know by shape rather than by name (`isModelWindow`).
     ///
     /// READ AT THE ONE PLACE EACH MIRROR BUILDS A WINDOW, alongside that site's own opt-in: a
-    /// window carries the reserve only when the mirror asked for it AND this set names it. Two
+    /// window carries the reserve only when the mirror asked for it AND this rule allows it. Two
     /// conditions rather than one because they fail closed in opposite directions - a mirror that
-    /// forgot the opt-in holds nothing back, and a name this set does not carry holds nothing back
-    /// either, which is what keeps a flagship window named after its model out of the feature
-    /// whatever it happens to be called.
+    /// forgot the opt-in holds nothing back, and a window this rule does not recognise (the `other`
+    /// kind the app rates nothing on, a window some later mirror adds) holds nothing back either.
     ///
     /// Everything downstream - the score, the nearly-dry gate, the spent test, the water line a
     /// launch says it crossed, the hatching on the bar - inherits the scope from that one marking
     /// without a rule of its own. A window that carries no reserve is a window this feature does
     /// not exist for.
-    static let reservedWindowNames: Set<String> = [weeklyWindowName, sessionWindowName]
+    static func carriesReserve(window name: String?, isModelWindow: Bool) -> Bool {
+        if isModelWindow { return true }
+        guard let name else { return false }
+        return name == weeklyWindowName || name == sessionWindowName
+    }
 
     /// The home holding the personal role, or nil while nobody holds it.
     ///
@@ -129,7 +151,7 @@ enum AccountRoles {
     }
 
     /// How much of each shared window Tally's own choices must leave standing, 0 when there is no
-    /// answer. Which windows it is held back from is `reservedWindowNames` above; this answers only
+    /// answer. Which windows it is held back from is `carriesReserve` above; this answers only
     /// how much.
     ///
     /// ONLY THE MARKED ACCOUNT HAS ONE, asked here rather than trusted from the document: the

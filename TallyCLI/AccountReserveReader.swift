@@ -20,9 +20,9 @@ import Foundation
 // afternoon away without ever telling them.
 //
 // ONE NUMBER, AND IT MEANS ONE THING EVERYWHERE. The reserve is percentage points held back from
-// each window the account SHARES with that browser - its weekly all-models one and its 5h session
-// one - and from no other (the flagship window is a slice of the same week; Tally/Core/
-// AccountReserve.swift states that ruling, and why one knob covers both windows rather than two).
+// each window the account SHARES with that browser - its weekly all-models one, its 5h session one
+// and its flagship model's - and from no other (Tally/Core/AccountReserve.swift states that ruling,
+// and why one knob covers all three windows rather than three knobs).
 // It reaches the product as a single subtraction inside `effectiveRemaining` (AccountComfort.swift),
 // on the windows that carry it. Everything an automatic decision asks - is this account comfortable,
 // is it spent, may a session be moved onto it, how hard can it be pushed - is already asked through

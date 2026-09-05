@@ -32,10 +32,11 @@ extension SettingsAccountsView {
     /// (`ReserveCellBar` states why ten of them, `AccountRoles.reserveStep` what one is worth). A
     /// typed field would invite a precision this figure does not have.
     ///
-    /// AND THE SENTENCE NAMES BOTH WINDOWS, because that is what the number does: the reserve is
-    /// held back from the account's weekly window and its 5h one, the two its owner's browser draws
-    /// on as well, and from no other (Tally/Core/AccountReserve.swift states why). A bare "quota"
-    /// would promise a line on the flagship bar, which carries none.
+    /// AND THE SENTENCE NAMES ALL THREE WINDOWS, because that is what the number does: the reserve
+    /// is held back from the account's weekly window, its 5h one and its flagship model's, the three
+    /// its owner's browser draws on as well, and from no other (Tally/Core/AccountReserve.swift
+    /// states why). A bare "quota" would promise a line on every bar, and the account's other
+    /// per-model windows carry none.
     ///
     /// The second line is the part somebody will otherwise get wrong in the expensive direction: a
     /// reserve binds TALLY'S OWN choices and nothing else, so naming this account still launches on
@@ -48,9 +49,9 @@ extension SettingsAccountsView {
             : LaunchPolicyStore.shared.reserve(home: home)
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: L("Keep at least %lld%% of both the week and the 5h window for web use"), shown))
+                Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
                     .font(.subheadline)
-                Text(L("Tally leaves this much of the account's weekly and 5-hour quota alone when it picks or moves sessions by itself, because your browser shares both windows with it. Its per-model windows are untouched, and launching on it yourself always works."))
+                Text(L("Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone when it picks or moves sessions by itself, because your browser draws on all three. The flagship window holds the same line rather than being emptied under it, and launching on it yourself always works."))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

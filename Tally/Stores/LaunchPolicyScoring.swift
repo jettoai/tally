@@ -58,9 +58,9 @@ extension LaunchPolicyStore {
     /// `reserve` is the percentage points its owner keeps for their own use in each window this
     /// account shares with their browser, and it is subtracted from the RATE exactly as the CLI does
     /// it: ranking is where "spend somewhere else if you can" has to bite. It reaches the weekly
-    /// all-models window and the 5h session one (`AccountRoles.reservedWindowNames`, which states
-    /// why the flagship window is outside the feature), and it never touches `remaining`, which is
-    /// the provider's own number and the one a person reads (`smartReason`).
+    /// all-models window, the 5h session one and the flagship model's (`AccountRoles.carriesReserve`
+    /// states the scope and why the flagship one is inside it), and it never touches `remaining`,
+    /// which is the provider's own number and the one a person reads (`smartReason`).
     static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, reserve: Double = 0,
                              now: Date)
         -> [(name: String, remaining: Double, resetsAt: Date?, anchor: Date?, reserve: Double,
@@ -69,7 +69,8 @@ extension LaunchPolicyStore {
         /// weekly one, and the flagship window riding on it. Only those get the midpoint reading,
         /// because only their phase is unknown while untouched (above).
         func window(_ name: String, _ metric: UsageMetric?, inferredAnchor: Date? = nil,
-                    fullWindowHours: Double, fixedCycle: Bool = false, reserved: Bool = false)
+                    fullWindowHours: Double, fixedCycle: Bool = false, reserved: Bool = false,
+                    isModelWindow: Bool = false)
             -> (name: String, remaining: Double, resetsAt: Date?, anchor: Date?, reserve: Double,
                 rate: Double)? {
             guard let metric else { return nil }
@@ -78,11 +79,14 @@ extension LaunchPolicyStore {
             let anchor = metric.resetsAt ?? inferredAnchor ?? untouchedAnchor
             let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
                 ?? fullWindowHours
-            // The reserve reaches the windows this account shares with the user's browser and no
-            // other, marked at the same point the CLI marks it (Tally/Core/AccountReserve.swift
-            // owns the ruling). Both conditions, so this fails closed in either direction: the
-            // call site has to opt in AND the ruling has to name the window.
-            let held = reserved && AccountRoles.reservedWindowNames.contains(name) ? reserve : 0
+            // The reserve reaches the three windows this account shares with the user's browser
+            // and no other, marked at the same point the CLI marks it (Tally/Core/AccountReserve.
+            // swift owns the ruling). Both conditions, so this fails closed in either direction:
+            // the call site has to opt in AND the ruling has to allow the window - the flagship one
+            // by shape, its name being whatever the provider calls that tier.
+            let held = reserved && AccountRoles.carriesReserve(window: name,
+                                                              isModelWindow: isModelWindow)
+                ? reserve : 0
             return (name, metric.remainingPercent, metric.resetsAt, anchor, held,
                     (metric.remainingPercent - held) / hours)
         }
@@ -101,7 +105,7 @@ extension LaunchPolicyStore {
         if modelWindowCounts,
            let m = window(model?.modelName?.lowercased() ?? "model", model,
                           inferredAnchor: weekly?.resetsAt, fullWindowHours: 168,
-                          fixedCycle: true) {
+                          fixedCycle: true, reserved: true, isModelWindow: true) {
             windows.append(m)
         }
         return windows
@@ -127,10 +131,10 @@ extension LaunchPolicyStore {
 
     /// Whether this account still has quota above the line its owner drew - EVERY reserved window
     /// read through the gate's own scale. Mirror of the CLI's `aboveReserve`, lookup included: the
-    /// line is drawn on the weekly all-models window and the 5h session one, so an account under it
-    /// on either of them is under its water line, and a drained flagship window is not. Every
-    /// reserved window and not the first one found: two carry the number now, and reading one would
-    /// make which of them binds depend on the order this array happens to be built in.
+    /// line is drawn on the weekly all-models window, the 5h session one and the flagship model's,
+    /// so an account under it on any of them is under its water line. Every reserved window and not
+    /// the first one found: three carry the number now, and reading one would make which of them
+    /// binds depend on the order this array happens to be built in.
     ///
     /// It answers yes for every account nobody reserved anything on, which is what keeps the drought
     /// fallback in `autoPickID` unreachable on an unmarked fleet - and yes for an account reporting

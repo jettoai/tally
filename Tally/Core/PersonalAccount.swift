@@ -34,20 +34,24 @@ enum PersonalAccount {
     /// Whether a reserve is held back from a window of this kind, so the meters draw the water line
     /// exactly where the launcher applies it.
     ///
-    /// ASKED OF THE RULING ITSELF (`AccountRoles.reservedWindowNames`, Tally/Core/AccountReserve.
-    /// swift) rather than re-spelled here as a list of kinds. That file cannot name a `MetricKind`
-    /// (the CLI target compiles it and has no such type), so the translation into the app's
-    /// vocabulary lives here and the SCOPE stays over there, in the one place both burn-rate mirrors
-    /// already read it. A hatch on a window no pick treats as reserved would draw a line nothing
-    /// enforces - which is worse than drawing none, the bar being the only place the user ever sees
-    /// what the number does.
+    /// ASKED OF THE RULING ITSELF (`AccountRoles.carriesReserve`, Tally/Core/AccountReserve.swift)
+    /// rather than re-spelled here as a list of kinds. That file cannot name a `MetricKind` (the CLI
+    /// target compiles it and has no such type), so the translation into the app's vocabulary lives
+    /// here and the SCOPE stays over there, in the one place both burn-rate mirrors already read it.
+    /// A hatch on a window no pick treats as reserved would draw a line nothing enforces - which is
+    /// worse than drawing none, the bar being the only place the user ever sees what the number
+    /// does.
+    ///
+    /// THE FLAGSHIP BAR CARRIES ONE WITHOUT THE METER KNOWING WHICH MODEL A PROJECT DECLARED, which
+    /// is the one reading here that is not a straight translation. A launch rates that window unless
+    /// the project's primary model is another tier, and a project on another tier does not spend the
+    /// window either, so the line the hatch promises holds on both branches.
     static func reserved(_ kind: MetricKind) -> Bool {
-        guard let name = windowName(kind) else { return false }
-        return AccountRoles.reservedWindowNames.contains(name)
+        AccountRoles.carriesReserve(window: windowName(kind), isModelWindow: kind == .weeklyModel)
     }
 
     /// This window's name in the launcher's vocabulary, and nil where it has none: a per-model
-    /// window is named after its model, so it can never be one of the named windows above, and
+    /// window is named after its model, which is why the ruling recognises it by shape instead, and
     /// `other` is a kind the launcher does not rate at all.
     private static func windowName(_ kind: MetricKind) -> String? {
         switch kind {

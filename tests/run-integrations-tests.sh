@@ -20,7 +20,9 @@
 # now part of this store's closure (AccountComfort and Quarantine come in behind it, exactly as they
 # do in the app target), along with its own two halves: the burn-rate scoring it was split from for
 # file size, and the per-account block it publishes (AccountReserve.swift - the personal account and
-# the reserve the Artifact seed now reads before it guesses).
+# the reserve the Artifact seed now reads before it guesses). PersonalAccount.swift joined them with
+# the flagship water line (2026-09-05): it is the app's translation of that ruling into the meters'
+# own vocabulary, and this is the only suite that can ask it for a value rather than read its text.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -49,7 +51,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Stores/IntegrationsKnockHook.swift Tally/Stores/IntegrationsAutoFollow.swift \
   Tally/Stores/IntegrationsArtifactHook.swift Tally/Core/ArtifactHookContract.swift \
   Tally/Stores/LaunchPolicyStore.swift Tally/Stores/LaunchPolicyScoring.swift \
-  Tally/Core/AccountReserve.swift TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
+  Tally/Core/AccountReserve.swift Tally/Core/PersonalAccount.swift \
+  TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \
   TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift TallyCLI/ReloadRequest.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \

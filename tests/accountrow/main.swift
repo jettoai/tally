@@ -651,24 +651,36 @@ let listMeter = readSource("Tally/Views/AccountListRowView.swift")
 check("both meters ask the shared reading rather than the store directly",
       facts.contains("PersonalAccount.isPersonal(") && facts.contains("PersonalAccount.reserve(")
           && !cardMeter.contains("LaunchPolicyStore") && !listMeter.contains("LaunchPolicyStore"))
-// AND THEY ASK IT PER BAR. The reserve is held back from the two windows the account shares with
-// the user's browser - its weekly all-models one and its 5h one - and from no other (Albert's
-// ruling, 2026-09-02; the top of AccountReserve.swift states it), so a hatch on a flagship bar would
-// be a line nothing enforces - and the bar is the only place a person ever sees what this number
-// does, which makes it the one surface where a scope error is invisible to every check that reads
-// numbers alone.
+// AND THEY ASK IT PER BAR. The reserve is held back from the three windows the account shares with
+// the user's browser - its weekly all-models one, its 5h one and its flagship model's - and from no
+// other (Albert's ruling, 2026-09-05; the top of AccountReserve.swift states it), so a hatch on a
+// bar outside that scope would be a line nothing enforces - and the bar is the only place a person
+// ever sees what this number does, which makes it the one surface where a scope error is invisible
+// to every check that reads numbers alone.
 //
-// ASSERTED ON THE RULING'S OWN VALUE, which this suite compiles: the app's per-bar reading is a
-// TRANSLATION of `reservedWindowNames` into `MetricKind` rather than a second list of kinds, so a
-// scope change made in one place cannot leave the meters drawing the old one.
-check("the ruling names the weekly all-models window and the 5h session window, and no other",
-      AccountRoles.reservedWindowNames == [AccountRoles.weeklyWindowName,
-                                           AccountRoles.sessionWindowName]
+// ASSERTED ON THE RULING ITSELF, which this suite compiles: the app's per-bar reading is a
+// TRANSLATION of `carriesReserve` into `MetricKind` rather than a second list of kinds, so a scope
+// change made in one place cannot leave the meters drawing the old one.
+check("the ruling covers the weekly all-models window and the 5h session window",
+      AccountRoles.carriesReserve(window: AccountRoles.weeklyWindowName, isModelWindow: false)
+          && AccountRoles.carriesReserve(window: AccountRoles.sessionWindowName,
+                                         isModelWindow: false)
           && AccountRoles.weeklyWindowName == "weekly"
           && AccountRoles.sessionWindowName == "session")
+// THE FLAGSHIP WINDOW BY SHAPE AND NOT BY NAME, which is the whole reason this is a rule rather than
+// the set of names it replaced: the provider chooses that window's label, so the same name has to
+// answer yes when the mirror says it is building the flagship window and no when it does not.
+check("…and the flagship one by shape, whatever the provider called it",
+      AccountRoles.carriesReserve(window: "fable", isModelWindow: true)
+          && AccountRoles.carriesReserve(window: "whatever-comes-next", isModelWindow: true)
+          && !AccountRoles.carriesReserve(window: "fable", isModelWindow: false))
+check("…and nothing else at all",
+      !AccountRoles.carriesReserve(window: "other", isModelWindow: false)
+          && !AccountRoles.carriesReserve(window: nil, isModelWindow: false))
 let personalSource = readSource("Tally/Core/PersonalAccount.swift")
-check("the app's per-window reading asks that set rather than spelling its own list of kinds",
-      personalSource.contains("return AccountRoles.reservedWindowNames.contains(name)")
+check("the app's per-window reading asks that rule rather than spelling its own list of kinds",
+      personalSource.contains("AccountRoles.carriesReserve(window: windowName(kind), "
+                                  + "isModelWindow: kind == .weeklyModel)")
           && personalSource.contains("case .session: return AccountRoles.sessionWindowName")
           && personalSource.contains("case .weeklyAll: return AccountRoles.weeklyWindowName")
           && personalSource.contains("case .weeklyModel, .other: return nil"))
@@ -738,11 +750,12 @@ let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
 let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
 check("the string catalogue is readable from this suite", !catalogueStrings.isEmpty)
 for word in ["Personal", "Personal account (web)",
-             "Keep at least %lld%% of both the week and the 5h window for web use",
+             "Keep at least %lld%% of the week, the 5h window and the flagship one for web use",
              "Kept for web use",
-             "Tally leaves this much of the account's weekly and 5-hour quota alone when it picks "
-                 + "or moves sessions by itself, because your browser shares both windows with it. "
-                 + "Its per-model windows are untouched, and launching on it yourself always works.",
+             "Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone "
+                 + "when it picks or moves sessions by itself, because your browser draws on all "
+                 + "three. The flagship window holds the same line rather than being emptied under "
+                 + "it, and launching on it yourself always works.",
              "The account you are signed into on claude.ai. Tally publishes artifacts from it, and "
                  + "can keep part of its quota free for you."] {
     let entry = catalogueStrings[word] as? [String: Any]

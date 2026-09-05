@@ -13,8 +13,8 @@ import Foundation
 // (AccountComfort.swift). Callers hand in the reserves they are entitled to apply: a decision Tally
 // made for itself passes the fleet's, a path a person named an account on passes `.none`
 // (AccountReserve.swift states that rule in full). WHICH WINDOWS carry one is settled before any of
-// this, where the windows are built (`ratedWindows`): the weekly all-models window and the 5h
-// session one do and the flagship one does not, so nothing here has to know the difference.
+// this, where the windows are built (`ratedWindows`): the weekly all-models window, the 5h session
+// one and the flagship model's do, so nothing here has to know the difference.
 
 /// One rated window as the nearly-dry gate (AccountComfort.swift) sees it, keyed on the ANCHOR: the
 /// gate asks when the wall comes down, and a flagship window with no reset of its own hits the
@@ -169,17 +169,18 @@ func windowReason(_ window: RatedWindow, now: Date = Date()) -> String {
 /// the number, read through the gate's own scale.
 ///
 /// THE QUESTION IS ABOUT THE LINE, so it is asked of exactly the windows the line is drawn on - the
-/// weekly all-models one and the 5h session one (`AccountRoles.reservedWindowNames`). Asked of every
-/// window instead, an account whose flagship window had simply run out would answer "below its water
-/// line" and a launch onto it would announce a dip into a reserve it never touched: a sentence about
-/// the owner's preference, printed for a sub-allowance of the very week this number is a slice of.
+/// weekly all-models one, the 5h session one and the flagship model's (`AccountRoles.carriesReserve`
+/// settles which, and the builders apply it). Asked of every window instead, a window nobody drew a
+/// line on would answer "below its water line" and a launch onto it would announce a dip into a
+/// reserve it never touched: a sentence about the owner's preference, printed for a window the
+/// preference says nothing about.
 ///
 /// ALL OF THEM RATHER THAN THE FIRST ONE FOUND, which is what the arrival of a second reserved
 /// window changed here. Reading one would leave it to the order `ratedWindows` happens to build its
-/// array in which of the two lines actually binds, and the one it skipped would be crossed in
-/// silence - the water line the launcher walks straight through, arrived at by array index. So this
-/// is asked as "is the crossed set empty" (`crossedReserves` below), which has no first element to
-/// be tempted by.
+/// array in which of the lines actually binds, and the ones it skipped would be crossed in silence -
+/// the water line the launcher walks straight through, arrived at by array index. So this is asked
+/// as "is the crossed set empty" (`crossedReserves` below), which has no first element to be
+/// tempted by.
 ///
 /// The far end of `accountIsSpent` without its trust guards, and that difference is the point of
 /// having both. That one is asked of the account a session is RUNNING on, where acting on numbers

@@ -152,7 +152,8 @@ enum UsageAdvisor {
     /// means - "do these accounts cover the demand" - is about the part of them Tally may actually
     /// spend. An account with 30 points held back is 0.7 of an account-week to this reading, and it
     /// is starved 30 points earlier than its siblings - in the ACCOUNT-WIDE pool, which is the only
-    /// place the reserve exists (the model pools below read it as zero). Defaults to no reserve
+    /// pool a week's capacity is counted in (the model pools below read it as zero, for the reason
+    /// stated where they are summed). Defaults to no reserve
     /// anywhere, which is every fleet that has not set one and every caller that has not been taught
     /// to ask.
     ///
@@ -205,10 +206,10 @@ enum UsageAdvisor {
         // A RESERVE IS TAKEN OFF THE ACCOUNT-WIDE POOL ONLY, and that is a statement about POOLS
         // rather than a re-run of the window ruling. The question here is "do these accounts cover a
         // week's demand", and the only pool a week's capacity is counted in is the account-wide one:
-        // the 5h window the reserve also covers (Tally/Core/AccountReserve.swift) refills 33 times a
-        // week and is a pacing constraint rather than capacity, and a model pool is a slice of the
-        // very week already counted here, so subtracting the reserve from either would hold the same
-        // points back twice and report a pool as saturated on capacity nothing actually withholds.
+        // the 5h window and the flagship one that the reserve also covers (Tally/Core/AccountReserve.
+        // swift) are respectively a pacing constraint that refills 33 times a week and a slice of
+        // the very week already counted here, so subtracting the reserve from either would hold the
+        // same points back twice and report a pool as saturated on capacity nothing withholds.
         var bindingRatio = poolRatio(weeklyAll, weeks: weeks, live: liveAccounts,
                                      reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
@@ -226,8 +227,8 @@ enum UsageAdvisor {
         var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, live: liveAccounts,
                                                 observed: observed, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
-            // The account-wide pool only, for the reason the ratio above states: a model window is
-            // not a window anybody reserved anything on.
+            // The account-wide pool only, for the reason the ratio above states: this reading is
+            // about a week's CAPACITY, and a model pool is a slice of the week already counted.
             starvedSeconds = max(starvedSeconds,
                                  poolStarvedSeconds(weeklyModel.filter { $0.model == model },
                                                     now: now, live: liveAccounts,

@@ -9,9 +9,10 @@ import SwiftUI
 /// it hatched out.
 ///
 /// WHICH BARS GET ONE IS THE CALLER'S ANSWER, not this view's: the reserve is held back from the
-/// two windows the account shares with the user's browser - its weekly all-models one and its 5h
-/// one - so the meters hand this a zero on every other bar (`PersonalAccount.reserved`). Drawing it
-/// everywhere would put a line on windows no pick treats as reserved.
+/// three windows the account shares with the user's browser - its weekly all-models one, its 5h one
+/// and its flagship model's - so the meters hand this a zero on every other bar
+/// (`PersonalAccount.reserved`). Drawing it everywhere would put a line on windows no pick treats as
+/// reserved.
 ///
 /// AN ABSOLUTE POSITION ON THE TRACK, not a second fill. The track is the whole quota, 0% spent at
 /// the left edge and 100% at the right, and a reserve of 30 says "leave 30% standing" - so the line

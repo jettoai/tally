@@ -85,6 +85,18 @@ func runSmartBadgeChecks() {
     check("a fleet where every poll failed marks nobody, exactly as no launch is steered",
           pick([heldOver]) == nil)
 
+    // WHICH BARS DRAW THE WATER LINE, asked of the app's own translation of the ruling rather than
+    // of its source text (`PersonalAccount.reserved`, the reading both meters take per bar). The
+    // scope is settled once in Tally/Core/AccountReserve.swift and covers the three windows the
+    // account shares with its owner's browser: the weekly all-models one, the 5h session one and
+    // the flagship model's. A hatch outside that scope would be a line nothing enforces, and the bar
+    // is the only place a person ever sees what the number does.
+    check("the flagship bar draws the water line, along with the weekly and 5h ones",
+          PersonalAccount.reserved(.weeklyModel) && PersonalAccount.reserved(.session)
+              && PersonalAccount.reserved(.weeklyAll))
+    check("…and a kind the launcher rates nothing on draws none",
+          !PersonalAccount.reserved(.other))
+
     // MARK: - The personal account's reserve, on the same terms the launcher ranks by
     //
     // The badge predicts the launch, and the launcher ranks on what it may SPEND of each account
@@ -136,11 +148,12 @@ func runSmartBadgeChecks() {
           pick(doubleMarked, reserves: ["marked": 60, "marked2": 60]) == pick(doubleMarked)
               && pick(doubleMarked) == "marked")
 
-    // AND THE LINE IS DRAWN ON BOTH WINDOWS THE BROWSER SHARES, here as in the launcher (Albert's
-    // ruling, 2026-09-02, superseding the weekly-only one of 2026-08-21; Tally/Core/AccountReserve.
-    // swift). claude.ai and the CLI draw on ONE 5h window, so a badge that stayed on an account whose
-    // session share was gone would be predicting a launch the CLI no longer makes - the drift this
-    // whole file exists to catch, in the direction the scope change introduces it.
+    // AND THE LINE IS DRAWN ON EVERY WINDOW THE BROWSER SHARES, here as in the launcher (Albert's
+    // ruling, 2026-09-05, which widened it to the flagship window; Tally/Core/AccountReserve.swift).
+    // This fixture carries no flagship window of its own, for the reason the account builder at the
+    // top of this file gives, so what is asserted here is the 5h half: claude.ai and the CLI draw on
+    // ONE 5h window, so a badge that stayed on an account whose session share was gone would be
+    // predicting a launch the CLI no longer makes - the drift this whole file exists to catch.
     // THE FIXTURE DISCRIMINATES ON THE 5H WINDOW ALONE: 95% of the week less 30 points is still
     // fuller than the sibling's 60, so the week leaves the badge where it is, and the session at 20%
     // less 30 points (-3.3 %/h, which loses to anything) is the only thing that can move it.

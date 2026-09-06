@@ -196,19 +196,18 @@ func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess]
     guard let supervisorStart = table.first(where: { $0.pid == supervisor })?.startedAt else {
         return descendants
     }
-    var accounted = Set(descendants.map(\.pid))
-    accounted.insert(supervisor)
-    accounted.insert(child)
+    let accounted = Set(descendants.map(\.pid) + [supervisor, child])
     let mark = String(supervisor)
     let generation = String(supervisorStart)
-    // The cheap tests first and the reading of the machine last: an environment is fetched only for
-    // what is younger than this supervisor and not already spoken for, which mid-session is a
-    // handful of processes rather than the whole table. The generation is asked for only of what
-    // already carries the number, so the second reading costs nothing on everything else.
-    let orphans = table.filter {
-        $0.pid > 1 && !accounted.contains($0.pid) && $0.startedAt > supervisorStart
-    }.filter { process in
-        guard environmentValue(process.pid, supervisorPIDEnvKey) == mark else { return false }
+    // The cheap tests first and the reading of the machine last, in one pass: the guard is walked
+    // left to right, so an environment is fetched only for what is younger than this supervisor and
+    // not already spoken for, which mid-session is a handful of processes rather than the whole
+    // table. The generation is asked for only of what already carries the number, so the second
+    // reading costs nothing on everything else.
+    let orphans = table.filter { process in
+        guard process.pid > 1, !accounted.contains(process.pid),
+              process.startedAt > supervisorStart,
+              environmentValue(process.pid, supervisorPIDEnvKey) == mark else { return false }
         guard let stamped = environmentValue(process.pid, supervisorStartedAtEnvKey) else {
             return true   // spawned before this stamp existed; the number is all there is to go on
         }

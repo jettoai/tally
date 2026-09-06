@@ -171,8 +171,11 @@ struct AccountListRowView: View {
     /// away are the state's own name and its return date. The count is only shown by the state that
     /// has a reset to spend; the two that cannot be pressed stay the glyph alone.
     private func sessionLimitMark(_ state: LimitResetState) -> some View {
+        // The same one call the card makes, so the question and the write have one implementation.
         Button {
-            if facts.canResetSessionLimit { startSessionLimitReset() }
+            guard facts.canResetSessionLimit else { return }
+            RedeemAction.startSessionLimit(usage: usage, label: facts.label,
+                                           session: facts.limitResetSession)
         } label: {
             HStack(spacing: 2) {
                 if facts.isResettingSessionLimit {
@@ -194,13 +197,6 @@ struct AccountListRowView: View {
         .disabled(!facts.canResetSessionLimit)
         .tallyTooltipAroundControl(facts.markOwner, detail: facts.limitResetHelp(state))
         .accessibilityLabel(facts.limitResetLabel(state))
-    }
-
-    /// The same two calls the card makes, so the question and the write have one implementation.
-    private func startSessionLimitReset() {
-        guard RedeemAction.confirmSessionLimit(label: facts.label,
-                                               session: facts.limitResetSession) else { return }
-        Task { _ = await RedeemAction.spendSessionLimit(usage: usage) }
     }
 
     /// The login's own two states, at row scale: renewing right now, or expired and offering the

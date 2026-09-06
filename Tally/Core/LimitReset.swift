@@ -196,8 +196,8 @@ func limitResetStamp(after marker: String, in text: String, now: Date = Date()) 
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = zone
+    formatter.dateFormat = "MMM d 'at' h:mma yyyy"
     if let stampRange = tail.range(of: dated, options: .regularExpression) {
-        formatter.dateFormat = "MMM d 'at' h:mma yyyy"
         return closestOccurrence(of: normalisedLimitResetStamp(String(tail[stampRange])),
                                  formatter: formatter, now: now)
     }
@@ -206,16 +206,16 @@ func limitResetStamp(after marker: String, in text: String, now: Date = Date()) 
     // markers name a future moment, so "available again 5am" read at 06:00 is tomorrow's. Taking
     // the closest occurrence either way put it 55 minutes PAST, and a past date is the one value
     // `limitResetEffective` reads as "the reset is back" - a just-spent credit drawn as available.
-    formatter.dateFormat = "MMM d 'at' h:mma yyyy"
     let clock = normalisedLimitResetStamp(String(tail[stampRange]))
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = zone
+    // Built once and reused across the nine candidate days, every one of which would remake it.
+    let dayFormatter = DateFormatter()
+    dayFormatter.locale = Locale(identifier: "en_US_POSIX")
+    dayFormatter.timeZone = zone
+    dayFormatter.dateFormat = "MMM d"
     return (0 ... 8).compactMap { offset -> Date? in
         guard let day = calendar.date(byAdding: .day, value: offset, to: now) else { return nil }
-        let dayFormatter = DateFormatter()
-        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dayFormatter.timeZone = zone
-        dayFormatter.dateFormat = "MMM d"
         return formatter.date(from: "\(dayFormatter.string(from: day)) at \(clock) "
                               + "\(calendar.component(.year, from: day))")
     }

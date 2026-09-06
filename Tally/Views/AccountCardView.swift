@@ -313,8 +313,12 @@ struct AccountCardView: View {
     /// never reaches this: it answers no offer at all.
     @ViewBuilder
     private func sessionLimitRow(_ state: LimitResetState) -> some View {
+        // The ask and the write are one call in `RedeemAction`, which is where every write Tally
+        // performs words its cost - so this surface and the compact row cannot come apart on it.
         Button {
-            if facts.canResetSessionLimit { startSessionLimitReset() }
+            guard facts.canResetSessionLimit else { return }
+            RedeemAction.startSessionLimit(usage: usage, label: label,
+                                           session: facts.limitResetSession)
         } label: {
             HStack(spacing: 3) {
                 if facts.isResettingSessionLimit {
@@ -332,15 +336,6 @@ struct AccountCardView: View {
         .buttonStyle(.plain)
         .disabled(!facts.canResetSessionLimit)
         .tallyTooltipAroundControl(facts.limitResetHelp(state))
-    }
-
-    /// Ask through the shared confirmation, then spend through the shared store. The dialog and the
-    /// routing live in `RedeemAction` for the reason the banked reset's do: this is a write, and a
-    /// write Tally performs has exactly one place that words its cost.
-    private func startSessionLimitReset() {
-        guard RedeemAction.confirmSessionLimit(label: label,
-                                               session: facts.limitResetSession) else { return }
-        Task { _ = await RedeemAction.spendSessionLimit(usage: usage) }
     }
 
     private var errorRow: some View {

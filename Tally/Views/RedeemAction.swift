@@ -129,18 +129,18 @@ enum RedeemAction {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Ask before spending, in the same detached alert the banked reset uses and under the same
-    /// rule: it must NAME the account, because it opens in a window of its own.
-    static func confirmSessionLimit(label: String, session: LimitResetTarget?) -> Bool {
-        CentredAlert.confirm(title: "\(label) · \(L("Reset session limit"))",
-                             body: sessionLimitMessage(session: session),
-                             confirmTitle: L("Reset"))
-    }
-
-    /// Spend it. The write itself is the store's (it has to reach a CLI and then wait on a file);
-    /// what belongs here is that nothing spends without the question above having been answered.
-    static func spendSessionLimit(usage: AccountUsage) async -> LimitResetStore.LimitResetSpend {
-        await LimitResetStore.shared.spend(accountID: usage.id)
+    /// Ask, then spend. The question is the detached alert the banked reset uses, under the same
+    /// rule: it must NAME the account, because it opens in a window of its own. The write itself is
+    /// the store's (it has to reach a CLI and then wait on a file); what belongs here is that
+    /// nothing spends without the question having been answered.
+    ///
+    /// THE PAIR IS ONE CALL rather than two, because both surfaces make it and a card that asked
+    /// without spending, or spent without asking, would be one editing slip away.
+    static func startSessionLimit(usage: AccountUsage, label: String, session: LimitResetTarget?) {
+        guard CentredAlert.confirm(title: "\(label) · \(L("Reset session limit"))",
+                                   body: sessionLimitMessage(session: session),
+                                   confirmTitle: L("Reset")) else { return }
+        Task { _ = await LimitResetStore.shared.spend(accountID: usage.id) }
     }
 
     /// The outcome in the app's own voice, on the terms `outcomeMessage` states for its neighbour:
@@ -149,8 +149,9 @@ enum RedeemAction {
         switch outcome {
         case .reset: return L("Session limit reset")
         case .alreadyUsed: return L("This week's reset is already used")
-        case .notAvailable: return L("Not available for this login yet")
-        case .notEnabled: return L("Not available for this login yet")
+        // ONE SENTENCE FOR BOTH, because the difference between them is not one the user can act
+        // on: a refusal that names no reason and a login outside the rollout both come to "not yet".
+        case .notAvailable, .notEnabled: return L("Not available for this login yet")
         case .noSession: return L("Open a session on this account to use its reset")
         case .noAnswer: return L("No answer yet")
         case .failed: return L("Reset failed")

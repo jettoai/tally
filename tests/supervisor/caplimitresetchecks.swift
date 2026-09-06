@@ -37,7 +37,7 @@ func runCapLimitResetChecks() {
     /// reading may answer it: every one of them can be true of a row still carrying 60%.
     func account(_ id: String, weekly: Double, session: Double = 0,
                  model: Double = 40, refreshed: Date? = nil, stale: Bool = false,
-                 failed: Bool? = nil, error: String? = nil) -> Snapshot.Account {
+                 failed: Bool? = false, error: String? = nil) -> Snapshot.Account {
         Snapshot.Account(id: id, provider: "claude", label: "Claude 2",
                          launchHome: "/tmp/\(id)", sessionRemaining: session,
                          weeklyRemaining: weekly, modelRemaining: model,
@@ -144,6 +144,8 @@ func runCapLimitResetChecks() {
                   problem: "snapshot is 40m old - is Tally.app running?") == nil)
     check("a row whose LATEST poll failed answers nothing: those numbers are held over",
           reading(account("A", weekly: 60, refreshed: polled, failed: true)) == nil)
+    check("a row that cannot say whether its latest poll succeeded answers nothing either",
+          reading(account("A", weekly: 60, refreshed: polled, failed: nil)) == nil)
     check("a row the app has marked stale answers nothing",
           reading(account("A", weekly: 60, refreshed: polled, stale: true)) == nil)
     check("a row carrying its own error answers nothing",

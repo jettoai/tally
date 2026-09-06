@@ -142,7 +142,11 @@ func capLimitResetAllowed(scope: CapScope?, enabled: Bool, state: LimitResetStat
 ///    stopped publishing, and every number in it is whatever was true when it stopped;
 ///  - `error` and `isStale`: the row's own account-level failures;
 ///  - `lastRefreshFailed`: the LATEST round failed and these numbers are the last good ones held
-///    over (`foldLastGood`), which the badge's debounce leaves looking fresh for a poll interval;
+///    over (`foldLastGood`), which the badge's debounce leaves looking fresh for a poll interval.
+///    nil refuses too: it means a build old enough not to write this field, which is a build that
+///    cannot say the latest poll succeeded, and this write is the kind that does not get a second
+///    guess in a week it was wrong about. Every build that writes this field at all writes it
+///    `false` by default (`ProviderModels.swift`), so nil can only come from one that never does;
 ///  - `refreshedAt` within `snapshotMaxAge` of now, and nil refuses. This is the one the four above
 ///    cannot cover: the app rewrites the whole document from its cached accounts whenever a setting
 ///    changes (`republishSnapshot`), so `generatedAt` can be seconds old while every reading in it
@@ -160,7 +164,7 @@ func capLimitResetWeekly(_ loaded: (Snapshot?, String?), accountID: String,
     let (snapshot, problem) = loaded
     guard problem == nil,
           let row = snapshot?.accounts.first(where: { $0.id == accountID }),
-          row.error == nil, !row.isStale, row.lastRefreshFailed != true,
+          row.error == nil, !row.isStale, row.lastRefreshFailed == false,
           let fetched = row.refreshedAt,
           now.timeIntervalSince(fetched) <= snapshotMaxAge else { return nil }
     return row.weeklyRemaining

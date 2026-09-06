@@ -313,8 +313,10 @@ struct AccountCardView: View {
     /// never reaches this: it answers no offer at all.
     @ViewBuilder
     private func sessionLimitRow(_ state: LimitResetState) -> some View {
-        // The ask and the write are one call in `RedeemAction`, which is where every write Tally
-        // performs words its cost - so this surface and the compact row cannot come apart on it.
+        // The ask and the write are one call in `RedeemAction`, which is where the two manual UI
+        // surfaces that offer this reset (this card and the compact row) share the same cost
+        // wording, so neither can come apart from the other. The supervisor's own automatic reset
+        // has its own notice for the same cost (`capLimitResetFirstNotice`, TallyCLI/CapLimitReset.swift).
         Button {
             guard facts.canResetSessionLimit else { return }
             RedeemAction.startSessionLimit(usage: usage, label: label)

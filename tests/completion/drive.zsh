@@ -48,7 +48,9 @@ check() {
 # windows of the commit gate (2026-09-06/07). What ends a read now is a marker the shell prints
 # from a widget of its own, which ZLE cannot reach until the completion widget before it has
 # returned - so it arrives after the whole answer, or not at all. Not arriving is a timeout that
-# says so out loud, rather than a silence that passes for an answer.
+# says so out loud, rather than a silence that passes for an answer: the status says whether the
+# marker ever arrived, so a caller can name the timeout instead of testing for the word a second
+# time.
 pty_await() {
   local want=$1 chunk='' acc=''
   integer spins=0 quiet=0
@@ -76,6 +78,7 @@ pty_await() {
     fi
   done
   print -rn -- "$acc"
+  [[ $acc == *$want* ]]
 }
 
 # Type one line, press Tab once, and hand back what the screen then said. Two Tabs would accept an
@@ -85,7 +88,7 @@ tab() {
   # $3, when given, is a line of setup run before the probe: what a user's own zshrc would have said.
   # $5 is how many characters to walk back before pressing Tab, which is the only way to ask about a
   # cursor with words still to its RIGHT (Ctrl-B, in the emacs keymap forced below).
-  local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} left=${5:-0} ready='' answer=''
+  local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} left=${5:-0} answer=''
   zpty -d tally 2>/dev/null
   zpty tally zsh -f -i
   # `bindkey -e` because the default keymap follows $EDITOR: on a machine whose editor is vi this
@@ -98,8 +101,7 @@ tab() {
   zpty -w tally "export PATH=$stubdir:\$PATH TALLY_STUB_MODE=$mode; fpath=($fpathdir \$fpath); autoload -Uz compinit; compinit -u -d $fpathdir/.zcompdump; bindkey -e; _probe_done() { print -n PROBE''-DONE }; zle -N _probe_done; bindkey '^_' _probe_done; PROMPT='%%'; RPROMPT=''; LISTMAX=999; setopt nolistbeep; cd $workdir; $extra; print SHELL''-READY"
   # Waited for rather than slept off, so the setup echo is swallowed here instead of arriving in the
   # middle of the answer and being read as part of it.
-  ready=$(pty_await SHELL-READY)
-  [[ $ready == *SHELL-READY* ]] || print -u2 "probe never reached a ready shell: $line"
+  pty_await SHELL-READY >/dev/null || print -u2 "probe never reached a ready shell: $line"
   # `presses` exists for the one contract that is about the SECOND press: a shell with the menu
   # turned off grows the common prefix first and lists after, like every other completion it has.
   zpty -w -n tally "$line"
@@ -112,8 +114,7 @@ tab() {
   # menuselect keymap, so at the cursors where this completion opens a menu the key leaves the menu
   # and is then run from the main keymap, which is the widget above.
   zpty -w -n tally $'\037'
-  answer=$(pty_await PROBE-DONE)
-  [[ $answer == *PROBE-DONE* ]] || print -u2 "probe gave up waiting for the shell to finish: $line"
+  answer=$(pty_await PROBE-DONE) || print -u2 "probe gave up waiting for the shell to finish: $line"
   zpty -w -n tally $'\e'      # leave the menu
   zpty -w -n tally $'\003'    # abandon the line, unrun
   zpty -d tally 2>/dev/null

@@ -34,12 +34,37 @@ check() {
   [[ $2 == 1 ]] || (( failures++ ))
 }
 
-# Read what the pty has to say, and notice when it stops. `zpty -r -t` takes NO timeout: a number
-# after the parameter name is a pattern to wait for, so the first version of this file read almost
-# nothing and reported it as "offers nothing" - this suite's own failure mode, in its own plumbing.
-pty_read() {
-  local chunk='' acc=''
-  integer quiet=0
+# Read what the pty has to say until it says the words that mean the work is over. `zpty -r -t`
+# takes NO timeout: a number after the parameter name is a pattern to wait for, so the first version
+# of this file read almost nothing and reported it as "offers nothing" - this suite's own failure
+# mode, in its own plumbing.
+#
+# A SILENCE IS NOT AN ANSWER. This used to hand back whatever had arrived by the first half second
+# of quiet, which is a guess about a machine rather than a fact about the shell. The completion
+# under test forks the stub to ask it what worktrees exist, and a fork on a machine running eight
+# swift compilations beside it does not always come back inside that window: the read then handed
+# back the echo of the typed line alone, and the check read that as "the flag offered nothing".
+# Green on every unloaded run and on every rerun, and five failures of one assertion across two
+# windows of the commit gate (2026-09-06/07). What ends a read now is a marker the shell prints
+# from a widget of its own, which ZLE cannot reach until the completion widget before it has
+# returned - so it arrives after the whole answer, or not at all. Not arriving is a timeout that
+# says so out loud, rather than a silence that passes for an answer.
+pty_await() {
+  local want=$1 chunk='' acc=''
+  integer spins=0 quiet=0
+  while (( spins < 1000 )); do
+    chunk=''
+    if zpty -r -t tally chunk 2>/dev/null; then
+      acc+=$chunk
+      [[ $acc == *$want* ]] && break
+    else
+      sleep 0.02
+    fi
+    (( spins++ ))
+  done
+  # The marker says the work is over, not that its last byte has landed: a redraw the completion
+  # queued can still be on its way. Drained to a short silence, which is only safe here because the
+  # marker has already answered the question that silence used to be asked in place of.
   while (( quiet < 5 )); do
     chunk=''
     if zpty -r -t tally chunk 2>/dev/null; then
@@ -47,7 +72,7 @@ pty_read() {
       quiet=0
     else
       (( quiet++ ))
-      sleep 0.1
+      sleep 0.02
     fi
   done
   print -rn -- "$acc"
@@ -61,30 +86,40 @@ tab() {
   # $5 is how many characters to walk back before pressing Tab, which is the only way to ask about a
   # cursor with words still to its RIGHT (Ctrl-B, in the emacs keymap forced below).
   local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} left=${5:-0} ready='' answer=''
-  integer waited=0
   zpty -d tally 2>/dev/null
   zpty tally zsh -f -i
   # `bindkey -e` because the default keymap follows $EDITOR: on a machine whose editor is vi this
   # shell starts in viins, where Ctrl-B is not backward-char, and the probe would tab at the end of
   # the line while claiming to have asked about the middle of it.
-  zpty -w tally "export PATH=$stubdir:\$PATH TALLY_STUB_MODE=$mode; fpath=($fpathdir \$fpath); autoload -Uz compinit; compinit -u -d $fpathdir/.zcompdump; bindkey -e; PROMPT='%%'; RPROMPT=''; LISTMAX=999; setopt nolistbeep; cd $workdir; $extra; print SHELL-READY"
+  # `_probe_done` is the widget that says when: see the press that runs it, below. Both markers are
+  # written split (`SHELL''-READY`) because the pty echoes this whole line back before running a word
+  # of it, and a wait for the marker would otherwise be answered by the echo, with compinit still
+  # to run and the real marker landing in the middle of the answer.
+  zpty -w tally "export PATH=$stubdir:\$PATH TALLY_STUB_MODE=$mode; fpath=($fpathdir \$fpath); autoload -Uz compinit; compinit -u -d $fpathdir/.zcompdump; bindkey -e; _probe_done() { print -n PROBE''-DONE }; zle -N _probe_done; bindkey '^_' _probe_done; PROMPT='%%'; RPROMPT=''; LISTMAX=999; setopt nolistbeep; cd $workdir; $extra; print SHELL''-READY"
   # Waited for rather than slept off, so the setup echo is swallowed here instead of arriving in the
   # middle of the answer and being read as part of it.
-  while (( waited < 40 )); do
-    ready+=$(pty_read)
-    [[ $ready == *SHELL-READY* ]] && break
-    (( waited++ ))
-  done
+  ready=$(pty_await SHELL-READY)
+  [[ $ready == *SHELL-READY* ]] || print -u2 "probe never reached a ready shell: $line"
   # `presses` exists for the one contract that is about the SECOND press: a shell with the menu
   # turned off grows the common prefix first and lists after, like every other completion it has.
   zpty -w -n tally "$line"
   (( left )) && zpty -w -n tally "$(printf '\002%.0s' {1..$left})"
   zpty -w -n tally "$(printf '\t%.0s' {1..$presses})"
-  answer=$(pty_read)
+  # THE PRESS THAT SAYS WHEN. ZLE runs one widget at a time, so this key cannot be answered until
+  # the completion it follows has returned, and the marker it prints therefore lands after the whole
+  # answer. It is a key and not a typed command because no line in this file may ever be accepted
+  # (see the header): nothing typed here is anything a shell would run. `^_` is unbound in the
+  # menuselect keymap, so at the cursors where this completion opens a menu the key leaves the menu
+  # and is then run from the main keymap, which is the widget above.
+  zpty -w -n tally $'\037'
+  answer=$(pty_await PROBE-DONE)
+  [[ $answer == *PROBE-DONE* ]] || print -u2 "probe gave up waiting for the shell to finish: $line"
   zpty -w -n tally $'\e'      # leave the menu
   zpty -w -n tally $'\003'    # abandon the line, unrun
   zpty -d tally 2>/dev/null
-  print -r -- "$answer" | perl -pe 's/\e\[[0-9;?]*[a-zA-Z]//g; s/\e[>=]//g; s/\r/\n/g'
+  # The marker is this file's own word, not the shell's answer, so it is taken back out before the
+  # checks see the screen.
+  print -r -- "$answer" | perl -pe 's/\e\[[0-9;?]*[a-zA-Z]//g; s/\e[>=]//g; s/\r/\n/g; s/PROBE-DONE//g'
 }
 
 local out plain

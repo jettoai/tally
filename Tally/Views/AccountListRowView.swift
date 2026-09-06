@@ -165,18 +165,23 @@ struct AccountListRowView: View {
         }
     }
 
-    /// Claude's weekly session-limit reset at row scale: the glyph and nothing else, with the whole
-    /// sentence on hover. The row's rule, applied to one more state - it hides words, never facts,
-    /// and the words this one folds away are the state's own name and its return date.
+    /// Claude's weekly session-limit reset at row scale, in the shape the banked-reset control
+    /// beside it already uses: the glyph and the count, with the whole sentence on hover. The row's
+    /// rule, applied to one more state - it hides words, never facts, and the words this one folds
+    /// away are the state's own name and its return date. The count is only shown by the state that
+    /// has a reset to spend; the two that cannot be pressed stay the glyph alone.
     private func sessionLimitMark(_ state: LimitResetState) -> some View {
         Button {
             if facts.canResetSessionLimit { startSessionLimitReset() }
         } label: {
-            Group {
+            HStack(spacing: 2) {
                 if facts.isResettingSessionLimit {
                     ProgressView().controlSize(.mini)
                 } else {
-                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 9))
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
+                    if state == .available {
+                        Text(verbatim: "1").monospacedDigit()
+                    }
                 }
             }
             // Available reads as a control; the two that cannot be pressed read as a mark, in the

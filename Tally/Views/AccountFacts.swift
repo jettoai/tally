@@ -174,7 +174,7 @@ struct AccountFacts {
     func limitResetLabel(_ state: LimitResetState) -> String {
         switch state {
         case .available:
-            return L("Reset 1/1 available")
+            return "1 " + L("reset available")
         case .used:
             guard let back = limitResetNextAt else { return L("Reset used") }
             return L("Reset used") + " · " + String(format: L("back %@"),

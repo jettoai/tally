@@ -13595,35 +13595,6 @@
         }
       }
     },
-    "Reset 1/1 available": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可用重置 1/1"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可用重置 1/1"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リセット 1/1 利用可能"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "리셋 1/1 사용 가능"
-          }
-        }
-      }
-    },
     "Reset used": {
       "extractionState": "manual",
       "localizations": {

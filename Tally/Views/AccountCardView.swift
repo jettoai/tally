@@ -303,7 +303,7 @@ struct AccountCardView: View {
     // MARK: Claude's weekly session-limit reset
 
     /// The one line this card gives the weekly reset, in the shape the banked-reset control beside
-    /// it already uses: a glyph, a word, and the whole sentence on hover.
+    /// it already uses: the same glyph, a count, a word, and the whole sentence on hover.
     ///
     /// A BUTTON IN EVERY STATE, greyed in the three that cannot be pressed, rather than a button in
     /// one state and a label in the others. What a reader has to be able to tell apart is "there is
@@ -321,7 +321,7 @@ struct AccountCardView: View {
                     ProgressView().controlSize(.mini)
                     Text(L("resetting…"))
                 } else {
-                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 9))
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
                     Text(facts.limitResetLabel(state))
                 }
             }

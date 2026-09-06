@@ -368,8 +368,13 @@ func runSessionClearChecks() {
     if let start = loop.range(of: "func performHandoff("),
        let end = loop.range(of: "\n            handoff = true", range: start.upperBound ..< loop.endIndex) {
         let body = String(loop[start.upperBound ..< end.lowerBound])
+        // `|| secondHead` is the SECOND reason a relaunch carries nothing, and it is asserted in
+        // the same breath rather than beside it: a handoff whose conversation is being written by
+        // another session in this directory drops the resume too, and the two reasons have to reach
+        // one decision or a later reader will answer one of them and not the other
+        // (HandoffResume.swift).
         check("a fresh handoff copies nothing to the target and resumes nothing",
-              body.contains("let carrying = fresh ? nil : sessionFile")
+              body.contains("let carrying = fresh || secondHead ? nil : sessionFile")
                   && body.contains("shareTranscript(carrying,")
                   && body.contains("sessionID: carrying?.deletingPathExtension().lastPathComponent"))
         // …while the AUDIT line still names the conversation that ended here, which is a different
@@ -395,13 +400,15 @@ func runSessionClearChecks() {
        let end = loop.range(of: "writeSupervisorAccount(account.id, pid: supervisorPID)",
                             range: start.upperBound ..< loop.endIndex) {
         let block = String(loop[start.upperBound ..< end.lowerBound])
+        // On the same terms as the carry above: a dropped resume starts an empty window, so the
+        // reading is retired for it too rather than republished onto the new account.
         check("a fresh relaunch retires the published reading instead of republishing it",
-              block.contains("if plan.fresh {")
+              block.contains("if plan.fresh || secondHead {")
                   && block.contains("sessionContext.conversationEnded(pid: supervisorPID)"))
         // THE REPUBLISH IS THE OTHER BRANCH, not a line that runs beside it: one that still ran
         // after the retirement would write the dead conversation's id back a moment later, and the
         // check above would pass on it.
-        if let fresh = block.range(of: "if plan.fresh {"),
+        if let fresh = block.range(of: "if plan.fresh || secondHead {"),
            let moved = block.range(of: "sessionContext.accountChanged") {
             check("…and the account republish is the branch a clear does not take",
                   fresh.lowerBound < moved.lowerBound

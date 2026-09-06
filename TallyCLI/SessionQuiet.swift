@@ -89,14 +89,22 @@ extension TranscriptWatcher {
     /// conversation just moved to (a `/clear` that has not been typed into), the bound file's
     /// silence proves nothing, because it may be silent for having been abandoned. The answer is no
     /// until that resolves - see the hold note in TranscriptFork.swift.
-    mutating func isQuiet(_ seconds: TimeInterval = 5) -> Bool { quietness(seconds) == .quiet }
+    ///
+    /// `moving` IS FOR THE ONE GATE THAT IS SERVING A TYPED INSTRUCTION to change accounts, and all
+    /// it changes is how an open tool call is judged: by which child opened it rather than by the
+    /// 600s ceiling (`openTurnHoldsMovingSession` argues both halves). Every other gate here -
+    /// reload, self-update, follow, the preventive movers - keeps the ceiling exactly as it was,
+    /// because none of them is answering an instruction somebody typed.
+    mutating func isQuiet(_ seconds: TimeInterval = 5, moving: Bool = false) -> Bool {
+        quietness(seconds, moving: moving) == .quiet
+    }
 
     /// The same reading with its three answers kept apart (`SessionQuiet` states who asks for
     /// which). Everything `isQuiet` promises is promised here; that one is this one flattened.
-    mutating func quietness(_ seconds: TimeInterval = 5) -> SessionQuiet {
+    mutating func quietness(_ seconds: TimeInterval = 5, moving: Bool = false) -> SessionQuiet {
         locateFile()
         if hasUnresolvedFork { return .busy }
-        return boundFileQuietness(seconds)
+        return boundFileQuietness(seconds, moving: moving)
     }
 
     /// The quiet test itself, over the file already bound, with no fork discovery in front of it.
@@ -118,7 +126,7 @@ extension TranscriptWatcher {
     /// grew out of: a session on a path that no longer exists has nothing outstanding, and the
     /// callers that care whether a transcript exists at all ask that separately
     /// (`supervisedSessionState` takes `hasTranscript` for exactly this reason).
-    mutating func boundFileQuietness(_ seconds: TimeInterval) -> SessionQuiet {
+    mutating func boundFileQuietness(_ seconds: TimeInterval, moving: Bool = false) -> SessionQuiet {
         // Fresh URL on purpose: resourceValues are cached per URL instance, and a cached
         // mtime would report an active turn as quiet forever.
         guard let file,
@@ -130,7 +138,13 @@ extension TranscriptWatcher {
         // is cached against the mtime already in hand (see `openScanCache`) rather than repeated
         // on every poll. The verdict itself is still computed here, against the current clock.
         let call = openTurn(of: file, modified: modified)
-        if openTurnHoldsSession(openedAt: call?.startedAt) { return .busy }
+        // `since` is when THIS child was launched, which is the whole of what the moving reading
+        // asks about (`openTurnHoldsMovingSession`); it is the same qualifier the subagent walk
+        // below applies to the same directory, for the same reason.
+        let held = moving
+            ? openTurnHoldsMovingSession(openedAt: call?.startedAt, childStartedAt: since)
+            : openTurnHoldsSession(openedAt: call?.startedAt)
+        if held { return .busy }
         guard let subagent = newestSubagentWrite(),
               Date().timeIntervalSince(subagent) <= subagentIdleSeconds else { return .quiet }
         // AND DISPATCHED WORK IS DISPATCHED WORK WHATEVER IS LYING BESIDE IT. This row used to

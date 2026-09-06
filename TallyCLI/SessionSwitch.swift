@@ -232,7 +232,13 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     // that actually decided without asking any of them a second time - the reload axis holds its
     // own components for exactly that (Reload.swift, `applyReloadRequest`). `watcher.file` is only
     // meaningful after `isQuiet` has run its locate, hence the order.
-    let transcriptQuiet = watcher.isQuiet(manualMoveIdleSeconds)
+    // `moving: true`, which is this gate's alone: an open tool call is judged by the child that
+    // opened it rather than by the 600s ceiling, so a move waits out the turn it was typed inside
+    // instead of landing in the middle of the tenth minute of it, and a session carrying a dead
+    // child's unmatched call is moved now rather than after ten minutes of nothing
+    // (`openTurnHoldsMovingSession` carries the whole argument, the account-move double head it was
+    // written for included).
+    let transcriptQuiet = watcher.isQuiet(manualMoveIdleSeconds, moving: true)
     let hasTranscript = watcher.file != nil
     let keyboardQuiet = keyboardIdle(manualMoveIdleSeconds)
     let quiet = reloadQuiet(transcriptQuiet: transcriptQuiet, hasTranscript: hasTranscript,

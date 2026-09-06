@@ -321,10 +321,17 @@ func supervisorsInDirectory(_ cwd: String, dir: URL = supervisorStateDir) -> [St
 /// themselves before they exec (UnmanagedLaunch.swift), out of a directory of their own, and this is
 /// a UNION with the supervised witnesses for the same reason those two are a union with each other:
 /// an id anybody names is one somebody is writing.
-func liveConversations(in cwd: String, dir: URL = supervisorStateDir,
+///
+/// `excluding` IS FOR THE ONE CALLER THAT IS ITSELF ONE OF THE WITNESSES: a handoff asking whether
+/// the conversation it is about to resume is already being written would otherwise read its own
+/// publish and refuse every resume there is (HandoffResume.swift). A launch names nobody, because a
+/// launch has no session of its own yet. Only the two supervisor-keyed witnesses are dropped: the
+/// unmanaged register below is keyed by nothing this session could have written, since a supervised
+/// session never appears in it (UnmanagedLaunch.swift).
+func liveConversations(in cwd: String, excluding: String? = nil, dir: URL = supervisorStateDir,
                        unmanagedDir: URL = unmanagedLaunchDir) -> Set<String> {
     var ids: Set<String> = []
-    for pid in supervisorsInDirectory(cwd, dir: dir) {
+    for pid in supervisorsInDirectory(cwd, dir: dir) where pid != excluding {
         if let id = readSessionContext(pid: pid, dir: dir)?.transcriptSessionID { ids.insert(id) }
         if let report = readTranscriptIdentity(pid: pid, dir: dir),
            processStamp(report.claudeCode.pid) == report.claudeCode { ids.insert(report.id) }

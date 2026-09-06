@@ -144,6 +144,35 @@ func openTurnHoldsSession(openedAt: Date?, now: Date = Date()) -> Bool {
     return now.timeIntervalSince(openedAt) <= openTurnMaxSeconds
 }
 
+/// The same question asked by a session that has been ASKED TO MOVE ACCOUNTS, which answers it a
+/// different way: not against the clock, but against WHICH CHILD opened the call.
+///
+/// THE CEILING ABOVE IS WRONG FOR THIS ONE CALLER, in both directions at once.
+///
+/// Too late, for a call this child really is inside. `tally account` is queued precisely so the move
+/// lands between turns, and at 600s the veto lapses and it lands in the middle of one instead - on
+/// the longest calls there are, since a call that reaches 600s is by definition not a short one. The
+/// turn dies, its `pnpm e2e` and its builds are orphaned onto the account the session just left, and
+/// the resumed conversation does the work again. Waiting out those ten minutes bought nothing: the
+/// mid-call kill happened anyway, ten minutes later.
+///
+/// Too early, for a call this child is NOT inside. The unmatched `tool_use` a SIGKILLed child leaves
+/// behind is the case the ceiling was built for, and there the ceiling is a ten-minute delay before
+/// a move that was always safe - the process that opened that call is dead and nothing is running.
+///
+/// One reading answers both, and it is the one `newestSubagentWrite` already takes about the same
+/// directory: evidence written before this child started is not evidence about this child. A call
+/// opened by the running child holds the move until it comes back, however long that is; a call
+/// inherited from a dead one holds nothing at all.
+///
+/// AND THE WEDGE THE CEILING PREVENTS CANNOT REACH HERE, which is why this one may be unbounded. For
+/// a call opened by THIS child to stay unanswered for ever, this child has to die - and the death of
+/// a child is a relaunch, which is a new child, a new `since`, and this reading answering no.
+func openTurnHoldsMovingSession(openedAt: Date?, childStartedAt: Date) -> Bool {
+    guard let openedAt else { return false }
+    return openedAt >= childStartedAt
+}
+
 /// The tail of `url` as complete lines, or nil when it cannot be read.
 ///
 /// Thin on purpose, so everything that decides anything above is testable without a transcript. The

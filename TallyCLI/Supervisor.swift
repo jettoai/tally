@@ -303,6 +303,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             since: launchedAt,
             resumeID: flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r"))
         var handoff = false
+        /// Whether the relaunch this child ends in had to DROP the resume: the conversation it was
+        /// in is being written by somebody else, so carrying it would fork it (HandoffResume.swift).
+        /// Per child like the flag above, and read by the three places that would otherwise attribute
+        /// a conversation to a window that is not in it.
+        var secondHead = false
 
         // Terminate the child and set up the relaunch on `target` - shared by cap-hit handoffs
         // and live UI pin switches. Continues the SAME conversation when one exists; a session
@@ -318,8 +323,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Read before `account` moves: a same-account relaunch (fallback profile, reload) keeps
             // a `--continue` the watcher cannot yet turn into a session id; a real move drops it.
             let sameAccount = target.id == account.id
-            kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
-            _ = child.wait()
+            // TERM, two seconds, KILL - the child AND whatever the turn it was inside had started.
+            // A bare TERM to `claude` reaches neither a fork-style launcher in front of it nor the
+            // builds and dev servers behind it, and both of those go on running on the account this
+            // session is leaving (HandoffKill.swift carries the measurement and the shape).
+            endChildTree(&child)
             clearDriftState(pid: supervisorPID)   // a new child gets a fresh drift monitor
 
             // Forced, because the id this resumes must be the file the conversation is actually in:
@@ -334,7 +342,22 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // there would leave the whole transcript in another account's projects directory for
             // nothing). The id is still LOGGED below - which conversation ended here is what that
             // line is for - and only the resume and the copy are dropped.
-            let carrying = fresh ? nil : sessionFile
+            // AND WHETHER THAT FILE IS STILL SOMEBODY ELSE'S, asked here because this is the first
+            // point at which the id being resumed is the one the conversation is really in: the
+            // locate above has just followed a fork. A conversation another session in this
+            // directory is writing is left with the head that has it, and this one starts a fresh
+            // window on the target rather than a second writer on it (HandoffResume.swift).
+            // This supervisor's own publish is excluded, or it would refuse every resume there is;
+            // its own CHILD is not a witness here and does not need to be, the kill above having
+            // already taken that process and its tree down.
+            let conversation = sessionFile?.deletingPathExtension().lastPathComponent
+            secondHead = resumeForksConversation(
+                conversation, liveElsewhere: liveConversations(in: cwd, excluding: supervisorPID))
+            if secondHead, let conversation {
+                noteSecondHead(conversation: conversation, target: target.label,
+                               pid: supervisorPID, cwd: cwd, log: handoffLog)
+            }
+            let carrying = fresh || secondHead ? nil : sessionFile
             if let carrying {
                 shareTranscript(carrying, toHome: target.launchHome!, slug: slug)
             }
@@ -355,7 +378,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             launchArgs = relaunchArgs(
                 launchArgs,
                 sessionID: carrying?.deletingPathExtension().lastPathComponent,
-                sameAccount: sameAccount && !fresh)
+                // `!secondHead` beside `!fresh`, and it has to be there: a same-account relaunch
+                // re-adds the `--continue` it was launched with, which on the account this session
+                // is already on names the very conversation the guard above declined to resume.
+                sameAccount: sameAccount && !fresh && !secondHead)
             handoff = true
         }
 
@@ -1066,7 +1092,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // fork check, so this is the first point in the tick where the id being resumed is
                 // the one the conversation is really in. It only ever RAISES an arm; whether that
                 // line is ever typed is decided tick by tick against the child that follows.
-                capResume.arm(reason: plan.reason, fresh: plan.fresh, cappedAt: pendingCap?.cappedAt,
+                // `plan.fresh || secondHead`, on the same terms the publish below reads them: a
+                // relaunch that dropped its resume starts an EMPTY window, and an offer to carry
+                // on with work the wall interrupted belongs to the conversation that holds it.
+                capResume.arm(reason: plan.reason, fresh: plan.fresh || secondHead,
+                              cappedAt: pendingCap?.cappedAt,
                               answeredAt: watcher.lastMainChainEventAt,
                               conversation: watcher.transcriptSessionID,
                               from: leaving, to: plan.target,
@@ -1094,7 +1124,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // HookAgents.swift). Nothing corrects it soon either: the next child's watcher starts
                 // with no token reading at all, and `sync` publishes nothing until that conversation
                 // writes its first turn with usage in it (codex review of a599a06).
-                if plan.fresh {
+                // A DROPPED RESUME IS A FRESH WINDOW BY EVERY MEASURE THIS PUBLISH TAKES, which is
+                // why it is read here rather than only where it was decided: what the watcher still
+                // holds is the id and the size of a conversation this session is no longer in, and
+                // republishing them under the new account is what makes every hook match its events
+                // against a window nobody is in (the paragraph below states the whole cost).
+                if plan.fresh || secondHead {
                     sessionContext.conversationEnded(pid: supervisorPID)
                 } else {
                     let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,

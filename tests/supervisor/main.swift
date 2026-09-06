@@ -573,6 +573,9 @@ runSwitchSessionChecks()
 runSwitchHookChecks()
 runSessionPinChecks()
 runCapSessionPinChecks()
+// What the move above must leave behind it: one head on the conversation, and nothing of the old
+// child's still running (doubleheadchecks.swift).
+runDoubleHeadChecks()
 runModelRequestChecks()
 runModelTickChecks()
 runModelSurfaceChecks()

@@ -114,6 +114,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/switchrequestchecks.swift tests/supervisor/switchsessionchecks.swift \
   tests/supervisor/switchhookchecks.swift tests/supervisor/sessionpinchecks.swift \
   tests/supervisor/capsessionpinchecks.swift \
+  tests/supervisor/doubleheadchecks.swift \
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
   tests/supervisor/mcppickerchecks.swift tests/supervisor/accountwindowchecks.swift tests/supervisor/pickerchecks.swift tests/supervisor/pickgracechecks.swift \
@@ -151,7 +152,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \
-  TallyCLI/ChildReaper.swift \
+  TallyCLI/ChildReaper.swift TallyCLI/HandoffKill.swift TallyCLI/HandoffResume.swift \
   TallyCLI/SessionDirectives.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift \
   TallyCLI/ModelMenu.swift Tally/Core/LaunchAxisNames.swift \
   TallyCLI/MCPServe.swift TallyCLI/MCPPicker.swift TallyCLI/MCPAccountOffer.swift TallyCLI/MCPPickOffer.swift TallyCLI/TallyPrompt.swift TallyCLI/NativePick.swift TallyCLI/PickRows.swift Tally/Core/PickContract.swift \

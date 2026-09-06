@@ -174,8 +174,7 @@ struct AccountListRowView: View {
         // The same one call the card makes, so the question and the write have one implementation.
         Button {
             guard facts.canResetSessionLimit else { return }
-            RedeemAction.startSessionLimit(usage: usage, label: facts.label,
-                                           session: facts.limitResetSession)
+            RedeemAction.startSessionLimit(usage: usage, label: facts.label)
         } label: {
             HStack(spacing: 2) {
                 if facts.isResettingSessionLimit {

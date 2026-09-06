@@ -38,9 +38,16 @@ struct QuarantineRecord {
 /// filesystem-safe derivative) so a slash survives. Best-effort.
 func quarantineAccount(_ accountID: String, model: String?, until: Date, dir: URL = quarantineDir) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let safe = accountID.replacingOccurrences(of: "/", with: "_")
     try? "\(until.timeIntervalSince1970)\t\(model ?? "")\t\(accountID)"
-        .write(to: dir.appendingPathComponent(safe), atomically: true, encoding: .utf8)
+        .write(to: quarantineFile(accountID, in: dir), atomically: true, encoding: .utf8)
+}
+
+/// Where one account's record lives: the id with slashes folded, because it is a path component
+/// here. Derived in ONE place because the write above and the delete below have to agree on it -
+/// a release that computed the name differently would leave the file it meant to remove standing,
+/// and nothing would say so.
+func quarantineFile(_ accountID: String, in dir: URL = quarantineDir) -> URL {
+    dir.appendingPathComponent(accountID.replacingOccurrences(of: "/", with: "_"))
 }
 
 /// Undo that record for the window a cap has just STOPPED being true on: the session-local entry
@@ -68,7 +75,7 @@ func releaseQuarantine(_ accountID: String, model: String?,
        quarantineBlocks(quarantineModel: held.model, pickModel: model) {
         sessionLocal[accountID] = nil
     }
-    let file = dir.appendingPathComponent(accountID.replacingOccurrences(of: "/", with: "_"))
+    let file = quarantineFile(accountID, in: dir)
     guard let raw = try? String(contentsOf: file, encoding: .utf8),
           let record = parseQuarantineLine(raw, fallbackID: accountID),
           quarantineBlocks(quarantineModel: record.model, pickModel: model) else { return }

@@ -64,7 +64,12 @@ func runCapLimitResetChecks() {
                             now: wall.addingTimeInterval(5), dir: quarantineHome).contains("A")
     }
     func sharedRecordExists() -> Bool {
-        FileManager.default.fileExists(atPath: quarantineHome.appendingPathComponent("A").path)
+        FileManager.default.fileExists(atPath: quarantineFile("A", in: quarantineHome).path)
+    }
+    /// Both halves gone, so the next case starts from no quarantine at all.
+    func forgetTheWall() {
+        localQuarantine["A"] = nil
+        try? FileManager.default.removeItem(at: quarantineFile("A", in: quarantineHome))
     }
 
     func pending(_ scope: CapScope?, at when: Date = wall,
@@ -316,8 +321,7 @@ func runCapLimitResetChecks() {
              now: wall.addingTimeInterval(5), said: &otherWindowSaid)
     check("a quarantine on a window this reset did not clear is left standing",
           localQuarantine["A"] != nil && sharedRecordExists())
-    localQuarantine["A"] = nil
-    try? FileManager.default.removeItem(at: quarantineHome.appendingPathComponent("A"))
+    forgetTheWall()
 
     // 2. ANY OTHER ANSWER: nothing was cleared, so the handoff goes ahead.
     for (name, answer) in [("already used", LimitResetOutcome.alreadyUsed(availableAgain: nil)),
@@ -334,8 +338,7 @@ func runCapLimitResetChecks() {
         check("…and leaves the cap standing for the handoff", carried != nil)
         check("…and says nothing about staying put", lines.isEmpty)
         check("…and leaves the quarantine standing: no wall was cleared", stillQuarantined())
-        localQuarantine["A"] = nil
-        try? FileManager.default.removeItem(at: quarantineHome.appendingPathComponent("A"))
+        forgetTheWall()
     }
 
     // 3. AN OBSERVATION OLDER THAN THE INJECTION IS NOT ITS ANSWER. The watcher holds the newest

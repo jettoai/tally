@@ -135,8 +135,11 @@ enum RedeemAction {
     /// nothing spends without the question having been answered.
     ///
     /// THE PAIR IS ONE CALL rather than two, because both surfaces make it and a card that asked
-    /// without spending, or spent without asking, would be one editing slip away.
-    static func startSessionLimit(usage: AccountUsage, label: String, session: LimitResetTarget?) {
+    /// without spending, or spent without asking, would be one editing slip away. The session the
+    /// dialog names is read here rather than handed in, from the very store the write goes to, so
+    /// no surface can word the question about a session other than the one about to be typed into.
+    static func startSessionLimit(usage: AccountUsage, label: String) {
+        let session = LimitResetStore.shared.target(accountID: usage.id)
         guard CentredAlert.confirm(title: "\(label) · \(L("Reset session limit"))",
                                    body: sessionLimitMessage(session: session),
                                    confirmTitle: L("Reset")) else { return }

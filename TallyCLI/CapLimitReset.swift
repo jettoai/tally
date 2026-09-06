@@ -157,8 +157,9 @@ func capLimitResetAllowed(scope: CapScope?, enabled: Bool, state: LimitResetStat
 /// enough to describe this week, and published by a fetch that actually happened.
 func capLimitResetWeekly(_ loaded: (Snapshot?, String?), accountID: String,
                          now: Date = Date()) -> Double? {
-    guard loaded.1 == nil,
-          let row = loaded.0?.accounts.first(where: { $0.id == accountID }),
+    let (snapshot, problem) = loaded
+    guard problem == nil,
+          let row = snapshot?.accounts.first(where: { $0.id == accountID }),
           row.error == nil, !row.isStale, row.lastRefreshFailed != true,
           let fetched = row.refreshedAt,
           now.timeIntervalSince(fetched) <= snapshotMaxAge else { return nil }

@@ -317,8 +317,7 @@ struct AccountCardView: View {
         // performs words its cost - so this surface and the compact row cannot come apart on it.
         Button {
             guard facts.canResetSessionLimit else { return }
-            RedeemAction.startSessionLimit(usage: usage, label: label,
-                                           session: facts.limitResetSession)
+            RedeemAction.startSessionLimit(usage: usage, label: label)
         } label: {
             HStack(spacing: 3) {
                 if facts.isResettingSessionLimit {

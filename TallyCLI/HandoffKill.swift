@@ -132,11 +132,9 @@ func handoffProcessTable() -> [HandoffProcess] {
     guard capacity > 0 else { return [] }
     var pids = [pid_t](repeating: 0, count: Int(capacity))
     let returned = proc_listallpids(&pids, Int32(Int(capacity) * MemoryLayout<pid_t>.size))
-    var table: [HandoffProcess] = []
-    for pid in pids.prefix(scannedPidCount(returned, capacity: pids.count)) where pid > 0 {
-        if let process = handoffProcess(pid) { table.append(process) }
+    return pids.prefix(scannedPidCount(returned, capacity: pids.count)).compactMap { pid in
+        pid > 0 ? handoffProcess(pid) : nil
     }
-    return table
 }
 
 /// One process's parent and start time, or nil when the machine will not answer for it (it has

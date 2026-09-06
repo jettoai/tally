@@ -369,7 +369,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // never clears a pin it did not act on.
             let pinCleared = manualMoves.pinCleared(by: reason)
             if pinCleared { warn(sessionPinClearedNotice(reason: reason)) }
-            logHandoff(sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
+            // `conversation`, which is that same id already derived above: the AUDIT line names
+            // what ended here whether or not it was carried, which is what makes it different from
+            // the `carrying` the relaunch below resumes.
+            logHandoff(sessionID: conversation,
                        from: fromLabel, to: target.label,
                        reason: handoffReason(reason, pinCleared: pinCleared),
                        pid: supervisorPID, cwd: cwd)

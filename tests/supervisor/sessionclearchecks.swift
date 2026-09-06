@@ -380,8 +380,12 @@ func runSessionClearChecks() {
         // …while the AUDIT line still names the conversation that ended here, which is a different
         // question from what the new child resumes: "nothing was carried" is the instruction, and
         // "this is what was left behind" is what somebody reading handoff.log needs.
+        // `conversation` is that id read off `sessionFile` a few lines above the carry, so what this
+        // asserts is unchanged: the log is handed the conversation that ended and not the `carrying`
+        // beside it, which is nil on both of the reasons above.
         check("…while the handoff log still names the conversation that ended",
-              body.contains("logHandoff(sessionID: sessionFile?"))
+              body.contains("let conversation = sessionFile?.deletingPathExtension().lastPathComponent")
+                  && body.contains("logHandoff(sessionID: conversation,"))
         // …and it is not read as a same-account relaunch, which would re-add a `--continue` and
         // pull up the newest conversation on the target: the same context by another route.
         check("…and never re-adds a continue flag",

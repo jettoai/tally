@@ -57,16 +57,16 @@ func runDoubleHeadChecks() {
               == [ourConversation, siblingConversation])
     // The half a handoff needs, and the half that did not exist: asking the question WITHOUT its
     // own answer in it. Unexcluded, every supervisor reads its own publish back and would refuse
-    // every resume there is.
+    // every resume there is. It is the reading the resume decisions below are taken against, so it
+    // is bound once and asserted rather than asked for twice.
+    let elsewhere = liveConversations(in: projectCwd.path, excluding: ours, dir: stateDir,
+                                      unmanagedDir: unmanagedDir)
     check("excluding one supervisor drops its own conversation and nobody else's",
-          liveConversations(in: projectCwd.path, excluding: ours, dir: stateDir,
-                            unmanagedDir: unmanagedDir) == [siblingConversation])
+          elsewhere == [siblingConversation])
     check("a directory nobody is working in names nothing",
           liveConversations(in: FileManager.default.temporaryDirectory.path, excluding: ours,
                             dir: stateDir, unmanagedDir: unmanagedDir).isEmpty)
 
-    let elsewhere = liveConversations(in: projectCwd.path, excluding: ours, dir: stateDir,
-                                      unmanagedDir: unmanagedDir)
     check("resuming this session's own conversation forks nothing",
           !resumeForksConversation(ourConversation, liveElsewhere: elsewhere))
     // The whole point: `adoptRequestedTranscript` and a resume that forked can both leave the
@@ -150,15 +150,16 @@ func runDoubleHeadChecks() {
     check("a live pid reads the same identity twice",
           self1 != nil && stillTheSameProcess(self1!, asOf: handoffProcess(getpid())))
 
+    // Bound once each, the way the two surfaces above are: three questions of the same two lines.
+    let oneSurvivor = handoffSurvivorNotice(count: 1)
+    let severalSurvivors = handoffSurvivorNotice(count: 3)
     check("one survivor is spoken of in the singular",
-          handoffSurvivorNotice(count: 1).hasPrefix("1 process ")
-              && handoffSurvivorNotice(count: 1).hasSuffix("ending it too"))
+          oneSurvivor.hasPrefix("1 process ") && oneSurvivor.hasSuffix("ending it too"))
     check("and several in the plural",
-          handoffSurvivorNotice(count: 3).hasPrefix("3 processes ")
-              && handoffSurvivorNotice(count: 3).hasSuffix("ending them too"))
+          severalSurvivors.hasPrefix("3 processes ")
+              && severalSurvivors.hasSuffix("ending them too"))
     check("with no em dash in either",
-          !handoffSurvivorNotice(count: 1).contains("—")
-              && !handoffSurvivorNotice(count: 3).contains("—"))
+          !oneSurvivor.contains("—") && !severalSurvivors.contains("—"))
 
     // MARK: - 47c. What an open tool call means to a move somebody typed
 

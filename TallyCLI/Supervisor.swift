@@ -107,6 +107,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var selfUpdateAttempted = consumeSelfUpdateAttempt()
     var appRelaunch = AppRelaunchState()
     let supervisorPID = String(getpid())
+    /// Which supervisor that pid means, stamped into every child so a handoff can tell this
+    /// session's detached jobs from those of whatever wore the number before it
+    /// (HandoffKill.swift). A process's start time is fixed for its whole life, exec included.
+    let supervisorStartedAt = handoffProcess(getpid()).map { String($0.startedAt) }
     /// The status line's view of what this supervisor is waiting to do, SEEDED from this pid's own
     /// notice file: a self-update exec keeps the pid and leaves its badge behind for the image it
     /// hands over to, which then has to be the one that takes it down (PendingNotice.swift).
@@ -211,7 +215,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // surface reads back out of it (SupervisorRuntime.swift).
         let environment = supervisedChildEnvironment(
             provider: provider, home: account.launchHome!, supervisorVersion: supervisorVersion,
-            supervisorPID: supervisorPID)
+            supervisorPID: supervisorPID, supervisorStartedAt: supervisorStartedAt)
         // A relaunch inherits a terminal whose reader was just killed, and everything queued on it
         // since - the answer to a query the dead child never collected, a keystroke typed into the
         // gap - would arrive as the first thing the new child reads and land in its prompt box

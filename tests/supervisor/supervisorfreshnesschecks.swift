@@ -193,7 +193,7 @@ func runSupervisorFreshnessChecks() {
     check("the key this reads is the one the supervisor's spawn writes",
           supervisedChildEnvironment(provider: providers[0], home: "/tmp/A",
                                      supervisorVersion: "9.9.9", supervisorPID: "1",
-                                     base: [:])[key] == "9.9.9")
+                                     supervisorStartedAt: "1700", base: [:])[key] == "9.9.9")
 
     // MARK: which of the two sources the card believes
 

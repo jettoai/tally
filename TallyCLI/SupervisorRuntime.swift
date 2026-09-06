@@ -61,14 +61,15 @@ func spawnChild(_ argv: [String], environment: [String: String],
 ///   - `TALLY_SUPERVISOR_PID` addresses the session. The status line reads the drift badge and the
 ///     pending notice under that pid, and `tally switch` writes its request there
 ///     (SwitchRequest.swift) - it reaches the agent's own shell because every process the child
-///     spawns inherits this.
+///     spawns inherits this, as it does `TALLY_SUPERVISOR_STARTED_AT` beside it, which says WHICH
+///     supervisor that pid means and is handed in rather than read here (HandoffKill.swift).
 ///
 /// The provider's own home variable is cleared first and then set from the account, so a home
 /// exported in the parent's environment can never leak into a child the supervisor placed somewhere
 /// else; `launchEnv` returning nil is the DEFAULT home, which must launch with the variable unset
 /// (Snapshot.swift explains why).
 func supervisedChildEnvironment(provider: Provider, home: String, supervisorVersion: String?,
-                                supervisorPID: String,
+                                supervisorPID: String, supervisorStartedAt: String?,
                                 base: [String: String] = ProcessInfo.processInfo.environment)
     -> [String: String] {
     var environment = base
@@ -76,6 +77,7 @@ func supervisedChildEnvironment(provider: Provider, home: String, supervisorVers
     environment["TALLY_LAUNCHED"] = "1"
     if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
     environment["TALLY_SUPERVISOR_PID"] = supervisorPID
+    if let supervisorStartedAt { environment["TALLY_SUPERVISOR_STARTED_AT"] = supervisorStartedAt }
     // No spawn from here stops at Claude Code's "resume the whole conversation?" prompt: a relaunch
     // resumes by id with nobody at the keyboard, and a first launch was asked for by somebody who
     // typed the command (ResumePrompt.swift carries the reversal and the way back to the prompt).

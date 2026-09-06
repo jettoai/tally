@@ -39,19 +39,28 @@ import Foundation
 // server read `ppid 1, pgid 28909`, launchd for a parent and the group of a shell that had already
 // exited. Parentage cannot name it and neither can the group, because nothing alive carries that
 // number any more. What can is the mark it was started with: every child a supervisor spawns is
-// given `TALLY_SUPERVISOR_PID` (`supervisedChildEnvironment`) and everything those children spawn
-// inherits it, so a stray process carrying this supervisor's pid was started inside this session
-// and nothing else was. It is the claim `SessionProcessGroups.swift` keeps as a ledger for the
-// app's attribution, asked here of the process itself because a handoff needs the answer at one
+// given `TALLY_SUPERVISOR_PID` and `TALLY_SUPERVISOR_STARTED_AT` (`supervisedChildEnvironment`) and
+// everything those children spawn inherits both, so a stray process naming this supervisor's pid
+// AND its generation was started inside this session and nothing else was. The generation is there
+// because the pid alone is a number the machine hands out again: an orphan of an older session
+// under the same number can go on forking, and its children are younger than this supervisor. It is
+// the claim `SessionProcessGroups.swift` keeps as a ledger for the app's attribution, generation
+// check included, asked here of the process itself because a handoff needs the answer at one
 // instant and has no tick behind it.
 //
 // WHAT THIS DOES NOT COVER, said plainly because a list that reads as complete is how the last
 // version of this file misled its reader. A process whose environment the kernel will not hand over
 // (another user's, an Apple platform binary) and one started with the environment cleared (`env -i`,
 // a daemon that scrubs its own) carry nothing this can read, and are left running. So is anything
-// older than this supervisor, whatever it is marked with. The direction is deliberate in all three:
-// silence is not evidence, and the one mistake in this file that cannot be taken back is signalling
-// a stranger.
+// older than this supervisor, and anything naming another generation, whatever pid it is marked
+// with. The direction is deliberate in all of them: silence is not evidence, and the one mistake in
+// this file that cannot be taken back is signalling a stranger.
+//
+// One gap is left open on purpose and is meant to close by itself: a child spawned by a supervisor
+// older than the generation stamp carries a pid and no generation, so for that session the sweep is
+// back to the pid plus a start time, which the recycled-pid case can still slip through. Requiring
+// the generation outright would instead mean no handoff sweeps anything until every supervisor on
+// the machine has been replaced.
 
 /// One live process, reduced to what this decision needs: who its parent is, and enough identity to
 /// tell it from a LATER process wearing the same number.
@@ -120,6 +129,17 @@ func childTreeDescendants(of child: pid_t, in table: [HandoffProcess],
 /// for a child environment and reading it back with this key.
 let supervisorPIDEnvKey = "TALLY_SUPERVISOR_PID"
 
+/// And the generation of the supervisor wearing that pid, in the unit the process table states
+/// (`HandoffProcess.startedAt`, microseconds). A pid alone cannot say WHICH supervisor: the number
+/// is handed out again, and the sweep below would otherwise take the newer supervisor's word for a
+/// job an older one's session started. Stamped by the same spawn and read back by the same suite.
+///
+/// A supervisor whose own start time the machine will not state stamps the variable NOT AT ALL,
+/// rather than empty: absent is read below as "spawned before this stamp existed" and falls back to
+/// the older rule, which is the right answer to a reading nobody could take, while an empty string
+/// is a generation that matches nothing and would quietly stop that session sweeping anything.
+let supervisorStartedAtEnvKey = "TALLY_SUPERVISOR_STARTED_AT"
+
 /// Everything a handoff must end: the tree under the child, plus the processes this session started
 /// that are attached to nothing of ours any more.
 ///
@@ -128,13 +148,25 @@ let supervisorPIDEnvKey = "TALLY_SUPERVISOR_PID"
 /// the move and goes on working on the account the session just left, one included that is not ours
 /// is a kill of something nobody asked about.
 ///
-/// THE START TIME IS WHAT KEEPS THE SECOND ONE OUT. Pids are handed out again, so a process marked
-/// with this supervisor's number may have been started under a PREVIOUS supervisor that wore it.
-/// Only something younger than this supervisor can have been started under it. A table that cannot
-/// say when this supervisor started falls back to the tree alone, which is the same direction every
-/// unreadable answer takes here: the smaller list.
+/// TWO MARKS KEEP THE SECOND ONE OUT, because a pid is not an identity. Pids are handed out again,
+/// so a process marked with this supervisor's NUMBER may have been started under a previous
+/// supervisor that wore it, and the start times alone do not separate the two: the old session's
+/// orphan is older than this supervisor and drops out, but anything that orphan forks AFTERWARDS is
+/// younger than this supervisor, carries the inherited number, and would read exactly like our own.
+/// So the generation is asked for as well, and a process that names a different one is not ours
+/// however new it is.
+///
+/// THE ONE PLACE THAT STILL RESTS ON THE START TIME is a child spawned by a supervisor from before
+/// this stamp existed: it carries the number and no generation at all. Silence there is read as the
+/// old rule (the number, plus being younger than this supervisor) rather than as a refusal, because
+/// the alternative is a changeover in which no handoff sweeps anything. It can be tightened to
+/// "generation or nothing" once no supervisor without one is left running, and until then the
+/// recycled-pid case above stays open for those sessions only.
+///
+/// A table that cannot say when this supervisor started falls back to the tree alone, which is the
+/// same direction every unreadable answer takes here: the smaller list.
 func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess],
-                     environmentValue: (pid_t) -> String?) -> [HandoffProcess] {
+                     environmentValue: (pid_t, String) -> String?) -> [HandoffProcess] {
     let descendants = childTreeDescendants(of: child, in: table, excluding: [supervisor])
     guard let supervisorStart = table.first(where: { $0.pid == supervisor })?.startedAt else {
         return descendants
@@ -143,12 +175,20 @@ func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess]
     accounted.insert(supervisor)
     accounted.insert(child)
     let mark = String(supervisor)
+    let generation = String(supervisorStart)
     // The cheap tests first and the reading of the machine last: an environment is fetched only for
     // what is younger than this supervisor and not already spoken for, which mid-session is a
-    // handful of processes rather than the whole table.
+    // handful of processes rather than the whole table. The generation is asked for only of what
+    // already carries the number, so the second reading costs nothing on everything else.
     let orphans = table.filter {
         $0.pid > 1 && !accounted.contains($0.pid) && $0.startedAt > supervisorStart
-    }.filter { environmentValue($0.pid) == mark }
+    }.filter { process in
+        guard environmentValue(process.pid, supervisorPIDEnvKey) == mark else { return false }
+        guard let stamped = environmentValue(process.pid, supervisorStartedAtEnvKey) else {
+            return true   // spawned before this stamp existed; the number is all there is to go on
+        }
+        return stamped == generation
+    }
     return descendants + orphans
 }
 
@@ -235,7 +275,7 @@ func endChildTree(_ child: inout ChildReaper, supervisor: pid_t = getpid(),
     // earlier in the turn, which only the mark on the process itself can still name.
     let descendants = handoffKillList(
         child: child.pid, supervisor: supervisor, in: handoffProcessTable(),
-        environmentValue: { processEnvironmentValue(ofProcess: Int($0), key: supervisorPIDEnvKey) })
+        environmentValue: { processEnvironmentValue(ofProcess: Int($0), key: $1) })
     kill(child.pid, SIGTERM)   // let claude run its SessionEnd cleanup
     var deadline = Date().addingTimeInterval(grace)
     child.poll()

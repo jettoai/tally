@@ -79,9 +79,11 @@ func runSwitchSessionChecks() {
     // and every process the child spawns (the agent's shell included) inherits it.
     let childEnv = supervisedChildEnvironment(
         provider: providers[0], home: "/tmp/A", supervisorVersion: "9.9.9", supervisorPID: "4242",
-        base: ["PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/tmp/stale"])
+        supervisorStartedAt: "1700", base: ["PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/tmp/stale"])
     check("the child carries the supervisor pid a switch addresses",
           childEnv["TALLY_SUPERVISOR_PID"] == "4242")
+    check("and the generation that says which supervisor that pid is",
+          childEnv["TALLY_SUPERVISOR_STARTED_AT"] == "1700")
     check("and the Tally marker the status line reads", childEnv["TALLY_LAUNCHED"] == "1")
     check("and the build stamp behind the supervision note",
           childEnv["TALLY_SUPERVISOR_VERSION"] == "9.9.9")
@@ -94,7 +96,7 @@ func runSwitchSessionChecks() {
     // prompt - the same suppression every other spawn gets, carried by the same assembly.
     let relaunchEnv = supervisedChildEnvironment(
         provider: providers[0], home: "/tmp/A", supervisorVersion: nil, supervisorPID: "4242",
-        base: [:])
+        supervisorStartedAt: "1700", base: [:])
     check("a relaunch suppresses it",
           relaunchEnv[resumeTokenThresholdEnvKey] == resumePromptDisabledThreshold)
     check("and a supervisor with no version stamps none",

@@ -158,9 +158,18 @@ func runDoubleHeadChecks() {
           + "itself", environmentValue(procargs: Data([1, 2]), key: pidKey) == nil)
     // Both ends of the contract, the way the version stamp's are pinned: a renamed variable would
     // leave every handoff sweeping the tree alone, on a fleet marking its processes correctly.
-    check("the mark this reads is the one the supervisor's spawn writes",
+    let spawned = supervisedChildEnvironment(provider: providers[0], home: "/tmp/A",
+                                             supervisorVersion: nil, supervisorPID: "4242",
+                                             supervisorStartedAt: "1788705344095162", base: [:])
+    check("the mark this reads is the one the supervisor's spawn writes", spawned[pidKey] == "4242")
+    check("…and so is the generation stamped beside it",
+          spawned[supervisorStartedAtEnvKey] == "1788705344095162")
+    // Absent rather than empty, because absent is what the sweep reads as "from before this stamp"
+    // and an empty string is a generation that matches nothing.
+    check("…and a supervisor the machine will not date stamps no generation at all",
           supervisedChildEnvironment(provider: providers[0], home: "/tmp/A", supervisorVersion: nil,
-                                     supervisorPID: "4242", base: [:])[pidKey] == "4242")
+                                     supervisorPID: "4242", supervisorStartedAt: nil,
+                                     base: [:])[supervisorStartedAtEnvKey] == nil)
 
     // THE READING THE PARENTAGE WALK CANNOT TELL APART, measured on this machine (2026-09-06): a
     // turn's `nohup pnpm dev &` outlives the Bash tool's shell within milliseconds and then reads
@@ -172,9 +181,24 @@ func runDoubleHeadChecks() {
                        proc(400, under: 1, startedAt: 1_300),   // the dev server that turn nohupped
                        proc(401, under: 1, startedAt: 1_300),   // another session's, or nobody's
                        proc(402, under: 1, startedAt: 900),     // marked, but older than us
-                       proc(403, under: 1, startedAt: 1_400)]   // marked, environment unreadable
-    let marks: [pid_t: String] = [400: "10", 401: "77", 402: "10", 403: "10"]
-    func mark(_ pid: pid_t) -> String? { pid == 403 ? nil : marks[pid] }
+                       proc(403, under: 1, startedAt: 1_400),   // marked, environment unreadable
+                       // The pid this supervisor wears was worn by another one before it, whose
+                       // orphan is still running (402) and still forking. Its children are younger
+                       // than this supervisor and carry the inherited number, so the start time
+                       // says nothing about them and only the generation does.
+                       proc(404, under: 402, startedAt: 1_500), // that orphan's later child
+                       proc(405, under: 1, startedAt: 1_500),   // ours, forked after the tool call
+                       proc(406, under: 1, startedAt: 1_500)]   // ours, from before the stamp
+    let marks: [pid_t: String] = [400: "10", 401: "77", 402: "10", 403: "10", 404: "10", 405: "10",
+                                  406: "10"]
+    // 1_000 is this supervisor's start; 900 is whatever wore the pid before it. 406 carries no
+    // generation at all, which is every child spawned by a supervisor older than the stamp.
+    let generations: [pid_t: String] = [400: "1000", 402: "900", 403: "1000", 404: "900",
+                                        405: "1000"]
+    func mark(_ pid: pid_t, _ key: String) -> String? {
+        guard pid != 403 else { return nil }
+        return key == supervisorPIDEnvKey ? marks[pid] : generations[pid]
+    }
     let doomed = handoffKillList(child: 100, supervisor: 10, in: orphanTable,
                                  environmentValue: mark)
     let doomedPids = Set(doomed.map(\.pid))
@@ -188,8 +212,18 @@ func runDoubleHeadChecks() {
           !doomedPids.contains(402))
     check("and so is one whose environment the machine will not hand over",
           !doomedPids.contains(403))
+    // The case the number alone cannot answer, and the reason the generation is stamped at all.
+    check("a job that orphan forked after this supervisor started is not ours, new as it is",
+          !doomedPids.contains(404))
+    check("while one forked under this supervisor's own generation is", doomedPids.contains(405))
+    // The transition, said as an assertion rather than left to the changeover: a child of a
+    // supervisor too old to stamp a generation is still swept, on the number and the start time.
+    check("and a child carrying no generation at all is swept on the older rule",
+          doomedPids.contains(406))
     check("the child and the supervisor are never in the list",
           !doomedPids.contains(100) && !doomedPids.contains(10))
+    check("and the whole list is exactly what carries this session's marks",
+          doomedPids == [200, 400, 405, 406])
     check("and nothing is named twice, whichever way it was found",
           doomed.count == doomedPids.count)
     // The fail-safe direction, and the only one available: without this supervisor's own start time

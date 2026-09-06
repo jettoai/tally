@@ -102,7 +102,8 @@ func runDoubleHeadChecks() {
                  proc(201, under: 100), proc(300, under: 200), proc(400, under: 10),
                  proc(401, under: 1)]
     let tree = Set(childTreeDescendants(of: 100, in: table).map(\.pid))
-    check("everything the ended turn started is found, grandchildren included", tree == [200, 201, 300])
+    check("the walk by parentage finds everything still attached to the child, grandchildren "
+          + "included", tree == [200, 201, 300])
     check("the child is not in its own descendants", !tree.contains(100))
     check("a sibling under the same supervisor is not touched", !tree.contains(400))
     check("nor is a daemon that merely has no parent of ours", !tree.contains(401))
@@ -125,6 +126,78 @@ func runDoubleHeadChecks() {
                   proc(500, under: 501)]
     check("a table describing a cycle is walked once and terminates",
           childTreeDescendants(of: 100, in: cyclic).map(\.pid) == [500, 501])
+
+    // MARK: the jobs of a turn that no walk can reach
+
+    /// A `KERN_PROCARGS2` buffer, assembled the way the kernel lays one out: the argument count,
+    /// the path the program was executed from, the padding after it, that many arguments, and the
+    /// environment last.
+    func procargs(_ path: String, argv: [String], env: [String]) -> Data {
+        var data = withUnsafeBytes(of: Int32(argv.count)) { Data($0) }
+        data.append(contentsOf: Array(path.utf8) + [0, 0, 0])
+        for field in argv + env { data.append(contentsOf: Array(field.utf8) + [0]) }
+        return data
+    }
+    let pidKey = supervisorPIDEnvKey
+    check("a supervisor's mark is read out of the environment half of a process's buffer",
+          environmentValue(procargs: procargs("/usr/local/bin/claude", argv: ["claude"],
+                                              env: ["PATH=/usr/bin", "\(pidKey)=4242"]),
+                           key: pidKey) == "4242")
+    // Arguments and environment entries are the same shape of string in one buffer, and `env` takes
+    // one spelled exactly like the other. A scan that skipped the argument count would read this
+    // command line as a process STARTED BY supervisor 4242 and kill it at the next handoff, which
+    // is the one mistake here that cannot be taken back.
+    check("…and an argument spelled like one is not a mark",
+          environmentValue(procargs: procargs("/usr/bin/env",
+                                              argv: ["env", "\(pidKey)=4242", "sleep", "30"],
+                                              env: ["PATH=/usr/bin"]), key: pidKey) == nil)
+    check("…nor is the name exported with nothing behind it",
+          environmentValue(procargs: procargs("/bin/sh", argv: ["sh"], env: ["\(pidKey)="]),
+                           key: pidKey) == nil)
+    check("…nor a buffer too short to hold a count, which is read as silence rather than past "
+          + "itself", environmentValue(procargs: Data([1, 2]), key: pidKey) == nil)
+    // Both ends of the contract, the way the version stamp's are pinned: a renamed variable would
+    // leave every handoff sweeping the tree alone, on a fleet marking its processes correctly.
+    check("the mark this reads is the one the supervisor's spawn writes",
+          supervisedChildEnvironment(provider: providers[0], home: "/tmp/A", supervisorVersion: nil,
+                                     supervisorPID: "4242", base: [:])[pidKey] == "4242")
+
+    // THE READING THE PARENTAGE WALK CANNOT TELL APART, measured on this machine (2026-09-06): a
+    // turn's `nohup pnpm dev &` outlives the Bash tool's shell within milliseconds and then reads
+    // `ppid 1`, which is exactly what the stranger's daemon above reads. The table below has both,
+    // and the mark is the only field that separates them.
+    let orphanTable = [proc(10, under: 1, startedAt: 1_000),    // this supervisor
+                       proc(100, under: 10, startedAt: 1_100),  // its child
+                       proc(200, under: 100, startedAt: 1_200), // the turn's own tool call
+                       proc(400, under: 1, startedAt: 1_300),   // the dev server that turn nohupped
+                       proc(401, under: 1, startedAt: 1_300),   // another session's, or nobody's
+                       proc(402, under: 1, startedAt: 900),     // marked, but older than us
+                       proc(403, under: 1, startedAt: 1_400)]   // marked, environment unreadable
+    let marks: [pid_t: String] = [400: "10", 401: "77", 402: "10", 403: "10"]
+    func mark(_ pid: pid_t) -> String? { pid == 403 ? nil : marks[pid] }
+    let doomed = handoffKillList(child: 100, supervisor: 10, in: orphanTable,
+                                 environmentValue: mark)
+    let doomedPids = Set(doomed.map(\.pid))
+    check("a job reparented onto launchd is found by the mark it carries rather than by parentage",
+          doomedPids.contains(400))
+    check("with the tree around it swept as before", doomedPids.contains(200))
+    check("a stray carrying another supervisor's mark is left running", !doomedPids.contains(401))
+    // Pids are handed out again: a process marked 10 that is OLDER than the supervisor now wearing
+    // 10 was started under whatever wore the number before it, and is nobody here's to signal.
+    check("so is one marked for a number this supervisor was only handed later",
+          !doomedPids.contains(402))
+    check("and so is one whose environment the machine will not hand over",
+          !doomedPids.contains(403))
+    check("the child and the supervisor are never in the list",
+          !doomedPids.contains(100) && !doomedPids.contains(10))
+    check("and nothing is named twice, whichever way it was found",
+          doomed.count == doomedPids.count)
+    // The fail-safe direction, and the only one available: without this supervisor's own start time
+    // the guard above cannot be applied to anything, so the marks are not used at all.
+    check("a table that cannot say when this supervisor started sweeps the tree alone",
+          Set(handoffKillList(child: 100, supervisor: 10,
+                              in: orphanTable.filter { $0.pid != 10 },
+                              environmentValue: mark).map(\.pid)) == [200])
 
     // The identity check that stands between a two-second-old snapshot and a stranger's process.
     let recorded = proc(4242, under: 100, startedAt: 111)

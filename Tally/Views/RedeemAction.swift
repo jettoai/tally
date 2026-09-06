@@ -137,7 +137,15 @@ enum RedeemAction {
     /// THE PAIR IS ONE CALL rather than two, because both surfaces make it and a card that asked
     /// without spending, or spent without asking, would be one editing slip away. The session the
     /// dialog names is read here rather than handed in, from the very store the write goes to, so
-    /// no surface can word the question about a session other than the one about to be typed into.
+    /// no surface words the question off a reading of its own.
+    ///
+    /// IT IS READ TWICE THOUGH, AND THE DIALOG IS THE WINDOW BETWEEN THE TWO. This call takes the
+    /// target to word the question; `LimitResetStore.spend` takes it again when the answer comes
+    /// back, and somebody can sit on that alert for as long as they like. If the roster changes in
+    /// between (the named session ends, or another session on this account becomes the target) the
+    /// command is typed into whatever the store names at that moment, or into nothing at all and
+    /// the row says `noSession`. What is guaranteed is that both readings come from one store, not
+    /// that the sentence somebody read still names the session written to.
     static func startSessionLimit(usage: AccountUsage, label: String) {
         let session = LimitResetStore.shared.target(accountID: usage.id)
         guard CentredAlert.confirm(title: "\(label) · \(L("Reset session limit"))",

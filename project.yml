@@ -149,6 +149,14 @@ targets:
       # those sentences would be a panel that shows nothing while every session observes correctly,
       # and a second spelling of the record would be a button that reads a file nobody writes.
       - path: Tally/Core/LimitReset.swift
+      # Reading one variable out of another process's environment, which both targets do for their
+      # own question and neither can do from a dictionary: the app asks a supervisor's child which
+      # build stamped it (the board's staleness badge), and a handoff asks a stray process which
+      # supervisor started it, because a job whose shell has exited is reachable by no walk of the
+      # tree (HandoffKill.swift). One copy of the `KERN_PROCARGS2` walk because the argument count
+      # is the only thing separating a command line from an environment in that buffer, and a
+      # second spelling of that boundary reads `env FOO=1 cmd` as a process launched with FOO set.
+      - path: Tally/Core/SupervisorVersionStamp.swift
     settings:
       base:
         PRODUCT_NAME: tally

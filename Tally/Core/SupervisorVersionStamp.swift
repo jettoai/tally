@@ -21,9 +21,12 @@ import Foundation
 // which is the same board an entirely up-to-date fleet draws. The field remains as the fallback for
 // the case this reading cannot answer, and the two agree wherever both are present.
 //
-// ONE KEY, NEVER THE ENVIRONMENT. The child is a Claude Code process and its environment carries
-// the user's credentials. Nothing here decodes that buffer into a dictionary or hands it to a
-// caller: it is scanned for one prefix and one value comes back.
+// ONE KEY AT A TIME, NEVER THE WHOLE ENVIRONMENT. The child is a Claude Code process and its
+// environment carries the user's credentials. Nothing here decodes that buffer into a dictionary or
+// hands it to a caller: it is scanned for one named prefix and one value comes back. The key is a
+// parameter because the same scan answers a second question elsewhere - which supervisor a stray
+// process was started under, asked of `TALLY_SUPERVISOR_PID` when a handoff has to end the jobs no
+// walk of the tree can reach (HandoffKill.swift).
 //
 // sysctl RATHER THAN `ps`. A fork, an exec and a parse per card per refresh, twice a second for as
 // long as a board is open, for a reading the kernel hands over directly. Same rule as the footprint
@@ -42,6 +45,17 @@ let supervisorVersionEnvKey = "TALLY_SUPERVISOR_VERSION"
 /// refuses `KERN_PROCARGS2` outright), or it was spawned by a supervisor too old to stamp anything.
 /// All three mean "cannot say", which is what the board draws nothing for.
 func supervisorVersionStamp(ofProcess pid: Int) -> String? {
+    processEnvironmentValue(ofProcess: pid, key: supervisorVersionEnvKey)
+}
+
+/// One named variable out of a live process's environment, or nil when the machine will not say.
+///
+/// The three ways it will not say are all ordinary and all mean the same thing to every caller
+/// here: the process ended between the scan and this call, it belongs to another user (the kernel
+/// refuses `KERN_PROCARGS2` outright, and so does it for an Apple platform binary), or the variable
+/// is simply not there. None of them is evidence about the process, so nothing above turns a nil
+/// into a decision it would not take on silence.
+func processEnvironmentValue(ofProcess pid: Int, key: String) -> String? {
     guard let pid = Int32(exactly: pid) else { return nil }
     var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
     // SIZED FIRST, then filled. The other way to size this buffer is `KERN_ARGMAX`, which is a
@@ -53,22 +67,27 @@ func supervisorVersionStamp(ofProcess pid: Int) -> String? {
     guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
     var buffer = [UInt8](repeating: 0, count: size)
     guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > 0 else { return nil }
-    return parseSupervisorVersion(procargs: Data(buffer.prefix(size)))
+    return environmentValue(procargs: Data(buffer.prefix(size)), key: key)
 }
 
-/// The stamp inside a `KERN_PROCARGS2` buffer, which is laid out as an argument count, the path the
-/// program was executed from, alignment padding, that many arguments, and then the environment -
-/// every part after the count being a NUL-terminated string.
+/// The stamp inside a `KERN_PROCARGS2` buffer: the scan below, asked for this one key.
+func parseSupervisorVersion(procargs: Data) -> String? {
+    environmentValue(procargs: procargs, key: supervisorVersionEnvKey)
+}
+
+/// One variable's value inside a `KERN_PROCARGS2` buffer, which is laid out as an argument count,
+/// the path the program was executed from, alignment padding, that many arguments, and then the
+/// environment - every part after the count being a NUL-terminated string.
 ///
 /// THE COUNT IS WHAT SEPARATES THE TWO HALVES, and it is the only thing that does: arguments and
 /// environment entries are the same shape of string in one run, so a scan that skipped the walk
-/// would read a command line mentioning this variable as if the process had been launched with it.
+/// would read a command line mentioning the variable as if the process had been launched with it.
 /// The walk is cheap and the buffer states everything it needs.
 ///
 /// Pure, and separated from the call above for the reason every reader in this project is: a
 /// harness can state what a buffer means with no processes around it, and the shape of this one is
 /// exactly where a silent misreading would live.
-func parseSupervisorVersion(procargs: Data) -> String? {
+func environmentValue(procargs: Data, key: String) -> String? {
     let header = MemoryLayout<Int32>.size
     guard procargs.count > header else { return nil }
     let argc = procargs.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: Int32.self) }
@@ -81,11 +100,12 @@ func parseSupervisorVersion(procargs: Data) -> String? {
     while index < fields.count, fields[index].isEmpty { index += 1 }
     index += Int(argc)
     guard index <= fields.count else { return nil }
-    let prefix = Array("\(supervisorVersionEnvKey)=".utf8)
+    let prefix = Array("\(key)=".utf8)
     for field in fields[index...] where field.starts(with: prefix) {
-        // An empty value is not a version. A supervisor with nothing to stamp sets no variable at
+        // An empty value is not an answer. A supervisor with nothing to stamp sets no variable at
         // all, so an empty one can only come from something else exporting the name, and reading it
-        // as a build would put an empty badge on a card.
+        // as a build would put an empty badge on a card (as reading it as a supervisor pid would
+        // put a stray process on nobody's account).
         let value = String(decoding: field.dropFirst(prefix.count), as: UTF8.self)
         return value.isEmpty ? nil : value
     }

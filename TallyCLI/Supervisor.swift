@@ -550,8 +550,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 accountLabel: account.label,
                 resetState: { limitResetEffective(readLimitReset(accountID: account.id)) },
                 observed: watcher.lastLimitReset,
-                weeklyRemaining: {
-                    loadSnapshot().0?.accounts.first { $0.id == account.id }?.weeklyRemaining
+                // The whole snapshot pair, and the row's own freshness with it: a number held over
+                // from a poll that failed, or from an app that stopped publishing, is not what the
+                // weekly floor may spend a once-a-week credit against (`capLimitResetWeekly`).
+                weeklyRemaining: { capLimitResetWeekly(loadSnapshot(), accountID: account.id) },
+                // And what a landed reset falsifies besides the cap: the quarantine this session
+                // wrote when the wall landed, session-local map and shared file both.
+                clearQuarantine: { model in
+                    releaseQuarantine(account.id, model: model, sessionLocal: &quarantine)
                 })
 
             // Model-drift observation: surface a Fable safeguard fallback and gate the

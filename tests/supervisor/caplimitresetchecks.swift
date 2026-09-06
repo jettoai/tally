@@ -32,16 +32,39 @@ func runCapLimitResetChecks() {
     /// handed to: a cap handoff needs a target with room in every window the model spends, so a
     /// sibling built with the capped one's zeroes is not eligible and no plan is ever made
     /// (which is how the first version of the stand-down check below passed for the wrong reason).
+    ///
+    /// The four freshness fields are parameters because the weekly floor's whole question is which
+    /// reading may answer it: every one of them can be true of a row still carrying 60%.
     func account(_ id: String, weekly: Double, session: Double = 0,
-                 model: Double = 40) -> Snapshot.Account {
+                 model: Double = 40, refreshed: Date? = nil, stale: Bool = false,
+                 failed: Bool? = nil, error: String? = nil) -> Snapshot.Account {
         Snapshot.Account(id: id, provider: "claude", label: "Claude 2",
                          launchHome: "/tmp/\(id)", sessionRemaining: session,
                          weeklyRemaining: weekly, modelRemaining: model,
                          sessionResetsAt: wall.addingTimeInterval(3 * 3600),
                          weeklyResetsAt: wall.addingTimeInterval(90 * 3600),
                          modelResetsAt: wall.addingTimeInterval(90 * 3600),
-                         modelWindowName: "fable", resetCreditsAvailable: nil, isStale: false,
-                         error: nil)
+                         modelWindowName: "fable", resetCreditsAvailable: nil, isStale: stale,
+                         error: error, refreshedAt: refreshed, lastRefreshFailed: failed)
+    }
+
+    /// The quarantine a wall leaves behind, in this suite's own directory rather than `~/.tally`:
+    /// the session-local map the supervisor holds and the shared per-account file every other
+    /// supervisor reads. Both are what a landed reset has to undo.
+    let quarantineHome = dir.appendingPathComponent("quarantine")
+    var localQuarantine: [String: (model: String?, until: Date)] = [:]
+    func quarantineTheWall(model: String? = "fable") {
+        let until = wall.addingTimeInterval(capQuarantineTTL)
+        localQuarantine["A"] = (model: model, until: until)
+        quarantineAccount("A", model: model, until: until, dir: quarantineHome)
+    }
+    /// Whether an automatic pick for the capped window would still skip the account.
+    func stillQuarantined() -> Bool {
+        quarantinedAccounts(forPrimary: "fable", sessionLocal: localQuarantine,
+                            now: wall.addingTimeInterval(5), dir: quarantineHome).contains("A")
+    }
+    func sharedRecordExists() -> Bool {
+        FileManager.default.fileExists(atPath: quarantineHome.appendingPathComponent("A").path)
     }
 
     func pending(_ scope: CapScope?, at when: Date = wall,
@@ -96,6 +119,67 @@ func runCapLimitResetChecks() {
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
                                 weeklyRemaining: 60, alreadyAttempted: true))
 
+    // MARK: - 41a2. WHICH READING may answer that floor
+
+    // A HELD-OVER 60% IS SPELLED EXACTLY LIKE A FRESHLY READ ONE, and the table above cannot tell
+    // them apart: it is handed a `Double`. So every fixture here carries the SAME 60% and differs
+    // only in what the snapshot says about where that number came from - which is the difference
+    // between a floor that is met and a weekly credit spent on a week that may be over
+    // (review, 2026-09-06).
+    let polled = wall.addingTimeInterval(-60)
+    func reading(_ row: Snapshot.Account, problem: String? = nil,
+                 now: Date = wall.addingTimeInterval(1)) -> Double? {
+        capLimitResetWeekly((Snapshot(version: 2, generatedAt: wall, accounts: [row]), problem),
+                            accountID: "A", now: now)
+    }
+    check("a freshly polled row is a reading the floor may be asked about",
+          reading(account("A", weekly: 60, refreshed: polled)) == 60)
+    check("a document the loader itself calls too old answers nothing",
+          reading(account("A", weekly: 60, refreshed: polled),
+                  problem: "snapshot is 40m old - is Tally.app running?") == nil)
+    check("a row whose LATEST poll failed answers nothing: those numbers are held over",
+          reading(account("A", weekly: 60, refreshed: polled, failed: true)) == nil)
+    check("a row the app has marked stale answers nothing",
+          reading(account("A", weekly: 60, refreshed: polled, stale: true)) == nil)
+    check("a row carrying its own error answers nothing",
+          reading(account("A", weekly: 60, refreshed: polled, error: "unauthorized")) == nil)
+    // THE ONE THE FOUR ABOVE CANNOT COVER: a setting change rewrites the whole document from cached
+    // accounts, so the file is seconds old while every number in it is not (`republishSnapshot`).
+    check("a fetch older than the snapshot age limit answers nothing, however new the file is",
+          reading(account("A", weekly: 60,
+                          refreshed: wall.addingTimeInterval(-snapshotMaxAge - 60))) == nil)
+    check("…and an app too old to stamp its fetches cannot vouch for one either",
+          reading(account("A", weekly: 60)) == nil)
+    check("…while a fetch inside that limit still answers",
+          reading(account("A", weekly: 60,
+                          refreshed: wall.addingTimeInterval(-snapshotMaxAge + 60))) == 60)
+    check("another account's row is not this account's reading",
+          reading(account("B", weekly: 60, refreshed: polled)) == nil)
+
+    // AND THE STATION IS WIRED TO THAT ANSWER rather than to the raw number, which is the half no
+    // pure table can state.
+    func holdOnReading(_ row: Snapshot.Account, problem: String? = nil) -> Bool {
+        var state = CapLimitResetState()
+        var carried: PendingCapRecovery? = pending(.session)
+        var lines: [String] = []
+        return capLimitResetHold(
+            &state, pendingCap: &carried, accountID: "A", accountLabel: "Claude 2",
+            resetState: { .available }, observed: nil,
+            weeklyRemaining: { reading(row, problem: problem) },
+            clearQuarantine: { _ in },
+            settings: { LimitResetSettings(autoReset: true) },
+            now: wall.addingTimeInterval(1), announce: { lines.append($0) })
+    }
+    check("a wall over a freshly read 60% week is held for",
+          holdOnReading(account("A", weekly: 60, refreshed: polled)))
+    check("…and the very same 60% held over from a failed poll holds nothing",
+          !holdOnReading(account("A", weekly: 60, refreshed: polled, failed: true)))
+    check("…nor the same 60% on a row the app has marked stale",
+          !holdOnReading(account("A", weekly: 60, refreshed: polled, stale: true)))
+    check("…nor the same 60% inside a snapshot the loader calls too old",
+          !holdOnReading(account("A", weekly: 60, refreshed: polled),
+                         problem: "snapshot is 40m old - is Tally.app running?"))
+
     // MARK: - 41b. The hold, where the handoff is decided
 
     /// One tick of the hold station over a fixture world.
@@ -108,6 +192,11 @@ func runCapLimitResetChecks() {
         let held = capLimitResetHold(&state, pendingCap: &cap, accountID: "A",
                                      accountLabel: "Claude 2", resetState: { reset },
                                      observed: observed, weeklyRemaining: { weekly },
+                                     clearQuarantine: { model in
+                                         releaseQuarantine("A", model: model,
+                                                           sessionLocal: &localQuarantine,
+                                                           dir: quarantineHome)
+                                     },
                                      settings: { LimitResetSettings(autoReset: autoReset) },
                                      now: now, announce: { lines.append($0) })
         said = lines
@@ -193,6 +282,11 @@ func runCapLimitResetChecks() {
     check("…and the cap stays standing while it waits", midCap != nil)
 
     // 1. THE RESET LANDED: the wall is gone, so the recovery describes nothing still true.
+    // AND NEITHER DOES THE QUARANTINE THAT WALL WROTE, which is a record on disk that outlives this
+    // session: left standing it keeps the account out of every automatic pick on the machine for
+    // ten minutes after its 5-hour window was reset (review, 2026-09-06).
+    quarantineTheWall()
+    check("the wall this session hit had quarantined its account", stillQuarantined())
     var landed = waiting()
     var landedCap: PendingCapRecovery? = pending(.session)
     var landedSaid: [String] = []
@@ -205,6 +299,25 @@ func runCapLimitResetChecks() {
     check("…and says so on the terminal, naming the account it kept",
           landedSaid.contains { $0.contains("Claude 2") && $0.contains("staying put") })
     check("…and stops waiting", landed.injectedAt == nil)
+    check("…and lifts the quarantine that wall wrote, so picks stop steering around the account",
+          !stillQuarantined())
+    check("…on this supervisor's own record", localQuarantine["A"] == nil)
+    check("…and on the shared one every other supervisor reads", !sharedRecordExists())
+
+    // A RECORD ABOUT ANOTHER WINDOW IS NOT THIS RESET'S TO LIFT: the reset clears the 5-hour wall
+    // this session hit, and a quarantine naming a different model window describes a wall it did
+    // not touch.
+    quarantineTheWall(model: "sonnet")
+    var otherWindow = waiting()
+    var otherWindowCap: PendingCapRecovery? = pending(.session)
+    var otherWindowSaid: [String] = []
+    _ = hold(&otherWindow, cap: &otherWindowCap,
+             observed: (.reset(nextAvailableAt: nil), wall.addingTimeInterval(4)),
+             now: wall.addingTimeInterval(5), said: &otherWindowSaid)
+    check("a quarantine on a window this reset did not clear is left standing",
+          localQuarantine["A"] != nil && sharedRecordExists())
+    localQuarantine["A"] = nil
+    try? FileManager.default.removeItem(at: quarantineHome.appendingPathComponent("A"))
 
     // 2. ANY OTHER ANSWER: nothing was cleared, so the handoff goes ahead.
     for (name, answer) in [("already used", LimitResetOutcome.alreadyUsed(availableAgain: nil)),
@@ -214,11 +327,15 @@ func runCapLimitResetChecks() {
         var state = waiting()
         var carried: PendingCapRecovery? = pending(.session)
         var lines: [String] = []
+        quarantineTheWall()
         check("an answer of \(name) releases the hold",
               !hold(&state, cap: &carried, observed: (answer, wall.addingTimeInterval(4)),
                     now: wall.addingTimeInterval(5), said: &lines))
         check("…and leaves the cap standing for the handoff", carried != nil)
         check("…and says nothing about staying put", lines.isEmpty)
+        check("…and leaves the quarantine standing: no wall was cleared", stillQuarantined())
+        localQuarantine["A"] = nil
+        try? FileManager.default.removeItem(at: quarantineHome.appendingPathComponent("A"))
     }
 
     // 3. AN OBSERVATION OLDER THAN THE INJECTION IS NOT ITS ANSWER. The watcher holds the newest

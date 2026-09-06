@@ -43,6 +43,38 @@ func quarantineAccount(_ accountID: String, model: String?, until: Date, dir: UR
         .write(to: dir.appendingPathComponent(safe), atomically: true, encoding: .utf8)
 }
 
+/// Undo that record for the window a cap has just STOPPED being true on: the session-local entry
+/// this supervisor holds and the shared file every other one reads, both of which `quarantineAccount`
+/// wrote when the wall landed.
+///
+/// The one caller is the weekly reset landing (`capLimitResetHold`): the wall it cleared is gone, so
+/// an exclusion whose entire justification was "this account just capped for this model" is
+/// describing something that is no longer the case. Without this the account it kept sits out of
+/// every automatic pick for the rest of `capQuarantineTTL` - ten minutes of new sessions and cap
+/// handoffs steering around an account with a fresh 5-hour window (review, 2026-09-06).
+///
+/// BY THE PICK RULE RATHER THAN BY EQUALITY (`quarantineBlocks`), so this releases exactly the
+/// records that were keeping the account out of picks for this model window and no others: a record
+/// naming a DIFFERENT window (a flagship wall this session did not answer) is left standing, because
+/// nothing about it was cleared. A nil on either side matches, on that rule's own conservative
+/// terms - the same nil that made the record block everything makes it this reset's to release.
+///
+/// Best-effort like the write, and the shared half is read before it is removed: another supervisor
+/// may have replaced the file with a cap of its own since.
+func releaseQuarantine(_ accountID: String, model: String?,
+                       sessionLocal: inout [String: (model: String?, until: Date)],
+                       dir: URL = quarantineDir) {
+    if let held = sessionLocal[accountID],
+       quarantineBlocks(quarantineModel: held.model, pickModel: model) {
+        sessionLocal[accountID] = nil
+    }
+    let file = dir.appendingPathComponent(accountID.replacingOccurrences(of: "/", with: "_"))
+    guard let raw = try? String(contentsOf: file, encoding: .utf8),
+          let record = parseQuarantineLine(raw, fallbackID: accountID),
+          quarantineBlocks(quarantineModel: record.model, pickModel: model) else { return }
+    try? FileManager.default.removeItem(at: file)
+}
+
 /// Parse one quarantine file body. New format is tab-separated `epoch\tmodel\taccountID` (an empty
 /// model field means whole-account); a legacy space-separated `epoch accountID` line is read as a
 /// whole-account record so an old file still quarantines conservatively.

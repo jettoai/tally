@@ -112,6 +112,8 @@ let capLimitResetFailedOutcome = "limit-reset-failed"
 ///    `used` and `notEnabled` are refused, which is what keeps that cost to once.
 ///  - `weeklyRemaining`: `capLimitResetWeeklyFloor` or better, and nil refuses - a snapshot that
 ///    cannot say how much of the week is left is not a licence to spend the week's one credit.
+///    WHICH READING MAY ANSWER THAT is a question of its own, and `capLimitResetWeekly` below is
+///    the whole of it: this table is handed a number that has already been vouched for.
 ///  - `alreadyAttempted`: one wall, one attempt.
 func capLimitResetAllowed(scope: CapScope?, enabled: Bool, state: LimitResetState,
                           weeklyRemaining: Double?, alreadyAttempted: Bool) -> Bool {
@@ -119,6 +121,48 @@ func capLimitResetAllowed(scope: CapScope?, enabled: Bool, state: LimitResetStat
     guard state == .available || state == .unknown else { return false }
     guard let weeklyRemaining, weeklyRemaining >= capLimitResetWeeklyFloor else { return false }
     return true
+}
+
+/// The weekly reading that may be spent against, or nil when the snapshot holds nothing that can
+/// vouch for one. Given `loadSnapshot()`'s pair whole, because the second half of it is half the
+/// answer.
+///
+/// A HELD-OVER NUMBER IS NOT A READING, and the gate above cannot tell the two apart: 60% left from
+/// before the app stopped polling is spelled exactly like 60% read a moment ago, so the floor passes
+/// on evidence nobody has and the account's one weekly credit is spent on a week that may be over
+/// (review, 2026-09-06). Every guard here is one the rest of this binary already applies to a number
+/// it is about to act on - `eligible` and `accountIsSpent` ask the same three of the row
+/// (AccountPick.swift, AccountBinding.swift), and the cap handoff fifteen lines below this gate's
+/// own call site asks the snapshot problem (`applyCapHandoff`) - and refusing on `nil` is this
+/// file's rule rather than a new one.
+///
+/// THE FIVE:
+///
+///  - the loader's problem string: a document older than `snapshotMaxAge` describes an app that has
+///    stopped publishing, and every number in it is whatever was true when it stopped;
+///  - `error` and `isStale`: the row's own account-level failures;
+///  - `lastRefreshFailed`: the LATEST round failed and these numbers are the last good ones held
+///    over (`foldLastGood`), which the badge's debounce leaves looking fresh for a poll interval;
+///  - `refreshedAt` within `snapshotMaxAge` of now, and nil refuses. This is the one the four above
+///    cannot cover: the app rewrites the whole document from its cached accounts whenever a setting
+///    changes (`republishSnapshot`), so `generatedAt` can be seconds old while every reading in it
+///    is much older. Per-account and carried from the fetch itself, this stamp is the only thing
+///    that can say otherwise, and an app too old to publish it cannot say at all.
+///
+/// NOT `accountReadingPostdatesCap`, which is the neighbouring question ("was this fetched AFTER the
+/// wall") and the wrong one here: that path can wait `capStayEvidenceGrace`, two minutes, for a
+/// reading that new, while this one has `capLimitResetHoldWindow` - twenty seconds - against a
+/// refresh interval the user sets in minutes. Demanding it would not make this gate stricter, it
+/// would switch the feature off. What is asked instead is that the reading be a reading: recent
+/// enough to describe this week, and published by a fetch that actually happened.
+func capLimitResetWeekly(_ loaded: (Snapshot?, String?), accountID: String,
+                         now: Date = Date()) -> Double? {
+    guard loaded.1 == nil,
+          let row = loaded.0?.accounts.first(where: { $0.id == accountID }),
+          row.error == nil, !row.isStale, row.lastRefreshFailed != true,
+          let fetched = row.refreshedAt,
+          now.timeIntervalSince(fetched) <= snapshotMaxAge else { return nil }
+    return row.weeklyRemaining
 }
 
 /// What the terminal says the first time Tally answers a wall this way, and only the first time.
@@ -161,11 +205,18 @@ func capLimitResetClearedNotice(account: String) -> String {
 /// and all three read a file. They are asked only once the cheap gates - is there a cap at all, is
 /// it this account's, has this wall been answered already, is it still young enough to hold - have
 /// said this cap is a candidate.
+///
+/// `clearQuarantine` is the OTHER record a landed reset falsifies, and it has no default for the
+/// reason `applyCapLimitReset` states about its own duplicated gate: a call site that can forget it
+/// is one that will, and what is forgotten is invisible from here (the account simply stops being
+/// picked for ten minutes). It is handed the model window the wall belongs to, and both layers of
+/// the record are the caller's to undo (`releaseQuarantine`, Quarantine.swift).
 func capLimitResetHold(_ state: inout CapLimitResetState, pendingCap: inout PendingCapRecovery?,
                        accountID: String, accountLabel: String,
                        resetState: () -> LimitResetState,
                        observed: (outcome: LimitResetOutcome, at: Date)?,
                        weeklyRemaining: () -> Double?,
+                       clearQuarantine: (String?) -> Void,
                        settings: () -> LimitResetSettings = { readLimitResetSettings() },
                        now: Date = Date(),
                        announce: (String) -> Void = { warn($0) }) -> Bool {
@@ -177,7 +228,16 @@ func capLimitResetHold(_ state: inout CapLimitResetState, pendingCap: inout Pend
             // nothing about the recovery describes anything that is still true. Every other answer
             // (already used, not available, this login cannot, not enabled) leaves the pending cap
             // standing, so the handoff below this call moves the session exactly as before.
+            //
+            // AND THE QUARANTINE GOES WITH IT, for the same sentence: that record says "this
+            // account just capped for this model window", and the window it named has just been
+            // reset. Left standing it keeps the account out of every automatic pick on the machine
+            // - this session's next handoff and every launch anywhere - for the rest of
+            // `capQuarantineTTL`, while the account it is steering around is the one with a fresh
+            // 5-hour window (review, 2026-09-06). Cleared BEFORE the cap is dropped, because the
+            // window it names is what the record is matched on.
             if case .reset = observed.outcome {
+                if let pending = pendingCap { clearQuarantine(pending.primaryModel) }
                 pendingCap = nil
                 announce(capLimitResetClearedNotice(account: accountLabel))
             }

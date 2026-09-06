@@ -70,7 +70,7 @@ let resupervisePinOverrideFlag = "--pin-override"
 /// capped on refills, when to retry the handoff, and what the status line is currently saying about
 /// the wait - and it lives in memory only. Without it the new image comes back with nothing left to
 /// notice a sibling freeing up, and the session waits on a dead account until its user hits the wall
-/// a second time: the same failure `capCarriedAcrossRelaunch` (SupervisorRuntime.swift) exists to
+/// a second time: the same failure `capCarriedAcrossRelaunch` (CapRecovery.swift) exists to
 /// prevent one child later. That function decides WHETHER the state survives a given relaunch; this
 /// flag is only how it gets across an exec, and a self-update relaunch is one it carries.
 ///

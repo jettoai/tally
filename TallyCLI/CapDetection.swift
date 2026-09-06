@@ -5,7 +5,7 @@ import Foundation
 //
 // Split from Supervisor.swift for file size, and it is the right seam: what the loop needs back from
 // this is one value (`pendingCap`), and the pieces the decision is assembled from live next door
-// (SupervisorRuntime.swift). The two halves are kept apart inside this file for the reason the
+// (CapRecovery.swift). The two halves are kept apart inside this file for the reason the
 // original comment gave: noticing is about the TRANSCRIPT and runs on every tick, while the move is
 // about ACCOUNTS and runs behind a backoff.
 //
@@ -39,7 +39,7 @@ func observeCapHit(pendingCap: inout PendingCapRecovery?,
     // Or nobody typed and the window simply reset underneath the session, which that first arm can
     // never see: it needs an assistant turn, and an idle session produces none, so the badge hung
     // there naming an account that was back at 100%. The boundary it compares against was fixed when
-    // the cap happened, so this reads no files at all (SupervisorRuntime.swift explains why it
+    // the cap happened, so this reads no files at all (CapRecovery.swift explains why it
     // cannot be recomputed here).
     //
     // Or the session simply IS NOT THERE ANY MORE. A pending cap is about one account - it names it

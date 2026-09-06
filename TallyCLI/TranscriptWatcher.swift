@@ -109,7 +109,7 @@ struct TranscriptWatcher {
     /// none. The cap's OWN instant, which is up to one poll interval earlier than the moment this
     /// process notices it: the recovery boundary is measured against the cap once and never
     /// recomputed, so a reset landing inside that gap would otherwise be read as a stale stamp and
-    /// leave the session with no reset path for the rest of its life (SupervisorRuntime.swift).
+    /// leave the session with no reset path for the rest of its life (CapRecovery.swift).
     var capHitAt: Date?
     /// WHICH WALL that cap event was, read off the sentence itself (`capScope`). Assigned in the
     /// same breath as `capHitAt`, so a reported cap always describes the event just seen.

@@ -1,8 +1,8 @@
 import Darwin
 import Foundation
 
-// Ending a supervised child at a handoff, along with the tree under it and the jobs that tree
-// has already been detached from.
+// Ending a supervised child at a handoff, along with the tree under it and, when that handoff
+// moves the session to another account, the jobs that tree has already been detached from.
 //
 // What the handoff did before this file existed was `kill(childPID, SIGTERM)` followed by a
 // blocking `waitpid`, which is two assumptions rather than one act:
@@ -48,6 +48,16 @@ import Foundation
 // check included, asked here of the process itself because a handoff needs the answer at one
 // instant and has no tick behind it.
 //
+// AND WHY THE DETACHED HALF IS ASKED FOR ONLY WHEN THE ACCOUNT MOVES. The tree is ended on every
+// handoff, because an attached process is part of the turn being ended and loses its parent
+// whichever way the relaunch goes. A detached job is the opposite case: it was detached precisely
+// so that it would outlive the turn, and what makes ending it right is the account it would go on
+// working against rather than the relaunch itself. So the caller says which of the two this is
+// (`sweepDetached`), and a relaunch that stays on the same account takes the tree alone, the way
+// every handoff did before this sweep existed. That is the common case rather than the corner:
+// 965 of the 1289 handoffs on this machine are same-account by construction, 818 of them the app's
+// own self-update, with reload, model fallback, safeguard and cap-fallback behind it.
+//
 // WHAT THIS DOES NOT COVER, said plainly because a list that reads as complete is how the last
 // version of this file misled its reader. A process whose environment the kernel will not hand over
 // (another user's, an Apple platform binary) and one started with the environment cleared (`env -i`,
@@ -59,8 +69,13 @@ import Foundation
 // One gap is left open on purpose and is meant to close by itself: a child spawned by a supervisor
 // older than the generation stamp carries a pid and no generation, so for that session the sweep is
 // back to the pid plus a start time, which the recycled-pid case can still slip through. Requiring
-// the generation outright would instead mean no handoff sweeps anything until every supervisor on
-// the machine has been replaced.
+// the generation outright would NOT mean that no handoff sweeps anything: the tree kill is
+// untouched, and every supervisor that STARTED on a stamping build stamps and sweeps normally from
+// its first handoff. The cost is one process wide, and it is the self-update exec that makes it
+// exist at all: `execv` keeps the pid and the start time, so a supervisor that upgraded into
+// v0.72.1 that way would never sweep the detached jobs it started before the upgrade, for as long
+// as that process lives. The fallback can be deleted once no supervisor process predating v0.72.1
+// is still running.
 
 /// One live process, reduced to what this decision needs: who its parent is, and enough identity to
 /// tell it from a LATER process wearing the same number.
@@ -165,9 +180,19 @@ let supervisorStartedAtEnvKey = "TALLY_SUPERVISOR_STARTED_AT"
 ///
 /// A table that cannot say when this supervisor started falls back to the tree alone, which is the
 /// same direction every unreadable answer takes here: the smaller list.
+///
+/// `sweepDetached` IS THE ACCOUNT MOVE, and it asks a different question rather than a cheaper
+/// version of the same one: with it false this returns the tree and reads no environment at all.
+/// The distinction is the file head's - an attached process is part of the turn being ended, a
+/// detached one was detached so that it would outlive the turn - and a same-account relaunch (a
+/// self-update, a reload, a model fallback) leaves no account and asks for none of it to stop.
 func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess],
+                     sweepDetached: Bool = true,
                      environmentValue: (pid_t, String) -> String?) -> [HandoffProcess] {
     let descendants = childTreeDescendants(of: child, in: table, excluding: [supervisor])
+    // The tree on every handoff, the detached jobs only on a move. Nothing is read out of any
+    // process's environment on the other path: there is no question there to answer.
+    guard sweepDetached else { return descendants }
     guard let supervisorStart = table.first(where: { $0.pid == supervisor })?.startedAt else {
         return descendants
     }
@@ -268,13 +293,22 @@ func handoffProcess(_ pid: pid_t) -> HandoffProcess? {
 /// The child's own KILL is new too, and it is what the blocking `waitpid` here used to cost: a child
 /// that ignores a TERM parked the supervisor in that call for the rest of the session, with the
 /// account move neither performed nor abandoned.
+///
+/// `sweepDetached` decides whether the second kind is in that list at all, and the caller is the
+/// one that knows: the tree goes on every handoff because an attached process is part of the turn
+/// being ended, while a job the turn DETACHED was detached so that it would outlive the turn, and
+/// only a move to another account gives a reason to end it. A same-account relaunch therefore
+/// passes false and takes the tree alone.
 func endChildTree(_ child: inout ChildReaper, supervisor: pid_t = getpid(),
+                  sweepDetached: Bool = true,
                   grace: TimeInterval = handoffKillGrace) {
     // Taken BEFORE the signal: after the child dies its children are reparented and no walk can
-    // find them (this file's head states the whole reason). The tree plus whatever detached from it
-    // earlier in the turn, which only the mark on the process itself can still name.
+    // find them (this file's head states the whole reason). The tree plus, on a move, whatever
+    // detached from it earlier in the turn, which only the mark on the process itself can still
+    // name.
     let descendants = handoffKillList(
         child: child.pid, supervisor: supervisor, in: handoffProcessTable(),
+        sweepDetached: sweepDetached,
         environmentValue: { processEnvironmentValue(ofProcess: Int($0), key: $1) })
     kill(child.pid, SIGTERM)   // let claude run its SessionEnd cleanup
     var deadline = Date().addingTimeInterval(grace)

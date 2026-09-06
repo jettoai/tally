@@ -170,6 +170,18 @@ func runDoubleHeadChecks() {
           supervisedChildEnvironment(provider: providers[0], home: "/tmp/A", supervisorVersion: nil,
                                      supervisorPID: "4242", supervisorStartedAt: nil,
                                      base: [:])[supervisorStartedAtEnvKey] == nil)
+    // …INCLUDING WHEN THE ENVIRONMENT IT COPIES ALREADY CARRIES ONE, which the fixture above cannot
+    // say: it starts from an empty base, and production starts from this process's own. A `tally`
+    // launched from inside another supervised session inherits the OUTER supervisor's generation,
+    // and the pid beside it is overwritten unconditionally, so leaving the old value would hand the
+    // child the one pair that names two supervisors at once: our number and somebody else's
+    // generation. The sweep then misses our own detached jobs for the rest of the session.
+    check("…and strips an inherited one rather than passing the outer session's on",
+          supervisedChildEnvironment(
+              provider: providers[0], home: "/tmp/A", supervisorVersion: nil,
+              supervisorPID: "4242", supervisorStartedAt: nil,
+              base: [supervisorStartedAtEnvKey: "1788000000000000"])[supervisorStartedAtEnvKey]
+              == nil)
 
     // THE READING THE PARENTAGE WALK CANNOT TELL APART, measured on this machine (2026-09-06): a
     // turn's `nohup pnpm dev &` outlives the Bash tool's shell within milliseconds and then reads
@@ -188,7 +200,17 @@ func runDoubleHeadChecks() {
                        // says nothing about them and only the generation does.
                        proc(404, under: 402, startedAt: 1_500), // that orphan's later child
                        proc(405, under: 1, startedAt: 1_500),   // ours, forked after the tool call
-                       proc(406, under: 1, startedAt: 1_500)]   // ours, from before the stamp
+                       // OURS, STARTED BEFORE THIS SUPERVISOR EXEC'D INTO THE BUILD THAT STAMPS.
+                       // The self-update `execv` keeps the pid AND the start time, so the same
+                       // process goes on to sweep jobs it started under the older image, and those
+                       // carry the number with no generation. Said that exactly, because the
+                       // fixture cannot say more: a DEAD older supervisor's orphan's later fork
+                       // reads identically to this row (our number, no generation, younger than us)
+                       // and is swept with it. That is acknowledged rather than defended - no
+                       // reading of a process's environment separates the two - which is why the
+                       // check below is worded as the rule it exercises and not as a claim about
+                       // whose job this row is.
+                       proc(406, under: 1, startedAt: 1_500)]
     let marks: [pid_t: String] = [400: "10", 401: "77", 402: "10", 403: "10", 404: "10", 405: "10",
                                   406: "10"]
     // 1_000 is this supervisor's start; 900 is whatever wore the pid before it. 406 carries no
@@ -232,6 +254,37 @@ func runDoubleHeadChecks() {
           Set(handoffKillList(child: 100, supervisor: 10,
                               in: orphanTable.filter { $0.pid != 10 },
                               environmentValue: mark).map(\.pid)) == [200])
+
+    // THE DETACHED HALF IS THE ACCOUNT MOVE, over that same table. The tree is ended on every
+    // handoff, because an attached process is part of the turn being ended; a job that turn
+    // DETACHED was detached so that it would outlive the turn, and only a move gives a reason to
+    // end it. A same-account relaunch is most of what reaches this (a self-update, a reload, a
+    // model fallback) and it leaves no account for those jobs to be working against.
+    check("a move sweeps the tree and every job this session detached",
+          Set(handoffKillList(child: 100, supervisor: 10, in: orphanTable, sweepDetached: true,
+                              environmentValue: mark).map(\.pid)) == [200, 400, 405, 406])
+    check("while a relaunch that stays on the account takes the tree alone",
+          Set(handoffKillList(child: 100, supervisor: 10, in: orphanTable, sweepDetached: false,
+                              environmentValue: mark).map(\.pid)) == [200])
+    // Not the same statement as the list above. A same-account relaunch does not ask a cheaper
+    // version of the question, it asks no question at all: nothing on that path reads any process's
+    // environment, which is the difference between "not swept" and "swept on a reading that
+    // happened to come back empty".
+    var environmentAsked: [pid_t] = []
+    _ = handoffKillList(child: 100, supervisor: 10, in: orphanTable, sweepDetached: false,
+                        environmentValue: { pid, key in
+                            environmentAsked.append(pid)
+                            return mark(pid, key)
+                        })
+    check("…and reads no process's environment to decide it", environmentAsked.isEmpty)
+    // The call site itself, the way this suite pins the loop's other one-line decisions: the pair
+    // above states what the flag does, and nothing but the source says the handoff still passes it.
+    // Losing the argument would silently restore the sweep on every same-account relaunch, and no
+    // assertion over values could tell.
+    let handoffLoop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
+                                   encoding: .utf8)) ?? ""
+    check("and the handoff asks for the detached sweep only when the account moves",
+          handoffLoop.contains("endChildTree(&child, sweepDetached: !sameAccount)"))
 
     // The identity check that stands between a two-second-old snapshot and a stranger's process.
     let recorded = proc(4242, under: 100, startedAt: 111)

@@ -331,7 +331,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // A bare TERM to `claude` reaches neither a fork-style launcher in front of it nor the
             // builds and dev servers behind it, and both of those go on running on the account this
             // session is leaving (HandoffKill.swift carries the measurement and the shape).
-            endChildTree(&child)
+            // THE JOBS THAT TURN DETACHED, only when the account really moves, and the distinction
+            // is the point rather than the flag: an attached process is part of the turn being
+            // ended, while one the turn detached was detached so that it would outlive the turn. A
+            // same-account relaunch leaves no account, so nothing about it asks for those to stop -
+            // and it is most of what comes through here (the app's own self-update is 818 of the
+            // 1289 handoffs on this machine, with reload, model fallback, safeguard and
+            // cap-fallback behind it).
+            endChildTree(&child, sweepDetached: !sameAccount)
             clearDriftState(pid: supervisorPID)   // a new child gets a fresh drift monitor
 
             // Forced, because the id this resumes must be the file the conversation is actually in:

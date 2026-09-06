@@ -77,6 +77,11 @@ func supervisedChildEnvironment(provider: Provider, home: String, supervisorVers
     environment["TALLY_LAUNCHED"] = "1"
     if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
     environment["TALLY_SUPERVISOR_PID"] = supervisorPID
+    // Cleared before it is set, so the two always move together: the pid above is overwritten
+    // unconditionally, so a generation left in `base` by an OUTER supervised session is the only
+    // way the pair can end up naming two different supervisors. That pairing is the whole identity
+    // the sweep reads (HandoffKill.swift), and a stale one there costs it its own jobs.
+    environment.removeValue(forKey: "TALLY_SUPERVISOR_STARTED_AT")
     if let supervisorStartedAt { environment["TALLY_SUPERVISOR_STARTED_AT"] = supervisorStartedAt }
     // No spawn from here stops at Claude Code's "resume the whole conversation?" prompt: a relaunch
     // resumes by id with nobody at the keyboard, and a first launch was asked for by somebody who

@@ -69,6 +69,31 @@ enum DemoUsage {
         return NSHomeDirectory() + "/\(base)\(number)"
     }
 
+    /// The weekly session-limit reset, as a demo fleet shows it: one Claude card with a reset to
+    /// spend and one that has already spent this week's.
+    ///
+    /// TWO FIXTURES RATHER THAN ONE, because the two states are drawn differently and a capture has
+    /// to show both: "Reset available" is a control the user can press, "Reset used" is a date they
+    /// can only wait for. The rest of the fleet answers nil, which is what an account nothing has
+    /// been observed about looks like - and that is a third state worth having on screen, since it
+    /// is what most cards read on the day this ships.
+    ///
+    /// NO FILE IS EVER WRITTEN FOR THESE, the rule the whole fixture file is under: the store
+    /// short-circuits to this table while the demo flag is set, so a marketing launch neither reads
+    /// nor writes `~/.tally/limit-reset/` (LimitResetStore.refresh).
+    static func limitReset(accountID: String, now: Date = Date()) -> LimitResetRecord? {
+        switch accountID {
+        case "claude:demo-Claude":
+            return LimitResetRecord(state: .available, observedAt: now)
+        case "claude:demo-Claude 3":
+            return LimitResetRecord(state: .used,
+                                    nextAvailableAt: now.addingTimeInterval(3.4 * 86_400),
+                                    enabledSeenAt: now, observedAt: now)
+        default:
+            return nil
+        }
+    }
+
     static func accounts(now: Date = Date()) -> [AccountUsage] {
         [
             // Every remaining percentage stays double-digit (10-99): a mixed column of "8%" and

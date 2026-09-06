@@ -154,9 +154,48 @@ struct AccountListRowView: View {
             Text(RedeemAction.outcomeMessage(outcome))
                 .foregroundStyle(outcome == .redeemed ? TallyColor.normal : .secondary)
                 .tallyTooltip(RedeemAction.outcomeDetail(outcome) ?? "")
-        } else if let resets = usage.resetCreditsAvailable, resets > 0 {
+        } else if let outcome = facts.limitResetOutcome {
+            Text(RedeemAction.sessionLimitOutcomeMessage(outcome))
+                .foregroundStyle(outcome == .reset ? TallyColor.normal : .secondary)
+                .tallyTooltip(RedeemAction.sessionLimitOutcomeDetail(outcome) ?? "")
+        } else if case .codexCredits(let resets) = facts.resetOffer {
             redeemButton(resets)
+        } else if case .claudeSessionLimit(let state) = facts.resetOffer {
+            sessionLimitMark(state)
         }
+    }
+
+    /// Claude's weekly session-limit reset at row scale: the glyph and nothing else, with the whole
+    /// sentence on hover. The row's rule, applied to one more state - it hides words, never facts,
+    /// and the words this one folds away are the state's own name and its return date.
+    private func sessionLimitMark(_ state: LimitResetState) -> some View {
+        Button {
+            if facts.canResetSessionLimit { startSessionLimitReset() }
+        } label: {
+            Group {
+                if facts.isResettingSessionLimit {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 9))
+                }
+            }
+            // Available reads as a control; the two that cannot be pressed read as a mark, in the
+            // tertiary shade every other unavailable affordance on this row already uses.
+            .foregroundStyle(state == .available ? AnyShapeStyle(.secondary)
+                                                 : AnyShapeStyle(.tertiary))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!facts.canResetSessionLimit)
+        .tallyTooltipAroundControl(facts.markOwner, detail: facts.limitResetHelp(state))
+        .accessibilityLabel(facts.limitResetLabel(state))
+    }
+
+    /// The same two calls the card makes, so the question and the write have one implementation.
+    private func startSessionLimitReset() {
+        guard RedeemAction.confirmSessionLimit(label: facts.label,
+                                               session: facts.limitResetSession) else { return }
+        Task { _ = await RedeemAction.spendSessionLimit(usage: usage) }
     }
 
     /// The login's own two states, at row scale: renewing right now, or expired and offering the

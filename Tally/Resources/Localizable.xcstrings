@@ -13594,6 +13594,586 @@
           }
         }
       }
+    },
+    "Reset 1/1 available": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用重置 1/1"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用重置 1/1"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット 1/1 利用可能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리셋 1/1 사용 가능"
+          }
+        }
+      }
+    },
+    "Reset used": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置已用完"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置已用完"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット使用済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리셋 사용됨"
+          }
+        }
+      }
+    },
+    "back %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 恢復"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 恢复"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に復帰"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 복구"
+          }
+        }
+      }
+    },
+    "Reset unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット利用不可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리셋 사용 불가"
+          }
+        }
+      }
+    },
+    "Open a session on this account to use its reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用這個帳號開一個 session 才能使用它的重置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用这个账号开一个 session 才能使用它的重置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントでセッションを開くと、そのリセットを使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정으로 세션을 열어야 리셋을 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Clear this account's 5-hour limit now, using this week's reset.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用本週的重置立即清除這個帳號的 5 小時限制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用本周的重置立即清除这个账号的 5 小时限制。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週のリセットを使って、このアカウントの 5 時間制限をいま解除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 주 리셋을 써서 이 계정의 5시간 한도를 지금 해제합니다."
+          }
+        }
+      }
+    },
+    "This account has already used its reset this week.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個帳號本週的重置已經用掉了。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个账号本周的重置已经用掉了。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントは今週のリセットをすでに使いました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 이번 주 리셋을 이미 사용했습니다."
+          }
+        }
+      }
+    },
+    "Session limit reset is not enabled for this account yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個帳號還沒開放 session 限制重置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个账号还没开放 session 限制重置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントではセッション制限のリセットがまだ有効になっていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정에는 세션 한도 리셋이 아직 활성화되지 않았습니다."
+          }
+        }
+      }
+    },
+    "Clears this account's 5-hour session limit now. It uses the weekly limit, and there is one reset a week. This cannot be undone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即清除這個帳號的 5 小時 session 限制。它會用掉週限額，每週只有一次重置。此操作無法復原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即清除这个账号的 5 小时 session 限制。它会用掉周限额，每周只有一次重置。此操作无法撤销。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントの 5 時間セッション制限をいま解除します。週の上限を消費し、リセットは週に 1 回だけです。取り消せません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정의 5시간 세션 한도를 지금 해제합니다. 주간 한도를 소모하며 리셋은 주 1회뿐입니다. 되돌릴 수 없습니다."
+          }
+        }
+      }
+    },
+    "Tally types /limit-reset into the session running as %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 會把 /limit-reset 打進 pid %@ 的 session。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 会把 /limit-reset 输入到 pid %@ 的 session。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は pid %@ のセッションに /limit-reset を入力します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 pid %@ 세션에 /limit-reset을 입력합니다."
+          }
+        }
+      }
+    },
+    "Reset session limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置 session 限制"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置 session 限制"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション制限をリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 한도 리셋"
+          }
+        }
+      }
+    },
+    "Reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리셋"
+          }
+        }
+      }
+    },
+    "Session limit reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session 限制已重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session 限制已重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション制限をリセットしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 한도를 리셋했습니다"
+          }
+        }
+      }
+    },
+    "This week's reset is already used": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本週的重置已經用掉了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周的重置已经用掉了"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週のリセットは使用済みです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 주 리셋은 이미 사용했습니다"
+          }
+        }
+      }
+    },
+    "Not available for this login yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個登入還無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个登录还无法使用"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このログインではまだ利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 로그인에서는 아직 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "No answer yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有回應"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有回应"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ応答がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 응답이 없습니다"
+          }
+        }
+      }
+    },
+    "Reset failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置失败"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセットに失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리셋에 실패했습니다"
+          }
+        }
+      }
+    },
+    "Could not reach that session": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連到那個 session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连到那个 session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのセッションに届きませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 세션에 연결하지 못했습니다"
+          }
+        }
+      }
+    },
+    "Auto reset session limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動重置 session 限制"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动重置 session 限制"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション制限を自動リセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 한도 자동 리셋"
+          }
+        }
+      }
+    },
+    "When a Claude session hits its 5-hour limit, Tally spends that account's own weekly reset to clear it instead of moving the conversation to another account. Claude gives one reset a week and it uses the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當 Claude session 撞到 5 小時限制時，Tally 會用那個帳號自己的每週重置把限制清掉，而不是把對話搬到別的帳號。Claude 每週只給一次重置，而且會用掉週限額，所以 Tally 只在 5 小時牆上這樣做，而且只在該帳號的週限額還值得用的時候。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当 Claude session 撞到 5 小时限制时，Tally 会用那个账号自己的每周重置把限制清掉，而不是把对话搬到别的账号。Claude 每周只给一次重置，而且会用掉周限额，所以 Tally 只在 5 小时墙上这样做，而且只在该账号的周限额还值得用的时候。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude のセッションが 5 時間制限に達したとき、Tally は会話を別のアカウントへ移す代わりに、そのアカウント自身の週次リセットを使って制限を解除します。Claude のリセットは週に 1 回で週の上限を消費するため、Tally は 5 時間の制限のときだけ、しかも週の上限にまだ使う価値が残っているときだけこれを行います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 세션이 5시간 한도에 도달하면 Tally는 대화를 다른 계정으로 옮기는 대신 해당 계정의 주간 리셋을 사용해 한도를 해제합니다. Claude의 리셋은 주 1회이며 주간 한도를 소모하므로, Tally는 5시간 한도일 때에만, 그리고 계정의 주간 한도가 아직 쓸 만할 때에만 이렇게 합니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

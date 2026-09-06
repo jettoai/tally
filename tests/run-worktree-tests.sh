@@ -28,7 +28,7 @@ swiftc -o "$out" \
   Tally/Core/WorktreeOrigins.swift \
   TallyCLI/WorktreeTree.swift \
   TallyCLI/WorktreeActivity.swift \
-  TallyCLI/TranscriptWatcher.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift Tally/Core/LaunchAxisNames.swift \
+  TallyCLI/TranscriptWatcher.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift Tally/Core/LaunchAxisNames.swift \
   TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift \
   TallyCLI/UnmanagedLaunch.swift \
   TallyCLI/DriftMonitor.swift \

@@ -30,6 +30,11 @@ struct SettingsLaunchView: View {
         if settings.isEnabled(EarlyStartLogic.providerID) {
             rowDivider
             SettingsEarlyStartRow(store: EarlyStartStore.shared, isVisible: visible)
+            // And the other end of the same window: the relay above keeps a 5-hour window turning
+            // over, this clears one that has filled. Under the same provider gate and for the same
+            // reason - Claude is the only provider whose limits work this way.
+            rowDivider
+            SettingsLimitResetRow(store: LimitResetStore.shared)
         }
         rowDivider
         if descriptors.isEmpty {

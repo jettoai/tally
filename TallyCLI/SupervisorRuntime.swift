@@ -349,6 +349,12 @@ struct PendingCapRecovery {
     var nextRetry: Date
     /// The last waiting-state note shown, so the terminal warns only when the reason changes.
     var reason: String
+    /// WHICH WALL this cap was, carried with the record rather than re-read from the watcher, which
+    /// holds only the newest event: a second wall can land while the first is still pending, so the
+    /// decision needs THIS recovery's own scope. Its one reader is the weekly session-limit reset
+    /// (CapLimitReset.swift), which answers a 5-hour wall and refuses every other kind, nil
+    /// included - nil being what a record from a build older than this field decodes to.
+    var capScope: CapScope?
 }
 
 /// The pending cap recovery a relaunch hands to the next child, or nil to start it clean.

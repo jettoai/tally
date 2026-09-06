@@ -151,6 +151,17 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// necessarily so - the arm is raised by the tick that ends one child and spent by a tick of the
     /// next one, which is the one event a per-child value could never carry it across.
     var capResume = CapResumeState()
+    /// What this session has tried about answering a 5-hour wall with the account's own weekly
+    /// `/limit-reset` rather than by moving the conversation (CapLimitReset.swift owns every rule).
+    /// Per session and necessarily so, on `capResume`'s own terms: the wall is seen by one child
+    /// and the answer can land in the next.
+    var capLimitReset = CapLimitResetState()
+    /// The newest reset signal already folded into this ACCOUNT's shared record, so a reading the
+    /// watcher goes on holding is written once rather than on every tick for the rest of the
+    /// session (`observeLimitReset`). Per session because the reading is, and re-keyed by nothing:
+    /// a handoff onto another account writes that account's record from that account's own
+    /// observations, and a signal from before the move is older than the one that follows it.
+    var limitResetFolded: Date?
     /// And HOW it is told: filed for this child's own hooks to deliver where they are registered and
     /// runnable, typed into the composer where they are not (QuotaKnockNotice.swift).
     ///
@@ -399,6 +410,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         /// sense that tool means. The oracle is the slope of the footprint, not a leak report
         /// (tests/supervisor/footprintchecks.swift asserts the slope, and this pool with it).
         func tick() -> TickOutcome {
+            // WHICH BUILD IS INSTALLED, read ONCE for the three stations that compare against it:
+            // the app-relaunch watch, the standalone self-update and the fold that rides on somebody
+            // else's restart. All three used to take it from their own defaulted
+            // `supervisorBuildVersion()`, which resolves the bundle's plist on every call - so a
+            // Sparkle swap landing between two of those calls inside ONE tick had the three
+            // stations deciding about different worlds: the arming station could see the app
+            // present under the old version while the self-update beside it already read the new
+            // one. One reading per tick makes that impossible rather than unlikely.
+            //
+            // NOT `supervisorVersion`, which is this process's own captured build and must stay
+            // captured (SessionState.swift states why a fresh read there reports the build this
+            // supervisor is about to become). This is the other side of the same comparison: what
+            // is on disk right now.
+            let installedVersion = supervisorBuildVersion()
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
@@ -508,6 +533,26 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // runs, which `effectivePrimary` above already answered.
             observeCapHit(pendingCap: &pendingCap, quarantine: &quarantine, watcher: &watcher,
                           account: account, primaryModel: effectivePrimary)
+            // WHAT THIS CONVERSATION HAS BEEN TOLD ABOUT ITS ACCOUNT'S WEEKLY SESSION-LIMIT RESET,
+            // folded into that account's shared record whoever typed the line: Tally's own station
+            // below, the panel's button, or somebody's hands (CapLimitReset.swift). Beside the cap
+            // scan because it reads the same tail, and before the handoff because the record it
+            // writes is what the hold one line down consults.
+            observeLimitReset(watcher.lastLimitReset, folded: &limitResetFolded,
+                              accountID: account.id)
+            // AND WHETHER THIS TICK'S HANDOFF MUST STAND DOWN while that reset answers the wall in
+            // place. Here, where the handoff is decided, rather than beside the writers further
+            // down: a hold asked after the handoff has planned its relaunch is a hold that arrives
+            // too late to prevent one. It asks nothing about the composer, which is why it can be
+            // this early; the typing happens beside the other composer writers, under their gates.
+            let limitResetHolds = capLimitResetHold(
+                &capLimitReset, pendingCap: &pendingCap, accountID: account.id,
+                accountLabel: account.label,
+                resetState: { limitResetEffective(readLimitReset(accountID: account.id)) },
+                observed: watcher.lastLimitReset,
+                weeklyRemaining: {
+                    loadSnapshot().0?.accounts.first { $0.id == account.id }?.weeklyRemaining
+                })
 
             // Model-drift observation: surface a Fable safeguard fallback and gate the
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
@@ -547,7 +592,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                             providerID: provider.id, fleet: moving, steering: steering,
                             sessionPin: manualMoves.sessionPin,
                             modelPinned: sessionModelState.isPinned, quarantine: quarantine,
-                            fuseAllows: fuse.allows(), reserves: reserves)
+                            fuseAllows: fuse.allows(), reserves: reserves,
+                            heldByLimitReset: limitResetHolds)
 
             // The session's ACTUAL model is no longer the one it was launched for (claude fell back
             // server-side - e.g. the flagship weekly ran dry). Two ordered answers, at most one per
@@ -675,8 +721,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                                         event: boundary),
                                 quarantine: quarantine, reserves: reserves)
 
-            // The app updated and Sparkle did not start it again (AppRelaunch.swift).
-            applyAppRelaunch(&appRelaunch)
+            // The app updated and Sparkle did not start it again (AppRelaunch.swift). Handed the
+            // tick's ONE reading of the installed build rather than taking its own, which is what
+            // keeps this station and the two self-update ones below deciding about the same world.
+            applyAppRelaunch(&appRelaunch, installed: installedVersion)
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale
             // version into its child: replace THIS process with the new build (SelfUpdate.swift).
             // An upgrade on its own is a restart the session was not otherwise paying for, so it
@@ -696,7 +744,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                         bar: followIdleSeconds,
                                         keyboardQuiet: keyboard.idle(followIdleSeconds)),
                    relaunchPlanned: plan != nil || appRelaunch.isArmed,
-                   uptime: childAge, home: account.launchHome) != nil {
+                   uptime: childAge, home: account.launchHome,
+                   installed: installedVersion) != nil {
                 plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
             }
 
@@ -876,6 +925,22 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // is `busy`, so the gate holds the line as the session's own turn).
                 replacingChild = true
             }
+            // AND THE LINE THAT ANSWERS A 5-HOUR WALL WITHOUT LEAVING THE ACCOUNT
+            // (CapLimitReset.swift): the hold decided up beside the handoff kept this tick's move
+            // standing down for it, and this is where the command is actually typed - beside the
+            // other writers, under the gates they all hold. FIRST of the four that nobody asked
+            // for, which is the priority it earns: the other three tell the conversation something,
+            // this one stops it being restarted onto another account.
+            let resetTyped = applyCapLimitReset(
+                &capLimitReset, pendingCap: pendingCap, pid: supervisorPID,
+                accountLabel: account.label, holding: limitResetHolds,
+                typedAlready: action.typed != nil, session: board.state, quiet: board.quiet,
+                turnEnded: turnOver, keyboardIdle: composerIdle,
+                relaunchPlanned: replacingChild, draftSuspected: draftSuspected,
+                waitingOnPerson: board.waitingOnPerson)
+            // On the same terms as the writers around it: what this tick typed is what the next
+            // tick's draft reading has to discount.
+            if resetTyped != nil { lastComposerWrite = Date() }
             // AND THE LINE THAT PICKS UP WHERE A WALL CUT THIS CONVERSATION OFF (CapResume.swift):
             // a cap handoff has moved it and the work that 429 interrupted is sitting in the
             // resumed window with nobody to ask for it. Same door and the same gates as the two
@@ -885,7 +950,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // somebody ASKED for outranks it, and it outranks news about an account, because work
             // this session lost is the more urgent of the two things nobody asked for.
             let resumed = applyCapResume(&capResume, pid: supervisorPID,
-                                         typedAlready: action.typed != nil, session: board.state,
+                                         typedAlready: action.typed != nil || resetTyped != nil,
+                                         session: board.state,
                                          quiet: board.quiet, turnEnded: turnOver,
                                          keyboardIdle: composerIdle,
                                          relaunchPlanned: replacingChild,
@@ -907,7 +973,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // typed the resume above.
             let knocked = applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
                                           account: account, primaryModel: effectivePrimary,
-                                          typedAlready: action.typed != nil || resumed != nil,
+                                          typedAlready: action.typed != nil || resumed != nil
+                                              || resetTyped != nil,
                                           session: board.state,
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
@@ -933,7 +1000,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // one. Against a one-minute sample that delay is nothing.
             let hostKnocked = applyHostHealthKnock(
                 &hostHealthKnock, pid: supervisorPID,
-                typedAlready: action.typed != nil || resumed != nil || knocked != nil,
+                typedAlready: action.typed != nil || resumed != nil || knocked != nil
+                    || resetTyped != nil,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
                 draftSuspected: draftSuspected, waitingOnPerson: board.waitingOnPerson,
@@ -978,7 +1046,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = appRelaunch.isArmed ? nil : selfUpdateFold(
                     captured: supervisorVersion, attempted: selfUpdateAttempted,
-                    home: plan.target.launchHome)
+                    home: plan.target.launchHome, installed: installedVersion)
                 // Read before the move, because the sentence one line down names it: which account
                 // this conversation is LEAVING is the half of that news that explains why its turn
                 // died, and after the handoff there is nothing left holding it.

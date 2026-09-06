@@ -613,6 +613,10 @@ func runDraftStashChecks() {
     let resume = (call: "applyCapResume(", until: "if resumed != nil {")
     let knock = (call: "applyQuotaKnock(", until: "if knocked != nil {")
     let hostKnock = (call: "applyHostHealthKnock(", until: "if hostKnocked != nil {")
+    /// The fifth, added with the weekly session-limit reset (CapLimitReset.swift): it types
+    /// `/limit-reset` into the composer, so it is under every rule this section states about the
+    /// four before it.
+    let limitReset = (call: "applyCapLimitReset(", until: "if resetTyped != nil {")
     /// That call's argument list. A call this cannot find yields nothing, so every check reading it
     /// goes red rather than vacuously green.
     func arguments(of writer: (call: String, until: String)) -> String {
@@ -637,16 +641,18 @@ func runDraftStashChecks() {
     // it. `supervisedSessionState` folds a soft `idle_prompt` into `blocked`, so a writer handed
     // `session == .blocked` as this question types one key at a time into the composer of every
     // idle session on a machine with the notification hook installed, which is the 2026-09-05
-    // correction. All FOUR writers are read here rather than the two above: the reading is per
-    // call, and three of these calls reach no value this suite can inspect from outside.
+    // correction. All FIVE writers are read here rather than the two above: the reading is per
+    // call, and four of these calls reach no value this suite can inspect from outside.
     check("every writer into that composer is handed the hard wait, not the board's blocked",
-          [requested, resume, knock, hostKnock].allSatisfy {
+          [requested, resume, knock, hostKnock, limitReset].allSatisfy {
               arguments(of: $0).contains("waitingOnPerson: board.waitingOnPerson")
           })
-    // AND EVERY ONE OF THEM IS ACCOUNTED FOR, which is what stops a fifth writer joining the loop
-    // on a reading nobody looked at: four calls, four arguments.
-    check("…and there are exactly four of them",
-          loop.components(separatedBy: "waitingOnPerson: board.waitingOnPerson").count - 1 == 4)
+    // AND EVERY ONE OF THEM IS ACCOUNTED FOR, which is what stops a SIXTH writer joining the loop
+    // on a reading nobody looked at: five calls, five arguments. The count moved from four when the
+    // session-limit reset joined (2026-09-06), which is the whole point of counting it here - the
+    // new writer could not be added without this line being read and answered for.
+    check("…and there are exactly five of them",
+          loop.components(separatedBy: "waitingOnPerson: board.waitingOnPerson").count - 1 == 5)
 
     // MARK: - The loop that carries a plan out
 

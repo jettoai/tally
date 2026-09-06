@@ -53,8 +53,14 @@ import Foundation
 // the self-update's idle gate, so all of them would replace themselves on the very tick that armed
 // and none would still be watching fifteen seconds later. So `isArmed` is read at BOTH places this
 // process can replace itself: the loop's standalone `selfUpdateDue`, and the fold that rides along
-// on a restart something else is making (`selfUpdateFold`, SelfUpdate.swift). Both wait out the
-// arming window and the grace, 75 seconds at the very worst, and take the next tick after that.
+// on a restart something else is making (`selfUpdateFold`, SelfUpdate.swift).
+//
+// WHAT THE 75 SECONDS BOUNDS IS THIS HOLD, AND ONLY THIS HOLD, which the sentence that used to
+// stand here got wrong: it read as though the upgrade happened on the next tick after the arming
+// window and the grace, and it does not. Past the hold each path goes back to its OWN gates - the
+// standalone one still wants a quiet session and a child past `selfUpdateMinUptime`, the fold still
+// wants a relaunch to ride on - so the honest statement is that this station delays an upgrade by
+// at most 75 seconds and decides nothing else about when it happens.
 //
 // THE FOLD HAD TO BE HELD BACK TOO, and covering only the standalone call would have left the most
 // likely path open. `tally reload` is a request every supervisor on the machine answers in the same

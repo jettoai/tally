@@ -148,6 +148,10 @@ func encodePendingCap(_ pending: PendingCapRecovery) -> String? {
     ]
     if let model = pending.primaryModel { fields["model"] = model }
     if let resets = pending.recoveryResetsAt { fields["resets"] = resets.timeIntervalSince1970 }
+    // Written only when there is one to write, the rule every optional here follows: an older build
+    // reading this ignores the key, and a newer build reading a record without it gets nil, which
+    // is the answer that refuses to spend a reset (`PendingCapRecovery.capScope`).
+    if let scope = pending.capScope { fields["scope"] = scope.rawValue }
     return encodeResuperviseFields(fields)
 }
 
@@ -179,8 +183,18 @@ func decodePendingCap(_ raw: String) -> PendingCapRecovery? {
         guard let date = seconds(value) else { return nil }
         resets = date
     }
+    // A scope this build does not recognise discards the whole record, which is the same rule the
+    // two above keep and for the same reason: the value comes from another BUILD, so a word we
+    // cannot read is a disagreement about the format rather than a field to shrug at. A record that
+    // came back with the wrong wall would spend a weekly credit on a weekly wall.
+    var scope: CapScope?
+    if let value = object["scope"] {
+        guard let text = value as? String, let parsed = CapScope(rawValue: text) else { return nil }
+        scope = parsed
+    }
     return PendingCapRecovery(cappedAccountID: account, cappedAt: cappedAt, primaryModel: model,
-                              recoveryResetsAt: resets, nextRetry: nextRetry, reason: reason)
+                              recoveryResetsAt: resets, nextRetry: nextRetry, reason: reason,
+                              capScope: scope)
 }
 
 /// The pinned pair as a flag value: one JSON object naming only the axes that are pinned, so a pin

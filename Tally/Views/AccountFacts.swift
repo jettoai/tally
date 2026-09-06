@@ -137,6 +137,72 @@ struct AccountFacts {
         usage.metrics.count == 1 && usage.metrics.first?.kind == .weeklyAll
     }
 
+    // MARK: What this account has to spend
+
+    /// Which reset this account carries, if any, asked in one place so the card and the compact row
+    /// cannot come to offer different things (`RedeemAction.Offer` states what the two are).
+    var resetOffer: RedeemAction.Offer? { RedeemAction.offer(for: usage) }
+
+    /// When this account's weekly session-limit reset comes back, where a sentence named a date.
+    var limitResetNextAt: Date? { LimitResetStore.shared.nextAvailableAt(accountID: usage.id) }
+
+    /// The supervised session Tally would type `/limit-reset` into, or nil when there is none.
+    var limitResetSession: LimitResetTarget? { LimitResetStore.shared.target(accountID: usage.id) }
+
+    /// Whether pressing the session-limit control would actually do anything.
+    ///
+    /// THREE THINGS HAVE TO BE TRUE and each of them fails visibly rather than silently: there has
+    /// to be a reset to spend, a session to type it into (the command is interactive-only, so an
+    /// account with nothing running has nowhere for it to go), and no press already in flight. A
+    /// demo fixture is excluded on the rule the whole file keeps - it has no config home and no
+    /// session, so every affordance that would touch a real one stays greyed.
+    var canResetSessionLimit: Bool {
+        guard case .claudeSessionLimit(let state) = resetOffer else { return false }
+        return limitResetPressable(state: state, hasSession: limitResetSession != nil,
+                                   busy: isResettingSessionLimit, demo: DemoUsage.isActive)
+    }
+
+    var isResettingSessionLimit: Bool { LimitResetStore.shared.pending.contains(usage.id) }
+
+    /// What the last press came to, for the few seconds a card shows it.
+    var limitResetOutcome: LimitResetStore.LimitResetSpend? {
+        LimitResetStore.shared.lastOutcome[usage.id]
+    }
+
+    /// The one line the control shows, per state. `unknown` never reaches here (it answers no offer
+    /// at all), which is the whole of "do not show a number nothing observed".
+    func limitResetLabel(_ state: LimitResetState) -> String {
+        switch state {
+        case .available:
+            return L("Reset 1/1 available")
+        case .used:
+            guard let back = limitResetNextAt else { return L("Reset used") }
+            return L("Reset used") + " · " + String(format: L("back %@"),
+                                                    AppLocale.shortDateTime(back))
+        case .notEnabled:
+            return L("Reset unavailable")
+        case .unknown:
+            return ""
+        }
+    }
+
+    /// What hovering it says. Each state answers the question that state raises: what pressing does,
+    /// why there is nothing to press, and why this account has no reset at all.
+    func limitResetHelp(_ state: LimitResetState) -> String {
+        switch state {
+        case .available:
+            return limitResetSession == nil
+                ? L("Open a session on this account to use its reset")
+                : L("Clear this account's 5-hour limit now, using this week's reset.")
+        case .used:
+            return L("This account has already used its reset this week.")
+        case .notEnabled:
+            return L("Session limit reset is not enabled for this account yet")
+        case .unknown:
+            return ""
+        }
+    }
+
     /// A reset was just redeemed here and the provider is still serving the spent numbers. The rows
     /// then say the reset is landing instead of "Limit reached", which alongside the green "Reset
     /// redeemed" line read as a redeem that did nothing.

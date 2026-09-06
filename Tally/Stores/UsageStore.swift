@@ -377,6 +377,11 @@ final class UsageStore {
         // own, one clause wider: a dev build pointed at a stand-in CLI spends nothing and is how
         // the whole path gets reviewed (`EarlyStartStore.mayRun`).
         EarlyStartStore.shared.evaluate(accounts: labeled, launchHomes: launchHomes)
+        // And what each account's weekly session-limit reset is doing, re-read on the same cycle
+        // rather than per redraw: those records are written by whichever SUPERVISOR observed the
+        // answer (Stores/LimitResetStore.swift), so this app only ever reads them, and a card asks
+        // the question several times a frame.
+        LimitResetStore.shared.refresh()
         let now = Date()
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in

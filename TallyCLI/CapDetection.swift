@@ -68,7 +68,11 @@ func observeCapHit(pendingCap: inout PendingCapRecovery?,
         recoveryResetsAt: capRecoveryDeadline(accounts: snapshotAccounts(),
                                               cappedAccountID: account.id,
                                               primaryModel: primaryModel, cappedAt: cappedAt),
-        nextRetry: .distantPast, reason: "")
+        nextRetry: .distantPast, reason: "",
+        // Read from the same event as `cappedAt`, in the same breath, so the wall a recovery names
+        // is the wall it was raised by. A later cap moves the watcher's reading; this record's does
+        // not move with it (`PendingCapRecovery.capScope`).
+        capScope: watcher.capHitScope)
     // Keep every session (this one and any launching now) off the account for the model window that
     // just capped until its snapshot catches up - a different model the account still serves is not
     // blocked.
@@ -264,12 +268,20 @@ func capReading(fleet: LaunchPolicy, sessionPin: String?, candidates: [Snapshot.
 /// declared fallback pairing, which is not an account decision and is left alone under every mode -
 /// the same line `off` draws everywhere else, between choosing an account and everything else the
 /// supervisor does.
+/// `heldByLimitReset` is this tick's answer to "is the weekly session-limit reset about to answer
+/// this wall in place" (CapLimitReset.swift). A HOLD RATHER THAN A BRANCH: nothing is decided here,
+/// nothing is recorded, and the next tick asks again from scratch - which is what makes the hold
+/// safe to bound by a clock on the other side rather than by an outcome on this one. It is a
+/// parameter rather than a wrapping `if` at the call site so that the interaction is stated where
+/// the handoff lives, and defaulted false so every existing caller keeps the behaviour it had.
 func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapRecovery?,
                      account: Snapshot.Account, providerID: String, fleet: LaunchPolicy,
                      steering: Bool, sessionPin: String?, modelPinned: Bool = false,
                      quarantine: [String: (model: String?, until: Date)],
-                     fuseAllows: Bool, reserves: AccountReserves = .none, now: Date = Date(),
+                     fuseAllows: Bool, reserves: AccountReserves = .none,
+                     heldByLimitReset: Bool = false, now: Date = Date(),
                      loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot()) {
+    guard !heldByLimitReset else { return }
     guard plan == nil, var pending = pendingCap, now >= pending.nextRetry else { return }
     // Read INSIDE the guard, and `@autoclosure` is what makes that possible: a plain default
     // argument is evaluated at the call site, before this function is entered, so the snapshot was

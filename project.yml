@@ -141,6 +141,14 @@ targets:
       # spelling of "what a terminal reads as a keystroke" is one refusal and one repair that can
       # come to disagree, silently.
       - path: Tally/Core/KeystrokeText.swift
+      # Claude's own once-a-week session-limit reset: the state machine, the sentences Claude Code
+      # prints, and the per-account record under `~/.tally/limit-reset/`. Both targets compile it
+      # for the reason every file above is shared: the SUPERVISOR observes (it is the only process
+      # tailing a transcript, and the only one that can see what `/limit-reset` printed) while the
+      # APP draws the state and spends the credit through the panel's button. A second spelling of
+      # those sentences would be a panel that shows nothing while every session observes correctly,
+      # and a second spelling of the record would be a button that reads a file nobody writes.
+      - path: Tally/Core/LimitReset.swift
     settings:
       base:
         PRODUCT_NAME: tally

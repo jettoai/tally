@@ -69,6 +69,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift \
   tests/supervisor/capgatechecks.swift tests/supervisor/capresetchecks.swift \
   tests/supervisor/capselfupdatechecks.swift \
+  tests/supervisor/caplimitresetchecks.swift \
   tests/supervisor/forkchecks.swift tests/supervisor/requesttranscriptchecks.swift \
   tests/supervisor/requestforwardchecks.swift tests/supervisor/transcriptidentitychecks.swift \
   tests/supervisor/dispatchlayoutchecks.swift tests/supervisor/unmanagedlaunchchecks.swift \
@@ -123,7 +124,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/tallypromptchecks.swift \
   tests/supervisor/backstopchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
-  TallyCLI/TranscriptWatcher.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
+  TallyCLI/TranscriptWatcher.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AppRelaunch.swift \

@@ -359,7 +359,84 @@ func runAppRelaunchChecks() {
     // caller. Asserted as source rather than run, the way the self-update's own ordering is.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from this suite", !loop.isEmpty)
-    check("the poll loop runs this station every tick", loop.contains("applyAppRelaunch(&appRelaunch)"))
+    check("the poll loop runs this station every tick",
+          loop.contains("applyAppRelaunch(&appRelaunch, installed: installedVersion)"))
+    // AND ON THE TICK'S OWN READING OF THE INSTALLED BUILD, taken once at the top rather than by
+    // each station's defaulted `supervisorBuildVersion()`. This station and the two self-update
+    // ones compare against that version, and `supervisorBuildVersion` resolves the bundle's plist
+    // on every call: a Sparkle swap landing between two of those calls inside ONE tick had them
+    // deciding about different worlds - this station seeing the app alive under the old version
+    // while the self-update beside it already read the new one (P2, 2026-09-05).
+    check("…from one reading of the installed build, shared by every station that compares to it",
+          loop.contains("let installedVersion = supervisorBuildVersion()")
+              && loop.contains("uptime: childAge, home: account.launchHome,\n"
+                               + "                   installed: installedVersion)")
+              && loop.contains("home: plan.target.launchHome, installed: installedVersion)"))
+    // The source with its comment lines taken out, the technique `supervisorfreshnesschecks` uses
+    // for the same file: every rule here is also EXPLAINED in prose beside the code, and a count
+    // that could not tell the two apart would be counting sentences.
+    let loopCode = loop.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+    check("…and no station takes a second reading of its own inside that tick",
+          loopCode.components(separatedBy: "supervisorBuildVersion()").count - 1 == 2)
+
+    // MARK: - 31. A bundle swapped BETWEEN two readings inside one tick
+
+    // WHAT THE SHARED READING BUYS, driven rather than argued. A Sparkle install replaces the
+    // bundle while these stations are deciding, and `supervisorBuildVersion()` resolves the plist
+    // on every call - so two calls a few lines apart can straddle the swap. The fixture is a
+    // version oracle that answers 0.71.1 once and 0.71.2 for ever after: exactly one swap, landing
+    // between the arming station's reading and the self-update's.
+    var readings = 0
+    func swappingBundle() -> String? {
+        readings += 1
+        return readings == 1 ? "0.71.1" : "0.71.2"
+    }
+    /// The arming station's own decision, over an app that has just gone away. Three ticks, which
+    /// is what this station takes: one to establish what was seen, one where the version CHANGES
+    /// under a dead app (which arms), and one past the grace (which fires). Two ticks answer nil
+    /// whatever the version is, so a fixture built from two would be green in both directions and
+    /// state nothing.
+    func armed(installed: String?) -> String? {
+        var state = AppRelaunchState()
+        _ = appRelaunchDue(&state, observation: AppPresence(installedVersion: "0.71.1",
+                                                            appAlive: true, at: launch),
+                           claim: { _ in true })
+        _ = appRelaunchDue(&state, observation: AppPresence(installedVersion: installed,
+                                                            appAlive: false,
+                                                            at: launch.addingTimeInterval(10)),
+                           claim: { _ in true })
+        return appRelaunchDue(&state, observation: AppPresence(installedVersion: installed,
+                                                               appAlive: false,
+                                                               at: launch.addingTimeInterval(40)),
+                              claim: { _ in true })
+    }
+    /// And the self-update's, over the same tick's other reading.
+    func upgrade(installed: String?) -> String? {
+        selfUpdateTarget(captured: "0.71.1", installed: installed, isQuiet: true,
+                         relaunchPlanned: false, uptime: 3_600, attempted: nil)
+    }
+    // TWO READINGS: each station gets its own, and they describe different worlds. The arming
+    // station is looking at the version it captured before the swap, so it sees no change and arms
+    // nothing, while the self-update beside it already reads the new build and replaces the process
+    // - taking the arming that would have re-opened the app with it (AppRelaunch.swift's header
+    // states why that arming is what the app's absence depends on).
+    readings = 0
+    let splitArm = armed(installed: swappingBundle())
+    let splitUpgrade = upgrade(installed: swappingBundle())
+    check("two readings inside one tick can disagree about which build is installed",
+          splitArm == nil && splitUpgrade == "0.71.2")
+    // ONE READING: whichever side of the swap it falls on, both stations answer about the same
+    // world. Both orders are asserted, because which one a tick gets is a race.
+    readings = 0
+    let beforeSwap = swappingBundle()
+    check("one reading taken before the swap has both stations agreeing there is nothing new",
+          armed(installed: beforeSwap) == nil && upgrade(installed: beforeSwap) == nil)
+    readings = 1
+    let afterSwap = swappingBundle()
+    check("…and one taken after it has both of them acting on the same new build",
+          armed(installed: afterSwap) == "0.71.2" && upgrade(installed: afterSwap) == "0.71.2")
     check("and it carries the state across ticks rather than starting fresh",
           loop.contains("var appRelaunch = AppRelaunchState()"))
     // Both places this process can replace itself read the arming, and `tally reload` is why the

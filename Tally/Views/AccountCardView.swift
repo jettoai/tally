@@ -58,7 +58,12 @@ struct AccountCardView: View {
                 // Banked rate-limit resets (Codex reset banking). Redeeming is the user's own
                 // economic decision: it only ever happens through THIS explicit click plus a
                 // confirmation that spells out the cost - never automatically.
-                if let resets = usage.resetCreditsAvailable, resets > 0 {
+                //
+                // WHICH OF THE TWO RESETS THIS ACCOUNT HAS is one question asked in one place
+                // (`RedeemAction.offer`, through the facts), so this card and the compact row
+                // cannot come to offer different things. Claude's own weekly session-limit reset is
+                // the other arm, below.
+                if case .codexCredits(let resets) = facts.resetOffer {
                     Button {
                         if !DemoUsage.isActive { startRedeem() }
                     } label: {
@@ -92,11 +97,20 @@ struct AccountCardView: View {
                           ? L("Signed out: renew the login to spend a banked reset.")
                           : L("Use a reset"))
                 }
+                if case .claudeSessionLimit(let state) = facts.resetOffer {
+                    sessionLimitRow(state)
+                }
                 if let redeemOutcome {
                     Text(RedeemAction.outcomeMessage(redeemOutcome))
                         .font(.caption2)
                         .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
                         .tallyTooltip(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
+                }
+                if let outcome = facts.limitResetOutcome {
+                    Text(RedeemAction.sessionLimitOutcomeMessage(outcome))
+                        .font(.caption2)
+                        .foregroundStyle(outcome == .reset ? TallyColor.normal : .secondary)
+                        .tallyTooltip(RedeemAction.sessionLimitOutcomeDetail(outcome) ?? "")
                 }
             }
             // A login is renewing in the background, where the user has nothing else to look at:
@@ -284,6 +298,49 @@ struct AccountCardView: View {
             try? await Task.sleep(for: .seconds(8))
             redeemOutcome = nil
         }
+    }
+
+    // MARK: Claude's weekly session-limit reset
+
+    /// The one line this card gives the weekly reset, in the shape the banked-reset control beside
+    /// it already uses: a glyph, a word, and the whole sentence on hover.
+    ///
+    /// A BUTTON IN EVERY STATE, greyed in the three that cannot be pressed, rather than a button in
+    /// one state and a label in the others. What a reader has to be able to tell apart is "there is
+    /// nothing here" from "there is something here and you cannot have it yet", and a control that
+    /// disappears says the first about the second - which is precisely the confusion an account
+    /// outside the rollout would live in. `unknown` is the one state that really is nothing, and it
+    /// never reaches this: it answers no offer at all.
+    @ViewBuilder
+    private func sessionLimitRow(_ state: LimitResetState) -> some View {
+        Button {
+            if facts.canResetSessionLimit { startSessionLimitReset() }
+        } label: {
+            HStack(spacing: 3) {
+                if facts.isResettingSessionLimit {
+                    ProgressView().controlSize(.mini)
+                    Text(L("resetting…"))
+                } else {
+                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 9))
+                    Text(facts.limitResetLabel(state))
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!facts.canResetSessionLimit)
+        .tallyTooltipAroundControl(facts.limitResetHelp(state))
+    }
+
+    /// Ask through the shared confirmation, then spend through the shared store. The dialog and the
+    /// routing live in `RedeemAction` for the reason the banked reset's do: this is a write, and a
+    /// write Tally performs has exactly one place that words its cost.
+    private func startSessionLimitReset() {
+        guard RedeemAction.confirmSessionLimit(label: label,
+                                               session: facts.limitResetSession) else { return }
+        Task { _ = await RedeemAction.spendSessionLimit(usage: usage) }
     }
 
     private var errorRow: some View {

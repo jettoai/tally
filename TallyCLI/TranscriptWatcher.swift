@@ -111,6 +111,23 @@ struct TranscriptWatcher {
     /// recomputed, so a reset landing inside that gap would otherwise be read as a stale stamp and
     /// leave the session with no reset path for the rest of its life (SupervisorRuntime.swift).
     var capHitAt: Date?
+    /// WHICH WALL that cap event was, read off the sentence itself (`capScope`). Assigned in the
+    /// same breath as `capHitAt`, so a reported cap always describes the event just seen.
+    ///
+    /// It exists for exactly one reader: the weekly session-limit reset answers a 5-HOUR wall and
+    /// nothing else (CapLimitReset.swift). Spending a weekly credit on a weekly wall clears
+    /// nothing, and spending it on a model wall clears the wrong window - both would be a credit
+    /// gone for a session that still cannot run.
+    var capHitScope: CapScope?
+    /// The newest thing this conversation has been told about its account's weekly session-limit
+    /// reset, and when.
+    ///
+    /// WHOEVER TYPED IT. The observer that folds this into the account's record does not care
+    /// whether the line came from Tally's automatic path, from the panel's button or from somebody
+    /// typing `/limit-reset` themselves, and that is the point: one reading, so the app can never
+    /// draw a credit a session has already spent by hand (Core/LimitReset.swift states the whole
+    /// state machine).
+    var lastLimitReset: (outcome: LimitResetOutcome, at: Date)?
     /// The newest Fable safeguard fallback event seen (`model_refusal_fallback`), post-launch and
     /// main-chain. How the supervisor notices the API forced this session onto a fallback model.
     var lastFlag: SafeguardFlag?
@@ -579,6 +596,17 @@ struct TranscriptWatcher {
                 // two turns.
                 if lastModelCommandAt != nil { flagsSinceCommand.append(flag) }
             }
+            // WHAT THIS ACCOUNT HAS BEEN TOLD ABOUT ITS WEEKLY RESET, from any line that carries
+            // one of Claude Code's own sentences: the command's answer (a `local_command` record)
+            // and the wall notice (an api-error body) are the two shapes, and both go through the
+            // one matcher (LimitResetSignals.swift). Post-launch and main-chain, the guards every
+            // signal here carries: a resumed conversation replays its whole history, and a reset
+            // spent last week is not news about this one.
+            if let ts = lineTimestamp(line), ts >= since,
+               !line.contains("\"isSidechain\":true"),
+               let outcome = limitResetSignal(inLine: line) {
+                lastLimitReset = (outcome, ts)
+            }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                   let message = object["message"] as? [String: Any] else { continue }
@@ -591,8 +619,10 @@ struct TranscriptWatcher {
             let when = (object["timestamp"] as? String).flatMap(parseISO)
             if let when, when < since { continue }
             // Assigned unconditionally, nil included, so a reported cap always describes THIS
-            // event rather than inheriting a stamp from one the caller already acted on.
+            // event rather than inheriting a stamp from one the caller already acted on. The wall
+            // it names travels with it on the same terms and for the same reason.
             capHitAt = when
+            capHitScope = capScope(ofBody: body)
             return true
         }
         return false

@@ -96,8 +96,7 @@ func codexTypedConfigOverride(_ typed: [String], keys: Set<String>) -> Bool {
         } else if !token.hasPrefix("--"), token.hasPrefix("-c"), token.count > 2 {
             override = String(token.dropFirst(2))
         }
-        guard let override, let key = codexConfigKey(override) else { continue }
-        if keys.contains(key) { return true }
+        if let override, let key = codexConfigKey(override), keys.contains(key) { return true }
     }
     return false
 }
@@ -106,6 +105,15 @@ func codexTypedConfigOverride(_ typed: [String], keys: Set<String>) -> Bool {
 /// bound to the same argument. Injecting behind it does not merely double a flag: clap refuses the
 /// argument twice and the launch exits 2.
 let codexBypassSpellings: Set<String> = ["--dangerously-bypass-approvals-and-sandbox", "--yolo"]
+
+/// The options that STATE a permission, each in both the names codex's parser answers to. ONE row
+/// per option rather than a list of short names beside a list of long ones: a fourth permission
+/// option added to codex is a row here, and cannot be half-added by being remembered in one list
+/// and forgotten in the other. Read by `codexTypedPermission`, which is where the spellings of a
+/// single name are unpacked.
+let codexPermissionOptions: [(short: String, long: String)] = [
+    ("-s", "--sandbox"), ("-a", "--ask-for-approval"), ("-p", "--profile"),
+]
 
 /// The first word of `typed` that is neither an option nor an option's value: codex's subcommand
 /// when the launch names one, the first word of the prompt when it does not, nil when the launch is
@@ -155,21 +163,20 @@ func codexSubcommand(_ typed: [String]) -> String? {
 /// so naming one is a permission choice, even though the choice is not in the argument vector.
 func codexTypedPermission(_ typed: [String]) -> Bool {
     if codexTypedConfigOverride(typed, keys: ["sandbox_mode", "approval_policy"]) { return true }
-    for token in typed {
+    return typed.contains { token in
         if token == "--approve-for-me" || codexBypassSpellings.contains(token) { return true }
-        if ["-s", "--sandbox", "-a", "--ask-for-approval", "-p", "--profile"].contains(token) {
-            return true
-        }
-        if token.hasPrefix("--sandbox=") || token.hasPrefix("--ask-for-approval=")
-            || token.hasPrefix("--profile=") { return true }
-        // The attached spellings. Guarded on the single dash so `--add-dir` cannot read as an `-a`
-        // carrying "dd-dir", and case-sensitively so `-C` (the working root) is not `-c`.
-        if !token.hasPrefix("--"), token.count > 2,
-           token.hasPrefix("-s") || token.hasPrefix("-a") || token.hasPrefix("-p") {
-            return true
+        return codexPermissionOptions.contains { option in
+            // The long name is the whole token or carries a joined value; EVERY short spelling
+            // begins with the short name and nothing else does, separated (`-s read-only`), joined
+            // (`-s=read-only`) and attached (`-sread-only`) alike. Split on the double dash so
+            // `--add-dir` cannot read as an `-a` carrying "dd-dir", and matched case-sensitively so
+            // `-C` (the working root) is not `-c`.
+            if token.hasPrefix("--") {
+                return token == option.long || token.hasPrefix(option.long + "=")
+            }
+            return token.hasPrefix(option.short)
         }
     }
-    return false
 }
 
 /// codex's half of `applyLaunchDefaults`: the permission mode, the model and the effort, said in

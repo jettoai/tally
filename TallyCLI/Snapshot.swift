@@ -412,8 +412,8 @@ func launchPrimaryModel(_ args: [String], providerID: String) -> String? {
 /// the answer goes where it will be read (`optionsOnly`, `injectingOptions`).
 func applyLaunchDefaults(_ args: [String], policy: LaunchPolicy, providerID: String) -> [String] {
     var next = args
-    let typed = optionsOnly(args)
     if providerID == "claude" {
+        let typed = optionsOnly(args)
         if let mode = policy.permissionMode,
            !typed.contains("--dangerously-skip-permissions"),
            !typed.contains("--permission-mode") {

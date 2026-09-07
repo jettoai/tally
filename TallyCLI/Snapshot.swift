@@ -393,17 +393,14 @@ func flagValue(_ args: [String], _ flag: String) -> String? {
 /// the user typed a dangling `--model` with no value, which suppresses the injection and leaves the
 /// CLI to complain about its own flag. Callers fall back to the configured default.
 func launchPrimaryModel(_ args: [String], providerID: String) -> String? {
-    /// A value that is itself a flag is not a model. Measured 2026-08-06: `tally claude --model`
-    /// with no value suppresses the model injection (the axis was typed) and the NEXT injection
-    /// lands right behind it, so the vector reads `--model --fallback-model opus …` and a plain
-    /// read hands back `--fallback-model` as the model this launch runs. Harmless while that value
-    /// only became a flag; it is not harmless now that it also decides which accounts are eligible.
-    func declared(_ flag: String) -> String? {
-        guard let value = flagValue(args, flag), !value.hasPrefix("-") else { return nil }
-        return value
-    }
     if providerID == "codex" { return codexModelChoice(optionsOnly(args)).value }
-    return declared("--model")
+    // A value that is itself a flag is not a model. Measured 2026-08-06: `tally claude --model`
+    // with no value suppresses the model injection (the axis was typed) and the NEXT injection
+    // lands right behind it, so the vector reads `--model --fallback-model opus …` and a plain
+    // read hands back `--fallback-model` as the model this launch runs. Harmless while that value
+    // only became a flag; it is not harmless now that it also decides which accounts are eligible.
+    guard let model = flagValue(args, "--model"), !model.hasPrefix("-") else { return nil }
+    return model
 }
 
 /// Applies the launch defaults that can be decided BEFORE the account is known - the permission

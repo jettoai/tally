@@ -312,15 +312,19 @@ func runCodexModelSpellingChecks() {
     var modelAxisOnly = LaunchPolicy()
     modelAxisOnly.model = "fable"
 
-    // ONE MODEL, MANY SPELLINGS. A second `-m` behind a typed one is `error: the argument
-    // '--model <MODEL>' cannot be used multiple times`, exit 2: the launch does not start at all,
-    // and the guard knew only the two separated words.
-    for spelling in [["-m", "gpt-5.6-sol"], ["-mgpt-5.6-sol"], ["-m=gpt-5.6-sol"],
+    // EVERY SPELLING, ONCE, asked of both readers below: one list rather than a list each, because
+    // a list each is exactly what drifted.
+    let spellings = [["-m", "gpt-5.6-sol"], ["-mgpt-5.6-sol"], ["-m=gpt-5.6-sol"],
                      ["--model", "gpt-5.6-sol"], ["--model=gpt-5.6-sol"],
                      ["-c", "model=\"gpt-5.6-sol\""], ["--config=model=gpt-5.6-sol"],
                      ["-cmodel=gpt-5.6-sol"], ["-c=model=gpt-5.6-sol"],
                      // TOML's own spacing and quoting, which codex keeps.
-                     ["-c", "model = \"gpt-5.6-sol\""]] {
+                     ["-c", "model = \"gpt-5.6-sol\""]]
+
+    // ONE MODEL, MANY SPELLINGS. A second `-m` behind a typed one is `error: the argument
+    // '--model <MODEL>' cannot be used multiple times`, exit 2: the launch does not start at all,
+    // and the guard knew only the two separated words.
+    for spelling in spellings {
         check("`codex \(spelling.joined(separator: " "))` gets no second model appended",
               applyLaunchDefaults(spelling, policy: modelAxisOnly, providerID: "codex") == spelling)
     }
@@ -331,16 +335,9 @@ func runCodexModelSpellingChecks() {
     // THE SAME READER ANSWERS THE ACCOUNT PICK, which is the half that decides which accounts have
     // the window this launch needs. Read apart, the two lists drifted and a launch was scored for a
     // model it was not running.
-    for (spelling, model) in [(["-m", "gpt-5.6-sol"], "gpt-5.6-sol"),
-                              (["-mgpt-5.6-sol"], "gpt-5.6-sol"),
-                              (["-m=gpt-5.6-sol"], "gpt-5.6-sol"),
-                              (["--model", "gpt-5.6-sol"], "gpt-5.6-sol"),
-                              (["--model=gpt-5.6-sol"], "gpt-5.6-sol"),
-                              (["-c", "model=\"gpt-5.6-sol\""], "gpt-5.6-sol"),
-                              (["-c", "model = \"gpt-5.6-sol\""], "gpt-5.6-sol"),
-                              (["--config=model=gpt-5.6-sol"], "gpt-5.6-sol")] {
+    for spelling in spellings {
         check("`codex \(spelling.joined(separator: " "))` is the model the pick scores for",
-              launchPrimaryModel(spelling, providerID: "codex") == model)
+              launchPrimaryModel(spelling, providerID: "codex") == "gpt-5.6-sol")
     }
     // Measured off `codex exec`'s own startup banner: `-m gpt-6-astra -c 'model="gpt-5.6-sol"'`
     // comes up `model: gpt-6-astra`, so the flag outranks the override when a launch types both.
@@ -375,13 +372,10 @@ func runCodexModelSpellingChecks() {
     check("…and the attached and joined spellings carry exactly one image",
           codexSubcommand(["-i/tmp/a.png", "doctor"]) == "doctor"
               && codexSubcommand(["--image=/tmp/a.png", "doctor"]) == "doctor")
-    // Which is a launch getting the session flags it is owed, not merely a name being read right.
-    var everyAxis = LaunchPolicy()
-    everyAxis.permissionMode = "bypass"
-    everyAxis.model = "fable"
-    everyAxis.effort = "high"
+    // Which is a launch getting the session flags it is owed, not merely a name being read right,
+    // and on `appDefaults` because a typed `tally codex` states all three axes at once.
     check("`codex -i a.png review` gets the whole session it turned out to be",
-          applyLaunchDefaults(["-i", "/tmp/a.png", "review"], policy: everyAxis,
+          applyLaunchDefaults(["-i", "/tmp/a.png", "review"], policy: appDefaults,
                               providerID: "codex")
               == ["-i", "/tmp/a.png", "review", "--dangerously-bypass-approvals-and-sandbox",
                   "-m", "fable", "-c", "model_reasoning_effort=\"high\""])
@@ -396,12 +390,12 @@ func runCodexModelSpellingChecks() {
     for subcommand in [["help"], ["help", "review"], ["sandbox", "echo", "hi"],
                        ["sandbox"], ["execpolicy", "check", "--rules", "r", "ls"]] {
         check("`codex \(subcommand.joined(separator: " "))` is handed nothing at all",
-              applyLaunchDefaults(subcommand, policy: everyAxis, providerID: "codex")
+              applyLaunchDefaults(subcommand, policy: appDefaults, providerID: "codex")
                   == subcommand)
     }
     // …and the neighbours that DO take it still do, so the gate is three names and not a mood.
     check("…while `codex doctor` still gets both overrides at the end",
-          applyLaunchDefaults(["doctor"], policy: everyAxis, providerID: "codex")
+          applyLaunchDefaults(["doctor"], policy: appDefaults, providerID: "codex")
               == ["doctor", "-c", "model=\"fable\"", "-c", "model_reasoning_effort=\"high\""])
 }
 

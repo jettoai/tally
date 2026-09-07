@@ -168,9 +168,8 @@ func codexModelChoice(_ typed: [String]) -> CodexModelChoice {
             // Joined (`-m=x`) and attached (`-mx`). The value is INSIDE the token here, so a dash
             // at the front of it is part of the name rather than the next option.
             choice.named = true
-            var value = String(token.dropFirst(2))
-            if value.hasPrefix("=") { value = String(value.dropFirst()) }
-            choice.value = value.isEmpty ? nil : value
+            let value = token.dropFirst(token.hasPrefix("-m=") ? 3 : 2)
+            choice.value = value.isEmpty ? nil : String(value)
         }
     }
     return choice

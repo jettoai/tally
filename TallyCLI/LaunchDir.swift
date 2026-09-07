@@ -147,9 +147,11 @@ let shimArgvMarker = "--"
 /// choice the user made themselves would be overridden by re-stating it); the effort follows the
 /// model for want of a verified variable. The permission mode is the one axis with neither excuse:
 /// codex has flags for it, nothing else delivers it, and Settings (and the panel's chip) have been
-/// promising it applies since the day the row was added. So the policy handed to the injector has
-/// its other axes cleared, rather than a second copy of the mapping living here - one table, in
-/// `applyLaunchDefaults`, which is also where "a flag you typed wins" is decided.
+/// promising it applies since the day the row was added. So the policy handed to the injector
+/// carries that axis and nothing else - built from an empty policy rather than from this one with
+/// the rest struck out, so an axis added later is left out by construction. The mapping itself does
+/// not live here: one table, in `applyLaunchDefaults`, which is also where "a flag you typed wins"
+/// is decided.
 ///
 /// The answer is the WHOLE vector rather than the flags alone, because where they go is part of the
 /// injection: `injectingOptions` puts them before a bare `--`, and a shim appending them after the
@@ -159,11 +161,8 @@ let shimArgvMarker = "--"
 func shimLaunchArgs(_ provider: Provider, policy: LaunchPolicy, arguments: [String]) -> [String]? {
     guard provider.id == "codex", arguments.first == shimArgvMarker else { return nil }
     let argv = Array(arguments.dropFirst())
-    var permissionOnly = policy
-    permissionOnly.model = nil
-    permissionOnly.effort = nil
-    permissionOnly.fallbackModel = nil
-    permissionOnly.fallbackEffort = nil
+    var permissionOnly = LaunchPolicy()
+    permissionOnly.permissionMode = policy.permissionMode
     let next = applyLaunchDefaults(argv, policy: permissionOnly, providerID: provider.id)
     return next == argv ? nil : next
 }

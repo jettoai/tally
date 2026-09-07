@@ -444,13 +444,13 @@ func applyLaunchDefaults(_ args: [String], policy: LaunchPolicy, providerID: Str
         //   bypass      -> `--dangerously-bypass-approvals-and-sandbox` (claude's
         //                  `--dangerously-skip-permissions`), which drops both at once.
         // Typed wins on either axis and on the `-c` spelling of either: a `-s read-only` typed over
-        // a configured bypass is a statement about this launch, and has to stay read-only.
-        if let mode = policy.permissionMode,
-           !typed.contains("-s"), !typed.contains("--sandbox"),
-           !typed.contains("-a"), !typed.contains("--ask-for-approval"),
-           !typed.contains("--dangerously-bypass-approvals-and-sandbox"),
-           !typed.contains("--approve-for-me"),
-           !typed.contains(where: { $0.hasPrefix("approval_policy=") || $0.hasPrefix("sandbox_mode=") }) {
+        // a configured bypass is a statement about this launch, and has to stay read-only. One
+        // question for both, because half a mode injected behind a typed one is nobody's choice.
+        let permissionFlags: Set = ["-s", "--sandbox", "-a", "--ask-for-approval",
+                                    "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox"]
+        let typedPermission = typed.contains { permissionFlags.contains($0)
+            || $0.hasPrefix("approval_policy=") || $0.hasPrefix("sandbox_mode=") }
+        if let mode = policy.permissionMode, !typedPermission {
             switch mode {
             case "plan": next = injectingOptions(next, ["-s", "read-only"])
             case "acceptEdits":

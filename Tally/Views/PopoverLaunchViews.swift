@@ -16,14 +16,11 @@ extension PopoverRootView {
             let policy = LaunchPolicyStore.shared.policy(descriptor.id)
             var chips: [String] = []
             if policy.startMode == "continue" { chips.append("continue") }
-            // In the provider's own words, the way Settings offers them: a chip reading "bypass"
-            // over codex would name a mode whose flag is spelled somewhere else entirely.
-            let codex = descriptor.id == "codex"
-            switch policy.permissionMode {
-            case .plan: chips.append(codex ? "read-only" : "plan")
-            case .acceptEdits: chips.append(codex ? "workspace-write" : "accept edits")
-            case .bypass: chips.append(codex ? "full access" : "bypass")
-            case .standard, nil: break
+            // In the provider's own words, the way Settings offers them (`PermissionMode.label`):
+            // a chip reading "bypass" over codex would name a mode whose flag is spelled somewhere
+            // else entirely. The default mode is not a setting, so it is not a chip.
+            if let mode = policy.permissionMode, mode != .standard {
+                chips.append(mode.label(descriptor.id))
             }
             if let model = policy.model { chips.append(model) }
             if let effort = policy.effort { chips.append(effort) }

@@ -27,10 +27,28 @@ final class LaunchPolicyStore {
     /// (TallyCLI/Snapshot.swift `applyLaunchDefaults`): Claude Code's `--permission-mode` and
     /// `--dangerously-skip-permissions`, codex's sandbox policy and approval policy. The case names
     /// are Claude Code's spelling because it was the first provider here; the UI words each one in
-    /// the provider's own vocabulary (SettingsLaunchRows.swift). User-typed permission flags always
-    /// win over this setting.
+    /// the provider's own vocabulary (`label`). User-typed permission flags always win over this
+    /// setting.
     enum PermissionMode: String, Codable, CaseIterable {
         case standard = "default", plan, acceptEdits, bypass
+
+        /// This mode in `providerID`'s own vocabulary, which is the wording the person will see the
+        /// session come up in: the same steps are plan / accept edits / bypass in Claude Code and
+        /// read-only / workspace-write / full access in codex. Offering codex claude's words would
+        /// name modes codex does not have; giving it its own enum would make one setting into two.
+        ///
+        /// ONE table for both readers, the Settings picker that offers the choice
+        /// (SettingsLaunchRows.swift) and the panel chip that reports it (PopoverLaunchViews.swift),
+        /// so a chip can never name a mode by a word Settings does not use.
+        func label(_ providerID: String) -> String {
+            let codex = providerID == "codex"
+            switch self {
+            case .standard: return "default"
+            case .plan: return codex ? "read-only" : "plan"
+            case .acceptEdits: return codex ? "workspace-write" : "accept edits"
+            case .bypass: return codex ? "full access" : "bypass"
+            }
+        }
     }
 
     struct ProviderPolicy: Codable, Equatable {

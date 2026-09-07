@@ -64,9 +64,8 @@ extension SettingsLaunchView {
     /// ONE setting (one enum, one state.json field) that every provider's CLI has flags for.
     ///
     /// Worded in each CLI's own vocabulary, though, because that is what the person will see the
-    /// session come up in: the same three steps are plan / accept edits / bypass in Claude Code and
-    /// read-only / workspace-write / full access in codex. Offering codex claude's words would name
-    /// modes codex does not have; giving it its own enum would make one setting into two.
+    /// session come up in - the wording itself is `PermissionMode.label`, one table shared with the
+    /// panel chip that reports the same choice.
     func permissionRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
         let codex = providerID == "codex"
@@ -82,13 +81,9 @@ extension SettingsLaunchView {
                 get: { launchPolicy.policy(providerID).permissionMode ?? .standard },
                 set: { launchPolicy.setPermissionMode(providerID, $0) }
             )) {
-                Text(verbatim: "default").tag(LaunchPolicyStore.PermissionMode.standard)
-                Text(verbatim: codex ? "read-only" : "plan")
-                    .tag(LaunchPolicyStore.PermissionMode.plan)
-                Text(verbatim: codex ? "workspace-write" : "accept edits")
-                    .tag(LaunchPolicyStore.PermissionMode.acceptEdits)
-                Text(verbatim: codex ? "full access" : "bypass")
-                    .tag(LaunchPolicyStore.PermissionMode.bypass)
+                ForEach(LaunchPolicyStore.PermissionMode.allCases, id: \.self) { mode in
+                    Text(verbatim: mode.label(providerID)).tag(mode)
+                }
             }
             .labelsHidden()
             .fixedSize()

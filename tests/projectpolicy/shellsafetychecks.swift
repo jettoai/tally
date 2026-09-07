@@ -75,6 +75,78 @@ func runShellSafetyChecks() {
               && unsteered.contains("export TALLY_SUPERVISED=0"))
 }
 
+/// The other line the shim evals, and the only one that is not environment: the argument vector a
+/// bare `codex` is handed back, carrying the permission mode Settings promised it
+/// (`shimLaunchArgs`, LaunchDir.swift).
+///
+/// The mode had been reaching `tally codex` and nothing else. A bare `codex` goes through the PATH
+/// shim, which can only be spoken to in the environment, and codex has no variable for its sandbox
+/// or its approval policy - so Settings read bypass while the session came up asking for approval
+/// on its first command (owner-reported 2026-09-07).
+func runShimArgvChecks() {
+    let evalScript = tmp.appendingPathComponent("argv.sh")
+    /// What the shell's positional parameters are once it has eval'd `line`, each wrapped so an
+    /// argument that was split in two is visible as two. Run the way the shim runs it, because the
+    /// property under test is what bash made of the quoting, not what the string looks like to us.
+    func positionals(after line: String, given argv: [String]) -> String {
+        try? line.write(to: evalScript, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c",
+                            "eval \"$(cat '\(evalScript.path)')\"; printf '[%s]' \"$@\"", "sh"]
+            + argv
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        let out = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: out, encoding: .utf8) ?? ""
+    }
+
+    // The line at all: codex, asked by a shim that said it could listen (the marker), on the factory
+    // default mode. This is the row the whole exchange exists for.
+    let bypass = shimLaunchArgs(codex, policy: appDefaults, arguments: ["--"])
+    check("a bare codex launch is handed the permission mode Settings shows",
+          bypass?.contains("--dangerously-bypass-approvals-and-sandbox") == true)
+    // …and NOTHING else. The model and the effort are left to the CLI's own settings on this path
+    // deliberately (`launchSteering`), and a vector carrying them would override a per-directory
+    // choice the user made in codex itself.
+    check("…and only that: no model, no effort rides the shim",
+          bypass?.contains("-m") == false && bypass?.contains("-c") == false)
+
+    // The three silences, each of which would be a different way to break a launch.
+    check("a shim that did not say it can listen is told nothing",
+          shimLaunchArgs(codex, policy: appDefaults, arguments: []) == nil)
+    check("…nor is claude, whose bare launches this does not change",
+          shimLaunchArgs(claude, policy: appDefaults, arguments: ["--"]) == nil)
+    check("…nor a launch that typed its own sandbox",
+          shimLaunchArgs(codex, policy: appDefaults,
+                         arguments: ["--", "-s", "read-only"]) == nil)
+    // Nothing to add is not the same as an empty answer: a vector printed here REPLACES what the
+    // user typed, so a launch owed no flag is never round-tripped through our quoting at all.
+    var noMode = appDefaults
+    noMode.permissionMode = nil
+    check("…nor a launch with no mode to apply",
+          shimLaunchArgs(codex, policy: noMode, arguments: ["--", "hello"]) == nil)
+
+    // The words the user typed, through the line and out the other side. A prompt with a space in
+    // it arriving as two arguments is a launch that runs something else; the one character a quoted
+    // word cannot hold is the shape that breaks a naive quoting.
+    let typed = ["fix the tally shim", "o'brien's dir", "$HOME", "a;b"]
+    guard let vector = shimLaunchArgs(codex, policy: appDefaults, arguments: ["--"] + typed) else {
+        return check("the typed arguments survive the line that carries the flags", false)
+    }
+    // The flag lands BEHIND the typed words, which is where `injectingOptions` puts it when there
+    // is no bare `--` to be in front of: with no marker the whole vector is options, and codex
+    // reads a flag after a positional the same way claude does on the path that has always done
+    // this. What matters here is that all five words arrive as five words.
+    let expected = typed.map { "[\($0)]" }.joined()
+        + "[--dangerously-bypass-approvals-and-sandbox]"
+    check("the typed arguments survive the line that carries the flags",
+          positionals(after: launchArgvLine(vector), given: ["ignored"]) == expected)
+}
+
 /// The entrance side: what `tally project set` may store as a model or an effort.
 func runAxisValueChecks(setSource: String) {
     check("a plain model name is storable", isLaunchAxisValue("opus"))

@@ -22,8 +22,13 @@ import Observation
 final class LaunchPolicyStore {
     enum Mode: String, Codable, CaseIterable { case off, manual, auto }
 
-    /// Claude Code permission mode injected at launch ("default" injects nothing). User-typed
-    /// permission flags always win over this setting.
+    /// How much a launched session may do without asking ("default" injects nothing). ONE setting
+    /// for every provider, injected in whichever flags that provider's own CLI reads
+    /// (TallyCLI/Snapshot.swift `applyLaunchDefaults`): Claude Code's `--permission-mode` and
+    /// `--dangerously-skip-permissions`, codex's sandbox policy and approval policy. The case names
+    /// are Claude Code's spelling because it was the first provider here; the UI words each one in
+    /// the provider's own vocabulary (SettingsLaunchRows.swift). User-typed permission flags always
+    /// win over this setting.
     enum PermissionMode: String, Codable, CaseIterable {
         case standard = "default", plan, acceptEdits, bypass
     }

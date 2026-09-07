@@ -3046,6 +3046,35 @@
         }
       }
     },
+    "Codex permissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 權限模式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 权限模式"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 権限モード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 권한 모드"
+          }
+        }
+      }
+    },
     "System default": {
       "extractionState": "manual",
       "localizations": {

@@ -114,6 +114,41 @@ func runExportedHomeChecks(launcher: String) {
           after("-c", in: codexArgs) == "model_reasoning_effort=\"high\"")
     check("…as does its model", after("-m", in: codexArgs) == "fable")
 
+    // The permission mode is ONE setting across providers, and for a while it was one setting that
+    // only one provider obeyed: Settings and the panel both read "bypass" for codex (it is the
+    // factory default for every provider) while the launcher injected nothing at all, so the
+    // session came up asking for approval on its first command. Every row below is the same mode in
+    // codex's own vocabulary, asserted as the flags codex actually reads.
+    check("a bypass permission mode reaches codex as the flag that drops both of its gates",
+          codexArgs.contains("--dangerously-bypass-approvals-and-sandbox"))
+    var planPolicy = appDefaults
+    planPolicy.permissionMode = "plan"
+    check("plan is codex's read-only sandbox",
+          after("-s", in: applyLaunchDefaults([], policy: planPolicy, providerID: "codex"))
+              == "read-only")
+    var acceptPolicy = appDefaults
+    acceptPolicy.permissionMode = "acceptEdits"
+    let acceptArgs = applyLaunchDefaults([], policy: acceptPolicy, providerID: "codex")
+    // BOTH halves, because the sandbox alone still stops to ask: workspace-write on its own is the
+    // approval dialog this mode exists to remove, and `never` on its own is a dialog-free launch
+    // that can still be asked to write anywhere.
+    check("…and accept edits is a writable workspace that never stops to ask",
+          after("-s", in: acceptArgs) == "workspace-write"
+              && after("-a", in: acceptArgs) == "never")
+    check("a typed sandbox still outranks the configured bypass",
+          !applyLaunchDefaults(["-s", "read-only"], policy: appDefaults, providerID: "codex")
+              .contains("--dangerously-bypass-approvals-and-sandbox"))
+    // The same choice said through the config-override spelling, which is the one a `-s` scan
+    // cannot see: `-c approval_policy="never"` is a `-c` like any other until its VALUE is read.
+    check("…as does the same choice typed as a config override",
+          !applyLaunchDefaults(["-c", "approval_policy=\"never\""], policy: appDefaults,
+                               providerID: "codex")
+              .contains("--dangerously-bypass-approvals-and-sandbox"))
+    check("…and a typed bypass flag is not doubled",
+          applyLaunchDefaults(["--dangerously-bypass-approvals-and-sandbox"], policy: appDefaults,
+                              providerID: "codex")
+              .filter { $0 == "--dangerously-bypass-approvals-and-sandbox" }.count == 1)
+
     // MARK: - An environment INHERITED from a session is not a hand pin
 
     // The second half of the same evening's defect: the exit above believes an exported home is the

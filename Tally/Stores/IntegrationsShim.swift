@@ -23,7 +23,7 @@ extension IntegrationsStore {
     /// Bump when the shim script changes; the store flags older installs for reinstall, and the
     /// launch-time upkeep rewrites them. Pinned to the script's own text by the suite, so an edit
     /// that skips the bump goes red (tests/integrations/shimscriptchecks.swift).
-    nonisolated static let shimVersion = 4
+    nonisolated static let shimVersion = 5
 
     /// The header line every script this app writes carries, and the only thing that says a file in
     /// our own bin directory came from us rather than from somebody else.
@@ -89,6 +89,23 @@ extension IntegrationsStore {
             + "  # leaked home would then be obeyed by the launch this branch chose to steer.\n"
             + "  (( inherited )) && unset \(shim.envKey)\n"
             : ""
+        // Codex only: the shim hands over the arguments it was typed with, and takes back an
+        // argument vector (`set -- …`, printed by `shimLaunchArgs` in TallyCLI/LaunchDir.swift).
+        //
+        // It is the launch's PERMISSION MODE that travels this way and nothing else. Every other
+        // launch default reaches a bare session in the environment; codex has no variable for its
+        // sandbox or its approval policy - only flags - so Settings promised a mode that a bare
+        // `codex` then came up without, and asked for approval on its first command (owner-reported
+        // 2026-09-07). The claude shim does not carry the clause: `tally claude` is the launch that
+        // applies its permission mode, and turning bare `claude` into a bypassed session is not a
+        // change anybody asked this to make.
+        //
+        // The MARKER is what makes the exchange safe in both directions. `--` in front of the
+        // arguments tells the command that this caller can accept a vector back, so a tally from an
+        // older build simply ignores the extra words, and a NEWER tally answering an older shim -
+        // the window between an app update and the upkeep rewriting this file - prints no `set --`
+        // line to a script that would have taken it literally and dropped what the user typed.
+        let steerArgs = shim == .codex ? " -- \"$@\"" : ""
         return """
         #!/bin/bash
         # tally-shim v\(shimVersion): route bare `\(shim.rawValue)` through the Tally launch policy.
@@ -97,7 +114,7 @@ extension IntegrationsStore {
         \(precedence)
         set -u
         \(leakClause)if \(steered) && command -v tally > /dev/null 2>&1; then
-        \(dropLeaked)  eval "$(tally launch-dir \(shim.rawValue) 2> /dev/null)" || true
+        \(dropLeaked)  eval "$(tally launch-dir \(shim.rawValue)\(steerArgs) 2> /dev/null)" || true
         fi
         # THE CANDIDATE LIST ARRIVES ON FD 3, AND STDIN IS LEFT ALONE. Feeding the loop with
         # `done < <(which -a ...)` makes that pipe the standard input of the whole loop, so the

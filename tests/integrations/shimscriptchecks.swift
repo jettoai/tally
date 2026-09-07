@@ -27,7 +27,11 @@ import Foundation
 /// Bumped to v4 on 2026-08-20 with the fd 3 hand-off, which is exactly what the pairing is for: v3
 /// shipped, so the machines carrying it have a shim that eats the caller's stdin, and the version
 /// marker is the only thing that tells them apart from a fixed one (`detectShim`).
-let pinnedShimDigest = "628e5849ab514738"
+///
+/// v5, 2026-09-07: the codex shim hands its own argument vector to `tally launch-dir` and runs what
+/// comes back, which is the only way the permission mode reaches a bare `codex`. BOTH numbers move,
+/// because one constant stamps both scripts; the claude script's text is otherwise unchanged.
+let pinnedShimDigest = "f733e37aa275ed6c"
 
 /// What a bare `claude` inherited, once the shim was done with it.
 private struct ShimRun {
@@ -37,6 +41,11 @@ private struct ShimRun {
     let marker: String
     /// Whether `tally launch-dir` was consulted, which is the steering decision itself.
     let steered: Bool
+    /// The arguments the exec'd CLI was handed, as one line.
+    let args: String
+    /// How the steering was asked, verbatim: the codex shim hands over its own argument vector and
+    /// the claude shim does not, and that difference is the whole of what this exchange is.
+    let asked: String
 }
 
 @MainActor
@@ -70,6 +79,7 @@ func runShimScriptChecks(tmp: URL) throws {
         try writeExecutable(realDir.appendingPathComponent(shim.rawValue), """
         #!/bin/bash
         { printf 'home=%s\\n' "${\(shim.envKey):-}"
+          printf 'args=%s\\n' "$*"
           printf 'marker=%s\\n' "${\(marker):-}"; } > "$TALLY_TEST_RECORD"
         """)
     }
@@ -79,12 +89,20 @@ func runShimScriptChecks(tmp: URL) throws {
     // …unless it is asked to answer with NOTHING, which is not a failure but two ordinary states of
     // the real command: the launch policy set to Off, and no eligible account (`runLaunchDir`
     // returns silently for both, LaunchDir.swift). That silence is what the row about it turns on.
+    //
+    // …and with an ARGUMENT VECTOR when it was handed one, which is the second half of the exchange
+    // (`shimLaunchArgs`, TallyCLI/LaunchDir.swift): the permission mode has no environment variable
+    // on codex, so it travels as flags or not at all. The stub answers with a fixed pair rather than
+    // the real mapping, which is asserted where it is decided (tests/projectpolicy); what these rows
+    // are about is the plumbing - that the shim hands its arguments over, evals what comes back, and
+    // execs the real binary with the vector rather than the one it started with.
     try writeExecutable(tallyDir.appendingPathComponent("tally"), """
     #!/bin/bash
     printf '%s\\n' "$*" >> "$TALLY_TEST_CONSULTED"
     [ -n "${TALLY_TEST_SILENT:-}" ] && exit 0
     if [ "${2:-}" = codex ]; then key=CODEX_HOME; else key=CLAUDE_CONFIG_DIR; fi
     printf "export %s='%s'\\n" "$key" "\(steeredHome)"
+    if [ "${3:-}" = -- ]; then printf "set -- '-s' 'read-only' \\"\\$@\\"\\n"; fi
     """)
 
     /// Run the generated shim for real. `tty` puts it on a pty through `script`, which is the only
@@ -95,7 +113,8 @@ func runShimScriptChecks(tmp: URL) throws {
     /// is an empty answer rather than a wrong one, so a retry cannot turn a red row green; what it
     /// buys is a suite that says the same thing every time it is run.
     func run(_ shim: IntegrationsStore.Shim, shell: String, tty: Bool,
-             environment: [String: String], tallyOnPath: Bool = true) -> ShimRun {
+             environment: [String: String], tallyOnPath: Bool = true,
+             argv: [String] = []) -> ShimRun {
         var path = [shimDir.path, realDir.path]
         if tallyOnPath { path.append(tallyDir.path) }
         path += ["/usr/bin", "/bin"]
@@ -106,7 +125,7 @@ func runShimScriptChecks(tmp: URL) throws {
             try? Data().write(to: consulted)
             let process = Process()
             process.executableURL = URL(fileURLWithPath: tty ? "/usr/bin/script" : shell)
-            process.arguments = tty ? ["-q", "/dev/null", shell, script] : [script]
+            process.arguments = (tty ? ["-q", "/dev/null", shell, script] : [script]) + argv
             // Built from nothing rather than inherited: this suite is itself usually run from
             // inside a Claude Code session, so the ambient environment carries the leak under test.
             process.environment = environment.merging([
@@ -137,7 +156,8 @@ func runShimScriptChecks(tmp: URL) throws {
         }
         let asked = ((try? String(contentsOf: consulted, encoding: .utf8)) ?? "")
         return ShimRun(home: field("home"), marker: field("marker"),
-                       steered: asked.contains("launch-dir"))
+                       steered: asked.contains("launch-dir"), args: field("args"),
+                       asked: asked.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     // MARK: - The four rows, executed, under both shells
@@ -231,6 +251,28 @@ func runShimScriptChecks(tmp: URL) throws {
         let codexFresh = run(.codex, shell: shell, tty: true, environment: [:])
         check("[\(name)] …while a bare codex launch is still steered normally",
               codexFresh.steered && codexFresh.home == steeredHome)
+
+        // THE ARGUMENT VECTOR (v5). A bare `codex` is the launch that can be told nothing except
+        // through the environment, and its permission mode has no variable to be told in - so the
+        // shim hands over what it was typed with and runs whatever comes back. Executed, because
+        // every step of that is something a shell does: the arguments reaching the command, the
+        // `set --` binding in the script's own scope, the exec carrying the new vector.
+        let typed = run(.codex, shell: shell, tty: true, environment: [:],
+                        argv: ["fix the shim"])
+        check("[\(name)] the codex shim hands the steering the arguments it was typed with",
+              typed.asked.contains("launch-dir codex -- fix the shim"))
+        check("[\(name)] …and execs the real binary with the vector it got back",
+              typed.args == "-s read-only fix the shim")
+        // The claude half of the same rows: it asks the way it always did, so nothing can come back
+        // and its arguments are its own. Turning a bare `claude` into a bypassed session is not a
+        // change this was asked to make (`tally claude` is where its permission mode applies).
+        let claudeTyped = run(.claude, shell: shell, tty: true, environment: [:],
+                              argv: ["fix the shim"])
+        check("[\(name)] the claude shim asks without handing anything over",
+              claudeTyped.asked.contains("launch-dir claude")
+                  && !claudeTyped.asked.contains("--"))
+        check("[\(name)] …so its arguments reach the CLI exactly as typed",
+              claudeTyped.args == "fix the shim")
     }
 
     // MARK: - The caller's own stdin, which the shim is only a doorway for
@@ -336,6 +378,13 @@ func runShimScriptChecks(tmp: URL) throws {
           [claudeScript, codexScript].allSatisfy(IntegrationsStore.shimIsCurrent))
     check("the codex shim carries no claude marker to test",
           !codexScript.contains(marker) && !codexScript.contains("-t 1"))
+    // The asymmetry the other way round, pinned as text as well as executed above: one shim hands
+    // its arguments over and the other does not, and the marker in front of them is what tells a
+    // tally from an older build to ignore the extra words (verified 2026-09-07 against the shipped
+    // binary: `tally launch-dir codex -- foo` printed the same environment and exited 0).
+    check("only the codex shim offers its arguments to the steering",
+          codexScript.contains("launch-dir codex -- \"$@\"")
+              && claudeScript.contains("launch-dir claude 2>"))
     // Pinned together, for the reason written on `pinnedShimDigest`.
     let digest = textFingerprint(claudeScript + codexScript)
     check("the shim text this build ships is the text its version stands for",

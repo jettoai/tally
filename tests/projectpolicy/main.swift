@@ -379,6 +379,9 @@ check("launch-dir does the same, so the two cannot drift apart",
 // The lines above are eval'd by the shim, so every value in them has to be data and not source
 // (shellsafetychecks.swift).
 runShellSafetyChecks()
+// One of those lines is an argument vector rather than an environment, which is the only way the
+// permission mode reaches a launch nobody passed a flag to (shellsafetychecks.swift).
+runShimArgvChecks()
 // And one of those lines is not environment at all: the water line this pick can cross, said in the
 // only way that reaches a shim-steered launch (reservenoticechecks.swift).
 runReserveNoticeChecks()

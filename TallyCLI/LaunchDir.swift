@@ -127,6 +127,54 @@ func launchExportLines(_ provider: Provider, home: String, model: String? = nil,
     return lines
 }
 
+// MARK: - The one axis that cannot be said in an environment
+
+/// The word the shim puts in front of the arguments it was typed with (`launch-dir codex -- "$@"`),
+/// and the whole of what tells this command that its caller can take an argument vector BACK.
+///
+/// An older shim passes nothing and evals whatever it is given, so a `set --` line printed at one
+/// would replace the arguments the person typed with our own - the launch losing its prompt, its
+/// subcommand, everything. Silence is the only safe answer to a caller that did not say it could
+/// listen, and this marker is how it says so.
+let shimArgvMarker = "--"
+
+/// The argument vector a shim-steered launch should run with, or nil when it should keep the one it
+/// has. Codex only, and the PERMISSION MODE only.
+///
+/// Every other axis is deliberately left out, and the reasons are next door in `launchSteering`: the
+/// model is not steered here because it cannot be delivered (no environment variable, and the app's
+/// own default already reaches a bare launch through the CLI's settings, where a per-directory
+/// choice the user made themselves would be overridden by re-stating it); the effort follows the
+/// model for want of a verified variable. The permission mode is the one axis with neither excuse:
+/// codex has flags for it, nothing else delivers it, and Settings (and the panel's chip) have been
+/// promising it applies since the day the row was added. So the policy handed to the injector has
+/// its other axes cleared, rather than a second copy of the mapping living here - one table, in
+/// `applyLaunchDefaults`, which is also where "a flag you typed wins" is decided.
+///
+/// The answer is the WHOLE vector rather than the flags alone, because where they go is part of the
+/// injection: `injectingOptions` puts them before a bare `--`, and a shim appending them after the
+/// user's own arguments would land them in the prompt (Snapshot.swift says what that costs). nil
+/// when the injection changed nothing, so a launch that is owed no flag is not round-tripped through
+/// our quoting at all.
+func shimLaunchArgs(_ provider: Provider, policy: LaunchPolicy, arguments: [String]) -> [String]? {
+    guard provider.id == "codex", arguments.first == shimArgvMarker else { return nil }
+    let argv = Array(arguments.dropFirst())
+    var permissionOnly = policy
+    permissionOnly.model = nil
+    permissionOnly.effort = nil
+    permissionOnly.fallbackModel = nil
+    permissionOnly.fallbackEffort = nil
+    let next = applyLaunchDefaults(argv, policy: permissionOnly, providerID: provider.id)
+    return next == argv ? nil : next
+}
+
+/// That vector as the line the shim evals, every word single-quoted for the reason every other value
+/// in this script is (`shellSingleQuoted`): these words came from the command line the user typed,
+/// and this line is source the shell is about to run.
+func launchArgvLine(_ args: [String]) -> String {
+    "set -- " + args.map(shellSingleQuoted).joined(separator: " ")
+}
+
 func runBestDir(_ providerID: String) {
     guard let provider = providers.first(where: { $0.id == providerID }) else {
         warn("unknown provider `\(providerID)` - use claude or codex")
@@ -177,7 +225,11 @@ func launchSteering(_ provider: Provider, appPolicy: LaunchPolicy,
 /// (an explicit "which is best" question), this answers "should a BARE invocation be steered, and
 /// where": mode off prints nothing (the shim passes through untouched), manual prints the pin,
 /// auto prints the headroom pick. Output is eval-able (`export …` / `unset …`) or empty.
-func runLaunchDir(_ providerID: String) {
+///
+/// `arguments` is what the shim was typed with, behind the marker it puts in front of them
+/// (`shimArgvMarker`). Empty from an older shim, from `best-dir`, and from a person running this by
+/// hand, all of which get the environment-only answer this command has always given.
+func runLaunchDir(_ providerID: String, arguments: [String] = []) {
     guard let provider = providers.first(where: { $0.id == providerID }) else {
         warn("unknown provider `\(providerID)` - use claude or codex")
         exit(2)
@@ -201,4 +253,9 @@ func runLaunchDir(_ providerID: String) {
     // Nothing eligible - stay silent, the shim runs the bare CLI.
     guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else { return }
     printLaunchExports(provider, home: steered.home, model: model, notice: steered.dip)
+    // After the environment, because it is the same launch being described and the export lines are
+    // what every reader of this command already expects to find first.
+    if let argv = shimLaunchArgs(provider, policy: policy, arguments: arguments) {
+        print(launchArgvLine(argv))
+    }
 }

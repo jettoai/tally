@@ -130,8 +130,9 @@ struct LaunchPolicy {
     var mode = "auto"
     var pinnedAccountID: String?
     var pinnedHome: String?
-    /// Claude permission mode chosen in the app ("plan" / "acceptEdits" / "bypass"); nil = inject
-    /// nothing. Flags the user typed always outrank it.
+    /// The permission mode chosen in the app ("plan" / "acceptEdits" / "bypass"); nil = inject
+    /// nothing. ONE setting for every provider, injected in whichever flags that provider's own CLI
+    /// reads (`applyLaunchDefaults`). Flags the user typed always outrank it.
     var permissionMode: String?
     /// Launch defaults chosen in the app; nil = inject nothing. Same rule: typed flags win.
     var startMode: String?
@@ -434,6 +435,31 @@ func applyLaunchDefaults(_ args: [String], policy: LaunchPolicy, providerID: Str
         }
     }
     if providerID == "codex" {
+        // The permission mode is ONE setting, so it is one rule, said in each CLI's own vocabulary
+        // (codex-cli 0.153.4):
+        //   plan        -> `-s read-only`: it may read the workspace and change nothing.
+        //   acceptEdits -> `-s workspace-write -a never`: edits inside the workspace go through
+        //                  unasked, one outside it fails back to the model rather than stopping on
+        //                  a dialog. BOTH halves are the mode - the sandbox alone still asks.
+        //   bypass      -> `--dangerously-bypass-approvals-and-sandbox` (claude's
+        //                  `--dangerously-skip-permissions`), which drops both at once.
+        // Typed wins on either axis and on the `-c` spelling of either: a `-s read-only` typed over
+        // a configured bypass is a statement about this launch, and has to stay read-only.
+        if let mode = policy.permissionMode,
+           !typed.contains("-s"), !typed.contains("--sandbox"),
+           !typed.contains("-a"), !typed.contains("--ask-for-approval"),
+           !typed.contains("--dangerously-bypass-approvals-and-sandbox"),
+           !typed.contains("--approve-for-me"),
+           !typed.contains(where: { $0.hasPrefix("approval_policy=") || $0.hasPrefix("sandbox_mode=") }) {
+            switch mode {
+            case "plan": next = injectingOptions(next, ["-s", "read-only"])
+            case "acceptEdits":
+                next = injectingOptions(next, ["-s", "workspace-write", "-a", "never"])
+            case "bypass":
+                next = injectingOptions(next, ["--dangerously-bypass-approvals-and-sandbox"])
+            default: break
+            }
+        }
         if let model = policy.model, !typed.contains("-m"), !typed.contains("--model") {
             next = injectingOptions(next, ["-m", model])
         }

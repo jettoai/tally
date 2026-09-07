@@ -60,12 +60,19 @@ extension SettingsLaunchView {
         .settingsRowPadding()
     }
 
-    /// Claude Code permission mode injected by the tally launcher.
+    /// The permission mode injected by the tally launcher, offered to every provider because it is
+    /// ONE setting (one enum, one state.json field) that every provider's CLI has flags for.
+    ///
+    /// Worded in each CLI's own vocabulary, though, because that is what the person will see the
+    /// session come up in: the same three steps are plan / accept edits / bypass in Claude Code and
+    /// read-only / workspace-write / full access in codex. Offering codex claude's words would name
+    /// modes codex does not have; giving it its own enum would make one setting into two.
     func permissionRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
+        let codex = providerID == "codex"
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(L("Claude permissions")).font(.subheadline)
+                Text(codex ? L("Codex permissions") : L("Claude permissions")).font(.subheadline)
                 Text(L("Applied when launching through tally; flags you type yourself win."))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -76,9 +83,12 @@ extension SettingsLaunchView {
                 set: { launchPolicy.setPermissionMode(providerID, $0) }
             )) {
                 Text(verbatim: "default").tag(LaunchPolicyStore.PermissionMode.standard)
-                Text(verbatim: "plan").tag(LaunchPolicyStore.PermissionMode.plan)
-                Text(verbatim: "accept edits").tag(LaunchPolicyStore.PermissionMode.acceptEdits)
-                Text(verbatim: "bypass").tag(LaunchPolicyStore.PermissionMode.bypass)
+                Text(verbatim: codex ? "read-only" : "plan")
+                    .tag(LaunchPolicyStore.PermissionMode.plan)
+                Text(verbatim: codex ? "workspace-write" : "accept edits")
+                    .tag(LaunchPolicyStore.PermissionMode.acceptEdits)
+                Text(verbatim: codex ? "full access" : "bypass")
+                    .tag(LaunchPolicyStore.PermissionMode.bypass)
             }
             .labelsHidden()
             .fixedSize()

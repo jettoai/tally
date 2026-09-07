@@ -404,7 +404,8 @@ case "status", nil:
 case "best-dir":
     runBestDir(arguments.dropFirst().first ?? "claude")
 case "launch-dir":
-    runLaunchDir(arguments.dropFirst().first ?? "codex")
+    runLaunchDir(arguments.dropFirst().first ?? "codex",
+                 arguments: Array(arguments.dropFirst(2)))
 case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
 case "reload":

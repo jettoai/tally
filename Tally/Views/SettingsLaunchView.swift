@@ -84,9 +84,12 @@ struct SettingsLaunchView: View {
         if id == "claude" {
             rowDivider
             startModeRow(id)
-            rowDivider
-            permissionRow(id)
         }
+        // Every provider: the permission mode is one setting with a flag on both CLIs
+        // (`applyLaunchDefaults`). The start mode above is still claude-only - it is a question
+        // about resuming a conversation, which the two CLIs do not ask the same way.
+        rowDivider
+        permissionRow(id)
         rowDivider
         // The caption spells out the follow behavior: defaults bind at launch, and a supervised
         // running session also adopts a changed default at its next quiet moment (a model the

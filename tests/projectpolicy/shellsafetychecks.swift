@@ -161,6 +161,17 @@ func runShimArgvChecks() {
                      ["--yolo"], ["--config", "sandbox_mode=read-only"],
                      ["--config=sandbox_mode=read-only"], ["-csandbox_mode=read-only"],
                      ["-c=sandbox_mode=read-only"], ["-capproval_policy=never"],
+                     // TOML's own spacing, which codex keeps: measured effective, not merely
+                     // accepted - `codex doctor -c 'approval_policy = "never"'` reports
+                     // `approval policy Never` against a baseline of `OnRequest`.
+                     ["-c", "sandbox_mode = \"read-only\""],
+                     ["--config=approval_policy = \"never\""],
+                     ["-c=sandbox_mode = \"read-only\""],
+                     // A quoted key, which 0.153.4 parses and then ignores (doctor stays on the
+                     // baseline). Read as a choice anyway: standing down leaves codex's own config
+                     // deciding, which is the safe direction and is already right for the day this
+                     // spelling starts working.
+                     ["-c", "\"sandbox_mode\"=\"read-only\""],
                      ["-p", "ro"], ["-pro"], ["-p=ro"], ["--profile", "ro"], ["--profile=ro"]] {
         check("`codex \(spelling.joined(separator: " "))` is left exactly as it was typed",
               applyLaunchDefaults(spelling, policy: modeOnly, providerID: "codex") == spelling)
@@ -170,6 +181,18 @@ func runShimArgvChecks() {
     check("…and typing one suppresses that axis alone",
           applyLaunchDefaults(["-sread-only"], policy: appDefaults, providerID: "codex")
               == ["-sread-only", "-m", "fable", "-c", "model_reasoning_effort=\"high\""])
+    // The other two axes are readable through the same option and are read the same way, so a
+    // `-c model=…` is the model this launch chose and the spacing does not change the answer.
+    check("a `-c model=` override is the model this launch runs",
+          applyLaunchDefaults(["-c", "model=\"gpt-5.6-sol\""], policy: appDefaults,
+                              providerID: "codex")
+              == ["-c", "model=\"gpt-5.6-sol\"", "--dangerously-bypass-approvals-and-sandbox",
+                  "-c", "model_reasoning_effort=\"high\""])
+    check("…and a spaced `-c model_reasoning_effort = …` is the effort it chose",
+          applyLaunchDefaults(["-c", "model_reasoning_effort = \"low\""], policy: appDefaults,
+                              providerID: "codex")
+              == ["-c", "model_reasoning_effort = \"low\"",
+                  "--dangerously-bypass-approvals-and-sandbox", "-m", "fable"])
 
     // A SUBCOMMAND IS NOT A SESSION. These are the interactive session's own flags, and 25 of the
     // 33 names codex's parser matches as a subcommand exit 2 rather than ignore one, `review` and
@@ -197,20 +220,23 @@ func runShimArgvChecks() {
                   == subcommand + ["--dangerously-bypass-approvals-and-sandbox", "-m", "fable"]
                       + effort)
     }
-    // The acceptance is per FLAG, which is why one table cannot answer for the whole mode:
-    // `codex exec` has `-s` and the bypass flag but no `-a` at all, so accept edits - the one mode
-    // that needs both halves - stands down exactly where plan and bypass still apply. `codex exec`
-    // is also the launch this repo's own automation runs, which is what makes the difference worth
-    // a table rather than a blanket rule.
+    // Accept edits reaches all eight too, which it only does because its approval half is a config
+    // override. `--ask-for-approval` exists on two of these names; `codex exec`, the launch this
+    // repo's own automation runs, is not one of them. Standing down there would have handed the
+    // question back to codex's configuration, and a configuration set to danger-full-access is
+    // WIDER than the workspace-write the Settings row claims to have applied.
     var acceptPolicy = appDefaults
     acceptPolicy.permissionMode = "acceptEdits"
-    check("accept edits stands down for `codex exec`, which has no approval flag to take",
+    let acceptEdits = ["-s", "workspace-write", "-c", "approval_policy=\"never\""]
+    check("accept edits reaches `codex exec`, which has no approval FLAG to take",
           applyLaunchDefaults(["exec", "hi"], policy: acceptPolicy, providerID: "codex")
-              == ["exec", "hi", "-m", "fable"] + effort)
-    check("…and applies to `codex resume`, which has both halves",
+              == ["exec", "hi"] + acceptEdits + ["-m", "fable"] + effort)
+    check("…and `codex resume`, and the bare session, in the one spelling",
           applyLaunchDefaults(["resume", "abc123"], policy: acceptPolicy, providerID: "codex")
-              == ["resume", "abc123", "-s", "workspace-write", "-a", "never", "-m", "fable"]
-                  + effort)
+              == ["resume", "abc123"] + acceptEdits + ["-m", "fable"] + effort)
+    check("…and stands down for the subcommands with no sandbox flag either",
+          applyLaunchDefaults(["review"], policy: acceptPolicy, providerID: "codex")
+              == ["review"] + effort)
     var planPolicy = appDefaults
     planPolicy.permissionMode = "plan"
     check("…while plan, which needs only the sandbox, still reaches `codex exec`",

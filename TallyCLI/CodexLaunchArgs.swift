@@ -51,10 +51,56 @@ let codexSubcommandsTakingSessionFlags: Set<String> = [
     "exec", "e", "resume", "queue", "archive", "delete", "unarchive", "fork",
 ]
 
-/// …and the narrower set that also takes `-a`, which is the half of `acceptEdits` that cannot be
-/// dropped. `codex exec` is the one that surprises: it has `-s` and the bypass flag but no
-/// `--ask-for-approval` at all, so acceptEdits is the mode that breaks the launch automation uses.
-let codexSubcommandsTakingApproval: Set<String> = ["resume", "fork"]
+// THERE IS NO SECOND TABLE FOR THE APPROVAL POLICY, and the reason is worth writing down.
+// `--ask-for-approval` is taken by only two of those names, so saying `acceptEdits` with `-a never`
+// would have left the one mode that needs BOTH halves standing down for `codex exec` - the launch
+// this repo's own automation runs. Standing down is not neutral: it hands the question back to
+// codex's own configuration, and a configuration set to danger-full-access is WIDER than the
+// workspace-write the Settings row says it applied. So that half is said as a config override
+// instead, which every subcommand takes because `-c` is clap's global option.
+
+/// The KEY of a `-c key=value` override, in the spellings TOML allows for it. codex splits the
+/// argument on its first `=` and parses the rest as TOML, so the space around the `=` is TOML's to
+/// ignore: `-c 'sandbox_mode = "read-only"'` is the same override as `-c sandbox_mode="read-only"`,
+/// and it really lands - `codex doctor` reports `approval policy Never` for the spaced spelling of
+/// the approval key against a baseline of `OnRequest`.
+///
+/// A wrapping pair of quotes is stripped from the key as well, even though 0.153.4 does NOT honour
+/// one: `-c '"approval_policy"="never"'` parses, changes nothing, and leaves doctor reporting
+/// `OnRequest`. Reading it as an override anyway is the safe direction - the launch stands down and
+/// codex's own configuration decides, rather than Tally appending a bypass behind something the
+/// user plainly meant as a restriction - and it is already right for a codex that starts honouring
+/// it.
+func codexConfigKey(_ override: String) -> String? {
+    // `-c=key=value` is the attached spelling with clap's optional `=` in front of it.
+    let bare = override.hasPrefix("=") ? String(override.dropFirst()) : override
+    guard let split = bare.firstIndex(of: "=") else { return nil }
+    var key = bare[..<split].trimmingCharacters(in: .whitespaces)
+    if key.count > 1, let quote = key.first, quote == "\"" || quote == "'",
+       key.hasSuffix(String(quote)) {
+        key = String(key.dropFirst().dropLast())
+    }
+    return key.isEmpty ? nil : key
+}
+
+/// Whether the launch typed a `-c`/`--config` override for one of `keys`, in any of the three
+/// spellings clap takes for the option itself: separated (`-c key=v`), joined (`--config=key=v`)
+/// and attached (`-ckey=v`, `-c=key=v`).
+func codexTypedConfigOverride(_ typed: [String], keys: Set<String>) -> Bool {
+    for (index, token) in typed.enumerated() {
+        var override: String?
+        if token == "-c" || token == "--config" {
+            override = index + 1 < typed.count ? typed[index + 1] : nil
+        } else if token.hasPrefix("--config=") {
+            override = String(token.dropFirst("--config=".count))
+        } else if !token.hasPrefix("--"), token.hasPrefix("-c"), token.count > 2 {
+            override = String(token.dropFirst(2))
+        }
+        guard let override, let key = codexConfigKey(override) else { continue }
+        if keys.contains(key) { return true }
+    }
+    return false
+}
 
 /// The second name for `--dangerously-bypass-approvals-and-sandbox`, absent from `codex --help` and
 /// bound to the same argument. Injecting behind it does not merely double a flag: clap refuses the
@@ -108,13 +154,8 @@ func codexSubcommand(_ typed: [String]) -> String? {
 /// declaring read-only comes up `danger-full-access` once the bypass flag is injected behind it -
 /// so naming one is a permission choice, even though the choice is not in the argument vector.
 func codexTypedPermission(_ typed: [String]) -> Bool {
-    let permissionKeys = ["sandbox_mode=", "approval_policy="]
-    func overridesPermission(_ value: String) -> Bool {
-        // `-c=key=value` is the attached spelling with clap's optional `=` in front of it.
-        let bare = value.hasPrefix("=") ? String(value.dropFirst()) : value
-        return permissionKeys.contains { bare.hasPrefix($0) }
-    }
-    for (index, token) in typed.enumerated() {
+    if codexTypedConfigOverride(typed, keys: ["sandbox_mode", "approval_policy"]) { return true }
+    for token in typed {
         if token == "--approve-for-me" || codexBypassSpellings.contains(token) { return true }
         if ["-s", "--sandbox", "-a", "--ask-for-approval", "-p", "--profile"].contains(token) {
             return true
@@ -123,16 +164,10 @@ func codexTypedPermission(_ typed: [String]) -> Bool {
             || token.hasPrefix("--profile=") { return true }
         // The attached spellings. Guarded on the single dash so `--add-dir` cannot read as an `-a`
         // carrying "dd-dir", and case-sensitively so `-C` (the working root) is not `-c`.
-        if !token.hasPrefix("--"), token.count > 2 {
-            if token.hasPrefix("-s") || token.hasPrefix("-a") || token.hasPrefix("-p") {
-                return true
-            }
-            if token.hasPrefix("-c"), overridesPermission(String(token.dropFirst(2))) { return true }
+        if !token.hasPrefix("--"), token.count > 2,
+           token.hasPrefix("-s") || token.hasPrefix("-a") || token.hasPrefix("-p") {
+            return true
         }
-        if token == "-c" || token == "--config", index + 1 < typed.count,
-           overridesPermission(typed[index + 1]) { return true }
-        if token.hasPrefix("--config="),
-           overridesPermission(String(token.dropFirst("--config=".count))) { return true }
     }
     return false
 }
@@ -141,9 +176,13 @@ func codexTypedPermission(_ typed: [String]) -> Bool {
 /// codex's own vocabulary (codex-cli 0.153.4).
 ///
 ///   plan        -> `-s read-only`: it may read the workspace and change nothing.
-///   acceptEdits -> `-s workspace-write -a never`: edits inside the workspace go through unasked,
-///                  one outside it fails back to the model rather than stopping on a dialog. BOTH
-///                  halves are the mode - the sandbox alone still asks.
+///   acceptEdits -> `-s workspace-write -c approval_policy="never"`: edits inside the workspace go
+///                  through unasked, one outside it fails back to the model rather than stopping on
+///                  a dialog. BOTH halves are the mode - the sandbox alone still asks - and the
+///                  approval half is said as a config override rather than as `-a never` so that it
+///                  reaches every launch the sandbox flag reaches (see the note above the key
+///                  reader). Measured: `codex doctor -c 'approval_policy="never"'` reports
+///                  `approval policy Never` where the baseline reports `OnRequest`.
 ///   bypass      -> `--dangerously-bypass-approvals-and-sandbox` (claude's
 ///                  `--dangerously-skip-permissions`), which drops both at once.
 ///
@@ -153,33 +192,32 @@ func codexTypedPermission(_ typed: [String]) -> Bool {
 /// (`launchPolicy`), which is why this was not a corner: with the shim installed, a new user's
 /// first `codex login` was a command that refused to run.
 ///
-/// The gate is per axis, not per launch, because the acceptance differs by flag: `-a` is taken by
-/// only two of them, so `acceptEdits` stands down where `plan` and `bypass` still apply, and the
-/// effort rides a `-c`, which every subcommand takes (it is clap's global option) and which
+/// The gate is per axis, not per launch: the sandbox flag and `-m` are the session's own and stop
+/// at the table above, while the effort rides a `-c`, which every subcommand takes and which
 /// therefore has no gate at all.
 func applyCodexLaunchDefaults(_ args: [String], policy: LaunchPolicy) -> [String] {
     var next = args
     let typed = optionsOnly(args)
-    let subcommand = codexSubcommand(typed)
-    let takesSessionFlags = subcommand.map(codexSubcommandsTakingSessionFlags.contains) ?? true
-    let takesApproval = subcommand.map(codexSubcommandsTakingApproval.contains) ?? true
-    if let mode = policy.permissionMode, !codexTypedPermission(typed) {
+    let takesSessionFlags = codexSubcommand(typed)
+        .map(codexSubcommandsTakingSessionFlags.contains) ?? true
+    if let mode = policy.permissionMode, !codexTypedPermission(typed), takesSessionFlags {
         switch mode {
-        case "plan" where takesSessionFlags:
-            next = injectingOptions(next, ["-s", "read-only"])
-        case "acceptEdits" where takesSessionFlags && takesApproval:
-            next = injectingOptions(next, ["-s", "workspace-write", "-a", "never"])
-        case "bypass" where takesSessionFlags:
+        case "plan": next = injectingOptions(next, ["-s", "read-only"])
+        case "acceptEdits":
+            next = injectingOptions(next, ["-s", "workspace-write",
+                                           "-c", "approval_policy=\"never\""])
+        case "bypass":
             next = injectingOptions(next, ["--dangerously-bypass-approvals-and-sandbox"])
         default: break
         }
     }
     if let model = policy.model, takesSessionFlags,
-       !typed.contains("-m"), !typed.contains("--model") {
+       !typed.contains("-m"), !typed.contains("--model"),
+       !codexTypedConfigOverride(typed, keys: ["model"]) {
         next = injectingOptions(next, ["-m", model])
     }
     if let effort = policy.effort,
-       !typed.contains(where: { $0.contains("model_reasoning_effort") }) {
+       !codexTypedConfigOverride(typed, keys: ["model_reasoning_effort"]) {
         next = injectingOptions(next, ["-c", "model_reasoning_effort=\"\(effort)\""])
     }
     return next

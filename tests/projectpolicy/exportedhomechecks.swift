@@ -131,10 +131,13 @@ func runExportedHomeChecks(launcher: String) {
     let acceptArgs = applyLaunchDefaults([], policy: acceptPolicy, providerID: "codex")
     // BOTH halves, because the sandbox alone still stops to ask: workspace-write on its own is the
     // approval dialog this mode exists to remove, and `never` on its own is a dialog-free launch
-    // that can still be asked to write anywhere.
+    // that can still be asked to write anywhere. The approval half is a config override rather than
+    // `-a never` so that it survives the subcommands `--ask-for-approval` does not exist on
+    // (CodexLaunchArgs.swift), which is also why it is read as the FIRST `-c` here: the effort
+    // rides the same option and is injected behind it.
     check("…and accept edits is a writable workspace that never stops to ask",
           after("-s", in: acceptArgs) == "workspace-write"
-              && after("-a", in: acceptArgs) == "never")
+              && after("-c", in: acceptArgs) == "approval_policy=\"never\"")
     check("a typed sandbox still outranks the configured bypass",
           !applyLaunchDefaults(["-s", "read-only"], policy: appDefaults, providerID: "codex")
               .contains("--dangerously-bypass-approvals-and-sandbox"))

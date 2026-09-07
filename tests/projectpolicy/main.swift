@@ -382,6 +382,9 @@ runShellSafetyChecks()
 // One of those lines is an argument vector rather than an environment, which is the only way the
 // permission mode reaches a launch nobody passed a flag to (shellsafetychecks.swift).
 runShimArgvChecks()
+// The same vector read for its MODEL rather than for its permission, by the injection and by the
+// account pick, which have to agree on every spelling codex takes (shellsafetychecks.swift).
+runCodexModelSpellingChecks()
 // And one of those lines is not environment at all: the water line this pick can cross, said in the
 // only way that reaches a shim-steered launch (reservenoticechecks.swift).
 runReserveNoticeChecks()

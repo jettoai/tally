@@ -373,8 +373,14 @@ func flagValue(_ args: [String], _ flag: String) -> String? {
     return options[index + 1]
 }
 
-/// The model an argument vector will actually run under, in whichever spelling that provider uses
-/// (`--model` for claude, `-m` or `--model` for codex).
+/// The model an argument vector will actually run under, in whichever spelling that provider uses:
+/// `--model` for claude, and for codex every spelling its own parser takes, which is a table rather
+/// than a rule and lives with the rest of that table (`codexModelChoice`).
+///
+/// Through that ONE reader rather than a second list of spellings here, because the two lists
+/// drifted: the injection's guard and this one each knew `-m` and `--model` as separate words, so a
+/// launch that typed `--model=x`, `-mx` or `-c model=x` was both injected behind AND scored for the
+/// configured default, and the account it was given was the one for a model it was not running.
 ///
 /// Read off the args AFTER `applyLaunchDefaults` has run, which is the whole point: that injection
 /// has already settled typed > project > app, so the account pick reads the ANSWER rather than
@@ -396,7 +402,7 @@ func launchPrimaryModel(_ args: [String], providerID: String) -> String? {
         guard let value = flagValue(args, flag), !value.hasPrefix("-") else { return nil }
         return value
     }
-    if providerID == "codex" { return declared("-m") ?? declared("--model") }
+    if providerID == "codex" { return codexModelChoice(optionsOnly(args)).value }
     return declared("--model")
 }
 

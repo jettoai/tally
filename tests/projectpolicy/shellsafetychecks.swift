@@ -204,13 +204,21 @@ func runShimArgvChecks() {
     // entry, and two shapes that only a real scan gets right: a subcommand behind an option's value
     // (`-C /tmp doctor`) and one behind a joined option.
     let effort = ["-c", "model_reasoning_effort=\"high\""]
+    // The MODEL still reaches them, in the spelling they do take. `codex review -m gpt-5.6-sol` is
+    // `error: unexpected argument '-m' found` while `codex review -c 'model="gpt-5.6-sol"'` exits
+    // 0, so the axis that used to be dropped here is now said the way the effort has always been
+    // said, and `tally codex review` runs the model the project declared.
+    let modelOverride = ["-c", "model=\"fable\""]
     for subcommand in [["review", "--commit", "abc"], ["login"], ["mcp", "list"], ["apply"], ["a"],
-                       ["agents"], ["execpolicy", "check"], ["-C", "/tmp", "doctor"],
-                       ["--config=model=\"x\"", "app-server"]] {
+                       ["agents"], ["-C", "/tmp", "doctor"]] {
         check("`codex \(subcommand.joined(separator: " "))` is handed no session flag",
               applyLaunchDefaults(subcommand, policy: appDefaults, providerID: "codex")
-                  == subcommand + effort)
+                  == subcommand + modelOverride + effort)
     }
+    check("…while one that named its own model keeps the name it typed",
+          applyLaunchDefaults(["--config=model=\"x\"", "app-server"], policy: appDefaults,
+                              providerID: "codex")
+              == ["--config=model=\"x\"", "app-server"] + effort)
     // …and the eight that DO take them still get them, measured with the flag where this puts it:
     // behind the subcommand's own arguments (`codex exec 'hello world' -s read-only`).
     for subcommand in [["exec", "run the tests"], ["e", "run the tests"], ["resume", "abc123"],
@@ -231,12 +239,18 @@ func runShimArgvChecks() {
     check("accept edits reaches `codex exec`, which has no approval FLAG to take",
           applyLaunchDefaults(["exec", "hi"], policy: acceptPolicy, providerID: "codex")
               == ["exec", "hi"] + acceptEdits + ["-m", "fable"] + effort)
-    check("…and `codex resume`, and the bare session, in the one spelling",
+    check("…and `codex resume`, in the one spelling",
           applyLaunchDefaults(["resume", "abc123"], policy: acceptPolicy, providerID: "codex")
               == ["resume", "abc123"] + acceptEdits + ["-m", "fable"] + effort)
+    // The bare session: what a shim-routed `codex` with nothing typed after it actually is, and the
+    // launch the whole exchange exists for. It had been named in the row above and never built, so
+    // the one shape that reaches every Tally user by default was asserted by its own title alone.
+    check("…and the bare session, which types nothing at all",
+          applyLaunchDefaults([], policy: acceptPolicy, providerID: "codex")
+              == acceptEdits + ["-m", "fable"] + effort)
     check("…and stands down for the subcommands with no sandbox flag either",
           applyLaunchDefaults(["review"], policy: acceptPolicy, providerID: "codex")
-              == ["review"] + effort)
+              == ["review"] + modelOverride + effort)
     var planPolicy = appDefaults
     planPolicy.permissionMode = "plan"
     check("…while plan, which needs only the sandbox, still reaches `codex exec`",
@@ -248,6 +262,15 @@ func runShimArgvChecks() {
           applyLaunchDefaults(["fix the flaky test"], policy: appDefaults, providerID: "codex")
               == ["fix the flaky test", "--dangerously-bypass-approvals-and-sandbox",
                   "-m", "fable"] + effort)
+    // …and so is a session whose only word is an option's VALUE. `/tmp` is not a subcommand, but a
+    // scan that did not know `--add-dir` takes one would offer it as the first positional, find no
+    // subcommand by that name, and reach the same answer for the wrong reason - which is exactly
+    // what would go on being true the day someone adds an option and forgets the table.
+    check("`codex --add-dir /tmp` is a session whose option took a value",
+          applyLaunchDefaults(["--add-dir", "/tmp"], policy: modeOnly, providerID: "codex")
+              == ["--add-dir", "/tmp", "--dangerously-bypass-approvals-and-sandbox"])
+    check("…and the scan says so in its own words, rather than by the name not matching",
+          codexFirstPositional(["--add-dir", "/tmp"]) == nil)
     // And none of it reaches the other provider, whose vocabulary this is not: `review` is a word
     // in a claude prompt, and claude's own three axes go in behind it as they always have.
     check("claude reads none of codex's table",
@@ -275,6 +298,111 @@ func runShimArgvChecks() {
         + "[--dangerously-bypass-approvals-and-sandbox]"
     check("the typed arguments survive the line that carries the flags",
           positionals(after: launchArgvLine(vector), given: ["ignored"]) == expected)
+}
+
+/// codex's model axis in every spelling its parser takes, the images that swallow the word behind
+/// them, and the three names an appended `-c` never reaches.
+///
+/// Split out from `runShimArgvChecks` because these are the same question asked of a DIFFERENT
+/// reader: not "was a permission stated" but "was a model stated, and which one", asked once by the
+/// injection and once by the account pick. Every spelling below was run through codex-cli 0.153.4
+/// and accepted by it, with an unknown flag as the control (`codex --bogus --version` exits 2);
+/// CodexLaunchArgs.swift records each measurement beside the table it produced.
+func runCodexModelSpellingChecks() {
+    var modelAxisOnly = LaunchPolicy()
+    modelAxisOnly.model = "fable"
+
+    // ONE MODEL, MANY SPELLINGS. A second `-m` behind a typed one is `error: the argument
+    // '--model <MODEL>' cannot be used multiple times`, exit 2: the launch does not start at all,
+    // and the guard knew only the two separated words.
+    for spelling in [["-m", "gpt-5.6-sol"], ["-mgpt-5.6-sol"], ["-m=gpt-5.6-sol"],
+                     ["--model", "gpt-5.6-sol"], ["--model=gpt-5.6-sol"],
+                     ["-c", "model=\"gpt-5.6-sol\""], ["--config=model=gpt-5.6-sol"],
+                     ["-cmodel=gpt-5.6-sol"], ["-c=model=gpt-5.6-sol"],
+                     // TOML's own spacing and quoting, which codex keeps.
+                     ["-c", "model = \"gpt-5.6-sol\""]] {
+        check("`codex \(spelling.joined(separator: " "))` gets no second model appended",
+              applyLaunchDefaults(spelling, policy: modelAxisOnly, providerID: "codex") == spelling)
+    }
+    // A dangling option named the axis just as loudly, and what follows an injection is not a name.
+    check("a dangling -m is still the axis being typed",
+          applyLaunchDefaults(["-m"], policy: modelAxisOnly, providerID: "codex") == ["-m"])
+
+    // THE SAME READER ANSWERS THE ACCOUNT PICK, which is the half that decides which accounts have
+    // the window this launch needs. Read apart, the two lists drifted and a launch was scored for a
+    // model it was not running.
+    for (spelling, model) in [(["-m", "gpt-5.6-sol"], "gpt-5.6-sol"),
+                              (["-mgpt-5.6-sol"], "gpt-5.6-sol"),
+                              (["-m=gpt-5.6-sol"], "gpt-5.6-sol"),
+                              (["--model", "gpt-5.6-sol"], "gpt-5.6-sol"),
+                              (["--model=gpt-5.6-sol"], "gpt-5.6-sol"),
+                              (["-c", "model=\"gpt-5.6-sol\""], "gpt-5.6-sol"),
+                              (["-c", "model = \"gpt-5.6-sol\""], "gpt-5.6-sol"),
+                              (["--config=model=gpt-5.6-sol"], "gpt-5.6-sol")] {
+        check("`codex \(spelling.joined(separator: " "))` is the model the pick scores for",
+              launchPrimaryModel(spelling, providerID: "codex") == model)
+    }
+    // Measured off `codex exec`'s own startup banner: `-m gpt-6-astra -c 'model="gpt-5.6-sol"'`
+    // comes up `model: gpt-6-astra`, so the flag outranks the override when a launch types both.
+    check("the flag outranks the override when a launch types both",
+          launchPrimaryModel(["-c", "model=\"gpt-5.6-sol\"", "-m", "gpt-6-astra"],
+                             providerID: "codex") == "gpt-6-astra")
+    check("a dangling -m names no model, so the caller falls back to the configured one",
+          launchPrimaryModel(["-m"], providerID: "codex") == nil)
+    check("…and neither does one handed another flag",
+          launchPrimaryModel(["-m", "--yolo"], providerID: "codex") == nil)
+    check("a -m inside the prompt is a word, not a declaration",
+          launchPrimaryModel(["--", "compare", "-m", "gpt-5.6-sol"], providerID: "codex") == nil)
+    // And the answer for the launches that reach their model through the override: the pick reads
+    // what the injection just wrote, in the spelling the injection had to use.
+    check("the pick reads the model a `codex review` launch was given",
+          launchPrimaryModel(applyLaunchDefaults(["review"], policy: modelAxisOnly,
+                                                 providerID: "codex"),
+                             providerID: "codex") == "fable")
+
+    // IMAGES SWALLOW THE WORD BEHIND THEM. `-i, --image <FILE>...` takes every word up to the next
+    // option, so the scan that skipped ONE of its values read the launch as running something else:
+    // measured, `codex -i a.png doctor` is the interactive session with two images (exit 1,
+    // `Error: stdin is not a terminal`) and not the doctor.
+    check("`codex -i a.png review` is the session codex reads it as",
+          codexSubcommand(["-i", "/tmp/a.png", "review"]) == nil)
+    check("…and a second image behind the first changes nothing",
+          codexSubcommand(["-i", "/tmp/a.png", "/tmp/b.png", "review"]) == nil)
+    check("…a lone dash is an image value too, not the end of the list",
+          codexSubcommand(["-i", "/tmp/a.png", "-", "doctor"]) == nil)
+    check("…while an option ends the list, so the word after THAT is the subcommand again",
+          codexSubcommand(["-i", "/tmp/a.png", "-s", "read-only", "doctor"]) == "doctor")
+    check("…and the attached and joined spellings carry exactly one image",
+          codexSubcommand(["-i/tmp/a.png", "doctor"]) == "doctor"
+              && codexSubcommand(["--image=/tmp/a.png", "doctor"]) == "doctor")
+    // Which is a launch getting the session flags it is owed, not merely a name being read right.
+    var everyAxis = LaunchPolicy()
+    everyAxis.permissionMode = "bypass"
+    everyAxis.model = "fable"
+    everyAxis.effort = "high"
+    check("`codex -i a.png review` gets the whole session it turned out to be",
+          applyLaunchDefaults(["-i", "/tmp/a.png", "review"], policy: everyAxis,
+                              providerID: "codex")
+              == ["-i", "/tmp/a.png", "review", "--dangerously-bypass-approvals-and-sandbox",
+                  "-m", "fable", "-c", "model_reasoning_effort=\"high\""])
+
+    // THE THREE NAMES AN APPENDED `-c` NEVER REACHES. `-c` is clap's global option and 30 of the 33
+    // names take one at the end of the vector, which is why the effort had no gate at all; these
+    // three are about the POSITION. `codex help -c …` is `error: unrecognized subcommand '-c'`,
+    // exit 2. `codex sandbox echo hi -c model_reasoning_effort="high"` prints
+    // `hi -c model_reasoning_effort="high"`, so the override silently became an argument of the
+    // sandboxed program. `codex execpolicy check --rules … ls` is the same shape, shown by an
+    // unknown flag past the command being swallowed where `codex exec hi --bogusflag` exits 2.
+    for subcommand in [["help"], ["help", "review"], ["sandbox", "echo", "hi"],
+                       ["sandbox"], ["execpolicy", "check", "--rules", "r", "ls"]] {
+        check("`codex \(subcommand.joined(separator: " "))` is handed nothing at all",
+              applyLaunchDefaults(subcommand, policy: everyAxis, providerID: "codex")
+                  == subcommand)
+    }
+    // …and the neighbours that DO take it still do, so the gate is three names and not a mood.
+    check("…while `codex doctor` still gets both overrides at the end",
+          applyLaunchDefaults(["doctor"], policy: everyAxis, providerID: "codex")
+              == ["doctor", "-c", "model=\"fable\"", "-c", "model_reasoning_effort=\"high\""])
 }
 
 /// The entrance side: what `tally project set` may store as a model or an effort.

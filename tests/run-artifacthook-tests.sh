@@ -22,7 +22,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/artifacthook/main.swift \
   TallyCLI/HookArtifact.swift Tally/Core/ArtifactHookContract.swift \
   Tally/Core/RenewLoginCommand.swift \
-  TallyCLI/Snapshot.swift TallyCLI/AccountHome.swift \
+  TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountHome.swift \
   TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/ProviderExecutable.swift
 "$out"

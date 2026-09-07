@@ -22,7 +22,7 @@ swiftc -o "$out" tests/projectpolicy/main.swift tests/projectpolicy/shellsafetyc
   tests/projectpolicy/matcherchecks.swift tests/projectpolicy/exportedhomechecks.swift \
   tests/projectpolicy/reservenoticechecks.swift tests/projectpolicy/deletedcwdchecks.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
-  TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
+  TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift TallyCLI/AccountComfort.swift \
   TallyCLI/ResumePrompt.swift \

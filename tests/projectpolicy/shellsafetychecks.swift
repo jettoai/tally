@@ -130,6 +130,110 @@ func runShimArgvChecks() {
     check("…nor a launch with no mode to apply",
           shimLaunchArgs(codex, policy: noMode, arguments: ["--", "hello"]) == nil)
 
+    // MARK: - The spellings and the subcommands codex's own parser knows about
+
+    // Everything below asserts the WHOLE vector, word for word, rather than searching it for a
+    // flag: what is at stake is a launch coming up with a permission it was never given, and a
+    // substring test cannot tell an argument that was left alone from one that was rewritten.
+    //
+    // Through `applyLaunchDefaults` because that is where the rule lives - the shim reaches it
+    // through `shimLaunchArgs` and `tally codex` through main.swift, so both paths are this one.
+    // The mode-only policy is what the shim hands over; the full `appDefaults` is what a typed
+    // `tally codex` carries, and the rows that use it are the rows where the other two axes matter.
+    var modeOnly = LaunchPolicy()
+    modeOnly.permissionMode = "bypass"
+
+    // ONE CHOICE, MANY SPELLINGS. clap takes three for a single flag - separated (`-s read-only`),
+    // joined (`--sandbox=read-only`, `-s=read-only`) and attached (`-sread-only`) - the config
+    // override says the same thing again in its own three, and naming a `--profile` says it through
+    // a file. Every row below was run through codex-cli 0.153.4 and accepted by it
+    // (CodexLaunchArgs.swift records the measurement and its date).
+    //
+    // What a missed spelling costs depends on the mode, and both halves are bad. Under the factory
+    // bypass the injected flag WINS SILENTLY: `codex exec`'s own banner reports
+    // `sandbox: danger-full-access` for a launch that typed `--sandbox=read-only`, so a session
+    // deliberately confined to reading gets the whole machine with nothing on screen to say so.
+    // Under plan or acceptEdits the same miss stops the launch dead: a second `--sandbox` is
+    // `error: the argument '--sandbox <SANDBOX_MODE>' cannot be used multiple times`, and `--yolo`
+    // (the bypass flag's undocumented second name) fails the same way against an injected bypass.
+    for spelling in [["-s", "read-only"], ["--sandbox=read-only"], ["-sread-only"],
+                     ["-s=read-only"], ["--ask-for-approval=never"], ["-anever"], ["-a=never"],
+                     ["--yolo"], ["--config", "sandbox_mode=read-only"],
+                     ["--config=sandbox_mode=read-only"], ["-csandbox_mode=read-only"],
+                     ["-c=sandbox_mode=read-only"], ["-capproval_policy=never"],
+                     ["-p", "ro"], ["-pro"], ["-p=ro"], ["--profile", "ro"], ["--profile=ro"]] {
+        check("`codex \(spelling.joined(separator: " "))` is left exactly as it was typed",
+              applyLaunchDefaults(spelling, policy: modeOnly, providerID: "codex") == spelling)
+    }
+    // Per axis, not per launch: the sandbox they typed is a statement about the sandbox, and the
+    // model and the effort they said nothing about are still ours to fill in.
+    check("…and typing one suppresses that axis alone",
+          applyLaunchDefaults(["-sread-only"], policy: appDefaults, providerID: "codex")
+              == ["-sread-only", "-m", "fable", "-c", "model_reasoning_effort=\"high\""])
+
+    // A SUBCOMMAND IS NOT A SESSION. These are the interactive session's own flags, and 25 of the
+    // 33 names codex's parser matches as a subcommand exit 2 rather than ignore one, `review` and
+    // `login` among them - so with the factory default of bypass, installing the shim turned a new
+    // user's first `codex login` into a command that would not start. The effort still goes in:
+    // `-c` is clap's global option and every subcommand takes it, including behind a nested one
+    // (`codex mcp list -c …`). The rows carry an alias (`a` for apply) and a name that appears in
+    // no `codex --help` output (`execpolicy`), both of which are how a table like this loses an
+    // entry, and two shapes that only a real scan gets right: a subcommand behind an option's value
+    // (`-C /tmp doctor`) and one behind a joined option.
+    let effort = ["-c", "model_reasoning_effort=\"high\""]
+    for subcommand in [["review", "--commit", "abc"], ["login"], ["mcp", "list"], ["apply"], ["a"],
+                       ["agents"], ["execpolicy", "check"], ["-C", "/tmp", "doctor"],
+                       ["--config=model=\"x\"", "app-server"]] {
+        check("`codex \(subcommand.joined(separator: " "))` is handed no session flag",
+              applyLaunchDefaults(subcommand, policy: appDefaults, providerID: "codex")
+                  == subcommand + effort)
+    }
+    // …and the eight that DO take them still get them, measured with the flag where this puts it:
+    // behind the subcommand's own arguments (`codex exec 'hello world' -s read-only`).
+    for subcommand in [["exec", "run the tests"], ["e", "run the tests"], ["resume", "abc123"],
+                       ["fork"]] {
+        check("`codex \(subcommand.joined(separator: " "))` still gets the whole launch",
+              applyLaunchDefaults(subcommand, policy: appDefaults, providerID: "codex")
+                  == subcommand + ["--dangerously-bypass-approvals-and-sandbox", "-m", "fable"]
+                      + effort)
+    }
+    // The acceptance is per FLAG, which is why one table cannot answer for the whole mode:
+    // `codex exec` has `-s` and the bypass flag but no `-a` at all, so accept edits - the one mode
+    // that needs both halves - stands down exactly where plan and bypass still apply. `codex exec`
+    // is also the launch this repo's own automation runs, which is what makes the difference worth
+    // a table rather than a blanket rule.
+    var acceptPolicy = appDefaults
+    acceptPolicy.permissionMode = "acceptEdits"
+    check("accept edits stands down for `codex exec`, which has no approval flag to take",
+          applyLaunchDefaults(["exec", "hi"], policy: acceptPolicy, providerID: "codex")
+              == ["exec", "hi", "-m", "fable"] + effort)
+    check("…and applies to `codex resume`, which has both halves",
+          applyLaunchDefaults(["resume", "abc123"], policy: acceptPolicy, providerID: "codex")
+              == ["resume", "abc123", "-s", "workspace-write", "-a", "never", "-m", "fable"]
+                  + effort)
+    var planPolicy = appDefaults
+    planPolicy.permissionMode = "plan"
+    check("…while plan, which needs only the sandbox, still reaches `codex exec`",
+          applyLaunchDefaults(["exec", "hi"], policy: planPolicy, providerID: "codex")
+              == ["exec", "hi", "-s", "read-only", "-m", "fable"] + effort)
+    // …while a PROMPT is a session, and gets everything it always got. That distinction is the
+    // whole reason the table above is a table and not "anything that is not a flag".
+    check("a typed prompt is still the session it always was",
+          applyLaunchDefaults(["fix the flaky test"], policy: appDefaults, providerID: "codex")
+              == ["fix the flaky test", "--dangerously-bypass-approvals-and-sandbox",
+                  "-m", "fable"] + effort)
+    // And none of it reaches the other provider, whose vocabulary this is not: `review` is a word
+    // in a claude prompt, and claude's own three axes go in behind it as they always have.
+    check("claude reads none of codex's table",
+          applyLaunchDefaults(["review", "--commit", "abc"], policy: appDefaults,
+                              providerID: "claude")
+              == ["review", "--commit", "abc", "--dangerously-skip-permissions", "--model",
+                  "fable", "--fallback-model", "opus", "--effort", "high"])
+    // The shim path says the same thing in its own words: nothing to add is not an empty answer,
+    // and a `set --` line printed for a subcommand launch would replace what the user typed.
+    check("so the shim prints no vector for a subcommand launch either",
+          shimLaunchArgs(codex, policy: appDefaults, arguments: ["--", "review"]) == nil)
+
     // The words the user typed, through the line and out the other side. A prompt with a space in
     // it arriving as two arguments is a launch that runs something else; the one character a quoted
     // word cannot hold is the shape that breaks a naive quoting.

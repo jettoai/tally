@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/statusline/main.swift tests/statusline/completionchecks.swift \
-  TallyCLI/Statusline.swift TallyCLI/Usage.swift TallyCLI/Completion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
+  TallyCLI/Statusline.swift TallyCLI/Usage.swift TallyCLI/Completion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift \
   TallyCLI/AccountComfort.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/ReloadRequest.swift \

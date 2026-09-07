@@ -157,7 +157,8 @@ let shimArgvMarker = "--"
 /// injection: `injectingOptions` puts them before a bare `--`, and a shim appending them after the
 /// user's own arguments would land them in the prompt (Snapshot.swift says what that costs). nil
 /// when the injection changed nothing, so a launch that is owed no flag is not round-tripped through
-/// our quoting at all.
+/// our quoting at all - which is also the answer a `codex review` or a `codex login` gets, those
+/// being launches whose own parser has no session flag to give (CodexLaunchArgs.swift).
 func shimLaunchArgs(_ provider: Provider, policy: LaunchPolicy, arguments: [String]) -> [String]? {
     guard provider.id == "codex", arguments.first == shimArgvMarker else { return nil }
     let argv = Array(arguments.dropFirst())

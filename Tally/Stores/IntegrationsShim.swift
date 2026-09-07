@@ -92,13 +92,18 @@ extension IntegrationsStore {
         // Codex only: the shim hands over the arguments it was typed with, and takes back an
         // argument vector (`set -- …`, printed by `shimLaunchArgs` in TallyCLI/LaunchDir.swift).
         //
-        // It is the launch's PERMISSION MODE that travels this way and nothing else. Every other
-        // launch default reaches a bare session in the environment; codex has no variable for its
-        // sandbox or its approval policy - only flags - so Settings promised a mode that a bare
-        // `codex` then came up without, and asked for approval on its first command (owner-reported
-        // 2026-09-07). The claude shim does not carry the clause: `tally claude` is the launch that
-        // applies its permission mode, and turning bare `claude` into a bypassed session is not a
-        // change anybody asked this to make.
+        // It is the launch's PERMISSION MODE that travels this way and nothing else. Not because
+        // the other axes reach a bare codex some other way: codex has no environment variable for
+        // any of them (`Provider.modelEnvKey` is nil for it), and its model and effort are left to
+        // its own settings here on purpose, where re-stating them would override a per-directory
+        // choice the user made in codex itself (`launchSteering`, TallyCLI/LaunchDir.swift). The
+        // permission mode is the one axis with neither excuse: it has flags and nothing else
+        // delivers it, so Settings promised a mode that a bare `codex` then came up without, and
+        // asked for approval on its first command (owner-reported 2026-09-07).
+        //
+        // The claude shim does not carry the clause: `tally claude` is the launch that applies its
+        // permission mode, and turning bare `claude` into a bypassed session is not a change
+        // anybody asked this to make.
         //
         // The MARKER is what makes the exchange safe in both directions. `--` in front of the
         // arguments tells the command that this caller can accept a vector back, so a tally from an

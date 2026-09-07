@@ -39,7 +39,7 @@ swiftc -o "$out" \
   TallyCLI/ResumePrompt.swift \
   TallyCLI/LaunchFlags.swift \
   TallyCLI/WorktreeMenu.swift \
-  TallyCLI/Snapshot.swift \
+  TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift \
   TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift \

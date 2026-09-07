@@ -434,39 +434,12 @@ func applyLaunchDefaults(_ args: [String], policy: LaunchPolicy, providerID: Str
             next = injectingOptions(next, ["--effort", effort])
         }
     }
+    // The permission mode is ONE setting, so it is one rule, said in each CLI's own vocabulary. For
+    // codex that vocabulary is a set of TABLES - which spellings of a flag its parser takes, and
+    // which of its subcommands take a session flag at all - so the whole of its half lives next
+    // door in CodexLaunchArgs.swift, measured against the binary rather than derived from here.
     if providerID == "codex" {
-        // The permission mode is ONE setting, so it is one rule, said in each CLI's own vocabulary
-        // (codex-cli 0.153.4):
-        //   plan        -> `-s read-only`: it may read the workspace and change nothing.
-        //   acceptEdits -> `-s workspace-write -a never`: edits inside the workspace go through
-        //                  unasked, one outside it fails back to the model rather than stopping on
-        //                  a dialog. BOTH halves are the mode - the sandbox alone still asks.
-        //   bypass      -> `--dangerously-bypass-approvals-and-sandbox` (claude's
-        //                  `--dangerously-skip-permissions`), which drops both at once.
-        // Typed wins on either axis and on the `-c` spelling of either: a `-s read-only` typed over
-        // a configured bypass is a statement about this launch, and has to stay read-only. One
-        // question for both, because half a mode injected behind a typed one is nobody's choice.
-        let permissionFlags: Set = ["-s", "--sandbox", "-a", "--ask-for-approval",
-                                    "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox"]
-        let typedPermission = typed.contains { permissionFlags.contains($0)
-            || $0.hasPrefix("approval_policy=") || $0.hasPrefix("sandbox_mode=") }
-        if let mode = policy.permissionMode, !typedPermission {
-            switch mode {
-            case "plan": next = injectingOptions(next, ["-s", "read-only"])
-            case "acceptEdits":
-                next = injectingOptions(next, ["-s", "workspace-write", "-a", "never"])
-            case "bypass":
-                next = injectingOptions(next, ["--dangerously-bypass-approvals-and-sandbox"])
-            default: break
-            }
-        }
-        if let model = policy.model, !typed.contains("-m"), !typed.contains("--model") {
-            next = injectingOptions(next, ["-m", model])
-        }
-        if let effort = policy.effort,
-           !typed.contains(where: { $0.contains("model_reasoning_effort") }) {
-            next = injectingOptions(next, ["-c", "model_reasoning_effort=\"\(effort)\""])
-        }
+        next = applyCodexLaunchDefaults(next, policy: policy)
     }
     return next
 }

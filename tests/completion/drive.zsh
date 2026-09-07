@@ -27,6 +27,9 @@ zmodload zsh/zpty
 fpathdir=$1
 stubdir=$2
 workdir=$3
+# Where `tab` writes down a probe that timed out, read at the foot of the file: see there for why.
+timeouts=$fpathdir/.probe-timeouts
+: > $timeouts
 integer failures=0
 
 check() {
@@ -44,7 +47,8 @@ check() {
 # under test forks the stub to ask it what worktrees exist, and a fork on a machine running eight
 # swift compilations beside it does not always come back inside that window: the read then handed
 # back the echo of the typed line alone, and the check read that as "the flag offered nothing".
-# Green on every unloaded run and on every rerun, and five failures of one assertion across two
+# Green in 60 reruns of that probe alone and in 4 of 4 unloaded full runs at eight jobs; one failure
+# in 4 full runs beside twelve swift compilations, and five failures of one assertion across two
 # windows of the commit gate (2026-09-06/07). What ends a read now is a marker the shell prints
 # from a widget of its own, which ZLE cannot reach until the completion widget before it has
 # returned - so it arrives after the whole answer, or not at all. Not arriving is a timeout that
@@ -88,7 +92,7 @@ tab() {
   # $3, when given, is a line of setup run before the probe: what a user's own zshrc would have said.
   # $5 is how many characters to walk back before pressing Tab, which is the only way to ask about a
   # cursor with words still to its RIGHT (Ctrl-B, in the emacs keymap forced below).
-  local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} left=${5:-0} answer=''
+  local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} left=${5:-0} answer='' late=''
   zpty -d tally 2>/dev/null
   zpty tally zsh -f -i
   # `bindkey -e` because the default keymap follows $EDITOR: on a machine whose editor is vi this
@@ -101,7 +105,7 @@ tab() {
   zpty -w tally "export PATH=$stubdir:\$PATH TALLY_STUB_MODE=$mode; fpath=($fpathdir \$fpath); autoload -Uz compinit; compinit -u -d $fpathdir/.zcompdump; bindkey -e; _probe_done() { print -n PROBE''-DONE }; zle -N _probe_done; bindkey '^_' _probe_done; PROMPT='%%'; RPROMPT=''; LISTMAX=999; setopt nolistbeep; cd $workdir; $extra; print SHELL''-READY"
   # Waited for rather than slept off, so the setup echo is swallowed here instead of arriving in the
   # middle of the answer and being read as part of it.
-  pty_await SHELL-READY >/dev/null || print -u2 "probe never reached a ready shell: $line"
+  pty_await SHELL-READY >/dev/null || late='never reached a ready shell'
   # `presses` exists for the one contract that is about the SECOND press: a shell with the menu
   # turned off grows the common prefix first and lists after, like every other completion it has.
   zpty -w -n tally "$line"
@@ -114,10 +118,17 @@ tab() {
   # menuselect keymap, so at the cursors where this completion opens a menu the key leaves the menu
   # and is then run from the main keymap, which is the widget above.
   zpty -w -n tally $'\037'
-  answer=$(pty_await PROBE-DONE) || print -u2 "probe gave up waiting for the shell to finish: $line"
+  answer=$(pty_await PROBE-DONE) || late=${late:-'gave up waiting for the shell to finish'}
   zpty -w -n tally $'\e'      # leave the menu
   zpty -w -n tally $'\003'    # abandon the line, unrun
   zpty -d tally 2>/dev/null
+  # A TIMEOUT IS A FAILURE, counted once per probe whichever wait it was. It is written down here and
+  # counted at the foot of the file because this function runs inside a command substitution and
+  # cannot reach `failures` itself; the line on stderr is the same fact, told when it happened.
+  if [[ -n $late ]]; then
+    print -u2 "probe $late: $line"
+    print -r -- "probe $late: $line" >> $timeouts
+  fi
   # The marker is this file's own word, not the shell's answer, so it is taken back out before the
   # checks see the screen.
   print -r -- "$answer" | perl -pe 's/\e\[[0-9;?]*[a-zA-Z]//g; s/\e[>=]//g; s/\r/\n/g; s/PROBE-DONE//g'
@@ -284,5 +295,13 @@ check "the session flag is offered behind the verb that types" \
   "$([[ $(tab full "tally session send -") == *"--session"* ]] && print 1)"
 check "…and behind the verb that closes a window" \
   "$([[ $(tab full "tally session clear -") == *"--session"* ]] && print 1)"
+
+# A PROBE THAT NEVER FINISHED IS THE PUREST ABSENCE THERE IS: its screen is whatever had arrived,
+# and every check that names something it must NOT contain passes on it (seen: a widget that
+# printed no marker, 25 timeouts on stderr, 45 PASS, exit 0). Each timeout `tab` wrote down is one
+# failure here, so the run cannot end green on a screen the shell never finished drawing.
+if [[ -s $timeouts ]]; then
+  while IFS= read -r entry; do check "$entry" ''; done < $timeouts
+fi
 
 exit $(( failures > 0 ))

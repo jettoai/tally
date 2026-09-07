@@ -9,16 +9,19 @@
 # TALLY_TEST_JOBS.
 #
 # WHY THE DEFAULT IS FOUR AND NOT EIGHT, which is faster. The floor is the longest suite either way:
-# three of them are 36s to 50s on their own (supervisor, worktree, completion) and every other one
-# finishes inside 20s. What eight buys is about 18s of the 70, and what it costs is a suite that
-# fails for reasons that have nothing to do with the code. The completion suite drives a real zsh
-# through a pty and decides the shell has finished answering when it has been silent for half a
-# second, and a machine running eight swift compilations produces half-second silences on its own.
-# Measured here, 2026-08-18, same tree, alternating: eight at a time failed 3 runs of 8, always the
-# same probe (`tally claude -w <Tab>`, the one that forks the stub); four at a time failed 0 of 10;
-# the suite on its own passed every time, including with eight spinning CPU hogs beside it. So the
-# contention that reaches it is the compiles rather than the load average, and the numbers above
-# are the reason this default is not tuned for the wall clock alone.
+# two of them are 39s to 70s on their own (worktree, supervisor) and every other one finishes inside
+# 20s. What eight buys is about 18s of the wall clock, and what it cost when this default was chosen
+# was a suite that failed for reasons that had nothing to do with the code. The completion suite
+# drives a real zsh through a pty, and until 2026-09-07 it decided the shell had finished answering
+# when it had been silent for half a second; a machine running eight swift compilations produces
+# half-second silences on its own. Measured here, 2026-08-18, same tree, alternating: eight at a
+# time failed 3 runs of 8, always the same probe (`tally claude -w <Tab>`, the one that forks the
+# stub); four at a time failed 0 of 10; the suite on its own passed every time, including with eight
+# spinning CPU hogs beside it. So the contention that reached it was the compiles rather than the
+# load average. That suite now waits for a marker the shell prints once its completion has returned
+# (tests/completion/drive.zsh, `pty_await`), takes about 13s in this table and 10s on its own, and
+# its driver has passed 25 runs beside twelve swift compilations, so the reason for four no longer
+# holds. Eight has not been re-measured since, which is why the default still stands.
 #
 # EVERY SUITE'S EXIT CODE IS WRITTEN DOWN, and those files are the verdict rather than the return
 # of xargs: xargs answers 123 for "one or more of them failed" and says nothing about which, and a

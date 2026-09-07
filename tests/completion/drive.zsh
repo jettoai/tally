@@ -126,8 +126,9 @@ tab() {
   # counted at the foot of the file because this function runs inside a command substitution and
   # cannot reach `failures` itself; the line on stderr is the same fact, told when it happened.
   if [[ -n $late ]]; then
-    print -u2 "probe $late: $line"
-    print -r -- "probe $late: $line" >> $timeouts
+    local note="probe $late: $line"
+    print -u2 -- "$note"
+    print -r -- "$note" >> $timeouts
   fi
   # The marker is this file's own word, not the shell's answer, so it is taken back out before the
   # checks see the screen.
@@ -300,8 +301,6 @@ check "…and behind the verb that closes a window" \
 # and every check that names something it must NOT contain passes on it (seen: a widget that
 # printed no marker, 25 timeouts on stderr, 45 PASS, exit 0). Each timeout `tab` wrote down is one
 # failure here, so the run cannot end green on a screen the shell never finished drawing.
-if [[ -s $timeouts ]]; then
-  while IFS= read -r entry; do check "$entry" ''; done < $timeouts
-fi
+while IFS= read -r entry; do check "$entry" ''; done < $timeouts
 
 exit $(( failures > 0 ))

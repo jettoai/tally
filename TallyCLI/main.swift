@@ -421,6 +421,8 @@ case "model":
 // on. A namespace from the first verb (SessionInputCommand.swift states why).
 case "session":
     exit(runSession(args: Array(arguments.dropFirst())))
+case "message":
+    exit(runNativeMessage(args: Array(arguments.dropFirst())))
 case "hook-tally":    // internal: the `/tally` prompt hook (TallyHook.swift)
     exit(runHookTally(args: Array(arguments.dropFirst())))
 case "hook-notify":   // internal: Claude Code's Notification hook (UserNotice.swift)

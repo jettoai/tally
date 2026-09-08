@@ -79,6 +79,11 @@ usage:
                             terminal, it shows what is running and offers a menu. Inside Claude
                             Code, `/tally opus xhigh` does the same without waking a model
                             (installed with the Claude Code skill integration)
+  tally message claude --socket <absolute-socket> --session <UUID> --file <absolute-file> [--dry-run]
+                            write one native JSONL message. Socket write is not a recipient receipt.
+  tally message codex --home <absolute-home> --thread <UUID> --file <absolute-file> [--dry-run]
+                            send once through the native Codex queue using an explicit address.
+                            Liveness is unknown; queue acceptance is not a recipient receipt.
   tally session send [<text>] [--session <pid>]
                             type <text> into a supervised session's own terminal, exactly as if it
                             had been typed there, and press Return. With no text it presses Return

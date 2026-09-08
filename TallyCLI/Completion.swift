@@ -389,6 +389,7 @@ _tally() {
     "account:pin THIS session to another account, keeping the conversation"
     "model:run THIS conversation on another model and depth, for the rest of its life"
     "session:send a line into a supervised session, or clear its context window"
+    "message:send once to an explicit native provider address"
     "reload:restart every supervised session at its next idle moment"
     "keychain-repair:heal the Claude Code Keychain items Tally 0.64.0 left needing a dialog"
     "update:check for app updates now"

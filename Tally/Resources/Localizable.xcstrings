@@ -6000,6 +6000,34 @@
         }
       }
     },
+    "Applies to new sessions only; a running codex session keeps its model and effort until you start it again. A model you typed yourself always wins.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只套用到新啟動的 session；執行中的 codex session 會沿用原本的模型與強度，重新啟動才生效。你自己打的模型永遠優先。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只应用到新启动的 session；运行中的 codex session 会沿用原本的模型与强度，重新启动才生效。你自己输入的模型始终优先。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しく起動するセッションにのみ適用されます。実行中の codex セッションは再起動するまで現在のモデルと強度を維持します。自分で入力したモデルが常に優先されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 시작하는 세션에만 적용됩니다. 실행 중인 codex 세션은 다시 시작할 때까지 현재 모델과 강도를 유지합니다. 직접 입력한 모델이 항상 우선합니다."
+          }
+        }
+      }
+    },
     "Claude Code skill": {
       "extractionState": "manual",
       "localizations": {

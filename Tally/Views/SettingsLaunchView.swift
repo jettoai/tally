@@ -93,9 +93,13 @@ struct SettingsLaunchView: View {
         rowDivider
         // The caption spells out the follow behavior: defaults bind at launch, and a supervised
         // running session also adopts a changed default at its next quiet moment (a model the
-        // user typed themselves is left alone).
+        // user typed themselves is left alone). That follow only holds for claude - codex is a
+        // plain exec with no supervisor, so a running codex session never follows and the caption
+        // says so.
         StagedModelEffortRow(providerID: id, title: L("Default model & effort"),
-                             caption: L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins."),
+                             caption: id == "claude"
+                                 ? L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins.")
+                                 : L("Applies to new sessions only; a running codex session keeps its model and effort until you start it again. A model you typed yourself always wins."),
                              modelOptions: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
                              effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex)
         if id == "claude" {

@@ -8,8 +8,16 @@ struct NativeMessageIntent: Equatable {
     let dryRun: Bool
 }
 
-func nativeMessageIntent(_ args: [String]) -> NativeMessageIntent? {
-    guard args.first == "codex" else { return nil }
+let claudeMessageForm = "tally message claude --socket /absolute/session.sock"
+    + " --session UUID --file /absolute/message.txt [--dry-run]"
+let codexMessageForm = "tally message codex --home /absolute/home"
+    + " --thread UUID --file /absolute/message.txt [--dry-run]"
+
+/// Flag parsing shared by the message subcommands: the provider word, then `--key value`
+/// pairs drawn from `keys`, each given at most once, plus an optional `--dry-run`.
+/// Anything else, a repeat or a key with no value included, rejects the whole invocation.
+func nativeMessageFlags(_ args: [String],
+                        keys: Set<String>) -> (values: [String: String], dryRun: Bool)? {
     var values: [String: String] = [:]
     var dryRun = false
     var index = 1
@@ -21,15 +29,20 @@ func nativeMessageIntent(_ args: [String]) -> NativeMessageIntent? {
             dryRun = true
             continue
         }
-        guard ["--home", "--thread", "--file"].contains(key),
-              values[key] == nil, index < args.count else { return nil }
+        guard keys.contains(key), values[key] == nil, index < args.count else { return nil }
         values[key] = args[index]
         index += 1
     }
-    guard let home = values["--home"], home.hasPrefix("/"),
-          let thread = values["--thread"], UUID(uuidString: thread) != nil,
-          let file = values["--file"], file.hasPrefix("/") else { return nil }
-    return NativeMessageIntent(home: home, thread: thread, file: file, dryRun: dryRun)
+    return (values, dryRun)
+}
+
+func nativeMessageIntent(_ args: [String]) -> NativeMessageIntent? {
+    guard args.first == "codex",
+          let flags = nativeMessageFlags(args, keys: ["--home", "--thread", "--file"]),
+          let home = flags.values["--home"], home.hasPrefix("/"),
+          let thread = flags.values["--thread"], UUID(uuidString: thread) != nil,
+          let file = flags.values["--file"], file.hasPrefix("/") else { return nil }
+    return NativeMessageIntent(home: home, thread: thread, file: file, dryRun: flags.dryRun)
 }
 
 func nativeMessageArguments(_ intent: NativeMessageIntent, text: String) -> [String] {
@@ -38,10 +51,18 @@ func nativeMessageArguments(_ intent: NativeMessageIntent, text: String) -> [Str
 }
 
 func runNativeMessage(args: [String]) -> Int32 {
-    if args.first == "claude" { return runClaudeNativeMessage(args: args) }
+    switch args.first {
+    case "claude": return runClaudeNativeMessage(args: args)
+    case "codex": return runCodexNativeMessage(args: args)
+    default:
+        fputs("Usage: \(claudeMessageForm)\n       \(codexMessageForm)\n", stderr)
+        return 2
+    }
+}
+
+func runCodexNativeMessage(args: [String]) -> Int32 {
     guard let intent = nativeMessageIntent(args) else {
-        fputs("Usage: tally message codex --home /absolute/home --thread UUID "
-              + "--file /absolute/message.txt [--dry-run]\n", stderr)
+        fputs("Usage: \(codexMessageForm)\n", stderr)
         return 2
     }
     var isDirectory: ObjCBool = false

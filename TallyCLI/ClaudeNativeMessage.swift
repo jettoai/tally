@@ -9,28 +9,14 @@ struct ClaudeNativeMessageIntent: Equatable {
 }
 
 func claudeNativeMessageIntent(_ args: [String]) -> ClaudeNativeMessageIntent? {
-    guard args.first == "claude" else { return nil }
-    var values: [String: String] = [:]
-    var dryRun = false
-    var index = 1
-    while index < args.count {
-        let key = args[index]
-        index += 1
-        if key == "--dry-run" {
-            guard !dryRun else { return nil }
-            dryRun = true
-            continue
-        }
-        guard ["--socket", "--session", "--file"].contains(key), values[key] == nil,
-              index < args.count else { return nil }
-        values[key] = args[index]
-        index += 1
-    }
-    guard let socket = values["--socket"], socket.hasPrefix("/"),
-          socket.utf8.count < 104, let session = values["--session"],
-          UUID(uuidString: session) != nil, let file = values["--file"], file.hasPrefix("/")
-    else { return nil }
-    return ClaudeNativeMessageIntent(socket: socket, session: session, file: file, dryRun: dryRun)
+    guard args.first == "claude",
+          let flags = nativeMessageFlags(args, keys: ["--socket", "--session", "--file"]),
+          let socket = flags.values["--socket"], socket.hasPrefix("/"),
+          socket.utf8.count < 104, let session = flags.values["--session"],
+          UUID(uuidString: session) != nil, let file = flags.values["--file"],
+          file.hasPrefix("/") else { return nil }
+    return ClaudeNativeMessageIntent(socket: socket, session: session, file: file,
+                                     dryRun: flags.dryRun)
 }
 
 func claudeNativeMessageFrame(session: String, text: String) throws -> Data {
@@ -95,8 +81,7 @@ func writeClaudeNativeFrame(path: String, data: Data) -> Bool {
 
 func runClaudeNativeMessage(args: [String]) -> Int32 {
     guard let intent = claudeNativeMessageIntent(args) else {
-        fputs("Usage: tally message claude --socket /absolute/session.sock --session UUID "
-              + "--file /absolute/message.txt [--dry-run]\n", stderr)
+        fputs("Usage: \(claudeMessageForm)\n", stderr)
         return 2
     }
     guard let attributes = try? FileManager.default.attributesOfItem(atPath: intent.socket),

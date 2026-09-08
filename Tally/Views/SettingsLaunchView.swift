@@ -64,6 +64,7 @@ struct SettingsLaunchView: View {
     @ViewBuilder
     private func providerGroup(id: String, name: String) -> some View {
         let items = discovered(for: id)
+        let claude = id == "claude"
         HStack(spacing: 10) {
             ProviderIconView(providerID: id, size: 16)
                 .frame(width: 20)
@@ -81,7 +82,7 @@ struct SettingsLaunchView: View {
             rowDivider
             sharingRow(id, items: items)
         }
-        if id == "claude" {
+        if claude {
             rowDivider
             startModeRow(id)
         }
@@ -94,15 +95,14 @@ struct SettingsLaunchView: View {
         // The caption spells out the follow behavior: defaults bind at launch, and a supervised
         // running session also adopts a changed default at its next quiet moment (a model the
         // user typed themselves is left alone). That follow only holds for claude - codex is a
-        // plain exec with no supervisor, so a running codex session never follows and the caption
-        // says so.
+        // plain exec with no supervisor, so a running codex session never follows.
         StagedModelEffortRow(providerID: id, title: L("Default model & effort"),
-                             caption: id == "claude"
+                             caption: claude
                                  ? L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins.")
                                  : L("Applies to new sessions only; a running codex session keeps its model and effort until you start it again. A model you typed yourself always wins."),
-                             modelOptions: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
-                             effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex)
-        if id == "claude" {
+                             modelOptions: claude ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
+                             effortLevels: claude ? EffortLevels.shared.claude : EffortLevels.shared.codex)
+        if claude {
             rowDivider
             ModelEffortRow(title: L("Fallback & effort"),
                            modelOptions: ModelCatalog.claudeAliases,

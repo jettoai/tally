@@ -14203,58 +14203,58 @@
         }
       }
     },
-    "Claude / Codex": {
+    "Harness": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude / Codex"
+            "value": "Harness"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude / Codex"
+            "value": "Harness"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude / Codex"
+            "value": "Harness"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude / Codex"
+            "value": "Harness"
           }
         }
       }
     },
-    "Claude and Codex tools": {
+    "Harness tools": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 與 Codex 工具"
+            "value": "Harness 工具"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 与 Codex 工具"
+            "value": "Harness 工具"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude と Codex のツール"
+            "value": "Harness ツール"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 및 Codex 도구"
+            "value": "Harness 도구"
           }
         }
       }

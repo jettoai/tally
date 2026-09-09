@@ -274,7 +274,7 @@ subscriptions at once:
   `tally session send|clear`, `tally reload`. Maintenance: `tally update`,
   `tally completion zsh`, `tally worktree remove`. All script-friendly.
 
-- **Claude and Codex tools.** Settings > Integrations > Claude / Codex installs or removes
+- **Harness tools.** Settings > Integrations > Harness installs or removes
   the Tally harness skill and inbox reminders for both assistants together. Ask either
   assistant to adapt the harness for your current project or user settings. Installing
   the tools does not itself change project policy. Native hook trust needs separate

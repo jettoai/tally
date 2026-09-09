@@ -34,8 +34,11 @@ class ReviewChecks(Fixture):
     def test_harness_settings_labels_have_four_translated_localizations(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / "Tally/Views/SettingsCodexHarness.swift").read_text()
+        source += (root / "Tally/Views/SettingsIntegrationsPane.swift").read_text()
         keys = set(re.findall(r'L\("([^"\\]*)"\)', source))
         self.assertIn("Checking…", keys)
+        self.assertIn("Harness", keys)
+        self.assertIn("Harness tools", keys)
         catalog = json.loads((root / "Tally/Resources/Localizable.xcstrings").read_text())["strings"]
         for key in keys:
             for locale in ["zh-Hant", "zh-Hans", "ja", "ko"]:

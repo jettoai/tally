@@ -227,7 +227,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   `tally session send|clear`、`tally reload`。維護：`tally update`、`tally completion zsh`、
   `tally worktree remove`。全部對腳本友善。
 
-- **Claude 與 Codex 工具。** 在設定 > 整合 > Claude / Codex，一次安裝或移除兩邊的
+- **Harness 工具。** 在設定 > 整合 > Harness，一次安裝或移除兩邊的
   Tally harness skill 與離線信箱提醒。之後可請任一助理適配目前專案或使用者設定的
   harness。安裝工具本身不會變更專案規則，原生 hook 信任需另行確認。
   詳見 [harness 指南](docs/harness.md)。

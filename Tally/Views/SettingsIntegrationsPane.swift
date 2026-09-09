@@ -28,7 +28,7 @@ extension SettingsView {
             // verbatim in all four languages (see "Claude Code skill"), so a key here would only
             // ever hold four copies of these two words.
             case .claudeCode: return "Claude Code"
-            case .codexHarness: return L("Claude / Codex")
+            case .codexHarness: return L("Harness")
             }
         }
     }

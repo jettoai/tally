@@ -9,7 +9,7 @@ struct SettingsCodexHarness: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(L("Claude and Codex tools")).font(.subheadline)
+                        Text(L("Harness tools")).font(.subheadline)
                         Text(statusTitle).font(.caption2).foregroundStyle(harness.state == "installed" ? TallyColor.normal : .secondary)
                     }
                     Text(L("Installs the Tally harness skill and inbox reminders for Claude Code and Codex together. Ask either assistant to adapt your harness or handle messages in the current project."))

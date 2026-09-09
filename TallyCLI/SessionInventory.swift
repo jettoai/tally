@@ -85,9 +85,11 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
     // such memory. Preferring it is also what keeps this block and the per-account one describing
     // the same instant, because both are folded from this one scan.
     let sessions = live.map {
-        (accountID: readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
-            ?? $0.session?.accountID,
+        let sidecarAccountID = readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
+        return (accountID: sidecarAccountID ?? $0.session?.accountID,
+         sidecarAccountID: sidecarAccountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
+         context: $0.session,
          cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir),
          // What that supervisor last decided this session is doing (SessionState.swift). Read
          // rather than computed here for the reason the whole track exists: the transcript, the
@@ -112,12 +114,18 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             directory = line.path
             worktree = line.worktree
         }
+        let messagingSocket = session.pid.flatMap {
+            claudeMessagingSocket(childPid: $0, dir: socketDir)
+        }
+        let transcript = session.context?.transcriptSessionID
+        let transcriptSessionID = messagingSocket != nil
+            && session.sidecarAccountID != nil
+            && session.sidecarAccountID == session.context?.accountID
+            && transcript.flatMap(UUID.init(uuidString:)) != nil ? transcript : nil
         return StatusReport.Session(
             accountID: session.accountID, pid: session.pid, directory: directory,
             project: project, worktree: worktree,
-            messagingSocket: session.pid.flatMap {
-                claudeMessagingSocket(childPid: $0, dir: socketDir)
-            },
+            messagingSocket: messagingSocket, transcriptSessionID: transcriptSessionID,
             state: session.state?.state, stateSince: session.state?.since,
             // The three the supervisor publishes about WHY, passed through exactly as they were
             // decided: this join reads, it does not judge (StatusReport.swift says what they are

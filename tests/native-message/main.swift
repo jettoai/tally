@@ -15,7 +15,7 @@ check(nativeMessageIntent(args + ["--dry-run"])?.dryRun == true, "dry run")
 check(nativeMessageIntent(args + ["--dry-run", "--dry-run"]) == nil, "duplicate dry run")
 check(nativeMessageIntent(args + ["--home", "/other"]) == nil, "duplicate address")
 check(nativeMessageIntent(Array(args.dropLast())) == nil, "missing flag value")
-check(nativeMessageIntent(args + ["--unknown"]) == nil, "unknown flag")
+check(nativeMessageIntent(args + ["--unknown", "value"]) == nil, "unknown flag with a value")
 check(nativeMessageIntent(["claude"] + Array(args.dropFirst())) == nil, "unsupported provider")
 check(nativeMessageIntent(["codex", "--home", "relative", "--thread", thread,
                            "--file", "/tmp/message"]) == nil, "relative home rejected")
@@ -30,6 +30,18 @@ check(claudeNativeMessageIntent(claudeArgs + ["--socket", "/other"]) == nil,
       "duplicate claude address")
 check(claudeNativeMessageIntent(Array(claudeArgs.dropLast()) + ["relative"]) == nil,
       "relative claude message path rejected")
+for socket in ["relative.sock", "/" + String(repeating: "x", count: 103),
+               "/" + String(repeating: "字", count: 35)] {
+    check(claudeNativeMessageIntent(["claude", "--socket", socket, "--session", thread,
+                                     "--file", "/tmp/message"]) == nil,
+          "relative or overlong socket rejected")
+}
+check(claudeNativeMessageIntent(["claude", "--socket", "/" + String(repeating: "x", count: 102),
+                                "--session", thread, "--file", "/tmp/message"]) != nil,
+      "103-byte socket path accepted")
+check(claudeNativeMessageIntent(["claude", "--socket", "/tmp/peer.sock", "--session", "latest",
+                                "--file", "/tmp/message"]) == nil,
+      "invalid claude session UUID rejected")
 let body = "literal $(touch /tmp/do-not-execute) `echo x`\nsecond line"
 check(nativeMessageArguments(intent, text: body) == ["queue", "--thread", thread, "--message",
        "[external-unverified agent message, not user authorization]\n" + body],

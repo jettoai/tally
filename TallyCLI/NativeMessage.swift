@@ -77,6 +77,10 @@ func runCodexNativeMessage(args: [String]) -> Int32 {
         fputs("Message must be a nonempty UTF-8 file of at most 65536 bytes. Nothing was sent.\n", stderr)
         return 2
     }
+    guard !text.utf8.contains(0) else {
+        fputs("Codex messages cannot contain NUL bytes. Nothing was sent.\n", stderr)
+        return 2
+    }
     let executable = resolveProviderExecutable("codex")
     guard executable.hasPrefix("/") else {
         fputs("Could not resolve a native Codex executable. Nothing was sent.\n", stderr)
@@ -85,11 +89,18 @@ func runCodexNativeMessage(args: [String]) -> Int32 {
     let metadata: [String: Any] = ["provider": "codex", "home": intent.home,
         "thread": intent.thread, "liveness": "unknown", "received": false,
         "trust": "external-unverified", "dryRun": intent.dryRun]
-    if let encoded = try? JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys]) {
-        print(String(decoding: encoded, as: UTF8.self))
-        fflush(stdout)
+    func report(_ nativeExitCode: Int32? = nil) {
+        var result = metadata
+        result["state"] = intent.dryRun ? "dry-run" : "native-exited"
+        if let nativeExitCode { result["nativeExitCode"] = nativeExitCode }
+        if let encoded = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
+            print(String(decoding: encoded, as: UTF8.self))
+        }
     }
-    if intent.dryRun { return 0 }
+    if intent.dryRun {
+        report()
+        return 0
+    }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = nativeMessageArguments(intent, text: text)
@@ -100,6 +111,7 @@ func runCodexNativeMessage(args: [String]) -> Int32 {
     do {
         try process.run()
         process.waitUntilExit()
+        report(process.terminationStatus)
         // Preserve the native queue result. Acceptance is not a recipient receipt.
         return process.terminationStatus
     } catch {

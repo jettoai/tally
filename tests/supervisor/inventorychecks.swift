@@ -16,6 +16,8 @@ func runSessionInventoryChecks() {
     let empty = "/tmp/tally-inv-none-\(UUID().uuidString.prefix(8))"
     try? FileManager.default.createDirectory(atPath: socketDir, withIntermediateDirectories: true)
     let at = Date(timeIntervalSince1970: 1_800_000_000)
+    let transcript = "00000000-0000-0000-0000-000000000001"
+    let nextTranscript = "00000000-0000-0000-0000-000000000002"
 
     // A REAL PARENT AND CHILD, because the pid is only published when the process is alive AND is
     // that supervisor's own child: this process and the one that started it are exactly such a pair
@@ -35,7 +37,8 @@ func runSessionInventoryChecks() {
         markSupervisorLive(pid: pid, dir: dir)
     }
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
-                                          updatedAt: at), pid: trunkSupervisor, dir: dir)
+                                          updatedAt: at, transcriptSessionID: transcript),
+                        pid: trunkSupervisor, dir: dir)
     writeSupervisorChild(child, pid: trunkSupervisor, dir: dir)
     writeSupervisorCwd("/x/repo", pid: trunkSupervisor, dir: dir)
     writeSupervisorAccount("claude:.claude", pid: trunkSupervisor, dir: dir)
@@ -44,7 +47,8 @@ func runSessionInventoryChecks() {
     // document, deliberately: this is what a supervisor from a build before that file looks like,
     // and its reading is all such a session can be attributed by.
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 12_000,
-                                          updatedAt: at), pid: lineSupervisor, dir: dir)
+                                          updatedAt: at, transcriptSessionID: nextTranscript),
+                        pid: lineSupervisor, dir: dir)
     writeSupervisorCwd("/x/repo-cart", pid: lineSupervisor, dir: dir)
     // The session with nothing published about it yet, launched from a SUBDIRECTORY of its
     // checkout, which is the ordinary way `tally claude` is typed inside a repository.
@@ -152,6 +156,8 @@ func runSessionInventoryChecks() {
     // an address nothing is behind once Claude Code moves where it listens.
     check("no socket on disk, no address published",
           trunk?.messagingSocket == nil && line?.messagingSocket == nil)
+    check("a transcript without a socket is not published as a message address",
+          trunk?.transcriptSessionID == nil && line?.transcriptSessionID == nil)
     // THE FIXTURE ANSWERS FOR ITSELF FIRST. Everything below asserts what the inventory does with a
     // socket that is really there, so "there is no socket" has to fail as a fixture rather than as
     // the publisher: `sun_path` is 104 bytes and a temporary directory spends most of them.
@@ -163,6 +169,21 @@ func runSessionInventoryChecks() {
               == "\(socketDir)/\(child).sock")
     check("…and the session with no pid still gets none",
           addressed.first { $0.directory == "/x/repo-cart" }?.messagingSocket == nil)
+    check("the roster publishes the socket's matching transcript UUID",
+          addressed.first { $0.directory == "/x/repo" }?.transcriptSessionID == transcript)
+    check("a transcript without a live child is not published",
+          addressed.first { $0.directory == "/x/repo-cart" }?.transcriptSessionID == nil)
+    for value in [nextTranscript, "invalid", ""] {
+        writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
+                                              updatedAt: at, transcriptSessionID: value),
+                            pid: trunkSupervisor, dir: dir)
+        check("the published transcript follows changes and rejects invalid UUIDs",
+              inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?.transcriptSessionID
+                  == (value == nextTranscript ? nextTranscript : nil))
+    }
+    writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
+                                          updatedAt: at, transcriptSessionID: nextTranscript),
+                        pid: trunkSupervisor, dir: dir)
     // The path itself is the tripwire, so the shape it composes is pinned rather than eyeballed:
     // Claude Code names each socket for the pid listening on it, in one machine-wide directory.
     check("the address is the socket Claude Code names for that pid",
@@ -191,6 +212,8 @@ func runSessionInventoryChecks() {
     // has no memory to disagree with: each write replaces the whole of it. The fixture is that
     // failure: sidecar moved, reading did not.
     writeSupervisorAccount("claude:.claudeMOVED", pid: trunkSupervisor, dir: dir)
+    check("a stale account reading cannot publish a transcript beside the new account",
+          inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?.transcriptSessionID == nil)
     let afterHandoff = readings(sockets: empty)
     check("a session whose reading went stale is reported on the account the sidecar names",
           afterHandoff.sessions.first { $0.directory == "/x/repo" }?.accountID
@@ -201,6 +224,26 @@ func runSessionInventoryChecks() {
     check("…while a supervisor with no sidecar is still named by its reading",
           afterHandoff.sessions.first { $0.directory == "/x/repo-cart" }?.accountID
               == "claude:.claude")
+
+    let sidecar = supervisorAccountFile(pid: trunkSupervisor, dir: dir)
+    try? FileManager.default.removeItem(at: sidecar)
+    check("the stale reading fixture has no account sidecar",
+          !FileManager.default.fileExists(atPath: sidecar.path))
+    let withoutSidecar = inventory(sockets: socketDir).first { $0.directory == "/x/repo" }
+    check("a missing sidecar preserves account fallback but cannot publish a transcript pair",
+          withoutSidecar?.accountID == "claude:.claude"
+              && withoutSidecar?.messagingSocket == "\(socketDir)/\(child).sock"
+              && withoutSidecar?.transcriptSessionID == nil)
+    try? Data([0xff]).write(to: sidecar)
+    check("an unreadable sidecar cannot establish a transcript pair",
+          readSupervisorAccount(pid: trunkSupervisor, dir: dir) == nil
+              && inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?
+                  .transcriptSessionID == nil)
+    writeSupervisorAccount("claude:.claude", pid: trunkSupervisor, dir: dir)
+    check("restoring a matching sidecar restores the transcript pair",
+          inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?.transcriptSessionID
+              == nextTranscript)
+    writeSupervisorAccount("claude:.claudeMOVED", pid: trunkSupervisor, dir: dir)
 
     // MARK: - WHAT EACH SESSION IS DOING, AND WHY
 

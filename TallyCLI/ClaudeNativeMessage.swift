@@ -84,23 +84,40 @@ func runClaudeNativeMessage(args: [String]) -> Int32 {
         fputs("Usage: \(claudeMessageForm)\n", stderr)
         return 2
     }
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: intent.socket),
-          attributes[.type] as? FileAttributeType == .typeSocket,
-          let data = FileManager.default.contents(atPath: intent.file), data.count <= 65536,
-          let text = String(data: data, encoding: .utf8),
-          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-          let frame = try? claudeNativeMessageFrame(session: intent.session, text: text) else {
-        fputs("Invalid socket or message file. Nothing was sent.\n", stderr)
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: intent.socket) else {
+        fputs("Native socket is unavailable. Nothing was sent.\n", stderr)
+        return 1
+    }
+    guard attributes[.type] as? FileAttributeType == .typeSocket else {
+        fputs("Message target path is not a socket. Nothing was sent.\n", stderr)
         return 2
     }
+    guard let data = FileManager.default.contents(atPath: intent.file), data.count <= 65536,
+          let text = String(data: data, encoding: .utf8),
+          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        fputs("Message must be a nonempty UTF-8 file of at most 65536 bytes. Nothing was sent.\n", stderr)
+        return 2
+    }
+    guard let frame = try? claudeNativeMessageFrame(session: intent.session, text: text) else {
+        fputs("Native message encoding failed. Nothing was sent.\n", stderr)
+        return 1
+    }
+    let metadata: [String: Any] = ["provider": "claude", "socket": intent.socket,
+        "session": intent.session, "dryRun": intent.dryRun, "received": false,
+        "liveness": "unknown", "trust": "external-unverified",
+        "state": intent.dryRun ? "dry-run" : "written-unconfirmed"]
+    guard let encoded = try? JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys]) else {
+        fputs("Native message metadata encoding failed. Nothing was sent.\n", stderr)
+        return 1
+    }
     if intent.dryRun {
-        print("{\"provider\":\"claude\",\"dryRun\":true,\"received\":false,\"liveness\":\"unknown\"}")
+        print(String(decoding: encoded, as: UTF8.self))
         return 0
     }
     guard writeClaudeNativeFrame(path: intent.socket, data: frame) else {
         fputs("Native socket write failed. Delivery is unknown; no retry was made.\n", stderr)
         return 1
     }
-    print("{\"provider\":\"claude\",\"state\":\"written-unconfirmed\",\"received\":false,\"liveness\":\"unknown\"}")
+    print(String(decoding: encoded, as: UTF8.self))
     return 0
 }

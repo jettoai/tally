@@ -81,9 +81,11 @@ usage:
                             (installed with the Claude Code skill integration)
   tally message claude --socket <absolute-socket> --session <UUID> --file <absolute-file> [--dry-run]
                             write one native JSONL message. Socket write is not a recipient receipt.
+                            Use the paired messagingSocket and transcriptSessionID from tally status --json.
   tally message codex --home <absolute-home> --thread <UUID> --file <absolute-file> [--dry-run]
                             send once through the native Codex queue using an explicit address.
                             Liveness is unknown; queue acceptance is not a recipient receipt.
+                            Message files: nonempty UTF-8, at most 65536 bytes; Codex rejects NUL bytes.
   tally session send [<text>] [--session <pid>]
                             type <text> into a supervised session's own terminal, exactly as if it
                             had been typed there, and press Return. With no text it presses Return

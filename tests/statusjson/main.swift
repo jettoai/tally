@@ -256,7 +256,8 @@ let inventoried = parse(encodeStatusReport(statusReport(
     snapshot, policies: ["claude": LaunchPolicy()],
     sessions: [.init(accountID: "claude:.claude", pid: 4_242,
                      directory: "/Users/u/code/tally", project: "/Users/u/code/tally",
-                     messagingSocket: "/tmp/cc-socks/4242.sock"),
+                     messagingSocket: "/tmp/cc-socks/4242.sock",
+                     transcriptSessionID: "00000000-0000-0000-0000-000000000001"),
                .init(accountID: "claude:.claude2", pid: 5_050,
                      directory: "/Users/u/code/tally-cart", project: "/Users/u/code/tally",
                      worktree: "cart")],
@@ -270,10 +271,15 @@ check("…and the Claude Code pid to address",
       inventory(inventoried).first?["pid"] as? Int == 4_242)
 check("a socket that is really there is published whole",
       inventory(inventoried).first?["messagingSocket"] as? String == "/tmp/cc-socks/4242.sock")
+check("the transcript UUID is available beside its socket in the public JSON roster",
+      inventory(inventoried).first?["transcriptSessionID"] as? String
+          == "00000000-0000-0000-0000-000000000001")
 // Absent rather than empty: a reader takes no key as "not addressable this way" and falls back to
 // its file channel, where an empty string is an address it would try to dial.
 check("a session with no socket carries no key at all",
       inventory(inventoried).last?["messagingSocket"] == nil)
+check("an unavailable transcript UUID carries no key",
+      inventory(inventoried).last?["transcriptSessionID"] == nil)
 // The two project fields are not one field twice: a parallel line reports its own checkout AND the
 // repository every line of it shares, which is what lets a caller address the LINE rather than the
 // trunk (a worktree keeps its own inbox).

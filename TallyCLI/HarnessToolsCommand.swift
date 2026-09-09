@@ -9,14 +9,16 @@ func runHarnessTools(args: [String]) -> Int32 {
             codexHomes: [parsed.path("--target-home", fallback: HarnessArguments.home("codex"))],
             skillsRoot: parsed.path("--skills-root", fallback: FileManager.default.homeDirectoryForCurrentUser.path + "/.agents/skills"),
             stateRoot: parsed.path("--state-root", fallback: HarnessArguments.stateRoot))
-        if parsed.verb == "status", Set(parsed.values.keys).isSubset(of: ["--state-root"]),
+        let recordedConfiguration = Set(parsed.values.keys).isSubset(of: ["--state-root"])
+        if ["status", "remove"].contains(parsed.verb), recordedConfiguration,
            let receipt = try HarnessTools.receipt(in: configuration.stateRoot) {
             configuration = receipt.configuration
         }
         switch parsed.verb {
         case "install":
             try HarnessTools.install(configuration, executable: HarnessIO.canonical(CommandLine.arguments[0]))
-        case "remove": try HarnessTools.remove(configuration.stateRoot)
+        case "remove":
+            try HarnessTools.remove(configuration.stateRoot, expected: recordedConfiguration ? nil : configuration)
         case "status": break
         default: throw HarnessError("Use tally harness tools install, remove, or status.")
         }

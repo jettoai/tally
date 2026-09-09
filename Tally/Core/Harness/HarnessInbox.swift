@@ -193,7 +193,8 @@ enum HarnessInbox {
 
     static func status(_ root: String, address: HarnessInboxAddress, id: String) throws -> [String: Any] {
         let (_, _, value) = try message(root, address: address, id: id)
-        var result = metadata(value)
+        var result = value.filter { ["id", "state", "to"].contains($0.key) }
+        result["owner"] = (value["claim"] as? [String: Any])?["owner"] ?? NSNull()
         result["acknowledged"] = value["receipt"] != nil
         if let receipt = value["receipt"] as? [String: Any] {
             result["receipt"] = ["owner": receipt["owner"] ?? NSNull(), "at": receipt["at"] ?? NSNull()]

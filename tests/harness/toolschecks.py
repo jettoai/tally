@@ -129,6 +129,23 @@ class ToolsChecks(Fixture):
         self.assertEqual(self.run_cli("harness", "tools", "install", *options)["state"], "installed")
         self.assertEqual(self.run_cli("harness", "tools", "remove", *options)["state"], "not-installed")
 
+    def test_cli_remove_rejects_mismatched_homes_and_skills_without_writes(self):
+        options = self.options[2:]
+        self.run_cli("harness", "tools", "install", *options)
+        receipt = self.state / "tools/manifest.json"
+        paths = [receipt] + [Path(row["path"]) for row in json.loads(receipt.read_text())["files"]]
+        before = {path: path.read_bytes() for path in paths}
+        for flags in [["--source-home"], ["--target-home"], ["--skills-root"],
+                      ["--source-home", "--target-home"]]:
+            with self.subTest(flags=flags):
+                wrong = list(options)
+                for flag in flags:
+                    wrong[wrong.index(flag) + 1] = str(self.root / ("other-" + flag[2:]))
+                self.assertIn("does not match", self.run_cli("harness", "tools", "remove", *wrong, code=2))
+                self.assertEqual({path: path.read_bytes() for path in paths}, before)
+                self.assertFalse(any(self.root.glob("other-*")))
+        self.assertEqual(self.run_cli("harness", "tools", "remove", *options)["state"], "not-installed")
+
     def test_cli_status_uses_recorded_multi_home_configuration(self):
         config = self.configuration()
         config["claudeHomes"].append(str(self.root / "claude2"))
@@ -137,6 +154,18 @@ class ToolsChecks(Fixture):
         status = self.run_cli("harness", "tools", "status", "--state-root", self.state)
         self.assertEqual(status["state"], "installed")
         self.assertEqual(set(status["codexHomes"]), set(config["codexHomes"]))
+
+    def test_cli_remove_without_home_options_removes_recorded_multi_home_configuration(self):
+        config = self.configuration()
+        config["claudeHomes"].append(str(self.root / "claude2"))
+        config["codexHomes"].append(str(self.root / "codex2"))
+        self.tools("install", config)
+        receipt = self.state / "tools/manifest.json"
+        files = [Path(row["path"]) for row in json.loads(receipt.read_text())["files"]]
+        self.assertEqual(self.run_cli("harness", "tools", "remove", "--state-root", self.state)["state"], "not-installed")
+        self.assertFalse(receipt.exists())
+        self.assertTrue(all(not path.exists() for path in files if path != self.config))
+        self.assertEqual(json.loads(self.config.read_text()), {"hooks": {}})
 
     def test_interrupted_tools_install_restores_original_files_on_remove(self):
         original = self.config.read_bytes()

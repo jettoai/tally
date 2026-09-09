@@ -150,9 +150,12 @@ enum HarnessTools {
         }
     }
 
-    static func remove(_ root: String) throws {
+    static func remove(_ root: String, expected: HarnessToolsConfiguration? = nil) throws {
         try HarnessIO.locked(root) {
             guard var receipt = try receipt(in: root) else { return }
+            if let expected, receipt.configuration != expected {
+                throw HarnessError("Requested tools configuration does not match the installation receipt. Inspect tools status before removing it.")
+            }
             let path = receipt.configuration.manifestPath
             receipt.phase = "removing"
             try HarnessIO.replace(path, expected: HarnessIO.data(path), with: HarnessIO.encode(receipt))

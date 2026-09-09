@@ -33,6 +33,39 @@ class InboxChecks(Fixture):
         self.assertEqual(self.inbox("list"), [])
         self.assertTrue(self.inbox("status", "--id", id)["acknowledged"])
 
+    def test_status_exposes_owner_but_never_body_or_claim_nonce(self):
+        id = self.post()
+        nonces = []
+
+        def check(state, owner, acknowledged=False):
+            status = self.inbox("status", "--id", id)
+            encoded = json.dumps(status)
+            self.assertEqual(status["state"], state)
+            self.assertEqual(status["acknowledged"], acknowledged)
+            self.assertNotIn("body", status)
+            self.assertNotIn('"nonce"', encoded)
+            self.assertNotIn("External instruction", encoded)
+            for nonce in nonces:
+                self.assertNotIn(nonce, encoded)
+            self.assertEqual(status.get("owner"), owner)
+
+        check("pending", None)
+        nonces.append(self.claim(id))
+        check("claimed", "session-A")
+        for action in ["read", "ack", "release"]:
+            self.inbox(action, "--id", id, "--owner", "session-A", "--nonce", "unknown", code=2)
+        self.inbox("release", "--id", id, "--owner", "session-A", "--nonce", nonces[-1])
+        check("pending", None)
+        nonces.append(self.claim(id))
+        recovered = self.inbox("recover", "--id", id, "--owner", "session-B",
+                               "--previous-owner", "session-A", "--reason", "previous session ended",
+                               "--confirm-abandoned")
+        nonces.append(recovered["claim"]["nonce"])
+        check("claimed", "session-B")
+        self.inbox("ack", "--id", id, "--owner", "session-B", "--nonce", nonces[-1])
+        check("archived", "session-B", acknowledged=True)
+        self.assertEqual(self.inbox("status", "--id", id)["receipt"]["owner"], "session-B")
+
     def test_concurrent_claim_has_exactly_one_owner(self):
         id = self.post()
         base = [BIN, "inbox", "claim", "--provider", "codex", "--home", str(self.target),

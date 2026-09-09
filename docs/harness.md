@@ -5,17 +5,20 @@ and offline inbox. Your Claude instructions, scripts, skills, and review policy 
 the source data. No separate Python runtime or copy of the author's personal harness
 is needed to run these product features.
 
-In **Settings > Integrations > Claude / Codex**, click **Install** to add the
+In **Settings > Integrations > Harness**, click **Install** to add the
 `tally-harness` skill and inbox reminders to both providers. **Remove** removes that
 integration. Claude skills are installed in the detected account homes; Codex uses
 `~/.agents/skills`. Shared destinations are written once. Ask either assistant to
-adapt your harness: it selects the relevant project or user scope from your current
+adapt your Claude harness to Codex: it selects the relevant project or user scope from your current
 directory and request. The skill's installation folder does not select that scope.
 Installing the integration does not automatically adapt policy in your projects.
 
 For an explicit pair of homes, the CLI provides `tally harness tools install|remove|status`
 with `--source-home` and `--target-home`. `tools status` without home options inspects
-the recorded installation, including homes installed together by the app.
+the recorded installation, including homes installed together by the app. Likewise,
+`tools remove` without home or skills options removes the recorded installation.
+With explicit options, the resolved homes and skills root must match the receipt;
+a mismatch is rejected before any installation files are changed.
 
 Adaptations have their own preview and receipt. Inspect a plan before installing:
 
@@ -164,7 +167,9 @@ be nonempty UTF-8 and at most 65,536 bytes. A git subdirectory resolves to its c
 root. Provider, canonical home, and checkout define the mailbox address. The v1 address
 hash is compatible with the earlier Python inbox when an existing root is selected.
 
-List and lifecycle reminders contain metadata, not message bodies. Claims require an
+List and lifecycle reminders contain metadata, not message bodies. Status returns
+the claim owner and acknowledgment metadata, never message bodies or claim nonces,
+including after recovery or acknowledgment. Claims require an
 owner and reads require that owner's nonce. Acknowledgment archives the message and
 creates a receipt; `release` returns a claim to pending. Another active session's claim
 must not be taken. To recover an abandoned claim, first check the previous session,

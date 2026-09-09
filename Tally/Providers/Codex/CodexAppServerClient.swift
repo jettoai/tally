@@ -240,7 +240,7 @@ enum CodexAppServerClient {
 
 /// One live app-server process with line-indexed responses: send JSON-RPC strings, await a
 /// response id, close. Shared by the read path and the consume flow.
-private final class RPCSession {
+final class RPCSession {
     private let process = Process()
     private let stdinPipe = Pipe()
     private let stdoutPipe = Pipe()

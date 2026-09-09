@@ -18,7 +18,7 @@ extension SettingsView {
     /// running session shows you, and what Claude Code itself is taught. The rows that answer for the
     /// WHOLE set stay outside the pages (see `integrationsRows`).
     enum IntegrationsGroup: String, CaseIterable {
-        case commandLine, sessions, claudeCode
+        case commandLine, sessions, claudeCode, codexHarness
 
         var title: String {
             switch self {
@@ -28,6 +28,7 @@ extension SettingsView {
             // verbatim in all four languages (see "Claude Code skill"), so a key here would only
             // ever hold four copies of these two words.
             case .claudeCode: return "Claude Code"
+            case .codexHarness: return L("Claude / Codex")
             }
         }
     }
@@ -52,7 +53,8 @@ extension SettingsView {
             // putting either on a page would make it look like the page's own. The all-in-one row in
             // particular is this pane's at-a-glance "is everything on?" answer, which is exactly the
             // answer paging away the rows would otherwise cost.
-            allIntegrationsRow(integrations)
+            // The cross-provider tools have their own reversible installation receipt.
+            if integrationsGroup != .codexHarness { allIntegrationsRow(integrations) }
         }
         .disabled(BuildVariant.isUnshipped)
         rowDivider
@@ -62,8 +64,8 @@ extension SettingsView {
         // tightens), so the switch has to sit outside rather than opt back in.
         integrationsGroupPicker
         rowDivider
+        integrationsGroupPages(integrations)
         Group {
-            integrationsGroupPages(integrations)
             rowDivider
             // An ACTION, not an install: it sits after the install/remove set so that group stays
             // whole, and here rather than in the panel footer, where a second circular-arrow control
@@ -116,8 +118,10 @@ extension SettingsView {
                     case .commandLine: commandLineRows(integrations)
                     case .sessions: sessionRows(integrations)
                     case .claudeCode: claudeCodeRows(integrations)
+                    case .codexHarness: SettingsCodexHarness(active: integrationsGroup == group)
                     }
                 }
+                .disabled(BuildVariant.isUnshipped && group != .codexHarness)
                 .opacity(integrationsGroup == group ? 1 : 0)
                 .allowsHitTesting(integrationsGroup == group)
                 .accessibilityHidden(integrationsGroup != group)

@@ -423,6 +423,12 @@ case "session":
     exit(runSession(args: Array(arguments.dropFirst())))
 case "message":
     exit(runNativeMessage(args: Array(arguments.dropFirst())))
+case "harness":
+    exit(runHarness(args: Array(arguments.dropFirst())))
+case "inbox":
+    exit(runInbox(args: Array(arguments.dropFirst())))
+case "codex-hook": // internal: native harness adapter
+    exit(runCodexHook(args: Array(arguments.dropFirst())))
 case "hook-tally":    // internal: the `/tally` prompt hook (TallyHook.swift)
     exit(runHookTally(args: Array(arguments.dropFirst())))
 case "hook-notify":   // internal: Claude Code's Notification hook (UserNotice.swift)

@@ -14,7 +14,7 @@ trap 'rm -rf "$work"' EXIT
 
 # The script itself, out of the constant the CLI prints it from.
 swiftc -o "$work/dump" tests/completion/main.swift \
-  TallyCLI/Completion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
+  TallyCLI/Completion.swift TallyCLI/HarnessCompletion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift \
   TallyCLI/AccountComfort.swift TallyCLI/ProviderExecutable.swift TallyCLI/ResumePrompt.swift \
@@ -58,8 +58,7 @@ exit 2
 STUB
 chmod +x "$work/stub/tally"
 
-# The directory the completion runs in, carrying a file whose name no check may ever see: this
-# binary has no argument that takes a path.
+# A local file must appear only for explicit maintenance path options, never launch prompts.
 touch "$work/repo/a-file-here.txt"
 
 zsh -f tests/completion/drive.zsh "$work/fpath" "$work/stub" "$work/repo"

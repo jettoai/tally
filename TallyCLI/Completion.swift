@@ -12,9 +12,6 @@ import Foundation
 // a command renamed or removed while the completion goes on offering it, which is worse than
 // offering nothing at all - a suggested word that the binary answers with usage and exit 2.
 //
-// ZSH ONLY, on purpose. This machine's shell is zsh, and a bash script nobody runs is a second
-// list to keep in step with the first.
-//
 // The lists below are STATIC where the answer belongs to this binary (its subcommands, its own
 // flags, the names a launch axis takes) and ASKED where the answer belongs to this machine (which
 // accounts exist, which worktrees exist). The static half is interpolated from the same constants
@@ -183,10 +180,8 @@ _tally_rest() {
   # already answering anything that starts with a dash, and the rest of a launch line is a prompt or
   # a flag belonging to the child CLI, which this script does not pretend to know.
   #
-  # NO FILE COMPLETION, HERE OR ANYWHERE: not one argument of this binary takes a path, so offering
-  # the working directory was offering a whole category of answer that is never right (Albert,
-  # 2026-08-11). Silence does not stop anyone typing; a wrong suggestion accepted does become a
-  # command, which is how a file name once turned into a worktree branch.
+  # Launch prompts do not get file completion. Explicit harness and inbox path options have
+  # their own file completers in HarnessCompletion.swift.
   #
   # AN EMPTY WORD IS NOT ENOUGH TO MEAN "WHAT IS THERE". It is also what the word after somebody
   # else's flag looks like while it waits for a value, and the lesson is not just shown but INSERTED
@@ -334,6 +329,7 @@ _tally_project_command() {
   esac
 }
 
+\#(tallyHarnessCompletionZsh)
 _tally() {
   local curcontext="$curcontext" state line
   # Captured before `_arguments` rewrites `words`, because every helper that asks this machine a
@@ -390,6 +386,8 @@ _tally() {
     "model:run THIS conversation on another model and depth, for the rest of its life"
     "session:send a line into a supervised session, or clear its context window"
     "message:send once to an explicit native provider address"
+    "harness:inspect and adapt a Claude harness to Codex"
+    "inbox:handle provider-scoped offline messages"
     "reload:restart every supervised session at its next idle moment"
     "keychain-repair:heal the Claude Code Keychain items Tally 0.64.0 left needing a dialog"
     "update:check for app updates now"
@@ -441,6 +439,8 @@ _tally() {
         (resume) ;;
         (worktree) _tally_worktree_command ;;
         (project) _tally_project_command ;;
+        (harness) _tally_harness_command ;;
+        (inbox) _tally_inbox_command ;;
         (status) _arguments "--json[versioned machine-readable report for scripts and hooks]" ;;
         # `switch` is the name `account` shipped under. Still answered here, as the dispatch still
         # answers it, but deliberately absent from the list above: it is not the name to learn.

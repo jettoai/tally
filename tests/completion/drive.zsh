@@ -297,6 +297,17 @@ check "the session flag is offered behind the verb that types" \
 check "…and behind the verb that closes a window" \
   "$([[ $(tab full "tally session clear -") == *"--session"* ]] && print 1)"
 
+out=$(tab full "tally harness ")
+check "harness offers adaptation and tools commands" "$([[ $out == *plan* && $out == *tools* ]] && print 1)"
+out=$(tab full "tally harness tools ")
+check "tools offers install and remove at its nested argument" "$([[ $out == *install* && $out == *remove* ]] && print 1)"
+out=$(tab full "tally harness tools install --s")
+check "tools install offers its home and state options" "$([[ $out == *--source-home* && $out == *--state-root* ]] && print 1)"
+out=$(tab full "tally harness install --confirm-")
+check "adaptation install offers git confirmation" "$([[ $out == *--confirm-git-visible* ]] && print 1)"
+out=$(tab full "tally inbox post --file ./a-")
+check "inbox file option completes a message path" "$([[ $out == *a-file-here.txt* ]] && print 1)"
+
 # A PROBE THAT NEVER FINISHED IS THE PUREST ABSENCE THERE IS: its screen is whatever had arrived,
 # and every check that names something it must NOT contain passes on it (seen: a widget that
 # printed no marker, 25 timeouts on stderr, 45 PASS, exit 0). Each timeout `tab` wrote down is one

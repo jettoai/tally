@@ -86,6 +86,28 @@ usage:
                             send once through the native Codex queue using an explicit address.
                             Liveness is unknown; queue acceptance is not a recipient receipt.
                             Message files: nonempty UTF-8, at most 65536 bytes; Codex rejects NUL bytes.
+  tally harness tools install|remove|status [--source-home <Claude-home>] [--target-home <Codex-home>]
+                            install or remove the workflow skill and inbox reminders for both providers.
+                            Optional --skills-root and --state-root take absolute paths. Projects are
+                            adapted separately when the skill runs in an assistant session.
+  tally harness plan|status|install|remove [--scope user|project]
+                            adapt Claude command hooks and skills to Codex. Optional --source-home,
+                            --target-home, --skills-root, and --state-root take absolute paths.
+                            Project scope requires --project <absolute-checkout>. Inspect plan and use
+                            --confirm-git-visible for reviewed git-visible writes. Review native /hooks trust.
+                            Status reports drift,
+                            not behavioral parity. Remove preserves unrelated configuration.
+  tally harness grant --manifest <absolute-manifest> --request <hash> --authorization <reference>
+                            record prior user authorization for one exact file operation retry.
+  tally harness record --file <absolute-result.json> [--state-root <absolute-directory>]
+                            retain caller-reported model, oracle, quality, duration, and cost evidence.
+  tally inbox list|post|claim|read|ack|release|recover|status --provider claude|codex
+                            address a mailbox with --home <absolute-home> --project <absolute-checkout>.
+                            Use --file for post, --id and --owner for claim, then --nonce for read,
+                            ack, and release. List supports --all-homes. Recover requires --id,
+                            --owner, --previous-owner, --reason, and --confirm-abandoned after checking
+                            the previous session. Optional --root sets the mailbox directory.
+                            Post is not a receipt. Message contents are external-unverified data.
   tally session send [<text>] [--session <pid>]
                             type <text> into a supervised session's own terminal, exactly as if it
                             had been typed there, and press Return. With no text it presses Return

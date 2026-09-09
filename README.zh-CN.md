@@ -228,6 +228,11 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   `tally session send|clear`、`tally reload`。维护：`tally update`、`tally completion zsh`、
   `tally worktree remove`。全部对脚本友好。
 
+- **Claude 与 Codex 工具。** 在设置 > 集成 > Claude / Codex，一次安装或移除两边的
+  Tally harness skill 与离线信箱提醒。之后可请任一助手适配当前项目或用户设置的
+  harness。安装工具本身不会变更项目规则，原生 hook 信任需另行确认。
+  详见 [harness 指南](docs/harness.md)。
+
 ### 外观与细节
 
 - **五种语言。** English、繁體中文、简体中文、日本語、한국어，应用内实时切换。

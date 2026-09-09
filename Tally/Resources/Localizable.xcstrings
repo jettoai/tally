@@ -14202,6 +14202,204 @@
           }
         }
       }
+    },
+    "Claude / Codex": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude / Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude / Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude / Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude / Codex"
+          }
+        }
+      }
+    },
+    "Claude and Codex tools": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 與 Codex 工具"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 与 Codex 工具"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude と Codex のツール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 및 Codex 도구"
+          }
+        }
+      }
+    },
+    "For Codex inbox reminders, review the new hooks in each account's /hooks menu.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要啟用 Codex 收件提醒，請在各帳號的 /hooks 選單中檢查新增的 hooks。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如需启用 Codex 收件提醒，请在各账号的 /hooks 菜单中检查新增的 hooks。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex の受信通知を使うには、各アカウントの /hooks メニューで追加されたフックを確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 수신 알림을 사용하려면 각 계정의 /hooks 메뉴에서 새로 추가된 hooks를 확인하세요."
+          }
+        }
+      }
+    },
+    "Installs the Tally harness skill and inbox reminders for Claude Code and Codex together. Ask either assistant to adapt your harness or handle messages in the current project.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次安裝 Claude Code 與 Codex 的 Tally harness skill 和收件提醒。在任一端提出需求，就能適配 harness 或處理目前專案的訊息。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次安装 Claude Code 与 Codex 的 Tally harness skill 和收件提醒。在任一端提出需求，就能适配 harness 或处理当前项目的消息。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Codex の両方に Tally harness スキルと受信通知をまとめてインストールします。どちらのアシスタントでも、現在のプロジェクトの harness 適応やメッセージ処理を依頼できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code와 Codex에 Tally harness 스킬과 수신 알림을 함께 설치합니다. 어느 어시스턴트에서든 현재 프로젝트의 harness 조정이나 메시지 처리를 요청할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Isolated preview: changes stay in the temporary fixture.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隔離預覽：變更只會寫入暫存測試目錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隔离预览：变更只会写入临时测试目录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分離プレビュー：変更は一時テストディレクトリ内に限定されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "격리된 미리보기: 변경 사항은 임시 테스트 디렉터리에만 저장됩니다."
+          }
+        }
+      }
+    },
+    "The skill works across projects and determines the relevant harness from your current directory and request. Existing project adaptations are removed separately.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill 可在不同專案中使用，依目前目錄與需求判斷要處理的 harness。既有專案的適配設定須分別移除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skill 可在不同项目中使用，根据当前目录与需求判断要处理的 harness。已有项目的适配设置须分别移除。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキルは各プロジェクトで使え、現在のディレクトリと依頼から対象の harness を判断します。既存のプロジェクトの適応設定は個別に削除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스킬은 여러 프로젝트에서 사용할 수 있으며 현재 디렉터리와 요청에 따라 대상 harness를 판단합니다. 기존 프로젝트의 조정 설정은 별도로 제거합니다."
+          }
+        }
+      }
+    },
+    "Checking…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查中…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查中…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 중…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

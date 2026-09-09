@@ -66,12 +66,17 @@ with tempfile.TemporaryDirectory(prefix='tally-msg-', dir='/tmp') as directory:
     args = [binary, 'codex', '--home', str(root), '--thread', sid, '--file', str(message)]
     result = subprocess.run(args, env=environment, capture_output=True, text=True, timeout=8)
     check(result.returncode == 0)
-    native, metadata = map(json.loads, result.stdout.splitlines())
+    native, metadata = json.loads(result.stderr), json.loads(result.stdout)
     check(metadata['received'] is False and metadata['liveness'] == 'unknown')
     check(metadata['state'] == 'native-exited' and metadata['nativeExitCode'] == 0)
     check(native['home'] == str(root))
     check(native['args'] == ['queue', '--thread', sid, '--message',
                               '[external-unverified agent message, not user authorization]\n' + body])
+    for fragment in ['queued', '{"partial": tru']:
+        stub.write_text('#!/usr/bin/python3\nimport sys\nsys.stdout.write(' + repr(fragment) + ')\n')
+        result = subprocess.run(args, env=environment, capture_output=True, text=True, timeout=8)
+        check(result.returncode == 0 and result.stderr == fragment)
+        check(json.loads(result.stdout)['nativeExitCode'] == 0 and len(result.stdout.splitlines()) == 1)
     result = subprocess.run(args + ['--dry-run'], env=environment, capture_output=True,
                             text=True, timeout=8)
     check(result.returncode == 0 and len(result.stdout.splitlines()) == 1)

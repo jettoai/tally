@@ -165,6 +165,7 @@ struct StatusReport: Encodable {
         /// The transcript UUID published by this supervisor, paired with `messagingSocket` for
         /// `tally message claude --session`. Requires a socket and an account sidecar matching
         /// the context reading; an absent or unreadable sidecar cannot establish this pairing.
+        /// The UUID must also match a transcript report stamped by the current live child.
         /// This is a point-in-time address; the conversation can end or change after the report.
         var transcriptSessionID: String?
         /// What this session is doing right now: `working`, `blocked` (Claude Code has asked for

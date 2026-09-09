@@ -108,6 +108,8 @@ func runCodexNativeMessage(args: [String]) -> Int32 {
     environment["CODEX_HOME"] = intent.home
     process.environment = environment
     process.standardInput = FileHandle.nullDevice
+    // Keep stdout as one metadata document, even if the native CLI prints a partial line.
+    process.standardOutput = FileHandle.standardError
     do {
         try process.run()
         process.waitUntilExit()

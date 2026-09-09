@@ -23,6 +23,10 @@ func runSessionInventoryChecks() {
     // that supervisor's own child: this process and the one that started it are exactly such a pair
     // (the same fixture the witness checks use).
     let child = getpid()
+    guard let childStamp = processStamp(child) else {
+        check("the inventory fixture can read its live child's process stamp", false)
+        return
+    }
     let trunkSupervisor = String(getppid())
     let lineSupervisor = String(getpid())
     // A third live supervisor, and the one this block exists for: it has registered and published
@@ -42,6 +46,8 @@ func runSessionInventoryChecks() {
     writeSupervisorChild(child, pid: trunkSupervisor, dir: dir)
     writeSupervisorCwd("/x/repo", pid: trunkSupervisor, dir: dir)
     writeSupervisorAccount("claude:.claude", pid: trunkSupervisor, dir: dir)
+    writeTranscriptIdentity(TranscriptIdentity(id: transcript, claudeCode: childStamp),
+                            pid: trunkSupervisor, dir: dir)
     // The parallel line, on the SAME account: two lines of one repository is the case the whole
     // block exists for, and it is also the case the per-account reading cannot express. NO account
     // document, deliberately: this is what a supervisor from a build before that file looks like,
@@ -174,6 +180,8 @@ func runSessionInventoryChecks() {
     check("a transcript without a live child is not published",
           addressed.first { $0.directory == "/x/repo-cart" }?.transcriptSessionID == nil)
     for value in [nextTranscript, "invalid", ""] {
+        writeTranscriptIdentity(TranscriptIdentity(id: value, claudeCode: childStamp),
+                                pid: trunkSupervisor, dir: dir)
         writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
                                               updatedAt: at, transcriptSessionID: value),
                             pid: trunkSupervisor, dir: dir)
@@ -184,6 +192,20 @@ func runSessionInventoryChecks() {
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
                                           updatedAt: at, transcriptSessionID: nextTranscript),
                         pid: trunkSupervisor, dir: dir)
+    writeTranscriptIdentity(TranscriptIdentity(id: nextTranscript,
+        claudeCode: ProcessStamp(pid: child, startedAt: childStamp.startedAt - 1)),
+        pid: trunkSupervisor, dir: dir)
+    check("a previous child generation cannot pair the cached UUID with a live socket",
+          inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?.transcriptSessionID == nil)
+    writeTranscriptIdentity(TranscriptIdentity(id: transcript, claudeCode: childStamp),
+                            pid: trunkSupervisor, dir: dir)
+    check("a current child reporting a different conversation cannot endorse the cached UUID",
+          inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?.transcriptSessionID == nil)
+    clearTranscriptIdentity(pid: trunkSupervisor, dir: dir)
+    check("an absent stamped report cannot establish the transcript pair",
+          inventory(sockets: socketDir).first { $0.directory == "/x/repo" }?.transcriptSessionID == nil)
+    writeTranscriptIdentity(TranscriptIdentity(id: nextTranscript, claudeCode: childStamp),
+                            pid: trunkSupervisor, dir: dir)
     // The path itself is the tripwire, so the shape it composes is pinned rather than eyeballed:
     // Claude Code names each socket for the pid listening on it, in one machine-wide directory.
     check("the address is the socket Claude Code names for that pid",

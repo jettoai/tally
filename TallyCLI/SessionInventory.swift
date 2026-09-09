@@ -89,6 +89,7 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
         return (accountID: sidecarAccountID ?? $0.session?.accountID,
          sidecarAccountID: sidecarAccountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
+         transcriptIdentity: readTranscriptIdentity(pid: $0.supervisorPid, dir: dir),
          context: $0.session,
          cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir),
          // What that supervisor last decided this session is doing (SessionState.swift). Read
@@ -121,6 +122,9 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
         let transcriptSessionID = messagingSocket != nil
             && session.sidecarAccountID != nil
             && session.sidecarAccountID == session.context?.accountID
+            && session.transcriptIdentity?.id == transcript
+            && session.transcriptIdentity?.claudeCode != nil
+            && session.transcriptIdentity?.claudeCode == session.pid.flatMap { processStamp(pid_t($0)) }
             && transcript.flatMap(UUID.init(uuidString:)) != nil ? transcript : nil
         return StatusReport.Session(
             accountID: session.accountID, pid: session.pid, directory: directory,

@@ -215,9 +215,11 @@ func readDriftState(pid: String, dir: URL = supervisorStateDir) -> DriftState? {
 func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
     let files = (try? FileManager.default.contentsOfDirectory(
         at: dir, includingPropertiesForKeys: nil)) ?? []
+    let stale = Set(files.compactMap { supervisorStatePid(ofFile: $0.lastPathComponent) }.filter {
+        !supervisorAlive($0) || SessionMonitoring.staleGeneration(pid: String($0), dir: dir)
+    })
     for file in files {
-        guard let pid = supervisorStatePid(ofFile: file.lastPathComponent),
-              !supervisorAlive(pid) else { continue }
+        guard let pid = supervisorStatePid(ofFile: file.lastPathComponent), stale.contains(pid) else { continue }
         try? FileManager.default.removeItem(at: file)
     }
 }

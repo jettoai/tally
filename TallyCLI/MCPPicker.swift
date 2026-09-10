@@ -299,6 +299,7 @@ func mcpPaletteAccountRows(_ world: MCPPickerWorld, _ input: MCPHookInput) -> [P
 /// a panel that answers nothing.
 func mcpPickTally(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> String {
     let status = world.modelStatus(input)
+    if let refusal = status.controlRefusal { return mcpBlockDecision(refusal) }
     if !input.isBare {
         switch tallyPromptIntent(input.commandArgs,
                                  models: mcpModelOptions(status).map(\.value)) {
@@ -350,6 +351,7 @@ func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> St
         return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
     }
     let status = world.modelStatus(input)
+    if let refusal = status.controlRefusal { return mcpBlockDecision(refusal) }
     // BOTH AXES, MODELS FIRST. The fleet is read even though this command is about models, because
     // the panel offers both and a person who typed the wrong one of the two commands is one click
     // from what they meant rather than an Escape and a retype (`mcpPickSections`).

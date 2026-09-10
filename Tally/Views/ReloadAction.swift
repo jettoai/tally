@@ -55,7 +55,7 @@ enum ReloadAction {
     static func readinessNote(_ readiness: ReloadReadiness) -> String {
         switch readiness {
         case .ready: return ""
-        case .nothingRunning: return L("No supervised sessions are running")
+        case .nothingRunning: return L("No supervised Claude sessions are available to reload")
         case .legacyOnly(let count): return reloadLegacyNotice(count, localize: L)
         }
     }

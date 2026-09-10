@@ -7,6 +7,7 @@ import Foundation
 // live address can turn into a stale one.
 
 func runSessionInventoryChecks() {
+    runCodexMonitoringChecks()
     let dir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-inventory-\(UUID().uuidString)")
     // Short, and under /tmp: a unix socket's whole path has to fit in `sun_path` (104 bytes), and

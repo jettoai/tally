@@ -95,7 +95,7 @@ struct SettingsLaunchView: View {
         // The caption spells out the follow behavior: defaults bind at launch, and a supervised
         // running session also adopts a changed default at its next quiet moment (a model the
         // user typed themselves is left alone). That follow only holds for claude - codex is a
-        // plain exec with no supervisor, so a running codex session never follows.
+        // monitoring-only resident for interactive launches, so a running Codex session never follows.
         StagedModelEffortRow(providerID: id, title: L("Default model & effort"),
                              caption: claude
                                  ? L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins.")

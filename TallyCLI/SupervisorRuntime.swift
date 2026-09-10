@@ -75,10 +75,12 @@ func supervisedChildEnvironment(provider: Provider, home: String, supervisorVers
     var environment = base
     environment.removeValue(forKey: provider.envKey)
     environment["TALLY_LAUNCHED"] = "1"
-    if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
+    environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion
+    environment["TALLY_SUPERVISED"] = "1"
+    environment.removeValue(forKey: "TALLY_CODEX_LAUNCH_NONCE")
     environment["TALLY_SUPERVISOR_PID"] = supervisorPID
-    // Assigned FROM THE OPTIONAL, so nothing to stamp clears the key rather than leaving what was
-    // there (unlike the version above, which only ever adds). The pid is overwritten
+    // Assigned from the optional, like the version above, so absent identity fields clear any
+    // inherited value. The pid is overwritten
     // unconditionally, so a generation left in `base` by an OUTER supervised session is the only
     // way the pair can end up naming two different supervisors. That pairing is the whole identity
     // the sweep reads (HandoffKill.swift), and a stale one there costs it its own jobs.
@@ -86,8 +88,10 @@ func supervisedChildEnvironment(provider: Provider, home: String, supervisorVers
     // No spawn from here stops at Claude Code's "resume the whole conversation?" prompt: a relaunch
     // resumes by id with nobody at the keyboard, and a first launch was asked for by somebody who
     // typed the command (ResumePrompt.swift carries the reversal and the way back to the prompt).
-    for (key, value) in resumePromptSuppression(environment) {
-        environment[key] = value
+    if provider.id == "claude" {
+        for (key, value) in resumePromptSuppression(environment) {
+            environment[key] = value
+        }
     }
     if let env = launchEnv(provider, home: home) { environment[env.key] = env.value }
     return environment

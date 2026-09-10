@@ -39,6 +39,8 @@ let modelLayerNone = "nothing"
 /// session's model at the fleet's effort. A single "the session decides" answer would be wrong about
 /// one of them.
 struct ModelStatus: Equatable {
+    var controlRefusal: String?
+
     var pair = SessionModelPin()
     var modelSource = modelLayerNone
     var effortSource = modelLayerNone
@@ -184,6 +186,7 @@ func modelStatusLines(_ status: ModelStatus, efforts: [String] = claudeEffortNam
     // safeguard restore, a flag typed at launch) leaves the two disagreeing precisely when someone
     // asks. Nothing published yet says so rather than guessing - a command whose whole job is to
     // report what a session runs may not answer that in the indicative when it cannot read it.
+    if let refusal = status.controlRefusal { return [refusal] }
     var lines = modelStatusRunningLines(status)
     lines += ["what the layers say:",
               "  model   \(status.pair.model ?? "not set")   (\(status.modelSource))",
@@ -232,6 +235,9 @@ func liveModelStatus(cwd: String = FileManager.default.currentDirectoryPath,
                      marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> ModelStatus {
     let provider = providers[0]
     let session = currentSessionLookup(cwd: cwd, marker: marker)
+    if let session, let refusal = sessionControlRefusal(pid: session.key, dir: supervisorStateDir) {
+        return ModelStatus(controlRefusal: refusal)
+    }
     let published = session.flatMap { readSessionContext(pid: $0.key) }
     // An empty declared pair is "cannot say", not "asked for nothing": a document written by a
     // build before these fields existed decodes with them all nil, and reporting that as a fact

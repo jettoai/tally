@@ -87,6 +87,7 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
     let sessions = live.map {
         let sidecarAccountID = readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
         return (accountID: sidecarAccountID ?? $0.session?.accountID,
+         monitoring: SessionMonitoring.isMarked(pid: $0.supervisorPid, dir: dir),
          sidecarAccountID: sidecarAccountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
          transcriptIdentity: readTranscriptIdentity(pid: $0.supervisorPid, dir: dir),
@@ -115,9 +116,9 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             directory = line.path
             worktree = line.worktree
         }
-        let messagingSocket = session.pid.flatMap {
+        let messagingSocket = !session.monitoring ? session.pid.flatMap {
             claudeMessagingSocket(childPid: $0, dir: socketDir)
-        }
+        } : nil
         let transcript = session.context?.transcriptSessionID
         let transcriptSessionID = messagingSocket != nil
             && session.sidecarAccountID != nil
@@ -135,7 +136,9 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             // decided: this join reads, it does not judge (StatusReport.swift says what they are
             // for and why a state word alone left the question unanswerable).
             reason: session.state?.reason, noticeType: session.state?.noticeType,
-            quiet: session.state?.quiet)
+            quiet: session.state?.quiet,
+            provider: session.monitoring ? "codex" : "claude",
+            supportedActions: session.monitoring ? [] : ["account", "model", "send", "clear", "reload"])
     }
 }
 

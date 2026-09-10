@@ -264,6 +264,10 @@ func liveSwitchFleetRows(cwd: String = FileManager.default.currentDirectoryPath,
 func liveSwitchFleet(cwd: String = FileManager.default.currentDirectoryPath,
                      marker: SessionMarkerTrust = .trusted(liveSessionMarker()))
     -> (accounts: [Snapshot.Account], rows: [SwitchFleetRow]?, problem: String?) {
+    if let session = currentSessionLookup(cwd: cwd, marker: marker),
+       let refusal = sessionControlRefusal(pid: session.key, dir: supervisorStateDir) {
+        return ([], nil, refusal)
+    }
     let (snapshot, problem) = loadSnapshot()
     guard let accounts = snapshot?.accounts else { return ([], nil, problem) }
     return (accountsInPanelOrder(accounts, order: snapshot?.accountOrder),

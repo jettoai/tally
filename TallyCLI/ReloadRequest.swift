@@ -3,7 +3,7 @@ import Foundation
 
 // The reload request file and the live-supervisor registry, shared by BOTH targets: the CLI writes
 // the request from `tally reload`, the app writes the same request from its Settings row, and every
-// supervisor reads it on its poll tick. Compiled into Tally.app as well as the tally tool (see
+// Claude supervisor reads it on its poll tick. Compiled into Tally.app as well as the tally tool (see
 // project.yml, the same arrangement UsageAdvisor.swift uses), so it must stay dependency-free -
 // no `warn`, no snapshot types, nothing that only exists in one target.
 
@@ -67,7 +67,9 @@ func supervisorAlive(_ pid: pid_t) -> Bool {
 func liveSupervisorPids(dir: URL = supervisorStateDir) -> [pid_t] {
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
-    return files.compactMap { pid_t($0.lastPathComponent) }.filter { supervisorAlive($0) }
+    return files.compactMap { pid_t($0.lastPathComponent) }.filter {
+        supervisorAlive($0) && SessionMonitoring.presenceIsLive(pid: String($0), dir: dir)
+    }
 }
 
 // MARK: - Legacy supervisors (running, but from a build with no reload support)
@@ -182,7 +184,7 @@ private func processAccountingName(_ info: proc_bsdinfo) -> String {
 enum ReloadReadiness: Equatable {
     /// Sessions are registered and will act on a request.
     case ready(Int)
-    /// Nothing supervised is running at all.
+    /// No registered Claude session can act on a reload request.
     case nothingRunning
     /// Sessions ARE running, but every one predates this feature: a request would reach none of
     /// them. The count is theirs, and the message has to say what to do about it.
@@ -201,10 +203,13 @@ func reloadReadiness(live: Int, legacy: Int) -> ReloadReadiness {
 /// here is what the answer COSTS. The registry is a directory listing, so it is read every time,
 /// while the whole-machine process scan runs only when the registry comes back empty, which on an
 /// up-to-date machine is also when nothing is running at all.
-func currentReloadReadiness(dir: URL = supervisorStateDir, now: Date = Date()) -> ReloadReadiness {
-    let live = liveSupervisorPids(dir: dir).count
-    let legacy = live > 0 ? 0 : legacySupervisorPids(listRunningProcesses(),
-                                                     excluding: ancestorChain(of: getpid()),
+func currentReloadReadiness(dir: URL = supervisorStateDir, now: Date = Date(),
+                            processes: () -> [RunningProcess] = listRunningProcesses) -> ReloadReadiness {
+    let registered = liveSupervisorPids(dir: dir)
+    let live = registered.filter { sessionControlRefusal(pid: String($0), dir: dir) == nil }.count
+    let legacy = live > 0 ? 0 : legacySupervisorPids(processes(),
+                                                     excluding: ancestorChain(of: getpid()).union(registered)
+                                                        .union(SessionMonitoring.markedPids(dir: dir)),
                                                      now: now).count
     return reloadReadiness(live: live, legacy: legacy)
 }

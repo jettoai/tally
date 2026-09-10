@@ -5,7 +5,7 @@ import Foundation
 //
 //   tally claude [args…]       launch `claude` on the best Claude account (args pass through);
 //                              stays resident and auto-hands-off on a cap hit (see Supervisor.swift)
-//   tally codex  [args…]       exec `codex` on the best Codex account
+//   tally codex  [args…]       launch and monitor interactive Codex sessions on the best account
 //   tally resume [args…]       continue this directory's latest Claude session on the best account
 //   tally status [--json]      print every account's remaining windows (--json for scripts)
 //   tally best-dir <provider>  print the `export CLAUDE_CONFIG_DIR=…` line for the best account
@@ -45,13 +45,13 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // what the user actually asked for.
     let stdoutIsTTY = isatty(STDOUT_FILENO) == 1
     let wantsHandoff = shouldSupervise(args: passthrough, stdoutIsTTY: stdoutIsTTY)
+    let wantsCodexMonitoring = provider.id == "codex"
+        && shouldMonitorCodex(args: passthrough, stdoutIsTTY: stdoutIsTTY)
     // Say so when the reason was the pipe, because that reason is invisible: `--print` is something
     // the user typed and `--no-handoff` is something they asked for, but a redirected stdout is a
     // property of the shell line, and a session silently losing its auto-handoff is the kind of
     // thing only noticed later, at the wall. On stderr, so it cannot land in the output being piped.
-    // Only for the provider that would otherwise have had a supervisor: codex is a plain exec
-    // either way (the `runSupervised` calls below are both behind `provider.id == "claude"`), so
-    // telling a piped `tally codex` what it lost would be naming a thing it never had.
+    // Claude has automatic recovery; piped Codex commands deliberately remain one-shot.
     if provider.id == "claude", !wantsHandoff, !stdoutIsTTY, autoHandoffEnabled(args: passthrough),
        !optionsOnly(passthrough).contains(where: { printFlags.contains($0) }) {
         warn("not supervised: stdout is not a terminal (claude runs one-shot when piped)")
@@ -205,6 +205,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             if provider.id == "claude", wantsHandoff {
                 runSupervised(provider, account: match, args: args, follow: allowFollow)
             }
+            if wantsCodexMonitoring { runCodexSupervised(provider, account: match, args: args) }
             launchProvider(provider, args: args, home: match.launchHome!,
                            env: launchEnv(provider, home: match.launchHome!))
         }
@@ -256,10 +257,11 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
     let args = startModeArgs(passthrough, home: account.launchHome!)
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
-    // `--account` pin or `--no-handoff` opts out, and codex stays a plain exec for now.
+    // `--account` pin or `--no-handoff` opts out. Codex interactive sessions monitor only.
     if provider.id == "claude", wantsHandoff {
         runSupervised(provider, account: account, args: args, follow: allowFollow)
     }
+    if wantsCodexMonitoring { runCodexSupervised(provider, account: account, args: args) }
     launchProvider(provider, args: args, home: account.launchHome!,
                    env: launchEnv(provider, home: account.launchHome!))
 }
@@ -427,6 +429,10 @@ case "harness":
     exit(runHarness(args: Array(arguments.dropFirst())))
 case "inbox":
     exit(runInbox(args: Array(arguments.dropFirst())))
+case "codex-session-status":
+    runCodexSessionInstall(Array(arguments.dropFirst()))
+case "codex-session-hook":
+    runCodexSessionHook()
 case "codex-hook": // internal: native harness adapter
     exit(runCodexHook(args: Array(arguments.dropFirst())))
 case "hook-tally":    // internal: the `/tally` prompt hook (TallyHook.swift)

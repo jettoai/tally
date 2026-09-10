@@ -430,7 +430,9 @@ struct SessionCardView: View {
     /// identity preview buys by naming one fixture account (`AccountFacts.forcesIdentityTooltip`).
     private func supervisorBadge(_ version: String) -> some View {
         let owner = String(format: L("Supervisor %@ is watching this session"), version)
-        let update = L("It updates to the installed build at the next idle moment.")
+        let update = row.providerID == "codex"
+            ? L("Restart this session to use the installed supervisor build.")
+            : L("It updates to the installed build at the next idle moment.")
         return Text(verbatim: "↻ \(version)")
             .font(.caption2).foregroundStyle(.secondary)
             .lineLimit(1).fixedSize()

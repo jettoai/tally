@@ -47,6 +47,8 @@ targets:
     platform: macOS
     sources:
       - TallyCLI
+      - path: Tally/Core/SessionMonitoring.swift
+      - path: Tally/Core/CodexSessionHooks.swift
       - path: Tally/Core/Harness
       # `tally add` has to tell a logged-in config home from a free slot, and a Claude Code login
       # now lives in the Keychain rather than in a credentials file. It asks the same probe, under

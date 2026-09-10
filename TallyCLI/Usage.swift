@@ -140,7 +140,7 @@ usage:
                             account has room, when the session is pinned, and when it is waiting on
                             a person. Use `session send "/clear"` for the plain typing of those six
                             characters
-  tally reload [--now]      restart every supervised session at its next idle moment, so edited
+  tally reload [--now]      restart supervised Claude sessions at their next idle moment, so edited
                             hooks, skills, and instructions take effect everywhere without
                             visiting each terminal (--now waits only for a 5s quiet gap, so it
                             may land closer to an active turn)

@@ -692,10 +692,10 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // SEVEN OF THEM, counted rather than sampled: a refusal added below the write is a refusal
+        // Eight return-3 refusals, including monitoring-only providers. A refusal below the write
         // that can only be reached after a caller has already been told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 8
+              before.components(separatedBy: "return 3").count == 9
                   && before.contains("return 2")
                   && !after.contains("return 3")
                   // and the one non-zero ending left below it is the session that has exited

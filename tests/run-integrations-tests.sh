@@ -34,6 +34,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/shimscriptchecks.swift tests/integrations/sharedharnesschecks.swift \
   tests/integrations/completionchecks.swift tests/integrations/clitoolchecks.swift \
   tests/integrations/smartbadgechecks.swift \
+  Tally/Core/CodexSessionHooks.swift Tally/Stores/IntegrationsCodexSession.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsShim.swift \
   Tally/Stores/IntegrationsCLITool.swift \
   Tally/Stores/IntegrationsSharedHarness.swift \
@@ -54,7 +55,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Core/AccountReserve.swift Tally/Core/PersonalAccount.swift \
   TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \
-  TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift TallyCLI/ReloadRequest.swift \
+  TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \
   Tally/Core/PromptHookInput.swift Tally/Core/CLIRunner.swift \
   Tally/Core/UsageSnapshot.swift \

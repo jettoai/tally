@@ -332,6 +332,10 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
     // model` get. Judged only where the session named ITSELF (`adopted` returns nil when the
     // directory answered, or when --session named somebody else): the version stamped in this
     // environment describes this session's supervisor and says nothing about another one's.
+    if let refusal = sessionControlRefusal(pid: sessionKey, dir: supervisorStateDir) {
+        warn(refusal)
+        return 3
+    }
     let honourability = liveRequestHonourability(marker: marker.adopted(sessionKey))
     if honourability == .tooOld {
         warn("this session's supervisor predates `tally session send` and would never read the "

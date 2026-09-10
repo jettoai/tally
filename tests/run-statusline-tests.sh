@@ -16,7 +16,7 @@ swiftc -o "$out" tests/statusline/main.swift tests/statusline/completionchecks.s
   TallyCLI/Statusline.swift TallyCLI/Usage.swift TallyCLI/Completion.swift TallyCLI/HarnessCompletion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift \
-  TallyCLI/AccountComfort.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/ReloadRequest.swift \
+  TallyCLI/AccountComfort.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift \
   TallyCLI/DriftMonitor.swift TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/QuotaKnockNotice.swift TallyCLI/SessionContext.swift Tally/Core/SessionPinScope.swift TallyCLI/MoveField.swift TallyCLI/AgentRoster.swift \
   TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/GitRepoRoot.swift TallyCLI/Reload.swift \
   TallyCLI/LaunchFlags.swift TallyCLI/ProviderExecutable.swift TallyCLI/ResumePrompt.swift \

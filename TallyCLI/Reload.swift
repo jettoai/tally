@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-// `tally reload` - restart every supervised session so it comes back on edited configuration
+// `tally reload` - restart supervised Claude sessions so it comes back on edited configuration
 // (Claude Code hooks, SessionStart, CLAUDE.md, skills), without visiting each terminal.
 //
 // Only the CHILD needs restarting: the supervisor itself reads none of that, and the conversation
@@ -361,7 +361,7 @@ func runReload(args: [String]) -> Int32 {
         warn("reload requested: \(live) supervised session\(live == 1 ? "" : "s") "
             + "will restart when idle")
     case .nothingRunning:
-        warn("no supervised sessions are running")
+        warn("no supervised Claude sessions are available to reload")
     case .legacyOnly(let count):
         // Sessions are running, they just cannot hear the request: say so rather than report the
         // literally-true zero, which reads as "nothing is running" to the person watching five.

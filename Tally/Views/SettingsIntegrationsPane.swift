@@ -193,6 +193,13 @@ extension SettingsView {
             remove: integrations.removeNotificationHook)
         rowDivider
         integrationRow(
+            title: L("Codex session status"),
+            caption: L("Shows working and idle states for interactive sessions started with tally codex. Install the hooks, then review them in Codex /hooks. Until trusted events arrive, status stays unknown. Changing accounts or models requires restarting the session."),
+            status: integrations.codexSessionHookStatus,
+            install: integrations.installCodexSessionHooks,
+            remove: integrations.removeCodexSessionHooks)
+        rowDivider
+        integrationRow(
             title: L("Claude subagent count"),
             caption: L("Adds the number of subagents working under each session to its card, which nothing on this machine can see from the outside. Installs three hook entries per Claude account (SubagentStart, SubagentStop and Stop); anything already registered for those events keeps running, and only Tally's entries are removed."),
             status: integrations.agentHookStatus,
@@ -289,6 +296,8 @@ extension SettingsView {
              integrations.removeStatusLine),
             (integrations.notificationHookStatus, integrations.installNotificationHook,
              integrations.removeNotificationHook),
+            (integrations.codexSessionHookStatus, integrations.installCodexSessionHooks,
+             integrations.removeCodexSessionHooks),
             (integrations.agentHookStatus, integrations.installAgentHooks,
              integrations.removeAgentHooks),
             (integrations.knockHookStatus, integrations.installKnockHooks,

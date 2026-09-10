@@ -121,8 +121,7 @@ func attemptModel(_ intent: ModelIntent, now: Date = Date(),
                   cwd: String = FileManager.default.currentDirectoryPath,
                   marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> ModelAttempt {
     if let problem = modelIntentProblem(intent) { return .refusal(problem) }
-    // Claude only, exactly as the supervisor is: a codex launch is a plain exec with nothing
-    // resident to act on a request.
+    // Model mutation remains Claude-only; Codex residents monitor without relaunching.
     let sessionKey: String
     switch marker.resolve(here: supervisorsInDirectory(cwd)) {
     case .session(let key):
@@ -141,6 +140,9 @@ func attemptModel(_ intent: ModelIntent, now: Date = Date(),
     }
     // Whether anything will read the request, through the same answer `tally switch` gets
     // (SwitchRequest.swift states when it can be judged at all).
+    if let refusal = sessionControlRefusal(pid: sessionKey, dir: supervisorStateDir) {
+        return .refusal(refusal)
+    }
     var notes: [String] = []
     // Judged against a version stamped beside a marker we BELIEVED. A corroborated marker that was
     // dropped describes somebody else's supervisor, and refusing this request over its build would

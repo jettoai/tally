@@ -73,6 +73,7 @@ final class IntegrationsStore {
     private(set) var shimStatuses: [Shim: Status] = [:]
     private(set) var statusLineStatus: Status = .notInstalled
     /// The `Notification` hook behind the panel's session board (IntegrationsNotificationHook.swift).
+    private(set) var codexSessionHookStatus: Status = .notInstalled
     private(set) var notificationHookStatus: Status = .notInstalled
     /// The three subagent hooks behind the session card's agent count (IntegrationsAgentHook.swift).
     private(set) var agentHookStatus: Status = .notInstalled
@@ -114,6 +115,7 @@ final class IntegrationsStore {
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         statusLineStatus = Self.detectStatusLine()
         notificationHookStatus = Self.detectNotificationHook()
+        codexSessionHookStatus = Self.detectCodexSessionHooks()
         agentHookStatus = Self.detectAgentHooks()
         knockHookStatus = Self.detectKnockHooks()
         artifactHookStatus = Self.detectArtifactHook()

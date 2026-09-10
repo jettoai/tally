@@ -86,8 +86,7 @@ func attemptSwitch(_ intent: SwitchIntent,
     let (snapshot, problem) = loadSnapshot()
     var notes: [String] = []
     if let problem { notes.append(problem) }
-    // Claude only for now, exactly as the supervisor is: codex launches are a plain exec with
-    // nothing resident to act on a request.
+    // Account mutation remains Claude-only; Codex residents monitor without switching.
     let provider = providers[0]
     // nil IS the release: everything below reads "no account named" as `--auto`, which keeps the
     // one difference between the two intents in one place instead of branching per step.
@@ -144,6 +143,9 @@ func attemptSwitch(_ intent: SwitchIntent,
     // corroborated marker that was dropped describes some other session, so neither the "am I
     // inside it" question below nor the supervisor-version check may be answered from it
     // (`SessionMarkerTrust.adopted`, SwitchRequest.swift).
+    if let refusal = sessionControlRefusal(pid: sessionKey, dir: supervisorStateDir) {
+        return .refusal(refusal, notes: notes)
+    }
     let adopted = marker.adopted(sessionKey)
     // Already there? Asked of the SESSION being moved, not of this shell. The two are the same
     // process tree only on the main path; through the directory fallback the shell is somebody

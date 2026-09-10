@@ -78,6 +78,7 @@ func modelMenuPick(models: [String], modelIndex: Int, levels: [String],
 func pickSessionModel(models: [String] = claudeModelAliases,
                       levels: [String] = claudeEffortNames()) -> ModelMenuOutcome {
     let status = liveModelStatus()
+    if let refusal = status.controlRefusal { warn(refusal); return .unavailable }
     let frame = modelMenuFrame(models: models, status: status)
     guard let picked = selectMenuRow(rows: frame.rows, action: frame.action) else {
         return .unavailable

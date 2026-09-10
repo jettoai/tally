@@ -59,7 +59,7 @@ final class LaunchPolicyStore {
         var pinnedHome: String?
         var permissionMode: PermissionMode?
         /// "continue" = bare launches resume the directory's latest conversation (escape hatch:
-        /// `tally claude --new`). nil = start fresh, the CLI's own default.
+        /// `tally <provider> --new`). nil = start fresh, the CLI's own default.
         var startMode: String?
         /// Launch defaults appended by the tally launcher; nil = inject nothing. Free text for
         /// model names (they drift too fast for a hard-coded picker).

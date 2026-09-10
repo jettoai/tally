@@ -82,13 +82,10 @@ struct SettingsLaunchView: View {
             rowDivider
             sharingRow(id, items: items)
         }
-        if claude {
-            rowDivider
-            startModeRow(id)
-        }
+        rowDivider
+        startModeRow(id)
         // Every provider: the permission mode is one setting with a flag on both CLIs
-        // (`applyLaunchDefaults`). The start mode above is still claude-only - it is a question
-        // about resuming a conversation, which the two CLIs do not ask the same way.
+        // (`applyLaunchDefaults`). Each provider resolves the start mode in its own history.
         rowDivider
         permissionRow(id)
         rowDivider

@@ -260,6 +260,11 @@ struct TallyDevTagView: View {
 struct ProviderIconView: View {
     let providerID: String
     var size: CGFloat = 15
+    var usesProviderColor = false
+
+    private var tint: Color {
+        usesProviderColor ? ProviderIdentityStyle.color(for: providerID) : .secondary
+    }
 
     var body: some View {
         if let image = Self.templateImage(for: providerID) {
@@ -268,12 +273,12 @@ struct ProviderIconView: View {
                 .renderingMode(.template)
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tint)
                 .frame(width: size, height: size)
         } else {
             Image(systemName: ProviderCatalog.iconName(for: providerID))
                 .font(.system(size: size * 0.9))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tint)
                 .frame(width: size, height: size)
         }
     }
@@ -293,5 +298,26 @@ struct ProviderIconView: View {
         image.isTemplate = true
         cache[providerID] = image
         return image
+    }
+}
+
+enum ProviderIdentityStyle {
+    /// Identity ink adapts to appearance while the glyph and account name keep it recognizable.
+    static func color(for providerID: String) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            switch providerID {
+            case "claude":
+                return dark
+                    ? NSColor(srgbRed: 0.92, green: 0.64, blue: 0.56, alpha: 1)
+                    : NSColor(srgbRed: 0.65, green: 0.29, blue: 0.20, alpha: 1)
+            case "codex":
+                return dark
+                    ? NSColor(srgbRed: 0.39, green: 0.78, blue: 0.63, alpha: 1)
+                    : NSColor(srgbRed: 0.09, green: 0.44, blue: 0.33, alpha: 1)
+            default:
+                return .secondaryLabelColor
+            }
+        })
     }
 }

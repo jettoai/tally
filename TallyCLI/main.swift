@@ -98,7 +98,11 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // backwards a launch at a time (LaunchResume.swift). The live set is read HERE, once, so the
     // decision is made against the sessions running in this directory at this instant.
     func startModeArgs(_ args: [String], home: String) -> [String] {
-        guard provider.id == "claude" else { return args }
+        if provider.id == "codex" {
+            return applyCodexStartMode(args, policy: policy, wantsNew: wantsNew, home: home,
+                cwd: FileManager.default.currentDirectoryPath, interactive: stdoutIsTTY,
+                live: liveCodexConversations())
+        }
         // One reading of the working directory for both halves of the question, rather than two: the
         // chdir a worktree launch performs has already happened by here (above), and a decision made
         // about one directory must not be filtered by the sessions running in another.

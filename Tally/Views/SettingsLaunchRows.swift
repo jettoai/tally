@@ -13,14 +13,15 @@ extension SettingsLaunchView {
         )
     }
 
-    /// Bare `tally claude` starts fresh or continues the directory's latest conversation.
-    /// One-off escape: `tally claude --new`.
+    /// Bare provider launches start fresh or continue the directory's latest conversation.
+    /// One-off escape: `tally <provider> --new`.
     func startModeRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Start with")).font(.subheadline)
-                Text(L("Applies to bare launches; tally claude --new starts fresh once."))
+                Text(L("Applies to bare launches; tally claude --new starts fresh once.")
+                    .replacingOccurrences(of: "tally claude", with: "tally \(providerID)"))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

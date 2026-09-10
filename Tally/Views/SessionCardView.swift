@@ -292,11 +292,11 @@ struct SessionCardView: View {
     private var sessionIdentityRow: some View {
         HStack(spacing: 4) {
             if let identity = sessionIdentityLine {
-                ProviderIconView(providerID: row.providerID ?? "", size: 11)
+                ProviderIconView(providerID: row.providerID ?? "", size: 11, usesProviderColor: true)
                 if let scope = row.pinScope { pinMark(scope) }
                 // LAST IN THE QUEUE FOR ROOM. A truncated account name still says which account; a
                 // truncated port number is a wrong port.
-                Text(identity).font(.caption2).foregroundStyle(.secondary)
+                Text(identity).font(.caption2).foregroundStyle(ProviderIdentityStyle.color(for: row.providerID ?? ""))
                     .lineLimit(1).truncationMode(.tail).layoutPriority(-1)
             }
             if let ports = sessionPortsText {

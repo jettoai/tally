@@ -9,6 +9,20 @@ func shouldMonitorCodex(args: [String], stdoutIsTTY: Bool) -> Bool {
     return command == nil || command == "resume"
 }
 
+/// Refuse an automatic second writer while a monitored Codex generation owns the conversation.
+func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
+    var sessions: Set<String> = []
+    for pid in SessionMonitoring.markedPids(dir: dir) {
+        let key = String(pid)
+        guard let identity = SessionMonitoring.read(pid: key, dir: dir), identity.provider == "codex",
+              let bytes = try? Data(contentsOf: dir.appendingPathComponent(key + ".codex-binding")),
+              let binding = try? JSONDecoder().decode(CodexSessionBinding.self, from: bytes),
+              binding.nonce == identity.nonce else { continue }
+        sessions.insert(binding.sessionID)
+    }
+    return sessions
+}
+
 nonisolated(unsafe) private var codexSupervisorSignal: Int32 = 0
 
 /// A monitoring resident using the same spawn, environment, reaper and state writer as Claude.

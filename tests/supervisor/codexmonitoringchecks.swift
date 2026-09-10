@@ -87,6 +87,16 @@ func runCodexMonitoringChecks() {
         let binding = try JSONDecoder().decode(CodexSessionBinding.self, from: Data(contentsOf: bindingFile))
         check("root hook binds the actual ancestor generation", binding.sessionID == sid && binding.nonce == "fresh-launch")
         check("root hook publishes observed model", binding.model == "native-model")
+        check("Codex automatic resume sees a live bound generation", liveCodexConversations(dir: dir) == [sid])
+        var staleIdentity = identity
+        staleIdentity.nonce = "different-launch"
+        try staleIdentity.write(dir: dir)
+        check("Codex automatic resume ignores a stale binding nonce", liveCodexConversations(dir: dir).isEmpty)
+        staleIdentity = identity
+        staleIdentity.supervisorStart -= 1
+        try staleIdentity.write(dir: dir)
+        check("Codex automatic resume ignores a stale supervisor generation", liveCodexConversations(dir: dir).isEmpty)
+        try identity.write(dir: dir)
         var prompt = payload
         prompt["hook_event_name"] = "UserPromptSubmit"
         prompt["turn_id"] = turn

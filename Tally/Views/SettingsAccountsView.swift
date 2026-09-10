@@ -263,7 +263,7 @@ struct SettingsAccountsView: View {
 
                 // Session incidents are independent of the account's local sign-in verdict.
                 // Keep their line outside the plan/status branch and its fixed-height frame.
-                AccountLoginHealthView(accountID: item.id,
+                AccountLoginHealthView(accountID: item.id, owner: rowOwner(item, usage: usage),
                     canRenew: RenewLoginStore.shared.canRenew(accountID: item.id,
                         providerID: item.providerID, home: item.launchHome),
                     showsExpiry: signIn == .signedIn)

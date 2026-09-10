@@ -127,7 +127,7 @@ struct AccountCardView: View {
             } else if facts.isLoginExpired {
                 loginExpiredChip
             }
-            AccountLoginHealthView(accountID: usage.id, canRenew: facts.canRenewLogin,
+            AccountLoginHealthView(accountID: usage.id, owner: facts.markOwner, canRenew: facts.canRenewLogin,
                                    showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)
         }
         .padding(TallyMetrics.cardPaddingH)
@@ -168,7 +168,8 @@ struct AccountCardView: View {
         // Greyed on a demo fixture, which has no config home behind it - the same rule that greys
         // the menu entry, asked of the same place, so a chip can never look more able than it is.
         .disabled(!facts.canRenewLogin)
-        .tallyTooltipAroundControl(L("Sign in again to bring this account's usage back."))
+        .tallyTooltipAroundControl(facts.markOwner,
+                                   detail: L(AccountSignIn.detailKey(isDormant: facts.isDormant)))
     }
 
     private var header: some View {

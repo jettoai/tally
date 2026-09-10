@@ -235,7 +235,7 @@ struct AccountListRowView: View {
                 detail: L(AccountSignIn.detailKey(isDormant: facts.isDormant)))
             .accessibilityLabel(L("Signed out"))
         }
-        AccountLoginHealthView(accountID: usage.id, canRenew: facts.canRenewLogin,
+        AccountLoginHealthView(accountID: usage.id, owner: facts.markOwner, canRenew: facts.canRenewLogin,
                                compact: true, showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)
     }
 

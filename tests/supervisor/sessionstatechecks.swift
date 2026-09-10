@@ -635,6 +635,22 @@ func runSessionStateChecks() {
     check("…and reports itself as the one thing it knows: not reporting",
           !silent.isReporting && silent.state == .unknown)
 
+    MainActor.assumeIsolated {
+        let publishedUnknown = row(.unknown, 0)
+        let summaryRows = [row(.working, 0), row(.blocked, 0), row(.idle, 0), publishedUnknown, silent]
+        let roster = SessionRosterStore(rows: summaryRows)
+        check("the summary fixture includes a published unknown and an absent record",
+              publishedUnknown.isReporting && publishedUnknown.state == .unknown
+                  && !silent.isReporting && silent.record == nil)
+        check("the summary retains each known state count",
+              roster.workingCount == 1 && roster.blockedCount == 1 && roster.idleCount == 1)
+        check("not reporting counts both published unknown and an absent record",
+              roster.notReporting == 2)
+        check("the four summary counts account for every fixture card",
+              roster.workingCount + roster.blockedCount + roster.idleCount + roster.notReporting
+                  == summaryRows.count)
+    }
+
     // MARK: the sidecars the board reads beside the state
 
     // THE SUFFIXES ARE SPELLED IN TWO PLACES, and this is what stops them drifting: the app cannot

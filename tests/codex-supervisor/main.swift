@@ -102,6 +102,51 @@ try append(event("task_complete"), to: partialFile)
 partial.poll(home: home.path)
 check("malformed stream does not regain unsupported confidence", partial.state == .unknown)
 
+// The native writer places its envelope tag before the opaque payload, with an optional ordinal.
+// Large response content must not hide the real lifecycle record that follows its newline.
+let largeOutput = String(repeating: "x", count: 2 * 1024 * 1024)
+let fakeTerminal = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"\(turn)\"}}"
+let largePayload = try JSONSerialization.data(withJSONObject: ["type": "function_call_output",
+                                                              "output": fakeTerminal + largeOutput])
+func largeResponse(ordinal: Bool) -> Data {
+    var data = Data(("{\"timestamp\":\"\(iso.string(from: start.addingTimeInterval(1)))\","
+                    + (ordinal ? "\"ordinal\":17," : "")
+                    + "\"type\":\"response_item\",\"payload\":").utf8)
+    data.append(largePayload)
+    data.append(Data(",\"metadata\":{\"fixture\":true}}\n".utf8))
+    return data
+}
+for ordinal in [false, true] {
+    let large = largeResponse(ordinal: ordinal)
+    var (largeFile, largeObserver) = try fixture("large-\(ordinal)", contents: meta() + event("task_started"))
+    try append(large.dropLast(32), to: largeFile)
+    for _ in 0..<3 { largeObserver.poll(home: home.path) }
+    check("incomplete large response with ordinal=\(ordinal) keeps the real turn working", largeObserver.state == .working)
+    try append(large.suffix(32), to: largeFile)
+    largeObserver.poll(home: home.path)
+    check("fake terminal text inside large response with ordinal=\(ordinal) cannot settle the turn", largeObserver.state == .working)
+    try append(event("task_complete"), to: largeFile)
+    largeObserver.poll(home: home.path)
+    check("terminal after large response with ordinal=\(ordinal) is still observed", largeObserver.state == .idle)
+}
+var (sameChunkFile, sameChunk) = try fixture("large-same-chunk", contents: meta() + event("task_started"))
+try append(largeResponse(ordinal: true) + event("task_complete"), to: sameChunkFile)
+sameChunk.poll(home: home.path)
+sameChunk.poll(home: home.path)
+sameChunk.poll(home: home.path)
+check("large response tail and real terminal in the same read chunk are both consumed", sameChunk.state == .idle)
+
+var (largeCriticalFile, largeCritical) = try fixture("large-critical", contents: meta() + event("task_started"))
+try append(line("event_msg", ["type": "response_item", "output": largeOutput]) + event("task_complete"), to: largeCriticalFile)
+for _ in 0..<4 { largeCritical.poll(home: home.path) }
+check("payload response_item tag cannot make a required event opaque", largeCritical.state == .unknown)
+let payloadFirst = Data("{\"payload\":".utf8) + largePayload
+    + Data(",\"timestamp\":\"\(iso.string(from: start))\",\"type\":\"response_item\"}\n".utf8)
+var (payloadFirstFile, payloadFirstObserver) = try fixture("payload-first", contents: meta() + event("task_started"))
+try append(payloadFirst + event("task_complete"), to: payloadFirstFile)
+for _ in 0..<4 { payloadFirstObserver.poll(home: home.path) }
+check("oversized payload-first envelope remains unsupported rather than guessing its tag", payloadFirstObserver.state == .unknown)
+
 var (replaceFile, replaced) = try fixture("replace", contents: meta() + event("task_started"))
 replaced.poll(home: home.path)
 try (meta() + event("task_complete")).write(to: replaceFile, options: .atomic)

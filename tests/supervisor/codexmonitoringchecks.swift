@@ -2,6 +2,29 @@ import Darwin
 import Foundation
 
 func runCodexMonitoringChecks() {
+    typealias Identity = (parent: pid_t, name: String, startedAt: Int64)
+    var ancestry: [pid_t: Identity] = [
+        100: (99, "tally", 1), 200: (100, "node", 2), 300: (200, "codex", 3),
+        400: (300, "sh", 4), 500: (400, "tally", 5)]
+    check("official npm launcher directly owns the native root Codex",
+          codexHookBelongsToChild(500, child: 200, supervisor: 100, identityOf: { ancestry[$0] }))
+    check("direct native Codex retains its hook ownership",
+          codexHookBelongsToChild(500, child: 300, supervisor: 200, identityOf: { ancestry[$0] }))
+    check("a launcher under a different supervisor is rejected",
+          !codexHookBelongsToChild(500, child: 200, supervisor: 99, identityOf: { ancestry[$0] }))
+    ancestry[600] = (400, "codex", 6)
+    ancestry[700] = (600, "tally", 7)
+    check("nested native Codex cannot claim the outer npm launcher",
+          !codexHookBelongsToChild(700, child: 200, supervisor: 100, identityOf: { ancestry[$0] }))
+    ancestry[600] = (400, "node", 6)
+    ancestry[700] = (600, "codex", 7)
+    ancestry[800] = (700, "tally", 8)
+    check("nested npm launcher cannot claim the outer root",
+          !codexHookBelongsToChild(800, child: 200, supervisor: 100, identityOf: { ancestry[$0] }))
+    ancestry[200] = (100, "python", 2)
+    check("an unrecognized launcher does not widen hook ownership",
+          !codexHookBelongsToChild(500, child: 200, supervisor: 100, identityOf: { ancestry[$0] }))
+
     for args in [[], ["hello"], ["resume", "--last"], ["-m", "exec", "hello"],
                  ["--", "exec"], ["--config", "model=\"review\"", "resume", "--last"]] {
         check("Codex monitors interactive argv \(args)", shouldMonitorCodex(args: args, stdoutIsTTY: true))

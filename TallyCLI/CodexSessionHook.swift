@@ -62,14 +62,19 @@ func recordCodexSessionHook(_ payload: [String: Any], environment: [String: Stri
     }
 }
 
-/// The first provider process above the hook must be the child this resident spawned.
-/// A nested Codex has inherited environment, but is a different executable in the ancestry.
-func codexHookBelongsToChild(_ reporter: pid_t, child: pid_t, supervisor: pid_t) -> Bool {
+/// Accept the native child or the native process directly spawned by its npm Node launcher.
+/// A nested Codex cannot reach either owner without crossing another provider process.
+func codexHookBelongsToChild(_ reporter: pid_t, child: pid_t, supervisor: pid_t,
+    identityOf: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? = processIdentity) -> Bool {
     var pid = reporter
     var seen: Set<pid_t> = []
-    while pid > 1, seen.insert(pid).inserted, let identity = processIdentity(pid) {
+    while pid > 1, seen.insert(pid).inserted, let identity = identityOf(pid) {
         if pid == child { return identity.parent == supervisor }
-        if pid != reporter, identity.name.lowercased().contains("codex") { return false }
+        if pid != reporter, identity.name.lowercased().contains("codex") {
+            guard identity.parent == child, let launcher = identityOf(child),
+                  launcher.name.lowercased() == "node", launcher.parent == supervisor else { return false }
+            return true
+        }
         pid = identity.parent
     }
     return false

@@ -63,18 +63,14 @@ func displayModelName(_ id: String) -> String {
 final class SessionRosterStore {
     static let shared = SessionRosterStore()
 
-    /// The board, in the seats it took (see `seat`). EVERY LIVE SESSION IS ON IT, including the
-    /// ones whose supervisor has published no state - a build older than this feature, or one in
-    /// the two seconds between registering and its first tick. They are drawn as their own quiet
-    /// card rather than summarized as a number, for the reason `reloadLegacyNotice` exists one
-    /// question over: the sessions are running, and a board that reduced them to a count would be
-    /// naming a number the user cannot act on. What they still know about themselves comes from the
-    /// sidecars beside the state file (`SessionSidecar`).
+    /// The seated board includes live sessions whose supervisor has published no state yet.
+    /// Their quiet cards retain the identity available from the sidecars (`SessionSidecar`),
+    /// so the user can still find and act on each session.
     private(set) var rows: [SessionRow] = []
 
-    /// How many of them cannot say what they are doing. Derived rather than stored: it is a reading
-    /// of the same rows, and two places holding it would be two places to disagree.
-    var notReporting: Int { rows.filter { !$0.isReporting }.count }
+    /// The summary's unknown group includes both a published unknown state and no published record.
+    /// Card connection, filtering and ordering still use `isReporting` to distinguish the two.
+    var notReporting: Int { rows.filter { !$0.isReporting || $0.state == .unknown }.count }
 
     /// Called after every change that a reader outside SwiftUI has to act on: the menu bar's
     /// blocked dot, which is drawn imperatively (`StatusItemController.updateButton`).
@@ -111,6 +107,7 @@ final class SessionRosterStore {
     @ObservationIgnored private var boardViewers = 0
 
     private init() {}
+    init(rows: [SessionRow]) { self.rows = rows }
 
     /// One session's row: the reading its supervisor published, the sidecars beside it, and the
     /// identity a list needs.
@@ -142,8 +139,7 @@ final class SessionRosterStore {
         /// (`SupervisorVersionStamp.swift`, which is also where the case for reading it at all is).
         var childSupervisorVersion: String?
 
-        /// Whether this session can say what it is doing. The board's fourth group and its quietest
-        /// kind of card.
+        /// Whether the supervisor published a record, even if its reported state is unknown.
         var isReporting: Bool { record != nil }
         var state: SupervisedState { record?.supervised ?? .unknown }
         /// When it entered that state, for a session that has published one.

@@ -10,7 +10,36 @@ func runLoginSignalChecks() {
                                 accountID: "claude:test", childPid: nil, model: nil,
                                 supervisorVersion: "test", watcher: &watcher,
                                 keyboardBurstAt: nil, dir: dir)
-    check("authentication_failed blocks the live session", tick.state == .blocked && tick.waitingOnPerson)
+    check("authentication_failed blocks the live session without inventing a dialog",
+          tick.state == .blocked && !tick.waitingOnPerson)
+    let authDraft = sessionInputDraftGuard(dialog: tick.waitingOnPerson, suspected: true)
+    check("an authentication failure still stashes the exposed composer draft",
+          authDraft.touching && authDraft.stash)
+
+    // The producer, tick and input guard must agree when a real dialog coexists with auth failure.
+    writeUserNotice(UserNotice(message: "Allow this tool?", at: Date().addingTimeInterval(1),
+                                type: "permission_prompt"), pid: "auth-permission", dir: dir)
+    var permissionWriter = SessionStateWriter()
+    let permissionTick = syncSessionState(&permissionWriter, pid: "auth-permission",
+        project: PickProject(name: "test", path: "/test"), accountID: "claude:test",
+        childPid: nil, model: nil, supervisorVersion: "test", watcher: &watcher,
+        keyboardBurstAt: nil, dir: dir)
+    check("authentication failure does not erase a real permission dialog",
+          watcher.loginRequiredAt != nil && permissionTick.state == .blocked && permissionTick.waitingOnPerson
+            && !sessionInputDraftGuard(dialog: permissionTick.waitingOnPerson, suspected: true).stash)
+
+    let question = #"{"type":"assistant","isSidechain":false,"timestamp":"\#(stamp(30))","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"tool_use","id":"login-question","name":"AskUserQuestion","input":{}}],"stop_reason":"tool_use"}}"#
+    var asking = watcherAfterScanning([question])
+    try! FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-60)],
+                                           ofItemAtPath: asking.file!.path)
+    var questionWriter = SessionStateWriter()
+    let questionTick = syncSessionState(&questionWriter, pid: "auth-question",
+        project: PickProject(name: "test", path: "/test"), accountID: "claude:test",
+        childPid: nil, model: nil, supervisorVersion: "test", watcher: &asking,
+        keyboardBurstAt: nil, dir: dir)
+    check("an actual open question retains its dialog input guard",
+          questionTick.state == .blocked && questionTick.waitingOnPerson
+            && !sessionInputDraftGuard(dialog: questionTick.waitingOnPerson, suspected: true).stash)
     check("authentication_failed publishes the session login instruction",
           readSessionState(pid: "9219", dir: dir)?.reason == "Sign in again in this session (/login).")
     check("authentication_failed exposes its timestamp", watcher.loginRequiredAt == launch.addingTimeInterval(60))

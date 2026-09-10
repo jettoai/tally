@@ -164,6 +164,7 @@ final class LoginStatusStore {
     /// readings are dropped when it comes home (LoginProbeGate.Landings).
     func loginLanded(_ accountIDs: Set<String>) {
         for id in accountIDs {
+            usageHealth.record(accountID: id, authenticated: true)
             verdicts[id] = nil
             LoginHealthStore.shared.invalidate(id)
         }

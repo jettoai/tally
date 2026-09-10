@@ -215,9 +215,12 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // merging with one: a fan-out that has been quiet for 60s and a conversation holding a question
     // open both carry an `idle_prompt`, and only the second is somebody being waited for.
     let loginRequiredAt = watcher.loginRequiredAt
-    let wait: UserWait? = loginRequiredAt != nil || question != nil ? .hard
+    let wait: UserWait? = question != nil ? .hard
         : (waiting ? userWait(notificationType: notice?.type) : nil)
-    let state = supervisedSessionState(wait: wait, hasTranscript: file != nil, quiet: quiet)
+    // Authentication blocks work without putting a dialog in front of the composer.
+    // Preserve the actual wait for input guards that must still stash an exposed draft.
+    let state: SupervisedState = loginRequiredAt != nil ? .blocked
+        : supervisedSessionState(wait: wait, hasTranscript: file != nil, quiet: quiet)
     // What to SAY about the wait, and Claude Code's own sentence leads: it names the tool it wants
     // permission for, which nothing on this side knows. The question's sentence is what fills in
     // when there is no notice, or when the one standing said nothing - an empty message is a wait

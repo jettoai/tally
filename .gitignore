@@ -41,3 +41,6 @@ docs/plans/
 docs/specs/
 .tally/
 .codex-cache/
+.claude/
+.codex/
+.agents/

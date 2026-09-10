@@ -19,7 +19,7 @@ import Foundation
 
 /// A machine with nothing real behind it: every reading is a fixture and every signal is recorded.
 @MainActor
-private final class FakeMachine {
+final class FakeMachine {
     var table: [ProcessIdentity] = []
     var programs: [pid_t: String] = [:]
     var directories: [pid_t: String] = [:]
@@ -113,6 +113,7 @@ private final class FakeMachine {
 
 @MainActor
 func runOrphanStoreChecks() {
+    runOrphanRecordExpiryChecks()
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let repo = "/Users/x/workspace/bigdata"
     let web = repo + "/web"

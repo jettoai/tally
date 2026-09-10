@@ -15,8 +15,8 @@ import Observation
 ///
 /// A ROUND IS NOT A TICK. The sampler runs every two seconds; a reclaim ROUND is taken at most every
 /// five minutes (`OrphanReclaim.roundInterval`), because the evidence it needs is a pair of readings
-/// far enough apart to mean something. What runs on every tick is the sweep - a kill in progress,
-/// looked at every fifth of a second while it waits (`OrphanKill.pollInterval`) - and nothing else.
+/// far enough apart to mean something. Every tick expires successful records and advances the
+/// sweep, also checked every fifth of a second while it waits (`OrphanKill.pollInterval`).
 /// The sweep itself is next door in OrphanReclaimStoreSweep.swift, which is where this file was cut
 /// when it passed the repo's 500-line cap.
 @MainActor
@@ -57,6 +57,8 @@ final class OrphanReclaimStore {
     /// How many records are kept. A menu bar panel is not a log; what a reader wants is "did
     /// something happen recently", and the inbox messages are the durable record.
     static let keptRecords = 12
+    /// Successful results leave the panel after ten minutes. Reports and failures do not expire by age.
+    static let successfulRecordLifetime: TimeInterval = 10 * 60
 
     /// EVERYTHING THIS STORE ASKS OF THE MACHINE.
     struct Machine: Sendable {
@@ -118,8 +120,8 @@ final class OrphanReclaimStore {
         self.machine = machine
     }
 
-    /// ONE TICK'S WORTH OF ATTENTION: advance whatever is being killed, and take a round if one is
-    /// due.
+    /// ONE TICK'S WORTH OF ATTENTION: expire successful history, advance whatever is being killed,
+    /// and take a round if one is due.
     ///
     /// - Parameters:
     ///   - strays: what no session accounts for, by project (`MachineLoadRollup.leftovers`).
@@ -130,6 +132,7 @@ final class OrphanReclaimStore {
     ///     could not place a row leaves the whole round in doubt (`Veto.sessionUnknown`).
     func observe(strays: [pid_t: String], processes: [ProcessIdentity],
                  sessions: OrphanReclaim.Sessions, at now: Date) {
+        expireSuccessfulRecords(at: now)
         advance(at: now)
         // A CAPTURE MUST NEVER REACH THIS. The demo flag fabricates the board's readings
         // (`DemoUsage`), and a screenshot run that ended a real process because a fixture said it
@@ -408,11 +411,26 @@ final class OrphanReclaimStore {
     /// Not `private` because a sweep ends here too (OrphanReclaimStoreSweep.swift): what this app
     /// did is written down in one place whether the tree was ended or only mentioned.
     func announce(_ report: OrphanNotice.Report, at now: Date) {
+        expireSuccessfulRecords(at: now)
         records.insert(Record(at: now, project: report.project, program: report.program,
                               pid: report.pid, processes: report.processes,
                               outcome: report.outcome), at: 0)
         if records.count > Self.keptRecords { records.removeLast(records.count - Self.keptRecords) }
         deliver(report, at: now)
+    }
+
+    /// Only panel history expires here; reclaim evidence and inbox delivery keep their own state.
+    func expireSuccessfulRecords(at now: Date) {
+        guard now.timeIntervalSinceReferenceDate.isFinite else { return }
+        records.removeAll { record in
+            switch record.outcome {
+            case .reclaimedByLease, .reclaimedBySustained:
+                let age = now.timeIntervalSince(record.at)
+                return age.isFinite && age >= Self.successfulRecordLifetime
+            case .reported, .failed:
+                return false
+            }
+        }
     }
 
     /// Write the message into the owning repository's inbox.

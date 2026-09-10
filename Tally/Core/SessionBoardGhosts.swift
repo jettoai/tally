@@ -29,7 +29,8 @@ enum SessionBoardGhosts {
     /// last stray of that project, so a card admitted on strays alone disappears on the very tick
     /// its record is written and "Tally ended your dev server" is a sentence nobody can ever have
     /// read. The record is the reading, and it is kept for as long as the store keeps it
-    /// (`OrphanReclaimStore.keptRecords`, a dozen, in memory only).
+    /// (up to `OrphanReclaimStore.keptRecords` in memory, with successful results expiring after
+    /// `OrphanReclaimStore.successfulRecordLifetime`).
     ///
     /// Such a card has NO figures and no amber `leftovers` - there is nothing left running there
     /// any more - so it states the project and what happened, and nothing it cannot stand behind.

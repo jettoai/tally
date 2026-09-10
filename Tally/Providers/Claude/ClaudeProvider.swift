@@ -1,7 +1,7 @@
 import Foundation
 
 /// The Claude (Max/Pro) usage provider - read entirely through the official CLI
-/// (`claude -p "/usage"` per account), so Tally never touches an OAuth token or a vendor endpoint.
+/// (`claude -p "/usage"` per account). This provider does not read tokens or call vendor endpoints.
 /// The CLI runs with its own first-party identity, refreshes its own token when expired, and its
 /// requests land in the identified client's rate-limit bucket. See NORTH_STAR "不在範圍".
 struct ClaudeProvider: UsageProvider {
@@ -34,16 +34,19 @@ struct ClaudeProvider: UsageProvider {
             .appendingPathComponent(".claude").path
         let configDir = (home == defaultHome) ? nil : home
 
+        let authMark = await LoginStatusStore.shared.beginUsageAuthentication()
         guard let text = await ClaudeUsageCLI.fetchUsageText(configDir: configDir) else {
             return failed(L("Claude CLI read failed"))
         }
-        if text.contains("Not logged in") || text.contains("/login") {
+        if ClaudeUsageCLI.authenticationRejected(text) {
+            await LoginStatusStore.shared.usageAuthentication(account: account, authenticated: false, since: authMark)
             return failed(L("No credentials: run `claude` to sign in"))
         }
         let metrics = ClaudeUsageTextMapper.map(text: text)
         guard !metrics.isEmpty else {
             return failed(L("No usage data"))
         }
+        await LoginStatusStore.shared.usageAuthentication(account: account, authenticated: true, since: authMark)
         return AccountUsage(
             id: account.id, providerID: id, accountLabel: account.label,
             planName: profile.plan, accountEmail: profile.email, metrics: metrics,

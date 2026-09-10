@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reads Claude usage through the official CLI (`claude -p "/usage"`), so the CLI talks to
-/// Anthropic with its own first-party identity - Tally never touches the OAuth token, and an
+/// Anthropic with its own first-party identity. This usage reader does not read tokens, and an
 /// expired token heals itself (the CLI refreshes it as part of the run).
 enum ClaudeUsageCLI {
     /// Dedicated probe cwd: every `-p` run writes a session transcript under the account's
@@ -13,8 +13,8 @@ enum ClaudeUsageCLI {
     /// `configDir` nil = the default `~/.claude` account, which must run with CLAUDE_CONFIG_DIR
     /// UNSET (the CLI namespaces its Keychain item by the exact env value; explicitly passing the
     /// default path makes it look up a hashed item that doesn't exist - "Not logged in").
-    static func fetchUsageText(configDir: String?) async -> String? {
-        guard let binary = CLIRunner.resolve("claude") else { return nil }
+    static func fetchUsageText(configDir: String?, executable: String? = nil) async -> String? {
+        guard let binary = executable ?? CLIRunner.resolve("claude") else { return nil }
         try? FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
         // --strict-mcp-config: the probe must never load MCP servers (fork-bomb guard + speed).
         let output = await CLIRunner.run(
@@ -25,8 +25,24 @@ enum ClaudeUsageCLI {
             timeout: 60
         )
         pruneProbeTranscripts(configDir: configDir)
-        guard let output, output.exitCode == 0 else { return nil }
+        guard let output else { return nil }
+        let combined = output.stdout + "\n" + output.stderr
+        // An authentication rejection commonly exits nonzero. Preserve that diagnosis only;
+        // network failures and arbitrary stderr are not successful usage readings.
+        if authenticationRejected(combined) { return "Not logged in" }
+        guard output.exitCode == 0 else { return nil }
         return output.stdout
+    }
+
+    static func authenticationRejected(_ text: String) -> Bool {
+        let plain = text.replacingOccurrences(of: #"\x1B\[[0-?]*[ -/]*[@-~]"#,
+                                             with: "", options: .regularExpression)
+        return plain.split(separator: "\n").contains { line in
+            let value = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return value == "not logged in" || value.hasPrefix("not logged in ·")
+                || value.hasPrefix("not logged in. please run /login")
+                || value == "please run /login" || value == "authentication_failed"
+        }
     }
 
     /// Delete the probe's own stale session transcripts (ours, minutes old, zero value) so polling

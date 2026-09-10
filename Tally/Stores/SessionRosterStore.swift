@@ -56,8 +56,6 @@ func displayModelName(_ id: String) -> String {
 ///     `sessionStateChangedNotification`, and the dot is the one reader that cannot wait for
 ///     somebody to open something.
 ///
-/// There is no third mode, deliberately. A background timer would poll a directory nobody is
-/// looking at for the life of the app, and the two triggers above already cover both readers.
 @MainActor
 @Observable
 final class SessionRosterStore {
@@ -75,6 +73,7 @@ final class SessionRosterStore {
     /// Called after every change that a reader outside SwiftUI has to act on: the menu bar's
     /// blocked dot, which is drawn imperatively (`StatusItemController.updateButton`).
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored var onLoginHealthChange: (() -> Void)?
 
     /// Whether the board's switch asks the state sort to decide the seats each time the board is
     /// opened, READ RATHER THAN COPIED (`SettingsStore.sessionBoardSortsByState` is the one answer)
@@ -333,6 +332,7 @@ final class SessionRosterStore {
         self.seating = seating
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.
+        defer { onLoginHealthChange?() }
         guard rows != self.rows else { return }
         self.rows = rows
         onChange?()

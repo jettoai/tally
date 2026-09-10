@@ -6,14 +6,14 @@ import UserNotifications
 /// a refresh. Owns four things and nothing else: the per-account verdict the cards read, the email
 /// the probe named along the way, the remembered answer to "who is this account?" that outlives a
 /// switched-off account and a relaunch (AccountIdentity.swift), and the once-per-outage
-/// notification.
+/// notification. Session incidents and refresh deadlines live in `LoginHealthStore`.
 ///
 /// It keeps no timer: the existing refresh loop drives it, throttled to its own interval because a
 /// credential does not change as often as a quota does.
 ///
 /// Read-only throughout. The probe runs the provider's status subcommand, which reports a local
 /// credential's state; nothing here signs anybody in (that is `RenewLoginStore`, and only from an
-/// explicit click) and no credential is ever read, logged or carried.
+/// explicit click). `LoginHealthStore` separately reads expiry metadata without retaining secrets.
 @MainActor
 @Observable
 final class LoginStatusStore {
@@ -26,6 +26,7 @@ final class LoginStatusStore {
 
     /// Last verdict per account id. Absent = never probed; `.unknown` = asked and not understood.
     /// Neither shows anything on screen - only `.signedOut` does.
+    private var usageHealth = LoginUsageHealth()
     private var verdicts: [String: LoginStatusCommand.Verdict] = [:]
 
     /// The last email a probe managed to read, per account id. Kept rather than replaced wholesale,
@@ -56,7 +57,7 @@ final class LoginStatusStore {
     /// instead: those cards have no config home, so nothing was ever probed for them.
     func isExpired(_ accountID: String) -> Bool {
         if DemoUsage.isActive { return accountID == Self.demoExpiredAccountID }
-        return verdicts[accountID] == .signedOut
+        return usageHealth.needsSignIn(accountID, local: verdicts[accountID])
     }
 
     /// The account's email as the CLI named it, which is fresher than the copy in the provider's
@@ -109,6 +110,8 @@ final class LoginStatusStore {
     /// round is judged against (`LoginProbeGate.Landings`) - and every one of that round's answers
     /// about this account is dropped, the verdict and the probe cache along with the memory.
     func forgetIdentity(accountID: String) {
+        usageHealth.record(accountID: accountID, authenticated: true)
+        LoginHealthStore.shared.invalidate(accountID)
         emails[accountID] = nil
         verdicts[accountID] = nil
         landings.land([accountID])
@@ -131,6 +134,8 @@ final class LoginStatusStore {
     /// so the card is corrected by data within seconds either way. A round already in flight is the
     /// same probe from before it ran, so it is retired here too.
     func loginRenewed(_ accountID: String) {
+        usageHealth.record(accountID: accountID, authenticated: true)
+        LoginHealthStore.shared.invalidate(accountID)
         verdicts[accountID] = nil
         landings.land([accountID])
         gate.forced[accountID] = LoginProbeGate.renewed
@@ -158,7 +163,10 @@ final class LoginStatusStore {
     /// is the chip back for another interval. So the landing is recorded as well, and that round's
     /// readings are dropped when it comes home (LoginProbeGate.Landings).
     func loginLanded(_ accountIDs: Set<String>) {
-        for id in accountIDs { verdicts[id] = nil }
+        for id in accountIDs {
+            verdicts[id] = nil
+            LoginHealthStore.shared.invalidate(id)
+        }
         landings.land(accountIDs)
     }
 
@@ -171,6 +179,7 @@ final class LoginStatusStore {
     /// `announce`.
     func evaluate(accounts: [ProviderAccount], known: Set<String>, userInitiated: Bool) async {
         guard !DemoUsage.isActive else { return }
+        await LoginHealthStore.shared.evaluate(accounts: accounts, known: known, userInitiated: userInitiated)
         let now = Date()
         switch LoginProbeGate.decide(state: gate, isProbing: isProbing, userInitiated: userInitiated,
                                      lastProbeAt: lastProbeAt, now: now,
@@ -254,6 +263,21 @@ final class LoginStatusStore {
         }
     }
 
+    func beginUsageAuthentication() -> Int { landings.mark }
+
+    /// Only a genuine usage reading or an explicit renewal clears a usage authentication failure.
+    func usageAuthentication(account: ProviderAccount, authenticated: Bool, since mark: Int) {
+        guard usageHealth.recordIfCurrent(accountID: account.id, authenticated: authenticated,
+                                           since: mark, landings: landings) else { return }
+        if authenticated { verdicts[account.id] = .signedIn }
+        landings.land([account.id])
+        guard !BuildVariant.isUnshipped, !DemoUsage.isActive else { return }
+        let (next, fresh) = LoginUsageHealth.updateAlert(state: loadState(), accountID: account.id,
+                                                        authenticated: authenticated)
+        saveState(next)
+        if !fresh.isEmpty { submit(accountID: account.id, fallback: account.label) }
+    }
+
     /// Dev-build stand-in CLI (`-TallyLoginStatusCLI /path/to/stub`), the same shape as
     /// `-TallyRenewLoginCLI`: it lets the whole chain - probe → verdict → chip → click → renewal →
     /// chip clears - be driven on screen without a real account ever being signed out.
@@ -274,18 +298,20 @@ final class LoginStatusStore {
         // The probe list is filtered by enablement, so an account switched off for longer than a
         // probe interval would be dropped from the state as though its outage had ended - and
         // switching it back on without signing in would announce the same outage a second time.
-        let (next, fresh) = LoginAlertLogic.advance(state: loadState(), verdicts: verdicts,
+        let (next, fresh) = LoginAlertLogic.advance(state: loadState(), verdicts: usageHealth.applying(to: verdicts),
                                                     known: known)
         saveState(next)
         for id in fresh {
             let fallback = accounts.first { $0.id == id }?.label ?? id
-            let label = SettingsStore.shared.displayLabel(accountID: id, fallback: fallback)
-            Task { @MainActor in
-                // A refusal hands the announcement back so a later round can say it again. State is
-                // re-read rather than reused: a refresh can have completed while macOS answered.
-                guard await post(accountID: id, label: label) == false else { return }
-                saveState(LoginAlertLogic.rearm(state: loadState(), accountID: id))
-            }
+            submit(accountID: id, fallback: fallback)
+        }
+    }
+
+    private func submit(accountID: String, fallback: String) {
+        let label = SettingsStore.shared.displayLabel(accountID: accountID, fallback: fallback)
+        Task { @MainActor in
+            guard await post(accountID: accountID, label: label) == false else { return }
+            saveState(LoginAlertLogic.rearm(state: loadState(), accountID: accountID))
         }
     }
 
@@ -309,7 +335,7 @@ final class LoginStatusStore {
         // language can change while it runs - so it is re-registered right before the alert.
         NotificationRouter.shared.refreshCategories()
         return await SystemAlert.post(
-            title: "\(label) · " + L("Login expired"),
+            title: "\(label) · " + L("Signed out"),
             body: L("Tally can no longer read this account's usage. Sign in again to bring it back."),
             categoryID: Self.categoryID,
             userInfo: [Self.accountKey: accountID])

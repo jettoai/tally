@@ -295,5 +295,8 @@ struct AccountFacts {
 
     var isRenewingLogin: Bool { RenewLoginStore.shared.isRenewing(usage.id) }
 
+    var sessionLoginProblems: [LoginHealthSession] { LoginHealthStore.shared.problems(usage.id) }
+    var loginExpiryState: ClaudeLoginExpiry.State { LoginHealthStore.shared.expiryState(usage.id) }
+
     var isLoginExpired: Bool { LoginStatusStore.shared.isExpired(usage.id) }
 }

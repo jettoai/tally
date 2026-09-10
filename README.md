@@ -107,10 +107,12 @@ subscriptions at once:
   refresh with nothing new costs well under a second), and it never leaves your machine.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
-- **Logins that look after themselves.** Hover a card for the account's signed-in email; when a
-  login expires, the card says so with a red chip, one notification, and a click that runs the
-  provider's own sign-in quietly in the background, browser consent only (a visible Terminal is
-  the fallback, and Tally never touches a credential either way).
+- **Login health at a glance.** Hover a card for the account's signed-in email. Signed-out
+  accounts get a red chip and a notification; sessions that need `/login` get their own warning
+  and a shortcut to open the affected session. When a Claude login deadline is available, Tally
+  warns within three days of expiry and when it has passed. Clicking to renew runs the provider's
+  official CLI sign-in in the background with browser consent (a visible Terminal is the fallback);
+  Tally does not directly modify credentials during that sign-in flow.
 - **Add an account without leaving the app.** Settings prepares the next account home, offers the
   shared-harness default (one setup serving every account) with a plain privacy note, and drives
   the same quiet sign-in; the new card appears when the browser hands back. An account you
@@ -289,11 +291,13 @@ subscriptions at once:
 
 ## How it works (and what it never does)
 
-- **Zero credential access.** Tally never touches a token, a Keychain secret, or a vendor
-  endpoint. Usage is read through the providers' **own official CLIs** (`claude -p "/usage"` and
-  `codex app-server`), which talk to their vendors with their own first-party identity and manage
-  their own credentials. Account discovery only checks that a login *exists* (an attribute probe);
-  nothing is ever read out.
+- **Usage via official CLIs.** Usage is read through the providers' **own official CLIs**
+  (`claude -p "/usage"` and `codex app-server`), which authenticate with their vendors and manage
+  their own credentials. Account discovery checks login attributes. One read-only exception is
+  Claude login deadline metadata: Tally temporarily reads the local credential document from
+  Keychain, or from `.credentials.json` when the Keychain item is absent, to extract
+  `refreshTokenExpiresAt`. Only dates leave this reader. It does not log, persist, or transmit
+  tokens, refresh logins, or modify credentials.
 - **Read-only, with one named exception.** `claude auth login` finishes the OAuth round trip and
   stops there, so a config home Tally created and signed in for you would still meet its first
   session with the first-run wizard: a theme picker, and a request to sign in to the account that
@@ -402,9 +406,12 @@ than any of them: every running session as a card, who is blocked waiting on you
 one is costing the machine, down to the process holding the memory. Read-only, on your own paid
 subscriptions.
 
-**Why does macOS never ask me for keychain permission?**
-Because Tally never reads a credential: usage comes through the providers' own CLIs, and account
-discovery is an attribute-only Keychain probe (no secret returned → no consent prompt).
+**How does Tally handle Keychain access?**
+Usage comes through official CLIs, and account discovery probes attributes only. The Claude login
+deadline reader also reads a credential document, but skips access when its preflight detects a
+locked Keychain or does not establish that the reader is trusted; the deadline stays unknown.
+Keychain state can change between that check and the read, so a permission prompt is still possible.
+Signing in remains the official CLI's job; Tally's sign-in flow does not directly modify credentials.
 
 **What happens when every account is capped?**
 Nothing dramatic: the dashboard shows it, `tally claude` warns and launches the bare CLI, and

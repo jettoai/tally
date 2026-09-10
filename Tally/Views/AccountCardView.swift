@@ -127,6 +127,8 @@ struct AccountCardView: View {
             } else if facts.isLoginExpired {
                 loginExpiredChip
             }
+            AccountLoginHealthView(accountID: usage.id, canRenew: facts.canRenewLogin,
+                                   showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)
         }
         .padding(TallyMetrics.cardPaddingH)
         // maxHeight applies BEFORE the card background so the rounded surface itself stretches; the
@@ -153,7 +155,7 @@ struct AccountCardView: View {
         Button { RenewLoginStore.shared.renew(accountID: usage.id) } label: {
             HStack(spacing: 3) {
                 Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
-                Text(L("Login expired")).lineLimit(1)
+                Text(L("Signed out")).lineLimit(1)
             }
             .fixedSize()
             .font(.caption2.weight(.semibold))

@@ -43,6 +43,8 @@ func codexRootMetadata(_ object: [String: Any], sessionID: String) -> Bool {
 struct CodexSessionObserver {
     private(set) var state: SupervisedState = .unknown
     private(set) var model: String?
+    private(set) var effort: String?
+    private(set) var hasTurnContext = false
     private var turns: Set<String> = []
     private var terminalTurns: Set<String> = []
     private var offset: UInt64 = 0
@@ -141,7 +143,14 @@ struct CodexSessionObserver {
             invalidate(); return
         }
         guard date >= launchedAt else { return }
-        if type == "turn_context" { model = payload["model"] as? String ?? model; return }
+        if type == "turn_context" {
+            model = payload["model"] as? String ?? model
+            // Each turn supplies its own effort. A missing value must not inherit another
+            // turn's effort, especially after a model change.
+            effort = (payload["effort"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            hasTurnContext = true
+            return
+        }
         guard type == "event_msg" else { return }
         guard let event = payload["type"] as? String else { invalidate(); return }
         guard ["task_started", "task_complete", "turn_aborted"].contains(event) else { return }

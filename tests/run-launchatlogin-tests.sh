@@ -24,6 +24,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -target "$(uname -m)-apple-macos14.0" -o "$out" tests/launchatlogin/main.swift \
+  tests/launchatlogin/launchatloginchecks.swift \
   Tally/Core/LaunchAtLoginState.swift Tally/Core/LaunchAtLoginService.swift \
   Tally/Core/LaunchAtLoginDefault.swift \
   Tally/Core/LoginItemPreview.swift Tally/Core/CaptureLaunch.swift \

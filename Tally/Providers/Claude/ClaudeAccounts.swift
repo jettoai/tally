@@ -2,7 +2,8 @@ import Foundation
 
 /// Discovers Claude Code accounts on this machine. Discovery only PROBES that each config dir's
 /// Keychain login exists (an attribute check - the secret is never read); usage itself is fetched
-/// through the official CLI (`ClaudeUsageCLI`), so Tally never touches a credential.
+/// through the official CLI (`ClaudeUsageCLI`). These discovery and usage paths do not read
+/// credential values; login expiry metadata is read separately by `ClaudeLoginExpiry`.
 ///
 /// Claude Code namespaces its Keychain item by config dir: the default `~/.claude` uses the bare
 /// service name; any dir set via `CLAUDE_CONFIG_DIR` (e.g. `~/.claude2`) appends

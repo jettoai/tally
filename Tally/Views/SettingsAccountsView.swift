@@ -260,6 +260,13 @@ struct SettingsAccountsView: View {
                 // Constant height across all variants (plan capsule, plain caption, spinner) so
                 // toggling an account never changes the row height and shifts its neighbours.
                 .frame(height: 17, alignment: .leading)
+
+                // Session incidents are independent of the account's local sign-in verdict.
+                // Keep their line outside the plan/status branch and its fixed-height frame.
+                AccountLoginHealthView(accountID: item.id,
+                    canRenew: RenewLoginStore.shared.canRenew(accountID: item.id,
+                        providerID: item.providerID, home: item.launchHome),
+                    showsExpiry: signIn == .signedIn)
             }
             // Sized before the gap is, so the identity line spends the room the row actually has
             // rather than half of it. Without this the two flexible children - this column and the

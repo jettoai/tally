@@ -76,6 +76,8 @@ enum CaptureLaunch {
     /// each of them qualifies is in `backgroundKeys`, so a launch carrying one is answered by its
     /// parent.
     static let modifierKeys = ["TallyUpdateChipReady", "TallyUpdateChipBusy", "TallyTokenGraphHover",
+                               // Login incident fixtures only qualify TallyDemoData in a dev build.
+                               "TallyLoginHealthPreview",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

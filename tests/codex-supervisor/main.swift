@@ -55,6 +55,65 @@ check("root task started proves working", observer.state == .working)
 try append(line("turn_context", ["model": "observed-model"]), to: file)
 observer.poll(home: home.path)
 check("native turn model overrides requested model", observer.model == "observed-model")
+check("turn context without effort stays unknown", observer.hasTurnContext && observer.effort == nil)
+try append(line("turn_context", ["model": "gpt-6-astra", "effort": "high",
+    "collaboration_mode": ["settings": ["reasoning_effort": "medium"]]]), to: file)
+observer.poll(home: home.path)
+check("native effort comes from the turn rather than collaboration settings", observer.effort == "high")
+
+let contextDir = root.appendingPathComponent("context-state")
+var contextWriter = CodexSessionContextWriter()
+var contextNotices = 0
+func publishContext(_ observed: CodexSessionObserver?, after: TimeInterval = 0) {
+    contextWriter.sync(accountID: "codex:fixture", launchModel: "requested", launchEffort: "low",
+        observer: observed, pid: "123", dir: contextDir, now: start.addingTimeInterval(after),
+        notify: { _ in contextNotices += 1 })
+}
+func readContext() throws -> [String: Any] {
+    try JSONSerialization.jsonObject(with: Data(contentsOf: contextDir.appendingPathComponent("123.session")))
+        as! [String: Any]
+}
+publishContext(nil)
+var context = try readContext()
+check("launch effort is available before native hooks bind", context["runningEffort"] as? String == "low")
+check("identity sidecar does not fabricate a context reading or a session pin",
+      context["contextTokens"] == nil && context["sessionEffort"] == nil)
+publishContext(observer, after: 1)
+context = try readContext()
+check("observed model and effort reach the card's sidecar fields",
+      context["runningModel"] as? String == "gpt-6-astra" && context["runningEffort"] as? String == "high")
+publishContext(observer, after: 2)
+let unchangedContext = try readContext()
+check("unchanged model and effort do not rewrite or notify", contextNotices == 2
+      && unchangedContext["updatedAt"] as? String == context["updatedAt"] as? String)
+try append(line("turn_context", ["model": "gpt-6-astra", "effort": "medium"]), to: file)
+observer.poll(home: home.path)
+publishContext(observer, after: 3)
+check("effort-only change republishes and wakes the board",
+      (try readContext())["runningEffort"] as? String == "medium" && contextNotices == 3)
+try append(line("turn_context", ["model": "another-model"]), to: file)
+observer.poll(home: home.path)
+publishContext(observer, after: 4)
+context = try readContext()
+check("a new model without effort inherits neither the prior turn nor launch effort",
+      observer.effort == nil && context["runningEffort"] == nil
+      && context["runningModel"] as? String == "another-model")
+try append(line("turn_context", ["model": "another-model", "effort": ""]), to: file)
+observer.poll(home: home.path)
+check("empty effort remains unknown", observer.effort == nil)
+
+var retryWriter = CodexSessionContextWriter()
+let obstructed = root.appendingPathComponent("obstructed-context")
+try Data("file".utf8).write(to: obstructed)
+var retryNotices = 0
+retryWriter.sync(accountID: "codex:fixture", launchModel: nil, launchEffort: "high",
+    observer: nil, pid: "456", dir: obstructed, notify: { _ in retryNotices += 1 })
+check("failed sidecar write does not claim a successful publication", retryNotices == 0)
+try FileManager.default.removeItem(at: obstructed)
+retryWriter.sync(accountID: "codex:fixture", launchModel: nil, launchEffort: "high",
+    observer: nil, pid: "456", dir: obstructed, notify: { _ in retryNotices += 1 })
+check("failed sidecar write is retried without a model or effort change", retryNotices == 1
+      && FileManager.default.fileExists(atPath: obstructed.appendingPathComponent("456.session").path))
 try append(line("event_msg", ["type": "agent_message", "message": "Stop hook continued"]), to: file)
 observer.poll(home: home.path)
 check("assistant message alone does not imply idle", observer.state == .working)
@@ -78,6 +137,9 @@ check("late prompt receipt cannot reopen a completed turn", observer.state == .i
 var (historyFile, historical) = try fixture("history", contents: meta() + event("task_complete", after: -1))
 historical.poll(home: home.path)
 check("resume history cannot publish historical idle", historical.state == .unknown)
+try append(line("turn_context", ["model": "old-model", "effort": "xhigh"], after: -1), to: historyFile)
+historical.poll(home: home.path)
+check("resume history cannot publish historical effort", !historical.hasTurnContext && historical.effort == nil)
 try append(event("task_started"), to: historyFile)
 try append(event("task_started", turnID: nextTurn), to: historyFile)
 try append(event("task_complete"), to: historyFile)

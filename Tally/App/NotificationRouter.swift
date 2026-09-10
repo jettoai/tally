@@ -29,7 +29,7 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     /// enough to repeat before each alert that carries a button.
     func refreshCategories() {
         UNUserNotificationCenter.current()
-            .setNotificationCategories([ResetHintNotifier.category, LoginStatusStore.category])
+            .setNotificationCategories([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category])
     }
 
     /// Show the alert even while Tally is the active app.
@@ -55,6 +55,14 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
         if content.categoryIdentifier == LoginStatusStore.categoryID {
             if action == LoginStatusStore.renewActionID, let accountID {
                 Task { @MainActor in RenewLoginStore.shared.renew(accountID: accountID) }
+            }
+            completionHandler()
+            return
+        }
+        if content.categoryIdentifier == LoginHealthNotification.categoryID {
+            let sessionID = content.userInfo[LoginHealthNotification.sessionKey] as? String
+            if action == LoginHealthNotification.openActionID, let sessionID {
+                Task { @MainActor in LoginHealthStore.shared.openSession(sessionID) }
             }
             completionHandler()
             return

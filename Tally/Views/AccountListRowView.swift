@@ -233,8 +233,10 @@ struct AccountListRowView: View {
             .tallyTooltipAroundControl(
                 facts.markOwner,
                 detail: L(AccountSignIn.detailKey(isDormant: facts.isDormant)))
-            .accessibilityLabel(L("Login expired"))
+            .accessibilityLabel(L("Signed out"))
         }
+        AccountLoginHealthView(accountID: usage.id, canRenew: facts.canRenewLogin,
+                               compact: true, showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)
     }
 
     /// Banked rate-limit resets, as the count and nothing else. Redeeming stays what it is on the

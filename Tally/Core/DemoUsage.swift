@@ -12,6 +12,11 @@ import Foundation
 enum DemoUsage {
     static var isActive: Bool { UserDefaults.standard.bool(forKey: "TallyDemoData") }
 
+    /// Debug-only login scenarios, layered onto the synthetic account fixtures.
+    static var loginHealthPreview: Bool {
+        BuildVariant.isDev && isActive && UserDefaults.standard.bool(forKey: "TallyLoginHealthPreview")
+    }
+
     /// The fixture whose identity callout `-TallyTooltipPreview identity` holds open: the Team
     /// account that shares its address with the Pro one, which is the whole point that callout's
     /// second line exists to make.

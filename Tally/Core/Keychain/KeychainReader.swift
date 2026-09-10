@@ -8,12 +8,9 @@ import Security
 /// queries below return no secret data, so they never raise a macOS consent prompt either, and that
 /// property is load-bearing for both callers (discovery runs every minute).
 ///
-/// THE ONE PLACE THAT DOES READ A SECRET is the `tally` CLI's MCP authorization seeding
-/// (TallyCLI/KeychainSecret.swift, TallyCLI/MCPAuthSync.swift): it merges one config home's MCP
-/// grants into another at launch, which cannot be done from attributes. It is in the CLI only, it
-/// runs once per launch rather than on a timer, and it never touches the login credential in the
-/// same blob. Named here because "Tally never reads a secret" was true of the whole app when this
-/// file was written, and a reader who still believes it would be wrong about the CLI.
+/// Secret reads live separately: CLI MCP seeding merges grants, while the app's
+/// `ClaudeLoginExpiry` reads only login expiry metadata from a credential blob. Neither caller
+/// exposes token values to this discovery helper.
 enum KeychainReader {
     /// Existence probe by attributes only (no secret returned). Used for account discovery.
     static func exists(service: String, account: String? = nil) -> Bool {

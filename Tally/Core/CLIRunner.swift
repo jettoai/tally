@@ -1,11 +1,10 @@
 import Foundation
 
-/// Spawns a provider's own CLI and captures its stdout - the data path for every usage read.
+/// Spawns a provider's own CLI and captures its stdout for usage readers.
 ///
-/// Tally reads usage EXCLUSIVELY through the providers' official clients (`claude -p "/usage"`,
-/// `codex app-server`): the CLI talks to its vendor with its own first-party identity and
-/// credentials, so Tally never touches an OAuth token, a Keychain credential, or a vendor
-/// endpoint itself.
+/// Those readers use the official clients (`claude -p "/usage"`, `codex app-server`), which
+/// handle their own credentials and vendor requests. This runner does not read credentials
+/// or call vendor endpoints.
 enum CLIRunner {
     /// GUI apps get a minimal PATH (`/usr/bin:/bin:…`), so resolve the binary from the places
     /// CLIs actually install to, falling back to PATH lookup for good measure.

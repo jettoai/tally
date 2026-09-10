@@ -65,6 +65,8 @@ struct SessionStateRecord: Codable, Equatable, Sendable {
     var updatedAt: Date
     /// What Claude Code said it was waiting for, while it is waiting. nil in every other state.
     var reason: String?
+    /// Unresolved authentication failure observed in this session, absent on older records.
+    var loginRequiredAt: Date?
     /// WHICH KIND OF EVENT is standing unanswered (`UserNotice.type`): the difference between a
     /// permission request and "the floor is free", which the sentence above does not carry. nil
     /// when no event stands, and when the one that does named no type.

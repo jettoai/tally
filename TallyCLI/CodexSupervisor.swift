@@ -9,6 +9,13 @@ func shouldMonitorCodex(args: [String], stdoutIsTTY: Bool) -> Bool {
     return command == nil || command == "resume"
 }
 
+/// Only a value actually passed to this child, never a profile or a configuration-home guess.
+func codexLaunchEffort(_ args: [String]) -> String? {
+    let value = codexTypedConfigOverrides(optionsOnly(args))
+        .last(where: { $0.key == "model_reasoning_effort" })?.value
+    return value.flatMap { $0.isEmpty ? nil : $0 }
+}
+
 /// Refuse an automatic second writer while a monitored Codex generation owns the conversation.
 func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
     var sessions: Set<String> = []
@@ -71,10 +78,13 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             to: supervisorStateDir.appendingPathComponent(pid), atomically: true, encoding: .utf8)
     }
     var writer = SessionStateWriter()
+    var contextWriter = CodexSessionContextWriter()
+    let launchModel = launchPrimaryModel(args, providerID: "codex")
+    let launchEffort = codexLaunchEffort(args)
     var observer: CodexSessionObserver?
     var identity = SessionIdentity(accountID: account.id, directory: cwd,
                                    project: URL(fileURLWithPath: cwd).lastPathComponent,
-                                   model: launchPrimaryModel(args, providerID: "codex"),
+                                   model: launchModel,
                                    childPid: Int(child), supervisorVersion: version)
     while reaper.isRunning {
         reaper.poll()
@@ -101,6 +111,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             let activity = (try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-activity")))
                 .flatMap { try? JSONDecoder().decode(CodexSessionActivity.self, from: $0) }
             observer?.poll(home: home, activity: activity)
+            contextWriter.sync(accountID: account.id, launchModel: launchModel,
+                               launchEffort: launchEffort, observer: observer, pid: pid)
             identity.model = observer?.model ?? identity.model
             let state = observer?.state ?? .unknown
             writer.sync(state, reason: state == .unknown ? "Codex session status is not available." : nil,

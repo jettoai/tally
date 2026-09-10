@@ -126,14 +126,15 @@ struct SessionStateWriter {
     /// field, so a session sitting blocked while its subagents start and stop writing costs one
     /// write per flip - which is the price of being able to answer "why is this red" at all.
     mutating func sync(_ state: SupervisedState, reason: String?, noticeType: String? = nil,
-                       quiet: Bool? = nil, identity: SessionIdentity,
-                       pid: String, dir: URL = supervisorStateDir, now: Date = Date()) {
+                       quiet: Bool? = nil, loginRequiredAt: Date? = nil, identity: SessionIdentity,
+                       pid: String, dir: URL = supervisorStateDir, now: Date = Date(),
+                       notify: (String) -> Void = postSessionStateChanged) {
         let word = state.rawValue
         let record = SessionStateRecord(
             state: word,
             // The age of THIS state, not of this tick: preserved while the word holds steady.
             since: current?.state == word ? (current?.since ?? now) : now,
-            updatedAt: now, reason: reason, noticeType: noticeType, quiet: quiet,
+            updatedAt: now, reason: reason, loginRequiredAt: loginRequiredAt, noticeType: noticeType, quiet: quiet,
             accountID: identity.accountID,
             directory: identity.directory, project: identity.project, worktree: identity.worktree,
             model: identity.model, childPid: identity.childPid,
@@ -147,7 +148,7 @@ struct SessionStateWriter {
             unchanged.updatedAt = record.updatedAt
             if unchanged == record { return }
         }
-        let moved = current?.state != word
+        let moved = current?.state != word || current?.loginRequiredAt != loginRequiredAt
         // NOTHING IS BELIEVED UNTIL IT IS ON DISK. The guard above judges the next write against
         // `current`, so updating it after a publish that failed would suppress every retry for the
         // rest of the session: the state would be decided correctly, every tick, and never
@@ -155,13 +156,10 @@ struct SessionStateWriter {
         // is what "best-effort" has to mean for a writer that remembers.
         guard writeSessionState(record, pid: pid, dir: dir) else { return }
         current = record
-        // THE KNOCK, and only on a state change. The file is the truth and this is what saves the
-        // app from polling a panel nobody has open (SessionState.swift states the rule); a post per
-        // model change or per account move would be noise on a machine-wide bus for a reading that
-        // is re-read whenever the panel is looked at anyway. After the write, for the same reason:
-        // a knock is an invitation to read a file that has to already say the new thing.
+        // Notify after publishing a state or authentication change. A session can remain blocked
+        // while its reason changes from permission to login, which the app must hear immediately.
         guard moved else { return }
-        postSessionStateChanged(pid: pid)
+        notify(pid)
     }
 }
 
@@ -216,7 +214,8 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // An open question is a HARD wait wherever it stands, and it outranks a soft notice rather than
     // merging with one: a fan-out that has been quiet for 60s and a conversation holding a question
     // open both carry an `idle_prompt`, and only the second is somebody being waited for.
-    let wait: UserWait? = question != nil ? .hard
+    let loginRequiredAt = watcher.loginRequiredAt
+    let wait: UserWait? = loginRequiredAt != nil || question != nil ? .hard
         : (waiting ? userWait(notificationType: notice?.type) : nil)
     let state = supervisedSessionState(wait: wait, hasTranscript: file != nil, quiet: quiet)
     // What to SAY about the wait, and Claude Code's own sentence leads: it names the tool it wants
@@ -224,8 +223,10 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // when there is no notice, or when the one standing said nothing - an empty message is a wait
     // with nothing to say about it, which is nil rather than "".
     let said = waiting ? (notice?.message).flatMap({ $0.isEmpty ? nil : $0 }) : nil
-    let spoken = state == .blocked ? said ?? question.flatMap({ userQuestionTools[$0] }) : nil
+    let spoken = loginRequiredAt != nil ? "Sign in again in this session (/login)."
+        : (state == .blocked ? said ?? question.flatMap({ userQuestionTools[$0] }) : nil)
     writer.sync(state, reason: spoken, noticeType: waiting ? notice?.type : nil, quiet: quiet,
+                loginRequiredAt: loginRequiredAt,
                 identity: SessionIdentity(accountID: accountID, directory: project.path,
                                           project: project.name, worktree: project.worktree,
                                           model: model, childPid: childPid,

@@ -2,6 +2,17 @@ import Darwin
 import Foundation
 
 func runCodexMonitoringChecks() {
+    for args in [["-c", "model_reasoning_effort=\"high\""],
+                 ["--config=model_reasoning_effort='high'"],
+                 ["-cmodel_reasoning_effort=high"],
+                 ["-c=model_reasoning_effort=high"]] {
+        check("Codex launch effort reads config spelling \(args)", codexLaunchEffort(args) == "high")
+    }
+    check("Codex launch effort uses the last override", codexLaunchEffort([
+        "-c", "model_reasoning_effort=low", "--config", "model_reasoning_effort=medium"]) == "medium")
+    check("Codex launch effort does not parse prompt text after the delimiter",
+          codexLaunchEffort(["--", "-c", "model_reasoning_effort=high"]) == nil)
+    check("Codex launch without an effort override stays unknown", codexLaunchEffort(["-m", "gpt-6-astra"]) == nil)
     typealias Identity = (parent: pid_t, name: String, startedAt: Int64)
     var ancestry: [pid_t: Identity] = [
         100: (99, "tally", 1), 200: (100, "node", 2), 300: (200, "codex", 3),
@@ -133,6 +144,13 @@ func runCodexMonitoringChecks() {
         writeSupervisorAccount("codex:fixture", pid: pid, dir: dir)
         writeSupervisorChild(getpid(), pid: pid, dir: dir)
         writeSessionState(SessionStateRecord(state: "unknown", since: Date(), updatedAt: Date(), accountID: "codex:fixture"), pid: pid, dir: dir)
+        var contextWriter = CodexSessionContextWriter()
+        contextWriter.sync(accountID: "codex:fixture", launchModel: "gpt-6-astra",
+            launchEffort: "high", observer: nil, pid: pid, dir: dir, notify: { _ in })
+        let sidecar = SessionSidecar.read(pid: pid, dir: dir)
+        let card = SessionRosterStore.SessionRow(id: pid, record: nil, session: sidecar)
+        check("Codex launch effort reaches the real session card reader",
+              card.effort == "high" && card.model == "gpt-6-astra" && card.contextTokens == nil)
         let reading = sessionReadings(dir: dir, socketDir: base.appendingPathComponent("sockets").path,
                                      identity: { _ in (nil, nil) })
         check("Codex JSON advertises monitoring-only capabilities", reading.sessions.first?.provider == "codex" && reading.sessions.first?.supportedActions == [])

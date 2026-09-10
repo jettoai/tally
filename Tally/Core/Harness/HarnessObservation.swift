@@ -1,6 +1,18 @@
 import Foundation
 
 enum HarnessObservation {
+    static func refreshSkill(_ entries: inout [String: String], path: String,
+                             oldHashes: Set<String>, newHash: String) {
+        for key in Array(entries.keys) where HarnessIO.canonical(key) == path {
+            guard let value = entries[key], let mode = value.range(of: ":mode=", options: .backwards) else { continue }
+            let prefix = String(value[..<mode.lowerBound])
+            let oldHash = String(prefix.suffix(64))
+            guard oldHashes.contains(oldHash), prefix == oldHash || prefix.hasSuffix(":" + oldHash) else { continue }
+            // Keep the recorded link and mode so unrelated drift cannot become the new baseline.
+            entries[key] = String(prefix.dropLast(64)) + newHash + value[mode.lowerBound...]
+        }
+    }
+
     static func capture(_ location: HarnessLocation) throws -> [String: String] {
         var entries: [String: String] = [:], bytes = 0
         let roots = location.sourceConfigs + [location.targetConfig, location.sourceInstructions,

@@ -2,6 +2,9 @@ import Foundation
 
 let args = Array(CommandLine.arguments.dropFirst())
 switch args.first {
+case "probe-skill-update":
+    do { try harnessPrint(HarnessIO.object(HarnessIO.encode(HarnessSkillUpdate.refresh(in: args[1])))) }
+    catch { exit(harnessError(error)) }
 case "harness": exit(runHarness(args: Array(args.dropFirst())))
 case "codex-hook": exit(runCodexHook(args: Array(args.dropFirst())))
 case "inbox": exit(runInbox(args: Array(args.dropFirst())))

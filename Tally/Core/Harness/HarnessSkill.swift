@@ -21,15 +21,20 @@ enum HarnessSkill {
     select the harness to change. Installing the integration alone does not adapt
     user policy or write a project's configuration.
 
-    First identify the current directory and its git checkout root, the active
-    provider, and its actual account home. A request about the current project uses
-    that checkout's project harness; a request about personal or global settings uses
-    the user harness. Read applicable user instructions in either case. If the task
-    names neither and both scopes would need changes, inspect both and explain the
-    proposed scope before writing. Do not infer project scope from a global skill's
-    folder, or silently adapt other checkouts.
-    When the current directory is a provider's configuration home, "this harness"
-    refers to user scope even if that home is itself a git repository.
+    An explicit invocation of this skill without a narrower request asks you to
+    complete setup in the selected scope, including installation and verification.
+    Honor requests to only inspect, plan, or check status as read-only. Automatic
+    skill selection or a startup reminder alone does not authorize installation.
+
+    First identify the current directory, its git checkout root, the active provider,
+    and its actual account home. An explicit user scope or project path takes priority.
+    Otherwise, use user scope when the current directory is the provider's account
+    configuration home, even if that home is a git repository; use project scope for
+    the current checkout when inside a project or its subdirectories. If neither
+    identifies a target, inspect the available context and ask which scope is intended.
+    Read applicable user instructions in either scope. The skill's installation folder
+    does not select the target, and a project request does not also adapt user scope
+    or other checkouts.
 
     Run `tally harness plan` and `tally harness status` for the selected scope. Use
     `--scope user|project --source-home /path --target-home /path --project /checkout`.
@@ -38,12 +43,20 @@ enum HarnessSkill {
     and capabilities that need separate adaptation. Read both scopes' applicable
     instructions and the project's NORTH_STAR.md before changing code.
 
-    After inspecting the plan, use `tally harness install` with the same locations
-    within the user's existing authorization. For project changes, show the affected
-    files from plan.projectGitVisible before writing. Once the user's authorization
-    covers those paths, add `--confirm-git-visible` to install. Use `tally harness remove`
-    with that scope to undo an adaptation. Removing the app integration removes its
-    skills and inbox reminders; it does not silently remove prior project adaptations.
+    For an authorized setup with no unresolved conflicts, explain the selected scope
+    and show plan.projectGitVisible as a progress update, then run `tally harness install`
+    with the same locations. For project scope, add `--confirm-git-visible` after
+    reviewing those paths. The setup request already covers these installation files;
+    the path preview and flag do not require a second permission question. Ask only
+    when the target or ownership remains unresolved, the changes exceed the request,
+    or a native approval step requires the user. Verify the resulting status and
+    report installation separately from native trust and behavioral verification.
+
+    An unchanged installation needs no reinstall. Inspect drift before deciding what
+    needs adaptation; do not remove and reinstall merely to clear a drift report.
+    Use `tally harness remove` with the selected scope when removal is requested.
+    Removing the app integration removes its skills and inbox reminders; it does not
+    silently remove prior project adaptations.
 
     Installation is not proof of native trust or model adherence. Review new
     definitions with Codex `/hooks`. Verify a normal operation, a blocked operation,

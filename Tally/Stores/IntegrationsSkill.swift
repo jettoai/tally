@@ -137,10 +137,12 @@ extension IntegrationsStore {
         // caught here too (`isUnshipped`): it wears the release bundle id, so nothing else about it
         // says it must not write, and what it wrote was a hook path inside a build tree.
         guard !BuildVariant.isUnshipped else { return }
+        let harness = HarnessSkillUpdate.refresh(in: FileManager.default.homeDirectoryForCurrentUser.path + "/.tally/harness")
+        if !harness.errors.isEmpty { lastError = harness.errors.joined(separator: "\n") }
         let result = Self.autoUpdateSkills(in: Self.installedSkillFiles())
         // Before the early return: when EVERY update failed (an unwritable skills folder) there is
         // nothing to record, but the failure is exactly what Settings must be able to show.
-        if let error = result.error { lastError = error }
+        if let error = result.error { lastError = (harness.errors + [error]).joined(separator: "\n") }
         // The command files and their hooks follow the SKILL.md's PRESENCE, not their own: an
         // install from an app that predates one has neither, and "an absent file stays absent" would
         // keep it that way forever. Run whether or not the skill itself needed rewriting, because a

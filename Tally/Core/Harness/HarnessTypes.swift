@@ -93,7 +93,7 @@ struct HarnessFileReceipt: Codable {
     let path: String
     let kind: String
     let beforeHash: String?
-    let afterHash: String
+    var afterHash: String
     let backup: String?
 }
 

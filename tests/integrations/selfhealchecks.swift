@@ -476,6 +476,12 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // app and not under a build products path, and is unshipped for the third reason alone.
     check("a process that is no finished app bundle at all is unshipped on that ground",
           !BuildVariant.isDev && !BuildVariant.bundlesCLI && BuildVariant.isUnshipped)
+    let skillSource = (try? String(contentsOfFile: "Tally/Stores/IntegrationsSkill.swift", encoding: .utf8)) ?? ""
+    let startup = skillSource.components(separatedBy: "func autoUpdateSkill() {").last ?? ""
+    let releaseGuard = startup.range(of: "guard !BuildVariant.isUnshipped else { return }")
+    let harnessRefresh = startup.range(of: "HarnessSkillUpdate.refresh(in:")
+    check("harness skills refresh only after the installed-release guard",
+          releaseGuard != nil && harnessRefresh != nil && releaseGuard!.lowerBound < harnessRefresh!.lowerBound)
 
     // MARK: - THE GATE IN FRONT OF THE REST OF THE SHARED STATE
     //

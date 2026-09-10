@@ -44,6 +44,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Core/RemoveAccount.swift Tally/Providers/Codex/CodexAccounts.swift \
   Tally/Stores/IntegrationsCompletion.swift \
   Tally/Stores/IntegrationsSkill.swift \
+  Tally/Core/Harness/*.swift \
   Tally/Stores/IntegrationsSkillContent.swift Tally/Stores/IntegrationsSkillFolderMove.swift \
   Tally/Stores/IntegrationsTallyCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
   Tally/Stores/IntegrationsPromptHook.swift Tally/Stores/IntegrationsMCPServer.swift \

@@ -11,6 +11,21 @@ func check(_ name: String, _ condition: Bool) {
     if !condition { failures += 1 }
 }
 
+/// A pid THIS MACHINE IS NOT RUNNING, asked rather than assumed, for the fixtures whose subject is
+/// what becomes of a DEAD supervisor's state: the sweeps reap a dead pid's documents and keep a live
+/// one's, and `supervisorAlive` counts EPERM as alive too, so a fixture pid the machine happens to
+/// be using reads as "kept" and the check fails for a reason that has nothing to do with the code.
+/// The hard-coded one was 4242, squarely inside the range pids are handed out from, and a full
+/// parallel run of these suites churns through hundreds of them: one failure in the commit gate
+/// (2026-09-02), green every time the suite ran on its own.
+///
+/// The answer is always five digits, so it stays clear of the small literal pids the suites use as
+/// distinct fixtures beside it (9999 and below). `?? 99_999` is a last resort rather than an answer:
+/// a caller whose subject IS the pid being dead anchors it with its own liveness check.
+func deadFixturePid() -> pid_t {
+    pid_t((30_000 ... 99_999).first { !supervisorAlive(pid_t($0)) } ?? 99_999)
+}
+
 let launch = Date(timeIntervalSince1970: 1_800_000_000)
 let iso = ISO8601DateFormatter()
 func stamp(_ offset: TimeInterval) -> String { iso.string(from: launch.addingTimeInterval(offset)) }

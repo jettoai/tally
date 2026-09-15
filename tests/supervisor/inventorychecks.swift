@@ -34,7 +34,7 @@ func runSessionInventoryChecks() {
     // where it is, and its conversation has not had a turn yet. pid 1 is alive on every machine
     // this runs on (`supervisorAlive` counts EPERM), which is the whole of what is needed here.
     let freshSupervisor = "1"
-    let deadPid = String((30_000 ... 99_999).first { !supervisorAlive(pid_t($0)) } ?? 99_999)
+    let deadPid = String(deadFixturePid())
 
     // THE PRESENCE ENTRY IS THE ROSTER, written before a supervisor spawns anything, so every
     // fixture here registers the way a real one does (`markSupervisorLive`, Supervisor.swift).

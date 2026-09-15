@@ -123,7 +123,7 @@ func runSessionContextChecks() {
     let livePid = String(getpid())
     let siblingPid = String(getppid())
     // A pid nothing on this machine is using, so a stale file can be tested for real.
-    let deadPid = String((30_000 ... 99_999).first { !supervisorAlive(pid_t($0)) } ?? 99_999)
+    let deadPid = String(deadFixturePid())
 
     check("nothing published reads as nothing", readSessionContext(pid: livePid, dir: dir) == nil)
     let reading = SupervisedSession(accountID: "claude:.claude", contextTokens: 477_070,

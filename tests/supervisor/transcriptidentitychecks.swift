@@ -41,40 +41,38 @@ func runTranscriptIdentityChecks() {
     // only those two rather than inventing the field it is missing.
     check("a report from before the start time existed is no report to this reader",
           parseTranscriptIdentity("conv-1\n4242\n") == nil)
-    // A PID THIS MACHINE IS NOT RUNNING, asked rather than assumed. The sweep at the end of this
-    // block reaps a DEAD pid's documents and keeps a live one's, and `supervisorAlive` counts EPERM
-    // as alive too - so a fixture pid the machine happens to be using reads as "kept" and that check
-    // fails for a reason that has nothing to do with the code. The pid here was 4242, squarely
-    // inside the range pids are handed out from, and a full parallel run of these suites churns
-    // through hundreds of them: one failure of exactly this check in the commit gate (2026-09-02),
-    // green every time the suite ran on its own. Asked the way contextchecks and inventorychecks ask
-    // it; the range cannot produce the 9999 the addressing check below needs to stay distinct from.
-    let deadPid = String((30_000 ... 99_999).first { !supervisorAlive(pid_t($0)) } ?? 99_999)
-    check("the fixture's dead pid really is dead", !supervisorAlive(pid_t(deadPid)!))
+    // The sweep at the end of this block reaps a DEAD pid's documents and keeps a live one's, so the
+    // pid it runs on is one this machine is not running, asked for rather than assumed
+    // (`deadFixturePid`, main.swift, which carries what the hard-coded 4242 cost). The anchor below
+    // is what keeps that helper's last-resort fallback from passing for an answer, and its five
+    // digits stay clear of the 9999 the addressing check further down has to be distinct from.
+    let deadPid = deadFixturePid()
+    let deadPidKey = String(deadPid)
+    check("the fixture's dead pid really is dead", !supervisorAlive(deadPid))
     let roundTrip = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-\(UUID().uuidString)")
     check("a session with no report reads as nil",
-          readTranscriptIdentity(pid: deadPid, dir: roundTrip) == nil)
+          readTranscriptIdentity(pid: deadPidKey, dir: roundTrip) == nil)
     writeTranscriptIdentity(TranscriptIdentity(id: "conv-1", claudeCode: synthetic(77)),
-                            pid: deadPid, dir: roundTrip)
-    let body = (try? String(contentsOf: transcriptIdentityFile(pid: deadPid, dir: roundTrip),
+                            pid: deadPidKey, dir: roundTrip)
+    let body = (try? String(contentsOf: transcriptIdentityFile(pid: deadPidKey, dir: roundTrip),
                             encoding: .utf8)) ?? ""
     let bodyLines = body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     check("the conversation and the pid keep the lines an older reader takes them from",
           bodyLines.count > 2 && bodyLines[0] == "conv-1" && bodyLines[1] == "77"
               && bodyLines[2] == "77000")
     check("a written report round-trips",
-          readTranscriptIdentity(pid: deadPid, dir: roundTrip)
+          readTranscriptIdentity(pid: deadPidKey, dir: roundTrip)
               == TranscriptIdentity(id: "conv-1", claudeCode: synthetic(77)))
     check("and it is addressed to one session only",
           readTranscriptIdentity(pid: "9999", dir: roundTrip) == nil)
     // The document joins the family the state directory sweeps, or a dead session's copy would
     // outlive it and be read by whatever takes the pid next.
     check("the sweep recognises this document as one of ours",
-          supervisorStatePid(ofFile: deadPid + transcriptIdentitySuffix) == pid_t(deadPid))
+          supervisorStatePid(ofFile: deadPidKey + transcriptIdentitySuffix) == deadPid)
     sweepDeadSupervisorState(dir: roundTrip)
     check("…so a dead supervisor's report is swept",
-          readTranscriptIdentity(pid: deadPid, dir: roundTrip) == nil)
+          readTranscriptIdentity(pid: deadPidKey, dir: roundTrip) == nil)
     try? FileManager.default.removeItem(at: roundTrip)
 
     // MARK: - 35a2. Which process ran the status line

@@ -105,6 +105,32 @@ enum HarnessSkill {
     necessary denials and approval boundaries before migration. Keep enforcement
     results separate from coding quality, latency, and configuration registration.
 
+    ## Optional native model routing
+
+    Adapt routing when requested or needed by the user's existing in-scope workflow.
+    Preserve that workflow's role responsibilities, dispatch criteria, context-sharing
+    choices, and review requirements. Do not introduce a product-defined role hierarchy, model
+    lineup, or mandatory delegation; use the user's requirements and native capabilities.
+
+    Keep parent dispatch instructions in the applicable AGENTS.md and role definitions
+    in native agent TOML files: the selected account's agents directory for user scope,
+    or .codex/agents for project scope. Preserve existing names and ownership. Define
+    name, description, and developer_instructions; set both model and
+    model_reasoning_effort when pinning a pair, since omitted values can inherit.
+    Check supported models and the current client schema in the official Codex documentation.
+
+    Distinguish config.toml defaults, Tally launch policies, explicit session selections,
+    and role configuration. For a parent launched through Tally, typed options outrank
+    the project profile, then app defaults; injected options can override the parent's
+    config.toml defaults. A child's explicit model and effort in its custom-agent TOML
+    take precedence for that child. Change only the authorized configuration scope.
+
+    Report configured values separately from the actual child model and effort in
+    native metadata. Missing capabilities or evidence remain explicit limitations;
+    role loading is not proof of dispatch adherence or task quality. Compare variants
+    using the evaluation contract below. Tally install, skill refresh, and removal
+    leave user-authored model settings and native roles outside their ownership.
+
     ## Complete an engineering task
 
     Record the branch, SHA, and existing dirty-file ownership. Implement the user's

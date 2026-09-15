@@ -33,6 +33,37 @@ include them. Preserve an existing generated marker block.
 Do not copy the complete source or require reading it at the start of each session.
 Claude-specific orchestration and the author's private policies are not defaults.
 
+## Optional Codex-native model roles
+
+When requested or needed by the user's existing workflow, the skill guides an
+assistant in adapting that workflow to native roles. Role responsibilities,
+dispatch criteria, context sharing, review policy, and model choices belong to
+the user. Tally does not prescribe a role hierarchy or require delegation.
+
+Parent dispatch instructions belong in the applicable AGENTS.md. Native role
+TOML files live under the selected Codex account's `agents/` directory, or the
+project's `.codex/agents/`. A role defines `name`, `description`, and
+`developer_instructions`; pin both `model` and `model_reasoning_effort` when a
+particular pair is required. Omitted values can inherit, and support depends on
+the current client. See the
+[official Codex custom-agent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents#custom-agents).
+
+Keep configuration sources distinct. For a parent launched through Tally, typed
+options win over a project profile, then app defaults. Injected options can
+override the parent's `config.toml` defaults. A child's explicit model and effort
+in its custom-agent TOML take precedence for that child. An active conversation's
+selection does not establish the default for a new one. Adaptation changes only
+the authorized scope and checks effective settings against native runtime evidence.
+
+The CLI installer, skill updater, and remover do not create or replace native
+model configuration or agent files. Assistant-authored roles remain user-owned
+after removal. `harness status` observes the adapter inventory, not these native
+model settings. Configured roles, actual child model selection, dispatch adherence,
+and task quality require separate evidence; report unavailable evidence explicitly.
+Use `tally harness record` for evaluations, as described below.
+
+## Install an adaptation
+
 Inspect a plan before installing:
 
 ```sh

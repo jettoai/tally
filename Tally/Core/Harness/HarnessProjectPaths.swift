@@ -1,10 +1,11 @@
 import Foundation
 
 enum HarnessProjectPaths {
-    static func visible(_ location: HarnessLocation, links: [HarnessLink]) throws -> [String] {
+    static func visible(_ location: HarnessLocation, links: [HarnessLink], includesHooks: Bool) throws -> [String] {
         guard location.scope == "project", let root = location.project else { return [] }
-        var paths = [location.targetRoot + "/hooks.json", location.targetSkills + "/tally-harness/SKILL.md"]
+        var paths = [location.targetSkills + "/tally-harness/SKILL.md"]
             + links.map(\.target)
+        if includesHooks { paths.append(location.targetRoot + "/hooks.json") }
         if HarnessIO.canonical(location.targetInstructions) != HarnessIO.canonical(location.sourceInstructions) {
             paths.append(location.targetInstructions)
         }

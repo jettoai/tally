@@ -75,10 +75,14 @@ struct HarnessPlan: Codable, Sendable {
     let location: HarnessLocation
     let hooks: [HarnessHook]
     let links: [HarnessLink]
+    let skillCandidates: [HarnessLink]
+    let selectedHookIDs: [String]
+    let selectedSkillNames: [String]
+    let selectionExplicit: Bool
     let conflicts: [String]
     let notices: [String]
     let projectGitVisible: [String]
-    var bridgeable: [HarnessHook] { hooks.filter { $0.disposition == "protocol-candidate" } }
+    var bridgeable: [HarnessHook] { hooks.filter { selectedHookIDs.contains($0.id) } }
 }
 
 struct HarnessRegistration: Codable {
@@ -108,6 +112,15 @@ struct HarnessManifest: Codable {
     var files: [HarnessFileReceipt]
     var links: [HarnessLink]
     var observations: [String: String]
+    var selectedHookIDs: [String]? = nil
+    var selectedSkillNames: [String]? = nil
+
+    var enabledHookIDs: [String] {
+        selectedHookIDs ?? hooks.filter { $0.disposition == "protocol-candidate" }.map(\.id)
+    }
+    var enabledSkillNames: [String] {
+        selectedSkillNames ?? links.map { ($0.target as NSString).lastPathComponent }
+    }
 }
 
 enum HarnessIO {

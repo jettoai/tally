@@ -20,7 +20,20 @@ the recorded installation, including homes installed together by the app. Likewi
 With explicit options, the resolved homes and skills root must match the receipt;
 a mismatch is rejected before any installation files are changed.
 
-Adaptations have their own preview and receipt. Inspect a plan before installing:
+Adaptations have their own preview and receipt. New installations add concise
+AGENTS.md guidance and the product workflow skill. They register no source hooks,
+create no source-skill links, and add no SessionStart adapter. Native Codex tools
+remain the default workflow; load relevant skills on demand.
+
+During explicit assistant setup, read the applicable source CLAUDE.md and existing
+target instructions once, then distill useful shared principles into concise target
+AGENTS.md instructions. The CLI writes generic guidance; it does not infer or copy
+user policy. Write distilled rules before the final plan and install so observations
+include them. Preserve an existing generated marker block.
+Do not copy the complete source or require reading it at the start of each session.
+Claude-specific orchestration and the author's private policies are not defaults.
+
+Inspect a plan before installing:
 
 ```sh
 tally harness plan --source-home /path/to/claude --target-home /path/to/codex
@@ -28,6 +41,23 @@ tally harness install --source-home /path/to/claude --target-home /path/to/codex
 tally harness status --source-home /path/to/claude --target-home /path/to/codex
 tally harness remove --source-home /path/to/claude --target-home /path/to/codex
 ```
+
+The plan lists `hooks` (including unsupported forms), `skillCandidates`,
+`selectedHookIDs`, and `selectedSkillNames`. `links` lists the selected source-skill
+links that installation will own. A preexisting matching foreign link is not adopted.
+Opt in to individual items by repeating `--hook <plan-id>` and `--skill <name>` on
+both `plan` and `install`, using the same locations and selections:
+
+```sh
+tally harness plan --hook <hook-id-from-plan> --skill <source-skill-name>
+tally harness install --hook <hook-id-from-plan> --skill <source-skill-name>
+```
+
+Unknown IDs, unsupported hooks, and unknown skill names are rejected before writes.
+With no item options, an existing installation retains its recorded selections,
+including legacy registrations. Explicit options specify the complete selection;
+a different selection requires explicit removal first. An upgrade or status check
+does not silently remove or re-enable hooks or skills.
 
 The default scope is `user`. Home defaults come from `CLAUDE_CONFIG_DIR` and
 `CODEX_HOME`, falling back to `~/.claude` and `~/.codex`. `--skills-root` defaults to
@@ -45,10 +75,10 @@ use `tally harness remove` with their explicit locations.
 
 | Capability | Installed behavior | Separate verification |
 | --- | --- | --- |
-| Command hooks | Explicit entries in source settings are adapted to Codex hooks | Source script behavior, native trust, and target tool availability |
-| Source skills | Nonconflicting skill folders are linked into `.agents/skills` | Claude-specific Task, Monitor, model routing, and tool assumptions |
-| Instructions | A marked AGENTS.md block points to the applicable source instructions | Whether the target model follows the intended policy |
-| Lifecycle | SessionStart reports observed drift and loads workflow guidance | Full task, review, commit, and authorized deployment behavior |
+| Command hooks | Only individually selected protocol candidates are registered | Source script behavior, native trust, and target tool availability |
+| Source skills | Only individually selected folders are linked into `.agents/skills` | Claude-specific Task, Monitor, model routing, and tool assumptions |
+| Instructions | A concise AGENTS.md block describes native tools and on-demand setup | Whether the target model follows the intended policy |
+| Legacy lifecycle | Existing SessionStart registrations report drift without requiring full source instructions | Full task, review, commit, and authorized deployment behavior |
 | Offline inbox | The tools integration installs SessionStart and Stop reminders in both providers | Claim, read, and acknowledge in the actual recipient session |
 | File-operation approval | A source ask produces a deny and an exact request | Actual user authorization before granting one retry |
 
@@ -106,8 +136,8 @@ source home; Tally does not substitute its author's private review system.
 
 ## Drift and removal
 
-Status compares settings, instructions, the selected source hooks/scripts/skills/rules/
-agents trees, and the target skill directory against the installation's observations.
+Status compares settings, instructions, the source hooks/scripts/skills/rules/
+agents trees within the selected scope, and the target skill directory against the installation's observations.
 Directory symlinks are recorded without recursively walking arbitrary external trees;
 regular-file contents and POSIX modes, including symlink targets, are fingerprinted. Large or unreadable inventories
 produce an error instead of a clean status.
@@ -116,7 +146,7 @@ An edited script body uses its current contents. A changed command, matcher, tim
 or event definition requires review and reinstallation. A definitively removed source
 entry abstains and reports the stale registration. Missing or invalid manifests return
 exit code 2 for blocking events and exit code 1 for other events, with a nonempty error.
-Startup checks do not reapply configuration.
+Legacy startup checks do not reapply configuration. New adapters do not install startup checks.
 
 Remove uses receipts under the selected state root. If a file is unchanged since
 installation, its original bytes are restored. If unrelated changes exist, Tally

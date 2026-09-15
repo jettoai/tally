@@ -9,6 +9,7 @@ class NativeChecks(Fixture):
              'enabled': True, 'trustStatus': 'trusted'} for row in registrations]}]}}
 
     def test_trust_requires_matching_enabled_native_entries(self):
+        self.hook_source()
         self.install()
         response = self.response()
         self.assertEqual(self.run_cli('probe-trust', self.manifest_path, input=response)['state'], 'trusted-enabled')
@@ -16,6 +17,7 @@ class NativeChecks(Fixture):
         self.assertEqual(self.run_cli('probe-trust', self.manifest_path, input=response)['state'], 'needs-review')
 
     def test_missing_untrusted_or_duplicate_entries_need_review(self):
+        self.hook_source()
         self.install()
         for variant in ['missing', 'untrusted', 'duplicate', 'wrong-event', 'wrong-path']:
             with self.subTest(variant=variant):
@@ -34,15 +36,18 @@ class NativeChecks(Fixture):
                 self.assertEqual(self.run_cli('probe-trust', self.manifest_path, input=response)['state'], 'needs-review')
 
     def test_native_error_is_not_trusted(self):
+        self.hook_source()
         self.install()
         self.run_cli('probe-trust', self.manifest_path, input={'error': {'message': 'unavailable'}}, code=2)
 
-    def test_lifecycle_uses_source_guidance_and_reports_drift(self):
+    def test_legacy_lifecycle_reports_drift_without_full_source_instruction(self):
+        self.hook_source()
         self.install()
         self.write(self.source / 'CLAUDE.md', 'changed instructions')
         event = {'hook_event_name': 'SessionStart', 'cwd': str(self.project), 'session_id': 'native-fixture'}
         result = self.run_cli('codex-hook', '--manifest', self.manifest_path, '--entry', 'lifecycle', input=event)
         text = result['hookSpecificOutput']['additionalContext']
-        self.assertIn(str(self.source / 'CLAUDE.md'), text)
+        self.assertNotIn(str(self.source / 'CLAUDE.md'), text)
+        self.assertIn('load relevant skills only when needed', text)
         self.assertIn('Drift observed', text)
         self.assertIn('Registration is not behavioral validation', text)

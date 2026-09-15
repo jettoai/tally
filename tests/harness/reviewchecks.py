@@ -133,9 +133,9 @@ class ReviewChecks(Fixture):
     def test_project_git_paths_require_confirmation_and_include_skill_links(self):
         self.project_scope()
         self.write(self.project / ".claude/skills/task/SKILL.md", "task")
-        plan = self.harness("plan")
+        plan = self.harness("plan", "--skill", "task")
         self.assertEqual({str(Path(path).relative_to(self.project)) for path in plan["projectGitVisible"]},
-                         {".codex/hooks.json", "AGENTS.md", ".agents/skills/tally-harness/SKILL.md", ".agents/skills/task"})
+                         {"AGENTS.md", ".agents/skills/tally-harness/SKILL.md", ".agents/skills/task"})
         self.harness("install", code=2)
         self.assertFalse((self.project / ".codex").exists())
         self.run_cli("harness", "install", *self.options, "--confirm-git-visible")

@@ -108,7 +108,7 @@ enum HarnessInventory {
         throw HarnessError("Source hook definition changed. Review the harness plan before reinstalling.")
     }
 
-    static func plan(_ location: HarnessLocation) throws -> HarnessPlan {
+    static func plan(_ location: HarnessLocation, hookIDs: [String]? = nil, skillNames: [String]? = nil) throws -> HarnessPlan {
         var directory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: location.sourceRoot, isDirectory: &directory), directory.boolValue else {
             throw HarnessError("The source configuration directory does not exist.")
@@ -121,7 +121,19 @@ enum HarnessInventory {
         let hooks = try location.sourceConfigs.flatMap { try self.hooks(at: $0) }.filter { row in
             !owned.contains { $0.path == row.source && $0.event == row.event && $0.definitionHash == row.definitionHash }
         }
+        let recorded = HarnessInstallation.recordedLocation(location)
+        let existing = HarnessIO.exists(recorded.manifestPath) ? try HarnessIO.loadManifest(recorded.manifestPath) : nil
+        let explicit = hookIDs != nil || skillNames != nil
+        let selectedHooks = Array(Set(hookIDs ?? (explicit ? [] : existing?.enabledHookIDs ?? []))).sorted()
+        let selectedSkills = Array(Set(skillNames ?? (explicit ? [] : existing?.enabledSkillNames ?? []))).sorted()
+        if explicit {
+            for id in selectedHooks where !hooks.contains(where: { $0.id == id && $0.disposition == "protocol-candidate" }) {
+                throw HarnessError("Unknown or unsupported hook ID: \(id). Use an ID from the current plan.")
+            }
+        }
+        var candidates: [HarnessLink] = []
         var links: [HarnessLink] = [], conflicts: [String] = [], notices = [
+            "New installations select no source hooks or skills. Use repeated --hook and --skill options to opt in.",
             "Command hooks only. Plugin and managed hooks are outside this settings-file inventory.",
             "New Codex definitions need review in /hooks. Installation does not establish trust or behavioral parity."
         ]
@@ -141,6 +153,8 @@ enum HarnessInventory {
                     notices.append("Skill needs a readable SKILL.md: \(name)")
                     continue
                 }
+                candidates.append(HarnessLink(source: source, target: target))
+                guard selectedSkills.contains(name) else { continue }
                 if HarnessIO.exists(target) {
                     if HarnessIO.canonical(source) != HarnessIO.canonical(target) {
                         conflicts.append("A different skill already occupies \(target)")
@@ -152,13 +166,19 @@ enum HarnessInventory {
                 }
             }
         }
+        if explicit {
+            for name in selectedSkills where !candidates.contains(where: { ($0.source as NSString).lastPathComponent == name }) {
+                throw HarnessError("Unknown source skill: \(name). Use a name from skillCandidates in the current plan.")
+            }
+        }
+        if existing != nil { notices.append("An existing installation is preserved. Changing its selection requires explicit removal first.") }
         if location.targetConfig != location.targetRoot + "/hooks.json" {
             notices.append("Shared hooks file: \(location.targetConfig). The link stays intact; inspect native trust in each Codex home.")
         }
         for path in [location.targetInstructions] {
             if (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil {
                 if path == location.targetInstructions && HarnessIO.canonical(path) == HarnessIO.canonical(location.sourceInstructions) {
-                    notices.append("AGENTS.md already links to the source. Tally will leave it intact and supply guidance through SessionStart.")
+                    notices.append("AGENTS.md already links to the source. Tally will leave it intact. Review the alias explicitly when creating concise target instructions.")
                 } else { notices.append("Shared instruction file: \(HarnessIO.canonical(path)). The symbolic link stays intact.") }
             }
         }
@@ -171,8 +191,9 @@ enum HarnessInventory {
             conflicts.append("A tally-harness skill already exists without this installation's receipt.")
         }
         _ = try HarnessIO.document(location.targetConfig)
-        let gitVisible = try HarnessProjectPaths.visible(location, links: links)
-        return HarnessPlan(location: location, hooks: hooks, links: links, conflicts: conflicts,
+        let gitVisible = try HarnessProjectPaths.visible(location, links: links, includesHooks: !selectedHooks.isEmpty)
+        return HarnessPlan(location: location, hooks: hooks, links: links, skillCandidates: candidates,
+                           selectedHookIDs: selectedHooks, selectedSkillNames: selectedSkills, selectionExplicit: explicit, conflicts: conflicts,
                            notices: notices, projectGitVisible: gitVisible)
     }
 }

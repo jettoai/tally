@@ -3,20 +3,23 @@ import Foundation
 struct HarnessArguments {
     let verb: String
     private(set) var values: [String: String] = [:]
+    private(set) var repeated: [String: [String]] = [:]
     private(set) var flags: Set<String> = []
 
-    init(_ args: [String], options: Set<String>, switches: Set<String> = []) throws {
+    init(_ args: [String], options: Set<String>, switches: Set<String> = [], repeatable: Set<String> = []) throws {
         guard let verb = args.first, !verb.hasPrefix("-") else { throw HarnessError("Specify a subcommand. See tally help.") }
         self.verb = verb
         var index = 1
         while index < args.count {
             let name = args[index]
-            guard values[name] == nil, !flags.contains(name) else { throw HarnessError("Duplicate option: \(name)") }
+            guard (values[name] == nil || repeatable.contains(name)), !flags.contains(name) else { throw HarnessError("Duplicate option: \(name)") }
             if switches.contains(name) { flags.insert(name); index += 1; continue }
             guard options.contains(name), index + 1 < args.count, !args[index + 1].hasPrefix("--") else {
                 throw HarnessError("Unknown option or missing value: \(name)")
             }
-            values[name] = args[index + 1]; index += 2
+            values[name] = args[index + 1]
+            if repeatable.contains(name) { repeated[name, default: []].append(args[index + 1]) }
+            index += 2
         }
     }
 
@@ -74,8 +77,9 @@ func runHarness(args: [String]) -> Int32 {
     if args.first == "tools" { return runHarnessTools(args: Array(args.dropFirst())) }
     do {
         let locationOptions: Set<String> = ["--scope", "--source-home", "--target-home", "--project", "--skills-root", "--state-root"]
-        let parsed = try HarnessArguments(args, options: locationOptions.union(["--file", "--request", "--authorization", "--manifest"]),
-                                          switches: ["--confirm-git-visible"])
+        let selections: Set<String> = ["--hook", "--skill"]
+        let parsed = try HarnessArguments(args, options: locationOptions.union(selections).union(["--file", "--request", "--authorization", "--manifest"]),
+                                          switches: ["--confirm-git-visible"], repeatable: selections)
         switch parsed.verb {
         case "record":
             try parsed.only(["--file", "--state-root"])
@@ -88,18 +92,18 @@ func runHarness(args: [String]) -> Int32 {
             try harnessPrint(HarnessApproval.grant(parsed.required("--request"),
                 authorization: parsed.required("--authorization"), manifestPath: parsed.path("--manifest", fallback: "")))
         case "plan", "status", "install", "remove":
-            try parsed.only(locationOptions, switches: parsed.verb == "install" ? ["--confirm-git-visible"] : [])
+            try parsed.only(locationOptions.union(["plan", "install"].contains(parsed.verb) ? selections : []), switches: parsed.verb == "install" ? ["--confirm-git-visible"] : [])
             let location = try parsed.location()
             switch parsed.verb {
-            case "plan": try harnessPrint(HarnessIO.object(HarnessIO.encode(HarnessInventory.plan(location))))
+            case "plan": try harnessPrint(HarnessIO.object(HarnessIO.encode(HarnessInventory.plan(location, hookIDs: parsed.repeated["--hook"], skillNames: parsed.repeated["--skill"]))))
             case "status": try harnessPrint(HarnessInstallation.status(location))
             case "remove": try harnessPrint(HarnessInstallation.remove(location))
             default:
                 let executable = HarnessIO.canonical(CommandLine.arguments[0])
-                let manifest = try HarnessInstallation.install(HarnessInventory.plan(location), executable: executable,
+                let manifest = try HarnessInstallation.install(HarnessInventory.plan(location, hookIDs: parsed.repeated["--hook"], skillNames: parsed.repeated["--skill"]), executable: executable,
                     confirmGitVisible: parsed.flags.contains("--confirm-git-visible"))
                 try harnessPrint(["state": manifest.phase, "manifest": manifest.location.manifestPath,
-                                  "nativeTrust": "verify-in-codex-hooks"])
+                                  "nativeTrust": manifest.registrations.isEmpty ? "not-required" : "verify-in-codex-hooks"])
             }
         default: throw HarnessError("Unknown harness subcommand. Use plan, status, install, remove, grant, or record.")
         }

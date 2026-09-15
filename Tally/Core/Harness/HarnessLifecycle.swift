@@ -14,10 +14,9 @@ enum HarnessLifecycle {
                 }
             }
             let changes = try HarnessObservation.changes(manifest)
-            var context = "Tally harness is registered for \(manifest.location.scope) scope. Read the applicable source instructions at "
-                + manifest.location.sourceInstructions + " and the tally-harness skill. "
-                + "Claude framework mechanisms are not Codex tools. Registration is not behavioral validation. "
-                + "Use the tools available in this session and preserve current user authorization."
+            var context = "Tally harness is registered for \(manifest.location.scope) scope. "
+                + "Use native Codex tools and load relevant skills only when needed. "
+                + "Registration is not behavioral validation. Preserve current user authorization."
             if !changes.isEmpty {
                 context += "\nDrift observed in \(changes.count) paths. Run tally harness status with this installation's explicit locations. "
                     + "Configuration was not reapplied. Changed hook definitions require review; ordinary script changes use their current contents."

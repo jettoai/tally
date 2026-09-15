@@ -91,7 +91,9 @@ usage:
                             Optional --skills-root and --state-root take absolute paths. Projects are
                             adapted separately when the skill runs in an assistant session.
   tally harness plan|status|install|remove [--scope user|project]
-                            adapt Claude command hooks and skills to Codex. Optional --source-home,
+                            install concise Codex guidance; no source hooks or skill links by default.
+                            Plan/install accept repeated --hook <plan-id> and --skill <name> for opt-in.
+                            Existing selections are preserved; remove before changing them. Optional --source-home,
                             --target-home, --skills-root, and --state-root take absolute paths.
                             Project scope requires --project <absolute-checkout>. Inspect plan and use
                             --confirm-git-visible for reviewed git-visible writes. Review native /hooks trust.

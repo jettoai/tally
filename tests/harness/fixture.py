@@ -36,8 +36,8 @@ class Fixture(unittest.TestCase):
         self.assertEqual(result.returncode, code, (args, result.stdout, result.stderr))
         return json.loads(result.stdout) if result.stdout else result.stderr
 
-    def harness(self, action, code=0):
-        return self.run_cli("harness", action, *self.options, code=code)
+    def harness(self, action, *selection, code=0):
+        return self.run_cli("harness", action, *self.options, *selection, code=code)
 
     def hook_source(self, output=None, *, command=None, matcher="", event="PreToolUse", **handler):
         if command is None:
@@ -49,7 +49,14 @@ class Fixture(unittest.TestCase):
         self.write(self.config, {"hooks": {event: [{"matcher": matcher, "hooks": [row]}]}})
 
     def install(self):
-        result = self.harness("install")
+        # Bridge/security fixtures explicitly select available items. Default-policy
+        # checks call harness("install") directly, without these opt-in arguments.
+        plan = self.harness("plan")
+        selection = [part for row in plan["hooks"] if row["disposition"] == "protocol-candidate"
+                     for part in ("--hook", row["id"])]
+        selection += [part for row in plan["skillCandidates"]
+                      for part in ("--skill", Path(row["source"]).name)]
+        result = self.harness("install", *selection)
         self.manifest_path = Path(result["manifest"])
         self.manifest = json.loads(self.manifest_path.read_text())
         return result

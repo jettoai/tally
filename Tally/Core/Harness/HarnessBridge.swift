@@ -19,7 +19,7 @@ enum HarnessBridge {
             let manifest = try HarnessIO.loadManifest(manifestPath)
             guard manifest.phase == "installed" else { throw HarnessError("Installation is incomplete. Inspect or remove it before proceeding.") }
             guard let entry = manifest.hooks.first(where: { $0.id == entryID }),
-                  entry.disposition == "protocol-candidate", eventName == entry.event else {
+                  entry.disposition == "protocol-candidate", manifest.enabledHookIDs.contains(entryID), eventName == entry.event else {
                 throw HarnessError("Hook identity or event does not match its installation.")
             }
             if eventName == "Stop", event["stop_hook_active"] as? Bool == true {

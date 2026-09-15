@@ -67,7 +67,10 @@ def prepare(args):
     tools_options = ['--source-home', str(source), '--target-home', str(target),
                      '--skills-root', str(user / '.agents/skills'), '--state-root', str(state)]
     run(args.cli, 'harness', 'tools', 'install', *tools_options)
-    installed = run(args.cli, 'harness', 'install', *options,
+    plan = run(args.cli, 'harness', 'plan', *options)
+    selection = [part for row in plan['hooks'] if row['disposition'] == 'protocol-candidate'
+                 for part in ('--hook', row['id'])]
+    installed = run(args.cli, 'harness', 'install', *options, *selection,
                     *(['--confirm-git-visible'] if args.scope == 'project' else []))
     fixture = {'root': str(root), 'user': str(user), 'source': str(source), 'target': str(target),
                'second': str(second), 'project': str(project), 'state': str(state),

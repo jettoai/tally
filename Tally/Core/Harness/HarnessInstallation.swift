@@ -32,7 +32,9 @@ enum HarnessInstallation {
                 "source": location.sourceRoot, "target": location.targetRoot,
                 "protocolCandidates": manifest.hooks.filter { $0.disposition == "protocol-candidate" }.count,
                 "needsAdaptation": manifest.hooks.filter { $0.disposition != "protocol-candidate" }.count,
-                "changes": changes, "nativeTrust": "verify-in-codex-hooks",
+                "selectedHookIDs": manifest.enabledHookIDs, "selectedSkillNames": manifest.enabledSkillNames,
+                "registeredHooks": manifest.registrations.count,
+                "changes": changes, "nativeTrust": manifest.registrations.isEmpty ? "not-required" : "verify-in-codex-hooks",
                 "meaning": "Registration and observation only; not a behavioral certificate."]
     }
 
@@ -52,9 +54,13 @@ enum HarnessInstallation {
                 guard existing.phase == "installed", try HarnessObservation.changes(existing).isEmpty else {
                     throw HarnessError("Review the drift, remove this installation, then install the new plan and trust its definitions.")
                 }
+                guard !plan.selectionExplicit || (Set(plan.selectedHookIDs) == Set(existing.enabledHookIDs)
+                    && Set(plan.selectedSkillNames) == Set(existing.enabledSkillNames)) else {
+                    throw HarnessError("Selection differs from the existing installation. Review and remove it before installing another selection.")
+                }
                 return existing
             }
-            let fresh = try HarnessInventory.plan(location)
+            let fresh = try HarnessInventory.plan(location, hookIDs: plan.selectedHookIDs, skillNames: plan.selectedSkillNames)
             guard fresh.hooks == plan.hooks, fresh.links == plan.links, fresh.conflicts.isEmpty,
                   fresh.projectGitVisible == plan.projectGitVisible else {
                 throw HarnessError("Source or target changed since preview. Inspect the new plan.")
@@ -86,8 +92,6 @@ enum HarnessInstallation {
                 try register(path: location.targetConfig, event: entry.event, matcher: entry.matcher,
                     command: prefix + " --entry " + HarnessIO.quote(entry.id), timeout: entry.timeout + 5)
             }
-            try register(path: location.targetConfig, event: "SessionStart", matcher: "",
-                         command: prefix + " --entry lifecycle", timeout: 15)
             var changes: [(String, String, Data?, Data)] = []
             for (path, value) in documents.sorted(by: { $0.key < $1.key }) {
                 changes.append((path, "hooks", value.0, try HarnessIO.json(value.1)))
@@ -109,7 +113,8 @@ enum HarnessInstallation {
             let backupDirectory = location.directory + "/backups/" + UUID().uuidString
             try HarnessIO.makeDirectory(backupDirectory)
             var manifest = HarnessManifest(phase: "installing", location: location, executable: executable,
-                hooks: plan.hooks, registrations: registrations, files: [], links: plan.links, observations: [:])
+                hooks: plan.hooks, registrations: registrations, files: [], links: plan.links, observations: [:],
+                selectedHookIDs: plan.selectedHookIDs, selectedSkillNames: plan.selectedSkillNames)
             for (index, item) in changes.enumerated() {
                 try HarnessIO.rejectSymlink(item.0)
                 guard try HarnessIO.data(item.0) == item.2 else { throw HarnessError("Target changed before installation.") }
@@ -202,7 +207,8 @@ enum HarnessInstallation {
         } else if file.kind == "instructions" {
             guard let text = String(data: current, encoding: .utf8) else { throw HarnessError("AGENTS.md is no longer UTF-8.") }
             let expectedBlock = HarnessSkill.block(source: manifest.location.sourceInstructions)
-            if text.contains(HarnessSkill.begin) && !text.contains(expectedBlock) {
+            if text.contains(HarnessSkill.begin) && !text.contains(expectedBlock)
+                && !text.contains(HarnessSkill.legacyBlock(source: manifest.location.sourceInstructions)) {
                 throw HarnessError("Modified instruction block was preserved: \(file.path)")
             }
             let stripped = try HarnessSkill.strip(text)

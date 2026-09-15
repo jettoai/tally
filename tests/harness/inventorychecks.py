@@ -36,8 +36,8 @@ class InventoryChecks(Fixture):
     def test_skill_conflict_prevents_install(self):
         self.write(self.source / "skills/task/SKILL.md", "source")
         self.write(self.skills / "task/SKILL.md", "target")
-        self.assertEqual(len(self.harness("plan")["conflicts"]), 1)
-        self.harness("install", code=2)
+        self.assertEqual(len(self.harness("plan", "--skill", "task")["conflicts"]), 1)
+        self.harness("install", "--skill", "task", code=2)
         self.assertFalse((self.target / "hooks.json").exists())
 
     def test_install_remove_restores_original_bytes(self):
@@ -176,7 +176,8 @@ class InventoryChecks(Fixture):
         self.options += ["--project", str(self.project)]
         self.harness("install", code=2)
         self.run_cli("harness", "install", *self.options, "--confirm-git-visible")
-        self.assertTrue((self.project / ".codex/hooks.json").exists())
+        self.assertTrue((self.project / "AGENTS.md").exists())
+        self.assertFalse((self.project / ".codex/hooks.json").exists())
         self.assertFalse((self.target / "hooks.json").exists())
         self.harness("remove")
 
@@ -187,6 +188,7 @@ class InventoryChecks(Fixture):
         self.harness("status", code=2)
 
     def test_repointed_hooks_link_retains_drift_and_removal_receipt(self):
+        self.hook_source()
         self.install()
         hooks = self.target / "hooks.json"
         saved = self.root / "saved-hooks.json"

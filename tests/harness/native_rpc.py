@@ -9,9 +9,11 @@ import time
 
 
 class NativeRPC:
-    def __init__(self, binary, home, user_home, output):
+    def __init__(self, binary, home, user_home, output, approval_handler=None):
         self.output = output
         self.counter = 0
+        self.approval_handler = approval_handler
+        self.approvals = []
         self.events = queue.Queue()
         environment = dict(os.environ, CODEX_HOME=str(home), HOME=str(user_home), CLAUDE_NO_AUTO_DEV='1')
         self.stderr = (output / 'app-server.stderr').open('w')
@@ -38,7 +40,14 @@ class NativeRPC:
         if value is None:
             raise RuntimeError('Native app-server exited')
         if 'method' in value and 'id' in value:
-            self.send({'id': value['id'], 'error': {'code': -32601, 'message': 'No additional approval or tools in this fixture'}})
+            if value['method'] == 'item/commandExecution/requestApproval' and self.approval_handler:
+                decision = self.approval_handler(value['params'])
+                if decision not in ('accept', 'decline'):
+                    raise ValueError('Fixture approvals must be one-use accept or decline')
+                self.approvals.append({'params': value['params'], 'decision': decision})
+                self.send({'id': value['id'], 'result': {'decision': decision}})
+            else:
+                self.send({'id': value['id'], 'error': {'code': -32601, 'message': 'No additional approval or tools in this fixture'}})
         if value.get('method', '').startswith(('hook/', 'item/started', 'item/completed', 'turn/completed')):
             # Exclude model reasoning items. Retain public hook/tool/final events for the oracle.
             item = value.get('params', {}).get('item', {})
@@ -77,6 +86,8 @@ class NativeRPC:
 
     def close(self):
         (self.output / 'native-events.json').write_text(json.dumps(self.notifications, indent=2) + '\n')
+        if self.approvals:
+            (self.output / 'native-approvals.json').write_text(json.dumps(self.approvals, indent=2) + '\n')
         self.process.stdin.close()
         try:
             self.process.wait(timeout=3)

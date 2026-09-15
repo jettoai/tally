@@ -277,6 +277,13 @@ effort, or cost stays null. A single successful run is not evidence of general m
 superiority. Complete the project's actual build, test, review, commit, and authorized
 deployment steps before describing an engineering task as complete.
 
+Permission changes also need ablation: remove each control in turn while keeping
+the cases and expected effects fixed. Observe native approval requests, accepted
+and declined effects, and necessary denials. Test command aliases that were not
+used to write the rules. Passing selected prefixes does not establish equivalent
+coverage for a user's source policy. See the [approval ablation study](harness-approval-ablation.md)
+for the procedure, measured results, and rollout limits.
+
 ## Validation
 
 Run `./tests/run-harness-tests.sh` for isolated protocol, installation, ownership,

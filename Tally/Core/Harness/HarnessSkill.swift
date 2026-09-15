@@ -99,6 +99,12 @@ enum HarnessSkill {
     incompatible ones, and use a fixed task and oracle before adopting a variant.
     Do not turn a comparison into automatic two-way overwriting of user files.
 
+    When changing permission behavior, compare a fixed case set with each control
+    removed in turn. Observe actual native approval requests and resulting effects,
+    including declined approvals and command wrappers. A candidate must preserve
+    necessary denials and approval boundaries before migration. Keep enforcement
+    results separate from coding quality, latency, and configuration registration.
+
     ## Complete an engineering task
 
     Record the branch, SHA, and existing dirty-file ownership. Implement the user's

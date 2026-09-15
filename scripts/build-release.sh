@@ -5,7 +5,8 @@
 #   - the Sparkle EdDSA PUBLIC key is baked here at build time (the repo's project.yml keeps it
 #     empty so dev builds stay dormant), and
 #   - no service credentials appear in this script - notarization uses an App Store Connect API
-#     key read from 1Password at build time (never stored in the repo).
+#     key read from 1Password at build time (never stored in the repo), or an existing
+#     Keychain profile selected with NOTARIZE_PROFILE.
 #
 # Prereqs (one-time):
 #   op signin                                                # 1Password session for the ASC notary
@@ -26,20 +27,25 @@ DIST=dist
 rm -rf "$ARCHIVE" "$EXPORT"
 mkdir -p build "$DIST"
 
-# Read the notary credentials up front, before the five-minute build rather than after it: a vault
-# that locks mid-build (screen lock, desktop app integration) then cannot break notarization, and a
-# missing key fails the release immediately. The .p8 only ever lands in a temp file removed on exit;
-# nothing here echoes a value.
-echo "==> preflight: App Store Connect notary key"
-NOTARY_KEY_FILE=$(mktemp)
-trap 'rm -f "$NOTARY_KEY_FILE"' EXIT
-asc_read() {
-  op read "$ASC_NOTARY_ITEM/$1" \
-    || { echo "1Password not signed in or ASC notary key missing ($1) - run op signin" >&2; exit 1; }
-}
-asc_read ASC_NOTARY_KEY_P8 > "$NOTARY_KEY_FILE"
-NOTARY_KEY_ID=$(asc_read ASC_NOTARY_KEY_ID) || exit 1
-NOTARY_ISSUER_ID=$(asc_read ASC_NOTARY_ISSUER_ID) || exit 1
+# Resolve credentials before the build. An existing Keychain profile avoids
+# exporting a private key; otherwise retain the 1Password workflow.
+if [ -n "${NOTARIZE_PROFILE:-}" ]; then
+  echo "==> preflight: notary Keychain profile"
+  NOTARY_ARGS=(--keychain-profile "$NOTARIZE_PROFILE")
+  xcrun notarytool history "${NOTARY_ARGS[@]}" --output-format json > /dev/null
+else
+  echo "==> preflight: App Store Connect notary key"
+  NOTARY_KEY_FILE=$(mktemp)
+  trap 'rm -f "$NOTARY_KEY_FILE"' EXIT
+  asc_read() {
+    op read "$ASC_NOTARY_ITEM/$1" \
+      || { echo "1Password not signed in or ASC notary key missing ($1) - run op signin" >&2; exit 1; }
+  }
+  asc_read ASC_NOTARY_KEY_P8 > "$NOTARY_KEY_FILE"
+  NOTARY_KEY_ID=$(asc_read ASC_NOTARY_KEY_ID) || exit 1
+  NOTARY_ISSUER_ID=$(asc_read ASC_NOTARY_ISSUER_ID) || exit 1
+  NOTARY_ARGS=(--key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+fi
 
 echo "==> xcodegen"
 xcodegen generate
@@ -102,9 +108,7 @@ hdiutil create -volname "Tally" -srcfolder "$STAGE" -ov -format UDZO "$DMG" -qui
 echo "==> notarize + staple"
 # Credentials were read during preflight; no 1Password access happens after the build starts.
 xcrun notarytool submit "$DMG" \
-  --key "$NOTARY_KEY_FILE" \
-  --key-id "$NOTARY_KEY_ID" \
-  --issuer "$NOTARY_ISSUER_ID" \
+  "${NOTARY_ARGS[@]}" \
   --wait
 xcrun stapler staple "$DMG"
 

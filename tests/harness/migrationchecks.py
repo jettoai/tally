@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 
 from fixture import Fixture
 
@@ -164,6 +165,105 @@ class MigrationChecks(Fixture):
         self.harness("migrate", "--drop-hook", hook, "--apply", code=2)
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.harness("migrate", "--drop-hook", hook, "--apply", "--confirm-git-visible")["state"], "migrated")
+
+    def prepare_project_shared_hooks(self, *, ignore_target, external_target=False):
+        subprocess.run(["git", "init", "-q", self.project], check=True)
+        (self.project / ".claude").mkdir()
+        self.options[self.options.index("--scope") + 1] = "project"
+        self.options += ["--project", str(self.project)]
+        target = self.project / ".codex"
+        target.mkdir()
+        shared = self.root / "project-other/shared-hooks.json" if external_target else self.project / "shared-hooks.json"
+        self.write(shared, {"hooks": {}})
+        logical = target / "hooks.json"
+        logical.symlink_to(shared)
+        ignored = [".codex/", ".agents/", "AGENTS.md"]
+        if ignore_target:
+            ignored.append("shared-hooks.json")
+        self.write(self.project / ".gitignore", "\n".join(ignored) + "\n")
+        self.write(self.project / ".claude/settings.json", {"hooks": {
+            "PreToolUse": [{"hooks": [{"type": "command", "command": "true"}]}]}})
+        plan = self.harness("plan")
+        hook = plan["hooks"][0]["id"]
+        installed = self.run_cli("harness", "install", *self.options, "--hook", hook, "--confirm-git-visible")
+        self.manifest_path = Path(installed["manifest"])
+        return hook, logical, shared
+
+    def test_shared_project_hooks_real_target_requires_confirmation_and_preserves_symlink(self):
+        hook, logical, shared = self.prepare_project_shared_hooks(ignore_target=False)
+        before = shared.read_bytes(), self.manifest_path.read_bytes(), logical.readlink()
+        preview = self.harness("migrate", "--drop-hook", hook)
+        self.assertEqual(preview["changedPaths"], [str(shared)])
+        self.assertEqual(preview["projectGitVisible"], [str(shared)])
+        self.harness("migrate", "--drop-hook", hook, "--apply", code=2)
+        self.assertEqual((shared.read_bytes(), self.manifest_path.read_bytes(), logical.readlink()), before)
+        self.assertTrue(logical.is_symlink())
+        self.assertEqual(self.harness("migrate", "--drop-hook", hook, "--apply", "--confirm-git-visible")["state"], "migrated")
+        self.assertTrue(logical.is_symlink())
+        self.assertEqual(logical.readlink(), before[2])
+
+    def test_ignored_shared_project_hooks_real_target_needs_no_confirmation(self):
+        hook, logical, shared = self.prepare_project_shared_hooks(ignore_target=True)
+        preview = self.harness("migrate", "--drop-hook", hook)
+        self.assertEqual(preview["changedPaths"], [str(shared)])
+        self.assertEqual(preview["projectGitVisible"], [])
+        self.assertEqual(self.harness("migrate", "--drop-hook", hook, "--apply")["state"], "migrated")
+        self.assertTrue(logical.is_symlink())
+
+    def test_external_shared_project_hooks_remain_outside_project_confirmation_scope(self):
+        hook, logical, shared = self.prepare_project_shared_hooks(ignore_target=False, external_target=True)
+        preview = self.harness("migrate", "--drop-hook", hook)
+        self.assertEqual(preview["changedPaths"], [str(shared)])
+        self.assertEqual(preview["projectGitVisible"], [])
+        self.assertEqual(self.harness("migrate", "--drop-hook", hook, "--apply")["state"], "migrated")
+        self.assertTrue(logical.is_symlink())
+
+    def prepare_project_skill_link(self, *, external_source=False):
+        subprocess.run(["git", "init", "-q", self.project], check=True)
+        source = self.project / ".claude/skills/task"
+        self.write(source / "SKILL.md", "project task")
+        self.options[self.options.index("--scope") + 1] = "project"
+        self.options += ["--project", str(self.project)]
+        self.write(self.project / ".gitignore", ".claude/\n")
+        plan = self.harness("plan", "--skill", "task")
+        installed = self.run_cli("harness", "install", *self.options, "--skill", "task", "--confirm-git-visible")
+        self.manifest_path = Path(installed["manifest"])
+        link = self.project / ".agents/skills/task"
+        if external_source:
+            external = self.root / "external-task"
+            self.write(external / "SKILL.md", "external task")
+            link.unlink()
+            link.symlink_to(external, target_is_directory=True)
+            manifest = json.loads(self.manifest_path.read_text())
+            manifest["links"][0]["source"] = str(external)
+            self.write(self.manifest_path, manifest)
+            source = external
+        self.assertEqual(plan["selectedSkillNames"], ["task"])
+        return link, source
+
+    def test_project_skill_target_requires_confirmation_when_ignored_source_is_linked(self):
+        link, source = self.prepare_project_skill_link()
+        before = link.readlink(), source.joinpath("SKILL.md").read_bytes(), self.manifest_path.read_bytes()
+        preview = self.harness("migrate", "--drop-skill", "task")
+        self.assertEqual(preview["changedPaths"], [str(link)])
+        self.assertEqual(preview["projectGitVisible"], [str(link)])
+        self.harness("migrate", "--drop-skill", "task", "--apply", code=2)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual((link.readlink(), source.joinpath("SKILL.md").read_bytes(), self.manifest_path.read_bytes()), before)
+        self.assertEqual(self.harness("migrate", "--drop-skill", "task", "--apply", "--confirm-git-visible")["state"], "migrated")
+        self.assertFalse(link.exists())
+        self.assertEqual(source.joinpath("SKILL.md").read_bytes(), before[1])
+
+    def test_project_skill_visibility_keeps_an_external_link_source_out_of_git_check(self):
+        link, source = self.prepare_project_skill_link(external_source=True)
+        preview = self.harness("migrate", "--drop-skill", "task")
+        self.assertEqual(preview["changedPaths"], [str(link)])
+        self.assertEqual(preview["projectGitVisible"], [str(link)])
+        self.harness("migrate", "--drop-skill", "task", "--apply", code=2)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(self.harness("migrate", "--drop-skill", "task", "--apply", "--confirm-git-visible")["state"], "migrated")
+        self.assertFalse(link.exists())
+        self.assertTrue(source.joinpath("SKILL.md").exists())
 
     def test_repointed_hooks_file_is_not_followed(self):
         self.prepare()

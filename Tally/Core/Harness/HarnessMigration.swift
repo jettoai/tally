@@ -103,8 +103,7 @@ enum HarnessMigration {
         let changed = !retired.isEmpty || !retiredLinks.isEmpty || nextHooks != manifest.enabledHookIDs
             || nextSkills != manifest.enabledSkillNames
         let paths = Set(changes.map(\.path) + links.map { $0.0.target })
-        let visible = try HarnessProjectPaths.visible(location, links: links.map(\.0), includesHooks: !changes.isEmpty)
-            .filter(paths.contains)
+        let visible = try HarnessProjectPaths.visible(location, changedPaths: paths)
         var report: [String: Any] = ["state": conflicts.isEmpty ? (changed ? "planned" : "unchanged") : "conflict",
             "manifest": location.manifestPath, "scope": location.scope, "target": location.targetRoot,
             "hooks": inventory, "skills": manifest.enabledSkillNames,

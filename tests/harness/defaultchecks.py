@@ -74,7 +74,7 @@ class DefaultChecks(Fixture):
         self.assertTrue((self.skills / "two").is_symlink())
         self.assertFalse((self.skills / "one").exists())
         self.bridge(index=0)
-        self.bridge(index=1, code=2)
+        self.assertIn("does not match its installation", self.bridge(index=1, code=2))
         before = self.manifest_path.read_bytes(), (self.target / "hooks.json").read_bytes()
         self.harness("install")
         self.harness("install", *selection)

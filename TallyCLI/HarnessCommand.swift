@@ -78,9 +78,15 @@ func runHarness(args: [String]) -> Int32 {
     do {
         let locationOptions: Set<String> = ["--scope", "--source-home", "--target-home", "--project", "--skills-root", "--state-root"]
         let selections: Set<String> = ["--hook", "--skill"]
-        let parsed = try HarnessArguments(args, options: locationOptions.union(selections).union(["--file"]),
-                                          switches: ["--confirm-git-visible"], repeatable: selections)
+        let retirements: Set<String> = ["--drop-hook", "--drop-skill"]
+        let parsed = try HarnessArguments(args, options: locationOptions.union(selections).union(retirements).union(["--file"]),
+                                          switches: ["--confirm-git-visible", "--apply"], repeatable: selections.union(retirements))
         switch parsed.verb {
+        case "migrate":
+            try parsed.only(locationOptions.union(retirements), switches: ["--apply", "--confirm-git-visible"])
+            try harnessPrint(HarnessMigration.run(parsed.location(), dropHooks: parsed.repeated["--drop-hook"] ?? [],
+                dropSkills: parsed.repeated["--drop-skill"] ?? [], apply: parsed.flags.contains("--apply"),
+                confirmGitVisible: parsed.flags.contains("--confirm-git-visible")))
         case "record":
             try parsed.only(["--file", "--state-root"])
             let path = try parsed.path("--file", fallback: "")
@@ -101,7 +107,7 @@ func runHarness(args: [String]) -> Int32 {
                 try harnessPrint(["state": manifest.phase, "manifest": manifest.location.manifestPath,
                                   "nativeTrust": manifest.registrations.isEmpty ? "not-required" : "verify-in-codex-hooks"])
             }
-        default: throw HarnessError("Unknown harness subcommand. Use plan, status, install, remove, or record.")
+        default: throw HarnessError("Unknown harness subcommand. Use plan, status, install, migrate, remove, or record.")
         }
         return 0
     } catch { return harnessError(error) }

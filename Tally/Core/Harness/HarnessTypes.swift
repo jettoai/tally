@@ -114,6 +114,7 @@ struct HarnessManifest: Codable {
     var observations: [String: String]
     var selectedHookIDs: [String]? = nil
     var selectedSkillNames: [String]? = nil
+    var retiredSkillNames: [String]? = nil
 
     var enabledHookIDs: [String] {
         selectedHookIDs ?? hooks.filter { $0.disposition == "protocol-candidate" }.map(\.id)

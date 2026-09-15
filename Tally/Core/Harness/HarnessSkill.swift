@@ -69,7 +69,19 @@ enum HarnessSkill {
     report installation separately from native trust and behavioral verification.
 
     An existing installation keeps its selection when no item options are supplied.
-    Changing the selection requires explicit removal first. An unchanged installation
+    Use `tally harness migrate` with the same scope and locations to inventory an
+    existing installation. Inspect each source entry's behavior before retiring it:
+    keep useful direct denials, adapt provider-specific behavior, and retire obsolete
+    workflow entries. An interactive source ask has no equivalent in this adapter.
+    Preview individual retirements with repeated `--drop-hook <installed-id>` and
+    `--drop-skill <name>`, then use `--apply` for the authorized selection. The preview
+    lists conflicts and changed paths; project changes also need `--confirm-git-visible`.
+    Migration preserves retained hook definitions, unrelated drift, and backups.
+    It does not install replacement controls or change native permission settings.
+    If a necessary replacement is unavailable, leave that entry active and report
+    the unresolved requirement. Do not call the migration complete because other
+    entries were retired. Adding selections requires removal and installation.
+    An unchanged installation
     needs no reinstall. Inspect drift before deciding what
     needs adaptation; do not remove and reinstall merely to clear a drift report.
     Use `tally harness remove` with the selected scope when removal is requested.

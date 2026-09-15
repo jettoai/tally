@@ -13,9 +13,14 @@ _tally_harness_command() {
     return
   fi
   _arguments \
-    ":action:(plan status install remove record tools)" \
+    ":action:(plan status install migrate remove record tools)" \
     "--scope[configuration scope]:scope:(user project)" \
-    "--confirm-git-visible[confirm the reviewed project paths for install]" \
+    "--confirm-git-visible[confirm reviewed project paths for install or migration]" \
+    "*--hook[select a source hook]:hook ID:" \
+    "*--skill[select a source skill]:skill name:" \
+    "*--drop-hook[retire one installed hook]:hook ID:" \
+    "*--drop-skill[retire one installed skill]:skill name:" \
+    "--apply[apply the specified migration retirements]" \
     "--source-home[Claude configuration home]:directory:_directories" \
     "--target-home[Codex configuration home]:directory:_directories" \
     "--project[explicit project checkout]:directory:_directories" \

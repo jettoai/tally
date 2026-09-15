@@ -34,6 +34,8 @@ enum HarnessInstallation {
                 "needsAdaptation": manifest.hooks.filter { $0.disposition != "protocol-candidate" }.count,
                 "selectedHookIDs": manifest.enabledHookIDs, "selectedSkillNames": manifest.enabledSkillNames,
                 "registeredHooks": manifest.registrations.count,
+                "selectionPolicy": manifest.selectedHookIDs == nil || manifest.selectedSkillNames == nil ? "legacy" : "explicit",
+                "migration": "Use harness migrate to inspect or retire individual receipt-owned entries without reinstalling retained hooks.",
                 "changes": changes, "nativeTrust": manifest.registrations.isEmpty ? "not-required" : "verify-in-codex-hooks",
                 "meaning": "Registration and observation only; not a behavioral certificate."]
     }
@@ -52,11 +54,11 @@ enum HarnessInstallation {
             if HarnessIO.exists(location.manifestPath) {
                 let existing = try HarnessIO.loadManifest(location.manifestPath)
                 guard existing.phase == "installed", try HarnessObservation.changes(existing).isEmpty else {
-                    throw HarnessError("Review the drift, remove this installation, then install the new plan and trust its definitions.")
+                    throw HarnessError("Review the drift. Use migrate for individual retirements; replacement definitions require removal, installation, and native trust review.")
                 }
                 guard !plan.selectionExplicit || (Set(plan.selectedHookIDs) == Set(existing.enabledHookIDs)
                     && Set(plan.selectedSkillNames) == Set(existing.enabledSkillNames)) else {
-                    throw HarnessError("Selection differs from the existing installation. Review and remove it before installing another selection.")
+                    throw HarnessError("Selection differs from the existing installation. Use migrate to retire entries; adding selections requires removal and installation.")
                 }
                 return existing
             }

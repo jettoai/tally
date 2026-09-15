@@ -56,7 +56,8 @@ tally harness install --hook <hook-id-from-plan> --skill <source-skill-name>
 Unknown IDs, unsupported hooks, and unknown skill names are rejected before writes.
 With no item options, an existing installation retains its recorded selections,
 including legacy registrations. Explicit options specify the complete selection;
-a different selection requires explicit removal first. An upgrade or status check
+a smaller selection can be migrated in place as described below; adding selections
+requires removal and installation. An upgrade or status check
 does not silently remove or re-enable hooks or skills.
 
 The default scope is `user`. Home defaults come from `CLAUDE_CONFIG_DIR` and
@@ -159,6 +160,43 @@ are not adopted for removal. Backups and historical approval records remain in t
 state directory after removal.
 
 ## Authorization and native permissions
+
+### Migrate an existing installation
+
+`tally harness migrate` uses the same explicit scope and location options as `status`.
+It lists recorded hook IDs, their source settings coordinates, current definition
+matches, and selected skill names. It does not execute source scripts or infer that
+a hook is compatible from its command syntax. Inspect the referenced source behavior:
+retain useful hard denials, adapt provider-specific behavior, and retire obsolete
+workflow entries only within the user's authorized migration scope.
+
+Preview individual retirements, then apply the same selection:
+
+```sh
+tally harness migrate --scope user --drop-hook <installed-id> --drop-skill <name>
+tally harness migrate --scope user --drop-hook <installed-id> --drop-skill <name> --apply
+```
+
+Repeat selectors for multiple entries. Use `lifecycle` as the hook ID for an old
+generated startup registration. Explicit project migrations also require
+`--confirm-git-visible` after reviewing the preview's paths. No selectors means an
+inventory only, and `--apply` without selectors is rejected.
+
+Migration updates the existing receipt and removes only the selected owned hooks
+and skill links. It preserves retained hook definitions and positions, foreign
+settings, shared links still owned by another installation, and unrelated drift.
+It saves the prior receipt, changed file bytes, and link destinations under the
+installation's `migrations` directory. Conflicts prevent all target writes; a failed
+write attempts rollback and reports any recovery that needs review. Missing entries
+can be retired from the receipt without reinstalling them. Repeating a completed
+retirement does nothing. Native trust and behavioral verification remain separate.
+
+This command does not install replacement controls or change Codex permissions.
+An interactive approval hook needs a verified replacement before retirement. If
+that replacement is unavailable, keep the hook active and report the migration as
+incomplete. Do not retire a blocking hook to retry an operation it already denied.
+
+### Native approval limits
 
 Keep user authorization boundaries in concise AGENTS.md instructions. Use native
 Codex permission controls for execution, checking the active policy before relying

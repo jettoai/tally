@@ -99,6 +99,9 @@ usage:
                             --confirm-git-visible for reviewed git-visible writes. Review native /hooks trust.
                             Status reports drift,
                             not behavioral parity. Remove preserves unrelated configuration.
+  tally harness migrate [scope/location options] [--drop-hook <installed-id>] [--drop-skill <name>]
+                            Preview selective retirement; repeat selectors, then add --apply to execute.
+                            Preserves retained hooks and unrelated edits. Project writes need --confirm-git-visible.
   tally harness record --file <absolute-result.json> [--state-root <absolute-directory>]
                             retain caller-reported model, oracle, quality, duration, and cost evidence.
   tally inbox list|post|claim|read|ack|release|recover|status --provider claude|codex

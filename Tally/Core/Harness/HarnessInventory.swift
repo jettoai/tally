@@ -171,7 +171,7 @@ enum HarnessInventory {
                 throw HarnessError("Unknown source skill: \(name). Use a name from skillCandidates in the current plan.")
             }
         }
-        if existing != nil { notices.append("An existing installation is preserved. Changing its selection requires explicit removal first.") }
+        if existing != nil { notices.append("Existing selections are preserved. Use harness migrate to retire individual entries; adding selections still requires removal and installation.") }
         if location.targetConfig != location.targetRoot + "/hooks.json" {
             notices.append("Shared hooks file: \(location.targetConfig). The link stays intact; inspect native trust in each Codex home.")
         }

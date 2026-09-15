@@ -56,7 +56,8 @@ enum HarnessBridge {
             } else if toolEvent && !HarnessInventory.matches(entry.matcher, tool) {
                 return HarnessHookResult(code: 0, output: nil, error: "")
             }
-            var context: [String] = [], warning: [String] = [], asks: [String] = []
+            var context: [String] = [], warning: [String] = []
+            var requiresApproval = false
             var rewritten: [String: Any]?
             let deadline = ProcessInfo.processInfo.systemUptime + entry.timeout
             for var item in inputs {
@@ -126,8 +127,8 @@ enum HarnessBridge {
                     return block(eventName, reason)
                 }
                 if decision == "ask" {
-                    guard eventName == "PreToolUse" else { throw HarnessError("ask is only supported by the pre-tool adapter.") }
-                    asks.append(reason)
+                    guard eventName == "PreToolUse" else { throw HarnessError("Interactive source approvals are unsupported.") }
+                    requiresApproval = true
                 } else if decision != nil && decision != "allow" {
                     throw HarnessError("Unknown source permission decision.")
                 }
@@ -145,16 +146,10 @@ enum HarnessBridge {
                     throw HarnessError("Legacy approval output requires explicit adaptation.")
                 }
             }
-            if !asks.isEmpty {
-                var reason = "User approval required. Codex ask was converted to deny. " + asks.joined(separator: "\n")
-                if ["apply_patch", "Edit", "Write"].contains(tool) {
-                    let approval = try HarnessApproval.check(event: event, entry: entry,
-                        location: manifest.location, generation: manifest.generation)
-                    if approval.allowed { return combined(eventName, context, warning, rewritten) }
-                    reason += "\nRequest: \(approval.request). After actual user authorization, use tally harness grant --manifest "
-                        + HarnessIO.quote(manifestPath) + " --request \(approval.request) --authorization <conversation-reference>."
-                }
-                return block(eventName, reason)
+            if requiresApproval {
+                return block(eventName, "Source hook requested interactive approval, which this Codex adapter does not support. "
+                    + "The operation remains blocked. Review the hook integration and the active Codex permissions separately; "
+                    + "Tally does not create approval tokens or open a native approval prompt.")
             }
             return combined(eventName, context, warning, rewritten)
         } catch {

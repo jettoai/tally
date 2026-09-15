@@ -80,7 +80,7 @@ use `tally harness remove` with their explicit locations.
 | Instructions | A concise AGENTS.md block describes native tools and on-demand setup | Whether the target model follows the intended policy |
 | Legacy lifecycle | Existing SessionStart registrations report drift without requiring full source instructions | Full task, review, commit, and authorized deployment behavior |
 | Offline inbox | The tools integration installs SessionStart and Stop reminders in both providers | Claim, read, and acknowledge in the actual recipient session |
-| File-operation approval | A source ask produces a deny and an exact request | Actual user authorization before granting one retry |
+| Interactive source approval | An ask is unsupported and remains blocked, without a token workflow | Native Codex permissions and the user authorization boundary |
 
 The settings inventory includes user `settings.json`, or project `settings.json` and
 `settings.local.json`. Plugin-provided and managed hooks are outside this inventory.
@@ -121,8 +121,9 @@ not a complete reconstruction of every file's post-edit content. A Codex transcr
 is exposed as `tally_codex_transcript_path`; it is not passed to a Claude transcript
 parser under `transcript_path`.
 
-PreToolUse deny remains deny. A source ask becomes deny because Codex does not support
-that interactive output field. Explicit source allow alone abstains, preserving other
+PreToolUse deny remains deny. A source ask returns an unsupported-approval denial
+without forwarding its reason, context, or terminal approval instructions. It does
+not open a native approval prompt or consume historical grants. Explicit source allow alone abstains, preserving other
 gates. A supported updated input is retained for one unprojected command. Invalid
 output and source execution failures block PreToolUse and other blocking events.
 Execution has a deadline, a private process group, and bounded input/output.
@@ -157,22 +158,23 @@ remain until the last recorded installation using them is removed. Preexisting l
 are not adopted for removal. Backups and historical approval records remain in the
 state directory after removal.
 
-## One authorized file-operation retry
+## Authorization and native permissions
 
-When a source PreToolUse hook asks for approval of a file operation, Tally returns a
-request ID. After obtaining actual user authorization, record its conversation reference:
+Keep user authorization boundaries in concise AGENTS.md instructions. Use native
+Codex permission controls for execution, checking the active policy before relying
+on an interactive prompt. A noninteractive policy cannot provide that prompt.
+See [Codex approvals and security](https://learn.chatgpt.com/docs/agent-approvals-security).
+Tally does not change permission settings or treat source-hook output as user authority.
 
-```sh
-tally harness grant --manifest /absolute/manifest.json \
-  --request <request-hash> --authorization <user-turn-reference>
-```
+Before selecting a source hook, inspect its approval requirements. Hooks that depend
+on interactive approval require a separate native integration. This command adapter
+supports hard denials, but does not translate an ask into an approval-token workflow.
 
-Retry the exact operation. The grant binds the session, actual Codex home, checkout,
-tool input, file contents/modes/links, source hook, and installation generation. It is
-consumed once and expires after 15 minutes. Changed inputs or file state require a new
-request. The record is cooperative bookkeeping, not identity authentication; a hook
-message or another agent's request cannot provide user authority. A grant cannot
-override a source deny or another hook.
+The former `tally harness grant` command is removed. Historical approval records are
+left in place for inspection but cannot authorize operations. Existing hook registrations
+are not automatically removed: an installed hook that returns ask still blocks the
+operation with a compatibility explanation. Review migration separately while preserving
+existing controls; do not disable a gate to retry an operation it already blocked.
 
 ## Native delivery and offline messages
 

@@ -1,92 +1,92 @@
+import hashlib
 import json
-import re
+import time
 
 from fixture import Fixture
 
 
 class ApprovalChecks(Fixture):
     def prepare(self):
-        self.hook_source({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": "review patch"}})
+        self.hook_source({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "ask",
+            "permissionDecisionReason": "sudo approve-mint fixture; CLAUDE_APPROVED=fixture",
+            "additionalContext": "source approval context"}, "systemMessage": "source approval message"})
         self.install()
         return self.event("apply_patch", command="*** Begin Patch\n*** Add File: config.json\n+{}\n*** End Patch\n")
 
-    def request(self, event):
+    def assert_unsupported(self, event):
         result = self.bridge(event)
-        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
-        return re.search(r"Request: ([a-f0-9]{64})", result["hookSpecificOutput"]["permissionDecisionReason"]).group(1)
+        specific = result["hookSpecificOutput"]
+        self.assertEqual(specific["permissionDecision"], "deny")
+        self.assertIn("does not support", specific["permissionDecisionReason"])
+        self.assertNotIn("additionalContext", specific)
+        self.assertNotIn("systemMessage", result)
+        for instruction in ("sudo", "CLAUDE_APPROVED", "Request:", "source approval"):
+            self.assertNotIn(instruction, json.dumps(result))
 
-    def grant(self, request, code=0):
-        return self.run_cli("harness", "grant", "--manifest", self.manifest_path, "--request", request,
-                            "--authorization", "fixture-user-turn", code=code)
+    def test_ask_blocks_commands_and_file_tools_without_relaying_approval_instructions(self):
+        patch = self.prepare()
+        events = [self.event(), patch,
+                  self.event("Write", file_path=str(self.project / "config.json"), content="{}"),
+                  self.event("Edit", file_path=str(self.project / "config.json"), old_string="a", new_string="b")]
+        for event in events:
+            with self.subTest(tool=event["tool_name"]):
+                self.assert_unsupported(event)
+        self.assertFalse((self.manifest_path.parent / "approvals").exists())
 
-    def test_deny_grant_one_retry_then_replay_denied(self):
+    def legacy_grant(self, event):
+        # Reproduce the schema-1 binding emitted by the retired file-approval adapter.
+        def digest(value):
+            return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        entry = self.manifest["hooks"][0]
+        path = str(self.project / "config.json")
+        binding = {"session": event["session_id"], "cwd": str(self.project.resolve()),
+                   "tool": event["tool_name"], "codexHome": str(self.target.resolve()),
+                   "agentID": None, "agentType": None, "inputHash": digest(event["tool_input"]),
+                   "files": [{"path": path, "resolved": path, "state": "missing"}],
+                   "entry": entry["id"], "definitionHash": entry["definitionHash"],
+                   "installation": self.manifest["location"]["identifier"], "generation": self.manifest["generation"]}
+        record = self.manifest_path.parent / "approvals" / self.manifest["generation"] / (digest(binding) + ".json")
+        self.write(record, {"schema": 1, "binding": binding, "state": "granted", "created": time.time(),
+                            "expires": time.time() + 900, "authorizationReference": "fixture-user-turn"})
+        return record
+
+    def test_historical_grant_is_preserved_but_cannot_authorize_or_be_consumed(self):
         event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        self.assertEqual(self.bridge(event), "")
-        self.assertEqual(self.request(event), request)
+        record = self.legacy_grant(event)
+        before = record.read_bytes()
+        self.assert_unsupported(event)
+        self.assert_unsupported(event)
+        self.assertEqual(record.read_bytes(), before)
+        self.assertFalse((self.project / "config.json").exists())
 
-    def test_grant_requires_authorization_reference(self):
+    def test_removed_grant_command_cannot_change_historical_record(self):
         event = self.prepare()
-        request = self.request(event)
-        self.run_cli("harness", "grant", "--manifest", self.manifest_path, "--request", request, code=2)
+        record = self.legacy_grant(event)
+        before = record.read_bytes()
+        self.run_cli("harness", "grant", code=2)
+        self.run_cli("harness", "grant", "--manifest", self.manifest_path, "--request", record.stem,
+                     "--authorization", "fixture-user-turn", code=2)
+        self.assertEqual(record.read_bytes(), before)
 
-    def test_change_to_file_state_rejects_grant(self):
+    def test_hard_deny_remains_enforced_despite_historical_grant(self):
         event = self.prepare()
-        request = self.request(event)
-        (self.project / "config.json").write_text("changed")
-        self.grant(request, code=2)
-
-    def test_different_session_cannot_consume_grant(self):
-        event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        other = dict(event, session_id="session-B")
-        self.assertNotEqual(self.request(other), request)
-        self.assertEqual(self.bridge(event), "")
-
-    def test_different_patch_cannot_consume_grant(self):
-        event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        other = dict(event, tool_input={"command": event["tool_input"]["command"].replace("+{}", "+{\"different\":true}")})
-        self.assertNotEqual(self.request(other), request)
-        self.assertEqual(self.bridge(event), "")
-
-    def test_actual_codex_home_is_part_of_binding(self):
-        event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        second = self.root / "codex2"
-        second.mkdir()
-        result = self.bridge(event, env=dict(self.env, CODEX_HOME=str(second)))
-        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertEqual(self.bridge(event), "")
-
-    def test_expired_grant_denies_again(self):
-        event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        path = self.manifest_path.parent / "approvals" / self.manifest["generation"] / (request + ".json")
-        value = json.loads(path.read_text())
-        value["expires"] = 0
-        self.write(path, value)
-        self.assertEqual(self.request(event), request)
-
-    def test_reinstall_does_not_reuse_old_grant(self):
-        event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        self.harness("remove")
-        self.install()
-        self.assertNotEqual(self.request(event), request)
-
-    def test_changed_source_deny_cannot_be_overridden(self):
-        event = self.prepare()
-        request = self.request(event)
-        self.grant(request)
-        self.hook_source({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "hard deny"}})
+        self.legacy_grant(event)
+        self.hook_source({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                "permissionDecisionReason": "hard deny"}})
         self.assertEqual(self.bridge(event)["hookSpecificOutput"]["permissionDecisionReason"], "hard deny")
+
+    def test_hard_deny_on_second_file_takes_priority_over_first_file_ask(self):
+        script = self.source / "decision.py"
+        self.write(script, 'import json,sys\nx=json.load(sys.stdin)\np=x["tool_input"]["file_path"]\n'
+                   'decision="deny" if p.endswith("second.txt") else "ask"\n'
+                   'print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse",'
+                   '"permissionDecision":decision,"permissionDecisionReason":decision}}))\n')
+        self.hook_source(command="python3 " + str(script), matcher="Write|Edit")
+        self.install()
+        patch = "*** Begin Patch\n*** Add File: first.txt\n+first\n*** Add File: second.txt\n+second\n*** End Patch\n"
+        self.assertEqual(self.bridge(self.event("apply_patch", command=patch))["hookSpecificOutput"]["permissionDecisionReason"], "deny")
+        self.assertFalse((self.manifest_path.parent / "approvals").exists())
 
     def test_multi_file_patch_checks_second_file(self):
         command = "python3 -c 'import json,sys; x=json.load(sys.stdin); p=x[\"tool_input\"][\"file_path\"]; print(json.dumps({\"decision\":\"block\",\"reason\":\"second\"}) if p.endswith(\"second.txt\") else \"{}\")'"

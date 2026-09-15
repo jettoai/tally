@@ -75,36 +75,4 @@ enum HarnessPatch {
         return result
     }
 
-    static func paths(_ event: [String: Any]) throws -> [String] {
-        let cwd = event["cwd"] as? String ?? ""
-        return try Array(Set(events(event).map { item -> String in
-            guard let path = (item["tool_input"] as? [String: Any])?["file_path"] as? String,
-                  !path.isEmpty else { throw HarnessError("Approval requires explicit file paths.") }
-            return URL(fileURLWithPath: path.hasPrefix("/") ? path : cwd + "/" + path).standardizedFileURL.path
-        })).sorted()
-    }
-
-    static func fileState(_ path: String) throws -> [String: String] {
-        var state = ["path": path, "resolved": HarnessIO.canonical(path)]
-        if let link = try? FileManager.default.destinationOfSymbolicLink(atPath: path) { state["link"] = link }
-        let before = try? FileManager.default.attributesOfItem(atPath: state["resolved"]!)
-        if let data = try HarnessIO.data(state["resolved"]!, limit: 1_048_576) {
-            state["sha256"] = HarnessIO.hash(data)
-            let attributes = try FileManager.default.attributesOfItem(atPath: state["resolved"]!)
-            state["mode"] = String(describing: attributes[.posixPermissions] ?? "unknown")
-            for key in [FileAttributeKey.systemFileNumber, .size, .modificationDate, .posixPermissions] {
-                guard String(describing: before?[key]) == String(describing: attributes[key]) else {
-                    throw HarnessError("File changed while preparing approval. Retry with the current file.")
-                }
-            }
-        } else {
-            guard before == nil else { throw HarnessError("File disappeared while preparing approval.") }
-            state["state"] = "missing"
-        }
-        guard state["resolved"] == HarnessIO.canonical(path),
-              state["link"] == (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) else {
-            throw HarnessError("File link changed while preparing approval.")
-        }
-        return state
-    }
 }

@@ -78,7 +78,7 @@ func runHarness(args: [String]) -> Int32 {
     do {
         let locationOptions: Set<String> = ["--scope", "--source-home", "--target-home", "--project", "--skills-root", "--state-root"]
         let selections: Set<String> = ["--hook", "--skill"]
-        let parsed = try HarnessArguments(args, options: locationOptions.union(selections).union(["--file", "--request", "--authorization", "--manifest"]),
+        let parsed = try HarnessArguments(args, options: locationOptions.union(selections).union(["--file"]),
                                           switches: ["--confirm-git-visible"], repeatable: selections)
         switch parsed.verb {
         case "record":
@@ -87,10 +87,6 @@ func runHarness(args: [String]) -> Int32 {
             guard let data = try HarnessIO.data(path, limit: 65_536) else { throw HarnessError("Evaluation file not found.") }
             let result = try HarnessEvaluation.record(data, root: parsed.path("--state-root", fallback: HarnessArguments.stateRoot))
             try harnessPrint(result)
-        case "grant":
-            try parsed.only(["--request", "--authorization", "--manifest"])
-            try harnessPrint(HarnessApproval.grant(parsed.required("--request"),
-                authorization: parsed.required("--authorization"), manifestPath: parsed.path("--manifest", fallback: "")))
         case "plan", "status", "install", "remove":
             try parsed.only(locationOptions.union(["plan", "install"].contains(parsed.verb) ? selections : []), switches: parsed.verb == "install" ? ["--confirm-git-visible"] : [])
             let location = try parsed.location()
@@ -105,7 +101,7 @@ func runHarness(args: [String]) -> Int32 {
                 try harnessPrint(["state": manifest.phase, "manifest": manifest.location.manifestPath,
                                   "nativeTrust": manifest.registrations.isEmpty ? "not-required" : "verify-in-codex-hooks"])
             }
-        default: throw HarnessError("Unknown harness subcommand. Use plan, status, install, remove, grant, or record.")
+        default: throw HarnessError("Unknown harness subcommand. Use plan, status, install, remove, or record.")
         }
         return 0
     } catch { return harnessError(error) }

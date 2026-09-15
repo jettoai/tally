@@ -13,7 +13,7 @@ _tally_harness_command() {
     return
   fi
   _arguments \
-    ":action:(plan status install remove grant record tools)" \
+    ":action:(plan status install remove record tools)" \
     "--scope[configuration scope]:scope:(user project)" \
     "--confirm-git-visible[confirm the reviewed project paths for install]" \
     "--source-home[Claude configuration home]:directory:_directories" \
@@ -21,9 +21,6 @@ _tally_harness_command() {
     "--project[explicit project checkout]:directory:_directories" \
     "--skills-root[shared skill directory]:directory:_directories" \
     "--state-root[Tally harness receipts]:directory:_directories" \
-    "--manifest[installation manifest]:file:_files" \
-    "--request[exact approval request]:hash:" \
-    "--authorization[prior user authorization reference]:reference:" \
     "--file[evaluation result JSON]:file:_files"
 }
 

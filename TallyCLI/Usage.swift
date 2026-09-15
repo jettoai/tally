@@ -99,8 +99,6 @@ usage:
                             --confirm-git-visible for reviewed git-visible writes. Review native /hooks trust.
                             Status reports drift,
                             not behavioral parity. Remove preserves unrelated configuration.
-  tally harness grant --manifest <absolute-manifest> --request <hash> --authorization <reference>
-                            record prior user authorization for one exact file operation retry.
   tally harness record --file <absolute-result.json> [--state-root <absolute-directory>]
                             retain caller-reported model, oracle, quality, duration, and cost evidence.
   tally inbox list|post|claim|read|ack|release|recover|status --provider claude|codex

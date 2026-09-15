@@ -141,28 +141,10 @@ def exercise(fixture):
         assert (project / 'allowed.txt').read_text() == 'allowed'
         assert not (project / 'forbidden.txt').exists()
         assert not (project / 'config.json').exists()
-        manifest = json.loads(Path(fixture['manifest']).read_text())
-        requests = [path for path in (Path(fixture['manifest']).parent / 'approvals' / manifest['generation']).glob('*.json')
-                    if json.loads(path.read_text())['binding']['session'] == thread]
-        assert len(requests) == 1, 'One exact native approval request is required'
-        request = json.loads(requests[0].read_text())
-        assert request['state'] == 'pending'
-        request_id = requests[0].stem
-        run(fixture['cli'], 'harness', 'grant', '--manifest', fixture['manifest'], '--request', request_id,
-            '--authorization', 'User-authorized isolated product acceptance: one config.json retry')
-        report['turns'].append(client.turn(thread, common + 'The test coordinator recorded the authorized one-use grant. '
-            'Retry the identical native apply_patch call exactly once, with no other tools or fallback. Patch including final newline:\n' + patch, root))
-        assert (project / 'config.json').read_text() == '{}\n'
-        assert len(source_events()) == 5, 'Exactly one native retry is required'
-        assert json.loads(requests[0].read_text())['state'] == 'consumed'
-        (project / 'config.json').unlink()
-        report['turns'].append(client.turn(thread, common + 'Replay protection check: make the identical native apply_patch call once. '
-            'The file was removed by the test coordinator to recreate the original preimage. Do not grant, retry, or use a fallback.\n' + patch, root))
-        assert not (project / 'config.json').exists()
-        assert len(source_events()) == 6, 'Exactly one native replay attempt is required'
-        report['patchRequest'] = request_id
+        approvals = Path(fixture['manifest']).parent / 'approvals'
+        assert not approvals.exists(), 'Unsupported asks must not create approval records'
         report['sourceEvents'] = len(source_events())
-        report['procedure'] = 'One required instruction read, three initial attempts, one granted retry, one denied replay'
+        report['procedure'] = 'One instruction read, one allowed command, one hard denial, one unsupported approval denial'
         assert any('TALLY_NATIVE_STARTUP' in str(event) for event in client.notifications), 'Native startup marker was not observed'
         report['state'] = 'passed'
     finally:

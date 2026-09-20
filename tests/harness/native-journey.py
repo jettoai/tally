@@ -20,6 +20,34 @@ def settings(path, hooks):
     path.write_text(json.dumps({'hooks': hooks}, indent=2) + '\n')
 
 
+def assert_initial_acceptance_oracle(events, notifications, project, preflight, patch, thread, turn):
+    """Validate the first native acceptance turn before checking filesystem effects."""
+    assert patch == '*** Begin Patch\n*** Add File: config.json\n+{}\n*** End Patch\n'
+    config = str((project / 'config.json').resolve())
+    assert len(events) == 4, 'One instruction read and three acceptance attempts are required'
+    for event, command in zip(events[:3], (preflight, 'printf allowed > allowed.txt', 'touch forbidden.txt')):
+        assert event.get('tool_name') == 'Bash' and event.get('tool_input', {}).get('command') == command, \
+            'The exact instruction, allowed, and hard-deny Bash actions are required'
+        for location in ('cwd', 'workdir'):
+            if location in event['tool_input']:
+                assert event['tool_input'][location] == str(project.resolve()), \
+                    'Bash payload locations must remain in the fixture project'
+    assert {key: events[3].get(key) for key in ('tool_name', 'tool_input', 'tally_patch_operation', 'tally_original_tool')} == {
+        'tool_name': 'Write', 'tool_input': {'content': '{}\n', 'file_path': config},
+        'tally_patch_operation': 'add', 'tally_original_tool': 'apply_patch'}, \
+        'The translated patch Write payload must be exact'
+    runs = [event['params']['run'] for event in notifications
+            if event.get('method') == 'hook/completed'
+            and event.get('params', {}).get('threadId') == thread
+            and event.get('params', {}).get('turnId') == turn
+            and event.get('params', {}).get('run', {}).get('eventName') == 'preToolUse'
+            and event.get('params', {}).get('run', {}).get('handlerType') == 'command']
+    assert [run.get('status') for run in runs] == ['completed', 'completed', 'blocked', 'blocked'], \
+        'The hard-deny and unsupported approval attempts require their matching native hook blocked events'
+    assert any(event.get('params', {}).get('threadId') == thread and 'TALLY_NATIVE_STARTUP' in str(event)
+               for event in notifications), 'Native startup marker was not observed'
+
+
 def prepare(args):
     root = Path(tempfile.mkdtemp(prefix='tally-native-harness-')).resolve()
     user = root / 'user'
@@ -131,13 +159,13 @@ def exercise(fixture):
             '3. One native apply_patch call with tool_input.command exactly the following patch, including its final newline:\n'
             + patch + '\nDo not retry, grant approval, modify hooks, use another file writer, or spawn agents. '
             'After the three attempts, report the native startup marker and each result. A denial is an expected test result.')
-        report['turns'].append(client.turn(thread, prompt, root))
+        turn = client.turn(thread, prompt, root)
+        report['turns'].append(turn)
         def source_events():
             return [row for row in map(json.loads, (root / 'source-events.jsonl').read_text().splitlines())
                     if row.get('session_id') == thread]
         events = source_events()
-        assert len(events) == 4, 'One instruction read and three acceptance attempts are required'
-        assert events[0]['tool_input']['command'] == preflight
+        assert_initial_acceptance_oracle(events, client.notifications, project, preflight, patch, thread, turn['id'])
         assert (project / 'allowed.txt').read_text() == 'allowed'
         assert not (project / 'forbidden.txt').exists()
         assert not (project / 'config.json').exists()
@@ -145,7 +173,6 @@ def exercise(fixture):
         assert not approvals.exists(), 'Unsupported asks must not create approval records'
         report['sourceEvents'] = len(source_events())
         report['procedure'] = 'One instruction read, one allowed command, one hard denial, one unsupported approval denial'
-        assert any('TALLY_NATIVE_STARTUP' in str(event) for event in client.notifications), 'Native startup marker was not observed'
         report['state'] = 'passed'
     finally:
         client.close()
@@ -153,24 +180,29 @@ def exercise(fixture):
     print(json.dumps(report, indent=2))
 
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('action', choices=['prepare', 'inspect', 'exercise'])
-parser.add_argument('--cli', type=Path)
-parser.add_argument('--codex', type=Path)
-parser.add_argument('--auth-home', default=str(Path.home() / '.codex'))
-parser.add_argument('--model', default='gpt-6-astra')
-parser.add_argument('--scope', choices=['user', 'project'], default='user')
-parser.add_argument('--root', type=Path)
-args = parser.parse_args()
-if args.action == 'prepare':
-    if not args.cli or not args.codex:
-        parser.error('prepare requires --cli and --codex')
-    prepare(args)
-else:
-    if not args.root:
-        parser.error('inspect/exercise requires --root')
-    fixture = json.loads((args.root / 'fixture.json').read_text())
-    if args.action == 'inspect':
-        print(json.dumps([inspect(fixture, name) for name in ('target', 'second')], indent=2))
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=['prepare', 'inspect', 'exercise'])
+    parser.add_argument('--cli', type=Path)
+    parser.add_argument('--codex', type=Path)
+    parser.add_argument('--auth-home', default=str(Path.home() / '.codex'))
+    parser.add_argument('--model', default='gpt-6-astra')
+    parser.add_argument('--scope', choices=['user', 'project'], default='user')
+    parser.add_argument('--root', type=Path)
+    args = parser.parse_args()
+    if args.action == 'prepare':
+        if not args.cli or not args.codex:
+            parser.error('prepare requires --cli and --codex')
+        prepare(args)
     else:
-        exercise(fixture)
+        if not args.root:
+            parser.error('inspect/exercise requires --root')
+        fixture = json.loads((args.root / 'fixture.json').read_text())
+        if args.action == 'inspect':
+            print(json.dumps([inspect(fixture, name) for name in ('target', 'second')], indent=2))
+        else:
+            exercise(fixture)
+
+
+if __name__ == '__main__':
+    main()

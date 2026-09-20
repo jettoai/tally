@@ -218,8 +218,14 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   거절합니다. 그 Codex 세션에서 실제 prompt를 보내고 완료를 기다린 다음 다시 시도하세요.
   composer만 지워서는 안전을 확인할 수 없습니다. Codex가 일치하는 새 사용자 메시지를 낼 때만
   전달이 확인됩니다. 터미널에 썼어도 확인되지 않으면 `unconfirmed-input`로 알리고 자동 재전송하지
-  않으며, 사용자 정의 Enter 키 매핑도 같습니다. 모니터링 전용 Codex 세션은 끝낸 뒤 `tally codex`
-  로 다시 시작하세요. 요청은 200 UTF-8 bytes로 제한됩니다. 처리하거나 거절한 결과는 `~/.tally/logs/input.log`에 기록됩니다.
+  않으며, 사용자 정의 Enter 키 매핑도 같습니다. 모니터링 전용 Codex 세션은 끝낸 뒤
+  `tally codex resume <UUID>`로 재개하세요. 정확한 UUID 하나만 지정하고 명시적 prompt가 없으며,
+  Tally status hook이 설치되고 Tally가 private TTY를 통해 시작한 경우에만 Tally가 보이는 네이티브 초기화
+  prompt를 한 번 제출하며, 사람이 bootstrap prompt를 넣을 필요가 없습니다. 이는 model turn 한 번과 구독 쿼터를 사용하고 자동 재시도하지 않습니다.
+  또한 prompt 지시는 강제가 아니므로 도구 실행이 전혀 없다고 보장하지 않습니다. 호출자가 준 prompt와
+  다른 모든 resume 형태는 그대로입니다. 시작 중 사람이 입력한 내용은 draft-held로 유지됩니다. 이 경로도
+  Codex가 `send`를 표시하기 전에 신뢰된 네이티브 연결, 정확한 터미널, 완료된 네이티브 turn, 일치하는
+  receipt가 필요하며 네이티브 신뢰를 우회하지 않습니다. 요청은 200 UTF-8 bytes로 제한됩니다. 처리하거나 거절한 결과는 `~/.tally/logs/input.log`에 기록됩니다.
   `tally session clear`는 비운 세션을 더 여유 있는 계정으로 다시 열 수 있는 Claude 전용의 별도
   제어로 남습니다.
 - **평행한 작업 라인.** `tally claude -w <이름>`은 세션을 git worktree에서 열고, 필요하면

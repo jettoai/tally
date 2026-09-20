@@ -60,6 +60,16 @@ enum CodexSessionHooks {
         }
     }
 
+    /// Check just the selected account without requiring it to be the only installed home.
+    static func installed(home: String, root: URL) -> Bool {
+        guard let receipt = try? receipt(root: root), let path = paths(homes: [home]).first,
+              receipt.paths.contains(path),
+              let hooks = try? document(path: path)["hooks"] as? [String: Any] else { return false }
+        return events.allSatisfy { event in
+            (hooks[event] as? [[String: Any]] ?? []).filter { same($0, group(command: receipt.command)) }.count == 1
+        }
+    }
+
     static func install(homes: [String], root: URL, command: String = command) throws {
         try locked(root: root) {
             if try receipt(root: root) != nil {

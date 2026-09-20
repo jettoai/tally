@@ -180,8 +180,13 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   或有人可能正在打字時會排隊，15 分鐘後到期。終端機安靜卻有無法解釋的輸入時會立即拒絕：請在
   該 Codex session 輸入真正的 prompt，等它完成後再重試，單純清掉 composer 無法建立安全邊界。
   只有 Codex 發出相符的新使用者訊息才算送達確認。終端機已寫入但未確認時會標示 `unconfirmed-input`，
-  不會自動重送，包含自訂 Enter 鍵對應。僅供監看的 Codex session 須先結束，再用 `tally codex`
-  重啟。請求上限為 200 UTF-8 bytes，已處理或拒絕的結果會記錄在本機 `~/.tally/logs/input.log`。`tally session
+  不會自動重送，包含自訂 Enter 鍵對應。僅供監看的 Codex session 須先結束，再用
+  `tally codex resume <UUID>` 恢復。當它只指定一個確切 UUID、沒有明確 prompt、已安裝 Tally
+  status hook，且由 Tally 透過私有 TTY 啟動時，Tally 會送出一則可見的原生初始化 prompt，不需要人工
+  bootstrap prompt。它會用掉一個 model turn 和訂閱額度，不會自動重試，也不保證零工具執行，因為 prompt 指令不是強制機制。呼叫端提供的
+  prompt 與所有其他 resume 形式都維持原樣。啟動期間的人為輸入仍會保留為 draft-held。這條路徑仍須有受信任
+  的原生綁定、確切終端機、完成的原生回合與相符 receipt，Codex 才會宣告 `send`，不會繞過原生信任。
+  請求上限為 200 UTF-8 bytes，已處理或拒絕的結果會記錄在本機 `~/.tally/logs/input.log`。`tally session
   clear` 仍是 Claude 專用的獨立控制，可將清空的 session 改開到較健康的帳號。
 - **平行的工作線。** `tally claude -w <名稱>` 會在 git worktree 裡開 session，需要時建立
   `../<repo>-<名稱>`、把專案的 Claude 記憶連過去，並執行該 repo 自己的 setup 腳本；只打

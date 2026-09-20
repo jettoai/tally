@@ -118,7 +118,7 @@ func sessionSendRefusal(pid: String, dir: URL) -> String? {
     guard SessionMonitoring.isMarked(pid: pid, dir: dir) else { return nil }
     guard SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) else {
         return "This Codex session cannot accept direct input because it has no verified terminal "
-            + "target and native turn lifecycle. Restart it with the current `tally codex`, trust its session hooks, and complete a turn; nothing was queued."
+            + "target and native turn lifecycle. Trust the installed session hooks, then restart with the current `tally codex resume <thread-id>`. A supervised exact-thread resume without a prompt initializes with one native turn; wait for it to finish. Nothing was queued."
     }
     return nil
 }

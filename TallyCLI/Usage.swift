@@ -15,7 +15,12 @@ usage:
   tally claude --account <n>  pin a specific account (label or config-dir name)
   tally claude -w [name]    launch in a git worktree (creates ../<repo>-<name> if needed,
                             shares project memory, runs .tally/worktree-setup.sh); bare -w lists existing
-  tally codex [args…]       launch Codex on the best account
+  tally codex [args…]       launch Codex on the best account. An exact `resume <UUID>` with no
+                            explicit prompt submits one visible native initialization prompt only
+                            when status hooks are installed and Tally launches it through its private
+                            TTY. It uses one model turn and subscription quota, is never retried
+                            automatically, and does not enforce its instruction or bypass native
+                            trust. Caller prompts and all other resume shapes are unchanged.
   tally resume [args…]      continue this directory's latest Claude session on the best account
   tally worktree            overview of the main repo and its worktrees, marking where you
                             are (same as `tally worktree tree`)
@@ -126,8 +131,12 @@ usage:
                             retry. Delivery needs Codex's matching new user message; a terminal
                             write without it is unconfirmed and never retried automatically,
                             including custom Enter key mappings. A monitoring-only Codex session is
-                            refused: exit it and restart with `tally codex`. Text is limited to 200
-                            UTF-8 bytes; served or refused outcomes go to ~/.tally/logs/input.log.
+                            refused: exit it and use `tally codex resume <UUID>`. Its qualifying
+                            no-prompt exact resume needs no manual bootstrap, but human startup
+                            input remains draft-held. Codex still advertises send only after a
+                            trusted binding, exact terminal, completed native turn, and receipt.
+                            Text is limited to 200 UTF-8 bytes; served or refused outcomes go to
+                            ~/.tally/logs/input.log.
                             `tally session clear` is a distinct Claude control, not a Codex action
   tally session clear [--session <pid>]
                             close a session's context window: the same `/clear`, queued on the same

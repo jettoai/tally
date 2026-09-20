@@ -1,5 +1,54 @@
 import Foundation
 
+/// Startup arguments for a supervised resume, before Codex owns the terminal.
+func codexResumeInitializationArgs(_ args: [String]) -> [String] {
+    // Unknown parser shapes stay native. In particular, do not turn a picker, remote target,
+    // attachment, or caller prompt into an unsolicited initialization turn.
+    let flags: Set<String> = ["--no-alt-screen", "--search", "--oss",
+                             "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox", "--yolo"]
+    var positionals: [String] = []
+    var index = 0
+    var delimited = false
+    while index < args.count {
+        let token = args[index]
+        if token == "--" && !delimited { delimited = true; index += 1; continue }
+        if delimited || !codexReadsAsOption(token) {
+            if positionals.isEmpty && delimited { return args }
+            positionals.append(token)
+            index += 1
+            continue
+        }
+        if flags.contains(token) { index += 1; continue }
+        let key = String(token.split(separator: "=", maxSplits: 1)[0])
+        let option = codexValueTakingOptions.contains(key) ? key : String(token.prefix(2))
+        guard codexValueTakingOptions.contains(option),
+              !["-i", "--image", "--remote", "--remote-auth-token-env"].contains(option) else { return args }
+        if token == option {
+            guard index + 1 < args.count else { return args }
+            index += 2
+        } else { index += 1 }
+    }
+    guard positionals.count == 2, positionals[0] == "resume",
+          UUID(uuidString: positionals[1]) != nil, args.first != "--" else { return args }
+    let prompt = "Tally session initialization. Do not execute tools or continue earlier work. Reply only TALLY_SESSION_READY."
+    return args + (delimited ? [] : ["--"]) + [prompt]
+}
+
+/// Native argv input is separate from the draft Codex restores after its loading screen.
+/// Its later receipt must not account for keyboard edits made during initialization.
+struct CodexResumeDraftGuard {
+    private(set) var suspected = false
+    private var initializationReceiptAt: Date?
+    mutating func observe(humanInput: Date?, inputReceipt: Date?, ready: Bool) {
+        if let initializationReceiptAt {
+            if let inputReceipt, inputReceipt > initializationReceiptAt { suspected = false }
+        } else {
+            if humanInput != nil { suspected = true }
+            if ready { initializationReceiptAt = inputReceipt }
+        }
+    }
+}
+
 /// Resolve the selected account's shared or private history before asking Codex to resume by ID.
 /// Explicit commands and prompts keep their native meaning. Unknown metadata starts fresh.
 func applyCodexStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool,

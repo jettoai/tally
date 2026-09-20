@@ -64,8 +64,14 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     signal(SIGTERM) { codexSupervisorSignal = $0 }
     signal(SIGHUP) { codexSupervisorSignal = $0 }
     var terminal = CodexInputRelay()
-    let relayedChild = terminal?.spawn([provider.cli] + args, environment: environment)
+    let initializedArgs = terminal != nil && CodexSessionHooks.installed(home: home,
+        root: supervisorStateDir.deletingLastPathComponent()) ? codexResumeInitializationArgs(args) : args
+    if initializedArgs != args {
+        warn("Initializing resumed Codex for direct send with one native turn (uses subscription quota). No automatic retry.")
+    }
+    let relayedChild = terminal?.spawn([provider.cli] + initializedArgs, environment: environment)
     if relayedChild == nil { terminal?.close(); terminal = nil }
+    var initializationDraft = initializedArgs != args && relayedChild != nil ? CodexResumeDraftGuard() : nil
     guard let child = relayedChild ?? spawnChild([provider.cli] + args, environment: environment) else {
         clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
         warn("could not launch Codex")
@@ -124,6 +130,9 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             let activity = (try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-activity")))
                 .flatMap { try? JSONDecoder().decode(CodexSessionActivity.self, from: $0) }
             observer?.poll(home: home, activity: activity)
+            initializationDraft?.observe(humanInput: terminal?.lastHumanInputAt,
+                inputReceipt: observer?.lastInputReceiptAt,
+                ready: observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true)
             contextWriter.sync(accountID: account.id, launchModel: launchModel,
                                launchEffort: launchEffort, observer: observer, pid: pid)
             if let terminal, let childStart = metadata.childStart {
@@ -141,6 +150,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                 var submittedAt = Date()
                 applyCodexSessionInput(&input, observer: observer, keyboard: keyboard,
                     launchedAt: launchedAt, terminalReady: metadata.inputTTY != nil && terminalReady,
+                    startupDraftSuspected: initializationDraft?.suspected == true,
                     inject: { text in
                         observer?.poll(home: home)
                         guard observer?.canAcceptInput == true,

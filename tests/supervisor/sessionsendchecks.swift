@@ -317,14 +317,14 @@ func runSessionSendChecks() {
     let legacyRefusal = sessionSendRefusal(pid: ownPid, dir: registry)
     check("a legacy Codex monitor is refused with a restart-required direct-input message",
           namedSession(ownPid, dir: registry) == .monitoringOnly(ownPid)
-              && legacyRefusal?.contains("Restart it with the current `tally codex`") == true
+              && legacyRefusal?.contains("restart with the current `tally codex resume <thread-id>`") == true
               && sessionSupportedActions(pid: ownPid, dir: registry).isEmpty)
     // A malformed or stale registration stays in the same fail-closed family. It cannot be
     // relabelled as Claude merely because the presence marker still belongs to a live process.
     try? Data("broken".utf8).write(to: registry.appendingPathComponent(ownPid + SessionMonitoring.suffix))
     check("a damaged Codex registration cannot fall back to a general session target",
           namedSession(ownPid, dir: registry) == .monitoringOnly(ownPid)
-              && sessionSendRefusal(pid: ownPid, dir: registry)?.contains("nothing was queued") == true
+              && sessionSendRefusal(pid: ownPid, dir: registry)?.contains("Nothing was queued") == true
               && sessionSupportedActions(pid: ownPid, dir: registry).isEmpty)
 
     // MARK: - What the caller is told, and what it exits on

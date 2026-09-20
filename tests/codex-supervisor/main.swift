@@ -159,6 +159,12 @@ check("completed paginated UserMessage is an exact native input receipt",
       paginated.inputReceiptsAvailable && paginated.receivedInput(" target prompt\n", after: start)
       && !paginated.receivedInput("another prompt", after: start))
 check("paginated user receipt updates the human-turn guard", paginated.lastUserTurnAt == start.addingTimeInterval(6))
+check("only a native user receipt records the startup draft release boundary",
+      paginated.lastInputReceiptAt == start.addingTimeInterval(6))
+try append(event("task_started", turnID: UUID().uuidString, after: 7), to: paginatedFile)
+paginated.poll(home: home.path)
+check("a later task-start event cannot advance the native input receipt boundary",
+      paginated.lastInputReceiptAt == start.addingTimeInterval(6))
 var (oversizedFile, oversizedReceipt) = try fixture("oversized-paginated-receipt", contents: meta())
 try append(completedUserItem(String(repeating: "x", count: 201), after: 2), to: oversizedFile)
 oversizedReceipt.poll(home: home.path)
@@ -340,6 +346,14 @@ try JSONSerialization.data(withJSONObject: original).write(to: hooksURL)
 let installCommand = "/fixture/tally codex-session-hook"
 try CodexSessionHooks.install(homes: [home.path], root: installRoot, command: installCommand)
 check("explicit installer registers three events", try CodexSessionHooks.installed(homes: [home.path], root: installRoot))
+check("selected installed home permits resume initialization", CodexSessionHooks.installed(home: home.path, root: installRoot))
+check("uninstalled home does not permit initialization", !CodexSessionHooks.installed(home: otherHome.path, root: installRoot))
+var multipleReceipt = try CodexSessionHooks.receipt(root: installRoot)!
+multipleReceipt.paths.append(otherHome.appendingPathComponent("hooks.json").path)
+try JSONEncoder().encode(multipleReceipt).write(to: CodexSessionHooks.receiptURL(root: installRoot))
+check("selected home remains installed when the receipt lists multiple account paths", CodexSessionHooks.installed(home: home.path, root: installRoot))
+multipleReceipt.paths.removeLast()
+try JSONEncoder().encode(multipleReceipt).write(to: CodexSessionHooks.receiptURL(root: installRoot))
 var installed = try CodexSessionHooks.document(path: hooksURL.path)
 var hooks = installed["hooks"] as! [String: Any]
 check("install preserves existing SessionStart registration", (hooks["SessionStart"] as! [[String: Any]]).contains { CodexSessionHooks.same($0, user) })
@@ -361,6 +375,7 @@ check("remove preserves original SessionStart", (afterHooks["SessionStart"] as! 
 check("remove preserves a user-edited lookalike", (afterHooks["UserPromptSubmit"] as! [[String: Any]]).count == 1)
 check("remove clears only owned PermissionRequest registration", afterHooks["PermissionRequest"] == nil)
 check("remove clears ownership receipt", try CodexSessionHooks.receipt(root: installRoot) == nil)
+check("removed hooks cannot initialize resumed sessions", !CodexSessionHooks.installed(home: home.path, root: installRoot))
 try FileManager.default.createSymbolicLink(at: otherHome.appendingPathComponent("hooks.json"), withDestinationURL: hooksURL)
 check("shared hooks symlink is deduplicated", CodexSessionHooks.paths(homes: [home.path, otherHome.path]).count == 1)
 try Data("broken".utf8).write(to: hooksURL)

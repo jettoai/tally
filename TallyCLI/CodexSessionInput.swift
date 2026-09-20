@@ -22,12 +22,12 @@ func codexInputDraftSuspected(lastInput: Date?, userTurnAt: Date?, launchedAt: D
 @discardableResult
 func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSessionObserver?,
                            keyboard: KeyboardActivity, launchedAt: Date,
-                           terminalReady: Bool, dir: URL = sessionInputDir,
+                           terminalReady: Bool, startupDraftSuspected: Bool = false, dir: URL = sessionInputDir,
                            log: URL = sessionInputLog, now: Date = Date(),
                            inject: (String) -> SessionInputInjection,
                            confirm: () -> Bool) -> SessionInputAction {
     let ready = observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true
-    let suspected = codexInputDraftSuspected(lastInput: keyboard.lastStamp,
+    let suspected = startupDraftSuspected || codexInputDraftSuspected(lastInput: keyboard.lastStamp,
         userTurnAt: observer?.lastUserTurnAt, launchedAt: launchedAt)
     // Reuse the existing queue, expiry, keyboard gate, receipt and audit writer. Unknown and
     // permission-wait readings stay closed; no Claude-specific account or draft action runs.

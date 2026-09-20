@@ -47,9 +47,10 @@ func runCodexInputChecks() {
         keyboard.observe(stamp: turn.addingTimeInterval(-1))
         var delivered: [String] = []
         var injection: SessionInputInjection = .done
-        func apply(_ observed: CodexSessionObserver?, terminalReady: Bool = true, confirmed: Bool = true) -> SessionInputAction {
+        func apply(_ observed: CodexSessionObserver?, terminalReady: Bool = true, confirmed: Bool = true,
+                   startupDraft: Bool = false) -> SessionInputAction {
             applyCodexSessionInput(&input, observer: observed, keyboard: keyboard, launchedAt: launch,
-                terminalReady: terminalReady, dir: queue, log: log, now: now,
+                terminalReady: terminalReady, startupDraftSuspected: startupDraft, dir: queue, log: log, now: now,
                 inject: { if injection == .done { delivered.append($0) }; return injection }, confirm: { confirmed })
         }
         check("Codex unknown session leaves queue untouched", apply(nil).typed == nil && delivered.isEmpty && readSessionInputRequest(sessionKey: "101", dir: queue) != nil)
@@ -64,6 +65,11 @@ func runCodexInputChecks() {
         epoch += 1
         try writeSessionInputRequest(SessionInputRequest(epoch: epoch, text: "target only"), sessionKey: "101", dir: queue)
         keyboard.lastStamp = turn.addingTimeInterval(-1)
+        check("startup draft predating native initialization receipt still refuses delivery",
+              apply(observer, startupDraft: true).typed == nil && delivered.isEmpty
+              && readSessionInputResult(sessionKey: "101", dir: queue)?.outcome == "refused-unsafe-input")
+        epoch += 1
+        try writeSessionInputRequest(SessionInputRequest(epoch: epoch, text: "target only"), sessionKey: "101", dir: queue)
         injection = .held
         check("Codex late human input holds the original queued request", apply(observer).typed == nil && readSessionInputRequest(sessionKey: "101", dir: queue)?.text == "target only")
         injection = .done

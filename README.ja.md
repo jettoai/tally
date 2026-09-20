@@ -234,8 +234,14 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   プロンプトを送り、完了を待ってから再試行してください。composer を消すだけでは安全とは判断
   できません。Codex が一致する新規ユーザーメッセージを出したときだけ配達確認となります。
   端末に書けても確認できなければ `unconfirmed-input` と表示し、自動再送はしません。カスタム Enter
-  キー割り当ての場合も同様です。監視のみの Codex セッションは終了して `tally codex` で再起動
-  してください。要求は 200 UTF-8 bytes までです。処理済みまたは拒否した結果は
+  キー割り当ての場合も同様です。監視のみの Codex セッションは終了して `tally codex resume <UUID>` で
+  再開してください。正確な UUID を一つ指定し、明示的な prompt がなく、Tally の status hook が導入済みで
+  Tally が private TTY 経由で起動するときだけ、Tally は可視のネイティブ初期化 prompt を一度送ります。手作業の
+  bootstrap prompt は不要です。これは model turn 一回とサブスクリプションの枠を使い、自動再試行しません。また prompt の指示は強制ではないため、
+  ツール実行がゼロになるとは約束しません。呼び出し側の prompt と、それ以外の resume 形式は変更しません。
+  起動中の人による入力は draft-held のままです。この経路でも、Codex が `send` を表示する前に信頼済みの
+  ネイティブ関連付け、正確な端末、完了したネイティブターン、一致する receipt が必要で、ネイティブ信頼を
+  回避しません。要求は 200 UTF-8 bytes までです。処理済みまたは拒否した結果は
   `~/.tally/logs/input.log` にローカル記録されます。`tally session clear` は、空にしたセッションをより健全なアカウントで開き直せる
   Claude 専用の別コントロールのままです。
 - **並行する作業ライン。** `tally claude -w <名前>` はセッションを git worktree で開き、

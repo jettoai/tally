@@ -2,6 +2,16 @@ import Foundation
 
 runCodexPTYChildIfRequested()
 
+if ProcessInfo.processInfo.environment["TALLY_TEST_CODEX_RESUME_READER"] == "1" {
+    runCodexResumeReader()
+}
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--codex-resume-actions" {
+    let actions = sessionSupportedActions(pid: CommandLine.arguments[2], dir: supervisorStateDir)
+    let data = try! JSONSerialization.data(withJSONObject: actions)
+    print(String(data: data, encoding: .utf8)!)
+    exit(0)
+}
+
 // Assertion harness for the supervisor's transcript-model tracking, compiled against the real
 // source. Regression for the 2026-07-19 live misfire: a continued session replays its whole
 // history, and unguarded "model" scanning poisoned lastModel with old lines and "<synthetic>"
@@ -19,6 +29,9 @@ if CommandLine.arguments.contains("--codex-input-pty-reader") {
 }
 if CommandLine.arguments.contains("--codex-input-pty-fixture") {
     runCodexInputPTYFixture()
+}
+if CommandLine.arguments.contains("--codex-resume-pty-fixture") {
+    runCodexResumePTYFixture()
 }
 
 func legacySupervisorFixture() -> Process {

@@ -181,9 +181,13 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   时会排队，15 分钟后到期。终端安静却有无法解释的输入时会立即拒绝：请在该 Codex 会话输入真正
   的 prompt，等它完成后再重试，单纯清掉 composer 无法建立安全边界。只有 Codex 发出相符的新
   用户消息才算送达确认。终端已写入但未确认时会标示 `unconfirmed-input`，不会自动重送，包含自定义
-  Enter 键映射。仅供监看的 Codex 会话须先结束，再用 `tally codex` 重启。请求上限为 200 UTF-8
-  bytes，已处理或拒绝的结果会记录在本机 `~/.tally/logs/input.log`。`tally session clear` 仍是 Claude 专用的独立
-  控制，可将清空的会话改开到较健康的账号。
+  Enter 键映射。仅供监看的 Codex 会话须先结束，再用 `tally codex resume <UUID>` 恢复。当它只指定一个
+  确切 UUID、没有明确 prompt、已安装 Tally status hook，且由 Tally 通过私有 TTY 启动时，Tally 会提交一条
+  可见的原生初始化 prompt，不需要人工 bootstrap prompt。它会用掉一个 model turn 和订阅额度，不会自动重试，也不保证零工具执行，因为
+  prompt 指令不是强制机制。调用端提供的 prompt 与所有其他 resume 形式都保持原样。启动期间的人为输入
+  仍会保留为 draft-held。这条路径仍须有可信的原生绑定、确切终端、完成的原生回合与相符 receipt，Codex
+  才会声明 `send`，不会绕过原生信任。请求上限为 200 UTF-8 bytes，已处理或拒绝的结果会记录在本机
+  `~/.tally/logs/input.log`。`tally session clear` 仍是 Claude 专用的独立控制，可将清空的会话改开到较健康的账号。
 - **平行的工作线。** `tally claude -w <名称>` 会在 git worktree 里开会话，需要时创建
   `../<repo>-<名称>`、把项目的 Claude 记忆连过去，并执行该 repo 自己的 setup 脚本；只打
   `-w` 会列出既有的工作线让你挑。`tally worktree tree / list / root / remove` 负责照看

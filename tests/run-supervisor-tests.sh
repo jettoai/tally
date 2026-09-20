@@ -127,8 +127,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/picksurfacechecks.swift tests/supervisor/pickmodifierchecks.swift \
   tests/supervisor/tallypromptchecks.swift \
   tests/supervisor/backstopchecks.swift \
-  tests/supervisor/codexmonitoringchecks.swift tests/supervisor/codexinputchecks.swift \
-  TallyCLI/CodexInputRelay.swift TallyCLI/CodexSessionInput.swift TallyCLI/CodexSupervisor.swift TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift TallyCLI/CodexSessionHook.swift \
+  tests/supervisor/codexmonitoringchecks.swift tests/supervisor/codexinputchecks.swift tests/supervisor/codexresumechecks.swift \
+  Tally/Core/CodexSessionHooks.swift TallyCLI/CodexStartMode.swift TallyCLI/CodexInputRelay.swift TallyCLI/CodexSessionInput.swift TallyCLI/CodexSupervisor.swift TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift TallyCLI/CodexSessionHook.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/CapRecovery.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
@@ -194,3 +194,4 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
 "$out"
 
 python3 tests/supervisor/codexinputpty.py "$out"
+python3 tests/supervisor/codexresumepty.py "$out"

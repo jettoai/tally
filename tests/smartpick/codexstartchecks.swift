@@ -1,6 +1,45 @@
 import Foundation
 
 func runCodexStartChecks() {
+    let resumedID = "11111111-1111-4111-8111-111111111111"
+    let resumed = ["resume", resumedID, "--model", "fixture-model"]
+    let initialized = codexResumeInitializationArgs(resumed)
+    check("an exact resume argument vector gains one initialization prompt",
+          initialized.count == resumed.count + 2 && initialized.prefix(resumed.count) == resumed[...]
+          && initialized[resumed.count] == "--" && initialized.last?.contains("TALLY_SESSION_READY") == true)
+    for args in [["resume", resumedID, "my prompt"], ["resume", resumedID, "--", "my prompt"],
+                 ["resume", resumedID, "--", "--"], ["resume", resumedID, "--", ""],
+                 ["resume", "--last"], ["resume"], ["resume", "named-thread"],
+                 ["resume", resumedID, "--remote", "ws://localhost:9999"],
+                 ["resume", resumedID, "--image", "fixture.png"],
+                 ["resume", resumedID, "--future-option", "value"],
+                 ["--", "resume", resumedID], ["-m", "fixture", "--", "resume", resumedID],
+                 ["hello"], []] {
+        check("initialization preserves caller input or unsupported resume shape \(args)",
+              codexResumeInitializationArgs(args) == args)
+    }
+    check("initialization is not appended twice", codexResumeInitializationArgs(initialized) == initialized)
+    check("a trailing option terminator receives only one prompt",
+          codexResumeInitializationArgs(["resume", resumedID, "--"]).count == 4)
+    check("joined model and config options preserve exact resume targeting",
+          codexResumeInitializationArgs(["-mfixture", "resume", resumedID, "-c", "model_reasoning_effort=low"]).count == 7)
+    let clock = Date(timeIntervalSince1970: 1000)
+    var draft = CodexResumeDraftGuard()
+    draft.observe(humanInput: clock, inputReceipt: nil, ready: false)
+    draft.observe(humanInput: clock, inputReceipt: clock.addingTimeInterval(1), ready: true)
+    check("native initialization receipt cannot erase a draft typed during startup", draft.suspected)
+    draft.observe(humanInput: clock, inputReceipt: clock.addingTimeInterval(1), ready: true)
+    check("startup draft suspicion does not expire", draft.suspected)
+    draft.observe(humanInput: clock.addingTimeInterval(101), inputReceipt: clock.addingTimeInterval(102),
+                  ready: true)
+    check("a later input-receipt timestamp clears the startup draft latch", !draft.suspected)
+    var untouched = CodexResumeDraftGuard()
+    untouched.observe(humanInput: nil, inputReceipt: clock, ready: true)
+    check("zero-input initialization does not invent a draft", !untouched.suspected)
+    var futureReceipt = CodexResumeDraftGuard()
+    futureReceipt.observe(humanInput: clock, inputReceipt: clock.addingTimeInterval(500), ready: true)
+    futureReceipt.observe(humanInput: clock, inputReceipt: clock.addingTimeInterval(500), ready: true)
+    check("the same initialization receipt cannot clear a draft even with clock skew", futureReceipt.suspected)
     let root = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-codex-start-\(UUID().uuidString)")
     let home = root.appendingPathComponent("home")

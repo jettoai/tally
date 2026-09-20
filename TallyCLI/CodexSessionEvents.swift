@@ -46,6 +46,7 @@ struct CodexSessionObserver {
     private(set) var effort: String?
     private(set) var hasTurnContext = false
     private(set) var lastUserTurnAt: Date?
+    private(set) var lastInputReceiptAt: Date?
     private(set) var inputReceiptsAvailable = false
     private var lastUserMessage: (text: String, at: Date)?
 
@@ -217,6 +218,7 @@ struct CodexSessionObserver {
     /// a larger transcript prompt can prove the route exists, but is never retained as content.
     private mutating func acceptInputReceipt(_ text: String, at date: Date) {
         inputReceiptsAvailable = true
+        lastInputReceiptAt = max(lastInputReceiptAt ?? date, date)
         lastUserTurnAt = max(lastUserTurnAt ?? date, date)
         guard text.utf8.count <= 200 else { lastUserMessage = nil; return }
         lastUserMessage = (text.trimmingCharacters(in: .whitespacesAndNewlines), date)

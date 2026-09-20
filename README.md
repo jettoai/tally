@@ -217,9 +217,17 @@ subscriptions at once:
   finish, then retry; clearing its composer alone cannot establish safety. Delivery is confirmed
   only by Codex's matching new user message. A terminal write without that confirmation is
   `unconfirmed-input` and is never retried automatically, including with custom Enter key mappings.
-  Monitoring-only Codex sessions require exit and relaunch through `tally codex`. Requests are
-  limited to 200 UTF-8 bytes; served or refused outcomes are logged in `~/.tally/logs/input.log`. `tally session
-  clear` remains the distinct Claude control that may reopen a cleared session on a healthier account.
+  To upgrade a monitoring-only Codex session, exit it and use `tally codex resume <UUID>`. When that
+  resume names one exact UUID with no explicit prompt, Tally's status hooks are installed, and Tally
+  launches it through its private TTY, Tally submits one visible native initialization prompt, with no manual
+  bootstrap prompt required. It uses one model turn and subscription quota, never retries automatically,
+  and does not promise zero tool execution:
+  the prompt instruction is not enforcement. Caller prompts and every other resume shape are unchanged.
+  Human input during startup remains draft-held. This path still needs a trusted native binding, exact
+  terminal, completed native turn, and matching receipt before Codex advertises `send`; it never bypasses
+  native trust. Requests are limited to 200 UTF-8 bytes; served or refused outcomes are logged in
+  `~/.tally/logs/input.log`. `tally session clear` remains the distinct Claude control that may reopen a
+  cleared session on a healthier account.
 - **Parallel lines of work.** `tally claude -w <name>` opens the session in a git worktree,
   creating `../<repo>-<name>` if needed, linking the project's Claude memory across, and running
   the repo's own setup script; bare `-w` lists the existing lines to pick from. `tally worktree

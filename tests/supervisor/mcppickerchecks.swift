@@ -586,7 +586,9 @@ func runMCPAddressingChecks() {
         .appendingPathComponent("tally-corroborate-here-\(UUID().uuidString)")
     try? FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
     let mine = String(getpid())
-    let theirs = "1"        // launchd: alive, and certainly not this session
+    let otherSupervisor = legacySupervisorFixture()
+    defer { otherSupervisor.terminate(); otherSupervisor.waitUntilExit() }
+    let theirs = String(otherSupervisor.processIdentifier)
     for pid in [mine, theirs] {
         markSupervisorLive(pid: pid, dir: twoDir)
         writeSupervisorCwd(shared.path, pid: pid, dir: twoDir)

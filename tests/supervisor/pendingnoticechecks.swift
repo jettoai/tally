@@ -15,27 +15,28 @@ func runPendingNoticeChecks() {
     let noticeDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-notice-\(UUID().uuidString)")
     let noticeAt = Date(timeIntervalSince1970: 1_800_000_000)
-    check("nothing pending reads as nothing", readPendingNotice(pid: "111", dir: noticeDir) == nil)
+    let owner = String(getpid())
+    check("nothing pending reads as nothing", readPendingNotice(pid: owner, dir: noticeDir) == nil)
     let queued = PendingNotice(badge: "reload at idle", detail: "restarting when idle",
                                since: noticeAt)
-    writePendingNotice(queued, pid: "111", dir: noticeDir)
+    writePendingNotice(queued, pid: owner, dir: noticeDir)
     check("a written notice round-trips whole",
-          readPendingNotice(pid: "111", dir: noticeDir) == queued)
+          readPendingNotice(pid: owner, dir: noticeDir) == queued)
     // One file per pid, exactly like the drift state beside it: two sessions in one terminal
     // multiplexer must never read each other's badge.
     check("another supervisor's pid has its own answer",
           readPendingNotice(pid: "222", dir: noticeDir) == nil)
     // The file sits BESIDE the presence entry rather than replacing it: that entry's existence is
     // what `tally reload` counts, and a notice must not be read as another live supervisor.
-    markSupervisorLive(pid: "111", dir: noticeDir)
+    markSupervisorLive(pid: owner, dir: noticeDir)
     check("the notice does not inflate the live-supervisor count",
-          liveSupervisorPids(dir: noticeDir) == (supervisorAlive(111) ? [111] : []))
+          liveSupervisorPids(dir: noticeDir) == [getpid()])
     check("and the presence entry is not the notice",
-          readDriftState(pid: "111", dir: noticeDir) == nil)
-    clearPendingNotice(pid: "111", dir: noticeDir)
-    check("clearing removes the notice", readPendingNotice(pid: "111", dir: noticeDir) == nil)
+          readDriftState(pid: owner, dir: noticeDir) == nil)
+    clearPendingNotice(pid: owner, dir: noticeDir)
+    check("clearing removes the notice", readPendingNotice(pid: owner, dir: noticeDir) == nil)
     check("and leaves the presence entry alone",
-          FileManager.default.fileExists(atPath: noticeDir.appendingPathComponent("111").path))
+          FileManager.default.fileExists(atPath: noticeDir.appendingPathComponent(owner).path))
     check("a malformed body reads as nothing pending, not as a crash", {
         try? "not json".write(to: pendingNoticeFile(pid: "333", dir: noticeDir), atomically: true,
                               encoding: .utf8)

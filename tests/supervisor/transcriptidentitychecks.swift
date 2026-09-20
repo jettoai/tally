@@ -176,13 +176,12 @@ func runTranscriptIdentityChecks() {
     // line is in the strongest position to satisfy it: the Claude Code that ran it is the one whose
     // conversation it reports, which is the pid each supervisor publishes about its own child.
     //
-    // THE FIXTURE STANDS IN FOR THAT PAIR with two REAL processes, because the witnesses are read
-    // from the live process table rather than from anything a test can fake: this process is the
-    // "Claude Code", and its own parent is the "supervisor". `readSupervisorChild` demands exactly
-    // that relationship (alive, and its parent is the supervisor), so nothing here is stubbed.
-    let claudeCodePID = getpid()
+    // This tally-named harness is the supervisor; its real child supplies the process witness.
+    let claudeProcess = legacySupervisorFixture()
+    defer { claudeProcess.terminate(); claudeProcess.waitUntilExit() }
+    let claudeCodePID = claudeProcess.processIdentifier
     let claudeCode = processStamp(claudeCodePID)!
-    let supervisor = String(getppid())
+    let supervisor = String(getpid())
     let writeDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-write-\(UUID().uuidString)")
     let projectCwd = FileManager.default.temporaryDirectory

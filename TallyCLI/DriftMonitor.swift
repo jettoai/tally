@@ -201,22 +201,27 @@ func readDriftState(pid: String, dir: URL = supervisorStateDir) -> DriftState? {
                       restorePending: parts.count > 4 && parts[4] == "restoring")
 }
 
-/// Unlink state files whose supervisor is gone. A SIGKILLed supervisor never runs its clear path,
-/// so files would otherwise accumulate, and once the OS reuses that pid for an unrelated process
-/// the liveness probe would repaint a stale badge (and count a session that is long gone as one a
-/// reload request will restart). Every supervisor sweeps once at startup, which keeps the window
-/// between death and reuse short. Files that are not named for a pid are left alone (nothing of
-/// ours, or a future format).
+/// Unlink state files whose supervisor is gone or whose legacy pid now belongs to another process.
+/// A SIGKILLed supervisor never runs its clear path, so files would otherwise accumulate, and once
+/// the OS reuses that pid the liveness probe would repaint a stale badge (and count a session that is
+/// long gone as one a reload request will restart). Files that are not named for a pid are left
+/// alone (nothing of ours, or a future format).
 ///
 /// Both files a supervisor can leave behind are swept, the presence/drift file and the pending
 /// notice beside it (`supervisorStatePid` reads either name): a dead session's leftover "reload at
 /// idle" would otherwise be repainted for the next process to inherit that pid, which is the same
-/// stale-badge failure this exists to prevent.
+/// stale-badge failure this exists to prevent. A DAMAGED monitored registration remains fail-closed:
+/// only a proven generation mismatch removes it, preserving the live owner's refusal marker.
 func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
     let files = (try? FileManager.default.contentsOfDirectory(
         at: dir, includingPropertiesForKeys: nil)) ?? []
-    let stale = Set(files.compactMap { supervisorStatePid(ofFile: $0.lastPathComponent) }.filter {
-        !supervisorAlive($0) || SessionMonitoring.staleGeneration(pid: String($0), dir: dir)
+    let stale = Set(files.compactMap { supervisorStatePid(ofFile: $0.lastPathComponent) }.filter { pid in
+        guard supervisorAlive(pid) else { return true }
+        let key = String(pid)
+        if SessionMonitoring.isMarked(pid: key, dir: dir) {
+            return SessionMonitoring.staleGeneration(pid: key, dir: dir)
+        }
+        return !supervisorPresenceIsLive(pid: pid, dir: dir)
     })
     for file in files {
         guard let pid = supervisorStatePid(ofFile: file.lastPathComponent), stale.contains(pid) else { continue }

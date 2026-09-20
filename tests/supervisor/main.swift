@@ -5,6 +5,21 @@ import Foundation
 // history, and unguarded "model" scanning poisoned lastModel with old lines and "<synthetic>"
 // error turns - the degradation rescue then ping-ponged the session between accounts unprompted.
 
+// A separate live legacy owner with the same executable identity as the real CLI.
+// It exits before loading fixtures, touching logs, or running the suite recursively.
+if CommandLine.arguments.contains("--legacy-presence-fixture") {
+    sleep(60)
+    exit(0)
+}
+
+func legacySupervisorFixture() -> Process {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+    process.arguments = ["--legacy-presence-fixture"]
+    try! process.run()
+    return process
+}
+
 var failures = 0
 func check(_ name: String, _ condition: Bool) {
     print("\(condition ? "PASS" : "FAIL"): \(name)")

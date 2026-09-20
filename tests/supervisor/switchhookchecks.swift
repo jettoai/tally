@@ -296,8 +296,11 @@ func runSwitchHookChecks() {
                                marker: .trusted(nil)) == nil)
     // Two sessions in one directory and the command from outside both: no way to tell which was
     // meant, so no surface may claim to describe either.
-    markSupervisorLive(pid: "1", dir: lookupDir)
-    writeSupervisorCwd(here, pid: "1", dir: lookupDir)
+    let otherSupervisor = legacySupervisorFixture()
+    defer { otherSupervisor.terminate(); otherSupervisor.waitUntilExit() }
+    let otherPID = String(otherSupervisor.processIdentifier)
+    markSupervisorLive(pid: otherPID, dir: lookupDir)
+    writeSupervisorCwd(here, pid: otherPID, dir: lookupDir)
     check("two sessions in one directory answer nothing from outside",
           currentSessionLookup(cwd: here, dir: lookupDir, marker: .trusted(nil)) == nil)
     check("…while a marker still names the one it was typed in",

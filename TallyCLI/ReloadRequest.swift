@@ -60,15 +60,26 @@ func supervisorAlive(_ pid: pid_t) -> Bool {
     kill(pid, 0) == 0 || errno == EPERM
 }
 
-/// The pids of every supervisor alive right now. `dir` is injectable so a test can point it at a
-/// temp directory of fake state files. Files not named for a pid are ignored (nothing of ours, or
-/// a future format), and a file whose pid the OS has already reused would over-count, which every
-/// supervisor's startup sweep keeps to a short window.
+/// Whether a presence entry still has a live owner. Monitored sessions verify their recorded
+/// process generation. Legacy Claude entries have no start stamp, so their best available check
+/// is the CLI's accounting name: a reused pid owned by weatherd must not retain a permission card.
+/// Another tally process reusing the pid cannot be distinguished by these legacy files alone.
+func supervisorPresenceIsLive(pid: pid_t, dir: URL = supervisorStateDir) -> Bool {
+    guard pid > 0, supervisorAlive(pid) else { return false }
+    let key = String(pid)
+    if SessionMonitoring.isMarked(pid: key, dir: dir) {
+        return SessionMonitoring.presenceIsLive(pid: key, dir: dir)
+    }
+    return processInfo(pid).map(processAccountingName) == "tally"
+}
+
+/// The live registry, ignoring sidecars and rejecting legacy entries owned by unrelated processes.
+/// Use the same ownership check for the panel, CLI inventory, and reload count, before any sweep.
 func liveSupervisorPids(dir: URL = supervisorStateDir) -> [pid_t] {
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
     return files.compactMap { pid_t($0.lastPathComponent) }.filter {
-        supervisorAlive($0) && SessionMonitoring.presenceIsLive(pid: String($0), dir: dir)
+        supervisorPresenceIsLive(pid: $0, dir: dir)
     }
 }
 

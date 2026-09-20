@@ -121,7 +121,9 @@ func runSessionContextChecks() {
         .appendingPathComponent("tally-session-\(UUID().uuidString)")
     let at = Date(timeIntervalSince1970: 1_800_000_000)
     let livePid = String(getpid())
-    let siblingPid = String(getppid())
+    let sibling = legacySupervisorFixture()
+    defer { sibling.terminate(); sibling.waitUntilExit() }
+    let siblingPid = String(sibling.processIdentifier)
     // A pid nothing on this machine is using, so a stale file can be tested for real.
     let deadPid = String(deadFixturePid())
 

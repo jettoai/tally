@@ -26,12 +26,11 @@ func runDoubleHeadChecks() {
     try! FileManager.default.createDirectory(at: unmanagedDir, withIntermediateDirectories: true)
     try! FileManager.default.createDirectory(at: projectCwd, withIntermediateDirectories: true)
 
-    // THE TWO SUPERVISORS ARE REAL LIVE PIDS, and they have to be: the registry filters on
-    // `supervisorAlive`, so a fixture pid that is not running registers as nothing at all. This
-    // process stands in for the one performing the handoff and its parent for the sibling session
-    // in the same directory. Neither is signalled by anything in this file.
+    // Both registered owners have the real CLI accounting name. Only the fixture is terminated.
+    let siblingProcess = legacySupervisorFixture()
+    defer { siblingProcess.terminate(); siblingProcess.waitUntilExit() }
     let ours = String(getpid())
-    let sibling = String(getppid())
+    let sibling = String(siblingProcess.processIdentifier)
     let ourConversation = "11111111-2222-3333-4444-555555555555"
     let siblingConversation = "66666666-7777-8888-9999-aaaaaaaaaaaa"
     markSupervisorLive(pid: ours, dir: stateDir)
@@ -39,8 +38,8 @@ func runDoubleHeadChecks() {
     writeSupervisorCwd(projectCwd.path, pid: ours, dir: stateDir)
     writeSupervisorCwd(projectCwd.path, pid: sibling, dir: stateDir)
     let ourStamp = processStamp(getpid())
-    let siblingStamp = processStamp(getppid())
-    check("the machine names this process and its parent, which the witnesses below are built from",
+    let siblingStamp = processStamp(siblingProcess.processIdentifier)
+    check("the machine names both tally owners used by the conversation witnesses",
           ourStamp != nil && siblingStamp != nil)
     if let ourStamp, let siblingStamp {
         // The status line's witness rather than the supervisor's publish, because it is the one a

@@ -77,6 +77,38 @@ func runReloadChecks() {
     try! "notes".write(to: countDir.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
     check("only live pids are listed: this process, not the impossible one",
           liveSupervisorPids(dir: countDir) == [getpid()])
+    // Simulate stale registration under a live foreign PID without waiting for OS PID reuse.
+    let foreign = Process()
+    foreign.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    foreign.arguments = ["30"]
+    do {
+        try foreign.run()
+        defer { foreign.terminate(); foreign.waitUntilExit() }
+        let key = String(foreign.processIdentifier)
+        markSupervisorLive(pid: key, dir: countDir)
+        for suffix in [supervisorChildSuffix, supervisorCwdSuffix, pendingNoticeSuffix] {
+            try "stale".write(to: countDir.appendingPathComponent(key + suffix),
+                              atomically: true, encoding: .utf8)
+        }
+        let blocked = SessionStateRecord(state: "blocked", since: launch, updatedAt: launch,
+                                         reason: "Permission prompt", directory: "/fixture/cleat",
+                                         project: "cleat")
+        check("fixture writes a stale permission prompt",
+              writeSessionState(blocked, pid: key, dir: countDir))
+        check("fixture publishes a readable stale permission prompt",
+              readSessionState(pid: key, dir: countDir) == blocked)
+        check("real foreign owner is excluded before any startup sweep",
+              liveSupervisorPids(dir: countDir) == [getpid()])
+        check("session roster excludes the stale foreign owner",
+              !liveSessionStates(dir: countDir).contains { $0.supervisorPid == foreign.processIdentifier })
+        sweepDeadSupervisorState(dir: countDir)
+        check("sweep removes all foreign owner sidecars",
+              try FileManager.default.contentsOfDirectory(atPath: countDir.path)
+                .allSatisfy { $0 != key && !$0.hasPrefix(key + ".") })
+        check("sweep preserves the real tally owner and unrelated files",
+              liveSupervisorPids(dir: countDir) == [getpid()]
+                && FileManager.default.fileExists(atPath: countDir.appendingPathComponent("notes.txt").path))
+    } catch { check("foreign legacy owner fixture completed: \(error)", false) }
     try? FileManager.default.removeItem(at: countDir)
 
     // 19f. The idle gate a request is held to. A missing transcript reads as quiet (there is no mtime

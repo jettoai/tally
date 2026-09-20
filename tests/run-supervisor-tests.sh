@@ -65,7 +65,8 @@
 # the fact that Supervisor.swift will not build without them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-out=$(mktemp -d)/run
+# Legacy presence fixtures use this process as a real tally owner.
+out=$(mktemp -d)/tally
 swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchecks.swift \
   tests/supervisor/reloadchecks.swift \
   tests/supervisor/capgatechecks.swift tests/supervisor/capresetchecks.swift \

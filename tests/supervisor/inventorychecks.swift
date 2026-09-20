@@ -20,20 +20,21 @@ func runSessionInventoryChecks() {
     let transcript = "00000000-0000-0000-0000-000000000001"
     let nextTranscript = "00000000-0000-0000-0000-000000000002"
 
-    // A REAL PARENT AND CHILD, because the pid is only published when the process is alive AND is
-    // that supervisor's own child: this process and the one that started it are exactly such a pair
-    // (the same fixture the witness checks use).
-    let child = getpid()
+    // Real tally-named owners, including a real parent/child pair for the child witness.
+    let lineProcess = legacySupervisorFixture()
+    let freshProcess = legacySupervisorFixture()
+    defer {
+        lineProcess.terminate(); lineProcess.waitUntilExit()
+        freshProcess.terminate(); freshProcess.waitUntilExit()
+    }
+    let child = lineProcess.processIdentifier
     guard let childStamp = processStamp(child) else {
         check("the inventory fixture can read its live child's process stamp", false)
         return
     }
-    let trunkSupervisor = String(getppid())
-    let lineSupervisor = String(getpid())
-    // A third live supervisor, and the one this block exists for: it has registered and published
-    // where it is, and its conversation has not had a turn yet. pid 1 is alive on every machine
-    // this runs on (`supervisorAlive` counts EPERM), which is the whole of what is needed here.
-    let freshSupervisor = "1"
+    let trunkSupervisor = String(getpid())
+    let lineSupervisor = String(lineProcess.processIdentifier)
+    let freshSupervisor = String(freshProcess.processIdentifier)
     let deadPid = String(deadFixturePid())
 
     // THE PRESENCE ENTRY IS THE ROSTER, written before a supervisor spawns anything, so every
@@ -137,9 +138,9 @@ func runSessionInventoryChecks() {
               && cli.contains("accountSessions: live.accountSessions")
               && cli.contains("sessions: live.sessions"))
     check("the list is ordered by supervisor pid, not by whatever the directory returned",
-          listed.map(\.directory)
-              == ["/x/other"] + (getpid() < getppid() ? ["/x/repo-cart", "/x/repo"]
-                                                      : ["/x/repo", "/x/repo-cart"]))
+          listed.map(\.directory) == [(getpid(), "/x/repo"),
+              (lineProcess.processIdentifier, "/x/repo-cart"),
+              (freshProcess.processIdentifier, "/x/other")].sorted { $0.0 < $1.0 }.map { $0.1 })
 
     let trunk = listed.first { $0.directory == "/x/repo" }
     let line = listed.first { $0.directory == "/x/repo-cart" }

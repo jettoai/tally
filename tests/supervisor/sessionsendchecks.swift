@@ -275,10 +275,14 @@ func runSessionSendChecks() {
     // PROVED RATHER THAN BELIEVED, through the same reader the switch uses: the file has to name
     // that pid AND the process has to really be that supervisor's child. A second registered
     // supervisor claiming the same pid is claiming somebody else's, and gets nothing for it.
-    let stranger = String(getppid())
+    let strangerProcess = legacySupervisorFixture()
+    defer { strangerProcess.terminate(); strangerProcess.waitUntilExit() }
+    let stranger = String(strangerProcess.processIdentifier)
     try? "".write(to: registry.appendingPathComponent(stranger), atomically: true, encoding: .utf8)
     try? childPid.write(to: registry.appendingPathComponent(stranger + supervisorChildSuffix),
                         atomically: true, encoding: .utf8)
+    check("the stranger is registered before testing its child ownership",
+          liveSupervisorPids(dir: registry).contains(strangerProcess.processIdentifier))
     try? FileManager.default.removeItem(at: ownChildFile)
     check("…so a child claimed by a supervisor that is not its parent is claimed by nobody",
           namedSession(childPid, dir: registry) == .notSupervised)

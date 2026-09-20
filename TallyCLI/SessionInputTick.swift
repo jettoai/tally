@@ -128,7 +128,8 @@ enum SessionInputRepick: Equatable {
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
                        relaunchPlanned: Bool, draftSuspected: Bool, waitingOnPerson: Bool,
-                       dir: URL = sessionInputDir,
+                       stashComposer: Bool = true, inputRefusal: ((SessionInputRequest) -> String?)? = nil,
+                       confirmInput: () -> Bool = { true }, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                        clearBoundary: () -> Snapshot.Account? = { nil },
@@ -158,7 +159,8 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     /// What this landing was allowed to do about a draft in that composer, and what it therefore has
     /// to say about it in the log. Decided before the landing rather than inside it, because the
     /// account question reads the same value (SessionInputLanding.swift).
-    let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
+    let draft = SessionInputDraftGuard(suspected: draftSuspected,
+                                       touching: stashComposer && !waitingOnPerson)
     /// Whether this landing went to the terminal at all, which is what the draft line below turns
     /// on: a refused write may still have got the stash out before it failed, and that is precisely
     /// the case whose draft is sitting in a kill buffer nobody has been told about, while a landing
@@ -180,6 +182,11 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         outcome = refusal
         detail = why
     case .inject(let asked):
+        if let refusal = inputRefusal?(asked) {
+            outcome = .refusedUnsafeInput
+            detail = refusal
+            break
+        }
         // THE ONE PLACE A LINE IS CARRIED OUT, gathered into a function of its own rather than
         // performed here (SessionInputLanding.swift states what else that buys). It has two
         // endings and this switch is the whole of the difference between them here.
@@ -196,6 +203,11 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         switch landing {
         // THE ONE WRITE THAT SENT NOTHING LEADS, so the arm under it can be everything else: a
         // terminal that refused a byte BEFORE the Return.
+        case .typed(.held, _):
+            return SessionInputAction()
+        case .typed(.uncertain, _):
+            outcome = .unconfirmedInput
+            detail = "Codex may contain partially written input. Inspect the session and restart its supervisor before retrying."
         case .typed(.failed(let code), _):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
@@ -206,6 +218,12 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         // had (codex review of 1f69cf9). Nothing is pressed after the Return since 2026-08-20
         // (SessionInputDraft.swift).
         case .typed:
+            if !confirmInput() {
+                outcome = .unconfirmedInput
+                detail = "Input reached the terminal, but Codex did not confirm the matching prompt. "
+                    + "Inspect that session before retrying; custom submit keys or slash commands may not start a turn."
+                break
+            }
             outcome = .submitted
             typed = asked.text
             // THE ONE PLACE THE TWO SIGNALS PART. Everything about delivery is above this line;

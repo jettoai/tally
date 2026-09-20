@@ -319,6 +319,10 @@ func applyCapLimitReset(_ state: inout CapLimitResetState, pendingCap: PendingCa
     let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
     let written = inject(limitResetCommand, draft)
     switch written {
+    case .held, .uncertain:
+        appendSessionInputLine(sessionInputLogLine(pid: pid,
+            outcome: written == .held ? "held-input" : "unconfirmed-input",
+            text: limitResetCommand, now: now), to: log)
     case .done:
         // A REFUSED WRITE STARTS NO WAIT. Nothing was typed, so no answer is coming, and the next
         // tick's hold falls through to the handoff - which is what the session would have done had

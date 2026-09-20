@@ -206,16 +206,20 @@ subscriptions at once:
   that instead, honestly. It re-arms at 30%, so an account hovering at the line speaks once, and
   a window about to reset counts as full, because calling you off quota that is about to refill
   would be working against you.
-- **Tell a running session what to do.** `tally session send "<text>"` types one line into a
-  supervised session's own terminal and presses Enter, exactly as if you had typed it there:
-  `/clear`, `/compact`, an answer to a permission prompt. It lands at the first safe moment (the
-  session is waiting, idle, or just finished a turn), queues if that moment has not come yet
-  (queued is success; a refusal is instant and says why), never interrupts a turn, and never
-  fights a human typing in that window; subagents the session sent out do not hold the line
-  back. `tally session clear` is the same act with one power typing cannot have: if that
-  session's account is nearly dry and a sibling has room, the cleared window reopens on the
-  better account in the same motion. Everything is written into your own terminal, never to a
-  vendor, capped at 200 bytes, and logged locally.
+- **Tell a running session what to do.** `tally session send "<text>" --session <pid>` sends one
+  line to the exact supervised terminal named by that session's supervisor or child PID in
+  `tally status --json`; it never uses the frontmost window. Claude keeps its existing send and
+  clear behavior. A Codex session advertises only `send` after Tally has a trusted native binding,
+  a verified matching terminal, and a completed native turn. Codex accepts nonempty plain prompts
+  only, never slash commands, shell mode, or a bare Return. It queues while working, blocked, unknown, waiting
+  for permission, or while a person may be typing, then expires after 15 minutes. Quiet unexplained
+  input is refused immediately: send a real prompt in that exact Codex session, wait for it to
+  finish, then retry; clearing its composer alone cannot establish safety. Delivery is confirmed
+  only by Codex's matching new user message. A terminal write without that confirmation is
+  `unconfirmed-input` and is never retried automatically, including with custom Enter key mappings.
+  Monitoring-only Codex sessions require exit and relaunch through `tally codex`. Requests are
+  limited to 200 UTF-8 bytes; served or refused outcomes are logged in `~/.tally/logs/input.log`. `tally session
+  clear` remains the distinct Claude control that may reopen a cleared session on a healthier account.
 - **Parallel lines of work.** `tally claude -w <name>` opens the session in a git worktree,
   creating `../<repo>-<name>` if needed, linking the project's Claude memory across, and running
   the repo's own setup script; bare `-w` lists the existing lines to pick from. `tally worktree

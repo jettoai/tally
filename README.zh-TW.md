@@ -172,14 +172,17 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   以及哪個手足帳號還有餘量：「收個尾換帳號，或等它重置。」若所有帳號都沒有餘裕，它就誠實
   地這樣講。要回到 30% 才會重新上膛，所以在門檻上下徘徊的帳號只會講一次；而快要重置的窗
   算作滿的，因為為了一份馬上就要回充的額度把你叫停，是在跟你作對。
-- **叫一個正在跑的 session 做事。** `tally session send "<文字>"` 會在受監督 session 自己的
-  終端機打上一行並按下 Enter，跟你親手打進去一模一樣：`/clear`、`/compact`、回答一則權限
-  提示都行。它會在第一個安全時機落地（session 正在等待、閒置，或剛結束一個回合），時機還
-  沒到就排隊（排進佇列就算成功；被拒絕則是立刻回覆並說明理由），永不打斷回合，也永不跟正
-  在那個視窗打字的人搶；session 派出去的 subagent 不會把它擋著。`tally session clear` 是
-  同一個動作，但多了一項打字做不到的本事：如果那個 session 的帳號快見底、而手足帳號還有
-  餘量，清空後的視窗會在同一個動作裡改開在更好的帳號上。所有內容都只寫進你自己的終端機、
-  永遠不會送給任何 vendor，上限 200 bytes，並記錄在本機。
+- **叫一個正在跑的 session 做事。** `tally session send "<文字>" --session <pid>` 會把一行
+  送到 `tally status --json` 所列該 session 的確切 supervisor 或 child PID 對應終端機，不會使用
+  前景視窗。Claude 保留既有的 send 與 clear 行為。Codex session 只有在 Tally 已取得受信任的
+  原生綁定、驗證對應終端機，並觀察到原生回合完成後，才會宣告 `send`。Codex 只接受非空白的
+  一般 prompt，不接受 slash command、shell mode 或單獨的 Return。它在工作中、被阻擋、狀態未知、要求權限，
+  或有人可能正在打字時會排隊，15 分鐘後到期。終端機安靜卻有無法解釋的輸入時會立即拒絕：請在
+  該 Codex session 輸入真正的 prompt，等它完成後再重試，單純清掉 composer 無法建立安全邊界。
+  只有 Codex 發出相符的新使用者訊息才算送達確認。終端機已寫入但未確認時會標示 `unconfirmed-input`，
+  不會自動重送，包含自訂 Enter 鍵對應。僅供監看的 Codex session 須先結束，再用 `tally codex`
+  重啟。請求上限為 200 UTF-8 bytes，已處理或拒絕的結果會記錄在本機 `~/.tally/logs/input.log`。`tally session
+  clear` 仍是 Claude 專用的獨立控制，可將清空的 session 改開到較健康的帳號。
 - **平行的工作線。** `tally claude -w <名稱>` 會在 git worktree 裡開 session，需要時建立
   `../<repo>-<名稱>`、把專案的 Claude 記憶連過去，並執行該 repo 自己的 setup 腳本；只打
   `-w` 會列出既有的工作線讓你挑。`tally worktree tree / list / root / remove` 負責照看

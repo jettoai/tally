@@ -128,9 +128,9 @@ enum TerminalJump {
         return Handover(previousApp: ours ? nil : front, terminal: terminal, surface: surface)
     }
 
-    /// Focus the terminal this session is running in. `childPid` is the session's own process, whose
-    /// controlling terminal names the surface exactly; `directory` is the checkout, which names the
-    /// repository and only the repository.
+    /// Focus the terminal this session is running in. `childPid` normally names the controlling
+    /// terminal directly; a verified Codex relay resolves only its exact supervisor parent. The
+    /// `directory` is the checkout, which names the repository and only the repository.
     ///
     /// EVERY WAY OUT OF HERE ENDS IN `land`, because finding the surface is only half of the click:
     /// the other half is the keyboard, and since macOS 14 that half is given away rather than taken
@@ -139,7 +139,8 @@ enum TerminalJump {
     static func jump(directory: String?, childPid: Int?, from handover: Handover) async {
         let directory = directory ?? ""
         let folder = (directory as NSString).lastPathComponent
-        // The session's own device, which both exact passes are built on: the marked pass WRITES
+        let terminalPID = childPid.map { terminalOwnerPID(for: pid_t($0)) }
+        // The session's terminal device, which both exact passes are built on: the marked pass WRITES
         // to it (so any Ghostty at all can be asked which surface is the session's), and the
         // device pass matches on it directly.
         //
@@ -149,10 +150,10 @@ enum TerminalJump {
         // not a surface at all) would be renamed by this and never renamed back. The same walk the
         // last exit takes, asked one question earlier.
         let device: String? = {
-            guard let childPid, let ghostty = handover.terminal,
-                  let owner = owningApplication(of: pid_t(childPid)),
+            guard let terminalPID, let ghostty = handover.terminal,
+                  let owner = owningApplication(of: terminalPID),
                   owner.processIdentifier == ghostty.processIdentifier else { return nil }
-            return controllingTTY(of: pid_t(childPid))
+            return controllingTTY(of: terminalPID)
         }()
         // Asking Ghostty ABOUT a device is worth a pass only when this one publishes one: on an
         // older dictionary that pass raises on every surface and matches nothing, which is a scan
@@ -367,6 +368,27 @@ enum TerminalJump {
         // Older devname reports an unknown device as "??" rather than by returning nothing.
         guard !text.isEmpty, text != "??" else { return nil }
         return text.hasPrefix("/") ? text : "/dev/" + text
+    }
+
+    /// Codex's direct-input relay gives its child a private PTY, while the supervisor remains on
+    /// the terminal surface that a card must focus. This is deliberately a one-parent substitution:
+    /// a matching, live Codex monitoring record is the only proof that the parent owns this exact
+    /// child. Every other provider and every incomplete or stale record retains the child's tty.
+    static func terminalOwnerPID(for child: pid_t,
+                                 parent: (pid_t) -> pid_t? = { TerminalJump.parentProcess($0) },
+                                 monitoring: (String) -> SessionMonitoring? = {
+                                     SessionMonitoring.read(pid: $0, dir: supervisorStateDir)
+                                 },
+                                 generation: (pid_t) -> Int64? = { SessionMonitoring.generation($0) }) -> pid_t {
+        guard child > 0,
+              let supervisor = parent(child), supervisor > 0,
+              let identity = monitoring(String(supervisor)),
+              identity.provider == "codex",
+              identity.supervisorPID == supervisor,
+              identity.childPID == child,
+              let recordedStart = identity.childStart,
+              recordedStart == generation(child) else { return child }
+        return supervisor
     }
 
     /// A process's kernel record, or nil when the pid is gone or belongs to another user.

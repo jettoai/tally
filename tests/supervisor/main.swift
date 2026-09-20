@@ -1,5 +1,7 @@
 import Foundation
 
+runCodexPTYChildIfRequested()
+
 // Assertion harness for the supervisor's transcript-model tracking, compiled against the real
 // source. Regression for the 2026-07-19 live misfire: a continued session replays its whole
 // history, and unguarded "model" scanning poisoned lastModel with old lines and "<synthetic>"
@@ -10,6 +12,13 @@ import Foundation
 if CommandLine.arguments.contains("--legacy-presence-fixture") {
     sleep(60)
     exit(0)
+}
+
+if CommandLine.arguments.contains("--codex-input-pty-reader") {
+    runCodexInputPTYReader()
+}
+if CommandLine.arguments.contains("--codex-input-pty-fixture") {
+    runCodexInputPTYFixture()
 }
 
 func legacySupervisorFixture() -> Process {
@@ -354,6 +363,7 @@ runKnockChannelChecks()
 runKnockHookChecks()
 // LAST, because it registers the capture flag in this process's defaults and everything after it
 // would then be running in demo mode (`demoboardchecks.swift` says so at its own head).
+runCodexInputChecks()
 runDemoSessionBoardChecks()
 
 exit(failures == 0 ? 0 : 1)

@@ -32,12 +32,14 @@ func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
 
 nonisolated(unsafe) private var codexSupervisorSignal: Int32 = 0
 
-/// A monitoring resident using the same spawn, environment, reaper and state writer as Claude.
+/// A supervised Codex resident with an owned PTY for guarded direct input.
 /// No recovery policy runs here: the child exits once and its exit status is preserved.
 func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [String]) -> Never {
     guard let home = account.launchHome else { exit(1) }
     let pid = String(getpid())
     let launchedAt = Date()
+    var input = SessionInputState(sessionKey: pid)
+    var keyboard = KeyboardActivity()
     guard let generation = SessionMonitoring.generation(getpid()) else {
         exec(provider.cli, args: args, env: launchEnv(provider, home: home))
     }
@@ -61,7 +63,10 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     signal(SIGQUIT, SIG_IGN)
     signal(SIGTERM) { codexSupervisorSignal = $0 }
     signal(SIGHUP) { codexSupervisorSignal = $0 }
-    guard let child = spawnChild([provider.cli] + args, environment: environment) else {
+    var terminal = CodexInputRelay()
+    let relayedChild = terminal?.spawn([provider.cli] + args, environment: environment)
+    if relayedChild == nil { terminal?.close(); terminal = nil }
+    guard let child = relayedChild ?? spawnChild([provider.cli] + args, environment: environment) else {
         clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
         warn("could not launch Codex")
         exit(127)
@@ -86,13 +91,20 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                                    project: URL(fileURLWithPath: cwd).lastPathComponent,
                                    model: launchModel,
                                    childPid: Int(child), supervisorVersion: version)
+    var nextTick = Date.distantPast
     while reaper.isRunning {
+        if let terminal, !terminal.pump(timeout: 0.02) {
+            if metadata.childStart == SessionMonitoring.generation(child) { kill(child, SIGHUP) }
+            break
+        }
         reaper.poll()
         if !reaper.isRunning { break }
         if codexSupervisorSignal != 0 {
             if metadata.childStart == SessionMonitoring.generation(child) { kill(child, codexSupervisorSignal) }
             break
         }
+        guard Date() >= nextTick else { continue }
+        nextTick = Date().addingTimeInterval(0.25)
         autoreleasepool {
             if observer == nil,
                let data = try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-binding")),
@@ -108,18 +120,70 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                     writeSupervisorCwd(directory, pid: pid)
                 }
             }
+            keyboard.observe(stamp: terminal?.lastHumanInputAt ?? launchedAt)
             let activity = (try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-activity")))
                 .flatMap { try? JSONDecoder().decode(CodexSessionActivity.self, from: $0) }
             observer?.poll(home: home, activity: activity)
             contextWriter.sync(accountID: account.id, launchModel: launchModel,
                                launchEffort: launchEffort, observer: observer, pid: pid)
+            if let terminal, let childStart = metadata.childStart {
+                let terminalReady = terminal.terminalReady(child: child, startedAt: childStart) && terminal.canSend && !terminal.inputPending
+                if observer?.invalidated == true || !terminal.canSend, let previous = metadata.inputTTY {
+                    metadata.inputTTY = nil
+                    if (try? metadata.write(dir: supervisorStateDir)) == nil { metadata.inputTTY = previous }
+                }
+                if metadata.inputTTY == nil && terminalReady && observer?.canAcceptInput == true
+                    && observer?.inputReceiptsAvailable == true {
+                    metadata.inputTTY = terminal.path
+                    if (try? metadata.write(dir: supervisorStateDir)) == nil { metadata.inputTTY = nil }
+                }
+                var submittedText: String?
+                var submittedAt = Date()
+                applyCodexSessionInput(&input, observer: observer, keyboard: keyboard,
+                    launchedAt: launchedAt, terminalReady: metadata.inputTTY != nil && terminalReady,
+                    inject: { text in
+                        observer?.poll(home: home)
+                        guard observer?.canAcceptInput == true,
+                              (terminal.lastHumanInputAt ?? launchedAt) == keyboard.lastStamp,
+                              !terminal.inputPending else {
+                            return .held
+                        }
+                        // Native JSONL timestamps have millisecond precision.
+                        submittedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970 * 1000) / 1000)
+                        let result = terminal.submit(text, child: child, startedAt: childStart,
+                            shouldContinue: { codexSupervisorSignal == 0 })
+                        if result == .done {
+                            submittedText = text
+                            observer?.inputSubmitted()
+                        } else if !terminal.canSend {
+                            metadata.inputTTY = nil
+                            try? metadata.write(dir: supervisorStateDir)
+                        }
+                        return result
+                    }, confirm: {
+                        guard let text = submittedText else { return false }
+                        let confirmed = awaitCodexInputConfirmation(poll: {
+                            guard codexSupervisorSignal == 0, terminal.pump(forwardInput: false) else { return false }
+                            observer?.poll(home: home)
+                            return observer?.receivedInput(text, after: submittedAt) == true
+                        })
+                        if !confirmed {
+                            terminal.disableDirectSend()
+                            metadata.inputTTY = nil
+                            try? metadata.write(dir: supervisorStateDir)
+                        }
+                        return confirmed
+                    })
+            }
             identity.model = observer?.model ?? identity.model
             let state = observer?.state ?? .unknown
             writer.sync(state, reason: state == .unknown ? "Codex session status is not available." : nil,
                         identity: identity, pid: pid)
         }
-        usleep(250_000)
+        if terminal == nil { usleep(250_000) }
     }
+    terminal?.drainOutput()
+    terminal?.close()
     let status = reaper.wait()
     clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
     postSessionStateChanged(pid: pid)

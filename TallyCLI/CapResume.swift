@@ -484,6 +484,10 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
         // leaves keystrokes on that terminal, and suppressing a re-arm is the safe direction.
         state.noteTyped(at: stamped())
         switch written {
+        case .held, .uncertain:
+            appendSessionInputLine(sessionInputLogLine(pid: pid,
+                outcome: written == .held ? "held-input" : "unconfirmed-input",
+                text: line, now: now), to: log)
         case .done:
             appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: capResumeOutcome,
                                                        text: line, now: now), to: log)

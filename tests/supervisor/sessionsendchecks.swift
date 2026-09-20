@@ -287,6 +287,46 @@ func runSessionSendChecks() {
     check("…so a child claimed by a supervisor that is not its parent is claimed by nobody",
           namedSession(childPid, dir: registry) == .notSupervised)
 
+    // A current Codex supervisor has one intentionally narrow capability. The registration carries
+    // its child generation and a terminal target that its own runtime already verified, so the
+    // child pid the inventory publishes resolves back to THIS supervisor even while a sibling has
+    // claimed the same child file. No process-global terminal lookup is part of this resolver.
+    try? childPid.write(to: ownChildFile, atomically: true, encoding: .utf8)
+    let ownGeneration = SessionMonitoring.generation(getpid())!
+    var codex = SessionMonitoring(provider: "codex", supervisorPID: getpid(),
+                                  supervisorStart: ownGeneration,
+                                  childPID: sleeper.processIdentifier,
+                                  childStart: SessionMonitoring.generation(sleeper.processIdentifier),
+                                  inputTTY: "/dev/ttys001", nonce: "send-capability", home: "/tmp/codex")
+    try? codex.write(dir: registry)
+    try? (SessionMonitoring.presencePrefix + String(ownGeneration)).write(
+        to: registry.appendingPathComponent(ownPid), atomically: true, encoding: .utf8)
+    check("a current Codex child target resolves to its exact supervisor despite a sibling claim",
+          namedSession(childPid, dir: registry) == .session(ownPid))
+    check("a current Codex registration advertises only direct send",
+          SessionMonitoring.supportsDirectSend(pid: ownPid, dir: registry)
+              && sessionSupportedActions(pid: ownPid, dir: registry) == ["send"]
+              && sessionSendRefusal(pid: ownPid, dir: registry) == nil)
+    check("Codex direct send never opens Claude account, model, clear, or reload controls",
+          sessionControlRefusal(pid: ownPid, dir: registry) != nil)
+
+    // Missing terminal metadata is the expected shape of an already-running monitoring-only Codex
+    // session. It must fail closed before a request file exists, with an actionable restart path.
+    codex.inputTTY = nil
+    try? codex.write(dir: registry)
+    let legacyRefusal = sessionSendRefusal(pid: ownPid, dir: registry)
+    check("a legacy Codex monitor is refused with a restart-required direct-input message",
+          namedSession(ownPid, dir: registry) == .monitoringOnly(ownPid)
+              && legacyRefusal?.contains("Restart it with the current `tally codex`") == true
+              && sessionSupportedActions(pid: ownPid, dir: registry).isEmpty)
+    // A malformed or stale registration stays in the same fail-closed family. It cannot be
+    // relabelled as Claude merely because the presence marker still belongs to a live process.
+    try? Data("broken".utf8).write(to: registry.appendingPathComponent(ownPid + SessionMonitoring.suffix))
+    check("a damaged Codex registration cannot fall back to a general session target",
+          namedSession(ownPid, dir: registry) == .monitoringOnly(ownPid)
+              && sessionSendRefusal(pid: ownPid, dir: registry)?.contains("nothing was queued") == true
+              && sessionSupportedActions(pid: ownPid, dir: registry).isEmpty)
+
     // MARK: - What the caller is told, and what it exits on
 
     // TWO CODES COME OFF AN ANSWER and the rest are decided by the run: 4 belongs to a session that
@@ -696,10 +736,10 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // Eight return-3 refusals, including monitoring-only providers. A refusal below the write
+        // Ten return-3 refusals, including the explicitly named legacy Codex monitor. A refusal below the write
         // that can only be reached after a caller has already been told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 9
+              before.components(separatedBy: "return 3").count == 11
                   && before.contains("return 2")
                   && !after.contains("return 3")
                   // and the one non-zero ending left below it is the session that has exited
@@ -717,12 +757,13 @@ func runSessionSendChecks() {
         check("a pid named on the command line is judged by the registry, not by liveness alone",
               branch.contains("namedSession(named)") && !branch.contains("supervisorAlive("))
         // Both refusals, so a live stranger is never folded back into "nothing is running there".
-        check("…and the two ways it can name nothing are answered apart",
-              branch.contains("case .notRunning:") && branch.contains("case .notSupervised:"))
+        check("…and missing, unrelated, and unsupported targets are answered apart",
+              branch.contains("case .notRunning:") && branch.contains("case .notSupervised:")
+              && branch.contains("case .monitoringOnly(let key):"))
     } else {
         check("a pid named on the command line is judged by the registry, not by liveness alone",
               false)
-        check("…and the two ways it can name nothing are answered apart", false)
+        check("…and missing, unrelated, and unsupported targets are answered apart", false)
     }
 
     // THE VERB THE NAMESPACE ANSWERS. Read off the source rather than called, because calling it

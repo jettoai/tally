@@ -9,6 +9,10 @@ struct SessionMonitoring: Codable, Equatable {
     var supervisorStart: Int64
     var childPID: Int32?
     var childStart: Int64?
+    /// The private terminal owned by the monitored Codex child, published only after the runtime has
+    /// proved it is still safe to write through. Older monitoring registrations omit it and remain
+    /// monitoring-only.
+    var inputTTY: String? = nil
     var nonce: String
     var home: String
 
@@ -79,9 +83,51 @@ struct SessionMonitoring: Codable, Equatable {
         }
         return false
     }
+
+    /// Whether a monitored Codex registration can accept a line at its own terminal.
+    ///
+    /// This is intentionally narrower than `isLive`: a legacy monitoring record can still prove
+    /// that its process exists, but has no verified terminal address to receive a direct prompt.
+    /// The runtime owns the stronger terminal checks at delivery time. This guard only permits the
+    /// capability to be advertised after that runtime has published a bounded `/dev/...` address.
+    static func supportsDirectSend(pid: String, dir: URL) -> Bool {
+        guard let identity = read(pid: pid, dir: dir), identity.provider == "codex",
+              presenceIsLive(pid: pid, dir: dir), identity.childPID != nil,
+              identity.childStart != nil,
+              validInputTTY(identity.inputTTY) else { return false }
+        return true
+    }
+
+    private static func validInputTTY(_ path: String?) -> Bool {
+        guard let path, path.hasPrefix("/dev/"), path.count > "/dev/".count else { return false }
+        return !path.unicodeScalars.contains { $0.value == 0 || $0.value == 10 || $0.value == 13 }
+    }
 }
 
 func sessionControlRefusal(pid: String, dir: URL) -> String? {
     guard SessionMonitoring.isMarked(pid: pid, dir: dir) else { return nil }
+    if SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) {
+        return "This Codex session supports monitoring and direct input, not account, model, clear, or reload controls. Restart with the desired launch settings. Nothing was queued."
+    }
     return "This session supports monitoring only. Restart it to change its account, model, or supervisor version. Nothing was queued."
+}
+
+/// The one control a current Codex supervisor may advertise. Account, model, clear and reload keep
+/// their existing monitoring-only refusal; this check is used solely by `tally session send`.
+func sessionSendRefusal(pid: String, dir: URL) -> String? {
+    guard SessionMonitoring.isMarked(pid: pid, dir: dir) else { return nil }
+    guard SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) else {
+        return "This Codex session cannot accept direct input because it has no verified terminal "
+            + "target and native turn lifecycle. Restart it with the current `tally codex`, trust its session hooks, and complete a turn; nothing was queued."
+    }
+    return nil
+}
+
+/// The status contract is capability-specific. A live Codex registration may receive a direct
+/// prompt, but it must never inherit Claude's account, model, clear, or reload controls.
+func sessionSupportedActions(pid: String, dir: URL) -> [String] {
+    guard SessionMonitoring.isMarked(pid: pid, dir: dir) else {
+        return ["account", "model", "send", "clear", "reload"]
+    }
+    return SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) ? ["send"] : []
 }

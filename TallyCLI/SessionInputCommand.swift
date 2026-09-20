@@ -214,6 +214,10 @@ func sessionInputBusyRefusal(_ occupant: SessionInputOccupant, sessionKey: Strin
 enum NamedSession: Equatable {
     /// A supervisor of this machine's, addressed by its pid.
     case session(String)
+    /// A live monitored Codex supervisor that cannot prove a direct terminal target. It is named
+    /// separately so a legacy registration gets a restart-required refusal rather than falling
+    /// through to the generic "not supervised" message.
+    case monitoringOnly(String)
     /// Nothing is running under that pid (or it is not a pid at all).
     case notRunning
     /// Something is running there, and it is not one of ours.
@@ -251,6 +255,11 @@ enum NamedSession: Equatable {
 /// uses, which checks both that the file names that pid and that the process is really its child.
 func namedSession(_ named: String, dir: URL = supervisorStateDir) -> NamedSession {
     guard let pid = pid_t(named), supervisorAlive(pid) else { return .notRunning }
+    let key = String(pid)
+    if SessionMonitoring.isMarked(pid: key, dir: dir),
+       !SessionMonitoring.supportsDirectSend(pid: key, dir: dir) {
+        return .monitoringOnly(key)
+    }
     let supervisors = liveSupervisorPids(dir: dir)
     // Normalised through the pid, so `--session 0123` addresses the same file `--session 123` does
     // rather than writing a request nobody will ever read.
@@ -296,6 +305,13 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
         switch namedSession(named) {
         case .session(let key):
             sessionKey = key
+        case .monitoringOnly(let key):
+            let refusal = requestIntent == sessionClearIntent
+                ? sessionControlRefusal(pid: key, dir: supervisorStateDir)
+                : sessionSendRefusal(pid: key, dir: supervisorStateDir)
+            warn(refusal
+                 ?? "This Codex session cannot accept direct input. Nothing was queued.")
+            return 3
         case .notRunning:
             warn("no supervisor is running as pid \(named). `tally status --json` lists the "
                 + "sessions this machine is supervising")
@@ -332,8 +348,16 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
     // model` get. Judged only where the session named ITSELF (`adopted` returns nil when the
     // directory answered, or when --session named somebody else): the version stamped in this
     // environment describes this session's supervisor and says nothing about another one's.
-    if let refusal = sessionControlRefusal(pid: sessionKey, dir: supervisorStateDir) {
+    let refusal = requestIntent == nil
+        ? sessionSendRefusal(pid: sessionKey, dir: supervisorStateDir)
+        : sessionControlRefusal(pid: sessionKey, dir: supervisorStateDir)
+    if let refusal {
         warn(refusal)
+        return 3
+    }
+    if SessionMonitoring.isMarked(pid: sessionKey, dir: supervisorStateDir),
+       let problem = codexSessionInputProblem(intent.text) {
+        warn(problem)
         return 3
     }
     let honourability = liveRequestHonourability(marker: marker.adopted(sessionKey))
@@ -437,15 +461,26 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
 let sessionSendUsage = """
 usage: tally session send [<text>] [--session <pid>]
 
-Types <text> into a supervised session's own terminal, exactly as if it had been typed there, and
-presses Return. With no text it presses Return alone, which is how a prompt sitting on its default
-gets answered. Typing and sending are one act: this exists to trigger what a session cannot trigger
+Types <text> into a supervised session's own terminal and presses Return. Claude supports slash
+commands and permission answers. With no text, Claude presses Return alone to answer the default
+choice in a prompt. Typing and sending are one act: this exists to trigger what a session cannot trigger
 for itself (`/clear`, `/compact`, an answer to a permission prompt), and a line left in the composer
 triggers nothing. Run it inside the session it is meant for (an agent in that conversation can run it
-as a tool call); --session names another one by either of its pids, the Claude Code that
+as a tool call); --session names another one by either of its pids, the provider process that
 `tally status --json` lists under `sessions[].pid` or the Tally supervising it.
 
-The text is typed at the first moment the session is waiting on you, idle, or done speaking - so a
+Updated supervised Codex sessions support nonempty direct prompts when status lists `send`.
+Codex requires trusted native lifecycle reporting and a completed turn before advertising this
+capability. Monitoring-only sessions must restart with the current `tally codex`. Account, model,
+clear and reload controls remain Claude-only. Use the native Codex UI for slash commands, shell
+mode and empty Return.
+Codex waits while working, asking permission, unknown, or while a human is typing. Once quiet,
+unexplained terminal input causes an explicit refusal because the composer may contain a draft;
+submit an actual prompt in that session, wait for its turn to finish, then retry. Codex reports
+sent only after a matching native prompt receipt; an unconfirmed terminal write must be inspected before retrying. Custom submit keys may
+prevent confirmation. No frontmost-window or process-global keyboard fallback is used.
+
+For Claude, text is typed when the session is waiting on you, idle, or done speaking, so a
 request made mid-turn lands when that turn ends. Agents it dispatched do not hold it, whatever they
 are doing: a `/clear` that lands while they are running ends them, and the log records how many.
 Nothing is typed while the conversation itself is in a turn, while it is not reporting what it is
@@ -463,11 +498,10 @@ For a hand-over clear, use `tally session clear`: same queueing, and it may reop
 healthier account instead of typing (nothing here decides anything about accounts).
 
 One send at a time per session: a second one while the first is still queued is refused rather than
-replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, since this is for a slash command or
-an answer to a prompt rather than for a prompt.
+replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, for short direct input.
 
-Exit codes: 0 typed, or queued with nothing refusing it; 3 refused, and nothing was queued (the
-reason is printed); 4 that session has exited; 1 something went wrong.
+Exit codes: 0 confirmed or queued; 3 refused or unconfirmed (inspect the printed reason before
+retrying); 4 that session has exited; 1 something went wrong.
 """
 
 /// What a missing or unknown verb is told: the first line of each verb's own text rather than a

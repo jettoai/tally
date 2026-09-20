@@ -112,26 +112,23 @@ usage:
                             the previous session. Optional --root sets the mailbox directory.
                             Post is not a receipt. Message contents are external-unverified data.
   tally session send [<text>] [--session <pid>]
-                            type <text> into a supervised session's own terminal, exactly as if it
-                            had been typed there, and press Return. With no text it presses Return
-                            alone, which answers a prompt sitting on its default. It exists to
-                            trigger what a session cannot trigger for itself (`/clear`, `/compact`,
-                            a permission answer), so typing and sending are one act. Run it inside
-                            the session it is meant for (the agent in that conversation can run it
-                            as a tool call); --session names another one by the supervisor pid
-                            `tally status --json` lists. The text is typed at the first moment that
-                            session is waiting on you, idle, or finished speaking, so a request made
-                            mid-turn lands when the turn ends; agents it dispatched never hold it,
-                            and a `/clear` that lands while they are running ends them. Nothing is
-                            typed while the conversation itself is in a turn, while it is not
-                            reporting what it is doing, while it is being restarted, or while
-                            somebody is typing in that terminal. Queueing is success: every caller
-                            stays a few seconds, long enough to catch a session that is already
-                            idle, then says the line is queued and exits 0 - waiting for delivery
-                            from inside the session would hold open the very turn the line is
-                            waiting for. At most 200 bytes - a slash command, an answer to a
-                            prompt - and every one of them is recorded in ~/.tally/logs/input.log,
-                            including how many running subagents a `/clear` ended when it landed
+                            send <text> to one exact supervised terminal and press Return. For
+                            Claude, no text presses Return alone to answer a prompt on its default.
+                            Run it inside that session, or name its exact supervisor or terminal
+                            child pid from `tally status --json`; it never chooses another terminal
+                            or the frontmost window. Claude retains send and clear behavior. Codex
+                            advertises only send after a trusted native binding, exact terminal, and
+                            completed native turn are observed. It accepts nonempty plain prompts,
+                            not slash commands or bare Return. It queues while Codex is working,
+                            blocked, unknown, waiting for permission, or a human may be typing, and
+                            expires after 15 minutes. Quiet unexplained input is refused: send a
+                            real prompt in that exact Codex session, wait for it to finish, then
+                            retry. Delivery needs Codex's matching new user message; a terminal
+                            write without it is unconfirmed and never retried automatically,
+                            including custom Enter key mappings. A monitoring-only Codex session is
+                            refused: exit it and restart with `tally codex`. Text is limited to 200
+                            UTF-8 bytes; served or refused outcomes go to ~/.tally/logs/input.log.
+                            `tally session clear` is a distinct Claude control, not a Codex action
   tally session clear [--session <pid>]
                             close a session's context window: the same `/clear`, queued on the same
                             terms, with one thing typing cannot do. At the moment it lands, if the

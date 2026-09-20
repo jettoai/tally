@@ -86,7 +86,8 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
     // the same instant, because both are folded from this one scan.
     let sessions = live.map {
         let sidecarAccountID = readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
-        return (accountID: sidecarAccountID ?? $0.session?.accountID,
+        return (supervisorPid: $0.supervisorPid,
+         accountID: sidecarAccountID ?? $0.session?.accountID,
          monitoring: SessionMonitoring.isMarked(pid: $0.supervisorPid, dir: dir),
          sidecarAccountID: sidecarAccountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
@@ -138,7 +139,9 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             reason: session.state?.reason, noticeType: session.state?.noticeType,
             quiet: session.state?.quiet,
             provider: session.monitoring ? "codex" : "claude",
-            supportedActions: session.monitoring ? [] : ["account", "model", "send", "clear", "reload"])
+            supportedActions: session.monitoring
+                ? (SessionMonitoring.supportsDirectSend(pid: session.supervisorPid, dir: dir) ? ["send"] : [])
+                : ["account", "model", "send", "clear", "reload"])
     }
 }
 

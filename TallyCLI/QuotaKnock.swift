@@ -225,6 +225,10 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
     let written = inject(line, draft)
     switch written {
+    case .held, .uncertain:
+        appendSessionInputLine(sessionInputLogLine(pid: pid,
+            outcome: written == .held ? "held-input" : "unconfirmed-input",
+            text: line, now: now), to: log)
     case .done:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: quotaKnockOutcome,
                                                   text: line, now: now), to: log)

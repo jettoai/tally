@@ -144,6 +144,8 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
     let detail = result.detail.map { " (\($0))" } ?? ""
     switch result.resolved {
     case .submitted: return "sent to session \(sessionKey)\(detail)"
+    case .unconfirmedInput: return "unconfirmed: inspect session \(sessionKey) before retrying\(detail)"
+    case .refusedUnsafeInput: return "refused: cannot verify the Codex composer is empty\(detail)"
     case .refusedTooLong: return "refused: too long\(detail)"
     case .refusedNotReporting:
         return "refused: session \(sessionKey) never reported what it was doing, so nothing was "

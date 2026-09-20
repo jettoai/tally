@@ -346,8 +346,8 @@ func runTerminalJumpChecks() {
     // writes to it rather than asking about it. ONLY FOR A SESSION GHOSTTY OWNS, though: the mark
     // renames whatever terminal holds that device, and the only titles this app can put back are
     // the ones it read off Ghostty a moment earlier.
-    check("the device is read whatever the dictionary says",
-          jumpSource.contains("return controllingTTY(of: pid_t(childPid))"))
+    check("the device is read whatever the dictionary says, from the verified terminal owner",
+          jumpSource.contains("return controllingTTY(of: terminalPID)"))
     check("…but only for a session running in the terminal about to be marked",
           jumpSource.contains("owner.processIdentifier == ghostty.processIdentifier else { return nil }"))
     // One line per click has to tell "the wrong tab" from "the wrong repository", and those read
@@ -506,4 +506,37 @@ func runTerminalJumpChecks() {
     // pid 1 is launchd: owned by root and attached to nothing, so both refusals answer nil rather
     // than a device somebody would then be sent to.
     check("a process with no terminal of its own reports none", TerminalJump.controllingTTY(of: 1) == nil)
+
+    // MARK: Codex relay terminal ownership
+
+    // A current Codex relay puts its child on a private PTY. The Ghostty surface stays attached to
+    // the direct supervisor, but that substitution is valid only for the exact live registration.
+    let codexChild: pid_t = 701
+    let codexSupervisor: pid_t = 702
+    let childStart: Int64 = 7001
+    func monitoring(provider: String = "codex", child: pid_t? = codexChild,
+                    start: Int64? = childStart) -> SessionMonitoring {
+        SessionMonitoring(provider: provider, supervisorPID: codexSupervisor, supervisorStart: 7002,
+                          childPID: child, childStart: start, inputTTY: "/dev/ttys701",
+                          nonce: "fixture", home: "/fixture")
+    }
+    var inspected: [pid_t] = []
+    let resolved = TerminalJump.terminalOwnerPID(for: codexChild, parent: { pid in
+        inspected.append(pid)
+        return pid == codexChild ? codexSupervisor : 703
+    }, monitoring: { _ in monitoring() }, generation: { _ in childStart })
+    check("a registered Codex relay resolves the direct supervisor terminal", resolved == codexSupervisor)
+    check("Codex terminal resolution inspects only the direct parent", inspected == [codexChild])
+    check("a Claude child keeps its own terminal", TerminalJump.terminalOwnerPID(for: codexChild,
+          parent: { _ in codexSupervisor }, monitoring: { _ in monitoring(provider: "claude") },
+          generation: { _ in childStart }) == codexChild)
+    check("a different registered Codex child cannot borrow its supervisor terminal",
+          TerminalJump.terminalOwnerPID(for: codexChild, parent: { _ in codexSupervisor },
+          monitoring: { _ in monitoring(child: 704) }, generation: { _ in childStart }) == codexChild)
+    check("a reused Codex child pid cannot borrow a stale supervisor terminal",
+          TerminalJump.terminalOwnerPID(for: codexChild, parent: { _ in codexSupervisor },
+          monitoring: { _ in monitoring(start: childStart - 1) }, generation: { _ in childStart }) == codexChild)
+    check("an unregistered direct parent never changes the terminal target",
+          TerminalJump.terminalOwnerPID(for: codexChild, parent: { _ in codexSupervisor },
+          monitoring: { _ in nil }, generation: { _ in childStart }) == codexChild)
 }

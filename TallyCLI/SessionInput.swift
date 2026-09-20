@@ -378,9 +378,14 @@ struct SessionInputState {
 /// Ctrl-Y refused AFTER the Return, which is a delivery whose draft stayed in the kill buffer, and
 /// telling it apart from a failure mattered because reporting it as one had a caller send the same
 /// line into the same conversation twice (codex review of 1f69cf9). Nothing is pressed after the
-/// Return any more, so a write either got the line out or did not.
+/// Return in the Claude plan. The Codex relay separately reports pre-write holds and uncertain
+/// partial submissions, then requires a native prompt receipt before reporting delivery.
 enum SessionInputInjection: Equatable {
     case done
+    /// No bytes were written; preserve the queued request for the next safe tick.
+    case held
+    /// A private PTY accepted some bytes, but submission could not be established.
+    case uncertain
     /// The terminal refused a write, so nothing was sent, with the errno it refused it under. ENXIO
     /// means this process has no controlling terminal (started from a script, a launch agent);
     /// EINVAL on a future macOS would mean this ioctl has been retired, which is the risk the header
@@ -397,7 +402,7 @@ enum SessionInputInjection: Equatable {
     var sent: Bool {
         switch self {
         case .done: return true
-        case .failed: return false
+        case .failed, .held, .uncertain: return false
         }
     }
 }

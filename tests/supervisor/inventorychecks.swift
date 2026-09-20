@@ -306,6 +306,26 @@ func runSessionInventoryChecks() {
                   && $0.quiet == nil
           } == true)
 
+    // A Codex registration only gains the one action its runtime can prove: its own exact
+    // terminal. The same live child the inventory already verified supplies the generation
+    // witness, so this tests the status contract rather than a hand-built Session value.
+    let codexGeneration = SessionMonitoring.generation(getpid())!
+    var codex = SessionMonitoring(provider: "codex", supervisorPID: getpid(),
+                                  supervisorStart: codexGeneration, childPID: child,
+                                  childStart: SessionMonitoring.generation(child),
+                                  inputTTY: "/dev/ttys001", nonce: "inventory-send", home: "/tmp/codex")
+    try? codex.write(dir: dir)
+    try? (SessionMonitoring.presencePrefix + String(codexGeneration)).write(
+        to: dir.appendingPathComponent(trunkSupervisor), atomically: true, encoding: .utf8)
+    let codexSend = inventory(sockets: empty).first { $0.directory == "/x/repo" }
+    check("a current Codex registration advertises direct send and no broader control",
+          codexSend?.provider == "codex" && codexSend?.supportedActions == ["send"])
+    codex.inputTTY = nil
+    try? codex.write(dir: dir)
+    let codexLegacy = inventory(sockets: empty).first { $0.directory == "/x/repo" }
+    check("a monitoring-only Codex registration advertises no fabricated send capability",
+          codexLegacy?.provider == "codex" && codexLegacy?.supportedActions == [])
+
     try? FileManager.default.removeItem(at: dir)
     try? FileManager.default.removeItem(atPath: socketDir)
 }

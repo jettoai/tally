@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+_ = runCodexPTYChildIfRequested()
+
 // `tally` - launch a provider CLI on the account with the most proven headroom.
 //
 //   tally claude [args…]       launch `claude` on the best Claude account (args pass through);

@@ -173,14 +173,17 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   兄弟账号还有余量：「收个尾换账号，或者等它重置。」若所有账号都没有余裕，它就诚实地这样
   讲。要回到 30% 才会重新上膛，所以在门槛上下徘徊的账号只会讲一次；而快要重置的窗算作满
   的，因为为了一份马上就要回充的额度把你叫停，是在跟你作对。
-- **叫一个正在跑的会话做事。** `tally session send "<文字>"` 会在受监督会话自己的终端里
-  打上一行并按下 Enter，跟你亲手打进去一模一样：`/clear`、`/compact`、回答一条权限提示
-  都行。它会在第一个安全时机落地（会话正在等待、空闲，或刚结束一个回合），时机还没到就
-  排队（排进队列就算成功；被拒绝则是立刻回复并说明理由），永不打断回合，也永不跟正在那个
-  窗口打字的人抢；会话派出去的 subagent 不会把它挡着。`tally session clear` 是同一个动作，
-  但多了一项打字做不到的本事：如果那个会话的账号快见底、而兄弟账号还有余量，清空后的窗口
-  会在同一个动作里改开在更好的账号上。所有内容都只写进你自己的终端、永远不会送给任何
-  vendor，上限 200 bytes，并记录在本机。
+- **叫一个正在跑的会话做事。** `tally session send "<文字>" --session <pid>` 会把一行送到
+  `tally status --json` 所列该会话的确切 supervisor 或 child PID 对应终端，不会使用前台窗口。
+  Claude 保留既有的 send 与 clear 行为。Codex 会话只有在 Tally 已取得可信的原生绑定、验证对应
+  终端，并观察到原生回合完成后，才会声明 `send`。Codex 只接受非空白的一般 prompt，不接受
+  slash command、shell mode 或单独的 Return。它在工作中、被阻挡、状态未知、要求权限，或有人可能正在输入
+  时会排队，15 分钟后到期。终端安静却有无法解释的输入时会立即拒绝：请在该 Codex 会话输入真正
+  的 prompt，等它完成后再重试，单纯清掉 composer 无法建立安全边界。只有 Codex 发出相符的新
+  用户消息才算送达确认。终端已写入但未确认时会标示 `unconfirmed-input`，不会自动重送，包含自定义
+  Enter 键映射。仅供监看的 Codex 会话须先结束，再用 `tally codex` 重启。请求上限为 200 UTF-8
+  bytes，已处理或拒绝的结果会记录在本机 `~/.tally/logs/input.log`。`tally session clear` 仍是 Claude 专用的独立
+  控制，可将清空的会话改开到较健康的账号。
 - **平行的工作线。** `tally claude -w <名称>` 会在 git worktree 里开会话，需要时创建
   `../<repo>-<名称>`、把项目的 Claude 记忆连过去，并执行该 repo 自己的 setup 脚本；只打
   `-w` 会列出既有的工作线让你挑。`tally worktree tree / list / root / remove` 负责照看

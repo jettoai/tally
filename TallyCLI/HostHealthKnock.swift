@@ -133,6 +133,10 @@ func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, type
     let draft = sessionInputDraftGuard(dialog: waitingOnPerson, suspected: draftSuspected)
     let written = inject(line, draft)
     switch written {
+    case .held, .uncertain:
+        appendSessionInputLine(sessionInputLogLine(pid: pid,
+            outcome: written == .held ? "held-input" : "unconfirmed-input",
+            text: line, now: now), to: log)
     case .done:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: hostHealthKnockOutcome,
                                                   text: line, now: now), to: log)

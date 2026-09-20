@@ -33,6 +33,18 @@ func meta(id: String = sid, source: String = "cli", parent: String? = nil) throw
 func event(_ type: String, turnID: String = turn, after: TimeInterval = 1) throws -> Data {
     try line("event_msg", ["type": type, "turn_id": turnID], after: after)
 }
+func completedUserItem(_ text: String, turnID: String = turn, after: TimeInterval = 1,
+                       extraContent: [[String: Any]] = []) throws -> Data {
+    var content: [[String: Any]] = [["type": "text", "text": text, "text_elements": []]]
+    content.append(contentsOf: extraContent)
+    return try line("event_msg", ["type": "item_completed", "turn_id": turnID,
+        "item": ["type": "UserMessage", "content": content]], after: after)
+}
+func responseUserItem(_ role: String, text: String, after: TimeInterval = 1) throws -> Data {
+    try line("response_item", ["type": "message", "role": role,
+        "content": [["type": "input_text", "text": text],
+                    ["type": "input_text", "text": "injected context"]]], after: after)
+}
 func append(_ data: Data, to file: URL) throws {
     let handle = try FileHandle(forWritingTo: file)
     defer { try? handle.close() }
@@ -119,6 +131,64 @@ observer.poll(home: home.path)
 check("assistant message alone does not imply idle", observer.state == .working)
 try append(event("task_complete"), to: file)
 observer.poll(home: home.path)
+
+var (paginatedFile, paginated) = try fixture("paginated-receipts", contents: meta() + event("task_complete"))
+try append(completedUserItem("prelaunch", after: -1), to: paginatedFile)
+try append(responseUserItem("user", text: "target prompt", after: 2), to: paginatedFile)
+try append(responseUserItem("developer", text: "target prompt", after: 3), to: paginatedFile)
+paginated.poll(home: home.path)
+check("response-item context and prelaunch user records never advertise an input receipt",
+      !paginated.inputReceiptsAvailable && !paginated.receivedInput("target prompt", after: start))
+try append(completedUserItem("target prompt", after: 4,
+    extraContent: [["type": "image", "image_url": "fixture"]]), to: paginatedFile)
+paginated.poll(home: home.path)
+check("attached paginated user content fails closed as a direct-input receipt",
+      !paginated.inputReceiptsAvailable && !paginated.receivedInput("target prompt", after: start))
+try append(completedUserItem("target ", after: 5,
+    extraContent: [["type": "text", "text": "prompt", "text_elements": []]]), to: paginatedFile)
+paginated.poll(home: home.path)
+check("multi-part paginated user content cannot guess a joined direct-input receipt",
+      !paginated.inputReceiptsAvailable && !paginated.receivedInput("target prompt", after: start))
+let partialReceipt = try completedUserItem("target prompt", after: 6)
+try append(partialReceipt.dropLast(), to: paginatedFile)
+paginated.poll(home: home.path)
+check("incomplete paginated receipt cannot enable input", !paginated.inputReceiptsAvailable)
+try append(Data([10]), to: paginatedFile)
+paginated.poll(home: home.path)
+check("completed paginated UserMessage is an exact native input receipt",
+      paginated.inputReceiptsAvailable && paginated.receivedInput(" target prompt\n", after: start)
+      && !paginated.receivedInput("another prompt", after: start))
+check("paginated user receipt updates the human-turn guard", paginated.lastUserTurnAt == start.addingTimeInterval(6))
+var (oversizedFile, oversizedReceipt) = try fixture("oversized-paginated-receipt", contents: meta())
+try append(completedUserItem(String(repeating: "x", count: 201), after: 2), to: oversizedFile)
+oversizedReceipt.poll(home: home.path)
+check("oversized native receipt enables the compatible route without retaining prompt text",
+      oversizedReceipt.inputReceiptsAvailable && !oversizedReceipt.receivedInput(String(repeating: "x", count: 201), after: start))
+
+check("Codex absence of user message does not fabricate a receipt", !observer.receivedInput("fixture prompt", after: start))
+try append(line("event_msg", ["type": "user_message", "message": "fixture prompt"], after: 2), to: file)
+observer.poll(home: home.path)
+check("Codex native receipt must match the exact requested text", observer.receivedInput("fixture prompt", after: start)
+    && !observer.receivedInput("another prompt", after: start))
+check("Codex receipt follows native edge-whitespace trimming", observer.receivedInput("  fixture prompt\n", after: start))
+check("Codex old matching text cannot confirm a new request", !observer.receivedInput("fixture prompt", after: start.addingTimeInterval(3)))
+check("Codex completed turn permits input only after catching up", observer.canAcceptInput)
+check("Codex records the latest actual user turn boundary", observer.lastUserTurnAt != nil)
+var submittedObserver = observer
+submittedObserver.inputSubmitted()
+submittedObserver.poll(home: home.path)
+check("Codex submission cannot reuse the previous idle boundary", !submittedObserver.canAcceptInput)
+let partialStarted = try event("task_started", turnID: UUID().uuidString, after: 5)
+try append(partialStarted.dropLast(), to: file)
+observer.poll(home: home.path)
+check("Codex partial lifecycle record holds input even with previous idle state", !observer.canAcceptInput)
+try append(Data([10]), to: file)
+observer.poll(home: home.path)
+check("Codex newly completed task-start record holds input", !observer.canAcceptInput && observer.state == .working)
+// Restore an independent completed-turn fixture for the checks below.
+(file, observer) = try fixture("root-after-input-checks", contents: meta() + event("task_complete"))
+observer.poll(home: home.path)
+
 check("terminal event proves idle", observer.state == .idle)
 let prompt = CodexSessionActivity(nonce: "fresh", sessionID: sid, turnID: nextTurn,
     event: "UserPromptSubmit", at: start.addingTimeInterval(2))

@@ -45,6 +45,23 @@ struct CodexSessionObserver {
     private(set) var model: String?
     private(set) var effort: String?
     private(set) var hasTurnContext = false
+    private(set) var lastUserTurnAt: Date?
+    private(set) var inputReceiptsAvailable = false
+    private var lastUserMessage: (text: String, at: Date)?
+
+    func receivedInput(_ text: String, after: Date) -> Bool {
+        guard let message = lastUserMessage else { return false }
+        return message.at >= after && message.text == text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private(set) var inputCaughtUp = false
+
+    var canAcceptInput: Bool { state == .idle && inputCaughtUp }
+
+    mutating func inputSubmitted() {
+        // Do not reuse the previous turn end while the TUI is accepting this submission.
+        state = .unknown
+        inputCaughtUp = false
+    }
     private var turns: Set<String> = []
     private var terminalTurns: Set<String> = []
     private var offset: UInt64 = 0
@@ -53,7 +70,7 @@ struct CodexSessionObserver {
     private let lineLimit = 1024 * 1024
     private var fileNumber: UInt64?
     private var metadataValidated = false
-    private var invalidated = false
+    private(set) var invalidated = false
     private var lastActivity: Date?
     private let launchedAt: Date
     let binding: CodexSessionBinding
@@ -67,6 +84,7 @@ struct CodexSessionObserver {
     mutating func invalidate() { state = .unknown; invalidated = true }
 
     mutating func poll(home: String, activity: CodexSessionActivity? = nil) {
+        inputCaughtUp = false
         guard !invalidated,
               let file = codexTranscriptURL(path: binding.transcriptPath, home: home),
               let handle = try? FileHandle(forReadingFrom: file) else { invalidate(); return }
@@ -92,11 +110,16 @@ struct CodexSessionObserver {
             if invalidated { return }
         } catch { invalidate(); return }
         guard metadataValidated else { state = .unknown; return }
+        var latest = stat()
+        inputCaughtUp = pending.isEmpty && !discardingResponse
+            && fstat(handle.fileDescriptor, &latest) == 0
+            && latest.st_size >= 0 && offset == UInt64(latest.st_size)
         if let activity, activity.nonce == binding.nonce, activity.sessionID == binding.sessionID,
            activity.at >= launchedAt, lastActivity == nil || activity.at > lastActivity! {
             lastActivity = activity.at
             if !terminalTurns.contains(activity.turnID) {
                 if activity.event == "UserPromptSubmit" {
+                    lastUserTurnAt = max(lastUserTurnAt ?? activity.at, activity.at)
                     turns.insert(activity.turnID)
                     state = .working
                 } else if activity.event == "PermissionRequest" {
@@ -153,11 +176,17 @@ struct CodexSessionObserver {
         }
         guard type == "event_msg" else { return }
         guard let event = payload["type"] as? String else { invalidate(); return }
+        if event == "user_message", let text = payload["message"] as? String {
+            acceptInputReceipt(text, at: date)
+        } else if event == "item_completed" {
+            acceptPaginatedUserReceipt(payload, at: date)
+        }
         guard ["task_started", "task_complete", "turn_aborted"].contains(event) else { return }
         guard let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil else {
             invalidate(); return
         }
         if event == "task_started" {
+            lastUserTurnAt = max(lastUserTurnAt ?? date, date)
             terminalTurns.remove(turn)
             turns.insert(turn)
             state = .working
@@ -167,6 +196,30 @@ struct CodexSessionObserver {
             if terminalTurns.count > 1024 { terminalTurns = [turn] }
             state = turns.isEmpty ? .idle : .working
         }
+    }
+
+    /// Current Codex rollouts record the submitted prompt in a completed `UserMessage` item.
+    /// `response_item` messages are intentionally not receipts: their user role can contain
+    /// environment and instruction blocks, and they have no turn binding.
+    private mutating func acceptPaginatedUserReceipt(_ payload: [String: Any], at date: Date) {
+        guard let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil,
+              let item = payload["item"] as? [String: Any],
+              item["type"] as? String == "UserMessage",
+              let content = item["content"] as? [[String: Any]], content.count == 1,
+              let part = content.first,
+              part["type"] as? String == "text",
+              let text = part["text"] as? String,
+              part["text_elements"] is [Any] else { return }
+        acceptInputReceipt(text, at: date)
+    }
+
+    /// Keep just one short, normalized receipt. The input channel has the same 200-byte bound;
+    /// a larger transcript prompt can prove the route exists, but is never retained as content.
+    private mutating func acceptInputReceipt(_ text: String, at date: Date) {
+        inputReceiptsAvailable = true
+        lastUserTurnAt = max(lastUserTurnAt ?? date, date)
+        guard text.utf8.count <= 200 else { lastUserMessage = nil; return }
+        lastUserMessage = (text.trimmingCharacters(in: .whitespacesAndNewlines), date)
     }
 }
 

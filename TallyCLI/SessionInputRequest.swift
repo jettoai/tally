@@ -119,6 +119,10 @@ struct SessionInputRequest: Codable, Equatable {
 enum SessionInputOutcome: String {
     /// Typed and sent.
     case submitted
+    /// Input was written, but the provider did not confirm the matching prompt. Do not auto-retry.
+    case unconfirmedInput = "unconfirmed-input"
+    /// The composer may contain unsent input that cannot safely be overwritten.
+    case refusedUnsafeInput = "refused-unsafe-input"
     /// Longer than `sessionInputMaxBytes`. Normally caught by the command before anything is
     /// written; the supervisor checks it again because the channel is a directory anything running
     /// as this user can write into.

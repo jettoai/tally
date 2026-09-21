@@ -17,6 +17,15 @@ private func codexClassifyEveryFragment(_ bytes: [UInt8]) -> [(human: Bool, pend
 
 private func codexEscape(_ body: String) -> [UInt8] { Array("\u{1b}\(body)".utf8) }
 
+/// Walk one read through the pair the relay wires together: the classifier decides whether those
+/// bytes stamp a keyboard edit, and the guard decides whether the restored draft is suspect.
+private func codexResumeDraftSuspected(after bytes: [UInt8]) -> Bool {
+    var classifier = CodexTerminalInputClassifier()
+    var draft = CodexResumeDraftGuard()
+    draft.observe(humanInput: classifier.consume(bytes) ? Date() : nil, inputReceipt: nil, ready: false)
+    return draft.suspected
+}
+
 /// Codex asks the terminal for its keyboard flags, device attributes and cursor position at start
 /// up. Anything the terminal answers must not read as a person editing the composer.
 func runCodexTerminalReplyChecks() {
@@ -52,18 +61,10 @@ func runCodexTerminalReplyChecks() {
     check("Codex relay reports a key press that follows a reply in the same read", mixed.human && !mixed.pending)
     // The guard this feeds: a start-up reply before the initialization receipt must not make the
     // resume draft suspect, or every direct send to that session is refused for its whole life.
-    var replyOnly = CodexResumeDraftGuard()
-    var replyClassifier = CodexTerminalInputClassifier()
-    var replyHumanAt: Date?
-    if replyClassifier.consume(codexEscape("[?0u")) { replyHumanAt = Date() }
-    replyOnly.observe(humanInput: replyHumanAt, inputReceipt: nil, ready: false)
-    check("Codex keyboard flags reply before ready leaves the resume draft guard clear", !replyOnly.suspected)
-    var typed = CodexResumeDraftGuard()
-    var typedClassifier = CodexTerminalInputClassifier()
-    var typedHumanAt: Date?
-    if typedClassifier.consume(Array("hello".utf8)) { typedHumanAt = Date() }
-    typed.observe(humanInput: typedHumanAt, inputReceipt: nil, ready: false)
-    check("Codex real typing before ready still makes the resume draft suspect", typed.suspected)
+    check("Codex keyboard flags reply before ready leaves the resume draft guard clear",
+          !codexResumeDraftSuspected(after: codexEscape("[?0u")))
+    check("Codex real typing before ready still makes the resume draft suspect",
+          codexResumeDraftSuspected(after: Array("hello".utf8)))
 }
 
 func runCodexInputChecks() {

@@ -29,7 +29,7 @@ final class CodexInputRelay {
     private(set) var lastHumanInputAt: Date?
     /// An incomplete input escape sequence is not evidence that the composer is clear. The
     /// supervisor holds queued input until it can classify the remainder on a later pump.
-    private(set) var inputPending = false
+    var inputPending: Bool { inputClassifier.pending }
 
     /// `true` only after Codex has opted into bracketed paste and the relay still owns an open PTY.
     var canSend: Bool { !didRestore && didSpawn && !submissionUncertain && bracketedPaste && master >= 0 }
@@ -279,7 +279,6 @@ final class CodexInputRelay {
 
     private func observeOuterInput(_ bytes: [UInt8]) {
         if inputClassifier.consume(bytes) { lastHumanInputAt = Date() }
-        inputPending = inputClassifier.pending
     }
 
     private func outerInputIsReady() -> Bool {
@@ -360,7 +359,7 @@ struct CodexTerminalInputClassifier {
                 index += 2
             }
         }
-        carry = index < carry.count ? Array(carry[index...]) : []
+        carry.removeFirst(index)
         if carry.count > 256 {
             // A terminal reply cannot reasonably remain unbounded. Treat it as an edit rather than
             // risk declaring a very long, malformed sequence harmless.
@@ -371,11 +370,11 @@ struct CodexTerminalInputClassifier {
     }
 
     private func csiEnd(from start: Int) -> Int? {
+        guard start + 2 < carry.count else { return nil }
         // Legacy X10 mouse reports have `ESC [ M` plus exactly three binary bytes.
-        if start + 2 < carry.count, carry[start + 2] == UInt8(ascii: "M") {
+        if carry[start + 2] == UInt8(ascii: "M") {
             return start + 5 < carry.count ? start + 5 : nil
         }
-        guard start + 2 < carry.count else { return nil }
         return ((start + 2)..<carry.count).first { (0x40...0x7E).contains(carry[$0]) }
     }
 
@@ -393,11 +392,10 @@ struct CodexTerminalInputClassifier {
     }
 
     private func isTerminalControlCSI(_ sequence: ArraySlice<UInt8>) -> Bool {
-        let bytes = Array(sequence)
-        guard bytes.count >= 3 else { return false }
-        let final = bytes.last!
-        let body = bytes.dropFirst(2).dropLast()
-        if bytes == [0x1B, 0x5B, 0x49] || bytes == [0x1B, 0x5B, 0x4F] { return true } // focus
+        guard sequence.count >= 3, let final = sequence.last else { return false }
+        let body = sequence.dropFirst(2).dropLast()
+        // Focus in and out are `ESC [ I` and `ESC [ O`, the only replies with no parameters.
+        if body.isEmpty, final == UInt8(ascii: "I") || final == UInt8(ascii: "O") { return true }
         if let leader = body.first, codexPrivateParameterLeaders.contains(leader) { return true }
         if final == UInt8(ascii: "R"), body.allSatisfy({ "0123456789;".utf8.contains($0) }) { return true }
         return false

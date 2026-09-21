@@ -22,7 +22,7 @@ final class CodexInputRelay {
     private var bracketedPaste = false
     private var submissionUncertain = false
     private var outputTail: [UInt8] = []
-    private var inputCarry: [UInt8] = []
+    private var inputClassifier = CodexTerminalInputClassifier()
 
     /// A real keyboard edit observed while relaying. Terminal replies, focus changes and mouse
     /// reports deliberately do not become a draft stamp.
@@ -278,71 +278,8 @@ final class CodexInputRelay {
     }
 
     private func observeOuterInput(_ bytes: [UInt8]) {
-        inputCarry += bytes
-        var index = 0
-        var human = false
-        while index < inputCarry.count {
-            guard inputCarry[index] == 0x1B else { human = true; index += 1; continue }
-            guard index + 1 < inputCarry.count else { break }
-            let next = inputCarry[index + 1]
-            if next == UInt8(ascii: "[") {
-                guard let end = csiEnd(in: inputCarry, from: index) else { break }
-                if !isTerminalControlCSI(inputCarry[index...end]) { human = true }
-                index = end + 1
-            } else if next == UInt8(ascii: "]") {
-                guard let end = oscEnd(in: inputCarry, from: index) else { break }
-                // OSC comes from terminal integration. Retaining an incomplete OSC as pending is
-                // conservative, and a completed reply is not a composer edit.
-                index = end + 1
-            } else {
-                // Meta keys and unfamiliar escape sequences are user input. They must hold a send.
-                human = true
-                index += 2
-            }
-        }
-        inputCarry = index < inputCarry.count ? Array(inputCarry[index...]) : []
-        if inputCarry.count > 256 {
-            // A terminal reply cannot reasonably remain unbounded. Treat it as an edit rather than
-            // risk declaring a very long, malformed sequence harmless.
-            human = true
-            inputCarry.removeAll()
-        }
-        inputPending = !inputCarry.isEmpty
-        if human { lastHumanInputAt = Date() }
-    }
-
-    private func csiEnd(in bytes: [UInt8], from start: Int) -> Int? {
-        // Legacy X10 mouse reports have `ESC [ M` plus exactly three binary bytes.
-        if start + 2 < bytes.count, bytes[start + 2] == UInt8(ascii: "M") {
-            return start + 5 < bytes.count ? start + 5 : nil
-        }
-        guard start + 2 < bytes.count else { return nil }
-        return ((start + 2)..<bytes.count).first { (0x40...0x7E).contains(bytes[$0]) }
-    }
-
-    private func oscEnd(in bytes: [UInt8], from start: Int) -> Int? {
-        var index = start + 2
-        while index < bytes.count {
-            if bytes[index] == 0x07 { return index }
-            if bytes[index] == 0x1B {
-                guard index + 1 < bytes.count else { return nil }
-                if bytes[index + 1] == UInt8(ascii: "\\") { return index + 1 }
-            }
-            index += 1
-        }
-        return nil
-    }
-
-    private func isTerminalControlCSI(_ sequence: ArraySlice<UInt8>) -> Bool {
-        let bytes = Array(sequence)
-        guard bytes.count >= 3 else { return false }
-        let final = bytes.last!
-        let body = bytes.dropFirst(2).dropLast()
-        if bytes == [0x1B, 0x5B, 0x49] || bytes == [0x1B, 0x5B, 0x4F] { return true } // focus
-        if body.first == UInt8(ascii: "<") && (final == UInt8(ascii: "M") || final == UInt8(ascii: "m")) { return true }
-        if body.first == UInt8(ascii: "?") && (final == UInt8(ascii: "c") || final == UInt8(ascii: "n")) { return true }
-        if final == UInt8(ascii: "R"), body.allSatisfy({ "0123456789;".utf8.contains($0) }) { return true }
-        return false
+        if inputClassifier.consume(bytes) { lastHumanInputAt = Date() }
+        inputPending = inputClassifier.pending
     }
 
     private func outerInputIsReady() -> Bool {
@@ -369,6 +306,101 @@ final class CodexInputRelay {
             return false
         }
         return true
+    }
+}
+
+/// ECMA-48 private parameter leaders. A parameter string that starts with one of these belongs to
+/// a private-use control, which in practice is only ever a terminal answering a query: kitty
+/// keyboard flags (`CSI ? <flags> u`), device attributes (`CSI ? ... c`, `CSI > ... c`), DECRPM
+/// (`CSI ? <mode>;<value> $ y`) and SGR mouse reports (`CSI < ... M`). No keyboard encoding starts
+/// here: kitty spells a key as `CSI <code>;<mods> u`, xterm's modifyOtherKeys as `CSI 27;... ~`,
+/// and a cursor key carries no parameter at all. Listing the replies instead was the bug this
+/// replaces: `CSI ? 0 u` was missing from the list, so every Ghostty, kitty, WezTerm and modern
+/// iTerm2 start-up looked like a person typing and held every direct send for the whole session.
+private let codexPrivateParameterLeaders = Array("?><=".utf8)
+
+/// Introducers of the control strings a terminal replies with: DCS (XTVERSION, XTGETTCAP), APC,
+/// PM and SOS. They are read to their terminator exactly like OSC.
+private let codexControlStringIntroducers = Array("]P_^X".utf8)
+
+/// Splits what arrives from the outer terminal into keyboard edits and the terminal's own replies.
+/// It is a value of its own so the grammar can be exercised without owning a PTY.
+struct CodexTerminalInputClassifier {
+    private var carry: [UInt8] = []
+
+    /// An incomplete escape sequence is not evidence that the composer is clear. The supervisor
+    /// holds queued input until it can classify the remainder on a later pump.
+    var pending: Bool { !carry.isEmpty }
+
+    /// `true` when this chunk carried at least one byte a person could have typed. Bytes may split
+    /// across chunks, so an unfinished sequence is carried into the next call rather than judged.
+    mutating func consume(_ bytes: [UInt8]) -> Bool {
+        carry += bytes
+        var index = 0
+        var human = false
+        while index < carry.count {
+            guard carry[index] == 0x1B else { human = true; index += 1; continue }
+            guard index + 1 < carry.count else { break }
+            let next = carry[index + 1]
+            if next == UInt8(ascii: "[") {
+                guard let end = csiEnd(from: index) else { break }
+                if !isTerminalControlCSI(carry[index...end]) { human = true }
+                index = end + 1
+            } else if codexControlStringIntroducers.contains(next) {
+                // OSC comes from terminal integration, and DCS, APC, PM and SOS carry version and
+                // capability replies. Retaining an incomplete string as pending is conservative,
+                // and a completed reply is not a composer edit. A meta keypress spelled the same
+                // way (Alt+Shift+P) is held instead of stamped, which is the safe direction: it
+                // refuses a send rather than overwriting a draft.
+                guard let end = controlStringEnd(from: index) else { break }
+                index = end + 1
+            } else {
+                // Meta keys and unfamiliar escape sequences are user input. They must hold a send.
+                human = true
+                index += 2
+            }
+        }
+        carry = index < carry.count ? Array(carry[index...]) : []
+        if carry.count > 256 {
+            // A terminal reply cannot reasonably remain unbounded. Treat it as an edit rather than
+            // risk declaring a very long, malformed sequence harmless.
+            human = true
+            carry.removeAll()
+        }
+        return human
+    }
+
+    private func csiEnd(from start: Int) -> Int? {
+        // Legacy X10 mouse reports have `ESC [ M` plus exactly three binary bytes.
+        if start + 2 < carry.count, carry[start + 2] == UInt8(ascii: "M") {
+            return start + 5 < carry.count ? start + 5 : nil
+        }
+        guard start + 2 < carry.count else { return nil }
+        return ((start + 2)..<carry.count).first { (0x40...0x7E).contains(carry[$0]) }
+    }
+
+    private func controlStringEnd(from start: Int) -> Int? {
+        var index = start + 2
+        while index < carry.count {
+            if carry[index] == 0x07 { return index }
+            if carry[index] == 0x1B {
+                guard index + 1 < carry.count else { return nil }
+                if carry[index + 1] == UInt8(ascii: "\\") { return index + 1 }
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func isTerminalControlCSI(_ sequence: ArraySlice<UInt8>) -> Bool {
+        let bytes = Array(sequence)
+        guard bytes.count >= 3 else { return false }
+        let final = bytes.last!
+        let body = bytes.dropFirst(2).dropLast()
+        if bytes == [0x1B, 0x5B, 0x49] || bytes == [0x1B, 0x5B, 0x4F] { return true } // focus
+        if let leader = body.first, codexPrivateParameterLeaders.contains(leader) { return true }
+        if final == UInt8(ascii: "R"), body.allSatisfy({ "0123456789;".utf8.contains($0) }) { return true }
+        return false
     }
 }
 

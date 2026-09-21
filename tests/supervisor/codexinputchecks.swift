@@ -1,6 +1,71 @@
 import Darwin
 import Foundation
 
+/// Feed the relay's classifier one or more chunks and report what it concluded overall.
+private func codexClassify(_ chunks: [[UInt8]]) -> (human: Bool, pending: Bool) {
+    var classifier = CodexTerminalInputClassifier()
+    var human = false
+    for chunk in chunks where !chunk.isEmpty { human = classifier.consume(chunk) || human }
+    return (human, classifier.pending)
+}
+
+/// Whole sequence plus every two-chunk split of it. A reply that arrives in two reads must reach
+/// the same verdict as one that arrives whole.
+private func codexClassifyEveryFragment(_ bytes: [UInt8]) -> [(human: Bool, pending: Bool)] {
+    (0...bytes.count).map { codexClassify([Array(bytes[..<$0]), Array(bytes[$0...])]) }
+}
+
+private func codexEscape(_ body: String) -> [UInt8] { Array("\u{1b}\(body)".utf8) }
+
+/// Codex asks the terminal for its keyboard flags, device attributes and cursor position at start
+/// up. Anything the terminal answers must not read as a person editing the composer.
+func runCodexTerminalReplyChecks() {
+    let replies: [(String, [UInt8])] = [
+        ("kitty keyboard flags", codexEscape("[?0u")),
+        ("kitty keyboard flags with parameters", codexEscape("[?1;2u")),
+        ("secondary device attributes", codexEscape("[>0;95;0c")),
+        ("DECRPM mode report", codexEscape("[?2026;2$y")),
+        ("XTVERSION device control string", codexEscape("P>|Ghostty 1.2") + codexEscape("\\")),
+        ("cursor position report", codexEscape("[24;80R")),
+        ("focus in", codexEscape("[I")),
+        ("SGR mouse report", codexEscape("[<0;10;20M")),
+    ]
+    for (name, bytes) in replies {
+        check("Codex relay reads \(name) as a terminal reply, whole or fragmented",
+              codexClassifyEveryFragment(bytes).allSatisfy { !$0.human && !$0.pending })
+    }
+    let edits: [(String, [UInt8])] = [
+        ("a kitty encoded key press", codexEscape("[97;5u")),
+        ("a modifyOtherKeys key press", codexEscape("[27;5;97~")),
+        ("bracketed paste start", codexEscape("[200~")),
+        ("bracketed paste end", codexEscape("[201~")),
+        ("an application cursor key", codexEscape("OA")),
+        ("a meta key press", codexEscape("b")),
+    ]
+    for (name, bytes) in edits {
+        check("Codex relay reads \(name) as a keyboard edit, whole or fragmented",
+              codexClassifyEveryFragment(bytes).allSatisfy { $0.human && !$0.pending })
+    }
+    let unfinished = codexClassify([codexEscape("[?0")])
+    check("Codex relay still holds an unfinished sequence as pending", !unfinished.human && unfinished.pending)
+    let mixed = codexClassify([codexEscape("[?0u") + Array("a".utf8)])
+    check("Codex relay reports a key press that follows a reply in the same read", mixed.human && !mixed.pending)
+    // The guard this feeds: a start-up reply before the initialization receipt must not make the
+    // resume draft suspect, or every direct send to that session is refused for its whole life.
+    var replyOnly = CodexResumeDraftGuard()
+    var replyClassifier = CodexTerminalInputClassifier()
+    var replyHumanAt: Date?
+    if replyClassifier.consume(codexEscape("[?0u")) { replyHumanAt = Date() }
+    replyOnly.observe(humanInput: replyHumanAt, inputReceipt: nil, ready: false)
+    check("Codex keyboard flags reply before ready leaves the resume draft guard clear", !replyOnly.suspected)
+    var typed = CodexResumeDraftGuard()
+    var typedClassifier = CodexTerminalInputClassifier()
+    var typedHumanAt: Date?
+    if typedClassifier.consume(Array("hello".utf8)) { typedHumanAt = Date() }
+    typed.observe(humanInput: typedHumanAt, inputReceipt: nil, ready: false)
+    check("Codex real typing before ready still makes the resume draft suspect", typed.suspected)
+}
+
 func runCodexInputChecks() {
     let now = Date()
     let launch = now.addingTimeInterval(-100)

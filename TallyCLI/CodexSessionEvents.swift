@@ -38,7 +38,7 @@ func codexRootMetadata(_ object: [String: Any], sessionID: String) -> Bool {
 }
 
 /// Incremental JSONL reader. Replacement, truncation and malformed parsed records invalidate it.
-/// Oversized response content is opaque after its bounded header is recognized; its payload
+/// Oversized response and compaction content is opaque after its bounded header is recognized; its payload
 /// syntax is not validated. Lifecycle records still require complete JSON decoding.
 struct CodexSessionObserver {
     private(set) var state: SupervisedState = .unknown
@@ -67,7 +67,7 @@ struct CodexSessionObserver {
     private var terminalTurns: Set<String> = []
     private var offset: UInt64 = 0
     private var pending = Data()
-    private var discardingResponse = false
+    private var discardingOpaqueRecord = false
     private let lineLimit = 1024 * 1024
     private var fileNumber: UInt64?
     private var metadataValidated = false
@@ -112,7 +112,7 @@ struct CodexSessionObserver {
         } catch { invalidate(); return }
         guard metadataValidated else { state = .unknown; return }
         var latest = stat()
-        inputCaughtUp = pending.isEmpty && !discardingResponse
+        inputCaughtUp = pending.isEmpty && !discardingOpaqueRecord
             && fstat(handle.fileDescriptor, &latest) == 0
             && latest.st_size >= 0 && offset == UInt64(latest.st_size)
         if let activity, activity.nonce == binding.nonce, activity.sessionID == binding.sessionID,
@@ -132,8 +132,8 @@ struct CodexSessionObserver {
     }
 
     private mutating func consumeSegment(_ segment: Data, complete: Bool) {
-        if discardingResponse {
-            if complete { discardingResponse = false }
+        if discardingOpaqueRecord {
+            if complete { discardingOpaqueRecord = false }
             return
         }
         if pending.count + segment.count > lineLimit {
@@ -141,9 +141,9 @@ struct CodexSessionObserver {
             let probeLimit = 16 * 1024
             var prefix = Data(pending.prefix(probeLimit))
             prefix.append(segment.prefix(probeLimit - prefix.count))
-            guard metadataValidated, CodexResponseHeader.recognizes(prefix) else { invalidate(); return }
+            guard metadataValidated, CodexOpaqueRecordHeader.recognizes(prefix) else { invalidate(); return }
             pending.removeAll(keepingCapacity: false)
-            discardingResponse = !complete
+            discardingOpaqueRecord = !complete
             return
         }
         pending.append(segment)
@@ -227,7 +227,7 @@ struct CodexSessionObserver {
 
 /// Recognizes the native writer's envelope, including its optional ordinal, before payload.
 /// Large payload-first envelopes and unrecognized header fields remain unsupported.
-private struct CodexResponseHeader {
+private struct CodexOpaqueRecordHeader {
     var bytes: [UInt8]
     var index = 0
 
@@ -250,7 +250,9 @@ private struct CodexResponseHeader {
                 guard index > start, (index - start == 1 || bytes[start] != 48),
                       UInt64(String(decoding: bytes[start..<index], as: UTF8.self)) != nil else { return false }
             case "type":
-                guard string() == "response_item" else { return false }
+                // Compaction snapshots carry replacement context, not live events. Never
+                // interpret their nested history as a turn completion or input receipt.
+                guard let type = string(), ["response_item", "compacted"].contains(type) else { return false }
             case "payload":
                 return seen.contains("timestamp") && seen.contains("type") && take(123)
             default:

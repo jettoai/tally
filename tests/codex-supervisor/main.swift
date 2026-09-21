@@ -285,6 +285,48 @@ try append(payloadFirst + event("task_complete"), to: payloadFirstFile)
 for _ in 0..<4 { payloadFirstObserver.poll(home: home.path) }
 check("oversized payload-first envelope remains unsupported rather than guessing its tag", payloadFirstObserver.state == .unknown)
 
+// Production historical rollouts contain multi-megabyte compaction snapshots. Their nested
+// replacement history is opaque context, never a current lifecycle or input receipt.
+func largeCompaction(after: TimeInterval = -1) throws -> Data {
+    let payload = try JSONSerialization.data(withJSONObject: [
+        "message": largeOutput,
+        "replacement_history": [["type": "event_msg", "payload": [
+            "type": "task_complete", "turn_id": turn]],
+            ["type": "event_msg", "payload": ["type": "user_message", "message": "nested receipt"]]]
+    ])
+    return Data(("{\"timestamp\":\"\(iso.string(from: start.addingTimeInterval(after)))\","
+        + "\"ordinal\":832,\"type\":\"compacted\",\"payload\":").utf8) + payload + Data("}\n".utf8)
+}
+let initializer = "TALLY_SESSION_READY initialization fixture"
+var (_, compactedResume) = try fixture("compacted-resume", contents: meta()
+    + largeCompaction() + event("task_started") + completedUserItem(initializer)
+    + event("task_complete"))
+let resumeActivity = CodexSessionActivity(nonce: "fresh", sessionID: sid, turnID: turn,
+    event: "UserPromptSubmit", at: start.addingTimeInterval(1))
+for _ in 0..<4 { compactedResume.poll(home: home.path, activity: resumeActivity) }
+check("historical compaction cannot hide the current initialization lifecycle",
+      !compactedResume.invalidated && compactedResume.canAcceptInput)
+check("historical compaction preserves the current native initialization receipt",
+      compactedResume.inputReceiptsAvailable && compactedResume.receivedInput(initializer, after: start))
+
+var (compactionFile, compactionObserver) = try fixture("partial-compaction",
+    contents: meta() + event("task_started"))
+let compaction = try largeCompaction(after: 1)
+try append(compaction.dropLast(), to: compactionFile)
+for _ in 0..<4 { compactionObserver.poll(home: home.path) }
+check("partial compaction cannot advertise caught-up input or consume nested receipts",
+      !compactionObserver.invalidated && !compactionObserver.inputCaughtUp
+      && compactionObserver.state == .working && !compactionObserver.inputReceiptsAvailable)
+try append(Data("\n".utf8), to: compactionFile)
+compactionObserver.poll(home: home.path)
+check("complete compaction cannot settle a real turn or manufacture a receipt",
+      compactionObserver.inputCaughtUp && compactionObserver.state == .working
+      && !compactionObserver.inputReceiptsAvailable)
+try append(completedUserItem(initializer) + event("task_complete"), to: compactionFile)
+compactionObserver.poll(home: home.path)
+check("only fresh native events after compaction establish direct-input readiness",
+      compactionObserver.canAcceptInput && compactionObserver.inputReceiptsAvailable)
+
 var (replaceFile, replaced) = try fixture("replace", contents: meta() + event("task_started"))
 replaced.poll(home: home.path)
 try (meta() + event("task_complete")).write(to: replaceFile, options: .atomic)

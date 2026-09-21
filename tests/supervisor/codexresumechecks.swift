@@ -78,6 +78,15 @@ func runCodexResumePTYFixture() -> Never {
         history += codexResumeFixtureLine(type: "event_msg", payload: [
             "type": "task_complete", "turn_id": historyTurn
         ], at: historical.addingTimeInterval(2))
+        // Preserve the native envelope order: production resumes can contain compaction
+        // snapshots larger than the observer's bounded read buffer before the fresh turn.
+        let compacted = try JSONSerialization.data(withJSONObject: [
+            "message": String(repeating: "historical context ", count: 120_000),
+            "replacement_history": []
+        ])
+        history += Data(("{\"timestamp\":\"\(codexResumeFixtureStamp(historical))\","
+            + "\"ordinal\":3,\"type\":\"compacted\",\"payload\":").utf8)
+        history += compacted + Data("}\n".utf8)
         try history.write(to: transcript)
         try CodexSessionHooks.install(homes: [home.path],
                                       root: supervisorStateDir.deletingLastPathComponent())

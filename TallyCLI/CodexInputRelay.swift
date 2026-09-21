@@ -270,8 +270,8 @@ final class CodexInputRelay {
         let disable = Array("\u{1B}[?2004l".utf8)
         var cursor = 0
         while cursor < combined.count {
-            if matches(enable, in: combined, at: cursor) { bracketedPaste = true; cursor += enable.count }
-            else if matches(disable, in: combined, at: cursor) { bracketedPaste = false; cursor += disable.count }
+            if combined[cursor...].starts(with: enable) { bracketedPaste = true; cursor += enable.count }
+            else if combined[cursor...].starts(with: disable) { bracketedPaste = false; cursor += disable.count }
             else { cursor += 1 }
         }
         outputTail = Array(combined.suffix(16))
@@ -317,8 +317,7 @@ final class CodexInputRelay {
             return start + 5 < bytes.count ? start + 5 : nil
         }
         guard start + 2 < bytes.count else { return nil }
-        for index in (start + 2)..<bytes.count where (0x40...0x7E).contains(bytes[index]) { return index }
-        return nil
+        return ((start + 2)..<bytes.count).first { (0x40...0x7E).contains(bytes[$0]) }
     }
 
     private func oscEnd(in bytes: [UInt8], from start: Int) -> Int? {
@@ -344,12 +343,6 @@ final class CodexInputRelay {
         if body.first == UInt8(ascii: "?") && (final == UInt8(ascii: "c") || final == UInt8(ascii: "n")) { return true }
         if final == UInt8(ascii: "R"), body.allSatisfy({ "0123456789;".utf8.contains($0) }) { return true }
         return false
-    }
-
-    private func matches(_ needle: [UInt8], in haystack: [UInt8], at start: Int) -> Bool {
-        guard start + needle.count <= haystack.count else { return false }
-        for offset in needle.indices where haystack[start + offset] != needle[offset] { return false }
-        return true
     }
 
     private func outerInputIsReady() -> Bool {

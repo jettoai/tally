@@ -48,21 +48,8 @@ struct CodexSessionObserver {
     private(set) var lastUserTurnAt: Date?
     private(set) var lastInputReceiptAt: Date?
     private(set) var inputReceiptsAvailable = false
-    private var lastUserMessage: (text: String, at: Date)?
-
-    func receivedInput(_ text: String, after: Date) -> Bool {
-        guard let message = lastUserMessage else { return false }
-        return message.at >= after && message.text == text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
     private(set) var inputCaughtUp = false
-
-    var canAcceptInput: Bool { state == .idle && inputCaughtUp }
-
-    mutating func inputSubmitted() {
-        // Do not reuse the previous turn end while the TUI is accepting this submission.
-        state = .unknown
-        inputCaughtUp = false
-    }
+    private var lastUserMessage: (text: String, at: Date)?
     private var turns: Set<String> = []
     private var terminalTurns: Set<String> = []
     private var offset: UInt64 = 0
@@ -76,6 +63,10 @@ struct CodexSessionObserver {
     private let launchedAt: Date
     let binding: CodexSessionBinding
 
+    /// Whether the native transcript has caught up to a turn Codex is not still working through,
+    /// which is the only reading a direct send may be typed on.
+    var canAcceptInput: Bool { state == .idle && inputCaughtUp }
+
     init(binding: CodexSessionBinding, launchedAt: Date) {
         self.binding = binding
         self.launchedAt = launchedAt
@@ -83,6 +74,19 @@ struct CodexSessionObserver {
     }
 
     mutating func invalidate() { state = .unknown; invalidated = true }
+
+    /// Whether Codex itself recorded the prompt that was typed, which is what turns a terminal
+    /// write into a delivery. A receipt from before the write proves nothing about it.
+    func receivedInput(_ text: String, after: Date) -> Bool {
+        guard let message = lastUserMessage else { return false }
+        return message.at >= after && message.text == text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    mutating func inputSubmitted() {
+        // Do not reuse the previous turn end while the TUI is accepting this submission.
+        state = .unknown
+        inputCaughtUp = false
+    }
 
     mutating func poll(home: String, activity: CodexSessionActivity? = nil) {
         inputCaughtUp = false

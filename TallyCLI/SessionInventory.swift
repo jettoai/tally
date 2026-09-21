@@ -139,9 +139,9 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             reason: session.state?.reason, noticeType: session.state?.noticeType,
             quiet: session.state?.quiet,
             provider: session.monitoring ? "codex" : "claude",
-            supportedActions: session.monitoring
-                ? (SessionMonitoring.supportsDirectSend(pid: session.supervisorPid, dir: dir) ? ["send"] : [])
-                : ["account", "model", "send", "clear", "reload"])
+            // The same answer `tally session send` refuses or accepts on (SessionMonitoring.swift),
+            // so the inventory cannot advertise a control the send path would then turn down.
+            supportedActions: sessionSupportedActions(pid: session.supervisorPid, dir: dir))
     }
 }
 

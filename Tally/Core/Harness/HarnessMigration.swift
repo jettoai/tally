@@ -34,17 +34,19 @@ enum HarnessMigration {
                     apply: Bool, confirmGitVisible: Bool = false) throws -> [String: Any] {
         let location = HarnessInstallation.recordedLocation(requested)
         guard HarnessIO.exists(location.manifestPath) else { throw HarnessError("No installation to migrate.") }
-        if apply {
-            guard !dropHooks.isEmpty || !dropSkills.isEmpty else {
-                throw HarnessError("Specify individual --drop-hook or --drop-skill entries before applying a migration.")
-            }
-            return try HarnessIO.locked(location.stateRoot) {
-                try prepare(location, dropHooks: Set(dropHooks), dropSkills: Set(dropSkills),
-                            apply: true, confirmGitVisible: confirmGitVisible)
-            }
+        let hooks = Set(dropHooks), skills = Set(dropSkills)
+        // A preview only reads, so it takes no lock; the applying pass verifies and writes.
+        guard apply else {
+            return try prepare(location, dropHooks: hooks, dropSkills: skills,
+                               apply: false, confirmGitVisible: confirmGitVisible)
         }
-        return try prepare(location, dropHooks: Set(dropHooks), dropSkills: Set(dropSkills),
-                           apply: false, confirmGitVisible: confirmGitVisible)
+        guard !hooks.isEmpty || !skills.isEmpty else {
+            throw HarnessError("Specify individual --drop-hook or --drop-skill entries before applying a migration.")
+        }
+        return try HarnessIO.locked(location.stateRoot) {
+            try prepare(location, dropHooks: hooks, dropSkills: skills,
+                        apply: true, confirmGitVisible: confirmGitVisible)
+        }
     }
 
     private static func prepare(_ location: HarnessLocation, dropHooks: Set<String>, dropSkills: Set<String>,

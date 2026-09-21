@@ -34,6 +34,24 @@ func sessionInputLogLine(pid: String, outcome: String, text: String,
         + "bytes=\(text.utf8.count) text=\(visible)\n"
 }
 
+/// The line a write that sent nothing leaves, shared by every station that types a line nobody
+/// asked for (the quota knock, the host-health knock, the cap resume, the limit reset).
+///
+/// THE TWO ARE TOLD APART rather than folded into one "not sent": `.held` wrote no byte at all and
+/// the request stays queued for the next safe tick, while `.uncertain` wrote some and could not
+/// establish the submission - the one of the two whose session a person has to go and look at.
+func appendUnsentSessionInputLine(_ written: SessionInputInjection, pid: String, text: String,
+                                  now: Date, to log: URL) {
+    let outcome: String
+    switch written {
+    case .held: outcome = "held-input"
+    case .uncertain: outcome = SessionInputOutcome.unconfirmedInput.rawValue
+    case .done, .failed: return
+    }
+    appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome, text: text, now: now),
+                           to: log)
+}
+
 /// The mode this log is kept at: readable by its owner and by nobody else.
 ///
 /// DELIBERATELY UNLIKE ITS NEIGHBOURS, and this is the note for whoever comes to make it consistent.

@@ -59,6 +59,11 @@
 # will not build without the monitor behind it. SystemAlert.swift comes with the monitor, being the
 # one notification call it makes.
 #
+# Usage.swift is compiled for two string constants rather than for any behaviour: `tally help` is
+# the surface `tally send` had to be added to, and the assertion that it WAS is a string check
+# (sessionsendverbchecks.swift). The statusline suite owns the other half of that contract - that
+# every command the text documents is a command the dispatch answers.
+#
 # TrustSeed.swift and TrustSeedRelaunch.swift are here because the spawn loop now seeds this
 # folder's trust into the home it is launching onto (2026-09-03): the act itself is asserted next
 # to its neighbours in tests/addshare, and what this suite compiles them for is the audit line and
@@ -109,6 +114,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \
   tests/supervisor/sessionprojectchecks.swift \
+  tests/supervisor/sessionsendverbchecks.swift \
   tests/supervisor/sessionclearchecks.swift tests/supervisor/draftstashchecks.swift \
   tests/supervisor/quotaknockchecks.swift \
   tests/supervisor/knockchannelchecks.swift tests/supervisor/knockhookchecks.swift \
@@ -149,6 +155,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/SessionClear.swift TallyCLI/SessionInputLog.swift \
   TallyCLI/SessionInputRequest.swift \
   TallyCLI/SessionInputCommand.swift TallyCLI/SessionProjectAddress.swift \
+  TallyCLI/SessionSendVerb.swift TallyCLI/Usage.swift \
   TallyCLI/SessionSendWait.swift \
   TallyCLI/QuotaKnock.swift TallyCLI/QuotaKnockLogic.swift \
   TallyCLI/QuotaKnockNotice.swift TallyCLI/QuotaKnockHookContract.swift TallyCLI/HookKnock.swift \

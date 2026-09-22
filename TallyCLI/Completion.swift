@@ -384,6 +384,7 @@ _tally() {
     "share:put an account you already have on the main account's harness"
     "account:pin THIS session to another account, keeping the conversation"
     "model:run THIS conversation on another model and depth, for the rest of its life"
+    "send:type a line into a supervised session, named by provider"
     "session:send a line into a supervised session, or clear its context window"
     "message:send once to an explicit native provider address"
     "harness:inspect and adapt a Claude harness to Codex"
@@ -461,6 +462,15 @@ _tally() {
           _arguments \
             ":verb:(send clear)" \
             "--session[the session to send into, by supervisor pid]:pid:"
+          ;;
+        # The same send, spelled provider-first. The provider IS completed, being a closed pair the
+        # command refuses anything else in; text, pid and project stay blank for the reasons the
+        # branch above gives, a project name being a menu of other people's sessions just as a pid
+        # would be.
+        (send)
+          _arguments ":provider:_tally_providers" \
+            "--project[the session to send into, by launch directory or project name]:project:" \
+            "--session[the session to send into, by pid]:pid:"
           ;;
         (add)
           _arguments \

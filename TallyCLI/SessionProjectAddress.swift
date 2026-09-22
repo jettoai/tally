@@ -25,6 +25,13 @@ import Foundation
 // picking between them that a caller would agree with in advance. So the refusal lists what is
 // there, with the pid to name and the provider to narrow by, which is the answer the caller needs
 // rather than a guess that lands somebody's text in the wrong conversation.
+//
+// A BARE NAME IS THE OTHER THING `--project` TAKES, and it is decided on the spelling alone
+// (`sessionProjectIsPath`): a word with no slash, no `~` and no leading dot is matched against the
+// last component of each directory the roster publishes. What a caller holds is often the project's
+// name rather than its checkout, and writing the path out is the step that made this flag worth
+// skipping. The disk is not consulted for that decision, on purpose - see the rule stated at
+// `sessionProjectIsPath`.
 
 /// The provider names `--provider` may take, which are the names `tally status --json` publishes
 /// under `sessions[].provider`. One list rather than a literal at each site, so a value the filter
@@ -175,6 +182,77 @@ func sessionProjectDirectory(_ path: String,
     return String(resolved.dropLast())
 }
 
+// MARK: - A name rather than a path
+
+/// Whether what the caller typed is a PATH rather than a project name, decided on the spelling and
+/// nothing else.
+///
+/// THE LITERAL IS THE WHOLE RULE, which is a rule rather than a shortcut. Asking the disk would let
+/// `--project tally` mean a directory here and a roster name one `cd` later, so the same command
+/// line written down in a skill file would address two different sessions depending on where the
+/// agent running it happened to be standing. A slash, a `~` or a leading dot is somebody writing a
+/// path; a bare word is somebody writing a name; and neither reading moves with the environment.
+func sessionProjectIsPath(_ typed: String) -> Bool {
+    typed.contains("/") || typed.hasPrefix("~") || typed.hasPrefix(".")
+}
+
+/// What a bare name turns out to name.
+enum SessionProjectNameMatch: Equatable {
+    /// Exactly one directory on the roster ends in it. How many sessions are IN that directory is
+    /// not this question: that is the ambiguity `sessionProjectMatch` already judges.
+    case directory(String)
+    /// No live session was launched in a directory of that name.
+    case noDirectory
+    /// Two or more DIFFERENT directories end in it, refused rather than picked between. Carries
+    /// their full paths, sorted, so a refusal printed twice reads the same both times.
+    case several([String])
+}
+
+/// Which directory a bare name means, matched against the last component of every directory the
+/// roster publishes.
+///
+/// EXACT AND CASE SENSITIVE, because a directory name is: a `Finance` beside a `finance` are two
+/// checkouts, and a prefix match would quietly make `geo` reach `geo-staging` the day somebody
+/// opens one. A name is a convenience over typing the path, not a search.
+func sessionProjectNamed(_ name: String, sessions: [SessionProjectCandidate])
+    -> SessionProjectNameMatch {
+    // DIRECTORIES RATHER THAN SESSIONS, which is why this is a Set: a trunk running a Claude and a
+    // Codex side by side is one answer to the name, and counting sessions here would call it
+    // ambiguous before `sessionProjectMatch` got the chance to say so properly (with the pids, the
+    // providers and the --provider way out).
+    let directories = Set(sessions.compactMap(\.directory)
+        .filter { ($0 as NSString).lastPathComponent == name })
+    guard let one = directories.first else { return .noDirectory }
+    guard directories.count == 1 else { return .several(directories.sorted()) }
+    return .directory(one)
+}
+
+/// Why that name could not be turned into a directory, or nil when it could. Pure, so every wording
+/// is assertable, and worded like its neighbours: nothing of yours was queued, and here is the next
+/// thing to type.
+func sessionProjectNameRefusal(_ match: SessionProjectNameMatch, name: String,
+                               sessions: [SessionProjectCandidate]) -> String? {
+    switch match {
+    case .directory:
+        return nil
+    case .noDirectory:
+        return "no supervised session is running in a directory called \(name), so nothing was "
+            + "queued. A name is matched against the LAST component of the directory a session was "
+            + "launched in, exactly and with its case; pass a full path to --project to name a "
+            + "checkout precisely. `tally status --json` lists every session and the directory it "
+            + "is in"
+    case .several(let directories):
+        let each = directories.map { directory in
+            "\(directory) (\(listed(sessions.filter { $0.directory == directory })))"
+        }.joined(separator: ", ")
+        return "\(directories.count) directories are called \(name) and a session is running in "
+            + "each, so the name cannot tell which one you mean and nothing was queued: \(each). "
+            + "Pass the full path of the one you mean to --project"
+    }
+}
+
+// MARK: - The lookup, once there is a directory
+
 /// Which session that directory names, if one does.
 ///
 /// Pure, and the whole of the decision: the live caller differs from a test only in where the
@@ -289,8 +367,29 @@ func resolveSessionProject(_ intent: SessionSendIntent, sessions: [SessionProjec
                            cwd: String = FileManager.default.currentDirectoryPath)
     -> SessionProjectResolution {
     guard let project = intent.project else { return .addressed(intent) }
-    guard let directory = sessionProjectDirectory(project, cwd: cwd) else {
-        return .refused("--project needs a directory to look a session up by; nothing was queued")
+    // A PATH OR A NAME, chosen by the spelling before anything is looked up: the two ask the roster
+    // different questions, and which one was meant must not depend on where the command was run.
+    let directory: String
+    if sessionProjectIsPath(project) {
+        guard let resolved = sessionProjectDirectory(project, cwd: cwd) else {
+            return .refused("--project needs a directory to look a session up by; nothing was "
+                + "queued")
+        }
+        directory = resolved
+    } else {
+        let named = sessionProjectNamed(project, sessions: sessions)
+        if let refusal = sessionProjectNameRefusal(named, name: project, sessions: sessions) {
+            return .refused(refusal)
+        }
+        guard case .directory(let found) = named else {
+            // Unreachable while the refusal above covers every case but `.directory`, and stated
+            // rather than forced, the rule the pid guard below states.
+            return .refused("could not tell which directory \(project) names; nothing was queued")
+        }
+        // Already a roster spelling (it came OUT of the roster), so it is not put through
+        // `sessionProjectDirectory` again - and must not be: a name resolves to the directory the
+        // roster published, which is the one string the match below compares against.
+        directory = found
     }
     let match = sessionProjectMatch(sessions, directory: directory, provider: intent.provider)
     if let refusal = sessionProjectRefusal(match, directory: directory, provider: intent.provider) {

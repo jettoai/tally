@@ -437,9 +437,14 @@ func runSessionClearChecks() {
     // keeps one address per session true across two verbs.
     let command = (try? String(contentsOfFile: "TallyCLI/SessionInputCommand.swift",
                                encoding: .utf8)) ?? ""
+    // THREE SPELLINGS NOW, and still one path: `tally send <claude|codex>` reaches this through the
+    // same `runSessionSend` the namespace verb does (SessionSendVerb.swift), so what it adds is a
+    // value carried to the one queueing function rather than a second one beside it.
     check("both verbs queue through one path, so the address rules cannot differ",
           command.contains("func queueSessionLine(")
-              && command.contains("return queueSessionLine(intent, requestIntent: nil)")
+              && command.contains(
+                  "return queueSessionLine(intent, requestIntent: nil, "
+                      + "requiredProvider: requiredProvider)")
               && command.contains("case \"clear\":"))
     let clear = (try? String(contentsOfFile: "TallyCLI/SessionClear.swift", encoding: .utf8)) ?? ""
     check("…and the clear verb is the only writer of the intent field",

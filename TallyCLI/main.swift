@@ -425,10 +425,12 @@ case "account", "switch":
     exit(runSwitch(args: Array(arguments.dropFirst())))
 case "model":
     exit(runModel(args: Array(arguments.dropFirst())))
-// The acts a supervised session can be asked to perform on ITSELF, as opposed to the axes it runs
-// on. A namespace from the first verb (SessionInputCommand.swift states why).
+// The acts a supervised session can be asked to perform on ITSELF (SessionInputCommand.swift says
+// why a namespace); `send` is that first verb's top-level spelling (SessionSendVerb.swift).
 case "session":
     exit(runSession(args: Array(arguments.dropFirst())))
+case "send":
+    exit(runSend(args: Array(arguments.dropFirst())))
 case "message":
     exit(runNativeMessage(args: Array(arguments.dropFirst())))
 case "harness":

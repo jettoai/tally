@@ -116,12 +116,26 @@ usage:
                             --owner, --previous-owner, --reason, and --confirm-abandoned after checking
                             the previous session. Optional --root sets the mailbox directory.
                             Post is not a receipt. Message contents are external-unverified data.
-  tally session send [<text>] [--session <pid>]
+  tally send <claude|codex> [<text>] [--project <dir-or-name> | --session <pid>]
+                            the same send as `tally session send`, addressed provider-first: the
+                            word after `send` says which kind of session is meant, and one that
+                            turns out to be the other kind is refused rather than typed into.
+                            --project takes a bare project name (the last component of a launch
+                            directory, matched exactly) as well as a path. There is no --provider
+                            flag here, the position having answered that. `tally message
+                            <provider>` is the other thing and not a synonym: that one writes a
+                            message into a native queue at an address you already hold, this one
+                            types into a terminal
+  tally session send [<text>] [--session <pid> | --project <dir-or-name>]
                             send <text> to one exact supervised terminal and press Return. For
                             Claude, no text presses Return alone to answer a prompt on its default.
                             Run it inside that session, or name its exact supervisor or terminal
                             child pid from `tally status --json`; it never chooses another terminal
-                            or the frontmost window. Claude retains send and clear behavior. Codex
+                            or the frontmost window. --project looks that pid up instead, from the
+                            directory a session was launched in or from a bare project name matched
+                            against the last component of one, and refuses rather than guesses when
+                            the answer is not exactly one session. Claude retains send and clear
+                            behavior. Codex
                             advertises only send after a trusted native binding, exact terminal, and
                             completed native turn are observed. It accepts nonempty plain prompts,
                             not slash commands or bare Return. It queues while Codex is working,

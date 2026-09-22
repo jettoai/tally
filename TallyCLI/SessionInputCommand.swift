@@ -282,10 +282,23 @@ func namedSession(_ named: String, dir: URL = supervisorStateDir) -> NamedSessio
 /// `tally session send [<text>] [--session <pid> | --project <dir> [--provider claude|codex]]`:
 /// type into a supervised session's own terminal and press Return.
 func runSessionSend(args: [String]) -> Int32 {
-    guard var intent = sessionSendIntent(args) else {
+    guard let intent = sessionSendIntent(args) else {
         warn(sessionSendUsage)
         return 2
     }
+    return runSessionSend(intent)
+}
+
+/// One request, sent. THE ONE PATH BOTH SPELLINGS TAKE, which is the whole of what makes `tally
+/// send <provider>` a spelling rather than a second command: by here the grammar has already said
+/// what was asked for, and nothing below can tell which of the two said it
+/// (SessionSendVerb.swift).
+///
+/// `requiredProvider` is the one thing the top-level spelling carries that the other cannot: the
+/// kind of session it named. It is checked at the far end of the addressing, where there is a
+/// session key to check it against.
+func runSessionSend(_ intent: SessionSendIntent, requiredProvider: String? = nil) -> Int32 {
+    var intent = intent
     // A DIRECTORY BECOMES A PID HERE, and nowhere after this line is there anything left to tell a
     // `--project` send from a `--session` one: the roster is asked only where a directory was named
     // (it costs a scan), and a refusal to name one session is a refusal to send
@@ -302,7 +315,7 @@ func runSessionSend(args: [String]) -> Int32 {
     // NO INTENT, which is this command's whole promise: the bytes named are the bytes typed, and
     // nothing the supervisor finds in them earns it a decision (SessionClear.swift argues why the
     // verb that DOES decide is a different verb).
-    return queueSessionLine(intent, requestIntent: nil)
+    return queueSessionLine(intent, requestIntent: nil, requiredProvider: requiredProvider)
 }
 
 /// Queue one line for one session and stay for the grace, shared by both verbs in this namespace.
@@ -310,7 +323,12 @@ func runSessionSend(args: [String]) -> Int32 {
 /// `requestIntent` is the only difference between them on this path, and it travels on the request
 /// rather than changing anything here: what it authorises happens at the far end, at the instant the
 /// line lands (`sessionClearMovesAccounts`).
-func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> Int32 {
+///
+/// `requiredProvider` is what `tally send <claude|codex>` named, and nil from every other caller:
+/// the two verbs in the `session` namespace have nothing to compare a provider against, and a
+/// check with nothing to check is a filter that does nothing.
+func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
+                      requiredProvider: String? = nil) -> Int32 {
     if let problem = sessionSendProblem(intent) {
         warn(problem)
         return 3
@@ -363,6 +381,20 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
                 + "inside the session you mean, or name it with --session <pid>.")
             return 3
         }
+    }
+    // WHICH KIND OF SESSION THIS TURNED OUT TO BE. Asked HERE and nowhere earlier, because here is
+    // where all three ways of naming one have become the same key: a pid, a directory and this
+    // session are checked by one line rather than by three that could disagree. Asked before
+    // anything is written, so a refusal is a send that never happened. The directory route has
+    // already been filtered by provider on its way through the roster
+    // (SessionProjectAddress.swift), and this asks the same question of the session it arrived at.
+    if let requiredProvider,
+       let mismatch = sessionProviderMismatch(
+           wanted: requiredProvider,
+           found: sessionProviderName(sessionKey: sessionKey, dir: supervisorStateDir),
+           sessionKey: sessionKey) {
+        warn(mismatch)
+        return 3
     }
     // Whether anything will read the request, through the same answer `tally account` and `tally
     // model` get. Judged only where the session named ITSELF (`adopted` returns nil when the
@@ -479,7 +511,7 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
 }
 
 let sessionSendUsage = """
-usage: tally session send [<text>] [--session <pid> | --project <dir> [--provider claude|codex]]
+usage: tally session send [<text>] [--session <pid> | --project <dir-or-name> [--provider claude|codex]]
 
 Types <text> into a supervised session's own terminal and presses Return. Claude supports slash
 commands and permission answers. With no text, Claude presses Return alone to answer the default
@@ -489,12 +521,24 @@ triggers nothing. Run it inside the session it is meant for (an agent in that co
 as a tool call); --session names another one by either of its pids, the provider process that
 `tally status --json` lists under `sessions[].pid` or the Tally supervising it.
 
---project <dir> names it by the directory it was launched in instead, matched against the same
+--project <dir-or-name> names it by the directory it was launched in instead, matched against the same
 `sessions[].directory` that JSON publishes: the exact checkout, so a parallel line of a repository
 is addressed by its own path rather than by the trunk's. --provider claude|codex narrows that to
 one kind of session. A directory that has more than one session is refused with the candidates
 listed, naming the pid to pass to --session; a directory with none is refused too, and nothing is
 queued either way. Whichever flag found the pid, everything after it is identical.
+
+--project also takes a bare PROJECT NAME: a word with no slash, no `~` and no leading dot is
+matched against the last component of every directory on the roster, exactly and with its case
+(no prefix or fuzzy matching). Which reading applies is decided on the spelling alone and never on
+what is on disk, so one command line means one thing wherever it is run. A name two different
+directories answer to is refused with both full paths listed, and so is a name nothing was launched
+under; pass a full path to name a checkout precisely.
+
+`tally send claude|codex [<text>] [--project <dir-or-name> | --session <pid>]` is the same send
+spelled provider-first, and the one thing it adds: the session it reaches is checked against the
+provider named, and one of the other kind is refused rather than typed into. This spelling stays,
+and everything below is true of both.
 
 Updated supervised Codex sessions support nonempty direct prompts when status lists `send`.
 Codex requires trusted native lifecycle reporting and a completed turn before advertising this

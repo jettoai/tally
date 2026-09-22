@@ -92,7 +92,7 @@ func runSessionSendChecks() {
     // namespace text is built from each verb's own first line rather than typed a third time: a
     // verb added without a line here would be a command nothing tells anybody about.
     let sendSynopsis = "tally session send [<text>] "
-        + "[--session <pid> | --project <dir> [--provider claude|codex]]"
+        + "[--session <pid> | --project <dir-or-name> [--provider claude|codex]]"
     check("the usage text documents the verbs that exist",
           sessionSendUsage.contains(sendSynopsis)
               && !sessionSendUsage.contains("--submit")
@@ -103,7 +103,7 @@ func runSessionSendChecks() {
     // caller gets when the directory it named holds more than one: a flag whose refusal is a
     // surprise is a flag nobody reaches for a second time.
     check("…and the send documents addressing one by its directory, refusal included",
-          sessionSendUsage.contains("--project <dir> names it by the directory")
+          sessionSendUsage.contains("--project <dir-or-name> names it by the directory")
               && sessionSendUsage.contains("--provider claude|codex narrows")
               && sessionSendUsage.contains(
                   "A directory that has more than one session is refused with the candidates"))
@@ -746,12 +746,13 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // Eleven return-3 refusals, including the explicitly named legacy Codex monitor and the
+        // Twelve return-3 refusals, including the explicitly named legacy Codex monitor, the
         // directory that names no single session (`--project`, decided before anything else is
-        // asked). A refusal below the write can only be reached after a caller has already been
+        // asked) and the session that turns out to be the provider `tally send <claude|codex>` did
+        // NOT name. A refusal below the write can only be reached after a caller has already been
         // told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 12
+              before.components(separatedBy: "return 3").count == 13
                   && before.contains("return 2")
                   && !after.contains("return 3")
                   // and the one non-zero ending left below it is the session that has exited

@@ -31,18 +31,31 @@ import Foundation
 // is nothing to do) and the app never leaving for a whole minute (this update was not what would
 // have taken it away, so a quit hours later is the user's own).
 //
-// AND THE SWAP ARMS THROUGH A SHORT MEMORY OF THE APP, not off the single reading before it, which
-// is what kept this station silent through the second incident it was written to catch. The measured
-// 2026-09-22 timeline (`/usr/bin/log show`): the app was sent its quit at 12:24:01.505, was dead by
-// .606, and the bundle carried 0.77.0 about 2.4 seconds later. The readings are on a grid - the
+// AND THE SWAP ARMS THROUGH A SHORT MEMORY OF THE APP, not off the single reading before it. The
+// 2026-09-22 report is NOT the evidence for that, and the sentence that used to claim it here was
+// an inference nobody had measured. What the machine actually recorded that day: `/Applications`
+// and Sparkle's `Installation/` directory carry the same mtime, 12:24:01, so the swap landed in the
+// same second the app died rather than seconds before it; `loginwindow` logged appDeath for
+// ai.jetto.tally at 12:24:01.606; Autoupdate (21396) and Updater (21398) both exited between .61
+// and .63 without starting anything, which is the `targetDead` path this header opens with. The app
+// was back at 12:24:04.587 (`open[38895]`, then Tally[38896] at .631, its status item at .913, and
+// `ps -o lstart` on that pid agrees), so it was away 3.0 seconds, a fifth of the grace. That `open
+// -g` was neither the user nor this station: a Claude session's install-verification script (`if !
+// pgrep -x Tally; then open -g ...`) reached it first, and its own output still reads `12:24:04
+// version=0.77.0 running=none`. So the answer this station owed that night, on the old code and on
+// this one alike, is the same one: the app returned, disarm, no claim taken. It was not silent for
+// want of a working arming; it was beaten to the open by three seconds, and to this day nothing it
+// does has been verified against a real update.
+//
+// THE ARGUMENT FOR THE MEMORY IS THE GRID, THEN, AND NOT THAT NIGHT. The readings are on one: the
 // process table is walked at most every `appRelaunchScanInterval` and the loop ticks every two
-// seconds - so whether the reading the swap tick carries forward still says "alive" depends on
+// seconds, so whether the reading the swap tick carries forward still says "alive" depends on
 // nothing but WHEN THAT SUPERVISOR STARTED. Swept across one scan interval in quarter-second steps
-// (apprelaunchchecks.swift, section 32), a third of the start phases had the app already read as
-// gone at the swap and armed nothing, in the exact timeline of the incident. Ten supervisors were
-// resident that day, started at ten unrelated moments. So what the arming asks is how long the app
-// has been KNOWN gone when the swap is noticed, and a run of absence no longer than the grid itself
-// (`appRelaunchAbsenceMemory`) reads as "it was here when this started".
+// (apprelaunchchecks.swift, section 32), a third of the start phases read the app as already gone
+// at the swap and armed nothing. Ten supervisors were resident on the 22nd, started at ten
+// unrelated moments. So what the arming asks is how long the app has been KNOWN gone when the swap
+// is noticed, and a run of absence no longer than the grid itself (`appRelaunchAbsenceMemory`)
+// reads as "it was here when this started".
 //
 // WHAT THAT COSTS, and it is the only thing it costs: an app the user quit within those few seconds
 // of a swap landing is opened once. The swap is normally performed BY the running app (Sparkle
@@ -56,8 +69,11 @@ import Foundation
 // the same reason: a tick that finds nothing does nothing, and the next one asks again.
 //
 // EVERY DECISION LEAVES A LINE, in `~/.tally/logs/app-relaunch.log`. Three incidents were reported
-// against this chain and the third cost hours to tell apart from the first two, because a station
-// that decides nothing and a station that was never watching look identical from outside: silence.
+// against this chain, and only the first two are this chain failing: the third is the same symptom
+// with a different cause, an app that did come back (three seconds ahead of this station, and
+// disarming was the right answer). Telling that third one apart cost hours, which is the whole
+// reason for the file, because a station that decides nothing and a station that was never watching
+// look identical from outside: silence.
 // `warn` goes to a terminal that scrolls away, so the durable line is the one that answers it. A
 // supervisor that starts watching says so once, and after that every arming, every disarming with
 // the reason for it, every open and every claim lost to another supervisor is one line. What the
@@ -73,8 +89,18 @@ import Foundation
 // running, which macOS answers by doing nothing. A false "alive" costs nothing at all: the station
 // stays quiet and the user opens the app by hand, which is exactly today's behaviour.
 //
-// ONE OPEN PER UPDATE, ACROSS EVERY SUPERVISOR ON THE MACHINE. Nine of them were resident the day
-// of the incident, all watching the same bundle and all reaching the same conclusion within a few
+// THAT PRICE IS PER OCCURRENCE, AND ONLY AN OCCASIONAL FALSE "DEAD" PAYS IT. A reading that is
+// wrong the SAME way every time never costs an open at all: it costs the arming, because the app is
+// then never known to have been there for a swap. It is the failure both shapes of this record have
+// had. The reading this replaced (`seenAlive`, a boolean off the last sample) is false at every
+// swap if the probe never sees the app, and the one here (`absentSince`) is older than
+// `appRelaunchAbsenceMemory` at every swap for the same reason, so either way the station watches
+// forever and arms never. Which is why the probe is asserted against a path a bundle declares
+// rather than a name we assume, and why a station that is watching but has never armed is one of
+// the four things the log has to be able to settle.
+//
+// ONE OPEN PER UPDATE, ACROSS EVERY SUPERVISOR ON THE MACHINE. Ten of them were resident on
+// 2026-09-22, all watching the same bundle and all reaching the same conclusion within a few
 // seconds of each other. The version being opened for is claimed as a filename under the supervisor
 // state directory with `O_CREAT | O_EXCL`, so the create IS the decision and exactly one process
 // wins it; the losers record the version as handled and stop asking.
@@ -128,7 +154,7 @@ let appRelaunchGrace: TimeInterval = 15
 let appRelaunchArmWindow: TimeInterval = 60
 
 /// The shortest gap between two walks of the process table. The poll tick is far faster than this
-/// and there can be nine supervisors on one machine, so the scan is throttled rather than run per
+/// and a machine can carry a dozen of them, so the scan is throttled rather than run per
 /// tick; the app's absence is a state that lasts, so a reading up to this old changes nothing.
 let appRelaunchScanInterval: TimeInterval = 5
 

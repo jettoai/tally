@@ -385,24 +385,42 @@ func runAppRelaunchChecks() {
     // A SWAP STILL IN PROGRESS IS NOT A BUNDLE TO OPEN. The app's executable is gone for a moment
     // while the installer writes it, and this station must not hand the user a half-installed app -
     // the check `selfUpdateBinary` spends on the same fact about its own binary.
-    // The timeline is the incident's own, so every gate BUT this one says "open it": the app runs
-    // under the old build, the version moves forward with the app gone, and the grace passes. Only
-    // the executable being absent holds it, which is what makes these four lines an assertion.
+    // The timeline is the incident's own, and the station is walked INTO it: the first tick reads
+    // the app alive under the old build, and only then does the executable go away. So every gate
+    // BUT this one says "open it" while it is away, which is what makes these lines an assertion.
+    // Driven tick by tick rather than from one loop, because a fixture whose `runnable` is false
+    // from the very first tick returns early every time and asserts nothing at all about arming:
+    // that is what stood here (probes=0, seenVersion=nil, armed=false) while the comment claimed
+    // the opposite.
     var midSwap = AppRelaunchState()
     var midSwapOpened = 0
     var midSwapProbes = 0
-    var midSwapLogged = 0
-    for (offset, version) in [(0.0, old), (10.0, new), (30.0, new)] {
+    var midSwapLog: [AppRelaunchEvent] = []
+    func midSwapTick(_ offset: TimeInterval, _ version: String, alive: Bool, runnable: Bool) {
         applyAppRelaunch(&midSwap, now: launch.addingTimeInterval(offset), installed: version,
-                         bundle: paths, probe: { _ in midSwapProbes += 1; return offset == 0 },
-                         runnable: { _ in false }, claim: { _, _ in true },
-                         record: { _, _ in midSwapLogged += 1 },
+                         bundle: paths, probe: { _ in midSwapProbes += 1; return alive },
+                         runnable: { _ in runnable }, claim: { _, _ in true },
+                         record: { event, _ in midSwapLog.append(event) },
                          launch: { _ in midSwapOpened += 1 })
     }
+    midSwapTick(0, old, alive: true, runnable: true)
+    check("the tick before the swap reads the old app as alive and starts watching",
+          midSwapProbes == 1 && midSwapLog == [.watching(old)])
+    midSwapTick(10, new, alive: false, runnable: false)
+    midSwapTick(30, new, alive: false, runnable: false)
     check("a bundle whose app is not runnable yet is never opened", midSwapOpened == 0)
-    check("and is not even asked about: no walk of the process table", midSwapProbes == 0)
-    check("nor does a tick that decided nothing write a line", midSwapLogged == 0)
+    check("and is not even asked about: no walk of the process table while it is away",
+          midSwapProbes == 1)
+    check("nor does a tick that decided nothing write a line", midSwapLog == [.watching(old)])
     check("and the station holding through it stays unarmed", !midSwap.isArmed)
+    midSwapTick(40, new, alive: false, runnable: true)
+    check("the swap is recognised once the executable is back, against the version this station "
+          + "remembered from before it",
+          midSwap.isArmed && midSwapLog == [.watching(old), .armed(new)])
+    check("and the arming alone still opens nothing", midSwapOpened == 0)
+    midSwapTick(60, new, alive: false, runnable: true)
+    check("the relaunch an interrupted install owed is paid once the grace has passed",
+          midSwapOpened == 1 && midSwapLog == [.watching(old), .armed(new), .opened(new)])
 
     // The line itself, which is the thing being read back. The bundle path is last because it is
     // the one field that can contain a space.

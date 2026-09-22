@@ -83,11 +83,11 @@ expect(IdleInstall.standardAlertShouldShowScheduledUpdate(automaticInstallsEnabl
 
 // MARK: which real surface feeds which input
 //
-// The rules above see two booleans; WHICH windows are behind them is decided in
-// UpdaterController.swift, and that wiring is where the distinction can silently go back to what it
-// was (put the modal back into the window list and every window vetoes forever again; drop a window
-// out of it and that window stops holding the install off at all). The rules cannot see it, so it
-// is read out of the source. Run from the repo root by tests/run-idleinstall-tests.sh.
+// The rules above take the modal and the windows as two booleans; WHICH windows are behind them is
+// decided in UpdaterController.swift, and that wiring is where the distinction can silently go back
+// to what it was (put the modal back into the window list and every window vetoes forever again;
+// drop a window out of it and that window stops holding the install off at all). The rules cannot
+// see it, so it is read out of the source. Run from the repo root by tests/run-idleinstall-tests.sh.
 
 let controllerPath = "Tally/App/UpdaterController.swift"
 guard let controller = try? String(contentsOfFile: controllerPath, encoding: .utf8) else {
@@ -97,12 +97,11 @@ guard let controller = try? String(contentsOfFile: controllerPath, encoding: .ut
 
 // The body of taskWindowOnScreen alone, so a mention of a modal anywhere else in the file (the call
 // site legitimately has one) cannot stand in for the thing being asserted.
-let marker = "private static var taskWindowOnScreen: Bool {"
 let windowBody: String = {
-    guard let start = controller.range(of: marker) else { return "" }
-    let rest = controller[start.upperBound...]
-    guard let end = rest.range(of: "\n    }") else { return "" }
-    return String(rest[..<end.lowerBound])
+    guard let start = controller.range(of: "private static var taskWindowOnScreen: Bool {"),
+          let end = controller.range(of: "\n    }", range: start.upperBound ..< controller.endIndex)
+    else { return "" }
+    return String(controller[start.upperBound ..< end.lowerBound])
 }()
 
 expect(!windowBody.isEmpty, "UpdaterController still has a taskWindowOnScreen to read")

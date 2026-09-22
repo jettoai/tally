@@ -154,7 +154,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionClear.swift TallyCLI/SessionInputLog.swift \
   TallyCLI/SessionInputRequest.swift \
-  TallyCLI/SessionInputCommand.swift TallyCLI/SessionProjectAddress.swift \
+  TallyCLI/SessionInputCommand.swift TallyCLI/SessionInputOccupant.swift \
+  TallyCLI/SessionProjectAddress.swift \
   TallyCLI/SessionSendVerb.swift TallyCLI/Usage.swift \
   TallyCLI/SessionSendWait.swift \
   TallyCLI/QuotaKnock.swift TallyCLI/QuotaKnockLogic.swift \

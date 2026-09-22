@@ -91,12 +91,22 @@ func runSessionSendChecks() {
     // The lines the namespace says, and the verbs they name. TWO of them since 2026-08-18, and the
     // namespace text is built from each verb's own first line rather than typed a third time: a
     // verb added without a line here would be a command nothing tells anybody about.
+    let sendSynopsis = "tally session send [<text>] "
+        + "[--session <pid> | --project <dir> [--provider claude|codex]]"
     check("the usage text documents the verbs that exist",
-          sessionSendUsage.contains("tally session send [<text>] [--session <pid>]")
+          sessionSendUsage.contains(sendSynopsis)
               && !sessionSendUsage.contains("--submit")
               && sessionClearUsage.contains("tally session clear [--session <pid>]")
-              && sessionUsage.contains("usage: tally session send [<text>] [--session <pid>]")
+              && sessionUsage.contains("usage: " + sendSynopsis)
               && sessionUsage.contains("tally session clear [--session <pid>]"))
+    // The second way to name a session is documented where the first one is, with the answer a
+    // caller gets when the directory it named holds more than one: a flag whose refusal is a
+    // surprise is a flag nobody reaches for a second time.
+    check("…and the send documents addressing one by its directory, refusal included",
+          sessionSendUsage.contains("--project <dir> names it by the directory")
+              && sessionSendUsage.contains("--provider claude|codex narrows")
+              && sessionSendUsage.contains(
+                  "A directory that has more than one session is refused with the candidates"))
     // AND THE SEND POINTS AT THE OTHER ONE, which is the whole of how a caller finds the verb that
     // decides accounts: `send` is deliberately the dumb pipe, so the place it says so is the place
     // somebody reading about `/clear` is standing.
@@ -736,10 +746,12 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // Ten return-3 refusals, including the explicitly named legacy Codex monitor. A refusal below the write
-        // that can only be reached after a caller has already been told its line was queued.
+        // Eleven return-3 refusals, including the explicitly named legacy Codex monitor and the
+        // directory that names no single session (`--project`, decided before anything else is
+        // asked). A refusal below the write can only be reached after a caller has already been
+        // told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 11
+              before.components(separatedBy: "return 3").count == 12
                   && before.contains("return 2")
                   && !after.contains("return 3")
                   // and the one non-zero ending left below it is the session that has exited

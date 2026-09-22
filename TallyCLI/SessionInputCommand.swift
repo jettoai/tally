@@ -33,6 +33,11 @@ struct SessionSendIntent: Equatable {
     /// A session named on the command line rather than found. nil is the ordinary case: the session
     /// this command is running inside.
     var session: String?
+    /// A directory whose one supervised session is meant, resolved to a pid before anything is
+    /// written (SessionProjectAddress.swift, which states why a checkout rather than a repository).
+    var project: String?
+    /// Which provider's session in that directory, when it holds more than one kind.
+    var provider: String?
 }
 
 /// What one command line asks for, or nil when it asks for something this command cannot act on.
@@ -50,7 +55,7 @@ struct SessionSendIntent: Equatable {
 /// because every other reading makes a flag this command does not know into content.
 func sessionSendIntent(_ args: [String]) -> SessionSendIntent? {
     var text: String?
-    var session: String?
+    var address = SessionSendAddress()
     var literal = false
     var index = args.startIndex
     while index < args.endIndex {
@@ -58,10 +63,10 @@ func sessionSendIntent(_ args: [String]) -> SessionSendIntent? {
         index += 1
         if !literal {
             if word == "--" { literal = true; continue }
-            if word == "--session" {
-                guard index < args.endIndex, session == nil else { return nil }
-                session = args[index]
-                index += 1
+            // The three flags that say WHICH session, and the rules over the set of them, in the
+            // one type that owns them (SessionSendAddress). nil is "not one of mine".
+            if let taken = address.take(word, args, &index) {
+                guard taken else { return nil }
                 continue
             }
             guard !word.hasPrefix("-") else { return nil }
@@ -69,7 +74,9 @@ func sessionSendIntent(_ args: [String]) -> SessionSendIntent? {
         guard text == nil else { return nil }
         text = word
     }
-    return SessionSendIntent(text: text ?? "", session: session)
+    guard address.namesOneSession else { return nil }
+    return SessionSendIntent(text: text ?? "", session: address.session,
+                             project: address.project, provider: address.provider)
 }
 
 /// Why this cannot be asked for, or nil when it can. Pure, and asked BEFORE anything is written, so
@@ -272,12 +279,25 @@ func namedSession(_ named: String, dir: URL = supervisorStateDir) -> NamedSessio
     return .notSupervised
 }
 
-/// `tally session send [<text>] [--session <pid>]`: type into a supervised session's own terminal
-/// and press Return.
+/// `tally session send [<text>] [--session <pid> | --project <dir> [--provider claude|codex]]`:
+/// type into a supervised session's own terminal and press Return.
 func runSessionSend(args: [String]) -> Int32 {
-    guard let intent = sessionSendIntent(args) else {
+    guard var intent = sessionSendIntent(args) else {
         warn(sessionSendUsage)
         return 2
+    }
+    // A DIRECTORY BECOMES A PID HERE, and nowhere after this line is there anything left to tell a
+    // `--project` send from a `--session` one: the roster is asked only where a directory was named
+    // (it costs a scan), and a refusal to name one session is a refusal to send
+    // (SessionProjectAddress.swift carries every wording and the reason ambiguity is not resolved).
+    if intent.project != nil {
+        switch resolveSessionProject(intent, sessions: liveSessionProjectCandidates()) {
+        case .addressed(let addressed):
+            intent = addressed
+        case .refused(let why):
+            warn(why)
+            return 3
+        }
     }
     // NO INTENT, which is this command's whole promise: the bytes named are the bytes typed, and
     // nothing the supervisor finds in them earns it a decision (SessionClear.swift argues why the
@@ -459,7 +479,7 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> In
 }
 
 let sessionSendUsage = """
-usage: tally session send [<text>] [--session <pid>]
+usage: tally session send [<text>] [--session <pid> | --project <dir> [--provider claude|codex]]
 
 Types <text> into a supervised session's own terminal and presses Return. Claude supports slash
 commands and permission answers. With no text, Claude presses Return alone to answer the default
@@ -468,6 +488,13 @@ for itself (`/clear`, `/compact`, an answer to a permission prompt), and a line 
 triggers nothing. Run it inside the session it is meant for (an agent in that conversation can run it
 as a tool call); --session names another one by either of its pids, the provider process that
 `tally status --json` lists under `sessions[].pid` or the Tally supervising it.
+
+--project <dir> names it by the directory it was launched in instead, matched against the same
+`sessions[].directory` that JSON publishes: the exact checkout, so a parallel line of a repository
+is addressed by its own path rather than by the trunk's. --provider claude|codex narrows that to
+one kind of session. A directory that has more than one session is refused with the candidates
+listed, naming the pid to pass to --session; a directory with none is refused too, and nothing is
+queued either way. Whichever flag found the pid, everything after it is identical.
 
 Updated supervised Codex sessions support nonempty direct prompts when status lists `send`.
 Codex requires trusted native lifecycle reporting and a completed turn before advertising this

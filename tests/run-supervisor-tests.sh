@@ -108,6 +108,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/capresumechecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \
+  tests/supervisor/sessionprojectchecks.swift \
   tests/supervisor/sessionclearchecks.swift tests/supervisor/draftstashchecks.swift \
   tests/supervisor/quotaknockchecks.swift \
   tests/supervisor/knockchannelchecks.swift tests/supervisor/knockhookchecks.swift \
@@ -147,7 +148,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionClear.swift TallyCLI/SessionInputLog.swift \
   TallyCLI/SessionInputRequest.swift \
-  TallyCLI/SessionInputCommand.swift TallyCLI/SessionSendWait.swift \
+  TallyCLI/SessionInputCommand.swift TallyCLI/SessionProjectAddress.swift \
+  TallyCLI/SessionSendWait.swift \
   TallyCLI/QuotaKnock.swift TallyCLI/QuotaKnockLogic.swift \
   TallyCLI/QuotaKnockNotice.swift TallyCLI/QuotaKnockHookContract.swift TallyCLI/HookKnock.swift \
   TallyCLI/HostHealthKnock.swift TallyCLI/HostHealthKnockLogic.swift \

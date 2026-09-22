@@ -421,9 +421,10 @@ func encodeStatusReport(_ report: StatusReport) -> String {
 /// old to publish `resetState` falls back to the banked count alone.
 func resetStatusSuffix(_ account: Snapshot.Account) -> String {
     let banked = account.resetCreditsAvailable ?? 0
+    let bankedText = " · \(banked) reset\(banked == 1 ? "" : "s") banked"
     switch account.resetState {
     case "available" where banked > 0:
-        var text = " · \(banked) reset\(banked == 1 ? "" : "s") banked"
+        var text = bankedText
         if let expiry = account.resetCreditsNextExpiry {
             let stamp = DateFormatter()
             stamp.locale = Locale(identifier: "en_US_POSIX")
@@ -436,6 +437,6 @@ func resetStatusSuffix(_ account: Snapshot.Account) -> String {
     case "used": return " · no resets banked"
     case "unknown": return " · resets unknown"
     case "notSupported": return ""
-    default: return banked > 0 ? " · \(banked) reset\(banked == 1 ? "" : "s") banked" : ""
+    default: return banked > 0 ? bankedText : ""
     }
 }

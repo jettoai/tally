@@ -228,21 +228,19 @@ enum ResetHintLogic {
                 continue
             }
             // Each spendable credit on its own clock; the account offers its most urgent one.
-            var best: ResetHint?
-            for credit in usage.spendableResetCredits {
+            let hints = usage.spendableResetCredits.compactMap { credit -> ResetHint? in
                 guard let creditKey = creditKey(credit),
                       let stage = expiryStage(expiresAt: credit.expiresAt, remaining: remaining,
-                                              bindingResetsAt: resetsAt, now: now) else { continue }
+                                              bindingResetsAt: resetsAt, now: now) else { return nil }
                 let fired = (stages[creditKey] ?? []).compactMap(ResetHintReason.init(rawValue:))
                 // A stage speaks once, and never after a later one already spoke.
-                guard fired.allSatisfy({ $0 < stage }) else { continue }
-                let hint = ResetHint(accountID: usage.id, accountLabel: usage.accountLabel,
-                                     reason: stage, bindingRemainingPercent: remaining,
-                                     creditExpiresAt: credit.expiresAt, creditKey: creditKey,
-                                     bindingResetsAt: resetsAt)
-                if best.map({ leastWasteful(hint, $0) }) ?? true { best = hint }
+                guard fired.allSatisfy({ $0 < stage }) else { return nil }
+                return ResetHint(accountID: usage.id, accountLabel: usage.accountLabel,
+                                 reason: stage, bindingRemainingPercent: remaining,
+                                 creditExpiresAt: credit.expiresAt, creditKey: creditKey,
+                                 bindingResetsAt: resetsAt)
             }
-            if let best { candidates.append(best) }
+            if let best = hints.min(by: leastWasteful) { candidates.append(best) }
         }
 
         guard let hint = candidates.min(by: leastWasteful) else { return (next, nil) }

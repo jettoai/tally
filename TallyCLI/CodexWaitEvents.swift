@@ -70,9 +70,11 @@ struct CodexWaitTracker {
                 // A question's own output landing is the one Codex signal that says a person
                 // answered; the rest are the turn moving on without saying what happened.
                 let outcome = observer?.lastQuestionOutcome
-                let mine = outcome?.callID == openCallID
-                resolution = mine && outcome?.reason == "answered" ? .answered
-                    : (mine && outcome?.reason == "invalidated" ? .sessionEnded : .unknown)
+                switch outcome?.callID == openCallID ? outcome?.reason : nil {
+                case "answered": resolution = .answered
+                case "invalidated": resolution = .sessionEnded
+                default: resolution = .unknown
+                }
             } else {
                 let outcome = observer?.lastPermissionOutcome
                 let invalidated = outcome?.turnID == openTurnID && outcome?.reason == "invalidated"

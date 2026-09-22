@@ -135,22 +135,21 @@ usage:
                             directory a session was launched in or from a bare project name matched
                             against the last component of one, and refuses rather than guesses when
                             the answer is not exactly one session. Claude retains send and clear
-                            behavior. Codex
-                            advertises only send after a trusted native binding, exact terminal, and
-                            completed native turn are observed. It accepts nonempty plain prompts,
-                            not slash commands or bare Return. It queues while Codex is working,
-                            blocked, unknown, waiting for permission, or a human may be typing, and
-                            expires after 15 minutes. Quiet unexplained input is refused: send a
-                            real prompt in that exact Codex session, wait for it to finish, then
-                            retry. Delivery needs Codex's matching new user message; a terminal
-                            write without it is unconfirmed and never retried automatically,
-                            including custom Enter key mappings. A monitoring-only Codex session is
-                            refused: exit it and use `tally codex resume <UUID>`. Its qualifying
-                            no-prompt exact resume needs no manual bootstrap, but human startup
-                            input remains draft-held. Codex still advertises send only after a
-                            trusted binding, exact terminal, completed native turn, and receipt.
-                            Text is limited to 200 UTF-8 bytes; served or refused outcomes go to
-                            ~/.tally/logs/input.log.
+                            behavior. Codex advertises only send after a trusted native binding,
+                            exact terminal, and completed native turn are observed. It accepts
+                            nonempty plain prompts, not slash commands or bare Return. It queues
+                            while Codex is working, blocked, unknown, waiting for permission, or a
+                            human may be typing, and expires after 15 minutes. Quiet unexplained
+                            input is refused: send a real prompt in that exact Codex session, wait
+                            for it to finish, then retry. Delivery needs Codex's matching new user
+                            message; a terminal write without it is unconfirmed and never retried
+                            automatically, including custom Enter key mappings. A monitoring-only
+                            Codex session is refused: exit it and use `tally codex resume <UUID>`.
+                            Its qualifying no-prompt exact resume needs no manual bootstrap, but
+                            human startup input remains draft-held. Codex still advertises send only
+                            after a trusted binding, exact terminal, completed native turn, and
+                            receipt. Text is limited to 200 UTF-8 bytes; served or refused outcomes
+                            go to ~/.tally/logs/input.log.
                             `tally session clear` is a distinct Claude control, not a Codex action
   tally session clear [--session <pid>]
                             close a session's context window: the same `/clear`, queued on the same

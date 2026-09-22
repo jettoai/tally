@@ -369,6 +369,11 @@ func resolveSessionProject(_ intent: SessionSendIntent, sessions: [SessionProjec
     guard let project = intent.project else { return .addressed(intent) }
     // A PATH OR A NAME, chosen by the spelling before anything is looked up: the two ask the roster
     // different questions, and which one was meant must not depend on where the command was run.
+    //
+    // EACH LOOKUP IS ASKED FOR ITS ONE GOOD ANSWER, and whatever else it turns out to be is refused
+    // with the wording written for that case. The sentence after each `??` is stated rather than
+    // forced: it is unreachable while every case has a wording of its own, and it is here so that a
+    // case added without one cannot fall through into a send addressed to nobody.
     let directory: String
     if sessionProjectIsPath(project) {
         guard let resolved = sessionProjectDirectory(project, cwd: cwd) else {
@@ -378,13 +383,9 @@ func resolveSessionProject(_ intent: SessionSendIntent, sessions: [SessionProjec
         directory = resolved
     } else {
         let named = sessionProjectNamed(project, sessions: sessions)
-        if let refusal = sessionProjectNameRefusal(named, name: project, sessions: sessions) {
-            return .refused(refusal)
-        }
         guard case .directory(let found) = named else {
-            // Unreachable while the refusal above covers every case but `.directory`, and stated
-            // rather than forced, the rule the pid guard below states.
-            return .refused("could not tell which directory \(project) names; nothing was queued")
+            return .refused(sessionProjectNameRefusal(named, name: project, sessions: sessions)
+                ?? "could not tell which directory \(project) names; nothing was queued")
         }
         // Already a roster spelling (it came OUT of the roster), so it is not put through
         // `sessionProjectDirectory` again - and must not be: a name resolves to the directory the
@@ -392,14 +393,10 @@ func resolveSessionProject(_ intent: SessionSendIntent, sessions: [SessionProjec
         directory = found
     }
     let match = sessionProjectMatch(sessions, directory: directory, provider: intent.provider)
-    if let refusal = sessionProjectRefusal(match, directory: directory, provider: intent.provider) {
-        return .refused(refusal)
-    }
     guard case .one(let pid) = match else {
-        // Unreachable while the refusal above covers every case but `.one`, and stated rather than
-        // forced: a case added to the match without a wording for it must not fall through into a
-        // send addressed to nobody.
-        return .refused("could not tell which session \(directory) names; nothing was queued")
+        return .refused(sessionProjectRefusal(match, directory: directory,
+                                              provider: intent.provider)
+            ?? "could not tell which session \(directory) names; nothing was queued")
     }
     // THE PROJECT IS SPENT HERE. What travels on is a request that names a pid, so everything
     // downstream (the roster check, the Codex refusal, the one-send-at-a-time address) is asked the

@@ -60,11 +60,13 @@ func sendVerbRequest(_ args: [String]) -> SendVerbRequest? {
     // produce the same value field for field, and a test can say so. Where no directory was named
     // it travels beside the request instead (`SendVerbRequest.provider`), and the check it feeds
     // happens once the address has become a session key.
-    return SendVerbRequest(provider: provider,
-                           intent: SessionSendIntent(text: intent.text, session: intent.session,
-                                                     project: intent.project,
-                                                     provider: intent.project == nil
-                                                         ? nil : provider))
+    //
+    // THE OTHER SPELLING'S REQUEST, AMENDED RATHER THAN REBUILT. Listing every field here would be
+    // a second place that has to learn each one `SessionSendIntent` grows, and the day it forgot
+    // one the spelling that is meant to be identical would be the spelling that silently drops it.
+    var request = intent
+    if request.project != nil { request.provider = provider }
+    return SendVerbRequest(provider: provider, intent: request)
 }
 
 /// Which provider the session at that key is, in the two words `tally status --json` publishes

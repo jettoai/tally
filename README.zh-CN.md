@@ -173,9 +173,14 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   兄弟账号还有余量：「收个尾换账号，或者等它重置。」若所有账号都没有余裕，它就诚实地这样
   讲。要回到 30% 才会重新上膛，所以在门槛上下徘徊的账号只会讲一次；而快要重置的窗算作满
   的，因为为了一份马上就要回充的额度把你叫停，是在跟你作对。
-- **叫一个正在跑的会话做事。** `tally session send "<文字>" --session <pid>` 会把一行送到
-  `tally status --json` 所列该会话的确切 supervisor 或 child PID 对应终端，不会使用前台窗口。
-  Claude 保留既有的 send 与 clear 行为。Codex 会话只有在 Tally 已取得可信的原生绑定、验证对应
+- **叫一个正在跑的会话做事。** `tally send claude "<文字>" --project <项目名>` 会把一行送到
+  那个地址指名的确切受监督终端，不会使用前台窗口。`send` 后面那个字说明要找的是哪一种会话，
+  所以同一个 checkout 里并存一个 Claude、一个 Codex 时，光靠 provider 就定得到地址；指到另一种
+  的会被拒绝，不会照打进去。`--project` 除了路径，也接受裸项目名（启动目录的最后一段）；人已经
+  在那个目录里时可以整个省略。同一个目录里同一种会话有两个时，会列出两个 pid 拒绝送出，不用
+  猜的。`tally session send "<文字>" --session <pid>` 是同一个 send，改以 `tally status --json`
+  列出的 supervisor 或 child PID 定址。Claude 保留既有的 send 与 clear 行为。
+  Codex 会话只有在 Tally 已取得可信的原生绑定、验证对应
   终端，并观察到原生回合完成后，才会声明 `send`。Codex 只接受非空白的一般 prompt，不接受
   slash command、shell mode 或单独的 Return。它在工作中、被阻挡、状态未知、要求权限，或有人可能正在输入
   时会排队，15 分钟后到期。终端安静却有无法解释的输入时会立即拒绝：请在该 Codex 会话输入真正
@@ -234,7 +239,7 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   可读报告：每个账号的额度窗与重置时间、现在启动会落在哪个账号，以及每个受监督的会话
   正在跑什么，可直接喂给你自己的脚本、hook 与 agent skill）、`tally worktree tree|list|root`、
   `tally best-dir <provider>`。操控：`tally account`、`tally model`、`tally project`、
-  `tally session send|clear`、`tally reload`。维护：`tally update`、`tally completion zsh`、
+  `tally send <claude|codex>`、`tally session send|clear`、`tally reload`。维护：`tally update`、`tally completion zsh`、
   `tally worktree remove`。全部对脚本友好。
 
 - **Harness 工具。** 在设置 > 集成 > Harness，一次安装或移除两边的

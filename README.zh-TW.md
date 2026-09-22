@@ -172,9 +172,14 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   以及哪個手足帳號還有餘量：「收個尾換帳號，或等它重置。」若所有帳號都沒有餘裕，它就誠實
   地這樣講。要回到 30% 才會重新上膛，所以在門檻上下徘徊的帳號只會講一次；而快要重置的窗
   算作滿的，因為為了一份馬上就要回充的額度把你叫停，是在跟你作對。
-- **叫一個正在跑的 session 做事。** `tally session send "<文字>" --session <pid>` 會把一行
-  送到 `tally status --json` 所列該 session 的確切 supervisor 或 child PID 對應終端機，不會使用
-  前景視窗。Claude 保留既有的 send 與 clear 行為。Codex session 只有在 Tally 已取得受信任的
+- **叫一個正在跑的 session 做事。** `tally send claude "<文字>" --project <專案名>` 會把一行送到
+  那個位址指名的確切受監督終端機，不會使用前景視窗。`send` 後面那個字說明要找的是哪一種
+  session，所以同一個 checkout 裡並存一個 Claude、一個 Codex 時，光靠 provider 就定得到址；指到
+  另一種的會被拒絕，不會照打進去。`--project` 除了路徑，也接受裸專案名（啟動目錄的最後一段）；
+  人已經在那個目錄裡時可以整個省略。同一個目錄裡同一種 session 有兩顆時，會列出兩個 pid 拒絕
+  送出，不用猜的。`tally session send "<文字>" --session <pid>` 是同一個 send，改以
+  `tally status --json` 列出的 supervisor 或 child PID 定址。Claude 保留既有的 send 與 clear 行為。
+  Codex session 只有在 Tally 已取得受信任的
   原生綁定、驗證對應終端機，並觀察到原生回合完成後，才會宣告 `send`。Codex 只接受非空白的
   一般 prompt，不接受 slash command、shell mode 或單獨的 Return。它在工作中、被阻擋、狀態未知、要求權限，
   或有人可能正在打字時會排隊，15 分鐘後到期。終端機安靜卻有無法解釋的輸入時會立即拒絕：請在
@@ -234,7 +239,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   可讀報告：每個帳號的額度窗與重置時間、現在啟動會落在哪個帳號，以及每個受監督的 session
   正在跑什麼，可直接餵給你自己的腳本、hook 與 agent skill）、`tally worktree tree|list|root`、
   `tally best-dir <provider>`。操控：`tally account`、`tally model`、`tally project`、
-  `tally session send|clear`、`tally reload`。維護：`tally update`、`tally completion zsh`、
+  `tally send <claude|codex>`、`tally session send|clear`、`tally reload`。維護：`tally update`、`tally completion zsh`、
   `tally worktree remove`。全部對腳本友善。
 
 - **Harness 工具。** 在設定 > 整合 > Harness，一次安裝或移除兩邊的

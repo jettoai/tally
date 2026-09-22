@@ -223,10 +223,16 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   そう言います。再び声を上げるのは 30% に戻ってからなので、境界線上を漂うアカウントが何度も
   話しかけることはありません。まもなくリセットされる窓は満タン扱いです。すぐ回復する
   クォータを理由に手を止めさせるのは、あなたの邪魔にしかならないからです。
-- **動いているセッションに指示を出す。** `tally session send "<テキスト>" --session <pid>` は
-  `tally status --json` にある、そのセッションの正確な supervisor または child PID の端末へ
-  一行を送ります。前面のウィンドウは使いません。Claude は従来の send と clear の動作を保ち
-  ます。Codex セッションが `send` を表示するのは、Tally が信頼済みのネイティブな関連付けと
+- **動いているセッションに指示を出す。** `tally send claude "<テキスト>" --project <プロジェクト名>`
+  は、そのアドレスが指す正確な監視下の端末へ一行を送ります。前面のウィンドウは使いません。
+  `send` の次の語がどちらの種類のセッションかを示すので、同じ checkout で Claude 1 つと Codex
+  1 つが並んで動いていても provider だけで宛先が定まり、もう一方の種類を指した場合は打ち込まずに
+  拒否します。`--project` はパスのほか、裸のプロジェクト名（起動ディレクトリの最後の要素）も
+  受け付け、そのディレクトリにいるなら省略できます。同じディレクトリに同じ種類のセッションが
+  2 つあるときは、両方の pid を挙げて拒否し、推測はしません。
+  `tally session send "<テキスト>" --session <pid>` は同じ send を `tally status --json` の
+  supervisor または child PID で宛先指定したものです。Claude は従来の send と clear の動作を
+  保ちます。Codex セッションが `send` を表示するのは、Tally が信頼済みのネイティブな関連付けと
   対応端末を確認し、ネイティブのターン完了を観測した後だけです。Codex は空でない通常の
   プロンプトだけを受け付け、slash command、shell mode、Return 単独は受け付けません。作業中、ブロック中、
   状態不明、権限待ち、人が入力している可能性がある間はキューに入り、15 分で期限切れになります。
@@ -301,7 +307,7 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   起動するとどのアカウントに着地するか、そして監視対象の各セッションが何を実行しているかが
   分かり、自作のスクリプト、フック、agent skill にそのまま渡せます）、
   `tally worktree tree|list|root`、`tally best-dir <provider>`。操作：`tally account`、
-  `tally model`、`tally project`、`tally session send|clear`、`tally reload`。
+  `tally model`、`tally project`、`tally send <claude|codex>`、`tally session send|clear`、`tally reload`。
   メンテナンス：`tally update`、`tally completion zsh`、`tally worktree remove`。
   すべてスクリプトフレンドリーです。
 

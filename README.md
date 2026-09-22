@@ -206,9 +206,15 @@ subscriptions at once:
   that instead, honestly. It re-arms at 30%, so an account hovering at the line speaks once, and
   a window about to reset counts as full, because calling you off quota that is about to refill
   would be working against you.
-- **Tell a running session what to do.** `tally session send "<text>" --session <pid>` sends one
-  line to the exact supervised terminal named by that session's supervisor or child PID in
-  `tally status --json`; it never uses the frontmost window. Claude keeps its existing send and
+- **Tell a running session what to do.** `tally send claude "<text>" --project <name>` sends one
+  line to the exact supervised terminal that address names, never to the frontmost window. The word
+  after `send` says which kind of session is meant, so a checkout running one Claude and one Codex
+  side by side is addressed by provider alone, and a session of the other kind is refused rather
+  than typed into. `--project` takes a bare project name, the last component of a launch directory,
+  as well as a path, and can be dropped when you are already in that directory. Two sessions of the
+  same kind in one directory are refused with both PIDs listed rather than guessed between.
+  `tally session send "<text>" --session <pid>` is the same send addressed by the
+  supervisor or terminal child PID from `tally status --json`. Claude keeps its existing send and
   clear behavior. A Codex session advertises only `send` after Tally has a trusted native binding,
   a verified matching terminal, and a completed native turn. Codex accepts nonempty plain prompts
   only, never slash commands, shell mode, or a bare Return. It queues while working, blocked, unknown, waiting
@@ -285,7 +291,7 @@ subscriptions at once:
   which account a launch would land on right now, and what every supervised session is running,
   ready for your own scripts, hooks, and agent skills), `tally worktree tree|list|root`,
   `tally best-dir <provider>`. Steer: `tally account`, `tally model`, `tally project`,
-  `tally session send|clear`, `tally reload`. Maintenance: `tally update`,
+  `tally send <claude|codex>`, `tally session send|clear`, `tally reload`. Maintenance: `tally update`,
   `tally completion zsh`, `tally worktree remove`. All script-friendly.
 
 - **Harness tools.** Settings > Integrations > Harness installs or removes

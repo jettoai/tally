@@ -208,9 +208,15 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   없으면 그렇다고 정직하게 말합니다. 다시 장전되는 것은 30%로 돌아온 뒤라, 경계선 언저리를
   맴도는 계정이 여러 번 말을 걸지는 않습니다. 곧 리셋될 창은 가득 찬 것으로 칩니다. 금방
   충전될 한도를 이유로 손을 멈추게 하는 것은 당신에게 손해이기 때문입니다.
-- **돌아가는 세션에 할 일을 시키기.** `tally session send "<텍스트>" --session <pid>`는
-  `tally status --json`에 나온 해당 세션의 정확한 supervisor 또는 child PID 터미널에 한 줄을
-  보냅니다. 전면 창은 사용하지 않습니다. Claude는 기존 send와 clear 동작을 유지합니다. Codex
+- **돌아가는 세션에 할 일을 시키기.** `tally send claude "<텍스트>" --project <프로젝트명>`은 그
+  주소가 가리키는 정확한 감시 대상 터미널에 한 줄을 보냅니다. 전면 창은 사용하지 않습니다.
+  `send` 다음에 오는 단어가 어느 종류의 세션인지를 말하므로, 한 checkout에서 Claude 하나와
+  Codex 하나가 나란히 돌아가도 provider만으로 주소가 정해지고, 다른 종류를 가리키면 입력하지
+  않고 거부합니다. `--project`는 경로뿐 아니라 맨 프로젝트 이름(실행 디렉터리의 마지막 구성
+  요소)도 받으며, 그 디렉터리 안에 있다면 아예 생략할 수 있습니다. 같은 디렉터리에 같은 종류의
+  세션이 둘 있으면 두 pid를 모두 나열하고 거부하며, 추측하지 않습니다.
+  `tally session send "<텍스트>" --session <pid>`는 같은 send를 `tally status --json`의 supervisor
+  또는 child PID로 지정한 것입니다. Claude는 기존 send와 clear 동작을 유지합니다. Codex
   세션은 Tally가 신뢰된 네이티브 연결과 대응 터미널을 검증하고 네이티브 턴 완료를 관찰한 뒤에만
   `send`를 표시합니다. Codex는 비어 있지 않은 일반 prompt만 받고 slash command, shell mode나 Return만의
   입력은 받지 않습니다. 작업 중, 차단됨, 상태를 알 수 없음, 권한 대기, 사람이 입력 중일 수 있을
@@ -281,7 +287,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   계정의 창과 리셋 시각, 지금 실행하면 어느 계정에 배정되는지, 그리고 감독 중인 각 세션이
   무엇을 실행하고 있는지까지, 직접 만든 스크립트, 훅, agent skill에 바로 쓸 수 있음),
   `tally worktree tree|list|root`, `tally best-dir <provider>`. 조종: `tally account`,
-  `tally model`, `tally project`, `tally session send|clear`, `tally reload`.
+  `tally model`, `tally project`, `tally send <claude|codex>`, `tally session send|clear`, `tally reload`.
   유지 관리: `tally update`, `tally completion zsh`, `tally worktree remove`.
   모두 스크립트 친화적입니다.
 

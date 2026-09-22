@@ -318,9 +318,9 @@ _tally() {
     "share:put an account you already have on the main account's harness"
     "account:pin THIS session to another account, keeping the conversation"
     "model:run THIS conversation on another model and depth, for the rest of its life"
-    "send:type a line into a supervised session, named by provider"
+    "type:type a line into a supervised session, named by provider"
     "session:send a line into a supervised session, or clear its context window"
-    "message:send once to an explicit native provider address"
+    "message:hand one message to a session's own native transport"
     "harness:inspect and adapt a Claude harness to Codex"
     "inbox:handle provider-scoped offline messages"
     "reload:restart every supervised session at its next idle moment"
@@ -401,10 +401,23 @@ _tally() {
         # command refuses anything else in; text, pid and project stay blank for the reasons the
         # branch above gives, a project name being a menu of other people's sessions just as a pid
         # would be.
-        (send)
+        (type|send)
           _arguments ":provider:_tally_providers" \
             "--project[the session to send into, by launch directory or project name]:project:" \
             "--session[the session to send into, by pid]:pid:"
+          ;;
+        # The native sibling, addressed the same three ways. --file and the explicit address flags
+        # are offered; the message itself, the pid and the project stay blank for the reasons the
+        # two branches above give.
+        (message)
+          _arguments ":provider:_tally_providers" \
+            "--file[the message to send, by absolute path]:file:_files" \
+            "--project[the session to message, by launch directory or project name]:project:" \
+            "--session[the session to message, by pid, or the transcript UUID of an explicit address]:session:" \
+            "--socket[an explicit Claude socket, by absolute path]:socket:_files" \
+            "--home[an explicit Codex home, by absolute path]:home:_files -/" \
+            "--thread[an explicit Codex thread UUID]:thread:" \
+            "--dry-run[report the address and write nothing]"
           ;;
         (add)
           _arguments \

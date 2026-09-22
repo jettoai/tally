@@ -83,23 +83,33 @@ func sessionProviderName(sessionKey: String, dir: URL = supervisorStateDir) -> S
 /// Why the session that was found is not the provider the caller named, or nil when it is. Pure, so
 /// the wording is assertable, and worded like the other refusals here: nothing of yours was queued
 /// at all, and here is the next thing to type.
-func sessionProviderMismatch(wanted: String, found: String, sessionKey: String) -> String? {
+/// `verb` is the command that was typed, so the way out names a command that exists: `tally type`
+/// for the terminal and `tally message` for the native transport (MessageVerb.swift). It defaults
+/// to the typing verb, which is the caller that has been asking this question the longest.
+func sessionProviderMismatch(wanted: String, found: String, sessionKey: String,
+                             verb: String = "type") -> String? {
     guard wanted != found else { return nil }
-    return "session \(sessionKey) is a \(found) session and `tally send \(wanted)` names a "
-        + "\(wanted) one, so nothing was queued. The two accept different things - Codex takes no "
-        + "slash commands and no bare Return - so a line meant for one of them is not a line for "
-        + "the other. Send it with `tally send \(found)` if that session is the one you meant, or "
+    let nothing = verb == "message" ? "nothing was sent" : "nothing was queued"
+    let because = verb == "message"
+        ? "The two speak over different native transports, so a message meant for one of them "
+            + "cannot be handed to the other. "
+        : "The two accept different things - Codex takes no slash commands and no bare Return - "
+            + "so a line meant for one of them is not a line for the other. "
+    return "session \(sessionKey) is a \(found) session and `tally \(verb) \(wanted)` names a "
+        + "\(wanted) one, so \(nothing). " + because
+        + "Send it with `tally \(verb) \(found)` if that session is the one you meant, or "
         + "name the one you meant with --session <pid> or --project <dir>; `tally status --json` "
         + "lists every session with its provider"
 }
 
 let sendVerbUsage = """
-usage: tally send <claude|codex> [<text>] [--project <dir-or-name> | --session <pid>]
+usage: tally type <claude|codex> [<text>] [--project <dir-or-name> | --session <pid>]
 
 Types <text> into a supervised session's own terminal and presses Return: the same act as `tally
-session send`, addressed provider-first. The word after `send` is required and says which kind of
-session is meant, and a session that turns out to be the other kind is refused rather than typed
-into - which is the whole reason to prefer this spelling from a script.
+session send`, addressed provider-first. `tally send` is the earlier spelling of this and still
+works. The word after the verb is required and says which kind of session is meant, and a session
+that turns out to be the other kind is refused rather than typed into - which is the whole reason to
+prefer this spelling from a script.
 
 With neither flag the target is the session this command runs in. --session <pid> names another one
 by either of its pids, the provider process `tally status --json` lists under `sessions[].pid` or
@@ -110,8 +120,9 @@ refused with both paths listed, and so is a name nothing was launched under; pas
 name a checkout precisely. The two flags are alternatives, and there is no --provider flag here
 because the position already answered that question.
 
-`tally message <provider>` is the other thing and not a synonym: that one writes a message into a
-native queue at an address you already hold, this one types into a terminal.
+`tally message <provider>` is the other thing and not a synonym: that one hands a message to the
+session's native transport, so it touches no keyboard and cannot answer a dialog or run a slash
+command, while this one types and presses Return. Neither is a receipt.
 
 Everything else - what a Codex session accepts, the 200-byte limit, when a queued line is typed and
 what the exit codes mean - is `tally session send`, which this is a spelling of. Run `tally session

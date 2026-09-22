@@ -84,13 +84,21 @@ usage:
                             terminal, it shows what is running and offers a menu. Inside Claude
                             Code, `/tally opus xhigh` does the same without waking a model
                             (installed with the Claude Code skill integration)
-  tally message claude --socket <absolute-socket> --session <UUID> --file <absolute-file> [--dry-run]
-                            write one native JSONL message. Socket write is not a recipient receipt.
-                            Use the paired messagingSocket and transcriptSessionID from tally status --json.
-  tally message codex --home <absolute-home> --thread <UUID> --file <absolute-file> [--dry-run]
-                            send once through the native Codex queue using an explicit address.
-                            Liveness is unknown; queue acceptance is not a recipient receipt.
-                            Message files: nonempty UTF-8, at most 65536 bytes; Codex rejects NUL bytes.
+  tally message <claude|codex> [<text> | --file <absolute-file>]
+                              [--project <dir-or-name> | --session <pid>] [--dry-run]
+                            hand one message to a session's own native transport: it appears in that
+                            conversation as a user message, and no key is pressed. Addressed like
+                            `tally type` - this session by default, another by pid or by launch
+                            directory or bare project name - and a session of the other kind is
+                            refused. For Claude the socket and transcript UUID are looked up in the
+                            same pair `tally status --json` publishes; a session publishing neither
+                            is refused rather than guessed at. Codex takes an explicit address only
+                            (nothing publishes which home and thread a supervised Codex session
+                            writes to): `tally message codex --home <absolute-home> --thread <UUID>`.
+                            The Claude address can be written out too: `tally message claude
+                            --socket <absolute-socket> --session <UUID>`. Message: one argument or
+                            --file, never both, nonempty UTF-8 of at most 65536 bytes, and Codex
+                            rejects NUL bytes. A written frame is not a recipient receipt
   tally harness tools install|remove|status [--source-home <Claude-home>] [--target-home <Codex-home>]
                             install or remove the workflow skill and inbox reminders for both providers.
                             Optional --skills-root and --state-root take absolute paths. Projects are
@@ -116,16 +124,18 @@ usage:
                             --owner, --previous-owner, --reason, and --confirm-abandoned after checking
                             the previous session. Optional --root sets the mailbox directory.
                             Post is not a receipt. Message contents are external-unverified data.
-  tally send <claude|codex> [<text>] [--project <dir-or-name> | --session <pid>]
+  tally type <claude|codex> [<text>] [--project <dir-or-name> | --session <pid>]
                             the same send as `tally session send`, addressed provider-first: the
-                            word after `send` says which kind of session is meant, and one that
+                            word after the verb says which kind of session is meant, and one that
                             turns out to be the other kind is refused rather than typed into.
+                            `tally send` is the earlier spelling of this and still works.
                             --project takes a bare project name (the last component of a launch
                             directory, matched exactly) as well as a path. There is no --provider
                             flag here, the position having answered that. `tally message
-                            <provider>` is the other thing and not a synonym: that one writes a
-                            message into a native queue at an address you already hold, this one
-                            types into a terminal
+                            <provider>` is the other thing and not a synonym: this one types into
+                            the terminal and presses Return, so it can answer a dialog and run a
+                            slash command; that one hands a message to the native transport, so it
+                            touches no keyboard and can do neither. Neither is a receipt
   tally session send [<text>] [--session <pid> | --project <dir-or-name>]
                             send <text> to one exact supervised terminal and press Return. For
                             Claude, no text presses Return alone to answer a prompt on its default.

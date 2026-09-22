@@ -4,7 +4,7 @@ import Foundation
 struct ClaudeNativeMessageIntent: Equatable {
     let socket: String
     let session: String
-    let file: String
+    let body: MessageBody
     let dryRun: Bool
 }
 
@@ -13,9 +13,9 @@ func claudeNativeMessageIntent(_ args: [String]) -> ClaudeNativeMessageIntent? {
           let flags = nativeMessageFlags(args, keys: ["--socket", "--session", "--file"]),
           let socket = flags.values["--socket"], socket.hasPrefix("/"),
           socket.utf8.count < 104, let session = flags.values["--session"],
-          UUID(uuidString: session) != nil, let file = flags.values["--file"],
-          file.hasPrefix("/") else { return nil }
-    return ClaudeNativeMessageIntent(socket: socket, session: session, file: file,
+          UUID(uuidString: session) != nil,
+          let body = messageBody(file: flags.values["--file"], text: flags.text) else { return nil }
+    return ClaudeNativeMessageIntent(socket: socket, session: session, body: body,
                                      dryRun: flags.dryRun)
 }
 
@@ -84,7 +84,17 @@ func runClaudeNativeMessage(args: [String]) -> Int32 {
         fputs("Usage: \(claudeMessageForm)\n", stderr)
         return 2
     }
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: intent.socket) else {
+    return deliverClaudeNativeMessage(socket: intent.socket, session: intent.session,
+                                      body: intent.body, dryRun: intent.dryRun)
+}
+
+/// One frame written to one socket, whichever grammar found that address (MessageVerb.swift).
+///
+/// THE ORDER IS PART OF THE CONTRACT: the address is inspected before the body is read, so a caller
+/// that named a socket nothing is behind is told that rather than being told about its message.
+func deliverClaudeNativeMessage(socket: String, session: String, body: MessageBody,
+                                dryRun: Bool) -> Int32 {
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: socket) else {
         fputs("Native socket is unavailable. Nothing was sent.\n", stderr)
         return 1
     }
@@ -92,29 +102,30 @@ func runClaudeNativeMessage(args: [String]) -> Int32 {
         fputs("Message target path is not a socket. Nothing was sent.\n", stderr)
         return 2
     }
-    guard let data = FileManager.default.contents(atPath: intent.file), data.count <= 65536,
-          let text = String(data: data, encoding: .utf8),
-          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-        fputs("Message must be a nonempty UTF-8 file of at most 65536 bytes. Nothing was sent.\n", stderr)
+    let text: String
+    switch nativeMessageText(body) {
+    case .text(let loaded): text = loaded
+    case .problem(let problem):
+        fputs(problem + "\n", stderr)
         return 2
     }
-    guard let frame = try? claudeNativeMessageFrame(session: intent.session, text: text) else {
+    guard let frame = try? claudeNativeMessageFrame(session: session, text: text) else {
         fputs("Native message encoding failed. Nothing was sent.\n", stderr)
         return 1
     }
-    let metadata: [String: Any] = ["provider": "claude", "socket": intent.socket,
-        "session": intent.session, "dryRun": intent.dryRun, "received": false,
+    let metadata: [String: Any] = ["provider": "claude", "socket": socket,
+        "session": session, "dryRun": dryRun, "received": false,
         "liveness": "unknown", "trust": "external-unverified",
-        "state": intent.dryRun ? "dry-run" : "written-unconfirmed"]
+        "state": dryRun ? "dry-run" : "written-unconfirmed"]
     guard let encoded = try? JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys]) else {
         fputs("Native message metadata encoding failed. Nothing was sent.\n", stderr)
         return 1
     }
-    if intent.dryRun {
+    if dryRun {
         print(String(decoding: encoded, as: UTF8.self))
         return 0
     }
-    guard writeClaudeNativeFrame(path: intent.socket, data: frame) else {
+    guard writeClaudeNativeFrame(path: socket, data: frame) else {
         fputs("Native socket write failed. Delivery is unknown; no retry was made.\n", stderr)
         return 1
     }

@@ -223,9 +223,9 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   そう言います。再び声を上げるのは 30% に戻ってからなので、境界線上を漂うアカウントが何度も
   話しかけることはありません。まもなくリセットされる窓は満タン扱いです。すぐ回復する
   クォータを理由に手を止めさせるのは、あなたの邪魔にしかならないからです。
-- **動いているセッションに指示を出す。** `tally send claude "<テキスト>" --project <プロジェクト名>`
+- **動いているセッションに指示を出す。** `tally type claude "<テキスト>" --project <プロジェクト名>`
   は、そのアドレスが指す正確な監視下の端末へ一行を送ります。前面のウィンドウは使いません。
-  `send` の次の語がどちらの種類のセッションかを示すので、同じ checkout で Claude 1 つと Codex
+  `type` の次の語がどちらの種類のセッションかを示すので、同じ checkout で Claude 1 つと Codex
   1 つが並んで動いていても provider だけで宛先が定まり、もう一方の種類を指した場合は打ち込まずに
   拒否します。`--project` はパスのほか、裸のプロジェクト名（起動ディレクトリの最後の要素）も
   受け付け、そのディレクトリにいるなら省略できます。同じディレクトリに同じ種類のセッションが
@@ -250,6 +250,9 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   回避しません。要求は 200 UTF-8 bytes までです。処理済みまたは拒否した結果は
   `~/.tally/logs/input.log` にローカル記録されます。`tally session clear` は、空にしたセッションをより健全なアカウントで開き直せる
   Claude 専用の別コントロールのままです。
+  `tally message claude "<テキスト>" --project <プロジェクト名>` は代わりにネイティブな
+  メッセージをその会話へ届けます。キーボードには一切触れないため dialog には答えられず、
+  どちらのコマンドも受領の証明ではありません。
 - **並行する作業ライン。** `tally claude -w <名前>` はセッションを git worktree で開き、
   必要なら `../<repo>-<名前>` を作成し、プロジェクトの Claude メモリをリンクし、その repo
   自身のセットアップスクリプトを実行します。`-w` だけを付ければ既存のラインが一覧され、
@@ -307,7 +310,7 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   起動するとどのアカウントに着地するか、そして監視対象の各セッションが何を実行しているかが
   分かり、自作のスクリプト、フック、agent skill にそのまま渡せます）、
   `tally worktree tree|list|root`、`tally best-dir <provider>`。操作：`tally account`、
-  `tally model`、`tally project`、`tally send <claude|codex>`、`tally session send|clear`、`tally reload`。
+  `tally model`、`tally project`、`tally type|message <claude|codex>`、`tally session send|clear`、`tally reload`。
   メンテナンス：`tally update`、`tally completion zsh`、`tally worktree remove`。
   すべてスクリプトフレンドリーです。
 

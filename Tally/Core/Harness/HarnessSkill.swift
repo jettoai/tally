@@ -165,8 +165,13 @@ enum HarnessSkill {
 
     ## Native messages and offline inbox
 
-    `tally message claude|codex` uses the provider's native transport. Use explicit,
-    verified addresses. A socket write or queue exit is not a recipient receipt.
+    `tally message claude|codex` hands one message to the provider's native transport.
+    Name a supervised Claude session with `--project <dir-or-name>` or `--session <pid>`,
+    or run it inside that session, and Tally looks its socket and transcript UUID up in
+    the roster; a session publishing neither is refused rather than guessed at. Codex
+    takes the explicit `--home`/`--thread` address only. `tally type claude|codex` types
+    into the terminal instead, and is what answers a dialog or runs a slash command.
+    A socket write or queue exit is not a recipient receipt.
     Run `tally inbox list --provider claude|codex --home /account --project /checkout`.
     Claim a pending message using your native session UUID as --owner, read it with
     the returned --nonce, and acknowledge it only after handling it. Another active

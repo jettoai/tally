@@ -173,8 +173,8 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   兄弟账号还有余量：「收个尾换账号，或者等它重置。」若所有账号都没有余裕，它就诚实地这样
   讲。要回到 30% 才会重新上膛，所以在门槛上下徘徊的账号只会讲一次；而快要重置的窗算作满
   的，因为为了一份马上就要回充的额度把你叫停，是在跟你作对。
-- **叫一个正在跑的会话做事。** `tally send claude "<文字>" --project <项目名>` 会把一行送到
-  那个地址指名的确切受监督终端，不会使用前台窗口。`send` 后面那个字说明要找的是哪一种会话，
+- **叫一个正在跑的会话做事。** `tally type claude "<文字>" --project <项目名>` 会把一行送到
+  那个地址指名的确切受监督终端，不会使用前台窗口。`type` 后面那个字说明要找的是哪一种会话，
   所以同一个 checkout 里并存一个 Claude、一个 Codex 时，光靠 provider 就定得到地址；指到另一种
   的会被拒绝，不会照打进去。`--project` 除了路径，也接受裸项目名（启动目录的最后一段）；人已经
   在那个目录里时可以整个省略。同一个目录里同一种会话有两个时，会列出两个 pid 拒绝送出，不用
@@ -193,6 +193,8 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   仍会保留为 draft-held。这条路径仍须有可信的原生绑定、确切终端、完成的原生回合与相符 receipt，Codex
   才会声明 `send`，不会绕过原生信任。请求上限为 200 UTF-8 bytes，已处理或拒绝的结果会记录在本机
   `~/.tally/logs/input.log`。`tally session clear` 仍是 Claude 专用的独立控制，可将清空的会话改开到较健康的账号。
+  `tally message claude "<文字>" --project <项目名>` 则是把一条原生消息送进那段对话，全程不碰键盘；
+  它答不了 dialog，而且两个命令都不是收讫回执。
 - **平行的工作线。** `tally claude -w <名称>` 会在 git worktree 里开会话，需要时创建
   `../<repo>-<名称>`、把项目的 Claude 记忆连过去，并执行该 repo 自己的 setup 脚本；只打
   `-w` 会列出既有的工作线让你挑。`tally worktree tree / list / root / remove` 负责照看
@@ -239,7 +241,7 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   可读报告：每个账号的额度窗与重置时间、现在启动会落在哪个账号，以及每个受监督的会话
   正在跑什么，可直接喂给你自己的脚本、hook 与 agent skill）、`tally worktree tree|list|root`、
   `tally best-dir <provider>`。操控：`tally account`、`tally model`、`tally project`、
-  `tally send <claude|codex>`、`tally session send|clear`、`tally reload`。维护：`tally update`、`tally completion zsh`、
+  `tally type|message <claude|codex>`、`tally session send|clear`、`tally reload`。维护：`tally update`、`tally completion zsh`、
   `tally worktree remove`。全部对脚本友好。
 
 - **Harness 工具。** 在设置 > 集成 > Harness，一次安装或移除两边的

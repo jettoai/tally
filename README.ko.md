@@ -208,9 +208,9 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   없으면 그렇다고 정직하게 말합니다. 다시 장전되는 것은 30%로 돌아온 뒤라, 경계선 언저리를
   맴도는 계정이 여러 번 말을 걸지는 않습니다. 곧 리셋될 창은 가득 찬 것으로 칩니다. 금방
   충전될 한도를 이유로 손을 멈추게 하는 것은 당신에게 손해이기 때문입니다.
-- **돌아가는 세션에 할 일을 시키기.** `tally send claude "<텍스트>" --project <프로젝트명>`은 그
+- **돌아가는 세션에 할 일을 시키기.** `tally type claude "<텍스트>" --project <프로젝트명>`은 그
   주소가 가리키는 정확한 감시 대상 터미널에 한 줄을 보냅니다. 전면 창은 사용하지 않습니다.
-  `send` 다음에 오는 단어가 어느 종류의 세션인지를 말하므로, 한 checkout에서 Claude 하나와
+  `type` 다음에 오는 단어가 어느 종류의 세션인지를 말하므로, 한 checkout에서 Claude 하나와
   Codex 하나가 나란히 돌아가도 provider만으로 주소가 정해지고, 다른 종류를 가리키면 입력하지
   않고 거부합니다. `--project`는 경로뿐 아니라 맨 프로젝트 이름(실행 디렉터리의 마지막 구성
   요소)도 받으며, 그 디렉터리 안에 있다면 아예 생략할 수 있습니다. 같은 디렉터리에 같은 종류의
@@ -234,6 +234,9 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   receipt가 필요하며 네이티브 신뢰를 우회하지 않습니다. 요청은 200 UTF-8 bytes로 제한됩니다. 처리하거나 거절한 결과는 `~/.tally/logs/input.log`에 기록됩니다.
   `tally session clear`는 비운 세션을 더 여유 있는 계정으로 다시 열 수 있는 Claude 전용의 별도
   제어로 남습니다.
+  `tally message claude "<텍스트>" --project <프로젝트명>`은 대신 네이티브 메시지를 그 대화에
+  전달합니다. 키보드를 전혀 건드리지 않으므로 dialog에는 답할 수 없고, 두 명령 모두 수신
+  확인이 아닙니다.
 - **평행한 작업 라인.** `tally claude -w <이름>`은 세션을 git worktree에서 열고, 필요하면
   `../<repo>-<이름>`을 만들고, 프로젝트의 Claude 메모리를 연결하고, 그 repo 자체의 셋업
   스크립트를 실행합니다. `-w`만 치면 기존 라인 목록에서 고를 수 있습니다.
@@ -287,7 +290,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   계정의 창과 리셋 시각, 지금 실행하면 어느 계정에 배정되는지, 그리고 감독 중인 각 세션이
   무엇을 실행하고 있는지까지, 직접 만든 스크립트, 훅, agent skill에 바로 쓸 수 있음),
   `tally worktree tree|list|root`, `tally best-dir <provider>`. 조종: `tally account`,
-  `tally model`, `tally project`, `tally send <claude|codex>`, `tally session send|clear`, `tally reload`.
+  `tally model`, `tally project`, `tally type|message <claude|codex>`, `tally session send|clear`, `tally reload`.
   유지 관리: `tally update`, `tally completion zsh`, `tally worktree remove`.
   모두 스크립트 친화적입니다.
 

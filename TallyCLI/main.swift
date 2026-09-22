@@ -426,13 +426,13 @@ case "account", "switch":
 case "model":
     exit(runModel(args: Array(arguments.dropFirst())))
 // The acts a supervised session can be asked to perform on ITSELF (SessionInputCommand.swift says
-// why a namespace); `send` is that first verb's top-level spelling (SessionSendVerb.swift).
+// why a namespace); `type` is its top-level spelling, `send` the name that shipped first.
 case "session":
     exit(runSession(args: Array(arguments.dropFirst())))
-case "send":
+case "type", "send":
     exit(runSend(args: Array(arguments.dropFirst())))
 case "message":
-    exit(runNativeMessage(args: Array(arguments.dropFirst())))
+    exit(runMessage(args: Array(arguments.dropFirst())))
 case "harness":
     exit(runHarness(args: Array(arguments.dropFirst())))
 case "inbox":

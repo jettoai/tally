@@ -216,49 +216,22 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     // a tool call) inside a session descends from it, which is the case corroboration exists to tell
     // apart from a prompt somebody was merely told about.
     let marker = SessionMarkerTrust.trusted(liveSessionMarker())
+    // THE ADDRESSING BOTH VERBS SHARE, and the refusals with it (SessionAddressing.swift): what is
+    // left here is the one thing that really does differ between them, which is what a session that
+    // cannot accept direct input should be told.
     let sessionKey: String
-    if let named = intent.session {
-        switch namedSession(named) {
-        case .session(let key):
-            sessionKey = key
-        case .monitoringOnly(let key):
-            let refusal = requestIntent == sessionClearIntent
-                ? sessionControlRefusal(pid: key, dir: supervisorStateDir)
-                : sessionSendRefusal(pid: key, dir: supervisorStateDir)
-            warn(refusal
-                 ?? "This Codex session cannot accept direct input. Nothing was queued.")
-            return 3
-        case .notRunning:
-            warn("no supervisor is running as pid \(named). `tally status --json` lists the "
-                + "sessions this machine is supervising")
-            return 3
-        case .notSupervised:
-            // Named apart from the case above because the two want different things done: one is a
-            // pid that has gone, the other is a live process this machine never supervised, and
-            // writing a request to the second would leave somebody's text in a file addressed to a
-            // stranger.
-            warn("pid \(named) is running, but it is not a session this machine supervises, so "
-                + "nothing there would ever read the request. `tally status --json` lists the ones "
-                + "that would; a session supervised by a build too old to register is refused here "
-                + "too, and one restart (exit, then `tally claude`) is what fixes that")
-            return 3
-        }
-    } else {
-        switch marker.resolve(here: supervisorsInDirectory(FileManager.default.currentDirectoryPath))
-        {
-        case .session(let key):
-            sessionKey = key
-        case .none:
-            warn("this session is not supervised, so nothing here can send into it: it was launched "
-                + "bare, with --no-handoff, or with an --account pin. Sessions started with `tally "
-                + "claude` can be typed into.")
-            return 3
-        case .ambiguous(let pids):
-            warn("\(pids.count) supervised sessions are running in this directory, so this command "
-                + "cannot tell which one you mean (pids \(pids.joined(separator: ", "))). Run it "
-                + "inside the session you mean, or name it with --session <pid>.")
-            return 3
-        }
+    switch addressedSessionKey(intent, marker: marker) {
+    case .session(let key):
+        sessionKey = key
+    case .monitoringOnly(let key):
+        let refusal = requestIntent == sessionClearIntent
+            ? sessionControlRefusal(pid: key, dir: supervisorStateDir)
+            : sessionSendRefusal(pid: key, dir: supervisorStateDir)
+        warn(refusal ?? "This Codex session cannot accept direct input. Nothing was queued.")
+        return 3
+    case .refused(let why):
+        warn(why)
+        return 3
     }
     // WHICH KIND OF SESSION THIS TURNED OUT TO BE. Asked HERE and nowhere earlier, because here is
     // where all three ways of naming one have become the same key: a pid, a directory and this

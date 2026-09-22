@@ -248,9 +248,16 @@ existing controls; do not disable a gate to retry an operation it already blocke
 ## Native delivery and offline messages
 
 `tally message claude` and `tally message codex` send once through the provider's native
-transport using explicit session addresses. A successful socket write or queue operation
-does not prove that the recipient read or acted on a message. `tally help` lists the
-address fields. Use the offline inbox when a session needs a message that survives
+transport. A Claude session can be named the way every other command names one, with
+`--project <dir-or-name>`, with `--session <pid>`, or by running the command inside it:
+Tally looks that session's socket and transcript UUID up in the roster `tally status
+--json` publishes them in, and refuses rather than guesses when it publishes neither.
+Codex takes the explicit `--home`/`--thread` address only, nothing publishing which home
+and thread a supervised Codex session writes to. `tally type claude|codex` is the other
+thing: it types into the terminal and presses Return, which is what answers a permission
+dialog or runs a slash command, while a native message touches no keyboard. A successful
+socket write or queue operation does not prove that the recipient read or acted on a
+message, and neither does a typed line. `tally help` lists the address fields. Use the offline inbox when a session needs a message that survives
 restarts and can be explicitly claimed and acknowledged:
 
 ```sh

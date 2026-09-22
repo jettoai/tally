@@ -128,7 +128,7 @@ func runSessionSendVerbChecks() {
     check("…and told that nothing was queued, which is what a caller has to know",
           crossed.contains("nothing was queued"))
     check("…and given the spelling that would have worked",
-          crossed.contains("tally send codex"))
+          crossed.contains("tally type codex"))
     // THE POSITION IS A SELECTION FILTER ON THE DIRECTORY ROUTE, NOT A CHECK AFTER ONE. This is
     // the shape of the machine this is written on (`tally status --json`, 2026-09-22: nine
     // sessions over eight directories, and the tally checkout itself holding one Claude beside one
@@ -281,11 +281,13 @@ func runSessionSendVerbChecks() {
     check("the short list documents --project on the session verb",
           tallyUsage.contains("tally session send [<text>] [--session <pid> | --project"))
     check("…and the new spelling has a command line of its own",
-          tallyUsage.contains("\n  tally send <claude|codex> "))
+          tallyUsage.contains("\n  tally type <claude|codex> "))
     // Asserted on the sentence rather than on the whitespace around it: the help text is wrapped
     // by hand, so a check that spans a line break fails the next time somebody rewraps a word.
     check("…which says how it differs from `tally message`",
           tallyUsage.contains("is the other thing and not a synonym"))
+    check("…and `tally send` is still named there as the spelling it shipped under",
+          tallyUsage.contains("`tally send` is the earlier spelling"))
     check("the verb's own usage states the bare name and that there is no --provider flag",
           sendVerbUsage.contains("PROJECT NAME") && sendVerbUsage.contains("no --provider flag"))
     check("…and that a session of the other kind is refused",
@@ -294,4 +296,76 @@ func runSessionSendVerbChecks() {
           sessionSendUsage.contains("--project <dir-or-name>")
               && sessionSendUsage.contains("bare PROJECT NAME")
               && sessionSendUsage.contains("tally send claude|codex"))
+
+    // MARK: - `tally message <provider>`: the native sibling, addressed the same way
+
+    // ONE ADDRESS GRAMMAR FOR BOTH VERBS (MessageVerb.swift). What differs is the transport and
+    // what the line carries - a body rather than the text to type - and everything about WHICH
+    // session is meant is the same words meaning the same thing.
+    let uuid = "00000000-0000-0000-0000-000000000001"
+    check("the provider is a required position here too",
+          messageAddressRequest([]) == nil && messageAddressRequest(["gemini", "hi"]) == nil
+              && messageAddressRequest(["--project", trunk]) == nil)
+    check("a session is named the way the typing verb names one",
+          messageAddressRequest(["claude", "hi", "--project", trunk])?.intent
+              == SessionSendIntent(text: "", session: nil, project: trunk, provider: "claude")
+              && messageAddressRequest(["claude", "hi", "--session", "412"])?.intent
+              == SessionSendIntent(text: "", session: "412"))
+    check("…and the message travels beside the address rather than as the text",
+          messageAddressRequest(["claude", "hi"])?.body == .text("hi")
+              && messageAddressRequest(["claude", "hi"])?.intent.text == "")
+    check("--file is the other source, and never both or neither",
+          messageAddressRequest(["claude", "--file", "/tmp/m"])?.body == .file("/tmp/m")
+              && messageAddressRequest(["claude", "--file", "/tmp/m", "hi"]) == nil
+              && messageAddressRequest(["claude"]) == nil)
+    check("--provider is not a flag of this verb either, the position having answered it",
+          messageAddressRequest(["claude", "hi", "--project", trunk, "--provider", "claude"]) == nil)
+    check("--session beside --project is a usage error here too",
+          messageAddressRequest(["claude", "hi", "--session", "412", "--project", trunk]) == nil)
+    check("--dry-run is a flag rather than the message",
+          messageAddressRequest(["claude", "hi", "--dry-run"])?.dryRun == true
+              && messageAddressRequest(["claude", "hi"])?.dryRun == false)
+    // WHICH GRAMMAR WAS WRITTEN IS DECIDED ON THE FLAGS ALONE, before the roster is asked
+    // anything: `--session` means a pid in one and a transcript UUID in the other, so it is the one
+    // word that cannot decide, and the address flags beside it are what do.
+    check("an address written out in full is recognised as one",
+          messageVerbIsExplicit(["claude", "--socket", "/tmp/p.sock", "--session", uuid, "hi"])
+              && messageVerbIsExplicit(["codex", "--home", "/tmp/h", "--thread", uuid, "hi"]))
+    check("…while a named session is not",
+          !messageVerbIsExplicit(["claude", "hi", "--session", "412"])
+              && !messageVerbIsExplicit(["claude", "hi", "--project", trunk])
+              && !messageVerbIsExplicit(["claude", "hi"]))
+    check("…and a word written after -- is content rather than an address",
+          !messageVerbIsExplicit(["claude", "--", "--socket"])
+              && !messageVerbIsExplicit(["claude", "--", "--home"]))
+    check("the two grammars do not mix: an address flag is not part of a named send",
+          messageAddressRequest(["claude", "--socket", "/tmp/p.sock", "hi"]) == nil
+              && messageAddressRequest(["codex", "--thread", uuid, "hi"]) == nil)
+
+    // MARK: - What this verb refuses, and what it tells the caller to type instead
+
+    check("a Codex session cannot be named rather than addressed, and the way out is named",
+          codexMessageAddressRefusal.contains("explicit address only")
+              && codexMessageAddressRefusal.contains("nothing was sent")
+              && codexMessageAddressRefusal.contains("tally type codex"))
+    let missing = nativeAddressMissing(sessionKey: "70324")
+    check("a session publishing no native address is refused by name rather than guessed at",
+          missing.contains("70324") && missing.contains("nothing was sent")
+              && missing.contains("messagingSocket") && missing.contains("transcriptSessionID"))
+    check("…and told the other verb, which needs no such address",
+          missing.contains("tally type claude"))
+    // THE PROVIDER CHECK NAMES THE VERB THAT WAS TYPED, so the way out is a command that exists.
+    let crossedMessage = sessionProviderMismatch(wanted: "claude", found: "codex",
+                                                 sessionKey: "98743", verb: "message") ?? ""
+    check("a crossed provider on this verb points back at this verb",
+          crossedMessage.contains("tally message codex") && crossedMessage.contains("98743")
+              && crossedMessage.contains("nothing was sent"))
+    check("…and the typing verb's own refusal still points at the typing verb",
+          crossed.contains("tally type codex") && crossed.contains("nothing was queued"))
+    check("the short list documents the native verb and how it differs",
+          tallyUsage.contains("\n  tally message <claude|codex> ")
+              && tallyUsage.contains("no key is pressed"))
+    check("…and its own usage says neither verb is a receipt",
+          messageVerbUsage.contains("NEITHER IS A RECEIPT")
+              && messageVerbUsage.contains("EXPLICIT-ONLY"))
 }

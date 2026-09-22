@@ -674,6 +674,13 @@ func runSessionSendChecks() {
     let command = (try? String(contentsOfFile: "TallyCLI/SessionInputCommand.swift",
                                encoding: .utf8)) ?? ""
     check("the command was really read", command.contains("func runSessionSend("))
+    // The half that says WHICH session an address names, shared with `tally message` since it
+    // began taking the same three addresses (MessageVerb.swift): read here too, so a refusal that
+    // moved is still counted rather than quietly dropped.
+    let addressing = (try? String(contentsOfFile: "TallyCLI/SessionAddressLookup.swift",
+                                  encoding: .utf8)) ?? ""
+    check("…and so was the addressing it shares",
+          addressing.contains("func addressedSessionKey("))
     // THE SKEW NOTE IS A NOTE, NOT A REFUSAL: said after the request is on disk, so the exit code
     // and the queued line are exactly what they would have been without it. Read off the source
     // because `runSessionSend` cannot be called here - it writes into a live conversation.
@@ -746,24 +753,35 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // Twelve return-3 refusals, including the explicitly named legacy Codex monitor, the
-        // directory that names no single session (`--project`, decided before anything else is
-        // asked) and the session that turns out to be the provider `tally send <claude|codex>` did
-        // NOT name. A refusal below the write can only be reached after a caller has already been
-        // told its line was queued.
+        // Twelve refusals, counted where they are now worded. Eight return 3 here - the
+        // explicitly named legacy Codex monitor, the directory that names no single session
+        // (`--project`, decided before anything else is asked), the session that turns out to be
+        // the provider `tally type <claude|codex>` did NOT name, and the rest - and the four that
+        // say which session an address names moved to `addressedSessionKey` when `tally message`
+        // began taking the same three addresses (SessionAddressing.swift). BOTH HALVES ARE
+        // COUNTED, because a refusal that went missing in the move would leave this check passing
+        // on a smaller number. A refusal below the write can only be reached after a caller has
+        // already been told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 13
+              before.components(separatedBy: "return 3").count == 10
                   && before.contains("return 2")
                   && !after.contains("return 3")
                   // and the one non-zero ending left below it is the session that has exited
                   && after.components(separatedBy: "return 4").count == 2)
+        check("…and the four the addressing owns are refusals rather than guesses",
+              addressing.components(separatedBy: "return .refused(").count == 5
+                  && before.contains("switch addressedSessionKey(intent, marker: marker)"))
     } else {
         check("every refusal is decided before the request is written, so none of them waits",
               false)
     }
-    if let named = command.range(of: "if let named = intent.session {"),
-       let end = command.range(of: "\n    } else {", range: named.upperBound ..< command.endIndex) {
-        let branch = String(command[named.upperBound ..< end.lowerBound])
+    // READ OFF THE ADDRESSING rather than off this command: the three ways of naming a session
+    // moved there whole when `tally message` began taking the same three (MessageVerb.swift), and
+    // both verbs are judged by this one branch now.
+    if let named = addressing.range(of: "if let named = intent.session {"),
+       let end = addressing.range(of: "\n    switch marker.resolve(",
+                                  range: named.upperBound ..< addressing.endIndex) {
+        let branch = String(addressing[named.upperBound ..< end.lowerBound])
         // READ OFF THE BRANCH rather than the file: `supervisorAlive` is a perfectly good question
         // elsewhere in this command (the marker's own liveness), so a file-wide search would be
         // satisfied by somebody else's call and say nothing about this one.

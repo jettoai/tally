@@ -73,9 +73,13 @@ func runSessionProjectChecks() {
 
     // MARK: - The one spelling a directory is compared in
 
-    let temp = URL(fileURLWithPath: NSTemporaryDirectory())
+    // realpathString, not resolvingSymlinksInPath: the fixture has to be built through the same
+    // resolve the function under test now uses, because they disagree about /tmp's own /private
+    // prefix (Foundation's resolvingSymlinksInPath strips it back off when the result names the
+    // same file without it; realpath does not), and NSTemporaryDirectory() lives under /var, one
+    // of the roots that disagreement bites on.
+    let temp = URL(fileURLWithPath: realpathString(NSTemporaryDirectory()))
         .appendingPathComponent("tally-sessionproject-\(UUID().uuidString)")
-        .resolvingSymlinksInPath()
     let real = temp.appendingPathComponent("checkout")
     try? FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
     let alias = temp.appendingPathComponent("alias")
@@ -97,6 +101,17 @@ func runSessionProjectChecks() {
               .resolvingSymlinksInPath().path)
     check("an empty path names nothing", sessionProjectDirectory("") == nil)
     check("the root is left as it is", sessionProjectDirectory("/") == "/")
+
+    // `/tmp` is a symlink to `/private/tmp`, which is exactly the case `resolvingSymlinksInPath()`
+    // used to get wrong (it documents stripping a leading `/private` back off): the contract under
+    // test is "the same spelling as the roster's `realpathString`", not a literal `/private/tmp`,
+    // so this asserts against `realpathString` directly rather than hard-coding which one is right.
+    let privateCheck = URL(fileURLWithPath: "/tmp")
+        .appendingPathComponent("tally-sessionproject-private-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: privateCheck, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: privateCheck) }
+    check("a /tmp checkout compares the way the roster's realpath does, /private prefix and all",
+          sessionProjectDirectory(privateCheck.path) == realpathString(privateCheck.path))
 
     // MARK: - Which session a directory names
 
@@ -127,9 +142,22 @@ func runSessionProjectChecks() {
     check("a session that publishes no pid cannot be typed into",
           sessionProjectMatch([pidless], directory: trunk, provider: nil)
               == .unaddressable([pidless]))
-    check("…and does not make the one beside it ambiguous",
+    check("…and makes the one beside it ambiguous rather than picked by elimination",
           sessionProjectMatch([pidless, mixed[0]], directory: trunk, provider: nil)
-              == .one("70324"))
+              == .ambiguous([pidless, mixed[0]]))
+    // Neither of these can be typed into either way, so how many there are does not matter: telling
+    // the caller "ambiguous, name one with --session <pid>" would be sending them to look for a pid
+    // that does not exist on either candidate.
+    let pidless2 = session(pid: nil, dir: trunk, provider: "claude")
+    check("two sessions that both publish no pid are unaddressable, not ambiguous",
+          sessionProjectMatch([pidless, pidless2], directory: trunk, provider: nil)
+              == .unaddressable([pidless, pidless2]))
+    // Proof the provider filter runs before ambiguity is judged: with --provider codex, the pidless
+    // claude session is dropped before `wanted` is even counted, leaving one addressable session.
+    let codexWithPid = session(pid: 60_111, dir: trunk, provider: "codex")
+    check("a provider filter that narrows to one addressable session still resolves",
+          sessionProjectMatch([pidless, codexWithPid], directory: trunk, provider: "codex")
+              == .one("60111"))
 
     // MARK: - What the caller is told
 
@@ -188,12 +216,14 @@ func runSessionProjectChecks() {
               == .refused(sessionProjectRefusal(.ambiguous([mixed[0], mixed[1]]), directory: trunk,
                                                 provider: nil) ?? ""))
     // The directory is put through the same spelling the match is made in, rather than compared as
-    // it was typed: a caller passing `$PWD` with a trailing slash addresses the same session.
+    // it was typed: a caller passing `$PWD` with a trailing slash addresses the same session. A
+    // real directory (`real`, from the fixture above) rather than a fictional path: `realpath`
+    // needs something on disk to resolve the dot segment against, where `resolvingSymlinksInPath`
+    // did not.
     check("the address is resolved before it is looked up",
-          resolveSessionProject(SessionSendIntent(text: "hi", session: nil, project: "./repo/",
+          resolveSessionProject(SessionSendIntent(text: "hi", session: nil, project: "./checkout/",
                                                   provider: nil),
-                                sessions: [session(pid: 70_324, dir: "/Users/a/workspace/repo",
-                                                   provider: "claude")],
-                                cwd: "/Users/a/workspace")
+                                sessions: [session(pid: 70_324, dir: real.path, provider: "claude")],
+                                cwd: temp.path)
               == .addressed(SessionSendIntent(text: "hi", session: "70324")))
 }

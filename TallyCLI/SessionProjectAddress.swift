@@ -147,9 +147,15 @@ enum SessionProjectMatch: Equatable {
 /// compared at all.
 ///
 /// The roster's `directory` is the fully resolved checkout (`pickProject` puts it through
-/// `realpath`), and what a caller types is whatever its shell handed it: a relative path, a `~`, a
-/// trailing slash, a symlinked parent. All four compare unequal to a resolved path as strings, so
-/// each is undone here before the comparison rather than guessed at afterwards.
+/// `realpathString`, GitRepoRoot.swift's POSIX `realpath` wrapper), and what a caller types is
+/// whatever its shell handed it: a relative path, a `~`, a trailing slash, a symlinked parent. All
+/// four compare unequal to a resolved path as strings, so each is undone here before the comparison
+/// rather than guessed at afterwards - through `realpathString` itself, and not Foundation's
+/// `resolvingSymlinksInPath()`: the two disagree under `/tmp`, `/var` and `/etc`, which macOS mounts
+/// as symlinks into `/private`. `resolvingSymlinksInPath()` documents stripping a leading `/private`
+/// back off when the result names the same file without it; `realpath` does not. A checkout under
+/// any of those roots, compared the Foundation way, never matched the roster entry for it, which is
+/// compared the `realpathString` way.
 ///
 /// Returns nil only for an empty path, which the grammar has already refused; the guard is here so
 /// the rule cannot be reached from a future caller that has not.
@@ -160,7 +166,11 @@ func sessionProjectDirectory(_ path: String,
     let absolute = expanded.hasPrefix("/")
         ? expanded
         : (cwd as NSString).appendingPathComponent(expanded)
-    let resolved = URL(fileURLWithPath: absolute).resolvingSymlinksInPath().path
+    let resolved = realpathString(absolute)
+    // `realpath` itself canonicalizes a trailing slash away once the path exists, so this only
+    // still does anything on the path realpath could NOT resolve (nothing there to canonicalize):
+    // `realpathString` hands that one back unchanged, trailing slash included, and without this a
+    // caller's unresolvable `--project foo/` would compare unequal to the very same `--project foo`.
     guard resolved.count > 1, resolved.hasSuffix("/") else { return resolved }
     return String(resolved.dropLast())
 }
@@ -175,14 +185,16 @@ func sessionProjectMatch(_ sessions: [SessionProjectCandidate], directory: Strin
     guard !here.isEmpty else { return .noSession }
     let wanted = provider.map { name in here.filter { $0.provider == name } } ?? here
     guard !wanted.isEmpty else { return .noneOfProvider(here) }
-    // ADDRESSABLE IS NARROWER THAN MATCHING, and the difference is not pedantry: a session whose
-    // provider pid is not published is a session running perfectly well that this command has no
-    // way to name, and counting it towards "exactly one" would send the line to the other one
-    // while reporting success.
-    let addressable = wanted.filter { $0.pid != nil }
-    guard !addressable.isEmpty else { return .unaddressable(wanted) }
-    guard addressable.count == 1, let pid = addressable.first?.pid else {
-        return .ambiguous(addressable)
+    // TWO QUESTIONS, ASKED IN THE ORDER THAT MAKES EACH ONE MEAN SOMETHING. "Can anything here be
+    // named at all?" comes first: when nothing in `wanted` publishes a pid, how many of them there
+    // are does not matter, because none can be typed into either way. Only once that is settled is
+    // "is there more than one?" asked, and it is asked over ALL of `wanted`, not just the ones that
+    // publish a pid - filtering the pidless one out before counting used to let it vanish, so two
+    // matching sessions quietly narrowed to "exactly one" and a caller's ambiguous --project was
+    // sent to whichever one happened to publish a pid, while it was never told the other was there.
+    guard wanted.contains(where: { $0.pid != nil }) else { return .unaddressable(wanted) }
+    guard wanted.count == 1, let pid = wanted[0].pid else {
+        return .ambiguous(wanted)
     }
     return .one(String(pid))
 }
@@ -243,9 +255,15 @@ func sessionProjectRefusal(_ match: SessionProjectMatch, directory: String,
         // caller looking at two sessions of the same provider, or to one that already passed it,
         // is sending them back to a flag that will refuse them again for the same reason.
         let narrowable = provider == nil && Set(candidates.map(\.provider)).count > 1
+        // A candidate can be listed here without a pid of its own (describe() already prints "no
+        // pid published" for it): it still made the directory ambiguous, but "Name one with
+        // --session <pid>" would read like every candidate can be named that way, so say which one
+        // cannot until it publishes one.
+        let unnamed = candidates.contains { $0.pid == nil }
         return "\(sessionCount(candidates.count)) are running in \(directory), so --project "
             + "cannot tell which one you mean and nothing was queued: \(listed(candidates)). Name "
             + "one with --session <pid>"
+            + (unnamed ? " (one of these publishes none yet and cannot be named until it does)" : "")
             + (narrowable ? ", or narrow it with --provider claude|codex" : "")
     }
 }

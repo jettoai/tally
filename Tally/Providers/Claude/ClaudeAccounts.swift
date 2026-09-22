@@ -37,18 +37,8 @@ enum ClaudeAccounts {
 
         let defaultDir = home.appendingPathComponent(".claude", isDirectory: true)
         dirs.append(defaultDir)
-
-        if let entries = try? FileManager.default.contentsOfDirectory(
-            at: home, includingPropertiesForKeys: [.isDirectoryKey], options: []
-        ) {
-            for url in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                let name = url.lastPathComponent
-                guard name.hasPrefix(".claude"), name != ".claude" else { continue }
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                guard isDir else { continue }
-                dirs.append(url)
-            }
-        }
+        // Names only: see AccountHomeListing for why no other home entry may be asked about.
+        dirs += accountConfigDirs(base: ".claude", home: home)
 
         return dirs.compactMap { dir in
             let svc = service(forConfigDir: dir)

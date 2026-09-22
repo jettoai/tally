@@ -22,10 +22,11 @@ import Foundation
 
 /// Whether a changed path is worth a discovery pass.
 ///
-/// FSEvents watches a whole subtree, and the subtree here is the user's home directory, so the great
-/// majority of what arrives is their editor and their builds. This is the cheap string test that
-/// keeps that traffic away from everything downstream: only the provider config dirs themselves
-/// matter, and a new account arrives as a new directory among them.
+/// Events arrive from FSEvents over the provider config dirs and from a non-recursive watch on the
+/// home directory itself (never an FSEvents stream over the home: its subtree holds the folders
+/// macOS guards behind a privacy prompt, jettoai/tally#1). This is the cheap string test that keeps
+/// everything else away from downstream: only the provider config dirs themselves matter, and a new
+/// account arrives as a new directory among them.
 ///
 /// THE HOME DIRECTORY ITSELF COUNTS, and that is the whole reason a new account is seen at all.
 /// At directory granularity, creating `~/.claude4` is reported as a change to `~`, not as an event
@@ -91,6 +92,9 @@ final class AccountDirWatcher {
     /// calls are safe from any thread, which is what makes the unchecked conformance honest.
     private final class StreamBox: @unchecked Sendable {
         var stream: FSEventStreamRef?
+        /// The non-recursive watches on `shallowRoots`. Kept here for the same reason as the stream:
+        /// `deinit` has to be able to cancel them.
+        var sources: [DispatchSourceFileSystemObject] = []
 
         /// Tear the stream down and forget it. Idempotent, and the ONE place the three calls are
         /// spelled: `deinit` cannot hop actors, and `stop()` below has to do exactly the same thing
@@ -104,12 +108,23 @@ final class AccountDirWatcher {
             self.stream = nil
         }
 
-        deinit { teardown() }
+        func cancelSources() {
+            sources.forEach { $0.cancel() }
+            sources = []
+        }
+
+        deinit { teardown(); cancelSources() }
     }
 
     private let box = StreamBox()
     private var debounceTask: Task<Void, Never>?
-    private let roots: [URL]
+    private var roots: [URL]
+    /// Directories watched for their own entries only (a kqueue vnode watch: an entry added,
+    /// removed or renamed directly inside). Nothing below them is watched or touched.
+    private let shallowRoots: [URL]
+    /// Asked after a shallow event: the FSEvents roots that should be watched now. A changed answer
+    /// restarts the stream over them, which is how a newly created account dir starts being watched.
+    private let reroot: (() -> [URL])?
     private let debounce: Duration
     /// Whether a changed path is worth waking the gate for. The cheap string test that keeps a
     /// busy subtree's traffic away from everything downstream.
@@ -119,7 +134,9 @@ final class AccountDirWatcher {
     private let discoverChanged: () -> Bool
     private let onChange: () -> Void
 
-    init(roots: [URL] = [FileManager.default.homeDirectoryForCurrentUser],
+    init(roots: [URL],
+         shallowRoots: [URL] = [],
+         reroot: (() -> [URL])? = nil,
          debounce: Duration = .seconds(3),
          isInteresting: @escaping (String) -> Bool = {
              accountDirEventIsInteresting(
@@ -128,6 +145,8 @@ final class AccountDirWatcher {
          discoverChanged: @escaping () -> Bool,
          onChange: @escaping () -> Void) {
         self.roots = roots
+        self.shallowRoots = shallowRoots
+        self.reroot = reroot
         self.debounce = debounce
         self.isInteresting = isInteresting
         self.discoverChanged = discoverChanged
@@ -136,6 +155,40 @@ final class AccountDirWatcher {
 
     /// Begin watching. Safe to call twice; a second call is ignored.
     func start() {
+        startShallowWatches()
+        startStream()
+    }
+
+    private func startShallowWatches() {
+        guard box.sources.isEmpty else { return }
+        for root in shallowRoots {
+            let fd = open(root.path, O_EVTONLY)
+            guard fd >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+            let path = root.path
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.shallowChanged(path) }
+            }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            box.sources.append(source)
+        }
+    }
+
+    private func shallowChanged(_ path: String) {
+        if let reroot {
+            let desired = reroot()
+            if desired != roots {
+                box.teardown()
+                roots = desired
+                startStream()
+            }
+        }
+        handle([path])
+    }
+
+    private func startStream() {
         guard box.stream == nil, !roots.isEmpty else { return }
         // `self` is handed over unretained: the stream is owned by this object and torn down in
         // deinit, so it cannot outlive it.
@@ -176,6 +229,7 @@ final class AccountDirWatcher {
         debounceTask?.cancel()
         debounceTask = nil
         box.teardown()
+        box.cancelSources()
     }
 
     private func handle(_ paths: [String]) {

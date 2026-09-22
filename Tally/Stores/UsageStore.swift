@@ -78,7 +78,12 @@ final class UsageStore {
     /// accounts reaches `refresh`; the discovery pass in between is local and cheap, which is what
     /// keeps a busy `.claude.json` from turning into usage-API traffic.
     private func startAccountWatcher() {
+        // FSEvents over the config dirs only; the home itself gets a non-recursive watch so a new
+        // account dir is still seen, without a stream over the home's protected folders.
         let watcher = AccountDirWatcher(
+            roots: accountWatchRoots(),
+            shallowRoots: [FileManager.default.homeDirectoryForCurrentUser],
+            reroot: { accountWatchRoots() },
             discoverChanged: { [weak self] in
                 guard let self else { return false }
                 let found = providers.flatMap { $0.discoverAccounts() }

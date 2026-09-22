@@ -18,18 +18,8 @@ enum CodexAccounts {
     static func discover() -> [ProviderAccount] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var dirs: [URL] = [home.appendingPathComponent(".codex", isDirectory: true)]
-
-        if let entries = try? FileManager.default.contentsOfDirectory(
-            at: home, includingPropertiesForKeys: [.isDirectoryKey], options: []
-        ) {
-            for url in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                let name = url.lastPathComponent
-                guard name.hasPrefix(".codex"), name != ".codex" else { continue }
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                guard isDir else { continue }
-                dirs.append(url)
-            }
-        }
+        // Names only: see AccountHomeListing for why no other home entry may be asked about.
+        dirs += accountConfigDirs(base: ".codex", home: home)
         if let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"], !codexHome.isEmpty {
             dirs.append(URL(fileURLWithPath: codexHome, isDirectory: true))
         }

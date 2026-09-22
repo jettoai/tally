@@ -251,6 +251,11 @@ extension TranscriptWatcher {
 /// `unknown` when the conversation moves on without one); wrong in the other, a wait nobody
 /// answered is reported answered, which is the defect this exists for (H1 rerun O4: a stamped
 /// `system`/`informational` line 0.97s after an auto mode toggle read as the answer).
+///
+/// On a Claude Code whose registry speaks (2.1.280), this never decides whether a dialog is open
+/// (`claudeDialogOpen` does); it labels a close the older rules made, and the `idle_prompt` path.
+/// Limitation 13 (a tool result of another call read as the answer) is therefore confined to the
+/// registry-less path.
 func lineIsPersonInput<S: StringProtocol>(_ line: S) -> Bool {
     guard line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
           !line.contains("\"isMeta\":true"), !line.contains("\"isCompactSummary\":true"),

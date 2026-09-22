@@ -21,7 +21,7 @@ import Foundation
 /// 2.1.233 `AskUserQuestion` fired no `Notification` at all (C3, plan §2). From 2.1.280 it fires
 /// the same `permission_prompt` a tool permission does, and its tool call is not in the transcript
 /// until it is answered (H1 rerun O5), so that row no longer sees it; `dialogWaitingFor` is what
-/// tells the two apart there (`readClaudeDialog`, UserNotice.swift).
+/// tells the two apart there (`readClaudeRegistry`, UserNotice.swift).
 ///
 /// `dialogWaitingFor` is Claude Code's own name for the dialog on top (its session registry's
 /// `waitingFor`), read only while a `permission_prompt` stands. `codexQuestionTool` is the Codex
@@ -179,6 +179,11 @@ func reconcileWaitRequests(previous: SessionWaitRequest?, current: SessionWaitRe
 /// `denied` is never returned here even though the enum keeps the case for a future package that
 /// reads the transcript's own `is_error` result). Tried in order, first match wins:
 ///
+///   0. Claude Code's registry says the dialog this wait stood over has closed (`dialogClosed`,
+///      `claudeDialogOpen == false`) -> answered. A dialog is closed by a person: approving,
+///      refusing and Esc alike (`denied` stays unemitted, limitation 11). This is the only rule
+///      that fires on 2.1.280 for a permission dialog; the three below label the closes the older
+///      rules make when the registry cannot speak.
 ///   1. A stamped main-chain record a PERSON produced (`lastPersonInputAt`, `lineIsPersonInput`)
 ///      is newer than when this wait began -> answered. Not the transcript's mtime (unstamped
 ///      bookkeeping records move that with nobody there) and not any stamped record (Claude Code
@@ -187,7 +192,10 @@ func reconcileWaitRequests(previous: SessionWaitRequest?, current: SessionWaitRe
 ///   3. Neither -> unknown (a keyboard-burst clearing, or a wait the caller could not otherwise
 ///      account for: both are "somebody moved on" without evidence of WHAT they did).
 func resolvedWaitOutcome(request: SessionWaitRequest, answeredAt: Date?,
-                         questionClosed: Bool) -> SessionWaitResolution {
+                         questionClosed: Bool, dialogClosed: Bool = false) -> SessionWaitResolution {
+    if dialogClosed {
+        return .answered
+    }
     if let answeredAt, answeredAt > request.since {
         return .answered
     }

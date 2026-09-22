@@ -108,8 +108,15 @@ never promoted to `confirmed`.
 
 ### What counts as an answer
 
-A Claude wait resolves `answered` only when a record a PERSON produced lands in the main-chain
-transcript after the wait began. Census of every stamped record kind in 14 days of transcripts on
+`answered` also means Claude Code's session registry (`<config home>/sessions/<pid>.json`) reported
+the dialog the wait stood over as closed: its `status` left `waiting` after having said `waiting`
+for that very wait. Approve, refuse and Esc are indistinguishable there and all read `answered`.
+While the registry says `waiting`, nothing in the transcript and no key pressed closes the wait.
+The rest of this section applies when the registry cannot speak for the session (no file, another
+pid, no `status`, or it never said `waiting` for the wait).
+
+Otherwise a Claude wait resolves `answered` only when a record a PERSON produced lands in the
+main-chain transcript after the wait began. Census of every stamped record kind in 14 days of transcripts on
 the development machine (Claude Code 2.1.277 to 2.1.280, 400 files, 2026-09-23):
 
 | Record (type, subtype, content) | Count | Person? |
@@ -218,8 +225,9 @@ every distinct wait. Use it to correlate the lifecycle of one wait across multip
 2. A plain text question typed into Claude's response and a session nobody is talking to at all
    produce the identical signal (`idle_prompt`). Both are reported as `request.kind: "unknown"`,
    `confidence: "suspected"`. Telling them apart is left to whatever reads this stream.
-3. A background worker's permission prompt is cleared by watching the main session's transcript
-   move, not the worker's own result. This is a known, pre-existing gap this feature does not close.
+3. A background worker's permission prompt is closed by the session registry when the registry
+   tracks it (Claude Code 2.1.280 does for `permission_prompt`), not by the worker's own result.
+   Watching the main session's transcript move is the fallback when the registry cannot speak.
 4. Only one open wait is tracked per session at a time. If a second one appears before the first is
    resolved, the first is reported `resolution: "superseded"` - its real outcome is never known.
 5. Claude Code's documented `Notification` type list and this build's own list disagree in both
@@ -252,12 +260,22 @@ every distinct wait. Use it to correlate the lifecycle of one wait across multip
     Measured values (H1 rerun, 2026-09-23): Claude Code 2.1.280, "No" on a Bash permission resolves
     `answered` (cell A2); Codex CLI 0.155.1, Esc on a command approval resolves `unknown` (cell B1
     deny). `resolution: "denied"` is reserved in the schema for a future version that reads the
-    transcript's own tool result to tell them apart, and is never emitted by this version.
+    transcript's own tool result to tell them apart, and is never emitted by this version. On
+    Claude Code 2.1.280, Esc on a background agent's dialog now resolves `answered` (it read
+    `unknown` before the registry closed waits; H1f B1x).
 12. The structured question reading on Claude Code 2.1.280 rests on the session registry's
     `waitingFor`, which is undocumented. A version that drops or renames it reports its questions as
     permissions again (late rather than wrong). A plan awaiting approval (`ExitPlanMode`) on 2.1.280
     also fires `permission_prompt`, and the registry names it `"permission prompt"`, so it is
-    reported as a permission.
-13. A tool result counts as a person's answer. If Claude Code writes the result of one tool call
-    while a permission dialog for another call in the same turn is still open, that wait resolves
-    `answered` early. Not observed; named here because nothing rules it out.
+    reported as a permission. The registry's `status` is undocumented as well. A wait is closed by
+    it only after it said `waiting` for that wait (the handshake), so a version that stops writing
+    `waiting` falls back to the pre-registry rules (late or early as before) and never closes a
+    wait early on the registry's word. Each such fallback leaves one line in `~/.tally/handoff.log`
+    (`closed by legacy rules; registry v<version> never said waiting`).
+13. A tool result counts as a person's answer only on sessions whose registry cannot speak. There, if
+    Claude Code writes the result of one tool call while a permission dialog for another call is
+    still open, that wait resolves `answered` early (observed on 2.1.280 before the registry closed
+    waits: H1f B5t).
+14. A child replaced mid-dialog (a cap handoff, a relaunch) leaves the old notice to the older
+    rules, because the new child's registry knows nothing of the old dialog. A dialog that closes
+    because its agent was stopped (`TaskStop`) reads `answered`, the same as one a person closed.

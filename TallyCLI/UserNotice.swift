@@ -190,53 +190,66 @@ func clearAnsweredUserNotice(_ judged: UserNotice, pid: String, dir: URL = super
     clearUserNotice(pid: pid, dir: dir)
 }
 
-// MARK: - What the dialog behind a notice is
+// MARK: - What Claude Code itself says about the dialog
 
 /// Claude Code's name for a structured question dialog (`AskUserQuestion`) in its session registry.
 let claudeQuestionDialogWaitingFor = "input needed"
 
-/// One registry reading while `status` is `waiting` (`readClaudeDialog`).
-struct ClaudeDialogReading: Equatable {
-    var waitingFor: String?
-    var since: Date?
-}
-
-/// What Claude Code says its top dialog is waiting for, off the registry it keeps per session at
-/// `<config home>/sessions/<pid>.json`: `waitingFor` while `status` is `waiting`, else nil, and
-/// since when (`statusUpdatedAt`, epoch milliseconds; nil when absent).
+/// One reading of the registry Claude Code keeps per session at `<config home>/sessions/<pid>.json`,
+/// whatever its `status`. `idle`, `busy` and `waiting` are the values read off 2.1.280; `waitingFor`
+/// is present only while `waiting` (`"permission prompt"` for every permission kind including
+/// ExitPlanMode, `"input needed"` for the question kind); `version` is Claude Code's own.
 ///
 /// WHY THIS FILE AND NOT THE NOTICE. From 2.1.280 a structured question fires the same
-/// `permission_prompt` notification, with the same message ("Claude needs your permission"), as a
-/// tool permission does, and its tool call reaches the transcript only once it is answered (H1
-/// rerun O5, measured 2026-09-23). The registry is written the moment the dialog opens, from the
-/// dialog table's `waitingFor` (`"input needed"` for the question kind, `"permission prompt"` for
-/// every permission kind; read off the 2.1.280 binary the same day). Undocumented, so it is a
-/// tripwire: any read that fails, names another pid, or says anything else is nil, and nil keeps
-/// the reading this file had before (a permission), which is late rather than wrong.
-func readClaudeDialog(configHome: URL, childPid: Int) -> ClaudeDialogReading? {
+/// `permission_prompt` notification, with the same message, as a tool permission does, and its tool
+/// call reaches the transcript only once it is answered (H1 rerun O5, measured 2026-09-23). The
+/// registry is written the moment the dialog opens and the moment it closes.
+struct ClaudeRegistryReading: Equatable {
+    var status: String
+    var waitingFor: String?
+    var statusUpdatedAt: Date?
+    var version: String?
+    var isWaiting: Bool { status == "waiting" }
+}
+
+/// nil ONLY when the registry cannot speak for this child: no file, unparseable, no `status`, or a
+/// record naming another pid. A readable record with any status is a reading, "not waiting"
+/// included. The two are kept apart on purpose: "cannot say" hands the decision to the older rules,
+/// "says the dialog is gone" is a fact (`claudeDialogOpen`).
+func readClaudeRegistry(configHome: URL, childPid: Int) -> ClaudeRegistryReading? {
     let file = configHome.appendingPathComponent("sessions/\(childPid).json")
     guard let data = try? Data(contentsOf: file),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          (object["pid"] as? Int) == childPid, object["status"] as? String == "waiting" else { return nil }
-    let since = (object["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-    return ClaudeDialogReading(waitingFor: object["waitingFor"] as? String, since: since)
+          (object["pid"] as? Int) == childPid,
+          let status = object["status"] as? String else { return nil }
+    return ClaudeRegistryReading(
+        status: status,
+        waitingFor: object["waitingFor"] as? String,
+        statusUpdatedAt: (object["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) },
+        version: object["version"] as? String)
 }
 
-/// How long before a permission notice the registry's waiting stretch may have begun and still be
-/// taken as the same dialog. Measured lead in H1e O6 (2.1.280): 6.02s, the notification delay.
-let claudeDialogNoticeLead: TimeInterval = 60
-
-/// Whether the registry says the dialog behind `notice` is still open, so only a person closes it
-/// (`userNoticeStillOpen`, H1e O6: a sibling agent's task notification closed a background agent's
-/// permission dialog that was still on screen).
+/// Whether the dialog behind a HARD notice is open, in Claude Code's own words, or nil when it has
+/// none and the rules that stood before the registry was read must decide.
 ///
-/// SAME DIALOG, NOT JUST SOME DIALOG: the waiting stretch must have begun at or before the notice
-/// and within `claudeDialogNoticeLead` of it. A stretch begun after the notice is a later dialog;
-/// one begun long before is a registry that never left an older one. Either, or a registry without
-/// `statusUpdatedAt`, holds nothing and the rules before this one apply unchanged.
-func claudeDialogHolds(_ notice: UserNotice, dialog: ClaudeDialogReading?) -> Bool {
-    guard notice.type == "permission_prompt", let dialog, let since = dialog.since,
-          let waitingFor = dialog.waitingFor,
-          ["permission prompt", claudeQuestionDialogWaitingFor].contains(waitingFor) else { return false }
-    return since <= notice.at && notice.at.timeIntervalSince(since) <= claudeDialogNoticeLead
+///   true   the registry is readable and says `waiting`: a dialog is on top and only a person closes
+///          it. Nothing the transcript or the keyboard does counts (H1f B5t: the main turn's own
+///          Read result closed a background agent's dialog that was still on screen).
+///   false  the registry is readable, does not say `waiting`, and HAD said `waiting` for this very
+///          notice on an earlier tick of the same child (`witnessed`): the dialog this notice was
+///          about has been closed, and nothing the transcript failed to write keeps it open (H1f
+///          B1x: a lone agent's dialog refused with Esc stood 116 s until the agent's own task
+///          notification moved the main chain).
+///   nil    unreadable, or never witnessed: no fact.
+///
+/// THE HANDSHAKE IS THE WHOLE SAFETY ARGUMENT. `status` is undocumented (2.1.280, measured on 7
+/// dialogs across 5 shapes: the stamp never moved while a dialog stood, and left `waiting` within
+/// 100 ms of every Esc and Enter). A version that never writes `waiting`, or spells it otherwise,
+/// never reaches `false`, so the worst it can do is fall back to the older rules, never close a
+/// dialog nobody has answered. `statusUpdatedAt` is deliberately not an input: if a future build
+/// moved it while a dialog stood, reading it would close early.
+func claudeDialogOpen(_ notice: UserNotice, registry: ClaudeRegistryReading?, witnessed: Bool) -> Bool? {
+    guard userWait(notificationType: notice.type) == .hard, let registry else { return nil }
+    if registry.isWaiting { return true }
+    return witnessed ? false : nil
 }

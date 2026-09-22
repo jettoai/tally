@@ -75,14 +75,14 @@ func supervisedSessionState(wait: UserWait?, hasTranscript: Bool, quiet: Bool) -
 /// answers a single keypress gives are covered by the transcript rule above, since Claude Code
 /// writes the moment it is unblocked.
 ///
-/// WHILE CLAUDE CODE SAYS THE DIALOG IS STILL OPEN (`dialogHeld`, `claudeDialogHolds`) neither of
-/// those counts: only a record a person produced (`personInputAt`) closes it. A task notification
-/// moves the conversation with nobody there, and keys pressed inside a dialog are not its answer.
+/// WHEN CLAUDE CODE ITSELF SAYS WHETHER THE DIALOG IS OPEN (`dialogOpen`, `claudeDialogOpen`) that
+/// word is the answer and neither rule above is consulted: while it says open, a task notification,
+/// a reply, a tool result or keys pressed inside the dialog are not its answer; once it says the
+/// dialog it held is gone, a transcript that never moved does not keep the wait standing.
 func userNoticeStillOpen(_ notice: UserNotice?, conversationMovedAt: Date?,
-                         keyboardBurstAt: Date?, dialogHeld: Bool = false,
-                         personInputAt: Date? = nil) -> Bool {
+                         keyboardBurstAt: Date?, dialogOpen: Bool? = nil) -> Bool {
     guard let notice else { return false }
-    if dialogHeld { return !(personInputAt.map { $0 > notice.at } ?? false) }
+    if let dialogOpen { return dialogOpen }
     if let conversationMovedAt, conversationMovedAt > notice.at { return false }
     if let keyboardBurstAt, keyboardBurstAt > notice.at { return false }
     return true
@@ -172,144 +172,6 @@ struct SessionStateWriter {
     }
 }
 
-/// Remembers, across ticks, whether a wait request is standing and turns the change from the last
-/// tick's belief into `SessionWaitEvent`s (plan §4.1a/§4.1b/§6.8). Seeded from disk for the same
-/// reason `SessionStateWriter` above is (SessionStateSync.swift:108-112): a self-update replaces
-/// this process with `execv`, keeping the pid, so the new image must recover a request the image it
-/// replaced already believed was standing rather than start blind. `CodexWaitTracker`
-/// (CodexWaitEvents.swift) is this struct's sibling on the Codex side; the two diverge only in this
-/// one's file seed, which Codex does not need (plan §9 blind spot 11).
-struct SessionWaitTracker {
-    private var identity: SessionWaitIdentity
-    /// What the last tick published as standing, or nil. The `previous` side of every reconcile.
-    private var open: SessionWaitRequest?
-    /// What `open` was the LAST TIME this tracker actually wrote the seed file, so `reconcile` can
-    /// skip the write on every tick where nothing about the standing request changed (it ticks every
-    /// 2s, for the life of every supervised session, and most ticks change nothing). `SessionWaitRequest`
-    /// is already `Equatable`, so this compares the whole value rather than just `id`: a confidence
-    /// upgrade or a tool/summary filled in (the same changes that earn a `wait.updated` event) also
-    /// have to reach the seed, or a restart mid-wait would recover the stale reading.
-    private var seeded: SessionWaitRequest?
-    /// A seed read at construction whose `session.key` did not match this generation's own (plan
-    /// §4.3): resolved `session-ended` under ITS OWN identity on the first `reconcile` call, rather
-    /// than folded into an ordinary resolve/open pair under the new one.
-    private var staleSeed: SessionWaitSeed?
-    private let pid: String?
-    private let dir: URL
-
-    private struct SessionWaitSeed: Codable {
-        var identity: SessionWaitIdentity
-        var request: SessionWaitRequest
-    }
-
-    /// `pid` optional only so a test can build a tracker with nothing to seed or reseed, mirroring
-    /// `SessionStateWriter`'s own escape hatch. `supervisorPid`/`supervisorStartedAt` are this
-    /// generation's own, folded into `identity.key` once here and never rebuilt.
-    init(pid: String? = nil, supervisorPid: Int = 0, supervisorStartedAt: Int = 0,
-        dir: URL = supervisorStateDir) {
-        self.pid = pid
-        self.dir = dir
-        identity = SessionWaitIdentity(key: "claude:\(supervisorPid):\(supervisorStartedAt)",
-                                       supervisorPid: supervisorPid, supervisorStartedAt: supervisorStartedAt,
-                                       childPid: nil, transcriptSessionId: nil, launchNonce: nil,
-                                       account: nil, directory: nil, project: nil, worktree: nil)
-        guard let pid, let seed = SessionWaitTracker.readSeed(pid: pid, dir: dir) else { return }
-        if seed.identity.key == identity.key {
-            open = seed.request
-            // The file we just read IS this value, so the in-memory "last written" copy starts in
-            // step with it rather than nil, which would otherwise force one redundant write on the
-            // very first `reconcile` even though nothing changed.
-            seeded = seed.request
-        } else {
-            staleSeed = seed
-        }
-    }
-
-    private static func seedFile(pid: String, dir: URL) -> URL {
-        dir.appendingPathComponent("\(pid).waitopen")
-    }
-
-    private static func readSeed(pid: String, dir: URL) -> SessionWaitSeed? {
-        guard let data = try? Data(contentsOf: seedFile(pid: pid, dir: dir)) else { return nil }
-        return try? sessionWaitEventDecoder().decode(SessionWaitSeed.self, from: data)
-    }
-
-    private func writeSeed(pid: String) {
-        let file = SessionWaitTracker.seedFile(pid: pid, dir: dir)
-        guard let open else { try? FileManager.default.removeItem(at: file); return }
-        guard let data = try? sessionWaitEventEncoder().encode(SessionWaitSeed(identity: identity, request: open))
-        else { return }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
-    }
-
-    /// The stale seed's `session-ended` (plan §4.3), under ITS OWN identity, handed out once.
-    private mutating func takeStaleSeedEvents(now: Date) -> [SessionWaitEvent] {
-        guard let stale = staleSeed else { return [] }
-        staleSeed = nil
-        return reconcileWaitRequests(previous: stale.request, current: nil, resolution: .sessionEnded,
-                                     identity: stale.identity, provider: "claude", now: now)
-    }
-
-    /// One tick (plan §4.1b), driven by `syncSessionState`. `notice`/`waiting`/`question`/
-    /// `questionSince`/`quiet`/`wait` are that tick's own readings; `answeredAt` (the watcher's
-    /// `lastPersonInputAt`, never the file's mtime) is what explains a standing request going away
-    /// as answered (`resolvedWaitOutcome`, §4.1c/§14 revision 1); `dialogWaitingFor` is Claude
-    /// Code's own name for its top dialog (`readClaudeDialog`).
-    /// `permissionTool` is always nil here: revision 1 cuts the sidecar that would have supplied it.
-    mutating func reconcile(childPid: Int?, transcriptSessionId: String?, accountID: String?,
-                            directory: String?, project: String?, worktree: String?, notice: UserNotice?,
-                            waiting: Bool, question: String?, questionSince: Date?, quiet: Bool,
-                            wait: UserWait?, answeredAt: Date?, dialogWaitingFor: String? = nil,
-                            now: Date) -> [SessionWaitEvent] {
-        identity.childPid = childPid
-        identity.transcriptSessionId = transcriptSessionId
-        identity.account = accountID
-        identity.directory = directory
-        identity.project = project
-        identity.worktree = worktree
-
-        var events = takeStaleSeedEvents(now: now)
-
-        let current = stabilizedWaitRequest(
-            previous: open,
-            current: openWaitRequest(provider: "claude", sessionKey: identity.key, notice: notice,
-                                     waiting: waiting, question: question, questionSince: questionSince,
-                                     quiet: quiet, wait: wait, permissionTool: nil,
-                                     dialogWaitingFor: dialogWaitingFor),
-            notice: notice, noticeOpen: waiting)
-        var resolution: SessionWaitResolution?
-        if current == nil, let standing = open {
-            // `questionClosed` is the TRANSCRIPT's question closing (no notice behind it): a
-            // question recognised from the registry never had a transcript call open to close.
-            resolution = resolvedWaitOutcome(request: standing, answeredAt: answeredAt,
-                                             questionClosed: standing.kind == SessionWaitKind.question.rawValue
-                                                && standing.noticeType == nil && question == nil)
-        }
-        events += reconcileWaitRequests(previous: open, current: current, resolution: resolution,
-                                        identity: identity, provider: "claude", now: now)
-        open = current
-        if let pid, open != seeded {
-            writeSeed(pid: pid)
-            seeded = open
-        }
-        return events
-    }
-
-    /// Supervisor shutdown (plan §4.1b's fifth rule, §6.11): a standing request resolves
-    /// `session-ended` first, then `session.ended` closes the session itself.
-    mutating func finish(now: Date) -> [SessionWaitEvent] {
-        var events = takeStaleSeedEvents(now: now)
-        events += reconcileWaitRequests(previous: open, current: nil, resolution: .sessionEnded,
-                                        identity: identity, provider: "claude", now: now)
-        open = nil
-        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
-                                           provider: "claude", now: now))
-        if let pid { try? FileManager.default.removeItem(at: SessionWaitTracker.seedFile(pid: pid, dir: dir)) }
-        return events
-    }
-}
-
 /// One tick's worth of "what is this session doing", written to the board.
 ///
 /// The whole of it lives here rather than in the poll loop for the reason `syncPendingNotice` does:
@@ -349,17 +211,21 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // run earlier in the same tick) has already folded in; `modified` stays for the open-turn readings.
     let movedAt = watcher.lastConversationEventAt
     let notice = readUserNotice(pid: pid, dir: dir)
-    // Claude Code's registry, asked only while a permission notice stands and BEFORE judging it, so
-    // a dialog it says is open outlives activity nobody typed. The watcher's project dir is
-    // `<config home>/projects/<slug>`, the registry is its sibling.
-    let registry = notice?.type == "permission_prompt"
-        ? childPid.flatMap { readClaudeDialog(
-            configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
-            childPid: $0) }
-        : nil
+    // Claude Code's own word on whether a dialog is on top, asked for every HARD notice (a soft
+    // `idle_prompt` is the floor being free, not a dialog) and asked BEFORE judging. The watcher's
+    // project dir is `<config home>/projects/<slug>`, the registry is its sibling.
+    let registry: ClaudeRegistryReading? = notice.flatMap { standing in
+        userWait(notificationType: standing.type) == .hard
+            ? childPid.flatMap { readClaudeRegistry(
+                configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
+                childPid: $0) }
+            : nil
+    }
+    let dialogOpen = notice.flatMap {
+        claudeDialogOpen($0, registry: registry, witnessed: tracker.dialogWitnessed(childPid: childPid))
+    }
     let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt, keyboardBurstAt: keyboardBurstAt,
-                                      dialogHeld: notice.map { claudeDialogHolds($0, dialog: registry) } ?? false,
-                                      personInputAt: watcher.lastPersonInputAt)
+                                      dialogOpen: dialogOpen)
     // THE OTHER CHANNEL, and the only one that catches the case the hook cannot: Claude Code fires
     // no notification at all for `AskUserQuestion` or a plan awaiting approval (2.1.233, read off
     // the binary 2026-08-15; 2.1.280 fires one and writes the call late, see `openWaitRequest`),
@@ -405,13 +271,16 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     if question != nil, let file, let modified {
         questionSince = watcher.openTurn(of: file, modified: modified)?.startedAt
     }
-    // Which dialog a standing permission notice is really about: the registry read above.
-    let dialog = waiting ? registry?.waitingFor : nil
+    // Which dialog a standing permission notice is really about: the registry's own name for it,
+    // read only while it says one is up.
+    let dialog = waiting && registry?.isWaiting == true ? registry?.waitingFor : nil
     emit(tracker.reconcile(childPid: childPid, transcriptSessionId: watcher.transcriptSessionID,
                            accountID: accountID, directory: project.path, project: project.name,
                            worktree: project.worktree, notice: notice, waiting: waiting, question: question,
                            questionSince: questionSince, quiet: quiet, wait: wait,
-                           answeredAt: watcher.lastPersonInputAt, dialogWaitingFor: dialog, now: now))
+                           answeredAt: watcher.lastPersonInputAt, dialogWaitingFor: dialog,
+                           dialogOpen: dialogOpen, registryVersion: registry.map { $0.version ?? "unknown" },
+                           driftLog: watcher.auditLog, now: now))
     return SessionTick(state: state, quiet: quietness, wait: wait)
 }
 

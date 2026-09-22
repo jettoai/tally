@@ -9,10 +9,14 @@ import Foundation
 /// `<root>/cfg/sessions/<childPid>.json`, where the tick looks for it) and a state dir for notices.
 private final class WaitRig {
     let pid: String
-    let childPid = 70001
+    /// A var so a check can replace the child the way a cap handoff does (the registry follows it).
+    var childPid = 70001
+    let home: URL
     let state: URL
     let file: URL
-    let registry: URL
+    /// Where the tick's audit lines land, never the user's own `~/.tally/handoff.log`.
+    let audit: URL
+    var registry: URL { home.appendingPathComponent("cfg/sessions/\(childPid).json") }
     let now = Date()
     var watcher: TranscriptWatcher
     var tracker = SessionWaitTracker()
@@ -20,16 +24,23 @@ private final class WaitRig {
 
     init(_ root: URL, _ name: String, pid: String) {
         self.pid = pid
-        let home = root.appendingPathComponent(name)
+        home = root.appendingPathComponent(name)
         let projects = home.appendingPathComponent("cfg/projects/p")
         state = home.appendingPathComponent("state")
-        registry = home.appendingPathComponent("cfg/sessions/\(childPid).json")
-        for dir in [projects, state, registry.deletingLastPathComponent()] {
+        audit = home.appendingPathComponent("audit.log")
+        for dir in [projects, state, home.appendingPathComponent("cfg/sessions")] {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         file = projects.appendingPathComponent("session.jsonl")
         try! Data().write(to: file)
         watcher = TranscriptWatcher(projectDir: projects, file: file, since: now.addingTimeInterval(-600))
+        watcher.auditLog = audit
+    }
+
+    /// A tracker that keeps its seed on disk, rebuilt from it: what a supervisor `execv` self-update
+    /// does to a live one (same pid, fresh image).
+    func reseed() {
+        tracker = SessionWaitTracker(pid: pid, dir: state)
     }
 
     func stamp(_ ago: TimeInterval) -> String {
@@ -110,6 +121,26 @@ private final class WaitRig {
         return tick()
     }
 
+    /// The main turn running a tool of its own (no dialog) while another dialog stands: its call and
+    /// its result, both main-chain, the result a `user` record with no origin (H1f B5t).
+    func otherToolResult(ago: TimeInterval) {
+        append(#"{"parentUuid":"a1","isSidechain":false,"type":"assistant","uuid":"a9","timestamp":"\#(stamp(ago + 0.5))","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_9","name":"Read","input":{}}],"stop_reason":"tool_use"}}"#,
+               mtimeAgo: 0)
+        append(#"{"parentUuid":"a9","isSidechain":false,"type":"user","uuid":"u9","timestamp":"\#(stamp(ago))","message":{"role":"user","content":[{"tool_use_id":"toolu_9","type":"tool_result","content":"ok"}]}}"#,
+               mtimeAgo: 0)
+    }
+
+    func assistantText(ago: TimeInterval) {
+        append(#"{"parentUuid":"a1","isSidechain":false,"type":"assistant","uuid":"a8","timestamp":"\#(stamp(ago))","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"Still waiting on the agents."}],"stop_reason":"end_turn"}}"#,
+               mtimeAgo: 0)
+    }
+
+    /// A refused agent carrying on: its own records, none of them main-chain.
+    func sidechainWork(ago: TimeInterval) {
+        append(#"{"parentUuid":"s0","isSidechain":true,"type":"assistant","uuid":"s7","timestamp":"\#(stamp(ago))","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"Trying another way."}],"stop_reason":"end_turn"}}"#,
+               mtimeAgo: 0)
+    }
+
     func toolResult(ago: TimeInterval) {
         append(#"{"parentUuid":"a1","isSidechain":false,"type":"user","uuid":"u1","timestamp":"\#(stamp(ago))","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok"}]}}"#,
                mtimeAgo: 0)
@@ -178,10 +209,20 @@ func runWaitAnswerChecks() {
               && askedOpened[0].request?.tool == "AskUserQuestion"
               && askedOpened[0].request?.noticeType == "permission_prompt")
     asked.toolResult(ago: 0.5)
+    asked.registry(status: "busy", waitingFor: nil)
     let askedAnswered = asked.tick()
     check("O5: its answer resolves the question as answered",
           kinds(askedAnswered) == ["wait.resolved"] && askedAnswered[0].resolution == "answered"
               && askedAnswered[0].request?.kind == "question")
+
+    // The same question answered while the registry still says its dialog is up: not the answer.
+    let unanswered = WaitRig(root, "asked-guard", pid: "88908")
+    unanswered.registry(status: "waiting", waitingFor: "input needed")
+    unanswered.notice("permission_prompt", ago: 20, message: "Claude needs your permission")
+    _ = unanswered.tick()
+    unanswered.toolResult(ago: 0.5)
+    check("O5 guard: a question's tool result while the registry still says waiting resolves nothing",
+          unanswered.tick().isEmpty)
 
     let late = WaitRig(root, "late", pid: "88905")
     late.openCall("Bash")
@@ -236,17 +277,21 @@ private func runDialogHoldChecks(_ root: URL) {
     check("O6 row 2: ...nor on the tick after", agent.tick().isEmpty)
     agent.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
     let agentResolved = agent.tick()
-    check("O6 row 2: the registry leaving waiting resolves the same wait, as unknown",
-          kinds(agentResolved) == ["wait.resolved"] && agentResolved[0].resolution == "unknown"
+    check("O6 row 2: the registry leaving waiting resolves the same wait, as answered",
+          kinds(agentResolved) == ["wait.resolved"] && agentResolved[0].resolution == "answered"
               && agentResolved[0].request?.id == agentOpened.first?.request?.id)
 
-    // Row 3: a person's main-chain record answers even while the registry still says waiting.
+    // Row 3: a typed record while the registry still says waiting: the dialog is still on top, so
+    // the person still has to answer it, and only the registry saying it closed ends the wait.
     let typed = WaitRig(root, "hold-typed", pid: "88912")
     _ = typed.heldDialog("Bash")
     typed.taskNotification(ago: 2)
     typed.typed(ago: 0.5)
+    check("O6 row 3: a typed record while the registry still says waiting resolves nothing",
+          typed.tick().isEmpty)
+    typed.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
     let typedResolved = typed.tick()
-    check("O6 row 3: a typed record resolves a held dialog as answered",
+    check("O6 row 3: it resolves answered once the registry leaves waiting",
           kinds(typedResolved) == ["wait.resolved"] && typedResolved[0].resolution == "answered")
 
     // Row 5: the structured question kind of dialog is held the same way.
@@ -263,10 +308,11 @@ private func runDialogHoldChecks(_ root: URL) {
           keys.tick(burstAt: keys.now.addingTimeInterval(-1)).isEmpty)
     keys.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
     let keysResolved = keys.tick(burstAt: keys.now.addingTimeInterval(-1))
-    check("O6 row 10: once the registry leaves waiting the burst resolves it as unknown",
-          kinds(keysResolved) == ["wait.resolved"] && keysResolved[0].resolution == "unknown")
+    check("O6 row 10: once the registry leaves waiting the burst-era wait resolves as answered",
+          kinds(keysResolved) == ["wait.resolved"] && keysResolved[0].resolution == "answered")
 
-    // Row 8: any registry that is not this dialog's own falls back to the rule before O6.
+    // Row 8: a record naming another pid is no reading at all, so the rule before O6 decides. The
+    // stamp is not an input: whatever `statusUpdatedAt` says, this child's `waiting` holds.
     let fallbacks: [(String, Int?, TimeInterval?)] = [
         ("another pid", 1, 26), ("no statusUpdatedAt", nil, nil),
         ("a waiting stretch begun 61s before the notice", nil, 81),
@@ -280,7 +326,108 @@ private func runDialogHoldChecks(_ root: URL) {
         _ = rig.tick()
         rig.taskNotification(ago: 1)
         let resolved = rig.tick()
-        check("O6 row 8: with \(label) a task notification still resolves the wait as unknown",
-              kinds(resolved) == ["wait.resolved"] && resolved[0].resolution == "unknown")
+        if otherPid != nil {
+            check("O6 row 8: with \(label) a task notification still resolves the wait as unknown",
+                  kinds(resolved) == ["wait.resolved"] && resolved[0].resolution == "unknown")
+        } else {
+            check("O6 row 8: with \(label) the registry's waiting still holds", resolved.isEmpty)
+        }
     }
+
+    runRegistryCloserChecks(root)
+}
+
+/// H1f B5t and B1x: while Claude Code's registry can speak it alone decides whether the dialog is
+/// open, both ways. Only the registry leaving `waiting` after having said it for this wait closes it.
+private func runRegistryCloserChecks(_ root: URL) {
+    // B5t: a background agent's dialog up, the main turn runs a Read of its own.
+    let b5t = WaitRig(root, "b5t", pid: "88930")
+    let b5tOpened = b5t.heldDialog("Agent")
+    b5t.otherToolResult(ago: 0.5)
+    check("B5t: a main-chain tool result of ANOTHER call while the registry still says waiting "
+            + "resolves nothing, and the notice stays on disk",
+          b5t.tick().isEmpty && readUserNotice(pid: b5t.pid, dir: b5t.state) != nil)
+    b5t.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let b5tResolved = b5t.tick()
+    check("B5t: ...and the registry leaving waiting then resolves it as answered",
+          kinds(b5tResolved) == ["wait.resolved"] && b5tResolved[0].resolution == "answered"
+              && b5tResolved[0].request?.id == b5tOpened.first?.request?.id)
+
+    // B1x: a lone agent's dialog refused with Esc; the agent keeps running and never finishes, the
+    // main chain is not written and nobody presses a second key.
+    let b1x = WaitRig(root, "b1x", pid: "88931")
+    check("B1x: the agent's dialog opens", kinds(b1x.heldDialog("Agent")) == ["wait.opened"])
+    check("B1x: ...and stands while the registry says waiting", b1x.tick().isEmpty)
+    b1x.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    b1x.sidechainWork(ago: 0.2)
+    let b1xResolved = b1x.tick()
+    check("B1x: with nothing written to the main chain, no burst and the refused agent still running, "
+            + "the registry leaving waiting resolves the wait on the next tick, as answered",
+          kinds(b1xResolved) == ["wait.resolved"] && b1xResolved[0].resolution == "answered")
+    check("B1x: ...once, with the notice taken off disk",
+          b1x.tick().isEmpty && readUserNotice(pid: b1x.pid, dir: b1x.state) == nil)
+
+    // Restart: a supervisor self-update (execv, same pid) mid-dialog, then the Esc.
+    let restart = WaitRig(root, "restart", pid: "88932")
+    restart.reseed()
+    let restartOpened = restart.heldDialog("Agent")
+    restart.reseed()
+    check("restart: a re-seeded tracker still holds the dialog", restart.tick().isEmpty)
+    restart.reseed()
+    restart.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let restartResolved = restart.tick()
+    check("restart: a tracker re-seeded from disk mid-dialog still closes on the registry leaving "
+            + "waiting, as answered",
+          kinds(restartResolved) == ["wait.resolved"] && restartResolved[0].resolution == "answered"
+              && restartResolved[0].request?.id == restartOpened.first?.request?.id)
+
+    // Replaced child: the witness names the old child; the new one's registry knows nothing of it.
+    let replaced = WaitRig(root, "replaced", pid: "88933")
+    _ = replaced.heldDialog("Agent")
+    replaced.childPid = 70002
+    replaced.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    check("replaced child: a witness bound to pid 70001 does not let pid 70002's non-waiting registry "
+            + "close the wait", replaced.tick().isEmpty)
+
+    // Never waiting: a readable registry that never said `waiting` for this notice.
+    let drift = WaitRig(root, "never-waiting", pid: "88934")
+    drift.openCall("Bash")
+    drift.registry(status: "busy", waitingFor: nil, updatedAgo: 30)
+    drift.notice("permission_prompt", ago: 20, message: "Claude needs your permission")
+    check("never waiting: the notice still opens a wait", kinds(drift.tick()) == ["wait.opened"])
+    drift.taskNotification(ago: 1)
+    let driftResolved = drift.tick()
+    check("never waiting: a registry that is readable but never said waiting leaves the older rules "
+            + "in charge (a task notification resolves it as unknown)",
+          kinds(driftResolved) == ["wait.resolved"] && driftResolved[0].resolution == "unknown")
+    let driftLines = ((try? String(contentsOf: drift.audit, encoding: .utf8)) ?? "")
+        .split(separator: "\n").filter { $0.contains("closed by legacy rules; registry v2.1.280 never said waiting") }
+    check("never waiting: the fallback leaves exactly one drift line in the audit log",
+          driftLines.count == 1 && driftLines[0].contains(driftResolved.first?.request?.id ?? "?"))
+    let witnessedLines = ((try? String(contentsOf: b1x.audit, encoding: .utf8)) ?? "")
+    check("never waiting: a witnessed close leaves no drift line", !witnessedLines.contains("never said waiting"))
+
+    // idle_prompt: a soft notice is not a dialog, whatever the registry says.
+    let soft = WaitRig(root, "soft-registry", pid: "88935")
+    soft.endedTurn()
+    soft.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 70)
+    soft.notice("idle_prompt", ago: 60, message: "Claude is waiting for your input")
+    check("idle_prompt: a soft notice opens its unknown wait", kinds(soft.tick()) == ["wait.opened"])
+    soft.taskNotification(ago: 1)
+    let softResolved = soft.tick()
+    check("idle_prompt: a soft notice is judged by the older rules even when a registry says waiting",
+          kinds(softResolved) == ["wait.resolved"] && softResolved[0].resolution == "unknown")
+
+    // B5: the main turn's own reply while an agent's dialog stands.
+    let reply = WaitRig(root, "b5-reply", pid: "88936")
+    _ = reply.heldDialog("Agent")
+    reply.assistantText(ago: 0.5)
+    check("B5 guard: a main-chain assistant text while the registry says waiting resolves nothing",
+          reply.tick().isEmpty)
+
+    // A5: no notice, so the registry alone never opens anything.
+    let quiet = WaitRig(root, "a5", pid: "88937")
+    quiet.endedTurn()
+    quiet.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 5)
+    check("A5: with no notice standing a registry saying waiting opens nothing", quiet.tick().isEmpty)
 }

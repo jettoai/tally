@@ -456,5 +456,45 @@ check("…and would have named it on its held-over numbers (guard the premise)",
       flagRows.first { $0["id"] as? String == "claude:.claude" }?["weeklyRemaining"]
           as? Double == 95)
 
+// MARK: reset state and banked expiry (schema only gains fields)
+check("old snapshot: an account without reset fields decodes with them nil",
+      snapshot.accounts.first { $0.id == "codex:.codex" }.map {
+          $0.resetState == nil && $0.resetCreditsNextExpiry == nil
+              && $0.resetCreditsExpiryUnknown == nil } == true)
+check("old snapshot: reset fields are omitted from status json, not null",
+      account(auto, "codex:.codex")["resetState"] == nil
+          && account(auto, "codex:.codex")["resetCreditsNextExpiry"] == nil)
+let resetFixture = decodeSnapshot("""
+{ "version": 2, "generatedAt": "2026-07-23T11:55:00Z", "accounts": [
+  { "id": "codex:a", "provider": "codex", "label": "A", "isStale": false,
+    "resetCreditsAvailable": 1, "resetCreditsNextExpiry": "2026-10-05T12:20:35Z",
+    "resetCreditsExpiryUnknown": true, "resetState": "available" },
+  { "id": "codex:b", "provider": "codex", "label": "B", "isStale": false,
+    "resetCreditsAvailable": 0, "resetState": "used" },
+  { "id": "claude:c", "provider": "claude", "label": "C", "isStale": false,
+    "resetState": "unknown" },
+  { "id": "claude:d", "provider": "claude", "label": "D", "isStale": false,
+    "resetState": "notSupported" } ] }
+""")
+let resetJSON = parse(encodeStatusReport(statusReport(resetFixture, policies: [:], now: now)))
+check("reset fields round-trip into status json",
+      account(resetJSON, "codex:a")["resetState"] as? String == "available"
+          && account(resetJSON, "codex:a")["resetCreditsExpiryUnknown"] as? Bool == true
+          && account(resetJSON, "codex:a")["resetCreditsNextExpiry"] as? String
+              == "2026-10-05T12:20:35Z")
+check("unknown reset state is published, not dropped",
+      account(resetJSON, "claude:c")["resetState"] as? String == "unknown")
+let suffix = Dictionary(uniqueKeysWithValues: resetFixture.accounts.map {
+    ($0.id, resetStatusSuffix($0)) })
+check("status text: available prints banked count, expiry and unknown expiry",
+      suffix["codex:a"]?.hasPrefix(" · 1 reset banked, expires 2026-10-05") == true
+          && suffix["codex:a"]?.hasSuffix(", expiry unknown") == true)
+check("status text: zero banked prints no resets banked", suffix["codex:b"] == " · no resets banked")
+check("status text: unknown prints resets unknown", suffix["claude:c"] == " · resets unknown")
+check("status text: not supported prints nothing", suffix["claude:d"] == "")
+check("status text: an old snapshot keeps the banked count",
+      snapshot.accounts.first { $0.id == "codex:.codex" }.map(resetStatusSuffix)
+          == " · 3 resets banked")
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

@@ -44,6 +44,9 @@ struct StatusReport: Encodable {
         var modelRemaining: Double?
         var modelResetsAt: Date?
         var resetCreditsAvailable: Int?
+        var resetCreditsNextExpiry: Date?
+        var resetCreditsExpiryUnknown: Bool?
+        var resetState: String?
         /// The size of the largest conversation a supervisor is running on this account right now,
         /// measured at its newest turn and including that turn's own answer: what a resume there
         /// would reload before doing anything at all (SessionContext.swift). Absent when no
@@ -330,6 +333,9 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                 modelRemaining: account.modelRemaining,
                 modelResetsAt: account.modelResetsAt,
                 resetCreditsAvailable: account.resetCreditsAvailable,
+                resetCreditsNextExpiry: account.resetCreditsNextExpiry,
+                resetCreditsExpiryUnknown: account.resetCreditsExpiryUnknown,
+                resetState: account.resetState,
                 sessionContextTokens: accountSessions[account.id]?.contextTokens,
                 sessionModel: accountSessions[account.id]?.model,
                 sessionEffort: accountSessions[account.id]?.effort))
@@ -408,4 +414,28 @@ func encodeStatusReport(_ report: StatusReport) -> String {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let data = (try? encoder.encode(report)) ?? Data("{}".utf8)
     return String(decoding: data, as: UTF8.self)
+}
+
+/// The reset part of one `tally status` text line, in the four states the app publishes. Not
+/// supported prints nothing; unknown is printed, so it never passes for "no resets". An app too
+/// old to publish `resetState` falls back to the banked count alone.
+func resetStatusSuffix(_ account: Snapshot.Account) -> String {
+    let banked = account.resetCreditsAvailable ?? 0
+    switch account.resetState {
+    case "available" where banked > 0:
+        var text = " · \(banked) reset\(banked == 1 ? "" : "s") banked"
+        if let expiry = account.resetCreditsNextExpiry {
+            let stamp = DateFormatter()
+            stamp.locale = Locale(identifier: "en_US_POSIX")
+            stamp.dateFormat = "yyyy-MM-dd HH:mm"
+            text += ", expires \(stamp.string(from: expiry))"
+        }
+        if account.resetCreditsExpiryUnknown == true { text += ", expiry unknown" }
+        return text
+    case "available": return " · reset available"
+    case "used": return " · no resets banked"
+    case "unknown": return " · resets unknown"
+    case "notSupported": return ""
+    default: return banked > 0 ? " · \(banked) reset\(banked == 1 ? "" : "s") banked" : ""
+    }
 }

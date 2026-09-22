@@ -141,7 +141,46 @@ struct AccountFacts {
 
     /// Which reset this account carries, if any, asked in one place so the card and the compact row
     /// cannot come to offer different things (`RedeemAction.Offer` states what the two are).
-    var resetOffer: RedeemAction.Offer? { RedeemAction.offer(for: usage) }
+    var resetOffer: RedeemAction.Offer { RedeemAction.offer(for: usage) }
+
+    /// A Claude account whose resets Tally cannot see or cannot spend here: its mark opens
+    /// claude.ai's usage page instead (never a redeem).
+    var opensClaudeUsagePage: Bool {
+        guard case .claudeSessionLimit(let state) = resetOffer else { return false }
+        return state == .unknown || state == .notEnabled
+    }
+
+    /// The expiry beside a Codex banked-reset count: "until <date>", "expires in 2d" inside a week,
+    /// and "expiry unknown" for any credit nobody dated (never read as "no expiry").
+    func resetExpiryNote(now: Date = Date()) -> String? {
+        var parts: [String] = []
+        if let expiry = usage.resetCreditsNextExpiry {
+            let left = expiry.timeIntervalSince(now)
+            parts.append(ResetExpiryUrgency.of(expiry, now: now) == .distant
+                ? String(format: L("until %@"), UsageFormat.absoluteBody(expiry))
+                : String(format: L("expires in %@"), UsageFormat.durationBody(max(60, left))))
+        }
+        if usage.resetCreditsExpiryUnknown { parts.append(L("expiry unknown")) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Warning colour inside 48 hours of the soonest expiry, critical inside 6.
+    func resetExpiryColor(now: Date = Date()) -> Color? {
+        switch ResetExpiryUrgency.of(usage.resetCreditsNextExpiry, now: now) {
+        case .soon: return TallyColor.warning
+        case .final: return TallyColor.critical
+        case .unknown, .distant, .thisWeek: return nil
+        }
+    }
+
+    /// Hover text for a Codex account whose resets could not be read this round.
+    var codexResetUnknownHelp: String { L("Couldn't read resets this round") }
+
+    /// The "signed in as" line under a claude.ai pointer: the browser may be signed in to a
+    /// different Claude account than this card's.
+    private var claudeAccountLine: String {
+        identityEmail.isEmpty ? "" : "\n" + String(format: L("This card is %@."), identityEmail)
+    }
 
     /// When this account's weekly session-limit reset comes back, where a sentence named a date.
     var limitResetNextAt: Date? { LimitResetStore.shared.nextAvailableAt(accountID: usage.id) }
@@ -169,8 +208,8 @@ struct AccountFacts {
         LimitResetStore.shared.lastOutcome[usage.id]
     }
 
-    /// The one line the control shows, per state. `unknown` never reaches here (it answers no offer
-    /// at all), which is the whole of "do not show a number nothing observed".
+    /// The one line the control shows, per state. `unknown` names itself rather than a number:
+    /// nothing observed is shown as not known, never as zero.
     func limitResetLabel(_ state: LimitResetState) -> String {
         switch state {
         case .available:
@@ -182,7 +221,7 @@ struct AccountFacts {
         case .notEnabled:
             return L("Reset unavailable")
         case .unknown:
-            return ""
+            return L("Resets unknown")
         }
     }
 
@@ -197,9 +236,11 @@ struct AccountFacts {
         case .used:
             return L("This account has already used its reset this week.")
         case .notEnabled:
-            return L("Session limit reset is not enabled for this account yet")
+            return L("Resets for this login can only be used on claude.ai, under Settings > Usage.")
+                + claudeAccountLine
         case .unknown:
-            return ""
+            return L("Tally can't see this account's resets. claude.ai lists them under Settings > Usage.")
+                + claudeAccountLine
         }
     }
 

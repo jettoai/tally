@@ -87,10 +87,11 @@ final class ResetHintNotifier {
         case .drained:
             title = String(format: L("%@ is out of quota"), hint.accountLabel)
             body = L("A banked reset can clear its counters now.")
-        case .expiring:
-            title = String(format: L("%@ has a banked reset expiring"), hint.accountLabel)
-            body = String(format: L("Expires %@. Redeeming it now would not go to waste."),
-                          expiryText(hint.creditExpiresAt))
+        case .expiryEarly, .expiryPreReset, .expiryFinal:
+            title = String(format: L(hint.reason == .expiryFinal
+                                     ? "%@ has a banked reset expiring within hours"
+                                     : "%@ has a banked reset expiring"), hint.accountLabel)
+            body = Self.expiryBody(hint)
         }
         // The category carries the "Use a reset" button; the account id rides along so pressing it
         // lands on the account the hint was about. Re-registered right here because that button's
@@ -100,10 +101,22 @@ final class ResetHintNotifier {
                                       userInfo: [Self.accountKey: hint.accountID])
     }
 
-    /// The same stamp the redeem confirmation prints, and a word for the credit whose expiry the
-    /// provider never told us.
-    private func expiryText(_ date: Date?) -> String {
-        guard let date else { return L("soon") }
-        return AppLocale.shortDateTime(date)
+    /// The body says what spending now is worth (`ResetHintLogic.value`), never "no waste" when
+    /// plenty is left: whether to wait depends on the refill, and the sentence says which.
+    private static func expiryBody(_ hint: ResetHint) -> String {
+        let expires = hint.creditExpiresAt.map(AppLocale.shortDateTime) ?? L("soon")
+        let used = "\(Int((100 - hint.bindingRemainingPercent).rounded()))%"
+        switch ResetHintLogic.value(remaining: hint.bindingRemainingPercent,
+                                    expiresAt: hint.creditExpiresAt,
+                                    bindingResetsAt: hint.bindingResetsAt) {
+        case .recovers:
+            return String(format: L("Expires %@. Redeeming now recovers %@."), expires, used)
+        case .refillsFirst(let refill):
+            return String(format: L("Expires %@. Best used before %@; after that the counters refill on their own."),
+                          expires, AppLocale.shortDateTime(refill))
+        case .lostUnused:
+            return String(format: L("Expires %@. Unused, it is lost; redeeming now recovers %@."),
+                          expires, used)
+        }
     }
 }

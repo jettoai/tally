@@ -60,6 +60,14 @@ struct UsageSnapshot: Codable {
         /// wrote this predates the field and cannot answer, which is a different sentence from "the
         /// last poll succeeded" and is read differently by anyone deciding on it.
         var lastRefreshFailed: Bool?
+        /// When the soonest banked reset expires; nil when none is dated (see the next field).
+        var resetCreditsNextExpiry: Date?
+        /// True when at least one banked reset has no reported expiry; nil when the provider
+        /// lists no credits at all. Never read "no date" as "no expiry".
+        var resetCreditsExpiryUnknown: Bool?
+        /// The account's reset state: "available", "used", "notSupported" or "unknown"
+        /// (`ResetOffer.stateName`). nil from an app that predates the field.
+        var resetState: String?
     }
 
     var version = 2
@@ -114,7 +122,8 @@ struct UsageSnapshot: Codable {
     static func make(accounts: [AccountUsage], launchHomes: [String: String],
                      statuslineFullQuota: Bool = false, displayMode: String? = nil,
                      fleet: [String: Fleet]? = nil, fleetPools: [String: [Fleet]]? = nil,
-                     accountOrder: [String]? = nil, now: Date = Date()) -> UsageSnapshot {
+                     accountOrder: [String]? = nil, resetStates: [String: String] = [:],
+                     now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -135,7 +144,11 @@ struct UsageSnapshot: Codable {
                     isStale: usage.isStale,
                     error: usage.error,
                     refreshedAt: usage.refreshedAt,
-                    lastRefreshFailed: usage.lastRefreshFailed
+                    lastRefreshFailed: usage.lastRefreshFailed,
+                    resetCreditsNextExpiry: usage.resetCreditsNextExpiry,
+                    resetCreditsExpiryUnknown: usage.resetCredits == nil && usage.resetCreditsAvailable == nil
+                        ? nil : usage.resetCreditsExpiryUnknown,
+                    resetState: resetStates[usage.id]
                 )
             },
             statuslineFullQuota: statuslineFullQuota,

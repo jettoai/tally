@@ -47,7 +47,7 @@ struct CodexProvider: UsageProvider {
             planName: reading.plan, accountEmail: email, metrics: reading.metrics,
             refreshedAt: Date(), error: nil,
             resetCreditsAvailable: reading.resetCreditsAvailable,
-            resetCreditsNextExpiry: reading.resetCreditsNextExpiry
+            resetCredits: reading.resetCredits
         )
     }
 

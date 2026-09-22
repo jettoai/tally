@@ -29,6 +29,9 @@ final class LimitResetStore {
     private(set) var lastOutcome: [String: LimitResetSpend] = [:]
     /// The one preference, shared with the supervisor through `~/.tally/limit-reset/settings.json`.
     private(set) var settings: LimitResetSettings
+    /// Per Claude account, whether its CLI flag cache says `/limit-reset` is off there
+    /// (`claudeLimitResetFlagsOff`); absent means the cache could not tell.
+    private(set) var flagsOff: [String: Bool] = [:]
 
     private init() {
         settings = readLimitResetSettings()
@@ -68,6 +71,22 @@ final class LimitResetStore {
             if let record = readLimitReset(accountID: account.id) { found[account.id] = record }
         }
         records = found
+        flagsOff = Self.readFlags()
+    }
+
+    /// Each Claude account's two reset flags, from the `.claude.json` Claude Code keeps beside its
+    /// config (`claudeStateFile`). Local, zero-credential, and only those two keys are read; the
+    /// file also holds personal fields, which are parsed past and never kept.
+    private static func readFlags() -> [String: Bool] {
+        var found: [String: Bool] = [:]
+        for account in UsageStore.shared.discoveredAccounts where account.providerID == "claude" {
+            guard let home = account.launchHome,
+                  let raw = try? Data(contentsOf: claudeStateFile(forConfigDir:
+                                                        URL(fileURLWithPath: home))),
+                  let off = claudeLimitResetFlagsOff(inState: raw) else { continue }
+            found[account.id] = off
+        }
+        return found
     }
 
     /// What this account's reset state MEANS right now (`limitResetEffective` owns the ageing
@@ -75,7 +94,8 @@ final class LimitResetStore {
     /// states without a file on this machine.
     func state(accountID: String, now: Date = Date()) -> LimitResetState {
         if DemoUsage.isActive { return DemoUsage.limitReset(accountID: accountID)?.state ?? .unknown }
-        return limitResetEffective(records[accountID], now: now)
+        return claudeResetState(observed: limitResetEffective(records[accountID], now: now),
+                                flagsOff: flagsOff[accountID])
     }
 
     /// When this account's reset comes back, where a sentence named a date.

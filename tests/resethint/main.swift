@@ -20,13 +20,27 @@ func metric(_ id: String, kind: MetricKind = .weeklyAll, remaining: Double,
                 severity: .fromUsedPercent(100 - remaining), resetsAt: resetsAt, isActive: false)
 }
 
+/// `expiry` builds one dated credit "c1"; `list` overrides the credit list outright.
 func account(_ id: String, label: String? = nil, remaining: Double, credits: Int? = 1,
              expiry: Date? = nil, resetsAt: Date? = cycle1, error: String? = nil,
-             metrics: [UsageMetric]? = nil) -> AccountUsage {
-    AccountUsage(id: id, providerID: "codex", accountLabel: label ?? id, planName: nil,
-                 metrics: metrics ?? [metric("weekly_all", remaining: remaining, resetsAt: resetsAt)],
-                 refreshedAt: now, error: error,
-                 resetCreditsAvailable: credits, resetCreditsNextExpiry: expiry)
+             metrics: [UsageMetric]? = nil, list: [BankedResetCredit]? = nil) -> AccountUsage {
+    let listed = list ?? ((credits ?? 0) > 0 && expiry != nil
+        ? [BankedResetCredit(id: "c1", resetType: "codexRateLimits", status: "available",
+                             expiresAt: expiry)] : (credits == nil ? nil : []))
+    return AccountUsage(id: id, providerID: "codex", accountLabel: label ?? id, planName: nil,
+                        metrics: metrics ?? [metric("weekly_all", remaining: remaining,
+                                                    resetsAt: resetsAt)],
+                        refreshedAt: now, error: error,
+                        resetCreditsAvailable: credits, resetCredits: listed)
+}
+
+func credit(_ id: String?, _ expiry: Date?, status: String = "available") -> BankedResetCredit {
+    BankedResetCredit(id: id, resetType: "codexRateLimits", status: status, expiresAt: expiry)
+}
+
+func hintAt(_ at: Date, _ accounts: [AccountUsage], state: ResetHintState = ResetHintState())
+    -> (ResetHintState, ResetHint?) {
+    ResetHintLogic.advance(state: state, accounts: accounts, now: at)
 }
 
 func hint(_ accounts: [AccountUsage], state: ResetHintState = ResetHintState())
@@ -75,32 +89,32 @@ do {
 //    free to spend.
 do {
     let (state, note) = hint([account("a", remaining: 20, expiry: soon)])
-    expect(note?.reason == .expiring, "a credit expiring inside 48h hints on a 20% account")
+    expect(note?.reason == .expiryEarly, "a credit expiring inside 48h hints on a 20% account")
     expect(note?.creditExpiresAt == soon, "the hint carries the expiry for the body")
-    expect(state.accounts["a"]?.firedExpiring == true && state.accounts["a"]?.firedDrained == false,
-           "only the expiring flag is spent")
+    expect(state.accounts["a"]?.expiryStages["c1"] == ["expiryEarly"]
+           && state.accounts["a"]?.firedDrained == false, "only that credit's stage is spent")
 }
 
-// 5. Above the waste line the redeem dialog already calls a redeem mostly wasted, so an expiring
-//    credit is not worth waking anyone for.
+// 5. Remaining no longer decides WHETHER an expiry is news, only how it is worded: a credit that
+//    expires unused is lost however full the account is.
 do {
     let (_, note) = hint([account("a", remaining: 31, expiry: soon)])
-    expect(note == nil, "31% remaining is too full to spend an expiring credit on")
+    expect(note?.reason == .expiryEarly, "31% remaining still hears about an expiring credit")
     let (_, edge) = hint([account("a", remaining: 30, expiry: soon)])
-    expect(edge?.reason == .expiring, "30% remaining is exactly the waste line and still hints")
+    expect(edge?.reason == .expiryEarly, "30% remaining hints too")
 }
 
 // 6. The 48h horizon.
 do {
     let (_, inside) = hint([account("a", remaining: 20,
                                     expiry: now.addingTimeInterval(47 * 3_600))])
-    expect(inside?.reason == .expiring, "47h out is inside the horizon")
+    expect(inside?.reason == .expiryEarly, "47h out is inside the horizon")
     let (_, outside) = hint([account("a", remaining: 20,
                                      expiry: now.addingTimeInterval(49 * 3_600))])
     expect(outside == nil, "49h out is not news yet")
     let (_, overdue) = hint([account("a", remaining: 20,
                                      expiry: now.addingTimeInterval(-3_600))])
-    expect(overdue?.reason == .expiring, "a credit the server still reports past its expiry is urgent")
+    expect(overdue?.reason == .expiryFinal, "a credit the server still reports past its expiry is urgent")
 }
 
 // 7. Several accounts qualify, one is named: the least wasteful redeem wins.
@@ -136,7 +150,7 @@ do {
     let (afterDrained, first) = hint([account("a", remaining: 0, expiry: far)])
     let (_, second) = hint([account("a", remaining: 0, expiry: soon)], state: afterDrained)
     expect(first?.reason == .drained, "the drained hint fires first")
-    expect(second?.reason == .expiring, "the same account still reports its credit expiring")
+    expect(second?.reason == .expiryEarly, "the same account still reports its credit expiring")
 }
 
 // 11. A new reset cycle re-arms everything.
@@ -207,7 +221,7 @@ do {
 do {
     let (state, note) = hint([account("a", remaining: 0, expiry: soon)])
     expect(note?.reason == .drained, "a spent account with an expiring credit hints drained")
-    expect(state.accounts["a"]?.firedExpiring == false, "the expiring reason stays armed")
+    expect(state.accounts["a"]?.expiryStages.isEmpty == true, "the expiring stages stay armed")
 }
 
 // 19. Two accounts qualify, and the second is heard on the next refresh rather than never: each
@@ -256,8 +270,8 @@ do {
     let exhausted = refused(toldAgain, second)
     let (toldExpiring, expiring) = hint([account("a", remaining: 0, expiry: soon)],
                                         state: exhausted)
-    expect(expiring?.reason == .expiring, "the expiring reason still fires on its own")
-    expect(refused(toldExpiring, expiring).accounts["a"]?.firedExpiring == false,
+    expect(expiring?.reason == .expiryEarly, "the expiring reason still fires on its own")
+    expect(refused(toldExpiring, expiring).accounts["a"]?.expiryStages["c1"] == [],
            "and gets its own retry")
 }
 
@@ -303,8 +317,8 @@ do {
     let entry = decoded?.accounts["codex:.codex2"]
     expect(entry?.firedDrained == true && entry?.cycleKey == "1785526313",
            "a payload from an older build still decodes")
-    expect(entry?.rearmedDrained == false && entry?.rearmedExpiring == false,
-           "and its missing retry allowance reads as unspent")
+    expect(entry?.rearmedDrained == false && entry?.expiryStages.isEmpty == true,
+           "and its missing retry allowance and expiry memory read as unspent")
 }
 
 // 26. The binding window's reported reset moves without the window having moved: these times are
@@ -352,6 +366,8 @@ do {
     let (_, drainedAgain) = hint([account("a", remaining: 0)], state: recovered)
     expect(drainedAgain?.reason == .drained, "draining again after the refill hints again")
 }
+
+runExpiryChecks()
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all reset-hint tests passed")

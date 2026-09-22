@@ -18,8 +18,8 @@ enum CodexAppServerClient {
         var plan: String?
         /// Reset banking (verified live 2026-07-19): `result.rateLimitResetCredits.availableCount`.
         var resetCreditsAvailable: Int?
-        /// When the soonest available banked reset expires (drives the redeem dialog's context).
-        var resetCreditsNextExpiry: Date?
+        /// Every credit listed, with its expiry kept even when null (nil = the key was absent).
+        var resetCredits: [BankedResetCredit]?
     }
 
     private struct RPCLine: Decodable {
@@ -37,6 +37,7 @@ enum CodexAppServerClient {
         struct Credit: Decodable {
             let id: String?
             let status: String?
+            let resetType: String?
             let expiresAt: Double?
         }
     }
@@ -113,15 +114,19 @@ enum CodexAppServerClient {
                 isActive: false))
         }
         let plan = limits.planType?.trimmingCharacters(in: .whitespaces).capitalized
-        let nextExpiry = line.result?.rateLimitResetCredits?.credits?
-            .filter { $0.status == "available" }
-            .compactMap(\.expiresAt)
-            .min()
-            .map { Date(timeIntervalSince1970: $0) }
+        // The whole list, not its soonest date: a credit whose expiry is null must stay in view
+        // as "expiry unknown" rather than be dropped from a min() (`resetCreditsExpiryUnknown`).
+        let bank = line.result?.rateLimitResetCredits
+        let credits = bank.map { bank in
+            (bank.credits ?? []).map {
+                BankedResetCredit(id: $0.id, resetType: $0.resetType, status: $0.status,
+                                  expiresAt: $0.expiresAt.map { Date(timeIntervalSince1970: $0) })
+            }
+        }
         return answer(.ok(Reading(
             metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
-            resetCreditsAvailable: line.result?.rateLimitResetCredits?.availableCount,
-            resetCreditsNextExpiry: nextExpiry)))
+            resetCreditsAvailable: bank?.availableCount,
+            resetCredits: credits)))
     }
 
     /// Redeems the SOONEST-EXPIRING available banked reset for this account (waste-minimizing

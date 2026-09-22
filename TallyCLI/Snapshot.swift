@@ -35,6 +35,11 @@ struct Snapshot: Decodable {
         var modelWindowName: String?
         /// Codex reset banking: banked resets the account can redeem (read-only signal).
         var resetCreditsAvailable: Int?
+        /// The soonest banked expiry, whether any expiry is unreported, and the account's reset
+        /// state (available / used / notSupported / unknown). All absent from older apps.
+        var resetCreditsNextExpiry: Date?
+        var resetCreditsExpiryUnknown: Bool?
+        var resetState: String?
         var isStale: Bool
         var error: String?
         /// When THIS ACCOUNT's numbers were fetched, which is a different question from when the

@@ -122,5 +122,7 @@ expect(singleEntryPoint, "the propagation store is started from RedeemAction alo
 // makes the passing line contradict itself, naming the very file it just confirmed.
 if !singleEntryPoint { print("  begin() is called from: \(beginCallers)") }
 
+runOfferChecks()
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

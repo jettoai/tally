@@ -19,41 +19,53 @@ enum RedeemAction {
     /// place asks the question, exactly one place performs the write, and no surface can skip
     /// either. So each offer keeps its own confirm-and-spend pair below, and this is the one
     /// question a card asks first.
-    enum Offer: Equatable {
-        /// Codex reset banking: `n` banked resets, spent soonest-expiry-first.
-        case codexCredits(Int)
-        /// Claude's own once-a-week session-limit reset (Core/LimitReset.swift). Carries the state
-        /// because the card draws all four of them, and only one of them is a button.
-        case claudeSessionLimit(LimitResetState)
+    typealias Offer = ResetOffer
+
+    /// Which of the four states this account is in (`ResetOffer`), never nothing: an account
+    /// nobody has observed is drawn as unknown rather than hidden, because a hidden control reads
+    /// as "there is no reset here".
+    ///
+    /// The Codex side is what the provider reports; the Claude side is the observed record plus
+    /// the CLI flag cache (`LimitResetStore.state`), which no poll produces.
+    static func offer(for usage: AccountUsage) -> Offer {
+        let claude = usage.providerID == "claude"
+            ? LimitResetStore.shared.state(accountID: usage.id) : .unknown
+        return ResetOffer.of(usage, claudeState: claude)
     }
 
-    /// Which offer this account carries, or nil when it carries none.
+    /// Where claude.ai lists a Claude account's resets (Settings > Usage). The unknown and
+    /// not-supported marks open it; nothing there is redeemed by Tally.
+    static let claudeUsagePage = URL(string: "https://claude.ai/settings/usage")!
+
+    /// The confirmation's body: timing advice, cost + irreversibility, then the nearest expiry or
+    /// the plain fact that nobody reported one.
     ///
-    /// The Codex side is `resetCreditsAvailable`, which the provider reports; the Claude side is the
-    /// observed record, which no provider reports and no poll produces (`LimitResetStore` states
-    /// where it comes from). An `unknown` Claude account answers nil rather than an offer: nothing
-    /// has been observed about it, and a card that drew a control there would be inventing one.
-    static func offer(for usage: AccountUsage) -> Offer? {
-        if let credits = usage.resetCreditsAvailable, credits > 0 { return .codexCredits(credits) }
-        guard usage.providerID == "claude" else { return nil }
-        let state = LimitResetStore.shared.state(accountID: usage.id)
-        return state == .unknown ? nil : .claudeSessionLimit(state)
-    }
-    /// The confirmation's body: cost + irreversibility, the nearest expiry (an expiring credit is
-    /// nearly free to spend), and an escalation when redeeming would be a WASTE, because clearing
-    /// counters that are mostly empty gains almost nothing.
-    static func confirmMessage(for usage: AccountUsage) -> String {
+    /// The advice comes from `ResetHintLogic.redeemTiming`, so the hint and this dialog can never
+    /// disagree. "Mostly wasted" is only said when waiting really recovers more: the counters
+    /// refill before the credit expires. A credit that expires unused is lost, and saying so is
+    /// the opposite advice.
+    static func confirmMessage(for usage: AccountUsage, now: Date = Date()) -> String {
         var parts: [String] = []
-        // The binding window and the waste line come from `ResetHintLogic`, so the hint can never
-        // offer a redeem that this dialog then calls mostly wasted.
-        let bindingRemaining = ResetHintLogic.binding(usage)?.remainingPercent ?? 0
-        if bindingRemaining > ResetHintLogic.wasteRemainingPercent {
-            parts.append(L("This account still has plenty of quota left; redeeming now would mostly be wasted."))
+        let timing = ResetHintLogic.redeemTiming(usage, now: now)
+        switch timing {
+        case .waitForRefill(let refill):
+            parts.append(String(format: L("This account still has plenty of quota left, and its counters refill on their own at %@. Waiting until just before then would recover more."),
+                                AppLocale.shortDateTime(refill)))
+        case .useOrLose(let expiry):
+            parts.append(String(format: L("This reset expires %@; unused it is lost."),
+                                AppLocale.shortDateTime(expiry)))
+        case .worthIt, .expiryUnknown:
+            break
         }
         parts.append(L("Clears this account's current usage counters and consumes 1 banked reset. This cannot be undone."))
-        if let expiry = usage.resetCreditsNextExpiry {
+        if case .useOrLose = timing {
+            // The advice already named the date.
+        } else if let expiry = usage.resetCreditsNextExpiry {
             parts.append(L("Nearest banked reset expires") + " "
                          + AppLocale.shortDateTime(expiry) + ".")
+        }
+        if usage.resetCreditsExpiryUnknown {
+            parts.append(L("Tally can't see when this reset expires."))
         }
         return parts.joined(separator: "\n\n")
     }
@@ -111,8 +123,9 @@ enum RedeemAction {
 
     // MARK: Claude's weekly session-limit reset
 
-    /// The confirmation's body for the OTHER write, worded from what Claude Code itself says about
-    /// the cost: it uses the weekly limit, and there is one a week.
+    /// The confirmation's body for the OTHER write, worded only from what Claude Code itself says
+    /// about the cost: it counts toward the weekly limit. No "one a week": resets are granted
+    /// occasionally and expire (support.claude.com, "What is a limit reset?").
     ///
     /// IT NAMES THE SESSION, which the banked-reset dialog has no equivalent of. This write is not
     /// a request to a server; it is a slash command typed into one particular running conversation,
@@ -120,7 +133,7 @@ enum RedeemAction {
     /// and then watches a different window would have no idea what happened.
     static func sessionLimitMessage(session: LimitResetTarget?) -> String {
         var parts = [
-            L("Clears this account's 5-hour session limit now. It uses the weekly limit, and there is one reset a week. This cannot be undone."),
+            L("Clears this account's 5-hour session limit now. Claude Code says it counts toward the weekly limit. This cannot be undone."),
         ]
         if let session {
             parts.append(String(format: L("Tally types /limit-reset into the session running as %@."),

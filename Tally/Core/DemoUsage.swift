@@ -94,6 +94,10 @@ enum DemoUsage {
             return LimitResetRecord(state: .used,
                                     nextAvailableAt: now.addingTimeInterval(3.4 * 86_400),
                                     enabledSeenAt: now, observedAt: now)
+        case "claude:demo-Claude 4":
+            // Not supported on this login (redeemable on claude.ai only); Claude 2 and 5 stay
+            // unknown, so all four states are on screen.
+            return LimitResetRecord(state: .notEnabled, observedAt: now)
         default:
             return nil
         }
@@ -118,9 +122,11 @@ enum DemoUsage {
             claude("Claude 5", plan: "Max 20x", model: 45, session: 89, weekly: 59,
                    modelResetDays: 2.6, sessionResetHours: 0.6, weeklyResetDays: 2.6, now: now),
             codex("Codex", plan: "Pro", email: "sam@example.com", session: 42, weekly: 69,
-                  sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3, now: now),
+                  sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3,
+                  expiresInHours: [290, 480, 600], now: now),
             codex("Codex 2", plan: "Pro", email: "sam2@example.com", session: 71, weekly: 14,
-                  sessionResetHours: 0.9, weeklyResetDays: 3.3, resets: 1, now: now),
+                  sessionResetHours: 0.9, weeklyResetDays: 3.3, resets: 1,
+                  expiresInHours: [30], now: now),
             codex("Codex 3", plan: "Pro", email: "sam3@example.com", session: 18, weekly: 83,
                   sessionResetHours: 3.8, weeklyResetDays: 1.7, resets: 0, now: now),
             // Nine accounts total (a 3-column demo screenshot lands as a full 3x3 grid); the
@@ -131,7 +137,8 @@ enum DemoUsage {
             // email, and the identity callout's second line is what tells them apart. A fixture
             // set where every address is unique could never show that.
             codex("Codex 4", plan: "Team", email: "sam@example.com", session: 47, weekly: 62,
-                  sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2, now: now),
+                  sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2,
+                  expiresInHours: [220, nil], now: now),
         ]
     }
 
@@ -377,7 +384,8 @@ enum DemoUsage {
     /// shows the full shape).
     private static func codex(_ label: String, plan: String, email: String, session: Double,
                               weekly: Double, sessionResetHours: Double, weeklyResetDays: Double,
-                              resets: Int, now: Date) -> AccountUsage {
+                              resets: Int, expiresInHours: [Double?] = [],
+                              now: Date) -> AccountUsage {
         AccountUsage(
             id: "codex:demo-\(label)", providerID: "codex", accountLabel: label, planName: plan,
             // Spelled out per fixture rather than derived from the label (which is what the Claude
@@ -394,6 +402,13 @@ enum DemoUsage {
                             isActive: false),
             ],
             refreshedAt: now,
-            resetCreditsAvailable: resets > 0 ? resets : nil)
+            // Every reset state on screen: a count dated far off, one inside 48 hours, one with an
+            // undated credit, and a zero ("No banked resets").
+            resetCreditsAvailable: resets,
+            resetCredits: expiresInHours.enumerated().map { index, hours in
+                BankedResetCredit(id: "demo-\(label)-\(index)", resetType: "codexRateLimits",
+                                  status: "available",
+                                  expiresAt: hours.map { now.addingTimeInterval($0 * 3_600) })
+            })
     }
 }

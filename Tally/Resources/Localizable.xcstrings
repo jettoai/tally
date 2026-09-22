@@ -4235,35 +4235,6 @@
         }
       }
     },
-    "This account still has plenty of quota left; redeeming now would mostly be wasted.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此帳號剩餘額度還很多，現在兌換幾乎是浪費。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此账号剩余额度还很多，现在兑换几乎是浪费。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアカウントにはまだ十分なクォータが残っています。今リセットを使うのはほぼ無駄になります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 계정에는 아직 쿼터가 충분히 남아 있어 지금 교환하면 대부분 낭비됩니다."
-          }
-        }
-      }
-    },
     "Nearest banked reset expires": {
       "extractionState": "manual",
       "localizations": {
@@ -7124,35 +7095,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 의 보관된 리셋이 곧 만료됨"
-          }
-        }
-      }
-    },
-    "Expires %@. Redeeming it now would not go to waste.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。現在兌換不會浪費。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。现在兑换不会浪费。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に期限切れ。今引き換えても無駄になりません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 에 만료됩니다. 지금 교환해도 낭비되지 않습니다."
           }
         }
       }
@@ -13826,64 +13768,6 @@
         }
       }
     },
-    "Session limit reset is not enabled for this account yet": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這個帳號還沒開放 session 限制重置。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个账号还没开放 session 限制重置。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアカウントではセッション制限のリセットがまだ有効になっていません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 계정에는 세션 한도 리셋이 아직 활성화되지 않았습니다."
-          }
-        }
-      }
-    },
-    "Clears this account's 5-hour session limit now. It uses the weekly limit, and there is one reset a week. This cannot be undone.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "立即清除這個帳號的 5 小時 session 限制。它會用掉週限額，每週只有一次重置。此操作無法復原。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "立即清除这个账号的 5 小时 session 限制。它会用掉周限额，每周只有一次重置。此操作无法撤销。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアカウントの 5 時間セッション制限をいま解除します。週の上限を消費し、リセットは週に 1 回だけです。取り消せません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 계정의 5시간 세션 한도를 지금 해제합니다. 주간 한도를 소모하며 리셋은 주 1회뿐입니다. 되돌릴 수 없습니다."
-          }
-        }
-      }
-    },
     "Tally types /limit-reset into the session running as %@.": {
       "extractionState": "manual",
       "localizations": {
@@ -14832,6 +14716,528 @@
           "stringUnit": {
             "state": "translated",
             "value": "로그아웃되었습니다. 클릭하여 다시 로그인하세요."
+          }
+        }
+      }
+    },
+    "No banked resets": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有儲存的重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有储存的重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのリセットはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 리셋 없음"
+          }
+        }
+      }
+    },
+    "Resets not reported for this login": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此登入不回報重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此登录不回报重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このログインはリセットを報告しません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 로그인은 리셋을 보고하지 않음"
+          }
+        }
+      }
+    },
+    "Couldn't read resets this round": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這一輪讀不到重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这一轮读不到重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回はリセットを読み取れませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번에는 리셋을 읽지 못했습니다"
+          }
+        }
+      }
+    },
+    "Resets unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置不明"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置不明"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット不明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리셋 알 수 없음"
+          }
+        }
+      }
+    },
+    "Resets for this login can only be used on claude.ai, under Settings > Usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此登入的重置只能在 claude.ai 的「設定 > 用量」使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此登录的重置只能在 claude.ai 的“设置 > 用量”使用。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このログインのリセットは claude.ai の「設定 > 使用量」でのみ使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 로그인의 리셋은 claude.ai의 설정 > 사용량에서만 쓸 수 있습니다."
+          }
+        }
+      }
+    },
+    "Tally can't see this account's resets. claude.ai lists them under Settings > Usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 看不到此帳號的重置。claude.ai 在「設定 > 用量」列出它們。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 看不到此账号的重置。claude.ai 在“设置 > 用量”列出它们。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はこのアカウントのリセットを確認できません。claude.ai の「設定 > 使用量」に一覧があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 이 계정의 리셋을 볼 수 없습니다. claude.ai의 설정 > 사용량에 나와 있습니다."
+          }
+        }
+      }
+    },
+    "This card is %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這張卡是 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这张卡是 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカードは %@ です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 카드는 %@입니다."
+          }
+        }
+      }
+    },
+    "until %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ まで"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@까지"
+          }
+        }
+      }
+    },
+    "expires in %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 後到期"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 后到期"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あと %@ で期限切れ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 후 만료"
+          }
+        }
+      }
+    },
+    "expiry unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期時間不明"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期时间不明"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限不明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "만료 시각 알 수 없음"
+          }
+        }
+      }
+    },
+    "%@ has a banked reset expiring within hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 有一個儲存的重置幾小時內到期"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 有一个储存的重置几小时内到期"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の保存済みリセットが数時間以内に期限切れになります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 저장된 리셋이 몇 시간 안에 만료됩니다"
+          }
+        }
+      }
+    },
+    "Expires %@. Redeeming now recovers %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。現在兌換可恢復 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。现在兑换可恢复 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に期限切れ。今使うと %@ 回復します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 만료. 지금 사용하면 %@ 회복됩니다."
+          }
+        }
+      }
+    },
+    "Expires %@. Best used before %@; after that the counters refill on their own.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。最好在 %@ 之前使用；之後用量會自己回滿。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。最好在 %@ 之前使用；之后用量会自己回满。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に期限切れ。%@ より前に使うのが得策です。その後は使用量が自然に回復します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 만료. %@ 전에 쓰는 것이 좋습니다. 그 후에는 사용량이 저절로 회복됩니다."
+          }
+        }
+      }
+    },
+    "Expires %@. Unused, it is lost; redeeming now recovers %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。不用就會作廢；現在兌換可恢復 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。不用就会作废；现在兑换可恢复 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に期限切れ。使わなければ失われます。今使うと %@ 回復します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 만료. 쓰지 않으면 사라집니다. 지금 사용하면 %@ 회복됩니다."
+          }
+        }
+      }
+    },
+    "This account still has plenty of quota left, and its counters refill on their own at %@. Waiting until just before then would recover more.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號還有很多額度，用量會在 %@ 自己回滿。等到那之前再兌換可以恢復更多。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账号还有很多额度，用量会在 %@ 自己回满。等到那之前再兑换可以恢复更多。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントにはまだ十分な枠があり、%@ に使用量が自然に回復します。その直前まで待つほうが多く回復できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 아직 한도가 넉넉하며 %@에 사용량이 저절로 회복됩니다. 그 직전까지 기다리면 더 많이 회복할 수 있습니다."
+          }
+        }
+      }
+    },
+    "This reset expires %@; unused it is lost.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個重置 %@ 到期；不用就會作廢。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个重置 %@ 到期；不用就会作废。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリセットは %@ に期限切れになり、使わなければ失われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 리셋은 %@에 만료되며 쓰지 않으면 사라집니다."
+          }
+        }
+      }
+    },
+    "Tally can't see when this reset expires.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 看不到這個重置何時到期。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 看不到这个重置何时到期。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はこのリセットの期限を確認できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 이 리셋의 만료 시각을 볼 수 없습니다."
+          }
+        }
+      }
+    },
+    "Clears this account's 5-hour session limit now. Claude Code says it counts toward the weekly limit. This cannot be undone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即清除此帳號的 5 小時工作階段限制。Claude Code 表示這會計入每週限制。此操作無法復原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即清除此账号的 5 小时会话限制。Claude Code 表示这会计入每周限制。此操作无法撤销。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントの 5 時間セッション制限を今すぐ解除します。Claude Code によると週間制限に計上されます。元に戻せません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정의 5시간 세션 한도를 지금 해제합니다. Claude Code에 따르면 주간 한도에 포함됩니다. 되돌릴 수 없습니다."
           }
         }
       }

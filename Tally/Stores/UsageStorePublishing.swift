@@ -23,7 +23,10 @@ extension UsageStore {
                            // resolve near-ties by taking the first candidate depend on it
                            // (UsageSnapshot.accountOrder states the whole trade).
                            accountOrder: SettingsStore.shared
-                               .orderedAccountIDs(lastPublishedAccounts.map(\.id))).write()
+                               .orderedAccountIDs(lastPublishedAccounts.map(\.id)),
+                           resetStates: Dictionary(lastPublishedAccounts.map {
+                               ($0.id, RedeemAction.offer(for: $0).stateName)
+                           }, uniquingKeysWith: { first, _ in first })).write()
     }
 
     /// Feed the claude flagship weekly pool to the dry-pool notifier. The flagship window is chosen

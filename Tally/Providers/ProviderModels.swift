@@ -131,8 +131,25 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// Codex reset banking: how many banked rate-limit resets the account can still redeem
     /// (nil = the provider doesn't report the concept).
     var resetCreditsAvailable: Int?
-    /// When the soonest available banked reset expires (context for the redeem dialog).
-    var resetCreditsNextExpiry: Date?
+    /// Every banked credit the provider listed, as listed (nil = no list reported).
+    var resetCredits: [BankedResetCredit]?
+
+    /// The credits that can still be spent. A credit with no status counts, since the count beside
+    /// the list already says it is banked.
+    var spendableResetCredits: [BankedResetCredit] {
+        (resetCredits ?? []).filter { $0.status == nil || $0.status == "available" }
+    }
+
+    /// When the soonest spendable banked reset expires. Derived from the list so it can never
+    /// disagree with it; nil does NOT mean "never expires" (`resetCreditsExpiryUnknown`).
+    var resetCreditsNextExpiry: Date? { spendableResetCredits.compactMap(\.expiresAt).min() }
+
+    /// True when at least one banked reset has an expiry nobody reported: a credit listed without
+    /// one, or a count larger than the list that dates it. An unknown expiry is never read as none.
+    var resetCreditsExpiryUnknown: Bool {
+        let listed = spendableResetCredits
+        return listed.contains { $0.expiresAt == nil } || (resetCreditsAvailable ?? 0) > listed.count
+    }
 
     /// The single metric to feature at a glance: the binding model-scoped window if the provider
     /// flags one, else any model-scoped window, else the unified weekly, else session. This is the
@@ -154,6 +171,15 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
                      planName: planName, accountEmail: accountEmail,
                      metrics: [], refreshedAt: Date(), error: message, errorDetail: errorDetail)
     }
+}
+
+/// One banked rate-limit reset as the provider reported it (Codex
+/// `rateLimitResetCredits.credits[]`). `expiresAt` nil means the provider did not say.
+struct BankedResetCredit: Hashable, Sendable {
+    var id: String?
+    var resetType: String?
+    var status: String?
+    var expiresAt: Date?
 }
 
 /// A usage source. Implementations live under `Providers/<Name>/`.

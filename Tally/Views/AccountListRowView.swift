@@ -162,7 +162,22 @@ struct AccountListRowView: View {
             redeemButton(resets)
         } else if case .claudeSessionLimit(let state) = facts.resetOffer {
             sessionLimitMark(state)
+        } else if facts.resetOffer == .codexNone {
+            codexResetMark("0", help: L("No banked resets"))
+        } else if facts.resetOffer == .codexUnknown {
+            codexResetMark("?", help: facts.codexResetUnknownHelp)
         }
+    }
+
+    /// A Codex account with nothing to press: "0" banked or "?" unknown, greyed like every other
+    /// unavailable mark on this row. Not-reported draws nothing at row scale.
+    private func codexResetMark(_ text: String, help: String) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
+            Text(verbatim: text).monospacedDigit()
+        }
+        .foregroundStyle(.tertiary)
+        .tallyTooltip(facts.markOwner, detail: help)
     }
 
     /// Claude's weekly session-limit reset at row scale, in the shape the banked-reset control
@@ -173,6 +188,10 @@ struct AccountListRowView: View {
     private func sessionLimitMark(_ state: LimitResetState) -> some View {
         // The same one call the card makes, so the question and the write have one implementation.
         Button {
+            if facts.opensClaudeUsagePage {
+                NSWorkspace.shared.open(RedeemAction.claudeUsagePage)
+                return
+            }
             guard facts.canResetSessionLimit else { return }
             RedeemAction.startSessionLimit(usage: usage, label: facts.label)
         } label: {
@@ -183,6 +202,8 @@ struct AccountListRowView: View {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
                     if state == .available {
                         Text(verbatim: "1").monospacedDigit()
+                    } else if state == .unknown {
+                        Text(verbatim: "?")
                     }
                 }
             }
@@ -193,7 +214,7 @@ struct AccountListRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!facts.canResetSessionLimit)
+        .disabled(!facts.canResetSessionLimit && !facts.opensClaudeUsagePage)
         .tallyTooltipAroundControl(facts.markOwner, detail: facts.limitResetHelp(state))
         .accessibilityLabel(facts.limitResetLabel(state))
     }
@@ -253,14 +274,16 @@ struct AccountListRowView: View {
                     Text(verbatim: "\(resets)").monospacedDigit()
                 }
             }
-            .foregroundStyle(.secondary)
+            // The whole mark turns warning inside 48 hours of the soonest expiry, critical inside 6.
+            .foregroundStyle(facts.resetExpiryColor().map(AnyShapeStyle.init)
+                             ?? AnyShapeStyle(.secondary))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(redeemBusy || facts.isDormant)
         .tallyTooltipAroundControl(facts.isDormant
               ? L("Signed out: renew the login to spend a banked reset.")
-              : L("Use a reset"))
+              : [L("Use a reset"), facts.resetExpiryNote()].compactMap { $0 }.joined(separator: " · "))
         .accessibilityLabel(L(resets == 1 ? "reset available" : "resets available"))
     }
 

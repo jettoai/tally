@@ -79,6 +79,10 @@ struct AccountCardView: View {
                                     .font(.system(size: 9))
                                 Text(verbatim: "\(resets) ")
                                     + Text(L(resets == 1 ? "reset available" : "resets available"))
+                                if let note = facts.resetExpiryNote() {
+                                    Text(verbatim: "· \(note)")
+                                        .foregroundStyle(facts.resetExpiryColor() ?? .secondary)
+                                }
                             }
                         }
                         .font(.caption2)
@@ -97,6 +101,7 @@ struct AccountCardView: View {
                           ? L("Signed out: renew the login to spend a banked reset.")
                           : L("Use a reset"))
                 }
+                codexResetStatusRow
                 if case .claudeSessionLimit(let state) = facts.resetOffer {
                     sessionLimitRow(state)
                 }
@@ -303,6 +308,33 @@ struct AccountCardView: View {
         }
     }
 
+    /// The three Codex states that are not a button: none banked (a greyed zero), not reported
+    /// by this login (a grey line), and unknown this round (a greyed "?"). Unknown is drawn, never
+    /// hidden, so it cannot pass for "nothing here".
+    @ViewBuilder
+    private var codexResetStatusRow: some View {
+        switch facts.resetOffer {
+        case .codexNone:
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
+                Text(verbatim: "0 · ") + Text(L("No banked resets"))
+            }
+            .font(.caption2).foregroundStyle(.tertiary)
+        case .codexNotReported:
+            Text(L("Resets not reported for this login"))
+                .font(.caption2).foregroundStyle(.tertiary)
+        case .codexUnknown:
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
+                Text(verbatim: "?")
+            }
+            .font(.caption2).foregroundStyle(.tertiary)
+            .tallyTooltip(facts.codexResetUnknownHelp)
+        case .codexCredits, .claudeSessionLimit:
+            EmptyView()
+        }
+    }
+
     // MARK: Claude's weekly session-limit reset
 
     /// The one line this card gives the weekly reset, in the shape the banked-reset control beside
@@ -312,15 +344,20 @@ struct AccountCardView: View {
     /// one state and a label in the others. What a reader has to be able to tell apart is "there is
     /// nothing here" from "there is something here and you cannot have it yet", and a control that
     /// disappears says the first about the second - which is precisely the confusion an account
-    /// outside the rollout would live in. `unknown` is the one state that really is nothing, and it
-    /// never reaches this: it answers no offer at all.
+    /// outside the rollout would live in. `unknown` is drawn too, as a "?".
     @ViewBuilder
     private func sessionLimitRow(_ state: LimitResetState) -> some View {
         // The ask and the write are one call in `RedeemAction`, which is where the two manual UI
         // surfaces that offer this reset (this card and the compact row) share the same cost
         // wording, so neither can come apart from the other. The supervisor's own automatic reset
         // has its own notice for the same cost (`capLimitResetFirstNotice`, TallyCLI/CapLimitReset.swift).
+        // Unknown and not-supported open claude.ai's usage page, the one place those resets are
+        // listed; drawn in the tertiary shade so the mark never reads as a redeem button.
         Button {
+            if facts.opensClaudeUsagePage {
+                NSWorkspace.shared.open(RedeemAction.claudeUsagePage)
+                return
+            }
             guard facts.canResetSessionLimit else { return }
             RedeemAction.startSessionLimit(usage: usage, label: label)
         } label: {
@@ -330,15 +367,16 @@ struct AccountCardView: View {
                     Text(L("resetting…"))
                 } else {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
-                    Text(facts.limitResetLabel(state))
+                    Text(state == .unknown ? "?" : facts.limitResetLabel(state))
                 }
             }
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(facts.opensClaudeUsagePage ? AnyShapeStyle(.tertiary)
+                                                        : AnyShapeStyle(.secondary))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!facts.canResetSessionLimit)
+        .disabled(!facts.canResetSessionLimit && !facts.opensClaudeUsagePage)
         .tallyTooltipAroundControl(facts.limitResetHelp(state))
     }
 

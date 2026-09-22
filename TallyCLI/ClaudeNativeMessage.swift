@@ -102,13 +102,7 @@ func deliverClaudeNativeMessage(socket: String, session: String, body: MessageBo
         fputs("Message target path is not a socket. Nothing was sent.\n", stderr)
         return 2
     }
-    let text: String
-    switch nativeMessageText(body) {
-    case .text(let loaded): text = loaded
-    case .problem(let problem):
-        fputs(problem + "\n", stderr)
-        return 2
-    }
+    guard let text = loadedMessageText(body) else { return 2 }
     guard let frame = try? claudeNativeMessageFrame(session: session, text: text) else {
         fputs("Native message encoding failed. Nothing was sent.\n", stderr)
         return 1

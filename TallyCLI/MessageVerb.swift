@@ -64,39 +64,27 @@ func messageVerbIsExplicit(_ args: [String]) -> Bool {
 /// contradiction.
 func messageAddressRequest(_ args: [String]) -> MessageAddressRequest? {
     guard let provider = args.first, sessionProviderNames.contains(provider) else { return nil }
-    var address = SessionSendAddress()
+    // The two flags this verb adds to that grammar, offered to it as `extra`: everything else about
+    // the line, `--` included, is the typing verb's own rules rather than a second copy of them.
     var file: String?
-    var text: String?
     var dryRun = false
-    var literal = false
-    var index = 1
-    while index < args.endIndex {
-        let word = args[index]
-        index += 1
-        if !literal {
-            if word == "--" { literal = true; continue }
-            if word == "--dry-run" {
-                guard !dryRun else { return nil }
-                dryRun = true
-                continue
-            }
-            if word == "--file" {
-                guard file == nil, index < args.endIndex else { return nil }
-                file = args[index]
-                index += 1
-                continue
-            }
-            if let taken = address.take(word, args, &index) {
-                guard taken else { return nil }
-                continue
-            }
-            guard !word.hasPrefix("-") else { return nil }
+    let parsed = sessionAddressGrammar(Array(args.dropFirst())) { word, args, index in
+        switch word {
+        case "--dry-run":
+            guard !dryRun else { return false }
+            dryRun = true
+            return true
+        case "--file":
+            guard file == nil, index < args.endIndex else { return false }
+            file = args[index]
+            index += 1
+            return true
+        default:
+            return nil
         }
-        guard text == nil else { return nil }
-        text = word
     }
-    guard address.namesOneSession, address.provider == nil,
-          let body = messageBody(file: file, text: text) else { return nil }
+    guard let address = parsed?.address, address.provider == nil,
+          let body = messageBody(file: file, text: parsed?.word) else { return nil }
     // The provider is folded in only where there is a directory for it to narrow, exactly as the
     // typing verb folds it (SessionSendVerb.swift): everywhere else it travels beside the request
     // and is checked once the address has become a session key.
@@ -119,9 +107,8 @@ func messageAddressRequest(_ args: [String]) -> MessageAddressRequest? {
 /// A POINT-IN-TIME ADDRESS, as the report's own documentation says: the conversation can end
 /// between this lookup and the write, and the write is bytes on a socket rather than a receipt.
 func nativeSessionAddress(sessionKey: String,
-                          inventory: [StatusReport.Session]? = nil,
                           dir: URL = supervisorStateDir) -> (socket: String, session: String)? {
-    let sessions = inventory ?? sessionReadings(identity: { _ in (nil, nil) }).sessions
+    let sessions = sessionReadings(identity: { _ in (nil, nil) }).sessions
     // Joined on the CHILD pid, because that is the only pid the report publishes: the session key
     // is the supervisor, and the roster entry is looked up through the same reader every other
     // supervisor-to-child question goes through.

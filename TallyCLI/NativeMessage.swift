@@ -113,6 +113,19 @@ func nativeMessageText(_ body: MessageBody) -> MessageText {
     }
 }
 
+/// The text to deliver, or nil once the caller has been told why there is none. The reading itself
+/// stays pure above, so the wording is assertable; this is the one line of it that talks to a
+/// terminal, written once for both transports.
+func loadedMessageText(_ body: MessageBody) -> String? {
+    switch nativeMessageText(body) {
+    case .text(let text):
+        return text
+    case .problem(let problem):
+        fputs(problem + "\n", stderr)
+        return nil
+    }
+}
+
 func nativeMessageIntent(_ args: [String]) -> NativeMessageIntent? {
     guard args.first == "codex",
           let flags = nativeMessageFlags(args, keys: ["--home", "--thread", "--file"]),
@@ -157,13 +170,7 @@ func deliverCodexNativeMessage(home: String, thread: String, body: MessageBody,
         fputs("Message target home does not exist. Nothing was sent.\n", stderr)
         return 2
     }
-    let text: String
-    switch nativeMessageText(body) {
-    case .text(let loaded): text = loaded
-    case .problem(let problem):
-        fputs(problem + "\n", stderr)
-        return 2
-    }
+    guard let text = loadedMessageText(body) else { return 2 }
     guard !text.utf8.contains(0) else {
         fputs("Codex messages cannot contain NUL bytes. Nothing was sent.\n", stderr)
         return 2

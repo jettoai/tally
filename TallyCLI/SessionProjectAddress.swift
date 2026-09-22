@@ -100,6 +100,51 @@ struct SessionSendAddress: Equatable {
     }
 }
 
+/// One pass over the command line every verb that NAMES a session is written in: the address flags
+/// above, `--` ending the flags, and at most one bare word, which is the content the verb carries
+/// (the text `tally type` types, the message `tally message` hands over). nil when the line asks
+/// for something no verb can act on.
+///
+/// ONE GRAMMAR RATHER THAN A COPY OF ONE PER VERB. The rules that are easy to get subtly different
+/// are exactly the ones here: `--` ends the flags, a second bare word is a usage error rather than
+/// a join, and an unknown dash is content only after `--`. Written twice, the day they drifted
+/// would be the day the same words named one session for typing and another for messaging.
+///
+/// `extra` is offered each word before the address flags are, and answers in `take`'s three ways
+/// (nil "not mine", false "mine and malformed", true "taken"), which is how a verb with flags of
+/// its own keeps the rest of the grammar shared rather than copied.
+func sessionAddressGrammar(
+    _ args: [String],
+    extra: (_ word: String, _ args: [String], _ index: inout Int) -> Bool? = { _, _, _ in nil }
+) -> (address: SessionSendAddress, word: String?)? {
+    var address = SessionSendAddress()
+    var bare: String?
+    var literal = false
+    var index = args.startIndex
+    while index < args.endIndex {
+        let word = args[index]
+        index += 1
+        if !literal {
+            if word == "--" { literal = true; continue }
+            if let taken = extra(word, args, &index) {
+                guard taken else { return nil }
+                continue
+            }
+            // The three flags that say WHICH session, and the rules over the set of them, in the
+            // one type that owns them (SessionSendAddress). nil is "not one of mine".
+            if let taken = address.take(word, args, &index) {
+                guard taken else { return nil }
+                continue
+            }
+            guard !word.hasPrefix("-") else { return nil }
+        }
+        guard bare == nil else { return nil }
+        bare = word
+    }
+    guard address.namesOneSession else { return nil }
+    return (address, bare)
+}
+
 // MARK: - The roster, as the lookup needs to see it
 
 /// One supervised session, reduced to the four fields this lookup reads.

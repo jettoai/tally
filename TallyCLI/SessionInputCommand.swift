@@ -52,31 +52,13 @@ struct SessionSendIntent: Equatable {
 ///
 /// `--` ENDS THE FLAGS, so text that begins with a dash can still be sent (`tally session send --
 /// --help` sends those six characters). Without it such text is refused rather than guessed at,
-/// because every other reading makes a flag this command does not know into content.
+/// because every other reading makes a flag this command does not know into content. That rule and
+/// the address flags around it are `sessionAddressGrammar` (SessionProjectAddress.swift), shared
+/// with the verb that messages the session these words name (MessageVerb.swift).
 func sessionSendIntent(_ args: [String]) -> SessionSendIntent? {
-    var text: String?
-    var address = SessionSendAddress()
-    var literal = false
-    var index = args.startIndex
-    while index < args.endIndex {
-        let word = args[index]
-        index += 1
-        if !literal {
-            if word == "--" { literal = true; continue }
-            // The three flags that say WHICH session, and the rules over the set of them, in the
-            // one type that owns them (SessionSendAddress). nil is "not one of mine".
-            if let taken = address.take(word, args, &index) {
-                guard taken else { return nil }
-                continue
-            }
-            guard !word.hasPrefix("-") else { return nil }
-        }
-        guard text == nil else { return nil }
-        text = word
-    }
-    guard address.namesOneSession else { return nil }
-    return SessionSendIntent(text: text ?? "", session: address.session,
-                             project: address.project, provider: address.provider)
+    guard let parsed = sessionAddressGrammar(args) else { return nil }
+    return SessionSendIntent(text: parsed.word ?? "", session: parsed.address.session,
+                             project: parsed.address.project, provider: parsed.address.provider)
 }
 
 /// Why this cannot be asked for, or nil when it can. Pure, and asked BEFORE anything is written, so

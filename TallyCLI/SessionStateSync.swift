@@ -222,7 +222,7 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
             : nil
     }
     let dialogOpen = notice.flatMap {
-        claudeDialogOpen($0, registry: registry, witnessed: tracker.dialogWitnessed(childPid: childPid))
+        claudeDialogOpen($0, registry: registry, witnessed: tracker.dialogWitnessed(childPid: childPid, notice: $0))
     }
     let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt, keyboardBurstAt: keyboardBurstAt,
                                       dialogOpen: dialogOpen)

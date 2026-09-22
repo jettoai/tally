@@ -433,4 +433,94 @@ private func runRegistryCloserChecks(_ root: URL) {
     quiet.endedTurn()
     quiet.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 5)
     check("A5: with no notice standing a registry saying waiting opens nothing", quiet.tick().isEmpty)
+
+    // WITNESS SWAP (codex line review of 4d015c9): A was witnessed, then B took the notice slot
+    // (hard over hard replaces) while the registry no longer says waiting. The registry never said
+    // `waiting` for B, so B must not borrow A's handshake: it is judged by the older rules.
+    let swap = WaitRig(root, "witness-swap", pid: "88938")
+    let swapA = swap.heldDialog("Agent")
+    swap.notice("permission_prompt", ago: 10, message: "Claude needs your permission")
+    swap.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let swapped = swap.tick()
+    let swapB = readUserNotice(pid: swap.pid, dir: swap.state)
+    check("witness swap: B replacing a witnessed A under a busy registry supersedes A and opens B",
+          kinds(swapped) == ["wait.resolved", "wait.opened"] && swapped[0].resolution == "superseded"
+              && swapped[0].request?.id == swapA.first?.request?.id
+              && swapped.count == 2 && swapped[1].request?.since == swapB?.at)
+    check("witness swap: ...and B's notice stays on disk", swapB != nil)
+    swap.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 0)
+    check("witness swap: B stands once the registry says waiting", swap.tick().isEmpty)
+    swap.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let swapClosed = swap.tick()
+    check("witness swap: B, witnessed on its own, closes on the registry as answered",
+          kinds(swapClosed) == ["wait.resolved"] && swapClosed[0].resolution == "answered"
+              && swapped.count == 2 && swapClosed[0].request?.id == swapped[1].request?.id)
+    // The registry-blind kind (plan §5 row 22): an elicitation replacing a witnessed permission.
+    let blind = WaitRig(root, "witness-swap-blind", pid: "88939")
+    _ = blind.heldDialog("Agent")
+    blind.notice("elicitation_dialog", ago: 1, message: "An MCP server needs your input")
+    blind.registry(status: "idle", waitingFor: nil, updatedAgo: 0)
+    let blindTick = blind.tick()
+    check("witness swap: an elicitation replacing a witnessed permission under an idle registry opens",
+          kinds(blindTick) == ["wait.resolved", "wait.opened"] && blindTick.count == 2
+              && blindTick[1].request?.kind == "question"
+              && readUserNotice(pid: blind.pid, dir: blind.state) != nil)
+
+    // The wider path (plan §5 row 22): a registry-blind kind takes the slot while A's dialog is
+    // STILL up, so the registry's `waiting` that tick is A's. B must not bank it as its own witness
+    // and close as answered once A goes; it stays with the older rules.
+    for (index, kind) in ["worker_permission_prompt", "elicitation_dialog", "elicitation_url_dialog",
+                          "agent_needs_input"].enumerated() {
+        let rig = WaitRig(root, "witness-blind-\(kind)", pid: "8895\(index)")
+        _ = rig.heldDialog("Agent")
+        rig.notice(kind, ago: 1, message: "Claude needs your input")
+        let swapTick = rig.tick()
+        check("witness blind \(kind): replacing a witnessed permission while the registry says waiting opens it",
+              kinds(swapTick).last == "wait.opened" && swapTick.last?.request?.since
+                  == readUserNotice(pid: rig.pid, dir: rig.state)?.at)
+        rig.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+        check("witness blind \(kind): A's dialog closing (registry busy) does not resolve it as answered, "
+                + "and its notice stays on disk",
+              rig.tick().isEmpty && readUserNotice(pid: rig.pid, dir: rig.state)?.type == kind)
+    }
+
+    // An older build's seed could bank a witness for an unmeasured kind. It is void on read, so the
+    // registry leaving `waiting` cannot close that kind as answered after a self-update.
+    let legacy = WaitRig(root, "witness-legacy-seed", pid: "88954")
+    legacy.reseed()
+    _ = legacy.heldDialog("Agent")
+    let seedFile = legacy.state.appendingPathComponent("\(legacy.pid).waitopen")
+    let held = readUserNotice(pid: legacy.pid, dir: legacy.state)!
+    var seed = try! JSONSerialization.jsonObject(with: Data(contentsOf: seedFile)) as! [String: Any]
+    var seededRequest = seed["request"] as! [String: Any]
+    var seededWitness = seed["witness"] as! [String: Any]
+    let blindID = sessionWaitRequestID(sessionKey: "claude:0:0", kind: "question",
+                                       noticeType: "elicitation_dialog", since: held.at)
+    seededRequest["kind"] = "question"
+    seededRequest["noticeType"] = "elicitation_dialog"
+    seededRequest["id"] = blindID
+    seededWitness["requestID"] = blindID
+    seed["request"] = seededRequest
+    seed["witness"] = seededWitness
+    try! JSONSerialization.data(withJSONObject: seed).write(to: seedFile)
+    writeUserNotice(UserNotice(message: "An MCP server needs your input", at: held.at, type: "elicitation_dialog"),
+                    pid: legacy.pid, dir: legacy.state)
+    legacy.reseed()
+    legacy.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let legacyTick = legacy.tick()
+    check("witness legacy seed: a seeded witness for an elicitation does not close it as answered when "
+            + "the registry leaves waiting, and its notice stays on disk",
+          !legacyTick.contains { $0.resolution == "answered" }
+              && readUserNotice(pid: legacy.pid, dir: legacy.state)?.type == "elicitation_dialog")
+
+    // The drift tripwire is for measured kinds only: an unmeasured kind never earns a witness, so
+    // the older rules closing it is expected rather than a registry whose vocabulary moved.
+    let blindDrift = WaitRig(root, "blind-drift", pid: "88955")
+    blindDrift.openCall("Bash")
+    blindDrift.registry(status: "busy", waitingFor: nil, updatedAgo: 30)
+    blindDrift.notice("elicitation_dialog", ago: 20, message: "An MCP server needs your input")
+    check("blind drift: an elicitation under a readable registry opens", kinds(blindDrift.tick()) == ["wait.opened"])
+    blindDrift.taskNotification(ago: 1)
+    check("blind drift: the older rules close it and leave no drift line in the audit log",
+          kinds(blindDrift.tick()) == ["wait.resolved"] && !blindDrift.auditText.contains("never said waiting"))
 }

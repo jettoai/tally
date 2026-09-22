@@ -154,8 +154,8 @@ let appRelaunchGrace: TimeInterval = 15
 let appRelaunchArmWindow: TimeInterval = 60
 
 /// The shortest gap between two walks of the process table. The poll tick is far faster than this
-/// and a machine can carry a dozen of them, so the scan is throttled rather than run per
-/// tick; the app's absence is a state that lasts, so a reading up to this old changes nothing.
+/// and a machine can carry a dozen of them, so the scan is throttled rather than run per tick; the
+/// app's absence is a state that lasts, so a reading up to this old changes nothing.
 let appRelaunchScanInterval: TimeInterval = 5
 
 /// How long the app may ALREADY have been read as gone when a swap is noticed and still count as

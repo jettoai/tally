@@ -396,29 +396,29 @@ func runAppRelaunchChecks() {
     var midSwapOpened = 0
     var midSwapProbes = 0
     var midSwapLog: [AppRelaunchEvent] = []
-    func midSwapTick(_ offset: TimeInterval, _ version: String, alive: Bool, runnable: Bool) {
+    func midSwapTick(_ version: String, alive: Bool, runnable: Bool, at offset: TimeInterval) {
         applyAppRelaunch(&midSwap, now: launch.addingTimeInterval(offset), installed: version,
                          bundle: paths, probe: { _ in midSwapProbes += 1; return alive },
                          runnable: { _ in runnable }, claim: { _, _ in true },
                          record: { event, _ in midSwapLog.append(event) },
                          launch: { _ in midSwapOpened += 1 })
     }
-    midSwapTick(0, old, alive: true, runnable: true)
+    midSwapTick(old, alive: true, runnable: true, at: 0)
     check("the tick before the swap reads the old app as alive and starts watching",
           midSwapProbes == 1 && midSwapLog == [.watching(old)])
-    midSwapTick(10, new, alive: false, runnable: false)
-    midSwapTick(30, new, alive: false, runnable: false)
+    midSwapTick(new, alive: false, runnable: false, at: 10)
+    midSwapTick(new, alive: false, runnable: false, at: 30)
     check("a bundle whose app is not runnable yet is never opened", midSwapOpened == 0)
     check("and is not even asked about: no walk of the process table while it is away",
           midSwapProbes == 1)
     check("nor does a tick that decided nothing write a line", midSwapLog == [.watching(old)])
     check("and the station holding through it stays unarmed", !midSwap.isArmed)
-    midSwapTick(40, new, alive: false, runnable: true)
+    midSwapTick(new, alive: false, runnable: true, at: 40)
     check("the swap is recognised once the executable is back, against the version this station "
           + "remembered from before it",
           midSwap.isArmed && midSwapLog == [.watching(old), .armed(new)])
     check("and the arming alone still opens nothing", midSwapOpened == 0)
-    midSwapTick(60, new, alive: false, runnable: true)
+    midSwapTick(new, alive: false, runnable: true, at: 60)
     check("the relaunch an interrupted install owed is paid once the grace has passed",
           midSwapOpened == 1 && midSwapLog == [.watching(old), .armed(new), .opened(new)])
 
@@ -558,19 +558,25 @@ func runAppRelaunchChecks() {
     runAppRelaunchTimelineChecks()
 }
 
-// MARK: - 32. The 2026-09-22 timeline, driven through the tick every supervisor really runs
+// MARK: - 32. An assumed swap timeline, driven through the tick every supervisor really runs
 
-/// THE MEASURED TIMELINE, and the first thing about this station that was ever driven rather than
+/// AN ASSUMED TIMELINE, and the first thing about this station that was ever driven rather than
 /// argued. Everything above feeds `appRelaunchDue` by hand, one call per named moment, which skips
 /// the throttle the live station reads its aliveness through (`AppPresenceScan`, five seconds) and
 /// therefore skips the only thing that decides whether the station arms at all.
 ///
-/// What `/usr/bin/log show` recorded on 2026-09-22, the third time the user reported the icon gone:
-/// the app was sent its quit at 12:24:01.505 and was dead by .606, and the bundle carried 0.77.0
-/// about 2.4 seconds later. So the gap this station has to see across is smaller than one walk of
-/// the process table, and WHICH SIDE of it a supervisor's cached reading falls on depends on
-/// nothing but when that supervisor happened to start. Ten of them were resident that day, started
-/// at ten unrelated moments.
+/// The 2.4 seconds between the death and the swap below are a SUPPOSITION, not a reading. Nobody
+/// has measured this station against a real silent update. What 2026-09-22 actually recorded is
+/// written out in `TallyCLI/AppRelaunch.swift`: the swap and the app's death landed in the same
+/// second, and the app was back 3.0 seconds later because a verification script's `open -g` beat
+/// this station to it.
+///
+/// The supposition is worth driving anyway, because the real gap was SMALLER than 2.4 seconds and
+/// both fall inside one walk of the process table (five seconds), which is the property the sweep
+/// below turns on: a swap landing 2.4 seconds after the death gives the phases something to
+/// straddle while staying inside the same scan interval the machine was in. WHICH SIDE of that gap
+/// a supervisor's cached reading falls on depends on nothing but when that supervisor happened to
+/// start. Ten of them were resident that day, started at ten unrelated moments.
 ///
 /// So the phase is swept rather than picked: 0 to 5 seconds in quarter-second steps, twenty-one
 /// runs of the same timeline, and the answer is how many of them open the app. A single phase would
@@ -579,7 +585,8 @@ func runAppRelaunchTimelineChecks() {
     let old = "0.76.6"
     let new = "0.77.0"
     /// Seconds from this fixture's origin to the moment the app died, and to the moment the swap
-    /// finished. The second is the first plus the 2.4 seconds the log recorded.
+    /// finished. The second is the first plus an assumed 2.4 seconds; the header above says why a
+    /// gap nobody measured is still the one worth sweeping a start phase across.
     let death: TimeInterval = 100
     let swap = death + 2.4
 
@@ -615,7 +622,8 @@ func runAppRelaunchTimelineChecks() {
         found.isEmpty ? "none" : found.map { String(format: "%.2f", $0) }.joined(separator: " ")
     }
 
-    // The incident's own timeline: the app dies and never comes back. Every phase must open it.
+    // The symptom the user reported three times: the app dies and never comes back. Every phase
+    // must open it.
     let missed = phases.filter { phase in
         !opensTheApp(startingAt: phase, appAlive: { second in second < death })
     }

@@ -28,20 +28,45 @@ enum IdleInstall {
     /// watching the moment it happens.
     static let pinnedPanelGrace: TimeInterval = 6 * 3600
 
+    /// How long an ordinary Tally window (the popover, Settings, the main window) may hold the
+    /// install off before it stops counting as a reason to wait.
+    ///
+    /// An open window used to veto forever, on the reading that a window on screen means a task in
+    /// progress. It does not: people leave the main window parked on a second display for days, and
+    /// two releases in a row (0.76.6 and 0.77.0) never installed themselves for exactly that reason,
+    /// the second one with the window untouched on a display the user was not even looking at (live
+    /// reports, 2026-09-21 and 2026-09-22). A window that has been open across a whole hour of an
+    /// update waiting is furniture, not a task.
+    ///
+    /// One hour rather than `pinnedPanelGrace`'s six: a pinned panel is BUILT to sit there forever,
+    /// so discounting it early would be overruling what it is for, whereas these three are ordinary
+    /// windows and an hour is already far longer than any real interaction with them. Shorter than
+    /// an hour is not worth reaching for either, because nothing is lost by waiting: the install
+    /// still needs `idleBar` on top, and all three surfaces come back by themselves after the
+    /// restart (the popover is one click on the strip, Settings and the main window reopen the same
+    /// way they were opened).
+    static let taskWindowGrace: TimeInterval = 3600
+
     /// Whether the queued install may run right now.
     ///
     /// - Parameters:
-    ///   - taskSurfaceOpen: a Tally window the user opened to do something is on screen (the
-    ///     popover, Settings, the main window, a modal). A restart would take it away mid-task, so
-    ///     this vetoes with no expiry.
+    ///   - modalOpen: a modal is up, so a decision is sitting in front of the user. Restarting
+    ///     would answer it for them, so this vetoes with no expiry.
+    ///   - taskWindowOpen: an ordinary Tally window the user opened is on screen (the popover,
+    ///     Settings, the main window). Vetoes only until `taskWindowGrace` has passed (see above).
     ///   - pinnedPanelOpen: the pinned usage panel is on screen. Vetoes only until
     ///     `pinnedPanelGrace` has passed (see above).
     ///   - secondsSinceUserInput: seconds since the last keyboard or mouse event, machine wide.
-    ///   - waiting: how long the install has been queued.
-    static func shouldInstall(taskSurfaceOpen: Bool, pinnedPanelOpen: Bool,
+    ///   - waiting: how long this app has known about the update (`UpdateState.knownSince`), which
+    ///     is the clock both grace periods are measured on. It is deliberately not "how long the
+    ///     window has been open": what the grace is there to bound is how long an update may be
+    ///     held back, and a window opened after the update was already known has no claim to start
+    ///     that clock again.
+    static func shouldInstall(modalOpen: Bool, taskWindowOpen: Bool, pinnedPanelOpen: Bool,
                               secondsSinceUserInput: TimeInterval,
                               waiting: TimeInterval) -> Bool {
-        if taskSurfaceOpen { return false }
+        if modalOpen { return false }
+        if taskWindowOpen, waiting < taskWindowGrace { return false }
         if pinnedPanelOpen, waiting < pinnedPanelGrace { return false }
         // The human-presence bar is never waived: no amount of waiting makes it acceptable to
         // restart the app out from under someone who is typing.

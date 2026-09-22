@@ -12,10 +12,11 @@ func expect(_ condition: Bool, _ name: String) {
 
 let bar = IdleInstall.idleBar
 let grace = IdleInstall.pinnedPanelGrace
+let windowGrace = IdleInstall.taskWindowGrace
 
-func install(taskSurface: Bool = false, pinned: Bool = false,
+func install(modal: Bool = false, taskWindow: Bool = false, pinned: Bool = false,
              idleFor: TimeInterval = 1_000, waiting: TimeInterval = 60) -> Bool {
-    IdleInstall.shouldInstall(taskSurfaceOpen: taskSurface, pinnedPanelOpen: pinned,
+    IdleInstall.shouldInstall(modalOpen: modal, taskWindowOpen: taskWindow, pinnedPanelOpen: pinned,
                               secondsSinceUserInput: idleFor, waiting: waiting)
 }
 
@@ -23,19 +24,41 @@ func install(taskSurface: Bool = false, pinned: Bool = false,
 
 expect(bar > 0, "the idle bar is a real wait")
 expect(grace > bar, "the pinned grace outlasts the idle bar, or it would never be the binding rule")
+expect(windowGrace > bar,
+       "the window grace outlasts the idle bar, or it would never be the binding rule")
+expect(windowGrace < grace,
+       "an ordinary window is discounted sooner than a pinned panel, which is built to sit there")
 
-// MARK: a Tally window the user opened is an absolute veto
+// MARK: a modal is an absolute veto - a decision is sitting in front of the user
 
-expect(!install(taskSurface: true),
-       "a task surface is open - the machine being idle does not make it ok to take it away")
-expect(!install(taskSurface: true, waiting: grace * 10),
-       "no amount of waiting overrides an open task surface")
-expect(!install(taskSurface: true, pinned: true, idleFor: 86_400, waiting: grace * 10),
-       "every other condition met, one open task surface still wins")
+expect(!install(modal: true),
+       "a modal is up - the machine being idle does not make it ok to answer it by restarting")
+expect(!install(modal: true, waiting: grace * 10),
+       "no amount of waiting overrides an open modal")
+expect(!install(modal: true, taskWindow: true, pinned: true, idleFor: 86_400, waiting: grace * 10),
+       "every other condition met, one open modal still wins")
+
+// MARK: an ordinary window holds the install off, but only for a while
+//
+// The regression this section exists for: an open window used to veto with no expiry, so a main
+// window parked on a second display meant the app never updated itself at all (0.76.6 and 0.77.0,
+// live reports 2026-09-21 and 2026-09-22).
+
+expect(!install(taskWindow: true, waiting: 0), "window open, just queued - wait")
+expect(!install(taskWindow: true, waiting: windowGrace - 1),
+       "window open, one second short of the grace")
+expect(install(taskWindow: true, waiting: windowGrace),
+       "window open past the grace, machine idle - install (the window reopens the way it opened)")
+expect(install(taskWindow: true, idleFor: bar, waiting: windowGrace * 10),
+       "a window parked for hours does not veto forever")
+expect(!install(taskWindow: true, idleFor: bar - 1, waiting: windowGrace * 10),
+       "the grace expiring on a window never waives the human-presence bar either")
 
 // MARK: the machine must be quiet
 
 expect(!install(idleFor: 0), "someone is typing right now")
+expect(!install(idleFor: 180, waiting: grace * 10),
+       "nothing on screen at all, but the last keystroke was three minutes ago - somebody is there")
 expect(!install(idleFor: bar - 1), "one second short of the bar is still not idle")
 expect(install(idleFor: bar), "the bar itself counts as idle")
 expect(install(idleFor: bar + 1), "past the bar")
@@ -57,6 +80,44 @@ expect(!IdleInstall.standardAlertShouldShowScheduledUpdate(automaticInstallsEnab
        "automatic installs on - the app owns it, the header chip is the reminder, no alert")
 expect(IdleInstall.standardAlertShouldShowScheduledUpdate(automaticInstallsEnabled: false),
        "automatic installs off - nothing else would mention it, so the standard alert stays")
+
+// MARK: which real surface feeds which input
+//
+// The rules above see two booleans; WHICH windows are behind them is decided in
+// UpdaterController.swift, and that wiring is where the distinction can silently go back to what it
+// was (put the modal back into the window list and every window vetoes forever again; drop a window
+// out of it and that window stops holding the install off at all). The rules cannot see it, so it
+// is read out of the source. Run from the repo root by tests/run-idleinstall-tests.sh.
+
+let controllerPath = "Tally/App/UpdaterController.swift"
+guard let controller = try? String(contentsOfFile: controllerPath, encoding: .utf8) else {
+    print("FAIL could not read \(controllerPath) - run this from the repo root")
+    exit(1)
+}
+
+// The body of taskWindowOnScreen alone, so a mention of a modal anywhere else in the file (the call
+// site legitimately has one) cannot stand in for the thing being asserted.
+let marker = "private static var taskWindowOnScreen: Bool {"
+let windowBody: String = {
+    guard let start = controller.range(of: marker) else { return "" }
+    let rest = controller[start.upperBound...]
+    guard let end = rest.range(of: "\n    }") else { return "" }
+    return String(rest[..<end.lowerBound])
+}()
+
+expect(!windowBody.isEmpty, "UpdaterController still has a taskWindowOnScreen to read")
+for surface in ["isPopoverShown", "SettingsWindowController.shared.isWindowVisible",
+                "MainWindowController.shared.isWindowVisible"] {
+    expect(windowBody.contains(surface),
+           "\(surface) is one of the windows that holds the install off for the grace")
+}
+expect(!windowBody.contains("modalWindow"),
+       "the modal is NOT in the window list - it would inherit the grace and expire, and a "
+           + "question the user has not answered must never expire")
+expect(controller.contains("modalOpen: NSApp.modalWindow != nil"),
+       "the modal reaches the rule through its own input, which has no expiry")
+expect(controller.contains("taskWindowOpen: Self.taskWindowOnScreen"),
+       "the windows reach the rule through the input that does have one")
 
 if failures > 0 {
     print("\(failures) failure(s)")

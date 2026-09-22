@@ -323,7 +323,8 @@ final class UpdaterController: NSObject {
     private func installIfIdle() {
         let idle = state.knownSince.map {
             IdleInstall.shouldInstall(
-                taskSurfaceOpen: Self.taskSurfaceOnScreen,
+                modalOpen: NSApp.modalWindow != nil,
+                taskWindowOpen: Self.taskWindowOnScreen,
                 pinnedPanelOpen: PinnedPanelController.shared.isVisible,
                 secondsSinceUserInput: Self.secondsSinceUserInput(),
                 waiting: Date().timeIntervalSince($0))
@@ -353,13 +354,13 @@ final class UpdaterController: NSObject {
     }
 
     /// Windows the user opened to DO something: a restart takes them away mid-task (a half-scrolled
-    /// Settings pane, a rename in progress, an alert waiting on an answer), so any of them means
-    /// wait. The pinned panel is deliberately absent - it is meant to stay up forever, so counting
-    /// it here would mean anyone who pins never gets an automatic install (`IdleInstall` gives it a
-    /// grace period instead).
-    private static var taskSurfaceOnScreen: Bool {
-        NSApp.modalWindow != nil
-            || StatusItemController.shared?.isPopoverShown == true
+    /// Settings pane, a rename in progress), so any of them means wait, for as long as
+    /// `IdleInstall.taskWindowGrace`. A modal is deliberately absent and asked for separately at
+    /// the call site: it is the one surface holding a decision the user has not given yet, so it
+    /// vetoes with no expiry. The pinned panel is absent for the opposite reason - it is meant to
+    /// stay up forever, so it has a grace of its own (`IdleInstall.pinnedPanelGrace`).
+    private static var taskWindowOnScreen: Bool {
+        StatusItemController.shared?.isPopoverShown == true
             || SettingsWindowController.shared.isWindowVisible
             || MainWindowController.shared.isWindowVisible
     }

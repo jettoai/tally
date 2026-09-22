@@ -396,6 +396,9 @@ func runStatus(json: Bool = false) {
 // MARK: - Entry
 
 let arguments = Array(CommandLine.arguments.dropFirst())
+if let word = arguments.first, let code = runHookSubcommand(word, Array(arguments.dropFirst())) {
+    exit(code)
+}
 switch arguments.first {
 case "claude":
     runLaunch(providers[0], args: Array(arguments.dropFirst()))
@@ -437,38 +440,14 @@ case "harness":
     exit(runHarness(args: Array(arguments.dropFirst())))
 case "inbox":
     exit(runInbox(args: Array(arguments.dropFirst())))
+case "events":
+    exit(runEvents(args: Array(arguments.dropFirst())))
 case "codex-session-status":
     runCodexSessionInstall(Array(arguments.dropFirst()))
 case "codex-session-hook":
     runCodexSessionHook()
 case "codex-hook": // internal: native harness adapter
     exit(runCodexHook(args: Array(arguments.dropFirst())))
-case "hook-tally":    // internal: the `/tally` prompt hook (TallyHook.swift)
-    exit(runHookTally(args: Array(arguments.dropFirst())))
-case "hook-notify":   // internal: Claude Code's Notification hook (UserNotice.swift)
-    exit(runHookNotify(args: Array(arguments.dropFirst())))
-// internal: Claude Code's three subagent-facing hooks, which take the event as their argument
-// because one subcommand answers all three (HookAgents.swift).
-case "hook-agents":
-    exit(runHookAgents(args: Array(arguments.dropFirst())))
-// internal: Claude Code's two context-carrying hooks, which take the event as their argument for
-// the reason the three above do - one subcommand answers both, and the answer has to name the event
-// it is answering (HookKnock.swift).
-case "hook-knock":
-    exit(runHookKnock(args: Array(arguments.dropFirst())))
-// internal: Claude Code's `PreToolUse` hook on the `Artifact` tool, which takes no argument because
-// it answers for exactly one tool - the matcher it is registered under names it, and the payload
-// names it again (HookArtifact.swift).
-case "hook-artifact":
-    exit(runHookArtifact())
-// The two the merge replaced. Still answered, because a registration written by an older app is in
-// somebody's settings.json until the self-heal rewrites it, and a hook that runs a subcommand this
-// binary does not have prints usage and lets the expansion through - a model turn, for a command
-// whose whole point is not spending one.
-case "hook-switch":   // internal: the pre-merge `/tally-account` prompt hook (SwitchHook.swift)
-    exit(runHookSwitch(args: Array(arguments.dropFirst())))
-case "hook-model":    // internal: the pre-merge `/tally-model` prompt hook (ModelHook.swift)
-    exit(runHookModel(args: Array(arguments.dropFirst())))
 case mcpServeCommand:   // internal: the MCP server behind the native pickers (MCPServe.swift)
     exit(runMCPServe())
 case resuperviseCommand:   // internal: a supervisor replacing itself after an app update

@@ -321,6 +321,7 @@ _tally() {
     "type:type a line into a supervised session, named by provider"
     "session:send a line into a supervised session, or clear its context window"
     "message:hand one message to a session's own native transport"
+    "events:read or manage the session wait event stream"
     "harness:inspect and adapt a Claude harness to Codex"
     "inbox:handle provider-scoped offline messages"
     "reload:restart every supervised session at its next idle moment"

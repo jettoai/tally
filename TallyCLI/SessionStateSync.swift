@@ -163,6 +163,142 @@ struct SessionStateWriter {
     }
 }
 
+/// Remembers, across ticks, whether a wait request is standing and turns the change from the last
+/// tick's belief into `SessionWaitEvent`s (plan §4.1a/§4.1b/§6.8). Seeded from disk for the same
+/// reason `SessionStateWriter` above is (SessionStateSync.swift:108-112): a self-update replaces
+/// this process with `execv`, keeping the pid, so the new image must recover a request the image it
+/// replaced already believed was standing rather than start blind. `CodexWaitTracker`
+/// (CodexWaitEvents.swift) is this struct's sibling on the Codex side; the two diverge only in this
+/// one's file seed, which Codex does not need (plan §9 blind spot 11).
+struct SessionWaitTracker {
+    private var identity: SessionWaitIdentity
+    /// What the last tick published as standing, or nil. The `previous` side of every reconcile.
+    private var open: SessionWaitRequest?
+    /// What `open` was the LAST TIME this tracker actually wrote the seed file, so `reconcile` can
+    /// skip the write on every tick where nothing about the standing request changed (it ticks every
+    /// 2s, for the life of every supervised session, and most ticks change nothing). `SessionWaitRequest`
+    /// is already `Equatable`, so this compares the whole value rather than just `id`: a confidence
+    /// upgrade or a tool/summary filled in (the same changes that earn a `wait.updated` event) also
+    /// have to reach the seed, or a restart mid-wait would recover the stale reading.
+    private var seeded: SessionWaitRequest?
+    /// A seed read at construction whose `session.key` did not match this generation's own (plan
+    /// §4.3): resolved `session-ended` under ITS OWN identity on the first `reconcile` call, rather
+    /// than folded into an ordinary resolve/open pair under the new one.
+    private var staleSeed: SessionWaitSeed?
+    private let pid: String?
+    private let dir: URL
+
+    private struct SessionWaitSeed: Codable {
+        var identity: SessionWaitIdentity
+        var request: SessionWaitRequest
+    }
+
+    /// `pid` optional only so a test can build a tracker with nothing to seed or reseed, mirroring
+    /// `SessionStateWriter`'s own escape hatch. `supervisorPid`/`supervisorStartedAt` are this
+    /// generation's own, folded into `identity.key` once here and never rebuilt.
+    init(pid: String? = nil, supervisorPid: Int = 0, supervisorStartedAt: Int = 0,
+        dir: URL = supervisorStateDir) {
+        self.pid = pid
+        self.dir = dir
+        identity = SessionWaitIdentity(key: "claude:\(supervisorPid):\(supervisorStartedAt)",
+                                       supervisorPid: supervisorPid, supervisorStartedAt: supervisorStartedAt,
+                                       childPid: nil, transcriptSessionId: nil, launchNonce: nil,
+                                       account: nil, directory: nil, project: nil, worktree: nil)
+        guard let pid, let seed = SessionWaitTracker.readSeed(pid: pid, dir: dir) else { return }
+        if seed.identity.key == identity.key {
+            open = seed.request
+            // The file we just read IS this value, so the in-memory "last written" copy starts in
+            // step with it rather than nil, which would otherwise force one redundant write on the
+            // very first `reconcile` even though nothing changed.
+            seeded = seed.request
+        } else {
+            staleSeed = seed
+        }
+    }
+
+    private static func seedFile(pid: String, dir: URL) -> URL {
+        dir.appendingPathComponent("\(pid).waitopen")
+    }
+
+    private static func readSeed(pid: String, dir: URL) -> SessionWaitSeed? {
+        guard let data = try? Data(contentsOf: seedFile(pid: pid, dir: dir)) else { return nil }
+        return try? sessionWaitEventDecoder().decode(SessionWaitSeed.self, from: data)
+    }
+
+    private func writeSeed(pid: String) {
+        let file = SessionWaitTracker.seedFile(pid: pid, dir: dir)
+        guard let open else { try? FileManager.default.removeItem(at: file); return }
+        guard let data = try? sessionWaitEventEncoder().encode(SessionWaitSeed(identity: identity, request: open))
+        else { return }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? data.write(to: file, options: .atomic)
+    }
+
+    /// One tick (plan §4.1b), driven by `syncSessionState`. `notice`/`waiting`/`question`/
+    /// `questionSince`/`quiet`/`wait` are that tick's own readings; `transcriptModified` is what
+    /// explains a standing request going away (`resolvedWaitOutcome`, §4.1c/§14 revision 1).
+    /// `permissionTool` is always nil here: revision 1 cuts the sidecar that would have supplied it.
+    mutating func reconcile(childPid: Int?, transcriptSessionId: String?, accountID: String?,
+                            directory: String?, project: String?, worktree: String?, notice: UserNotice?,
+                            waiting: Bool, question: String?, questionSince: Date?, quiet: Bool,
+                            wait: UserWait?, transcriptModified: Date?, now: Date) -> [SessionWaitEvent] {
+        identity.childPid = childPid
+        identity.transcriptSessionId = transcriptSessionId
+        identity.account = accountID
+        identity.directory = directory
+        identity.project = project
+        identity.worktree = worktree
+
+        var events: [SessionWaitEvent] = []
+        if let stale = staleSeed {
+            events += reconcileWaitRequests(previous: stale.request, current: nil, resolution: .sessionEnded,
+                                            identity: stale.identity, provider: "claude", now: now)
+            staleSeed = nil
+        }
+
+        let current = openWaitRequest(provider: "claude", sessionKey: identity.key, notice: notice,
+                                      waiting: waiting, question: question, questionSince: questionSince,
+                                      quiet: quiet, wait: wait, permissionTool: nil)
+        var resolution: SessionWaitResolution?
+        if current == nil, let standing = open {
+            resolution = resolvedWaitOutcome(request: standing, transcriptModified: transcriptModified,
+                                             questionClosed: standing.kind == SessionWaitKind.question.rawValue
+                                                && question == nil)
+        }
+        events += reconcileWaitRequests(previous: open, current: current, resolution: resolution,
+                                        identity: identity, provider: "claude", now: now)
+        open = current
+        if let pid, open != seeded {
+            writeSeed(pid: pid)
+            seeded = open
+        }
+        return events
+    }
+
+    /// Supervisor shutdown (plan §4.1b's fifth rule, §6.11): a standing request resolves
+    /// `session-ended` first, then `session.ended` closes the session itself.
+    mutating func finish(now: Date) -> [SessionWaitEvent] {
+        var events: [SessionWaitEvent] = []
+        if let stale = staleSeed {
+            events += reconcileWaitRequests(previous: stale.request, current: nil, resolution: .sessionEnded,
+                                            identity: stale.identity, provider: "claude", now: now)
+            staleSeed = nil
+        }
+        if let standing = open {
+            events += reconcileWaitRequests(previous: standing, current: nil, resolution: .sessionEnded,
+                                            identity: identity, provider: "claude", now: now)
+            open = nil
+        }
+        var ended = SessionWaitEvent(at: now, kind: SessionWaitEventKind.ended.rawValue, provider: "claude",
+                                     session: identity, request: nil, resolution: nil)
+        ended.idempotencyKey = sessionWaitIdempotencyKey(requestID: nil, sessionKey: identity.key,
+                                                         kind: ended.kind, resolution: nil)
+        events.append(ended)
+        if let pid { try? FileManager.default.removeItem(at: SessionWaitTracker.seedFile(pid: pid, dir: dir)) }
+        return events
+    }
+}
+
 /// One tick's worth of "what is this session doing", written to the board.
 ///
 /// The whole of it lives here rather than in the poll loop for the reason `syncPendingNotice` does:
@@ -188,7 +324,9 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                       accountID: String, childPid: Int?, model: String?,
                       supervisorVersion: String?,
                       watcher: inout TranscriptWatcher, keyboardBurstAt: Date?,
-                      dir: URL = supervisorStateDir, now: Date = Date()) -> SessionTick {
+                      tracker: inout SessionWaitTracker,
+                      dir: URL = supervisorStateDir, now: Date = Date(),
+                      emit: ([SessionWaitEvent]) -> Void = { $0.forEach { appendSessionWaitEvent($0) } }) -> SessionTick {
     let quietness = watcher.quietness(sessionStateQuietSeconds)
     let quiet = quietness == .quiet
     // AFTER the locate `quietness` runs, so this is the file the conversation is actually in: a
@@ -235,7 +373,36 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                                           model: model, childPid: childPid,
                                           supervisorVersion: supervisorVersion),
                 pid: pid, dir: dir, now: now)
+    // §4.1a's question-row timestamp: the same cached scan `question` above was already read from
+    // (`openUserQuestion`'s own guard requires `file`/`modified` for a non-nil answer, so asking
+    // again here costs nothing new). nil whenever `question` is, which is what keeps
+    // `openWaitRequest`'s question row from firing on a timestamp that names nothing.
+    var questionSince: Date?
+    if question != nil, let file, let modified {
+        questionSince = watcher.openTurn(of: file, modified: modified)?.startedAt
+    }
+    emit(tracker.reconcile(childPid: childPid, transcriptSessionId: watcher.transcriptSessionID,
+                           accountID: accountID, directory: project.path, project: project.name,
+                           worktree: project.worktree, notice: notice, waiting: waiting, question: question,
+                           questionSince: questionSince, quiet: quiet, wait: wait, transcriptModified: modified,
+                           now: now))
     return SessionTick(state: state, quiet: quietness, wait: wait)
+}
+
+/// Compatibility for every caller before this package existed (mainly `tests/supervisor/`, which
+/// has no interest in wait events): builds a throwaway, unseeded tracker and discards what it
+/// returns, the same escape hatch `SessionWaitTracker`'s own `pid: nil` names for a test.
+@discardableResult
+func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: PickProject,
+                      accountID: String, childPid: Int?, model: String?,
+                      supervisorVersion: String?,
+                      watcher: inout TranscriptWatcher, keyboardBurstAt: Date?,
+                      dir: URL = supervisorStateDir, now: Date = Date()) -> SessionTick {
+    var tracker = SessionWaitTracker()
+    return syncSessionState(&writer, pid: pid, project: project, accountID: accountID, childPid: childPid,
+                            model: model, supervisorVersion: supervisorVersion, watcher: &watcher,
+                            keyboardBurstAt: keyboardBurstAt, tracker: &tracker, dir: dir, now: now,
+                            emit: { _ in })
 }
 
 /// What one tick decided about a session: the word every surface reads, and the reading behind it.

@@ -93,6 +93,9 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     let launchModel = launchPrimaryModel(args, providerID: "codex")
     let launchEffort = codexLaunchEffort(args)
     var observer: CodexSessionObserver?
+    var codexWaits = CodexWaitTracker(identity: SessionWaitIdentity(key: "codex:\(pid):\(generation)",
+        supervisorPid: Int(getpid()), supervisorStartedAt: Int(generation), childPid: Int(child), transcriptSessionId: nil,
+        launchNonce: metadata.nonce, account: account.id, directory: cwd, project: nil, worktree: nil))
     var identity = SessionIdentity(accountID: account.id, directory: cwd,
                                    project: URL(fileURLWithPath: cwd).lastPathComponent,
                                    model: launchModel,
@@ -146,6 +149,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             let activity = (try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-activity")))
                 .flatMap { try? JSONDecoder().decode(CodexSessionActivity.self, from: $0) }
             observer?.poll(home: home, activity: activity)
+            for event in codexWaits.reconcile(observer: observer, directory: identity.directory, project: identity.project,
+                                              worktree: identity.worktree, now: Date()) { appendSessionWaitEvent(event) }
             initializationDraft?.observe(humanInput: terminal?.lastHumanInputAt,
                 inputReceipt: observer?.lastInputReceiptAt,
                 ready: observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true)
@@ -211,6 +216,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     terminal?.drainOutput()
     terminal?.close()
     let status = reaper.wait()
+    for event in codexWaits.finish(now: Date()) { appendSessionWaitEvent(event) }
     clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
     postSessionStateChanged(pid: pid)
     exit(supervisorExitCode(childStatus: status))

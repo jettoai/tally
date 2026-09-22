@@ -209,9 +209,9 @@ func runKnockHookChecks() {
     check("the verb the app registers is the verb this binary dispatches",
           quotaKnockHookCommand("PostToolUse") == "/usr/local/bin/tally hook-knock PostToolUse"
               && quotaKnockHookMarker("PostToolUse") == " hook-knock PostToolUse")
-    let dispatch = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+    let dispatch = (try? String(contentsOfFile: "TallyCLI/HookDispatch.swift", encoding: .utf8)) ?? ""
     check("…and the dispatch answers to it",
-          dispatch.contains("case \"hook-knock\":\n    exit(runHookKnock("))
+          dispatch.contains("case \"hook-knock\":\n        return runHookKnock(args: rest)"))
 
     try? FileManager.default.removeItem(at: dir)
 }

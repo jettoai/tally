@@ -15,6 +15,9 @@ struct CodexSessionActivity: Codable {
     var turnID: String
     var event: String
     var at: Date
+    // Only populated for a PermissionRequest event, and only ever the tool's name, never its
+    // input. A sidecar written before this field existed decodes fine with this left nil.
+    var tool: String? = nil
 }
 
 func codexTranscriptURL(path: String, home: String) -> URL? {
@@ -41,6 +44,13 @@ func codexRootMetadata(_ object: [String: Any], sessionID: String) -> Bool {
 /// Oversized response and compaction content is opaque after its bounded header is recognized; its payload
 /// syntax is not validated. Lifecycle records still require complete JSON decoding.
 struct CodexSessionObserver {
+    // State is deliberately left `.unknown` for a PermissionRequest (a hook can allow or deny it
+    // without ever reaching a person), so this pending record is the only place that fact is
+    // visible; a future supervisor tick can turn it into a suspected wait without touching state.
+    private(set) var pendingPermission: (turnID: String, at: Date, tool: String?)?
+    // Set whenever pendingPermission is cleared, so a consumer can tell why it went away instead
+    // of only that it did.
+    private(set) var lastPermissionOutcome: (turnID: String, reason: String)?
     private(set) var state: SupervisedState = .unknown
     private(set) var model: String?
     private(set) var effort: String?
@@ -73,7 +83,19 @@ struct CodexSessionObserver {
         self.model = binding.model
     }
 
-    mutating func invalidate() { state = .unknown; invalidated = true }
+    mutating func invalidate() {
+        state = .unknown
+        invalidated = true
+        clearPendingPermission(reason: "invalidated")
+    }
+
+    /// Drops the pending permission if one is standing, and remembers why. A no-op when there is
+    /// none, so every call site can call it unconditionally.
+    private mutating func clearPendingPermission(reason: String) {
+        guard let pending = pendingPermission else { return }
+        pendingPermission = nil
+        lastPermissionOutcome = (turnID: pending.turnID, reason: reason)
+    }
 
     /// Whether Codex itself recorded the prompt that was typed, which is what turns a terminal
     /// write into a delivery. A receipt from before the write proves nothing about it.
@@ -122,6 +144,12 @@ struct CodexSessionObserver {
         if let activity, activity.nonce == binding.nonce, activity.sessionID == binding.sessionID,
            activity.at >= launchedAt, lastActivity == nil || activity.at > lastActivity! {
             lastActivity = activity.at
+            // A prompt for a different turn means the pending permission's turn moved on without
+            // ever reaching a terminal record for it; the prompt itself proves that much.
+            if activity.event == "UserPromptSubmit", let pending = pendingPermission,
+               pending.turnID != activity.turnID {
+                clearPendingPermission(reason: "turn-moved")
+            }
             if !terminalTurns.contains(activity.turnID) {
                 if activity.event == "UserPromptSubmit" {
                     lastUserTurnAt = max(lastUserTurnAt ?? activity.at, activity.at)
@@ -130,6 +158,7 @@ struct CodexSessionObserver {
                 } else if activity.event == "PermissionRequest" {
                     // A hook can subsequently allow or deny this request; no proven blocked state.
                     state = .unknown
+                    pendingPermission = (turnID: activity.turnID, at: activity.at, tool: activity.tool)
                 }
             }
         }
@@ -190,6 +219,7 @@ struct CodexSessionObserver {
         guard let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil else {
             invalidate(); return
         }
+        if pendingPermission?.turnID == turn { clearPendingPermission(reason: "turn-ended") }
         if event == "task_started" {
             lastUserTurnAt = max(lastUserTurnAt ?? date, date)
             terminalTurns.remove(turn)

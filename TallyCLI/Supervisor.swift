@@ -119,6 +119,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// Seeded from this pid's own file for the same reason the notice above is: a self-update keeps
     /// the pid, and the image it hands over to has to be the one that decides what stands there.
     var sessionState = SessionStateWriter(pid: supervisorPID)
+    /// Publishes to `~/.tally/events` (plan §6.8), seeded like `sessionState` above.
+    var sessionWaits = SessionWaitTracker(pid: supervisorPID, supervisorPid: Int(getpid()),
+        supervisorStartedAt: Int(supervisorStartedAt ?? "") ?? 0)
+    /// Throttles the detached delivery spawn (plan §5.3 revision 2) to at most once per 10s.
+    var lastDeliverySpawn: Date?
     /// Which project this session is in, resolved ONCE: a supervisor's cwd cannot change under it
     /// (`writeSupervisorCwd` rests on the same fact), and the answer costs two git subprocesses.
     /// Asked here rather than in the app so a panel that lists ten sessions is ten file reads
@@ -714,7 +719,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // compares against; a fresh read would report the build installed under this
                 // supervisor rather than the one it runs (SessionState.swift states the rule).
                 supervisorVersion: supervisorVersion,
-                watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
+                watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt, tracker: &sessionWaits)
 
             // The two PREVENTIVE movers, lowest priority of the account moves because every block
             // above is repairing something and neither of these repairs anything: the window repick
@@ -1179,6 +1184,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       args: launchArgs)
                 return .childReplaced
             }
+            maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)
             return .keepPolling
         }
 
@@ -1204,6 +1210,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // without this the board hears nothing until some OTHER supervisor happens to move. For a
         // session that was BLOCKED that is not a stale row, it is a red dot in the menu bar for a
         // conversation that no longer exists, standing until an unrelated session changes state.
+        for event in sessionWaits.finish(now: Date()) { appendSessionWaitEvent(event) }
         postSessionStateChanged(pid: supervisorPID)
         exit(supervisorExitCode(childStatus: status))
     }

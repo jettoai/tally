@@ -99,6 +99,12 @@ usage:
                             --socket <absolute-socket> --session <UUID>`. Message: one argument or
                             --file, never both, nonempty UTF-8 of at most 65536 bytes, and Codex
                             rejects NUL bytes. A written frame is not a recipient receipt
+  tally events --since <n> [--limit n] | --latest-seq | --deliver-once [--replay-dead-letter] |
+              sink set <url> --secret-stdin | sink show | sink clear
+                            read or manage the session wait event stream
+                            (docs/session-wait-events.md): `--since` replays events past a sequence
+                            number, `--deliver-once` runs one delivery pass by hand, `sink set/show/
+                            clear` configures the one webhook destination
   tally harness tools install|remove|status [--source-home <Claude-home>] [--target-home <Codex-home>]
                             install or remove the workflow skill and inbox reminders for both providers.
                             Optional --skills-root and --state-root take absolute paths. Projects are

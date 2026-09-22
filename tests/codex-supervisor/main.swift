@@ -191,24 +191,7 @@ check("Codex partial lifecycle record holds input even with previous idle state"
 try append(Data([10]), to: file)
 observer.poll(home: home.path)
 check("Codex newly completed task-start record holds input", !observer.canAcceptInput && observer.state == .working)
-// Restore an independent completed-turn fixture for the checks below.
-(file, observer) = try fixture("root-after-input-checks", contents: meta() + event("task_complete"))
-observer.poll(home: home.path)
-
-check("terminal event proves idle", observer.state == .idle)
-let prompt = CodexSessionActivity(nonce: "fresh", sessionID: sid, turnID: nextTurn,
-    event: "UserPromptSubmit", at: start.addingTimeInterval(2))
-observer.poll(home: home.path, activity: prompt)
-check("next root prompt starts working before rollout flush", observer.state == .working)
-let permission = CodexSessionActivity(nonce: "fresh", sessionID: sid, turnID: nextTurn,
-    event: "PermissionRequest", at: start.addingTimeInterval(3))
-observer.poll(home: home.path, activity: permission)
-check("permission hook does not claim a human is blocked", observer.state == .unknown)
-try append(event("turn_aborted", turnID: nextTurn, after: 4), to: file)
-observer.poll(home: home.path, activity: permission)
-check("abort completes the matching active turn", observer.state == .idle)
-observer.poll(home: home.path, activity: prompt)
-check("late prompt receipt cannot reopen a completed turn", observer.state == .idle)
+try runCodexWaitPermissionChecks()
 
 var (historyFile, historical) = try fixture("history", contents: meta() + event("task_complete", after: -1))
 historical.poll(home: home.path)

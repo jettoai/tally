@@ -55,8 +55,11 @@ func recordCodexSessionHook(_ payload: [String: Any], environment: [String: Stri
     }
     guard event != "SessionStart", let turn = payload["turn_id"] as? String,
           UUID(uuidString: turn) != nil else { return }
+    // The tool name is the only PermissionRequest field this hook ever reads; its arguments
+    // (tool_input) are never touched, matching the secrets discipline for this sidecar.
+    let tool = event == "PermissionRequest" ? payload["tool_name"] as? String : nil
     let activity = CodexSessionActivity(nonce: nonce, sessionID: sessionID, turnID: turn,
-                                        event: event, at: Date())
+                                        event: event, at: Date(), tool: tool)
     if let bytes = try? JSONEncoder().encode(activity) {
         try? bytes.write(to: dir.appendingPathComponent(pid + ".codex-activity"), options: .atomic)
     }

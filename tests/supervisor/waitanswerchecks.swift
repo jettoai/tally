@@ -78,13 +78,16 @@ private final class WaitRig {
         try! JSONSerialization.data(withJSONObject: object).write(to: registry)
     }
 
-    func tick(burstAt: Date? = nil) -> [SessionWaitEvent] {
+    /// `offset` moves the tick's own clock (the fixtures' stamps stay relative to `now`), so a
+    /// check can put one tick before a notice and the next after it.
+    func tick(burstAt: Date? = nil, at offset: TimeInterval = 0) -> [SessionWaitEvent] {
         _ = watcher.sawCapHit()
         var emitted: [SessionWaitEvent] = []
         syncSessionState(&writer, pid: pid, project: PickProject(name: "p", path: file.path),
                          accountID: "claude:.claude", childPid: childPid, model: nil,
                          supervisorVersion: nil, watcher: &watcher, keyboardBurstAt: burstAt,
-                         tracker: &tracker, dir: state, now: now, emit: { emitted += $0 })
+                         tracker: &tracker, dir: state, now: now.addingTimeInterval(offset),
+                         emit: { emitted += $0 })
         return emitted
     }
 
@@ -435,12 +438,13 @@ private func runRegistryCloserChecks(_ root: URL) {
     check("A5: with no notice standing a registry saying waiting opens nothing", quiet.tick().isEmpty)
 
     // WITNESS SWAP (codex line review of 4d015c9): A was witnessed, then B took the notice slot
-    // (hard over hard replaces) while the registry no longer says waiting. The registry never said
-    // `waiting` for B, so B must not borrow A's handshake: it is judged by the older rules.
+    // (hard over hard replaces) while the registry had already left `waiting` BEFORE B's notice
+    // fired (so nothing proves B's dialog was ever up and answered): B must not borrow A's
+    // handshake, it is judged by the older rules.
     let swap = WaitRig(root, "witness-swap", pid: "88938")
     let swapA = swap.heldDialog("Agent")
     swap.notice("permission_prompt", ago: 10, message: "Claude needs your permission")
-    swap.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    swap.registry(status: "busy", waitingFor: nil, updatedAgo: 15)
     let swapped = swap.tick()
     let swapB = readUserNotice(pid: swap.pid, dir: swap.state)
     check("witness swap: B replacing a witnessed A under a busy registry supersedes A and opens B",
@@ -523,4 +527,215 @@ private func runRegistryCloserChecks(_ root: URL) {
     blindDrift.taskNotification(ago: 1)
     check("blind drift: the older rules close it and leave no drift line in the audit log",
           kinds(blindDrift.tick()) == ["wait.resolved"] && !blindDrift.auditText.contains("never said waiting"))
+
+    runFastAnswerChecks(root)
+}
+
+/// O15: a dialog answered after its notice fired but before the next tick read the registry. The
+/// tick before the notice saw `waiting`; the tick after sees the registry already past it.
+private func runFastAnswerChecks(_ root: URL) {
+    func driftLines(_ rig: WaitRig) -> Int {
+        rig.auditText.split(separator: "\n").filter { $0.contains("never said waiting") }.count
+    }
+    let asked = "Claude needs your permission"
+
+    // L form (O15 L1, L2): a lone background agent's first notice, Esc 35 ms later, main chain silent.
+    let lone = WaitRig(root, "fast-lone", pid: "88960")
+    lone.openCall("Agent")
+    lone.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+    check("fast L: the tick before the notice opens nothing", lone.tick(at: -2).isEmpty)
+    lone.notice("permission_prompt", ago: 1.5, message: asked)
+    let loneNotice = readUserNotice(pid: lone.pid, dir: lone.state)
+    lone.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4)
+    lone.sidechainWork(ago: 1)
+    let loneTick = lone.tick()
+    check("fast L: the next tick opens the notice's wait and resolves it as answered in the same tick",
+          kinds(loneTick) == ["wait.opened", "wait.resolved"] && loneTick.count == 2
+              && loneTick[0].request?.since == loneNotice?.at && loneTick[0].request?.kind == "permission"
+              && loneTick[1].resolution == "answered" && loneTick[1].request?.id == loneTick[0].request?.id)
+    check("fast L: ...its notice is off disk and the session is not blocked",
+          readUserNotice(pid: lone.pid, dir: lone.state) == nil
+              && readSessionState(pid: lone.pid, dir: lone.state)?.state != "blocked")
+    lone.taskNotification(ago: 0.5)
+    check("fast L: the agent's own task notification later resolves nothing more", lone.tick().isEmpty)
+    check("fast L: ...and no drift line was written", driftLines(lone) == 0)
+
+    // R form (O15 R2): A then B queued in one stretch, A stopped, B re-announced, Esc on B at once.
+    let renotice = WaitRig(root, "fast-renotice", pid: "88961")
+    renotice.openCall("Agent")
+    renotice.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 29)
+    renotice.notice("permission_prompt", ago: 23, message: asked)
+    check("fast R: A's notice opens", kinds(renotice.tick(at: -22)) == ["wait.opened"])
+    renotice.notice("permission_prompt", ago: 13, message: asked)
+    let bOpened = renotice.tick(at: -12)
+    check("fast R: B's queued notice supersedes A and opens B while the registry says waiting",
+          kinds(bOpened) == ["wait.resolved", "wait.opened"] && bOpened[0].resolution == "superseded")
+    check("fast R: ...and B stands on the tick before its re-notice", renotice.tick(at: -3).isEmpty)
+    renotice.notice("permission_prompt", ago: 1.5, message: asked)
+    renotice.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4)
+    renotice.sidechainWork(ago: 1)
+    let rTick = renotice.tick()
+    check("fast R: Esc on B's re-notice before the next tick resolves B's own request as answered and "
+            + "opens nothing",
+          kinds(rTick) == ["wait.resolved"] && rTick[0].resolution == "answered"
+              && rTick[0].request?.id == bOpened.last?.request?.id)
+    check("fast R: ...its notice is off disk and the session is not blocked",
+          readUserNotice(pid: renotice.pid, dir: renotice.state) == nil
+              && readSessionState(pid: renotice.pid, dir: renotice.state)?.state != "blocked")
+    renotice.taskNotification(ago: 0.5)
+    check("fast R: B's task notification later resolves nothing more, and no drift line was written",
+          renotice.tick().isEmpty && driftLines(renotice) == 0)
+
+    // A new stretch no tick saw begin: the standing request's dialog may be gone, but this notice is
+    // not provably its re-announcement, so the standing one is superseded and the notice's own wait
+    // opens and is answered.
+    let restretch = WaitRig(root, "fast-new-stretch", pid: "88962")
+    restretch.openCall("Agent")
+    restretch.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 29)
+    restretch.notice("permission_prompt", ago: 23, message: asked)
+    let xOpened = restretch.tick(at: -22)
+    restretch.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 9)
+    _ = restretch.tick(at: -3)
+    restretch.notice("permission_prompt", ago: 1.5, message: asked)
+    restretch.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4)
+    let restretchTick = restretch.tick()
+    check("fast new stretch: supersedes the standing request, then opens and answers the notice's own",
+          kinds(restretchTick) == ["wait.resolved", "wait.opened", "wait.resolved"]
+              && restretchTick[0].resolution == "superseded"
+              && restretchTick[0].request?.id == xOpened.first?.request?.id
+              && restretchTick[2].resolution == "answered"
+              && restretchTick[2].request?.id == restretchTick[1].request?.id)
+
+    // The structured question kind, answered before the next tick: its call and result land at once.
+    let question = WaitRig(root, "fast-question", pid: "88963")
+    question.openCall("Agent")
+    question.registry(status: "waiting", waitingFor: "input needed", updatedAgo: 8)
+    _ = question.tick(at: -2)
+    question.notice("permission_prompt", ago: 1.5, message: asked)
+    question.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4)
+    question.toolResult(ago: 1.2)
+    let questionTick = question.tick()
+    check("fast question: opens as the structured question and resolves answered in the same tick",
+          kinds(questionTick) == ["wait.opened", "wait.resolved"] && questionTick[0].request?.kind == "question"
+              && questionTick[0].request?.tool == "AskUserQuestion" && questionTick[1].resolution == "answered")
+
+    // The main turn's own dialog refused at once: the turn is interrupted and the main chain moves,
+    // which the older rules alone read as closed without the wait ever being published.
+    let main = WaitRig(root, "fast-main", pid: "88964")
+    main.openCall("Bash")
+    main.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+    _ = main.tick(at: -2)
+    main.notice("permission_prompt", ago: 1.5, message: asked)
+    main.registry(status: "idle", waitingFor: nil, updatedAgo: 1.4)
+    main.toolResult(ago: 1.2)
+    let mainTick = main.tick()
+    check("fast main: a main-turn dialog refused before the next tick is still published, opened and answered",
+          kinds(mainTick) == ["wait.opened", "wait.resolved"] && mainTick[1].resolution == "answered")
+
+    // The late answer (O15 C1): a tick saw the dialog up, so the handshake closes it as before.
+    let late = WaitRig(root, "fast-control", pid: "88965")
+    late.openCall("Agent")
+    late.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 10)
+    _ = late.tick(at: -6)
+    late.notice("permission_prompt", ago: 4, message: asked)
+    let lateOpened = late.tick(at: -3.5)
+    late.registry(status: "busy", waitingFor: nil, updatedAgo: 0.5)
+    let lateClosed = late.tick()
+    check("fast control: a dialog a tick saw open opens once, then resolves answered on the registry",
+          kinds(lateOpened) == ["wait.opened"] && kinds(lateClosed) == ["wait.resolved"]
+              && lateClosed[0].resolution == "answered"
+              && lateClosed[0].request?.id == lateOpened.first?.request?.id)
+
+    // STILL OPEN: stamped after the notice but still `waiting` is a dialog on screen.
+    let still = WaitRig(root, "fast-still-open", pid: "88966")
+    still.openCall("Agent")
+    still.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+    _ = still.tick(at: -2)
+    still.notice("permission_prompt", ago: 1.5, message: asked)
+    still.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 1)
+    let stillTick = still.tick()
+    still.sidechainWork(ago: 0.5)
+    check("fast guard: a registry still saying waiting, even stamped after the notice, opens the wait and "
+            + "closes nothing",
+          kinds(stillTick) == ["wait.opened"] && still.tick().isEmpty
+              && readUserNotice(pid: still.pid, dir: still.state) != nil)
+
+    // EVERY SHAPE THAT MUST NOT PROVE IT: each leaves the older rules in charge, so the notice opens
+    // a wait that stands (exactly the pre-O15 behaviour; in these fixtures that is late).
+    let unproved: [(String, (WaitRig) -> Void)] = [
+        ("the registry left waiting before the notice fired", { rig in
+            rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+            _ = rig.tick(at: -2)
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.6) }),
+        ("the reading after carries no statusUpdatedAt", { rig in
+            rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+            _ = rig.tick(at: -2)
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil) }),
+        ("the tick before could not read the registry", { rig in
+            _ = rig.tick(at: -2)
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4) }),
+        ("the tick before saw a registry that was not waiting", { rig in
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 30)
+            _ = rig.tick(at: -2)
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4) }),
+        ("the tick before saw another child's waiting", { rig in
+            rig.childPid = 70002
+            rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+            _ = rig.tick(at: -2)
+            rig.childPid = 70001
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4) }),
+        ("the waiting stretch began less than 5 s before the notice", { rig in
+            rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 4)
+            _ = rig.tick(at: -2)
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4) }),
+        ("the tick that saw waiting ran 5 s or more before the notice", { rig in
+            rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 14)
+            _ = rig.tick(at: -8)
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4) }),
+        ("a supervisor self-update between the two ticks", { rig in
+            rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+            _ = rig.tick(at: -2)
+            rig.reseed()
+            rig.notice("permission_prompt", ago: 1.5, message: asked)
+            rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4) }),
+    ]
+    for (index, (label, setUp)) in unproved.enumerated() {
+        let rig = WaitRig(root, "fast-unproved-\(index)", pid: "8897\(index)")
+        rig.openCall("Agent")
+        setUp(rig)
+        let opened = rig.tick()
+        check("fast unproved (\(label)): the notice opens a wait that stands",
+              kinds(opened) == ["wait.opened"] && rig.tick().isEmpty
+                  && readUserNotice(pid: rig.pid, dir: rig.state) != nil)
+    }
+    // Unmeasured kinds never ride the proof, whatever the registry said around them.
+    for (index, kind) in ["worker_permission_prompt", "elicitation_dialog", "agent_needs_input"].enumerated() {
+        let rig = WaitRig(root, "fast-unmeasured-\(kind)", pid: "8898\(index)")
+        rig.openCall("Agent")
+        rig.registry(status: "waiting", waitingFor: "permission prompt", updatedAgo: 8)
+        _ = rig.tick(at: -2)
+        rig.notice(kind, ago: 1.5, message: asked)
+        rig.registry(status: "busy", waitingFor: nil, updatedAgo: 1.4)
+        check("fast unmeasured \(kind): the notice opens a wait that stands",
+              kinds(rig.tick()) == ["wait.opened"] && rig.tick().isEmpty)
+    }
+
+    // O16: a witnessed request whose notice was replaced, closed by the older rules because the fast
+    // answer cannot be proved (no stamp), heard `waiting`; that is not drift.
+    let o16 = WaitRig(root, "fast-o16", pid: "88990")
+    let o16A = o16.heldDialog("Agent")
+    o16.notice("permission_prompt", ago: 10, message: asked)
+    o16.registry(status: "busy", waitingFor: nil)
+    o16.taskNotification(ago: 1)
+    let o16Tick = o16.tick()
+    check("O16: the older rules closing a witnessed request after its notice was replaced write no drift line",
+          o16Tick.first?.kind == "wait.resolved" && o16Tick.first?.request?.id == o16A.first?.request?.id
+              && driftLines(o16) == 0)
 }

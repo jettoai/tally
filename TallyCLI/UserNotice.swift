@@ -199,7 +199,10 @@ let claudeQuestionDialogWaitingFor = "input needed"
 /// whatever its `status`. `idle`, `busy` and `waiting` are the values read off 2.1.280; `waitingFor`
 /// is present only while `waiting` (`"permission prompt"` for every permission kind including
 /// ExitPlanMode, `"input needed"` for the question kind); `version` is Claude Code's own.
-/// `statusUpdatedAt` is left unread on purpose (`claudeDialogOpen` says why).
+/// `statusUpdatedAt` is Claude Code's epoch-millisecond stamp of the last status change. It is never
+/// an input to whether a dialog is open (`claudeDialogOpen` says why); the tracker reads it only off
+/// a reading that has already left `waiting`, to prove a dialog answered before any tick could
+/// witness it (`SessionWaitTracker.fastAnswer`).
 ///
 /// WHY THIS FILE AND NOT THE NOTICE. From 2.1.280 a structured question fires the same
 /// `permission_prompt` notification, with the same message, as a tool permission does, and its tool
@@ -208,6 +211,7 @@ let claudeQuestionDialogWaitingFor = "input needed"
 struct ClaudeRegistryReading: Equatable {
     var status: String
     var waitingFor: String?
+    var statusUpdatedAt: Date?
     var version: String?
     var isWaiting: Bool { status == "waiting" }
 }
@@ -222,8 +226,14 @@ func readClaudeRegistry(configHome: URL, childPid: Int) -> ClaudeRegistryReading
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           (object["pid"] as? Int) == childPid,
           let status = object["status"] as? String else { return nil }
-    return ClaudeRegistryReading(status: status, waitingFor: object["waitingFor"] as? String,
-                                 version: object["version"] as? String)
+    // Epoch milliseconds on this machine's wall clock, the clock `UserNotice.at` is written on to the
+    // millisecond as well, so the two compare without the whole-second truncation `.iso8601` brings.
+    return ClaudeRegistryReading(
+        status: status, waitingFor: object["waitingFor"] as? String,
+        statusUpdatedAt: (object["statusUpdatedAt"] as? NSNumber).map {
+            Date(timeIntervalSince1970: $0.doubleValue / 1000)
+        },
+        version: object["version"] as? String)
 }
 
 /// Whether the dialog behind a HARD notice is open, in Claude Code's own words, or nil when it has
@@ -237,6 +247,9 @@ func readClaudeRegistry(configHome: URL, childPid: Int) -> ClaudeRegistryReading
 ///          about has been closed, and nothing the transcript failed to write keeps it open (H1f
 ///          B1x: a lone agent's dialog refused with Esc stood 116 s until the agent's own task
 ///          notification moved the main chain).
+///          `witnessed` is also true for a notice the tracker proved answered before any tick could
+///          witness it (`SessionWaitTracker.fastAnswer`): the registry said `waiting` on the tick
+///          before the notice landed and left it after the notice fired.
 ///   nil    unreadable, or never witnessed: no fact.
 ///
 /// THE HANDSHAKE IS THE WHOLE SAFETY ARGUMENT. `status` is undocumented (2.1.280, measured on 7

@@ -279,3 +279,14 @@ every distinct wait. Use it to correlate the lifecycle of one wait across multip
 14. A child replaced mid-dialog (a cap handoff, a relaunch) leaves the old notice to the older
     rules, because the new child's registry knows nothing of the old dialog. A dialog that closes
     because its agent was stopped (`TaskStop`) reads `answered`, the same as one a person closed.
+15. A dialog answered within about two seconds of its notice, before the supervisor's next tick,
+    is still reported. On Claude Code 2.1.280 the registry said `waiting` on the tick before the
+    notice and left it after the notice fired, so the wait opens and resolves `answered` in the same
+    tick; a re-announced dialog whose wait is already open resolves that wait `answered` instead of
+    `superseded`. Two dialogs both answered inside one tick report only one of them. Without those
+    readings (a supervisor self-update across the answer, a registry with no `statusUpdatedAt`), the
+    older rules decide exactly as before this change (early or late, limitation 12), and the
+    fallback leaves the limitation 12 line.
+16. A plain text question in a Codex reply (an ordinary reply that asks something, with no
+    structured `request_user_input` chooser) produces no wait event at all: this version reads no
+    Codex signal for it. Untested on a real Codex CLI.

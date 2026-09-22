@@ -211,18 +211,23 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // run earlier in the same tick) has already folded in; `modified` stays for the open-turn readings.
     let movedAt = watcher.lastConversationEventAt
     let notice = readUserNotice(pid: pid, dir: dir)
-    // Claude Code's own word on whether a dialog is on top, asked for every HARD notice (a soft
-    // `idle_prompt` is the floor being free, not a dialog) and asked BEFORE judging. The watcher's
-    // project dir is `<config home>/projects/<slug>`, the registry is its sibling.
-    let registry: ClaudeRegistryReading? = notice.flatMap { standing in
-        userWait(notificationType: standing.type) == .hard
-            ? childPid.flatMap { readClaudeRegistry(
-                configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
-                childPid: $0) }
-            : nil
+    // Claude Code's own registry, read on EVERY tick with a child, notice or not. Only a HARD notice
+    // is judged against it (a soft `idle_prompt` is the floor being free, not a dialog), and that is
+    // asked BEFORE judging; but the tracker also needs what it said on the tick BEFORE a notice
+    // landed, because a dialog answered in the gap between its notice and the next tick is proved
+    // closed from that (`SessionWaitTracker.fastAnswer`). The watcher's project dir is
+    // `<config home>/projects/<slug>`, the registry is its sibling.
+    let reading: ClaudeRegistryReading? = childPid.flatMap {
+        readClaudeRegistry(configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
+                           childPid: $0)
     }
+    let registry: ClaudeRegistryReading? = notice.flatMap {
+        userWait(notificationType: $0.type) == .hard ? reading : nil
+    }
+    let fastAnswer = tracker.fastAnswer(childPid: childPid, notice: notice, registry: registry)
     let dialogOpen = notice.flatMap {
-        claudeDialogOpen($0, registry: registry, witnessed: tracker.dialogWitnessed(childPid: childPid, notice: $0))
+        claudeDialogOpen($0, registry: registry,
+                         witnessed: fastAnswer != nil || tracker.dialogWitnessed(childPid: childPid, notice: $0))
     }
     let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt, keyboardBurstAt: keyboardBurstAt,
                                       dialogOpen: dialogOpen)
@@ -279,7 +284,8 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                            worktree: project.worktree, notice: notice, waiting: waiting, question: question,
                            questionSince: questionSince, quiet: quiet, wait: wait,
                            answeredAt: watcher.lastPersonInputAt, dialogWaitingFor: dialog,
-                           dialogOpen: dialogOpen, registryVersion: registry.map { $0.version ?? "unknown" },
+                           dialogOpen: dialogOpen, fastAnswer: fastAnswer, registryReading: reading,
+                           registryVersion: registry.map { $0.version ?? "unknown" },
                            driftLog: watcher.auditLog, now: now))
     return SessionTick(state: state, quiet: quietness, wait: wait)
 }

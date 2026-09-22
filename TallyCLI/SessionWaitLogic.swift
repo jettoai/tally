@@ -35,22 +35,6 @@ func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, 
                                   summary: sessionWaitSummary(userQuestionTools[question]))
     }
 
-    // Row: codex, `PermissionRequest` hook arrived -> permission, suspected (§9 blind spot 1: Codex
-    // can never prove a dialog reached a person, so this is the ceiling for it in v1). `waiting` and
-    // `notice` carry the same "is something still open" and "what did it say" shape a later
-    // package's Codex adapter will build from its own `pendingPermission` (plan §4.2); reusing
-    // `UserNotice` here rather than inventing a second envelope is what keeps this function to one
-    // signature for both providers.
-    if provider == "codex" {
-        guard waiting, let notice else { return nil }
-        let id = sessionWaitRequestID(sessionKey: sessionKey, kind: SessionWaitKind.permission.rawValue,
-                                      noticeType: notice.type, since: notice.at)
-        return SessionWaitRequest(id: id, kind: SessionWaitKind.permission.rawValue,
-                                  confidence: SessionWaitConfidence.suspected.rawValue, since: notice.at,
-                                  noticeType: notice.type, tool: permissionTool,
-                                  summary: sessionWaitSummary(notice.message.isEmpty ? nil : notice.message))
-    }
-
     guard waiting, let notice else { return nil }
 
     /// One request built from the standing `notice`, varying only in what the table says about it.
@@ -61,6 +45,16 @@ func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, 
         return SessionWaitRequest(id: id, kind: kind.rawValue, confidence: confidence.rawValue,
                                   since: notice.at, noticeType: notice.type, tool: tool,
                                   summary: sessionWaitSummary(notice.message.isEmpty ? nil : notice.message))
+    }
+
+    // Row: codex, `PermissionRequest` hook arrived -> permission, suspected (§9 blind spot 1: Codex
+    // can never prove a dialog reached a person, so this is the ceiling for it in v1). `waiting` and
+    // `notice` carry the same "is something still open" and "what did it say" shape a later
+    // package's Codex adapter will build from its own `pendingPermission` (plan §4.2); reusing
+    // `UserNotice` here rather than inventing a second envelope is what keeps this function to one
+    // signature for both providers.
+    if provider == "codex" {
+        return request(kind: .permission, confidence: .suspected, tool: permissionTool)
     }
 
     // Row: claude, noticeType in {permission_prompt, worker_permission_prompt} -> permission, confirmed.
@@ -94,6 +88,20 @@ func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, 
     return nil
 }
 
+/// One event with its idempotency key already stamped: the only way this feature builds a
+/// `SessionWaitEvent`, so every kind (including a tracker's closing `session.ended`) is keyed alike.
+func makeSessionWaitEvent(_ kind: SessionWaitEventKind, request: SessionWaitRequest?,
+                          resolution: SessionWaitResolution?, identity: SessionWaitIdentity,
+                          provider: String, now: Date) -> SessionWaitEvent {
+    var built = SessionWaitEvent(at: now, kind: kind.rawValue, provider: provider,
+                                 session: identity, request: request,
+                                 resolution: resolution?.rawValue)
+    built.idempotencyKey = sessionWaitIdempotencyKey(requestID: request?.id, sessionKey: identity.key,
+                                                      kind: kind.rawValue,
+                                                      resolution: resolution?.rawValue)
+    return built
+}
+
 /// The events between the belief the LAST tick published and the one this tick just computed.
 /// Pure; §4.1b's four per-tick rules (a fifth, what happens when the supervisor itself is shutting
 /// down, is the seeding tracker's own job in a later package, see the file header).
@@ -107,13 +115,8 @@ func reconcileWaitRequests(previous: SessionWaitRequest?, current: SessionWaitRe
                            provider: String, now: Date) -> [SessionWaitEvent] {
     func event(_ kind: SessionWaitEventKind, request: SessionWaitRequest?,
               resolution: SessionWaitResolution?) -> SessionWaitEvent {
-        var built = SessionWaitEvent(at: now, kind: kind.rawValue, provider: provider,
-                                     session: identity, request: request,
-                                     resolution: resolution?.rawValue)
-        built.idempotencyKey = sessionWaitIdempotencyKey(requestID: request?.id, sessionKey: identity.key,
-                                                          kind: kind.rawValue,
-                                                          resolution: resolution?.rawValue)
-        return built
+        makeSessionWaitEvent(kind, request: request, resolution: resolution, identity: identity,
+                             provider: provider, now: now)
     }
 
     switch (previous, current) {

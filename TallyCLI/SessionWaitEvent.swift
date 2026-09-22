@@ -172,7 +172,8 @@ func sessionWaitIdempotencyKey(requestID: String?, sessionKey: String, kind: Str
 func sessionWaitSummary(_ text: String?, byteLimit: Int = 200) -> String? {
     guard let text, !text.isEmpty else { return text }
     let bytes = Array(text.utf8)
-    guard bytes.count > byteLimit, byteLimit > 0 else { return bytes.count > byteLimit ? nil : text }
+    guard bytes.count > byteLimit else { return text }
+    guard byteLimit > 0 else { return nil }
     // Walk the cap backwards to a UTF-8 sequence boundary: a byte whose top two bits are `10` is a
     // continuation byte, meaning the character that started before it is not finished, and cutting
     // there would hand `String(decoding:as:)` a broken sequence.

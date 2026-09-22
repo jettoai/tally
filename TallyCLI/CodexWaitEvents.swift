@@ -73,11 +73,8 @@ struct CodexWaitTracker {
                                            identity: identity, provider: "codex", now: now)
         open = nil
         openTurnID = nil
-        var ended = SessionWaitEvent(at: now, kind: SessionWaitEventKind.ended.rawValue, provider: "codex",
-                                     session: identity, request: nil, resolution: nil)
-        ended.idempotencyKey = sessionWaitIdempotencyKey(requestID: nil, sessionKey: identity.key,
-                                                         kind: ended.kind, resolution: nil)
-        events.append(ended)
+        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                           provider: "codex", now: now))
         return events
     }
 }

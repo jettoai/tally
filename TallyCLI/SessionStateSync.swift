@@ -237,6 +237,14 @@ struct SessionWaitTracker {
         try? data.write(to: file, options: .atomic)
     }
 
+    /// The stale seed's `session-ended` (plan §4.3), under ITS OWN identity, handed out once.
+    private mutating func takeStaleSeedEvents(now: Date) -> [SessionWaitEvent] {
+        guard let stale = staleSeed else { return [] }
+        staleSeed = nil
+        return reconcileWaitRequests(previous: stale.request, current: nil, resolution: .sessionEnded,
+                                     identity: stale.identity, provider: "claude", now: now)
+    }
+
     /// One tick (plan §4.1b), driven by `syncSessionState`. `notice`/`waiting`/`question`/
     /// `questionSince`/`quiet`/`wait` are that tick's own readings; `conversationMovedAt` (the
     /// watcher's `lastConversationEventAt`, never the file's mtime) is what explains a standing
@@ -253,12 +261,7 @@ struct SessionWaitTracker {
         identity.project = project
         identity.worktree = worktree
 
-        var events: [SessionWaitEvent] = []
-        if let stale = staleSeed {
-            events += reconcileWaitRequests(previous: stale.request, current: nil, resolution: .sessionEnded,
-                                            identity: stale.identity, provider: "claude", now: now)
-            staleSeed = nil
-        }
+        var events = takeStaleSeedEvents(now: now)
 
         let current = openWaitRequest(provider: "claude", sessionKey: identity.key, notice: notice,
                                       waiting: waiting, question: question, questionSince: questionSince,
@@ -282,22 +285,12 @@ struct SessionWaitTracker {
     /// Supervisor shutdown (plan §4.1b's fifth rule, §6.11): a standing request resolves
     /// `session-ended` first, then `session.ended` closes the session itself.
     mutating func finish(now: Date) -> [SessionWaitEvent] {
-        var events: [SessionWaitEvent] = []
-        if let stale = staleSeed {
-            events += reconcileWaitRequests(previous: stale.request, current: nil, resolution: .sessionEnded,
-                                            identity: stale.identity, provider: "claude", now: now)
-            staleSeed = nil
-        }
-        if let standing = open {
-            events += reconcileWaitRequests(previous: standing, current: nil, resolution: .sessionEnded,
-                                            identity: identity, provider: "claude", now: now)
-            open = nil
-        }
-        var ended = SessionWaitEvent(at: now, kind: SessionWaitEventKind.ended.rawValue, provider: "claude",
-                                     session: identity, request: nil, resolution: nil)
-        ended.idempotencyKey = sessionWaitIdempotencyKey(requestID: nil, sessionKey: identity.key,
-                                                         kind: ended.kind, resolution: nil)
-        events.append(ended)
+        var events = takeStaleSeedEvents(now: now)
+        events += reconcileWaitRequests(previous: open, current: nil, resolution: .sessionEnded,
+                                        identity: identity, provider: "claude", now: now)
+        open = nil
+        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                           provider: "claude", now: now))
         if let pid { try? FileManager.default.removeItem(at: SessionWaitTracker.seedFile(pid: pid, dir: dir)) }
         return events
     }

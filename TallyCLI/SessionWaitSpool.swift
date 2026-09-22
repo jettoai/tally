@@ -159,12 +159,14 @@ func trimSpoolIfNeeded(dir: URL = tallyEventsDir) {
         return try? decoder.decode(SessionWaitEvent.self, from: data).seq
     }
 
+    // An undecodable line reads as `Int.max`: never counted as delivered, always kept.
+    let seqs = lines.map { seq(of: $0) ?? Int.max }
     let cursor = readCounter(cursorFile(dir: dir)) ?? 0
-    let deliveredCount = lines.filter { (seq(of: $0) ?? Int.max) <= cursor }.count
+    let deliveredCount = seqs.filter { $0 <= cursor }.count
     guard deliveredCount * 2 >= lines.count else { return }
 
     let keepAfter = cursor - spoolTrimKeepBack
-    let kept = lines.filter { (seq(of: $0) ?? Int.max) > keepAfter }
+    let kept = zip(lines, seqs).filter { $0.1 > keepAfter }.map(\.0)
     let body = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
 
     let tmp = dir.appendingPathComponent("\(spoolFileName).tmp-\(UUID().uuidString)")

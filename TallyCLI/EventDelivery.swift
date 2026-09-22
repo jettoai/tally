@@ -171,12 +171,17 @@ func readDeadLetterEntries(dir: URL = tallyEventsDir) -> [DeadLetterEntry] {
     return entries
 }
 
+/// One dead-letter line (no trailing newline), or nil when the entry cannot be encoded.
+private func deadLetterLine(_ entry: DeadLetterEntry, encoder: JSONEncoder) -> String? {
+    guard let data = try? encoder.encode(entry), let json = String(data: data, encoding: .utf8)
+    else { return nil }
+    return json.replacingOccurrences(of: "\n", with: " ")
+}
+
 private func appendDeadLetter(_ event: SessionWaitEvent, attempts: Int, lastError: String, dir: URL) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let entry = DeadLetterEntry(event: event, attempts: attempts, lastError: lastError)
-    guard let data = try? sessionWaitEventEncoder().encode(entry),
-          let json = String(data: data, encoding: .utf8) else { return }
-    let line = json.replacingOccurrences(of: "\n", with: " ")
+    guard let line = deadLetterLine(entry, encoder: sessionWaitEventEncoder()) else { return }
     let fd = deadLetterFile(dir: dir).path.withCString { open($0, O_WRONLY | O_CREAT | O_APPEND, 0o600) }
     guard fd >= 0 else { return }
     defer { close(fd) }
@@ -191,11 +196,7 @@ private func appendDeadLetter(_ event: SessionWaitEvent, attempts: Int, lastErro
 /// succeeded (dropped) and some did not (kept, with `attempts` bumped).
 private func rewriteDeadLetterFile(_ entries: [DeadLetterEntry], dir: URL) {
     let encoder = sessionWaitEventEncoder()
-    let lines = entries.compactMap { entry -> String? in
-        guard let data = try? encoder.encode(entry), let json = String(data: data, encoding: .utf8)
-        else { return nil }
-        return json.replacingOccurrences(of: "\n", with: " ")
-    }
+    let lines = entries.compactMap { deadLetterLine($0, encoder: encoder) }
     let body = lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n"
     let tmp = dir.appendingPathComponent("\(deadLetterFileName).tmp-\(UUID().uuidString)")
     guard (try? body.write(to: tmp, atomically: true, encoding: .utf8)) != nil else { return }
@@ -217,6 +218,27 @@ private func isPermanentFailureStatus(_ status: Int) -> Bool {
     return status != 408 && status != 429
 }
 
+/// The JSON body a delivery POSTs for `event`, or nil when it cannot be encoded.
+private func deliveryBody(for event: SessionWaitEvent) -> String? {
+    guard let data = try? sessionWaitEventEncoder().encode(event) else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
+/// §5.4's headers for one attempt, signed over the current second: every attempt (fresh or replayed)
+/// gets its own timestamp, so a receiver's replay window measures the attempt, not the event.
+private func signedDeliveryHeaders(for event: SessionWaitEvent, body: String,
+                                   secret: String) -> [String: String] {
+    let timestamp = String(Int(Date().timeIntervalSince1970))
+    let signature = hmacSignatureHex(secret: secret, timestamp: timestamp, body: body)
+    return [
+        "Content-Type": "application/json",
+        "X-Tally-Timestamp": timestamp,
+        "X-Tally-Signature": "sha256=\(signature)",
+        "X-Tally-Idempotency-Key": event.idempotencyKey,
+        "X-Tally-Event": event.kind,
+    ]
+}
+
 /// One event, all the way through its retry schedule. Always resolves to either a 2xx (silent
 /// success, nothing written) or a dead-letter append - never leaves the event in limbo, which is
 /// what lets the caller advance `cursor` unconditionally once this returns (§5.5: cursor advances
@@ -227,8 +249,7 @@ private func deliverOne(_ event: SessionWaitEvent, sink: EventSinkConfig, dir: U
         appendDeadLetter(event, attempts: 0, lastError: "sink url does not parse", dir: dir)
         return
     }
-    guard let bodyData = try? sessionWaitEventEncoder().encode(event),
-          let body = String(data: bodyData, encoding: .utf8) else {
+    guard let body = deliveryBody(for: event) else {
         appendDeadLetter(event, attempts: 0, lastError: "event failed to encode", dir: dir)
         return
     }
@@ -236,25 +257,14 @@ private func deliverOne(_ event: SessionWaitEvent, sink: EventSinkConfig, dir: U
     for (index, delay) in deliveryBackoffSeconds.enumerated() {
         if delay > 0 { sleeper(delay) }
         let attemptNumber = index + 1
-        let timestamp = String(Int(Date().timeIntervalSince1970))
-        let signature = hmacSignatureHex(secret: sink.secret, timestamp: timestamp, body: body)
-        let headers = [
-            "Content-Type": "application/json",
-            "X-Tally-Timestamp": timestamp,
-            "X-Tally-Signature": "sha256=\(signature)",
-            "X-Tally-Idempotency-Key": event.idempotencyKey,
-            "X-Tally-Event": event.kind,
-        ]
+        let headers = signedDeliveryHeaders(for: event, body: body, secret: sink.secret)
         let result = sender(url, Data(body.utf8), headers)
         if (200...299).contains(result.status) { return }
 
-        let errorText = result.error ?? "http \(result.status)"
-        if isPermanentFailureStatus(result.status) {
-            appendDeadLetter(event, attempts: attemptNumber, lastError: errorText, dir: dir)
+        if isPermanentFailureStatus(result.status) || attemptNumber == deliveryBackoffSeconds.count {
+            appendDeadLetter(event, attempts: attemptNumber,
+                             lastError: result.error ?? "http \(result.status)", dir: dir)
             return
-        }
-        if attemptNumber == deliveryBackoffSeconds.count {
-            appendDeadLetter(event, attempts: attemptNumber, lastError: errorText, dir: dir)
         }
     }
 }
@@ -269,20 +279,11 @@ private func replayDeadLetterEntries(dir: URL, sink: EventSinkConfig, sender: Ev
 
     var remaining: [DeadLetterEntry] = []
     for entry in existing {
-        guard let bodyData = try? sessionWaitEventEncoder().encode(entry.event),
-              let body = String(data: bodyData, encoding: .utf8) else {
+        guard let body = deliveryBody(for: entry.event) else {
             remaining.append(entry)
             continue
         }
-        let timestamp = String(Int(Date().timeIntervalSince1970))
-        let signature = hmacSignatureHex(secret: sink.secret, timestamp: timestamp, body: body)
-        let headers = [
-            "Content-Type": "application/json",
-            "X-Tally-Timestamp": timestamp,
-            "X-Tally-Signature": "sha256=\(signature)",
-            "X-Tally-Idempotency-Key": entry.event.idempotencyKey,
-            "X-Tally-Event": entry.event.kind,
-        ]
+        let headers = signedDeliveryHeaders(for: entry.event, body: body, secret: sink.secret)
         let result = sender(url, Data(body.utf8), headers)
         if (200...299).contains(result.status) { continue }
         remaining.append(DeadLetterEntry(event: entry.event, attempts: entry.attempts + 1,

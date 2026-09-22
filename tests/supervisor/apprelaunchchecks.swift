@@ -12,6 +12,38 @@ import Foundation
 // says "do nothing" matters as much as the one that opens the app: the station has to be silent
 // through every ordinary update.
 
+/// An app bundle on disk in the layout this station reads: the CLI at `Contents/Helpers/tally`
+/// (the one input `bundledAppPaths` takes), the app's own executable at `Contents/MacOS/<name>` and
+/// runnable - what a finished swap leaves behind, and what a tick refuses to open a bundle without -
+/// and an Info.plist naming that executable. The name is declared rather than assumed because the
+/// Debug build is called "Tally Dev", which is the whole reason `bundledAppPaths` reads the plist.
+///
+/// Answers with the root to remove afterwards, the bundle whose path the checks compare against,
+/// and the CLI inside it. Two fixtures in this file want exactly this, and a runnable executable is
+/// now load-bearing in both, so it is built once rather than kept alike by hand.
+func makeAppBundle(named name: String,
+                   version: String? = nil) -> (root: URL, bundle: URL, cli: URL) {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory
+        .appendingPathComponent("tally-bundle-\(UUID().uuidString)")
+    let bundle = root.appendingPathComponent("\(name).app")
+    let contents = bundle.appendingPathComponent("Contents")
+    for directory in ["Helpers", "MacOS"] {
+        try? manager.createDirectory(at: contents.appendingPathComponent(directory),
+                                     withIntermediateDirectories: true)
+    }
+    var plist: [String: Any] = ["CFBundleExecutable": name]
+    if let version { plist["CFBundleShortVersionString"] = version }
+    try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        .write(to: contents.appendingPathComponent("Info.plist"))
+    manager.createFile(atPath: contents.appendingPathComponent("MacOS")
+        .appendingPathComponent(name).path, contents: Data(),
+        attributes: [.posixPermissions: 0o755])
+    let cli = contents.appendingPathComponent("Helpers").appendingPathComponent("tally")
+    manager.createFile(atPath: cli.path, contents: Data())
+    return (root, bundle, cli)
+}
+
 func runAppRelaunchChecks() {
     // MARK: - 26. An update took the app away and nothing brought it back
 
@@ -298,32 +330,13 @@ func runAppRelaunchChecks() {
     // The CLI is embedded at <App>.app/Contents/Helpers/tally, so the bundle to open is three
     // directories up and the app to look for is named by that bundle's own Info.plist. The Debug
     // build is called "Tally Dev", which is exactly why the name is read rather than assumed.
-    let fixture = FileManager.default.temporaryDirectory
-        .appendingPathComponent("tally-bundle-\(UUID().uuidString)")
-    let appBundle = fixture.appendingPathComponent("Tally Dev.app")
-    let contents = appBundle.appendingPathComponent("Contents")
-    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("Helpers"),
-                                             withIntermediateDirectories: true)
-    let plist = try? PropertyListSerialization.data(
-        fromPropertyList: ["CFBundleExecutable": "Tally Dev",
-                           "CFBundleShortVersionString": new] as [String: Any],
-        format: .xml, options: 0)
-    try? plist?.write(to: contents.appendingPathComponent("Info.plist"))
-    let cli = contents.appendingPathComponent("Helpers").appendingPathComponent("tally")
-    FileManager.default.createFile(atPath: cli.path, contents: Data())
-    // The app's own executable, runnable: what a finished swap leaves behind, and what the tick
-    // below refuses to open a bundle without.
-    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"),
-                                             withIntermediateDirectories: true)
-    FileManager.default.createFile(atPath: contents.appendingPathComponent("MacOS")
-        .appendingPathComponent("Tally Dev").path, contents: Data(),
-        attributes: [.posixPermissions: 0o755])
+    let (fixture, appBundle, cli) = makeAppBundle(named: "Tally Dev", version: new)
     let paths = bundledAppPaths(cli)
     check("the bundle to open is the one this binary is embedded in",
           paths?.bundle == appBundle.path)
     check("and the app to watch for is the executable that bundle declares",
-          paths?.executable == contents.appendingPathComponent("MacOS")
-              .appendingPathComponent("Tally Dev").path)
+          paths?.executable == appBundle.appendingPathComponent("Contents")
+              .appendingPathComponent("MacOS").appendingPathComponent("Tally Dev").path)
     check("a binary that is not inside a bundle has nothing to watch or open",
           bundledAppPaths(fixture.appendingPathComponent("tally")) == nil)
 
@@ -552,30 +565,16 @@ func runAppRelaunchTimelineChecks() {
     let death: TimeInterval = 100
     let swap = death + 2.4
 
-    let fixture = FileManager.default.temporaryDirectory
-        .appendingPathComponent("tally-relaunch-timeline-\(UUID().uuidString)")
-    let appBundle = fixture.appendingPathComponent("Tally.app")
-    let contents = appBundle.appendingPathComponent("Contents")
-    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("Helpers"),
-                                             withIntermediateDirectories: true)
-    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"),
-                                             withIntermediateDirectories: true)
-    let plist = try? PropertyListSerialization.data(
-        fromPropertyList: ["CFBundleExecutable": "Tally"] as [String: Any], format: .xml, options: 0)
-    try? plist?.write(to: contents.appendingPathComponent("Info.plist"))
-    let cli = contents.appendingPathComponent("Helpers").appendingPathComponent("tally")
-    FileManager.default.createFile(atPath: cli.path, contents: Data())
-    // The app's own executable, present and runnable: what the finished swap leaves behind.
-    FileManager.default.createFile(atPath: contents.appendingPathComponent("MacOS")
-        .appendingPathComponent("Tally").path, contents: Data(),
-        attributes: [.posixPermissions: 0o755])
+    let (fixture, _, cli) = makeAppBundle(named: "Tally")
     let paths = bundledAppPaths(cli)
     check("the timeline fixture is a bundle this station recognises", paths != nil)
 
     /// One supervisor that started `phase` seconds into the fixture's clock, run through the whole
     /// timeline at the loop's real two-second tick (`Supervisor.swift`, `usleep(2_000_000)`), and
-    /// answered with whether it ever opened the app.
-    func opensTheApp(startingAt phase: TimeInterval) -> Bool {
+    /// answered with whether it ever opened the app. `appAlive` says what a walk of the process
+    /// table finds at a given second, which is the only thing the three timelines below disagree
+    /// about: everything else they would have said is the same run, and was three copies of it.
+    func opensTheApp(startingAt phase: TimeInterval, appAlive: (TimeInterval) -> Bool) -> Bool {
         var state = AppRelaunchState()
         var opened = 0
         var now = phase
@@ -583,76 +582,46 @@ func runAppRelaunchTimelineChecks() {
             let at = now
             applyAppRelaunch(&state, now: launch.addingTimeInterval(at),
                              installed: at >= swap ? new : old, bundle: paths,
-                             probe: { _ in at < death }, claim: { _, _ in true },
+                             probe: { _ in appAlive(at) }, claim: { _, _ in true },
                              announce: { _ in }, record: { _, _ in }, launch: { _ in opened += 1 })
             now += 2
         }
         return opened > 0
     }
 
-    var missed: [String] = []
-    for step in 0...20 {
-        let phase = Double(step) * 0.25
-        if !opensTheApp(startingAt: phase) { missed.append(String(format: "%.2f", phase)) }
+    /// Every start phase the sweep covers: one scan interval in quarter-second steps.
+    let phases = (0...20).map { Double($0) * 0.25 }
+
+    /// The phases a sweep came back with, spelled the way the failure message wants them.
+    func listed(_ found: [TimeInterval]) -> String {
+        found.isEmpty ? "none" : found.map { String(format: "%.2f", $0) }.joined(separator: " ")
+    }
+
+    // The incident's own timeline: the app dies and never comes back. Every phase must open it.
+    let missed = phases.filter { phase in
+        !opensTheApp(startingAt: phase, appAlive: { second in second < death })
     }
     check("every start phase across one scan interval reopens an app the update took away "
-          + "(missed: \(missed.isEmpty ? "none" : missed.joined(separator: " ")))", missed.isEmpty)
+          + "(missed: \(listed(missed)))", missed.isEmpty)
 
     // The other side of the same sweep: an ordinary update, where Sparkle brings the app back two
     // seconds after the swap. No phase may open anything, or the station is simply louder rather
     // than more correct.
-    func opensAfterASparkleRelaunch(startingAt phase: TimeInterval) -> Bool {
-        let back = swap + 2
-        var state = AppRelaunchState()
-        var opened = 0
-        var now = phase
-        while now <= death + 120 {
-            let at = now
-            applyAppRelaunch(&state, now: launch.addingTimeInterval(at),
-                             installed: at >= swap ? new : old, bundle: paths,
-                             probe: { _ in at < death || at >= back }, claim: { _, _ in true },
-                             announce: { _ in }, record: { _, _ in }, launch: { _ in opened += 1 })
-            now += 2
-        }
-        return opened > 0
-    }
-
-    var noisy: [String] = []
-    for step in 0...20 {
-        let phase = Double(step) * 0.25
-        if opensAfterASparkleRelaunch(startingAt: phase) {
-            noisy.append(String(format: "%.2f", phase))
-        }
+    let back = swap + 2
+    let noisy = phases.filter { phase in
+        opensTheApp(startingAt: phase, appAlive: { second in second < death || second >= back })
     }
     check("and no phase opens a second copy after Sparkle relaunched the app itself "
-          + "(opened at: \(noisy.isEmpty ? "none" : noisy.joined(separator: " ")))", noisy.isEmpty)
+          + "(opened at: \(listed(noisy)))", noisy.isEmpty)
 
     // An app the user quit well before the update landed is still nobody's to reopen, swept the
     // same way: the memory the arming rests on is bounded, and this is the boundary it buys.
-    func opensAfterAUserQuit(startingAt phase: TimeInterval) -> Bool {
-        let quit = swap - 30
-        var state = AppRelaunchState()
-        var opened = 0
-        var now = phase
-        while now <= death + 120 {
-            let at = now
-            applyAppRelaunch(&state, now: launch.addingTimeInterval(at),
-                             installed: at >= swap ? new : old, bundle: paths,
-                             probe: { _ in at < quit }, claim: { _, _ in true },
-                             announce: { _ in }, record: { _, _ in }, launch: { _ in opened += 1 })
-            now += 2
-        }
-        return opened > 0
-    }
-
-    var reopened: [String] = []
-    for step in 0...20 {
-        let phase = Double(step) * 0.25
-        if opensAfterAUserQuit(startingAt: phase) { reopened.append(String(format: "%.2f", phase)) }
+    let quit = swap - 30
+    let reopened = phases.filter { phase in
+        opensTheApp(startingAt: phase, appAlive: { second in second < quit })
     }
     check("nor does any phase reopen an app the user had quit half a minute earlier "
-          + "(opened at: \(reopened.isEmpty ? "none" : reopened.joined(separator: " ")))",
-          reopened.isEmpty)
+          + "(opened at: \(listed(reopened)))", reopened.isEmpty)
 
     try? FileManager.default.removeItem(at: fixture)
 }

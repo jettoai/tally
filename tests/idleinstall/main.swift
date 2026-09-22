@@ -95,15 +95,17 @@ guard let controller = try? String(contentsOfFile: controllerPath, encoding: .ut
     exit(1)
 }
 
-// The body of taskWindowOnScreen alone, so a mention of a modal anywhere else in the file (the call
-// site legitimately has one) cannot stand in for the thing being asserted.
-let windowBody: String = {
-    guard let start = controller.range(of: "private static var taskWindowOnScreen: Bool {"),
-          let end = controller.range(of: "\n    }", range: start.upperBound ..< controller.endIndex)
+// One declaration's body alone, so a mention of a modal anywhere else in the file (the call site
+// legitimately has one) cannot stand in for the thing being asserted. Both readers below want the
+// same extraction, which is why it is a function rather than two closures that must stay alike.
+func body(of declaration: String, in source: String) -> String {
+    guard let start = source.range(of: declaration),
+          let end = source.range(of: "\n    }", range: start.upperBound ..< source.endIndex)
     else { return "" }
-    return String(controller[start.upperBound ..< end.lowerBound])
-}()
+    return String(source[start.upperBound ..< end.lowerBound])
+}
 
+let windowBody = body(of: "private static var taskWindowOnScreen: Bool {", in: controller)
 expect(!windowBody.isEmpty, "UpdaterController still has a taskWindowOnScreen to read")
 for surface in ["isPopoverShown", "SettingsWindowController.shared.isWindowVisible",
                 "MainWindowController.shared.isWindowVisible"] {
@@ -117,13 +119,7 @@ expect(controller.contains("modalOpen: Self.decisionPending"),
        "the no-expiry veto reaches the rule through its own input, and by way of the rule above "
            + "rather than a question asked straight at AppKit")
 
-// The body of that reader alone, for the same reason windowBody is read alone.
-let decisionBody: String = {
-    guard let start = controller.range(of: "private static var decisionPending: Bool {"),
-          let end = controller.range(of: "\n    }", range: start.upperBound ..< controller.endIndex)
-    else { return "" }
-    return String(controller[start.upperBound ..< end.lowerBound])
-}()
+let decisionBody = body(of: "private static var decisionPending: Bool {", in: controller)
 expect(!decisionBody.isEmpty, "UpdaterController has a decisionPending to read")
 expect(decisionBody.contains("attachedSheet"),
        "it asks each window whether a sheet is attached to it - NSApp.modalWindow cannot see one, "

@@ -73,10 +73,10 @@ func appRelaunchLogLine(_ event: AppRelaunchEvent, bundle: String, pid: String =
         + "reason=\(event.reason) version=\(event.version) bundle=\(bundle)\n"
 }
 
-/// Append one line, creating `~/.tally/logs` if this is the first thing to write there.
+/// Append one line. `appendHandoffLine` is the whole of the writing, creating `~/.tally/logs` on
+/// its way in: this log has nothing of its own to add on top, unlike the input log beside it, which
+/// wraps the same call to keep a mode (`sessionInputLogMode`).
 func appendAppRelaunchLine(_ event: AppRelaunchEvent, bundle: String, now: Date = Date(),
                            to log: URL = appRelaunchLog) {
-    try? FileManager.default.createDirectory(at: log.deletingLastPathComponent(),
-                                             withIntermediateDirectories: true)
     appendHandoffLine(appRelaunchLogLine(event, bundle: bundle, now: now), to: log)
 }

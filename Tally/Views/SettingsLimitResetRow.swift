@@ -18,7 +18,7 @@ struct SettingsLimitResetRow: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Auto reset session limit")).font(.subheadline)
-                Text(L("When a Claude session hits its 5-hour limit, Tally spends that account's own weekly reset to clear it instead of moving the conversation to another account. Claude gives one reset a week and it uses the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using."))
+                Text(L("When a Claude session hits its 5-hour limit, Tally spends one of that account's own resets to clear it instead of moving the conversation to another account. Claude Code says a reset counts toward the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

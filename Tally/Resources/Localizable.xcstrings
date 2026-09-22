@@ -14058,31 +14058,31 @@
         }
       }
     },
-    "When a Claude session hits its 5-hour limit, Tally spends that account's own weekly reset to clear it instead of moving the conversation to another account. Claude gives one reset a week and it uses the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using.": {
+    "When a Claude session hits its 5-hour limit, Tally spends one of that account's own resets to clear it instead of moving the conversation to another account. Claude Code says a reset counts toward the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當 Claude session 撞到 5 小時限制時，Tally 會用那個帳號自己的每週重置把限制清掉，而不是把對話搬到別的帳號。Claude 每週只給一次重置，而且會用掉週限額，所以 Tally 只在 5 小時牆上這樣做，而且只在該帳號的週限額還值得用的時候。"
+            "value": "當 Claude session 撞到 5 小時限制時，Tally 會用掉那個帳號自己的一次重置把限制清掉，而不是把對話搬到別的帳號。Claude Code 表示重置會計入每週限制，所以 Tally 只在 5 小時牆上這樣做，而且只在該帳號的週限額還值得用的時候。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当 Claude session 撞到 5 小时限制时，Tally 会用那个账号自己的每周重置把限制清掉，而不是把对话搬到别的账号。Claude 每周只给一次重置，而且会用掉周限额，所以 Tally 只在 5 小时墙上这样做，而且只在该账号的周限额还值得用的时候。"
+            "value": "当 Claude session 撞到 5 小时限制时，Tally 会用掉那个账号自己的一次重置把限制清掉，而不是把对话搬到别的账号。Claude Code 表示重置会计入每周限制，所以 Tally 只在 5 小时墙上这样做，而且只在该账号的周限额还值得用的时候。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude のセッションが 5 時間制限に達したとき、Tally は会話を別のアカウントへ移す代わりに、そのアカウント自身の週次リセットを使って制限を解除します。Claude のリセットは週に 1 回で週の上限を消費するため、Tally は 5 時間の制限のときだけ、しかも週の上限にまだ使う価値が残っているときだけこれを行います。"
+            "value": "Claude のセッションが 5 時間制限に達したとき、Tally は会話を別のアカウントへ移す代わりに、そのアカウント自身のリセットを 1 回使って制限を解除します。Claude Code によるとリセットは週間制限に計上されるため、Tally は 5 時間の制限のときだけ、しかも週の上限にまだ使う価値が残っているときだけこれを行います。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude 세션이 5시간 한도에 도달하면 Tally는 대화를 다른 계정으로 옮기는 대신 해당 계정의 주간 리셋을 사용해 한도를 해제합니다. Claude의 리셋은 주 1회이며 주간 한도를 소모하므로, Tally는 5시간 한도일 때에만, 그리고 계정의 주간 한도가 아직 쓸 만할 때에만 이렇게 합니다."
+            "value": "Claude 세션이 5시간 한도에 도달하면 Tally는 대화를 다른 계정으로 옮기는 대신 해당 계정의 리셋을 1회 사용해 한도를 해제합니다. Claude Code에 따르면 리셋은 주간 한도에 포함되므로, Tally는 5시간 한도일 때에만, 그리고 계정의 주간 한도가 아직 쓸 만할 때에만 이렇게 합니다."
           }
         }
       }

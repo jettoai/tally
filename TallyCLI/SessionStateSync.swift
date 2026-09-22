@@ -55,8 +55,11 @@ func supervisedSessionState(wait: UserWait?, hasTranscript: Bool, quiet: Bool) -
 ///
 /// TWO WAYS AN ANSWER SHOWS ITSELF, and both are measured from the instant the hook fired:
 ///
-///   - THE CONVERSATION MOVED. The user answered and Claude Code got on with it, so the transcript
-///     is newer than the event. This is the ordinary case and it is exact.
+///   - THE CONVERSATION MOVED. The user answered and Claude Code got on with it, so a stamped
+///     main-chain conversation event is newer than the notice (`lastConversationEventAt`). This is
+///     the ordinary case and it is exact. NOT the file's mtime: an idle Claude Code appends
+///     unstamped bookkeeping records (`cost-state` and its kin) with nobody there, and an mtime
+///     cannot tell those from an answer.
 ///   - SOMEBODY TYPED IN THAT TERMINAL. The supervisor shares the tty with its child, so a
 ///     keystroke stamps a device node it can stat (KeyboardIdle.swift carries the measurements).
 ///     This is what covers an answer that writes nothing: an Escape, a dismissal, a question
@@ -71,10 +74,10 @@ func supervisedSessionState(wait: UserWait?, hasTranscript: Bool, quiet: Bool) -
 /// as one that does not. A burst (two stamps inside `keyboardBurstGap`) is a person, and the
 /// answers a single keypress gives are covered by the transcript rule above, since Claude Code
 /// writes the moment it is unblocked.
-func userNoticeStillOpen(_ notice: UserNotice?, transcriptModified: Date?,
+func userNoticeStillOpen(_ notice: UserNotice?, conversationMovedAt: Date?,
                          keyboardBurstAt: Date?) -> Bool {
     guard let notice else { return false }
-    if let transcriptModified, transcriptModified > notice.at { return false }
+    if let conversationMovedAt, conversationMovedAt > notice.at { return false }
     if let keyboardBurstAt, keyboardBurstAt > notice.at { return false }
     return true
 }
@@ -235,13 +238,14 @@ struct SessionWaitTracker {
     }
 
     /// One tick (plan §4.1b), driven by `syncSessionState`. `notice`/`waiting`/`question`/
-    /// `questionSince`/`quiet`/`wait` are that tick's own readings; `transcriptModified` is what
-    /// explains a standing request going away (`resolvedWaitOutcome`, §4.1c/§14 revision 1).
+    /// `questionSince`/`quiet`/`wait` are that tick's own readings; `conversationMovedAt` (the
+    /// watcher's `lastConversationEventAt`, never the file's mtime) is what explains a standing
+    /// request going away (`resolvedWaitOutcome`, §4.1c/§14 revision 1).
     /// `permissionTool` is always nil here: revision 1 cuts the sidecar that would have supplied it.
     mutating func reconcile(childPid: Int?, transcriptSessionId: String?, accountID: String?,
                             directory: String?, project: String?, worktree: String?, notice: UserNotice?,
                             waiting: Bool, question: String?, questionSince: Date?, quiet: Bool,
-                            wait: UserWait?, transcriptModified: Date?, now: Date) -> [SessionWaitEvent] {
+                            wait: UserWait?, conversationMovedAt: Date?, now: Date) -> [SessionWaitEvent] {
         identity.childPid = childPid
         identity.transcriptSessionId = transcriptSessionId
         identity.account = accountID
@@ -261,7 +265,7 @@ struct SessionWaitTracker {
                                       quiet: quiet, wait: wait, permissionTool: nil)
         var resolution: SessionWaitResolution?
         if current == nil, let standing = open {
-            resolution = resolvedWaitOutcome(request: standing, transcriptModified: transcriptModified,
+            resolution = resolvedWaitOutcome(request: standing, conversationMovedAt: conversationMovedAt,
                                              questionClosed: standing.kind == SessionWaitKind.question.rawValue
                                                 && question == nil)
         }
@@ -334,8 +338,11 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // somebody just gave (TranscriptFork.swift owns that rule).
     let file = watcher.file
     let modified = transcriptModified(file)
+    // What answers a wait is a stamped conversation event, which the tick's scan (`sawCapHit`, run
+    // earlier in the same tick) has already folded in; `modified` stays for the open-turn readings.
+    let movedAt = watcher.lastConversationEventAt
     let notice = readUserNotice(pid: pid, dir: dir)
-    let waiting = userNoticeStillOpen(notice, transcriptModified: modified,
+    let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt,
                                       keyboardBurstAt: keyboardBurstAt)
     // THE OTHER CHANNEL, and the only one that catches the case the hook cannot: Claude Code fires
     // no notification at all for `AskUserQuestion` or a plan awaiting approval (2.1.233, read off
@@ -384,7 +391,7 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     emit(tracker.reconcile(childPid: childPid, transcriptSessionId: watcher.transcriptSessionID,
                            accountID: accountID, directory: project.path, project: project.name,
                            worktree: project.worktree, notice: notice, waiting: waiting, question: question,
-                           questionSince: questionSince, quiet: quiet, wait: wait, transcriptModified: modified,
+                           questionSince: questionSince, quiet: quiet, wait: wait, conversationMovedAt: movedAt,
                            now: now))
     return SessionTick(state: state, quiet: quietness, wait: wait)
 }

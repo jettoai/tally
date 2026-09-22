@@ -24,5 +24,5 @@ swiftc -o "$out" tests/waitevents/main.swift tests/waitevents/support.swift \
   TallyCLI/SessionWaitEvent.swift TallyCLI/SessionWaitLogic.swift TallyCLI/SessionWaitSpool.swift \
   TallyCLI/EventDelivery.swift TallyCLI/EventsCommand.swift \
   TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/ReloadRequest.swift \
-  TallyCLI/OpenTurn.swift Tally/Core/SessionMonitoring.swift
+  TallyCLI/OpenTurn.swift Tally/Core/SessionMonitoring.swift TallyCLI/EventDeliverySpawn.swift
 "$out"

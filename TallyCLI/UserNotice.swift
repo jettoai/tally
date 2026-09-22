@@ -58,11 +58,12 @@ func userNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 // WHOLE SECONDS ARE NOT ENOUGH HERE, and that is the whole reason this file does not use the
 // `.iso8601` strategy its neighbours do.
 //
-// `at` exists to be compared against a transcript's mtime, which is nanosecond-precise, and the two
-// events it separates land in the SAME SECOND as a matter of course: a tool call writes its result
-// at T.600 and the permission prompt for the next one fires at T.900. Encoded to whole seconds, `at`
-// decodes as T.000, the mtime is greater, and `userNoticeStillOpen` reads a write that happened
-// BEFORE the prompt as the answer to it. The first tick after the prompt then clears it, and a
+// `at` exists to be compared against the newest stamped conversation event in the transcript
+// (`lastConversationEventAt`, millisecond-precise; it was the file's mtime until 2026-09-23), and
+// the two events it separates land in the SAME SECOND as a matter of course: a tool call writes its
+// result at T.600 and the permission prompt for the next one fires at T.900. Encoded to whole
+// seconds, `at` decodes as T.000, the result's stamp is greater, and `userNoticeStillOpen` reads a
+// write that happened BEFORE the prompt as the answer to it. The first tick after the prompt then clears it, and a
 // permission request never reaches the board at all.
 //
 // So this pair is millisecond-precise and symmetric. Its neighbours are unaffected: nothing compares

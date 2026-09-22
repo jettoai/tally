@@ -259,6 +259,76 @@ expect(t13UnsetLines.joined(separator: "\n").contains("secret: unset"),
        "T13: an unconfigured sink reports secret: unset, not an error")
 try? FileManager.default.removeItem(at: t13Dir)
 
+// MARK: - T14 (judge Critical 1): concurrent appends across a trim lose nothing
+
+// A spool past the trim size with every line already delivered, so the FIRST append to take the
+// lock trims (rename) while the other seven are waiting. Before `spool.lock`, the waiters had opened
+// the old inode and wrote into the orphan: seq advanced, the lines were gone, `--since` could not
+// find them (judge probe on 0e34324: 7 of 8 lost, 5 of 5 runs).
+let t14Dir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-waitevents-t14-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: t14Dir, withIntermediateDirectories: true)
+let t14Prefill = 2200
+var t14Request = t6Request
+t14Request.summary = String(repeating: "x", count: 3500)
+var t14Body = ""
+for seq in 1...t14Prefill {
+    var event = SessionWaitEvent(at: now, kind: SessionWaitEventKind.opened.rawValue, provider: "claude",
+                                 session: identity, request: t14Request, resolution: nil)
+    event.seq = seq
+    t14Body += String(data: try! sessionWaitEventEncoder().encode(event), encoding: .utf8)! + "\n"
+}
+try! t14Body.write(to: t14Dir.appendingPathComponent("spool.jsonl"), atomically: true, encoding: .utf8)
+try! "\(t14Prefill + 1)".write(to: t14Dir.appendingPathComponent("seq"), atomically: true, encoding: .utf8)
+try! "\(t14Prefill)".write(to: t14Dir.appendingPathComponent("cursor"), atomically: true, encoding: .utf8)
+expect(t14Body.utf8.count > 8 * 1024 * 1024, "T14: the prefilled spool is past the trim size")
+DispatchQueue.concurrentPerform(iterations: 8) { _ in appendSessionWaitEvent(t10Base, dir: t14Dir) }
+let t14After = readSessionWaitEvents(since: t14Prefill, limit: 100, dir: t14Dir).map { $0.seq }
+let t14Lines = (try? String(contentsOf: t14Dir.appendingPathComponent("spool.jsonl"), encoding: .utf8))?
+    .split(separator: "\n").count ?? 0
+expect(t14Lines < t14Prefill, "T14: the trim really ran (the spool is shorter than the prefill)")
+expect(t14After == Array((t14Prefill + 1)...(t14Prefill + 8)),
+       "T14: all 8 concurrent appends are readable with contiguous seqs (got \(t14After))")
+expect((try? String(contentsOf: t14Dir.appendingPathComponent("seq"), encoding: .utf8)) == "\(t14Prefill + 9)",
+       "T14: seq advanced exactly once per event")
+try? FileManager.default.removeItem(at: t14Dir)
+
+// MARK: - T15 (judge Critical 2): the end-of-session spawn is not throttled, the overdue check stays
+
+let t15Dir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-waitevents-t15-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: t15Dir, withIntermediateDirectories: true)
+_ = writeEventSinkConfig(EventSinkConfig(url: "https://example.invalid/hook", secret: "s", createdAt: now),
+                         dir: t15Dir)
+try! "5".write(to: t15Dir.appendingPathComponent("seq"), atomically: true, encoding: .utf8)
+try! "1".write(to: t15Dir.appendingPathComponent("cursor"), atomically: true, encoding: .utf8)
+var t15Spawns = 0
+var t15Last: Date? = now
+maybeSpawnEventDeliverer(now: now.addingTimeInterval(3), last: &t15Last, dir: t15Dir) { t15Spawns += 1 }
+expect(t15Spawns == 0, "T15: a tick 3s after the last spawn is throttled")
+maybeSpawnEventDeliverer(now: now.addingTimeInterval(3), last: &t15Last, force: true, dir: t15Dir) { t15Spawns += 1 }
+expect(t15Spawns == 1, "T15: the forced end-of-session spawn is not throttled")
+let t15Empty = t15Dir.appendingPathComponent("no-sink")
+maybeSpawnEventDeliverer(now: now, last: &t15Last, force: true, dir: t15Empty) { t15Spawns += 1 }
+expect(t15Spawns == 1, "T15: force still spawns nothing when there is no sink or nothing overdue")
+try? FileManager.default.removeItem(at: t15Dir)
+
+// MARK: - T16: the delivery trigger is wired into every place events are spooled
+
+// The supervisor loops cannot be driven from here (they spawn a real CLI), so the wiring is locked on
+// the source: the Codex tick, and both providers' exit paths right after their finish events.
+let t16Codex = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
+let t16Claude = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+expect(t16Codex.contains("now: Date()) { appendSessionWaitEvent(event) }\n"
+                         + "            maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)\n"),
+       "T16: the Codex tick spawns delivery right after it spools its events")
+expect(t16Codex.contains("codexWaits.finish(now: Date()) { appendSessionWaitEvent(event) }\n"
+                         + "    maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)\n"),
+       "T16: the Codex exit path force-spawns delivery after its finish events")
+expect(t16Claude.contains("sessionWaits.finish(now: Date()) { appendSessionWaitEvent(event) }\n"
+                          + "        maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)\n"),
+       "T16: the Claude exit path force-spawns delivery after its finish events")
+
 // MARK: - Verdict
 
 if failures > 0 {

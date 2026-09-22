@@ -42,7 +42,7 @@ func runWaitTrackerChecks() {
     func reconcileNoWait(_ tracker: inout SessionWaitTracker) -> [SessionWaitEvent] {
         tracker.reconcile(childPid: nil, transcriptSessionId: nil, accountID: nil, directory: nil,
                           project: nil, worktree: nil, notice: nil, waiting: false, question: nil,
-                          questionSince: nil, quiet: true, wait: nil, transcriptModified: nil, now: now)
+                          questionSince: nil, quiet: true, wait: nil, conversationMovedAt: nil, now: now)
     }
 
     // MARK: - A seed for a DIFFERENT generation of the same pid (the stale-restart path)
@@ -98,8 +98,108 @@ func runWaitTrackerChecks() {
     check("...under this generation's own key, not a stale one",
           recoverTick[0].session.key == "claude:2:222")
     check("...with the resolution `resolvedWaitOutcome` gives a nil transcript and no closed question",
-          recoverTick[0].resolution == resolvedWaitOutcome(request: recoverRequest, transcriptModified: nil,
+          recoverTick[0].resolution == resolvedWaitOutcome(request: recoverRequest, conversationMovedAt: nil,
                                                             questionClosed: false).rawValue)
+
+    // MARK: - What answers a wait: a stamped conversation event, not the file's mtime
+
+    // THE DEFECT THIS PINS (H1 sandbox, Claude Code 2.1.280): an idle Claude Code appends an
+    // unstamped `cost-state` record with nobody at the keyboard, the file's mtime passes the notice,
+    // and the tick read that as the answer (`wait.resolved` answered, 16s later, nobody there).
+    // Driven through the whole tick in the supervisor's own order (scan, then publish) against a
+    // transcript on disk, so it is the clock the tick READS that is under test, not a value fed in.
+    let clockHome = dir.appendingPathComponent("clock-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: clockHome, withIntermediateDirectories: true)
+    let clockFile = clockHome.appendingPathComponent("session.jsonl")
+    let realNow = Date()
+    let stamper = ISO8601DateFormatter()
+    stamper.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    func stamp(_ ago: TimeInterval) -> String { stamper.string(from: realNow.addingTimeInterval(-ago)) }
+    func append(_ line: String, mtimeAgo: TimeInterval) {
+        let handle = try! FileHandle(forWritingTo: clockFile)
+        handle.seekToEndOfFile()
+        handle.write(Data((line + "\n").utf8))
+        try? handle.close()
+        try? FileManager.default.setAttributes([.modificationDate: realNow.addingTimeInterval(-mtimeAgo)],
+                                               ofItemAtPath: clockFile.path)
+    }
+    // The turn that asked: a Bash call still open, written before the permission notice fired.
+    try! Data().write(to: clockFile)
+    append(#"{"parentUuid":"p0","isSidechain":false,"type":"assistant","uuid":"a1","timestamp":"\#(stamp(30))","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}],"stop_reason":"tool_use"}}"#,
+           mtimeAgo: 30)
+    let clockPid = "88890"
+    let clockNotice = UserNotice(message: "Claude needs your permission to use Bash",
+                                 at: realNow.addingTimeInterval(-20), type: "permission_prompt")
+    writeUserNotice(clockNotice, pid: clockPid, dir: dir)
+    var clockWatcher = TranscriptWatcher(projectDir: clockHome, file: clockFile,
+                                         since: realNow.addingTimeInterval(-600))
+    var clockTracker = SessionWaitTracker()
+    var clockWriter = SessionStateWriter()
+    func clockTick() -> [SessionWaitEvent] {
+        _ = clockWatcher.sawCapHit()
+        var emitted: [SessionWaitEvent] = []
+        syncSessionState(&clockWriter, pid: clockPid,
+                         project: PickProject(name: "p", path: clockHome.path),
+                         accountID: "claude:.claude", childPid: nil, model: nil,
+                         supervisorVersion: nil, watcher: &clockWatcher, keyboardBurstAt: nil,
+                         tracker: &clockTracker, dir: dir, now: realNow, emit: { emitted += $0 })
+        return emitted
+    }
+    let opened = clockTick()
+    check("a permission notice nobody has answered opens exactly one wait",
+          opened.filter { $0.kind == "wait.opened" }.count == 1
+              && !opened.contains { $0.kind == "wait.resolved" })
+
+    // (a) Bookkeeping only: the mtime passes the notice, no stamped event does.
+    append(#"{"type":"cost-state","sessionId":"s1","totalCostUSD":0.4,"totalDuration":128853}"#, mtimeAgo: 5)
+    let afterBookkeeping = clockTick()
+    check("an unstamped cost-state record newer than the notice resolves nothing",
+          !afterBookkeeping.contains { $0.kind == "wait.resolved" })
+    check("...the notice is left standing, because the wait is still open",
+          readUserNotice(pid: clockPid, dir: dir) != nil)
+    check("...and the session still publishes blocked",
+          readSessionState(pid: clockPid, dir: dir)?.supervised == .blocked)
+    check("...and the clock the tick reads says the conversation has not moved past the notice",
+          userNoticeStillOpen(clockNotice, conversationMovedAt: clockWatcher.lastConversationEventAt,
+                              keyboardBurstAt: nil))
+
+    // (b) The person answers: a stamped main-chain tool result newer than the notice.
+    append(#"{"parentUuid":"a1","isSidechain":false,"type":"user","uuid":"u1","timestamp":"\#(stamp(2))","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok"}]}}"#,
+           mtimeAgo: 1)
+    let afterAnswer = clockTick()
+    check("a stamped tool result newer than the notice resolves the wait as answered",
+          afterAnswer.filter { $0.kind == "wait.resolved" }.map(\.resolution) == ["answered"])
+    check("...and the answered notice is taken away",
+          readUserNotice(pid: clockPid, dir: dir) == nil)
+
+    // MARK: - SIGHUP/SIGTERM end a Claude supervisor through its exit path (SupervisorTermination.swift)
+
+    // The handler and the forward, against a real child: the whole supervisor loop spawns a real
+    // Claude Code and cannot be driven here, so the loop's use of them is locked on the source below.
+    var sleeperPid: pid_t = 0
+    var sleeperArgv: [UnsafeMutablePointer<CChar>?] = [strdup("/bin/sleep"), strdup("30"), nil]
+    let spawnResult = posix_spawn(&sleeperPid, "/bin/sleep", nil, nil, &sleeperArgv, environ)
+    var sleeper = ChildReaper(pid: sleeperPid)
+    check("with no termination signal, nothing is forwarded",
+          spawnResult == 0 && !forwardSupervisorTermination(to: sleeper))
+    installSupervisorTerminationHandlers()
+    raise(SIGTERM)
+    check("a SIGTERM is recorded rather than killing the supervisor",
+          supervisorTerminationSignal == SIGTERM)
+    check("...and is forwarded to the child still running",
+          forwardSupervisorTermination(to: sleeper))
+    let sleeperStatus = sleeper.wait()
+    check("...which the child dies of", (sleeperStatus & 0x7f) == SIGTERM)
+    signal(SIGTERM, SIG_DFL)
+    signal(SIGHUP, SIG_DFL)
+    let loopSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    let forwardAt = loopSource.range(of: "if forwardSupervisorTermination(to: child) { break }")
+    let tickAt = loopSource.range(of: "if autoreleasepool(invoking: tick) == .childReplaced { break }")
+    check("the Claude loop installs the handlers and checks the flag before every tick",
+          loopSource.contains("installSupervisorTerminationHandlers()")
+              && forwardAt != nil && tickAt != nil && forwardAt!.lowerBound < tickAt!.lowerBound)
+    check("...and a signalled supervisor does not relaunch, it takes the exit path",
+          loopSource.contains("if handoff, supervisorTerminationSignal == 0 { continue }"))
 
     try? FileManager.default.removeItem(at: dir)
 }

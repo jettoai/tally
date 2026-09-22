@@ -19,6 +19,14 @@ let tallyEventsDir = FileManager.default.homeDirectoryForCurrentUser
 private let spoolFileName = "spool.jsonl"
 private let seqFileName = "seq"
 private let cursorFileName = "cursor"
+/// The lock every appender takes before it touches the spool, and the reason it is a file of its own
+/// rather than the spool itself: the trim below `rename`s a new spool into place, so a lock held on
+/// the spool's fd guards an inode that has just left the path. A writer that opened before the rename
+/// and waited on that lock then wrote into the orphan, and a writer that opened after it locked the
+/// new inode at the same moment (judge probe on 0e34324: 8 concurrent appends, 7 lost, 5 of 5 runs).
+/// Nothing ever renames this file, so the lock it carries is one lock for the life of the directory.
+/// Not `deliver.lock` (EventDelivery.swift): delivery and appending must not wait on each other.
+private let spoolLockFileName = "spool.lock"
 
 /// A spool line may be at most this many bytes (§5.2 step 4): a shared machine's disk is a shared
 /// resource, and an unbounded `request.summary` (a model's own prose, in the worst case) is the one
@@ -34,6 +42,7 @@ private let spoolTrimKeepBack = 1000
 private func spoolFile(dir: URL) -> URL { dir.appendingPathComponent(spoolFileName) }
 private func seqFile(dir: URL) -> URL { dir.appendingPathComponent(seqFileName) }
 private func cursorFile(dir: URL) -> URL { dir.appendingPathComponent(cursorFileName) }
+private func spoolLockFile(dir: URL) -> URL { dir.appendingPathComponent(spoolLockFileName) }
 
 /// One of the two single-integer files beside the spool (`seq`, `cursor`): a decimal integer and
 /// nothing else, missing entirely until the first thing that needs it writes it.
@@ -67,10 +76,12 @@ private func writeRaw(_ line: String, fd: Int32) {
     }
 }
 
-/// §5.2, five steps, in order: open append-only, take an exclusive lock, hand out the next `seq`,
-/// write exactly one line, release the lock. `flock` is held across the seq read-and-bump as well as
-/// the write, so two supervisors racing this at once (two Claude sessions on the same machine, both
-/// deciding something at once) cannot hand out the same `seq` twice.
+/// §5.2, in order: take the exclusive `spool.lock`, THEN open the spool append-only, hand out the
+/// next `seq`, write exactly one line, trim if due, release the lock. The lock is held across the
+/// seq read-and-bump, the write and the trim, so two supervisors racing this at once (two sessions on
+/// the same machine, both deciding something at once) cannot hand out the same `seq` twice, and the
+/// open comes after the lock so the fd written to is always the inode the path names now, never one
+/// a trim has just renamed away.
 ///
 /// AN EVENT IS ONLY DROPPED WHEN CUTTING `summary` ALONE STILL LEAVES THE LINE OVER THE LIMIT: a
 /// line over the 4096-byte cap first has `request.summary` shrunk to a smaller budget, and only if
@@ -81,11 +92,14 @@ private func writeRaw(_ line: String, fd: Int32) {
 /// amount.
 func appendSessionWaitEvent(_ event: SessionWaitEvent, dir: URL = tallyEventsDir) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let lockFD = spoolLockFile(dir: dir).path.withCString { open($0, O_RDWR | O_CREAT, 0o600) }
+    guard lockFD >= 0 else { return }
+    defer { close(lockFD) }
+    guard flock(lockFD, LOCK_EX) == 0 else { return }
+    defer { flock(lockFD, LOCK_UN) }
     let fd = spoolFile(dir: dir).path.withCString { open($0, O_WRONLY | O_CREAT | O_APPEND, 0o600) }
     guard fd >= 0 else { return }
     defer { close(fd) }
-    guard flock(fd, LOCK_EX) == 0 else { return }
-    defer { flock(fd, LOCK_UN) }
 
     var stamped = event
     stamped.seq = readCounter(seqFile(dir: dir)) ?? 1
@@ -125,7 +139,7 @@ func readSessionWaitEvents(since: Int, limit: Int = 500, dir: URL = tallyEventsD
     return events
 }
 
-/// §5.2's spool trim. Only fires past `spoolTrimBytes` AND once delivery (`cursor`) has caught up
+/// §5.2's spool trim, run only by `appendSessionWaitEvent` while it holds `spool.lock`. Only fires past `spoolTrimBytes` AND once delivery (`cursor`) has caught up
 /// with at least half of what is on disk, so a spool that is growing faster than it is being
 /// delivered is never trimmed out from under a consumer that has not seen those lines yet. Rewrites
 /// to a temp file and `rename`s it into place (POSIX atomic on the same volume), the same "tmp then

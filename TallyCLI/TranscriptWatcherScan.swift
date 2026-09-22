@@ -45,6 +45,13 @@ extension TranscriptWatcher {
             var lineParent: String?
             if !line.contains("\"isSidechain\":true"), let uuid = lineUUID(line),
                let ts = lineTimestamp(line), ts >= since {
+                // The clock a standing wait is judged against (`lastConversationEventAt`): the same
+                // main-chain, stamped, post-launch record, narrowed to the three conversation types.
+                if line.contains("\"type\":\"user\"") || line.contains("\"type\":\"assistant\"")
+                    || line.contains("\"type\":\"system\""),
+                   lastConversationEventAt.map({ ts > $0 }) ?? true {
+                    lastConversationEventAt = ts
+                }
                 let startsTurn = lineStartsTurn(line)
                 scanSeq += 1
                 lineParent = lineParentUUID(line)

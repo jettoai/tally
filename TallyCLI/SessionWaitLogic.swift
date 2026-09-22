@@ -149,13 +149,14 @@ func reconcileWaitRequests(previous: SessionWaitRequest?, current: SessionWaitRe
 /// `denied` is never returned here even though the enum keeps the case for a future package that
 /// reads the transcript's own `is_error` result). Tried in order, first match wins:
 ///
-///   1. The transcript moved past when this wait began -> answered.
+///   1. A stamped main-chain conversation event is newer than when this wait began -> answered.
+///      Not the transcript's mtime: unstamped bookkeeping records move that with nobody there.
 ///   2. The open question's tool call closed -> answered.
 ///   3. Neither -> unknown (a keyboard-burst clearing, or a wait the caller could not otherwise
 ///      account for: both are "somebody moved on" without evidence of WHAT they did).
-func resolvedWaitOutcome(request: SessionWaitRequest, transcriptModified: Date?,
+func resolvedWaitOutcome(request: SessionWaitRequest, conversationMovedAt: Date?,
                          questionClosed: Bool) -> SessionWaitResolution {
-    if let transcriptModified, transcriptModified > request.since {
+    if let conversationMovedAt, conversationMovedAt > request.since {
         return .answered
     }
     if questionClosed {

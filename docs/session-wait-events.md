@@ -143,7 +143,11 @@ Every event carries `idempotencyKey`, computed from the request it describes, th
 the resolution (when there is one). The same underlying wait event, recomputed on a retry or a
 resend, always produces the same key. A consumer that records "I have already acted on key X" and
 skips a repeat is safe against: webhook retries, a `--replay-dead-letter` replay, and a supervisor
-restart that re-derives an event it already sent.
+self-update that takes the same session over and re-derives an event it already sent. The key
+includes `session.key`, which carries the supervisor's pid and start time, so the same key only
+comes back for the same supervisor identity. A NEW supervisor generation (a fresh `tally claude` or
+`tally codex`, even in the same directory for the same notification) has a different `session.key`
+and its events are new requests with new keys.
 
 `request.id` is a separate, narrower key: it names the specific wait (open dialog, open question),
 stable across `wait.opened` / `wait.updated` / `wait.resolved` for the same wait, and different for
@@ -168,17 +172,23 @@ every distinct wait. Use it to correlate the lifecycle of one wait across multip
    reconcile either list.
 6. Whether `PermissionRequest` fires only when a tool call is actually presented to a person, or
    also when a hook auto-decides it, is unconfirmed by Claude Code's own documentation.
-7. In v1, `request.tool` is populated from the notification's own message text where available and
-   is otherwise absent - there is no separate hook confirming the tool name, so it should not be
-   read as independently verified.
+7. Where `request.tool` comes from depends on the request:
+   - Claude permission and unknown waits: always absent. The Claude tracker passes no tool name,
+     because nothing on the Claude side confirms which tool a notification is about; the tool is
+     only mentioned in `request.summary`, as Claude Code's own message text.
+   - Codex permission waits: the tool field of the pending `PermissionRequest` hook payload.
+   - Structured questions (`request.kind: "question"`): the name of the question tool call that is
+     open in the transcript (for example `AskUserQuestion`).
 8. Codex's `~/.codex/config.toml` `notify` key is already claimed by another tool on this machine
    (a computer-use client). This feature does not read or write it.
 9. Unverified in this version: Codex structured questions or MCP elicitation. The real-CLI matrix
    row B4 is still pending; if Codex turns out to surface them, this is a gap to close, not a scope
    decision.
 10. Out of scope for v1: Codex subagents, delivering to more than one sink, and any event older
-    than what the spool trimming window retains (at least the most recent 1000 delivered events, or
-    8 MiB, whichever is larger).
+    than what the spool trimming window retains. 8 MiB is the size that TRIGGERS a trim (together
+    with delivery having caught up with at least half of the spool), not an amount that is kept. A
+    trim keeps only events with `seq > cursor - 1000` plus everything not yet delivered, so right
+    after a trim with every event delivered, only about the last 1000 events are left.
 11. v1 cannot tell a permission request that was answered "yes" apart from one answered "no." Both
     resolve as `resolution: "answered"` or `"unknown"`. `resolution: "denied"` is reserved in the
     schema for a future version that reads the transcript's own tool result to tell them apart, and

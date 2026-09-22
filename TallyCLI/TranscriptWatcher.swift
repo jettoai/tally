@@ -103,6 +103,23 @@ struct TranscriptWatcher {
     /// refusal fails in the safe direction: a prompt that happens to contain one of these words is
     /// simply not counted, and the wait it would have ended lasts until the next prompt.
     var lastUserTurnAt: Date?
+    /// The timestamp of the newest main-chain, post-launch CONVERSATION event: a `user` (tool
+    /// results included), `assistant` or `system` record carrying its own `uuid` and `timestamp`.
+    /// This is the clock a standing wait is measured against ("has the conversation moved since the
+    /// notice fired", `userNoticeStillOpen` and `resolvedWaitOutcome`), and it replaces the file's
+    /// mtime there.
+    ///
+    /// WHY NOT THE MTIME: an idle Claude Code appends bookkeeping records to the transcript with
+    /// nobody at the keyboard (`cost-state`, `last-prompt`, `ai-title`, `mode`, `permission-mode`,
+    /// `atis-latch`, `file-history-snapshot`). None of them has a top-level `uuid`, and none but the
+    /// snapshot has a `timestamp` at all (its one is nested), so requiring both keeps every one of
+    /// them from moving this clock. Measured in the H1 sandbox run (Claude Code 2.1.280): a
+    /// `cost-state` write 16s after a permission notice read as the answer to it.
+    ///
+    /// Newest by stamp rather than last by position, because a transcript's stamps are not
+    /// monotonic. Sidechain (subagent) records never count: an agent writing is not the person
+    /// answering.
+    var lastConversationEventAt: Date?
     /// The size of the conversation as of its newest main-chain assistant event, that turn's own
     /// answer included: how much context a resume of this conversation would reload
     /// (SessionContext.swift).

@@ -46,6 +46,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // foreground process group (which the child shares) receives it.
     signal(SIGINT, SIG_IGN)
     signal(SIGQUIT, SIG_IGN)
+    installSupervisorTerminationHandlers()   // SIGHUP/SIGTERM end through the exit path below
 
     var account = initial
     // Tally's own flags, dropped from the OPTIONS only: past a `--` the same word is the user's
@@ -1193,12 +1194,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             usleep(2_000_000)
             child.poll()
             guard child.isRunning else { break }
+            if forwardSupervisorTermination(to: child) { break }   // SupervisorTermination.swift
             // The pool the whole tick runs in, and the one line this loop exists to hold: what it
             // reclaims is every Foundation temporary the tick made, which had nowhere else to go.
             if autoreleasepool(invoking: tick) == .childReplaced { break }
         }
 
-        if handoff { continue }
+        if handoff, supervisorTerminationSignal == 0 { continue }
         let status = child.wait()   // no relaunch pending: the child exited on its own, so do we
         removeSupervisorState(pid: supervisorPID)
         clearPendingNotice(pid: supervisorPID)
@@ -1211,6 +1213,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // session that was BLOCKED that is not a stale row, it is a red dot in the menu bar for a
         // conversation that no longer exists, standing until an unrelated session changes state.
         for event in sessionWaits.finish(now: Date()) { appendSessionWaitEvent(event) }
+        maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
         postSessionStateChanged(pid: supervisorPID)
         exit(supervisorExitCode(childStatus: status))
     }

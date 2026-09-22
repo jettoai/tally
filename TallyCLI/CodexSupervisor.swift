@@ -101,6 +101,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                                    model: launchModel,
                                    childPid: Int(child), supervisorVersion: version)
     var nextTick = Date.distantPast
+    /// Throttles the detached delivery spawn to once per 10s, as the Claude loop does.
+    var lastDeliverySpawn: Date?
     // The station that reopens the app when a silent update took it away and never brought it back
     // (AppRelaunch.swift), which until 2026-09-22 only ran in `tally claude` sessions. An automatic
     // install lands when the machine has been idle for five minutes, which is precisely when the
@@ -151,6 +153,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             observer?.poll(home: home, activity: activity)
             for event in codexWaits.reconcile(observer: observer, directory: identity.directory, project: identity.project,
                                               worktree: identity.worktree, now: Date()) { appendSessionWaitEvent(event) }
+            maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)
             initializationDraft?.observe(humanInput: terminal?.lastHumanInputAt,
                 inputReceipt: observer?.lastInputReceiptAt,
                 ready: observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true)
@@ -217,6 +220,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     terminal?.close()
     let status = reaper.wait()
     for event in codexWaits.finish(now: Date()) { appendSessionWaitEvent(event) }
+    maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
     clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
     postSessionStateChanged(pid: pid)
     exit(supervisorExitCode(childStatus: status))

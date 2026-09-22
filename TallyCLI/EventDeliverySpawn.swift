@@ -36,16 +36,29 @@ private func ownExecutablePath() -> String? {
     return path
 }
 
-/// Called once per tick (`Supervisor.swift`). Spawns at most once per `eventDeliverySpawnInterval`,
+/// Called once per tick by both supervisors (`Supervisor.swift`, `CodexSupervisor.swift`), and once
+/// more with `force` on each one's way out. Spawns at most once per `eventDeliverySpawnInterval`,
 /// and only when `eventDeliveryOverdue()` says there is something worth sending; `last` is the
 /// caller's own throttle clock, held across ticks and updated here only on an actual spawn.
 ///
+/// `force` SKIPS THE THROTTLE, not the overdue check: a supervisor ending has just spooled its
+/// `wait.resolved`/`session.ended`, and no tick of its own will ever come back to send them, so a
+/// spawn ten seconds ago must not be the reason they wait for some other session to start.
+///
+/// `spawn` is the side effect, injectable so a test can count calls without starting a process.
+func maybeSpawnEventDeliverer(now: Date, last: inout Date?, force: Bool = false,
+                              dir: URL = tallyEventsDir,
+                              spawn: () -> Void = spawnDetachedEventDeliverer) {
+    if !force, let last, now.timeIntervalSince(last) < eventDeliverySpawnInterval { return }
+    guard eventDeliveryOverdue(dir: dir) else { return }
+    last = now
+    spawn()
+}
+
 /// §14 revision 2, verbatim: `Process()` through `/bin/sh -c "... &"` rather than `posix_spawn`, so
 /// this needs nothing beyond what `Foundation` already gives the rest of this file.
-func maybeSpawnEventDeliverer(now: Date, last: inout Date?) {
-    if let last, now.timeIntervalSince(last) < eventDeliverySpawnInterval { return }
-    guard eventDeliveryOverdue(), let exe = ownExecutablePath() else { return }
-    last = now
+func spawnDetachedEventDeliverer() {
+    guard let exe = ownExecutablePath() else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/sh")
     p.arguments = ["-c", "\"$0\" events --deliver-once </dev/null >/dev/null 2>&1 &", exe]

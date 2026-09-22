@@ -157,29 +157,29 @@ func runSessionStateChecks() {
 
     let notice = UserNotice(message: "Claude needs your permission to run Bash", at: t0)
     check("no event, nothing waiting",
-          !userNoticeStillOpen(nil, transcriptModified: t0.addingTimeInterval(-5),
+          !userNoticeStillOpen(nil, conversationMovedAt: t0.addingTimeInterval(-5),
                                keyboardBurstAt: nil))
     check("an event nobody has answered is still open",
-          userNoticeStillOpen(notice, transcriptModified: t0.addingTimeInterval(-30),
+          userNoticeStillOpen(notice, conversationMovedAt: t0.addingTimeInterval(-30),
                               keyboardBurstAt: nil))
     check("the conversation moving after the event answers it",
-          !userNoticeStillOpen(notice, transcriptModified: t0.addingTimeInterval(1),
+          !userNoticeStillOpen(notice, conversationMovedAt: t0.addingTimeInterval(1),
                                keyboardBurstAt: nil))
     // The clock matters, not the fact: a write from BEFORE the hook fired cannot be the answer to it.
     check("a transcript older than the event answers nothing",
-          userNoticeStillOpen(notice, transcriptModified: t0.addingTimeInterval(-1),
+          userNoticeStillOpen(notice, conversationMovedAt: t0.addingTimeInterval(-1),
                               keyboardBurstAt: nil))
     check("somebody typing in that terminal after the event answers it",
-          !userNoticeStillOpen(notice, transcriptModified: nil,
+          !userNoticeStillOpen(notice, conversationMovedAt: nil,
                                keyboardBurstAt: t0.addingTimeInterval(2)))
     check("typing from before the event does not",
-          userNoticeStillOpen(notice, transcriptModified: nil,
+          userNoticeStillOpen(notice, conversationMovedAt: nil,
                               keyboardBurstAt: t0.addingTimeInterval(-2)))
     // THE CHATTER CASE, which is why the rule asks for a burst rather than a stamp: an idle terminal
     // with nobody at it is stamped by control traffic every 23-60s (KeyboardIdle.swift's measurement).
     // `keyboardBurstAt` is nil throughout such a stretch, so the wait survives it.
     check("a terminal stamped by chatter alone leaves the wait standing",
-          userNoticeStillOpen(notice, transcriptModified: t0.addingTimeInterval(-90),
+          userNoticeStillOpen(notice, conversationMovedAt: t0.addingTimeInterval(-90),
                               keyboardBurstAt: nil))
 
     // MARK: which of the nine notifications is a wait
@@ -273,15 +273,15 @@ func runSessionStateChecks() {
           readUserNotice(pid: "9101", dir: dir)?.at == atMs)
     check("a transcript written EARLIER in the same second does not answer it",
           userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir),
-                              transcriptModified: Date(timeIntervalSince1970: 1_786_571_200.25),
+                              conversationMovedAt: Date(timeIntervalSince1970: 1_786_571_200.25),
                               keyboardBurstAt: nil))
     check("…and one written later in that same second does",
           !userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir),
-                               transcriptModified: Date(timeIntervalSince1970: 1_786_571_200.75),
+                               conversationMovedAt: Date(timeIntervalSince1970: 1_786_571_200.75),
                                keyboardBurstAt: nil))
     // The same second, one axis over: a keystroke burst is compared against the same instant.
     check("typing earlier in the same second does not answer it either",
-          userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir), transcriptModified: nil,
+          userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir), conversationMovedAt: nil,
                               keyboardBurstAt: Date(timeIntervalSince1970: 1_786_571_200.25)))
     // A notice on disk across the upgrade that introduced the fractional form is at most one wait
     // old, but reading it as unparseable would DROP that wait, which is the failure this file is

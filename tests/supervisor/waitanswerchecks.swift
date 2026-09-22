@@ -43,6 +43,11 @@ private final class WaitRig {
         tracker = SessionWaitTracker(pid: pid, dir: state)
     }
 
+    /// Everything the ticks have written to `audit` so far, empty when nothing has.
+    var auditText: String {
+        (try? String(contentsOf: audit, encoding: .utf8)) ?? ""
+    }
+
     func stamp(_ ago: TimeInterval) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -400,12 +405,10 @@ private func runRegistryCloserChecks(_ root: URL) {
     check("never waiting: a registry that is readable but never said waiting leaves the older rules "
             + "in charge (a task notification resolves it as unknown)",
           kinds(driftResolved) == ["wait.resolved"] && driftResolved[0].resolution == "unknown")
-    let driftLines = ((try? String(contentsOf: drift.audit, encoding: .utf8)) ?? "")
-        .split(separator: "\n").filter { $0.contains("closed by legacy rules; registry v2.1.280 never said waiting") }
+    let driftLines = drift.auditText.split(separator: "\n").filter { $0.contains("closed by legacy rules; registry v2.1.280 never said waiting") }
     check("never waiting: the fallback leaves exactly one drift line in the audit log",
           driftLines.count == 1 && driftLines[0].contains(driftResolved.first?.request?.id ?? "?"))
-    let witnessedLines = ((try? String(contentsOf: b1x.audit, encoding: .utf8)) ?? "")
-    check("never waiting: a witnessed close leaves no drift line", !witnessedLines.contains("never said waiting"))
+    check("never waiting: a witnessed close leaves no drift line", !b1x.auditText.contains("never said waiting"))
 
     // idle_prompt: a soft notice is not a dialog, whatever the registry says.
     let soft = WaitRig(root, "soft-registry", pid: "88935")

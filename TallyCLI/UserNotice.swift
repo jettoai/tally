@@ -199,6 +199,7 @@ let claudeQuestionDialogWaitingFor = "input needed"
 /// whatever its `status`. `idle`, `busy` and `waiting` are the values read off 2.1.280; `waitingFor`
 /// is present only while `waiting` (`"permission prompt"` for every permission kind including
 /// ExitPlanMode, `"input needed"` for the question kind); `version` is Claude Code's own.
+/// `statusUpdatedAt` is left unread on purpose (`claudeDialogOpen` says why).
 ///
 /// WHY THIS FILE AND NOT THE NOTICE. From 2.1.280 a structured question fires the same
 /// `permission_prompt` notification, with the same message, as a tool permission does, and its tool
@@ -207,7 +208,6 @@ let claudeQuestionDialogWaitingFor = "input needed"
 struct ClaudeRegistryReading: Equatable {
     var status: String
     var waitingFor: String?
-    var statusUpdatedAt: Date?
     var version: String?
     var isWaiting: Bool { status == "waiting" }
 }
@@ -222,11 +222,8 @@ func readClaudeRegistry(configHome: URL, childPid: Int) -> ClaudeRegistryReading
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           (object["pid"] as? Int) == childPid,
           let status = object["status"] as? String else { return nil }
-    return ClaudeRegistryReading(
-        status: status,
-        waitingFor: object["waitingFor"] as? String,
-        statusUpdatedAt: (object["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) },
-        version: object["version"] as? String)
+    return ClaudeRegistryReading(status: status, waitingFor: object["waitingFor"] as? String,
+                                 version: object["version"] as? String)
 }
 
 /// Whether the dialog behind a HARD notice is open, in Claude Code's own words, or nil when it has

@@ -189,3 +189,27 @@ func clearAnsweredUserNotice(_ judged: UserNotice, pid: String, dir: URL = super
     guard readUserNotice(pid: pid, dir: dir)?.at == judged.at else { return }
     clearUserNotice(pid: pid, dir: dir)
 }
+
+// MARK: - What the dialog behind a notice is
+
+/// Claude Code's name for a structured question dialog (`AskUserQuestion`) in its session registry.
+let claudeQuestionDialogWaitingFor = "input needed"
+
+/// What Claude Code says its top dialog is waiting for, off the registry it keeps per session at
+/// `<config home>/sessions/<pid>.json`: `waitingFor` while `status` is `waiting`, else nil.
+///
+/// WHY THIS FILE AND NOT THE NOTICE. From 2.1.280 a structured question fires the same
+/// `permission_prompt` notification, with the same message ("Claude needs your permission"), as a
+/// tool permission does, and its tool call reaches the transcript only once it is answered (H1
+/// rerun O5, measured 2026-09-23). The registry is written the moment the dialog opens, from the
+/// dialog table's `waitingFor` (`"input needed"` for the question kind, `"permission prompt"` for
+/// every permission kind; read off the 2.1.280 binary the same day). Undocumented, so it is a
+/// tripwire: any read that fails, names another pid, or says anything else is nil, and nil keeps
+/// the reading this file had before (a permission), which is late rather than wrong.
+func claudeDialogWaitingFor(configHome: URL, childPid: Int) -> String? {
+    let file = configHome.appendingPathComponent("sessions/\(childPid).json")
+    guard let data = try? Data(contentsOf: file),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          (object["pid"] as? Int) == childPid, object["status"] as? String == "waiting" else { return nil }
+    return object["waitingFor"] as? String
+}

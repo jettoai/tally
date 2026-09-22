@@ -7,7 +7,7 @@ trap 'rm -rf "$out"' EXIT
 # SessionWaitLogic.swift are the shared contract it builds on, and UserNotice.swift and
 # OpenTurn.swift are what SessionWaitLogic.swift needs to compile (support.swift stands in for
 # the one Snapshot.swift symbol OpenTurn.swift would otherwise drag in).
-swiftc -o "$out/run" tests/codex-supervisor/main.swift tests/codex-supervisor/waitchecks.swift \
+swiftc -o "$out/run" tests/codex-supervisor/main.swift tests/codex-supervisor/waitchecks.swift tests/codex-supervisor/waitquestionchecks.swift \
   tests/codex-supervisor/support.swift \
   Tally/Core/SessionMonitoring.swift Tally/Core/CodexSessionHooks.swift \
   TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift \

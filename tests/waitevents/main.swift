@@ -329,6 +329,94 @@ expect(t16Claude.contains("sessionWaits.finish(now: Date()) { appendSessionWaitE
                           + "        maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)\n"),
        "T16: the Claude exit path force-spawns delivery after its finish events")
 
+// MARK: - T17 (line review C1 of 23166d7): exit events spooled while a pass holds the lock
+
+// The exit path appends its closing events and force-spawns a deliverer, which loses the lock to
+// the pass already sending. So that pass must send what landed meanwhile. The holder's sender plays
+// the exit path on its first call: two real appends, then the real forced spawn, whose closure runs
+// a second real `deliverPendingEvents` (the one `tally events --deliver-once` runs).
+let t17Dir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-waitevents-t17-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: t17Dir, withIntermediateDirectories: true)
+_ = writeEventSinkConfig(EventSinkConfig(url: "https://example.invalid/hook", secret: "s", createdAt: now),
+                         dir: t17Dir)
+appendSessionWaitEvent(t12Event, dir: t17Dir)
+var t17Sent: [String] = []
+var t17ForcedSpawns = 0
+var t17ForcedSends = 0
+let t17Sender: EventSender = { _, _, headers in
+    t17Sent.append(headers["X-Tally-Event"] ?? "?")
+    if t17Sent.count == 1 {
+        appendSessionWaitEvent(makeSessionWaitEvent(.resolved, request: t6Request, resolution: .sessionEnded,
+                                                    identity: identity, provider: "claude", now: now),
+                               dir: t17Dir)
+        appendSessionWaitEvent(makeSessionWaitEvent(.ended, request: nil, resolution: nil,
+                                                    identity: identity, provider: "claude", now: now),
+                               dir: t17Dir)
+        var t17Recent: Date? = now
+        maybeSpawnEventDeliverer(now: now, last: &t17Recent, force: true, dir: t17Dir) {
+            t17ForcedSpawns += 1
+            _ = deliverPendingEvents(replayDeadLetter: false, dir: t17Dir,
+                                     sender: { _, _, _ in t17ForcedSends += 1; return (status: 200, error: nil) },
+                                     sleeper: { _ in })
+        }
+    }
+    return (status: 200, error: nil)
+}
+_ = deliverPendingEvents(replayDeadLetter: false, dir: t17Dir, sender: t17Sender, sleeper: { _ in })
+expect(t17ForcedSpawns == 1 && t17ForcedSends == 0,
+       "T17: the forced deliverer was spawned and lost the lock (sent nothing)")
+expect(readSessionWaitEvents(since: readEventDeliveryCursor(dir: t17Dir), dir: t17Dir).isEmpty,
+       "T17: nothing is left past the cursor")
+expect(t17Sent == ["wait.opened", "wait.resolved", "session.ended"],
+       "T17: the holding pass sent both closing events, in order")
+try? FileManager.default.removeItem(at: t17Dir)
+
+// MARK: - T18 (line review C1 of 23166d7): the exit-path race, over a real HTTP send
+
+// (a) deliverer A has read `pending`, holds the lock and is blocked inside its first send (the
+// loopback receiver holds its reply); (b) the exit path appends its two closing events; (c) the
+// forced deliverer it spawns loses the lock; (d) A is released; (e) with no further call, the
+// receiver must hold both closing events. The receiver's raw log is left at the printed path.
+let t18Dir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-waitevents-t18-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: t18Dir, withIntermediateDirectories: true)
+let t18Log = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-waitevents-t18-receiver-\(UUID().uuidString).log")
+let t18FirstArrived = DispatchSemaphore(value: 0)
+let t18Release = DispatchSemaphore(value: 0)
+let t18Receiver = LoopbackReceiver(logFile: t18Log) { number in
+    guard number == 1 else { return }
+    t18FirstArrived.signal()
+    _ = t18Release.wait(timeout: .now() + 4)
+}
+_ = writeEventSinkConfig(EventSinkConfig(url: t18Receiver.url, secret: "s", createdAt: now), dir: t18Dir)
+appendSessionWaitEvent(t12Event, dir: t18Dir)
+let t18ADone = DispatchSemaphore(value: 0)
+Thread.detachNewThread {
+    _ = deliverPendingEvents(replayDeadLetter: false, dir: t18Dir, sleeper: { _ in })
+    t18ADone.signal()
+}
+expect(t18FirstArrived.wait(timeout: .now() + 5) == .success,
+       "T18: (a) deliverer A is inside its first send, holding the lock")
+appendSessionWaitEvent(makeSessionWaitEvent(.resolved, request: t6Request, resolution: .sessionEnded,
+                                            identity: identity, provider: "claude", now: now), dir: t18Dir)
+appendSessionWaitEvent(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                            provider: "claude", now: now), dir: t18Dir)
+let t18ForcedAt = Date()
+_ = deliverPendingEvents(replayDeadLetter: false, dir: t18Dir, sleeper: { _ in })
+expect(t18Receiver.received.count == 1 && Date().timeIntervalSince(t18ForcedAt) < 1,
+       "T18: (c) the forced deliverer loses the lock and sends nothing")
+t18Release.signal()
+expect(t18ADone.wait(timeout: .now() + 10) == .success, "T18: (d) deliverer A finishes once released")
+expect(t18Receiver.received.map(\.event) == ["wait.opened", "wait.resolved", "session.ended"],
+       "T18: (e) with no further call the receiver holds both closing events "
+       + "(\(t18Receiver.received.map(\.event)))")
+print("T18 receiver log: \(t18Log.path)")
+try? FileManager.default.removeItem(at: t18Dir)
+
+runDeliveryHandoffChecks()
+
 // MARK: - Verdict
 
 if failures > 0 {

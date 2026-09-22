@@ -104,10 +104,14 @@ struct TranscriptWatcher {
     /// simply not counted, and the wait it would have ended lasts until the next prompt.
     var lastUserTurnAt: Date?
     /// The timestamp of the newest main-chain, post-launch CONVERSATION event: a `user` (tool
-    /// results included), `assistant` or `system` record carrying its own `uuid` and `timestamp`.
-    /// This is the clock a standing wait is measured against ("has the conversation moved since the
-    /// notice fired", `userNoticeStillOpen` and `resolvedWaitOutcome`), and it replaces the file's
-    /// mtime there.
+    /// results included) or `assistant` record carrying its own `uuid` and `timestamp`. This is the
+    /// clock a standing notice is measured against ("has the conversation moved since the notice
+    /// fired", `userNoticeStillOpen`), and it replaces the file's mtime there.
+    ///
+    /// NOT `system` records: Claude Code writes those about the session with nobody there (an
+    /// auto mode notice, an away summary, a turn duration), and one stamped 0.97s after a wait
+    /// opened read as its answer (H1 rerun O4, 2.1.280). Whether the move was a person's doing is
+    /// the narrower clock below.
     ///
     /// WHY NOT THE MTIME: an idle Claude Code appends bookkeeping records to the transcript with
     /// nobody at the keyboard (`cost-state`, `last-prompt`, `ai-title`, `mode`, `permission-mode`,
@@ -120,6 +124,10 @@ struct TranscriptWatcher {
     /// monotonic. Sidechain (subagent) records never count: an agent writing is not the person
     /// answering.
     var lastConversationEventAt: Date?
+    /// The newest main-chain, post-launch, stamped record a PERSON produced (`lineIsPersonInput`):
+    /// the only clock that may explain a standing wait as `answered` (`resolvedWaitOutcome`). A
+    /// conversation that moved without one (a task notification, a peer message) resolves `unknown`.
+    var lastPersonInputAt: Date?
     /// The size of the conversation as of its newest main-chain assistant event, that turn's own
     /// answer included: how much context a resume of this conversation would reload
     /// (SessionContext.swift).

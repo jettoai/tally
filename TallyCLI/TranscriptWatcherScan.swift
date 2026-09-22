@@ -45,12 +45,16 @@ extension TranscriptWatcher {
             var lineParent: String?
             if !line.contains("\"isSidechain\":true"), let uuid = lineUUID(line),
                let ts = lineTimestamp(line), ts >= since {
-                // The clock a standing wait is judged against (`lastConversationEventAt`): the same
-                // main-chain, stamped, post-launch record, narrowed to the three conversation types.
-                if line.contains("\"type\":\"user\"") || line.contains("\"type\":\"assistant\"")
-                    || line.contains("\"type\":\"system\""),
+                // The two clocks a standing wait is judged against: whether the conversation moved
+                // at all (`lastConversationEventAt`, user and assistant records only; a `system`
+                // record is Claude Code talking about the session, not the session moving) and
+                // whether a PERSON moved it (`lastPersonInputAt`, `lineIsPersonInput`).
+                if line.contains("\"type\":\"user\"") || line.contains("\"type\":\"assistant\""),
                    lastConversationEventAt.map({ ts > $0 }) ?? true {
                     lastConversationEventAt = ts
+                }
+                if lineIsPersonInput(line), lastPersonInputAt.map({ ts > $0 }) ?? true {
+                    lastPersonInputAt = ts
                 }
                 let startsTurn = lineStartsTurn(line)
                 scanSeq += 1
@@ -226,4 +230,37 @@ extension TranscriptWatcher {
         }
         return hit
     }
+}
+
+/// Whether a main-chain transcript record is something a PERSON produced: the only kind of record
+/// that may explain a standing wait as `answered` (`lastPersonInputAt`).
+///
+/// A `user` record, then everything Claude Code itself writes under that type is refused. The
+/// census this was written from (14 days of transcripts on this machine, Claude Code 2.1.277 to
+/// 2.1.280, 2026-09-23; docs/session-wait-events.md lists it) found these stamped main-chain kinds:
+///   - a person: typed or queued prompts (`origin.kind == "human"`), slash commands
+///     (`<command-name>`), an interrupt (`[Request interrupted`), a prompt from an SDK host, and
+///     tool results, which is what a permission or question dialog writes once answered;
+///   - not a person: `isMeta` records (skill bodies, Stop hook feedback, command caveats, peer
+///     messages), `isCompactSummary`, `promptSource: "system"` (task notifications), and every
+///     `assistant`, `system` (`informational`, `away_summary`, `turn_duration`,
+///     `stop_hook_summary`, `local_command`, `model_fallback`) and `attachment` record.
+///
+/// UNKNOWN MEANS NOT A PERSON: an `origin.kind` other than `human`, or a `promptSource` outside the
+/// three seen from people, is refused. Wrong in that direction, an answer is reported late (or as
+/// `unknown` when the conversation moves on without one); wrong in the other, a wait nobody
+/// answered is reported answered, which is the defect this exists for (H1 rerun O4: a stamped
+/// `system`/`informational` line 0.97s after an auto mode toggle read as the answer).
+func lineIsPersonInput<S: StringProtocol>(_ line: S) -> Bool {
+    guard line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
+          !line.contains("\"isMeta\":true"), !line.contains("\"isCompactSummary\":true"),
+          !line.contains("<task-notification>") else { return false }
+    if line.contains("\"origin\":{\"kind\":\""), !line.contains("\"origin\":{\"kind\":\"human\"") {
+        return false
+    }
+    if line.contains("\"promptSource\":\""),
+       !["typed", "queued", "sdk"].contains(where: { line.contains("\"promptSource\":\"\($0)\"") }) {
+        return false
+    }
+    return true
 }

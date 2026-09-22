@@ -17,11 +17,19 @@ import Foundation
 ///
 /// THE §3.4 TABLE, ROW BY ROW, in the order the plan gives it, not merged into fewer branches,
 /// because a merge is exactly how a row silently stops matching what the table says it should.
-/// The question row is checked first regardless of provider: `AskUserQuestion` fires no
-/// `Notification` at all (C3, plan §2), so it is the one case `notice` can never carry.
+/// The transcript question row is checked first regardless of provider: through Claude Code
+/// 2.1.233 `AskUserQuestion` fired no `Notification` at all (C3, plan §2). From 2.1.280 it fires
+/// the same `permission_prompt` a tool permission does, and its tool call is not in the transcript
+/// until it is answered (H1 rerun O5), so that row no longer sees it; `dialogWaitingFor` is what
+/// tells the two apart there (`claudeDialogWaitingFor`, UserNotice.swift).
+///
+/// `dialogWaitingFor` is Claude Code's own name for the dialog on top (its session registry's
+/// `waitingFor`), read only while a `permission_prompt` stands. `codexQuestionTool` is the Codex
+/// question tool whose call is open in the rollout (`CodexSessionObserver.pendingQuestion`).
 func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, waiting: Bool,
                      question: String?, questionSince: Date?, quiet: Bool,
-                     wait: UserWait?, permissionTool: String?) -> SessionWaitRequest? {
+                     wait: UserWait?, permissionTool: String?, dialogWaitingFor: String? = nil,
+                     codexQuestionTool: String? = nil) -> SessionWaitRequest? {
     // Row: claude, `openUserQuestion` non-nil -> question, confirmed. Provider-agnostic in this
     // repo today (only Claude opens a question, X4 in the plan marks Codex's as unproven), but
     // checked ahead of the provider split because the transcript signal, when it exists, always
@@ -54,9 +62,26 @@ func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, 
     // `UserNotice` here rather than inventing a second envelope is what keeps this function to one
     // signature for both providers.
     if provider == "codex" {
+        // Row: codex, a `request_user_input` call open in the rollout -> question, suspected. The
+        // rollout proves the call was made and not yet answered, never that a person saw it.
+        if let codexQuestionTool {
+            return request(kind: .question, confidence: .suspected, tool: codexQuestionTool)
+        }
         return request(kind: .permission, confidence: .suspected, tool: permissionTool)
     }
 
+    // Row: claude, permission_prompt while Claude Code says its top dialog is the structured
+    // question one -> question, confirmed. KEYED AS THE PERMISSION it would otherwise be, so a
+    // registry read that lands a tick after the notice upgrades the same wait (`wait.updated`)
+    // rather than superseding it with a second one.
+    if notice.type == "permission_prompt", dialogWaitingFor == claudeQuestionDialogWaitingFor {
+        let id = sessionWaitRequestID(sessionKey: sessionKey, kind: SessionWaitKind.permission.rawValue,
+                                      noticeType: notice.type, since: notice.at)
+        return SessionWaitRequest(id: id, kind: SessionWaitKind.question.rawValue,
+                                  confidence: SessionWaitConfidence.confirmed.rawValue, since: notice.at,
+                                  noticeType: notice.type, tool: "AskUserQuestion",
+                                  summary: sessionWaitSummary(userQuestionTools["AskUserQuestion"]))
+    }
     // Row: claude, noticeType in {permission_prompt, worker_permission_prompt} -> permission, confirmed.
     if let type = notice.type, ["permission_prompt", "worker_permission_prompt"].contains(type) {
         return request(kind: .permission, confidence: .confirmed, tool: permissionTool)
@@ -133,9 +158,11 @@ func reconcileWaitRequests(previous: SessionWaitRequest?, current: SessionWaitRe
     case (.some(let prev), .some(let cur)):
         if prev.id == cur.id {
             // Same wait, something about how it is described changed: confidence upgraded (suspected
-            // -> confirmed) or a tool/summary was filled in that was missing before. Every field
+            // -> confirmed), a permission recognised as a question a tick late, or a tool/summary
+            // was filled in that was missing before. Every field
             // alike, deliberately, is the no-op that keeps this from firing every 2s tick forever.
-            if prev.confidence != cur.confidence || prev.tool != cur.tool || prev.summary != cur.summary {
+            if prev.kind != cur.kind || prev.confidence != cur.confidence || prev.tool != cur.tool
+                || prev.summary != cur.summary {
                 return [event(.updated, request: cur, resolution: nil)]
             }
             return []
@@ -152,18 +179,46 @@ func reconcileWaitRequests(previous: SessionWaitRequest?, current: SessionWaitRe
 /// `denied` is never returned here even though the enum keeps the case for a future package that
 /// reads the transcript's own `is_error` result). Tried in order, first match wins:
 ///
-///   1. A stamped main-chain conversation event is newer than when this wait began -> answered.
-///      Not the transcript's mtime: unstamped bookkeeping records move that with nobody there.
+///   1. A stamped main-chain record a PERSON produced (`lastPersonInputAt`, `lineIsPersonInput`)
+///      is newer than when this wait began -> answered. Not the transcript's mtime (unstamped
+///      bookkeeping records move that with nobody there) and not any stamped record (Claude Code
+///      writes `system` notices and task notifications with nobody there too).
 ///   2. The open question's tool call closed -> answered.
 ///   3. Neither -> unknown (a keyboard-burst clearing, or a wait the caller could not otherwise
 ///      account for: both are "somebody moved on" without evidence of WHAT they did).
-func resolvedWaitOutcome(request: SessionWaitRequest, conversationMovedAt: Date?,
+func resolvedWaitOutcome(request: SessionWaitRequest, answeredAt: Date?,
                          questionClosed: Bool) -> SessionWaitResolution {
-    if let conversationMovedAt, conversationMovedAt > request.since {
+    if let answeredAt, answeredAt > request.since {
         return .answered
     }
     if questionClosed {
         return .answered
     }
     return .unknown
+}
+
+/// What this tick should treat as standing, given what the last one published: `current` except in
+/// the two cases where taking it literally would report a change nobody made.
+///
+///   1. AN IDLE WAIT OUTLIVES A NOISY TRANSCRIPT. The `idle_prompt` row asks for `quiet` so that it
+///      never opens over a fan-out, but `quiet` is the file's mtime, and Claude Code writes to an
+///      idle transcript with nobody there (an auto mode notice, a file history snapshot). Once the
+///      wait is open, only its notice closing ends it (`noticeOpen`: the conversation moved, or a
+///      keyboard burst), which is what says somebody or something actually took the floor.
+///   2. A QUESTION IS NOT DOWNGRADED. A permission recognised as a structured question stays one
+///      for as long as the same wait stands, so a registry read that fails for one tick does not
+///      flap it back to a permission and out again.
+func stabilizedWaitRequest(previous: SessionWaitRequest?, current: SessionWaitRequest?,
+                           notice: UserNotice?, noticeOpen: Bool) -> SessionWaitRequest? {
+    guard let previous else { return current }
+    if current == nil, noticeOpen, let notice, notice.type == "idle_prompt",
+       previous.noticeType == "idle_prompt", previous.since == notice.at {
+        return previous
+    }
+    if let current, current.id == previous.id,
+       previous.kind == SessionWaitKind.question.rawValue,
+       current.kind == SessionWaitKind.permission.rawValue {
+        return previous
+    }
+    return current
 }

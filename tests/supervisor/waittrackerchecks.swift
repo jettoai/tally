@@ -42,7 +42,7 @@ func runWaitTrackerChecks() {
     func reconcileNoWait(_ tracker: inout SessionWaitTracker) -> [SessionWaitEvent] {
         tracker.reconcile(childPid: nil, transcriptSessionId: nil, accountID: nil, directory: nil,
                           project: nil, worktree: nil, notice: nil, waiting: false, question: nil,
-                          questionSince: nil, quiet: true, wait: nil, conversationMovedAt: nil, now: now)
+                          questionSince: nil, quiet: true, wait: nil, answeredAt: nil, now: now)
     }
 
     // MARK: - A seed for a DIFFERENT generation of the same pid (the stale-restart path)
@@ -98,7 +98,7 @@ func runWaitTrackerChecks() {
     check("...under this generation's own key, not a stale one",
           recoverTick[0].session.key == "claude:2:222")
     check("...with the resolution `resolvedWaitOutcome` gives a nil transcript and no closed question",
-          recoverTick[0].resolution == resolvedWaitOutcome(request: recoverRequest, conversationMovedAt: nil,
+          recoverTick[0].resolution == resolvedWaitOutcome(request: recoverRequest, answeredAt: nil,
                                                             questionClosed: false).rawValue)
 
     // MARK: - What answers a wait: a stamped conversation event, not the file's mtime
@@ -171,6 +171,28 @@ func runWaitTrackerChecks() {
           afterAnswer.filter { $0.kind == "wait.resolved" }.map(\.resolution) == ["answered"])
     check("...and the answered notice is taken away",
           readUserNotice(pid: clockPid, dir: dir) == nil)
+
+    // MARK: - Who counts as a person (`lineIsPersonInput`), row by row of its census
+
+    let personRows: [(String, Bool, String)] = [
+        (#"{"type":"user","promptSource":"typed","origin":{"kind":"human"},"message":{"content":"hi"}}"#, true, "a typed prompt"),
+        (#"{"type":"user","promptSource":"queued","origin":{"kind":"human"},"message":{"content":"hi"}}"#, true, "a queued prompt"),
+        (#"{"type":"user","promptSource":"sdk","message":{"content":"hi"}}"#, true, "an SDK host's prompt"),
+        (#"{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#, true, "a tool result"),
+        (#"{"type":"user","message":{"content":"<command-name>/model</command-name>"}}"#, true, "a slash command"),
+        (#"{"type":"user","message":{"content":"[Request interrupted by user]"}}"#, true, "an interrupt"),
+        (#"{"type":"user","isMeta":true,"message":{"content":"Stop hook feedback"}}"#, false, "an isMeta record"),
+        (#"{"type":"user","isCompactSummary":true,"message":{"content":"summary"}}"#, false, "a compact summary"),
+        (#"{"type":"user","promptSource":"system","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>x</task-notification>"}}"#, false, "a task notification"),
+        (#"{"type":"user","origin":{"kind":"auto-continuation"},"message":{"content":"go on"}}"#, false, "an origin other than human"),
+        (#"{"type":"user","promptSource":"hook","message":{"content":"x"}}"#, false, "an unknown promptSource"),
+        (#"{"type":"user","isSidechain":true,"message":{"content":"hi"}}"#, false, "a subagent's record"),
+        (#"{"type":"system","subtype":"informational","content":"Auto mode"}"#, false, "a system notice"),
+        (#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}"#, false, "an assistant record"),
+    ]
+    for (line, person, name) in personRows {
+        check("lineIsPersonInput: \(name) is \(person ? "" : "not ")a person", lineIsPersonInput(line) == person)
+    }
 
     // MARK: - SIGHUP/SIGTERM end a Claude supervisor through its exit path (SupervisorTermination.swift)
 

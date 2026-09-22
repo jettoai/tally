@@ -18,6 +18,8 @@ import Foundation
 /// hook proves a `PermissionRequest` fired, never that a person is looking at it, so the summary
 /// names the signal and nothing more.
 let codexPermissionSummary = "Codex PermissionRequest hook fired"
+/// Same rule for a structured question: the rollout proves the call is open, nothing more.
+let codexQuestionSummary = "Codex request_user_input call is open"
 
 struct CodexWaitTracker {
     private(set) var identity: SessionWaitIdentity
@@ -26,6 +28,8 @@ struct CodexWaitTracker {
     /// The Codex turn `open` belongs to, kept beside it so a clearing outcome the observer reports
     /// can be matched to THIS request rather than to whichever permission cleared last.
     private var openTurnID: String?
+    /// The question call `open` belongs to, when `open` is a question.
+    private var openCallID: String?
 
     init(identity: SessionWaitIdentity) {
         self.identity = identity
@@ -46,23 +50,40 @@ struct CodexWaitTracker {
         identity.worktree = worktree
         identity.transcriptSessionId = observer?.binding.sessionID
         let pending = observer?.pendingPermission
+        let question = pending == nil ? observer?.pendingQuestion : nil
         let current = pending.flatMap { pending in
             openWaitRequest(provider: "codex", sessionKey: identity.key,
                             notice: UserNotice(message: codexPermissionSummary, at: pending.at,
                                                type: nil, sessionID: nil),
                             waiting: true, question: nil, questionSince: nil, quiet: false,
                             wait: nil, permissionTool: pending.tool)
+        } ?? question.flatMap { question in
+            openWaitRequest(provider: "codex", sessionKey: identity.key,
+                            notice: UserNotice(message: codexQuestionSummary, at: question.at,
+                                               type: nil, sessionID: nil),
+                            waiting: true, question: nil, questionSince: nil, quiet: false,
+                            wait: nil, permissionTool: nil, codexQuestionTool: codexQuestionTool)
         }
         var resolution: SessionWaitResolution?
-        if open != nil, current == nil {
-            let outcome = observer?.lastPermissionOutcome
-            let invalidated = outcome?.turnID == openTurnID && outcome?.reason == "invalidated"
-            resolution = invalidated ? .sessionEnded : .unknown
+        if let standing = open, current == nil {
+            if standing.kind == SessionWaitKind.question.rawValue {
+                // A question's own output landing is the one Codex signal that says a person
+                // answered; the rest are the turn moving on without saying what happened.
+                let outcome = observer?.lastQuestionOutcome
+                let mine = outcome?.callID == openCallID
+                resolution = mine && outcome?.reason == "answered" ? .answered
+                    : (mine && outcome?.reason == "invalidated" ? .sessionEnded : .unknown)
+            } else {
+                let outcome = observer?.lastPermissionOutcome
+                let invalidated = outcome?.turnID == openTurnID && outcome?.reason == "invalidated"
+                resolution = invalidated ? .sessionEnded : .unknown
+            }
         }
         let events = reconcileWaitRequests(previous: open, current: current, resolution: resolution,
                                            identity: identity, provider: "codex", now: now)
         open = current
         openTurnID = pending?.turnID
+        openCallID = question?.callID
         return events
     }
 
@@ -73,6 +94,7 @@ struct CodexWaitTracker {
                                            identity: identity, provider: "codex", now: now)
         open = nil
         openTurnID = nil
+        openCallID = nil
         events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
                                            provider: "codex", now: now))
         return events

@@ -304,27 +304,55 @@ private func openDeliverLock(dir: URL) -> Int32 {
 /// behaviour on failure" rule the spool itself follows (SessionWaitSpool.swift's header).
 func deliverPendingEvents(replayDeadLetter: Bool, dir: URL = tallyEventsDir,
                           sender: EventSender = defaultEventSender,
-                          sleeper: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }) -> Int32 {
+                          sleeper: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+                          rounds: Int = deliveryPassRounds,
+                          handoff: () -> Void = spawnDetachedEventDeliverer) -> Int32 {
     guard let sink = readEventSinkConfig(dir: dir) else { return 0 }
 
     let lockFD = openDeliverLock(dir: dir)
     guard lockFD >= 0 else { return 0 }
     defer { close(lockFD) }
-    guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { return 0 }
-    defer { flock(lockFD, LOCK_UN) }
 
-    if replayDeadLetter {
-        replayDeadLetterEntries(dir: dir, sink: sink, sender: sender)
+    // WHY IT RE-READS, TWICE OVER. An exit path appends its closing events and then spawns a forced
+    // deliverer; if an older pass holds the lock, that spawn loses `LOCK_NB` and exits, so the
+    // holder is the only process left that can send them. Under the lock it therefore re-reads past
+    // the cursor until nothing is left, and after unlocking it looks once more: an append that
+    // landed between its last read and its unlock belongs to a spawn that failed while it still held
+    // the lock, so if anything is past the cursor it takes the lock again. Both loops are bounded so
+    // an appender that never stops cannot pin this process; reaching the bound with events still
+    // past the cursor hands them to one fresh detached deliverer (`handoff`) instead of leaving them
+    // for a later launch. Only when this pass moved the cursor, though: a cursor that cannot be
+    // written (a full disk, a directory in its place) never moves, and handing off then would be a
+    // chain of processes posting the same event forever with no supervisor alive.
+    let cursorAtEntry = readEventDeliveryCursor(dir: dir)
+    var replay = replayDeadLetter
+    for _ in 0..<rounds {
+        guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else { return 0 }
+        if replay {
+            replayDeadLetterEntries(dir: dir, sink: sink, sender: sender)
+            replay = false
+        }
+        for _ in 0..<rounds {
+            let pending = readSessionWaitEvents(since: readEventDeliveryCursor(dir: dir),
+                                                limit: 1_000_000, dir: dir)
+            if pending.isEmpty { break }
+            for event in pending {
+                deliverOne(event, sink: sink, dir: dir, sender: sender, sleeper: sleeper)
+                // Unconditional: a dead-lettered event must not be retried forever by every later
+                // tick's spawn just because it never succeeded (§5.5's own words: no single entry
+                // may block the whole queue forever).
+                writeEventDeliveryCursor(event.seq, dir: dir)
+            }
+        }
+        flock(lockFD, LOCK_UN)
+        if readSessionWaitEvents(since: readEventDeliveryCursor(dir: dir), limit: 1, dir: dir).isEmpty {
+            return 0
+        }
     }
-
-    let cursor = readEventDeliveryCursor(dir: dir)
-    let pending = readSessionWaitEvents(since: cursor, limit: 1_000_000, dir: dir)
-    for event in pending {
-        deliverOne(event, sink: sink, dir: dir, sender: sender, sleeper: sleeper)
-        // Unconditional: a dead-lettered event must not be retried forever by every later tick's
-        // spawn just because it never succeeded (§5.5's own words: no single entry may block the
-        // whole queue forever).
-        writeEventDeliveryCursor(event.seq, dir: dir)
-    }
+    if readEventDeliveryCursor(dir: dir) > cursorAtEntry { handoff() }
     return 0
 }
+
+/// How many times one delivery pass re-reads the spool under its lock, and how many times it takes
+/// the lock again after finding events past the cursor (`deliverPendingEvents`).
+let deliveryPassRounds = 5

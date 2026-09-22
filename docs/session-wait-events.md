@@ -86,6 +86,54 @@ Claude's structured question tool call, and Claude's `permission_prompt` /
 notifications. Every Codex signal, and Claude's plain `idle_prompt`, is `suspected` at best and is
 never promoted to `confirmed`.
 
+### How a structured question is recognised
+
+- Claude, transcript: an `AskUserQuestion` (or `ExitPlanMode`) tool call open in the transcript.
+  Claude Code 2.1.280 writes that call only after it is answered, so on 2.1.280 this row rarely
+  fires.
+- Claude, `permission_prompt` notice: on Claude Code 2.1.280 an `AskUserQuestion` dialog fires the
+  same `permission_prompt` notification, with the same message ("Claude needs your permission"), as
+  a tool permission does. What tells them apart is Claude Code's own session registry,
+  `<config home>/sessions/<child pid>.json`: while a dialog is open it says `"status": "waiting"`,
+  with `"waitingFor": "input needed"` for the question dialog and `"permission prompt"` for every
+  permission dialog. Read that way, the wait is `kind: "question"`, `confidence: "confirmed"`,
+  `tool: "AskUserQuestion"`, `noticeType: "permission_prompt"`. If the registry is read a tick after
+  the notice, the wait opens as a permission and a `wait.updated` with the same `request.id` turns
+  it into a question; it is never turned back.
+- Codex: a `request_user_input` `function_call` in the rollout with no `function_call_output` for
+  its `call_id` yet (Codex CLI 0.155.1 writes the call when the "Question 1/1" chooser opens and the
+  output when it is answered). The wait is `kind: "question"`, `confidence: "suspected"`,
+  `tool: "request_user_input"`; its output landing resolves it `answered`, the turn ending or being
+  interrupted resolves it `unknown`.
+
+### What counts as an answer
+
+A Claude wait resolves `answered` only when a record a PERSON produced lands in the main-chain
+transcript after the wait began. Census of every stamped record kind in 14 days of transcripts on
+the development machine (Claude Code 2.1.277 to 2.1.280, 400 files, 2026-09-23):
+
+| Record (type, subtype, content) | Count | Person? |
+|---|---|---|
+| `attachment` | 18277 | no |
+| `assistant` | 13036 | no |
+| `user`, tool result | 7363 | yes (a dialog's answer is written as one) |
+| `queue-operation` | 3333 | no (no `uuid`, never read) |
+| `user`, text, `promptSource: "system"` (task notification) | 621 | no |
+| `user`, text, `isMeta` (command caveat, Stop hook feedback, skill body, peer message) | 738 | no |
+| `user`, text, `<command-name>` (a slash command) | 385 | yes |
+| `user`, text, `promptSource: "typed"` or `"queued"` (`origin.kind: "human"`) | 97 | yes |
+| `user`, text, `promptSource: "sdk"` | 7 | yes |
+| `user`, text, `[Request interrupted by user]` | 3 | yes |
+| `system`, `stop_hook_summary` / `turn_duration` / `local_command` / `away_summary` / `model_fallback` / `informational` | 971 / 827 / 378 / 32 / 3 / 3 | no |
+| `file-history-delta` | 194 | no |
+
+Any `origin.kind` other than `human`, or any `promptSource` other than `typed`, `queued` or `sdk`,
+is treated as not a person. When the conversation moves without a person (a task notification
+wakes the session), a standing wait resolves `unknown`. A `system` record does not move the
+conversation at all: an auto mode notice written 0.97 s after a wait opened used to resolve it
+`answered` (H1 rerun O4). An `idle_prompt` wait, once open, stays open through Claude Code writing
+to an otherwise idle transcript; only the conversation moving or a keyboard burst ends it.
+
 ## Verifying a delivered event
 
 Each delivered event is a single HTTP POST with these headers:
@@ -137,6 +185,14 @@ The two read paths answer different questions:
 A consumer should treat `tally status --json` as the source of truth for "is this session waiting
 on someone right now" and `tally events --since` as the source of truth for "what did I miss."
 
+A delivery pass (`tally events --deliver-once`, which every supervisor spawns) holds one lock and
+keeps reading past the cursor until nothing is left, then checks once more after unlocking and
+takes the lock again if anything arrived. That is what delivers the `wait.resolved` and
+`session.ended` a supervisor appends as it exits while an earlier pass is still sending: the
+deliverer the exit path spawns loses the lock and leaves, and the pass holding it picks them up.
+Both loops are bounded (5 reads, 5 lock rounds); a pass that reaches the bound with events still
+waiting, having moved the cursor, spawns one fresh deliverer for the rest.
+
 ## Deduplication
 
 Every event carries `idempotencyKey`, computed from the request it describes, the event kind, and
@@ -178,18 +234,30 @@ every distinct wait. Use it to correlate the lifecycle of one wait across multip
      only mentioned in `request.summary`, as Claude Code's own message text.
    - Codex permission waits: the tool field of the pending `PermissionRequest` hook payload.
    - Structured questions (`request.kind: "question"`): the name of the question tool call that is
-     open in the transcript (for example `AskUserQuestion`).
+     open in the transcript (for example `AskUserQuestion`), `AskUserQuestion` for a question read
+     off Claude Code's session registry, and `request_user_input` for Codex.
 8. Codex's `~/.codex/config.toml` `notify` key is already claimed by another tool on this machine
    (a computer-use client). This feature does not read or write it.
-9. Unverified in this version: Codex structured questions or MCP elicitation. The real-CLI matrix
-   row B4 is still pending; if Codex turns out to surface them, this is a gap to close, not a scope
-   decision.
+9. Codex structured questions (`request_user_input`, Codex CLI 0.155.1) are reported from the
+   rollout (see "How a structured question is recognised"). Codex MCP elicitation is unverified.
+   While a Codex question stands, `tally status --json` still reports the session's `state` as
+   `working`; only the event stream shows the question.
 10. Out of scope for v1: Codex subagents, delivering to more than one sink, and any event older
     than what the spool trimming window retains. 8 MiB is the size that TRIGGERS a trim (together
     with delivery having caught up with at least half of the spool), not an amount that is kept. A
     trim keeps only events with `seq > cursor - 1000` plus everything not yet delivered, so right
     after a trim with every event delivered, only about the last 1000 events are left.
-11. v1 cannot tell a permission request that was answered "yes" apart from one answered "no." Both
-    resolve as `resolution: "answered"` or `"unknown"`. `resolution: "denied"` is reserved in the
-    schema for a future version that reads the transcript's own tool result to tell them apart, and
-    is never emitted by this version.
+11. v1 cannot tell a permission request that was answered "yes" apart from one answered "no," so a
+    consumer cannot use `resolution` to learn whether a permission was approved or refused.
+    Measured values (H1 rerun, 2026-09-23): Claude Code 2.1.280, "No" on a Bash permission resolves
+    `answered` (cell A2); Codex CLI 0.155.1, Esc on a command approval resolves `unknown` (cell B1
+    deny). `resolution: "denied"` is reserved in the schema for a future version that reads the
+    transcript's own tool result to tell them apart, and is never emitted by this version.
+12. The structured question reading on Claude Code 2.1.280 rests on the session registry's
+    `waitingFor`, which is undocumented. A version that drops or renames it reports its questions as
+    permissions again (late rather than wrong). A plan awaiting approval (`ExitPlanMode`) on 2.1.280
+    also fires `permission_prompt`, and the registry names it `"permission prompt"`, so it is
+    reported as a permission.
+13. A tool result counts as a person's answer. If Claude Code writes the result of one tool call
+    while a permission dialog for another call in the same turn is still open, that wait resolves
+    `answered` early. Not observed; named here because nothing rules it out.

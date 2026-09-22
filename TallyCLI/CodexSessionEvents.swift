@@ -40,6 +40,9 @@ func codexRootMetadata(_ object: [String: Any], sessionID: String) -> Bool {
     return true
 }
 
+/// Codex's structured question tool, the chooser Plan mode shows as "Question 1/1".
+let codexQuestionTool = "request_user_input"
+
 /// Incremental JSONL reader. Replacement, truncation and malformed parsed records invalidate it.
 /// Oversized response and compaction content is opaque after its bounded header is recognized; its payload
 /// syntax is not validated. Lifecycle records still require complete JSON decoding.
@@ -51,6 +54,14 @@ struct CodexSessionObserver {
     // Set whenever pendingPermission is cleared, so a consumer can tell why it went away instead
     // of only that it did.
     private(set) var lastPermissionOutcome: (turnID: String, reason: String)?
+    // A structured question (`request_user_input`) whose `function_call` is in the rollout and whose
+    // `function_call_output` is not yet: Codex 0.155.1 writes the call when the chooser opens and
+    // the output when it is answered (H1 rerun B4, 2026-09-23). `turnID` is the call's own
+    // `internal_chat_message_metadata_passthrough.turn_id`, nil when a rollout omits it.
+    private(set) var pendingQuestion: (turnID: String?, callID: String, at: Date)?
+    // Why `pendingQuestion` last went away: `answered` (its output landed), `turn-ended`,
+    // `turn-moved` or `invalidated`.
+    private(set) var lastQuestionOutcome: (callID: String, reason: String)?
     private(set) var state: SupervisedState = .unknown
     private(set) var model: String?
     private(set) var effort: String?
@@ -87,6 +98,13 @@ struct CodexSessionObserver {
         state = .unknown
         invalidated = true
         clearPendingPermission(reason: "invalidated")
+        clearPendingQuestion(reason: "invalidated")
+    }
+
+    private mutating func clearPendingQuestion(reason: String) {
+        guard let question = pendingQuestion else { return }
+        pendingQuestion = nil
+        lastQuestionOutcome = (callID: question.callID, reason: reason)
     }
 
     /// Drops the pending permission if one is standing, and remembers why. A no-op when there is
@@ -150,6 +168,10 @@ struct CodexSessionObserver {
                pending.turnID != activity.turnID {
                 clearPendingPermission(reason: "turn-moved")
             }
+            if activity.event == "UserPromptSubmit", let question = pendingQuestion,
+               question.turnID != activity.turnID {
+                clearPendingQuestion(reason: "turn-moved")
+            }
             if !terminalTurns.contains(activity.turnID) {
                 if activity.event == "UserPromptSubmit" {
                     lastUserTurnAt = max(lastUserTurnAt ?? activity.at, activity.at)
@@ -208,6 +230,7 @@ struct CodexSessionObserver {
             hasTurnContext = true
             return
         }
+        if type == "response_item" { consumeResponseItem(payload, at: date); return }
         guard type == "event_msg" else { return }
         guard let event = payload["type"] as? String else { invalidate(); return }
         if event == "user_message", let text = payload["message"] as? String {
@@ -220,6 +243,10 @@ struct CodexSessionObserver {
             invalidate(); return
         }
         if pendingPermission?.turnID == turn { clearPendingPermission(reason: "turn-ended") }
+        if event != "task_started", let question = pendingQuestion,
+           question.turnID == nil || question.turnID == turn {
+            clearPendingQuestion(reason: "turn-ended")
+        }
         if event == "task_started" {
             lastUserTurnAt = max(lastUserTurnAt ?? date, date)
             terminalTurns.remove(turn)
@@ -230,6 +257,19 @@ struct CodexSessionObserver {
             terminalTurns.insert(turn)
             if terminalTurns.count > 1024 { terminalTurns = [turn] }
             state = turns.isEmpty ? .idle : .working
+        }
+    }
+
+    /// The one response item read: the structured question tool's call and its output, matched by
+    /// `call_id`. Anything else in a response item is conversation content and is not looked at.
+    private mutating func consumeResponseItem(_ payload: [String: Any], at date: Date) {
+        guard let call = payload["call_id"] as? String, !call.isEmpty else { return }
+        let kind = payload["type"] as? String
+        if kind == "function_call", payload["name"] as? String == codexQuestionTool {
+            let meta = payload["internal_chat_message_metadata_passthrough"] as? [String: Any]
+            pendingQuestion = (turnID: meta?["turn_id"] as? String, callID: call, at: date)
+        } else if kind == "function_call_output", call == pendingQuestion?.callID {
+            clearPendingQuestion(reason: "answered")
         }
     }
 

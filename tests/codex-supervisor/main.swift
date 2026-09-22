@@ -192,6 +192,7 @@ try append(Data([10]), to: file)
 observer.poll(home: home.path)
 check("Codex newly completed task-start record holds input", !observer.canAcceptInput && observer.state == .working)
 try runCodexWaitPermissionChecks()
+try runCodexWaitQuestionChecks()
 
 var (historyFile, historical) = try fixture("history", contents: meta() + event("task_complete", after: -1))
 historical.poll(home: home.path)

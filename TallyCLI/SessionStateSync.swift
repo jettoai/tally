@@ -246,14 +246,16 @@ struct SessionWaitTracker {
     }
 
     /// One tick (plan §4.1b), driven by `syncSessionState`. `notice`/`waiting`/`question`/
-    /// `questionSince`/`quiet`/`wait` are that tick's own readings; `conversationMovedAt` (the
-    /// watcher's `lastConversationEventAt`, never the file's mtime) is what explains a standing
-    /// request going away (`resolvedWaitOutcome`, §4.1c/§14 revision 1).
+    /// `questionSince`/`quiet`/`wait` are that tick's own readings; `answeredAt` (the watcher's
+    /// `lastPersonInputAt`, never the file's mtime) is what explains a standing request going away
+    /// as answered (`resolvedWaitOutcome`, §4.1c/§14 revision 1); `dialogWaitingFor` is Claude
+    /// Code's own name for its top dialog (`claudeDialogWaitingFor`).
     /// `permissionTool` is always nil here: revision 1 cuts the sidecar that would have supplied it.
     mutating func reconcile(childPid: Int?, transcriptSessionId: String?, accountID: String?,
                             directory: String?, project: String?, worktree: String?, notice: UserNotice?,
                             waiting: Bool, question: String?, questionSince: Date?, quiet: Bool,
-                            wait: UserWait?, conversationMovedAt: Date?, now: Date) -> [SessionWaitEvent] {
+                            wait: UserWait?, answeredAt: Date?, dialogWaitingFor: String? = nil,
+                            now: Date) -> [SessionWaitEvent] {
         identity.childPid = childPid
         identity.transcriptSessionId = transcriptSessionId
         identity.account = accountID
@@ -263,14 +265,20 @@ struct SessionWaitTracker {
 
         var events = takeStaleSeedEvents(now: now)
 
-        let current = openWaitRequest(provider: "claude", sessionKey: identity.key, notice: notice,
-                                      waiting: waiting, question: question, questionSince: questionSince,
-                                      quiet: quiet, wait: wait, permissionTool: nil)
+        let current = stabilizedWaitRequest(
+            previous: open,
+            current: openWaitRequest(provider: "claude", sessionKey: identity.key, notice: notice,
+                                     waiting: waiting, question: question, questionSince: questionSince,
+                                     quiet: quiet, wait: wait, permissionTool: nil,
+                                     dialogWaitingFor: dialogWaitingFor),
+            notice: notice, noticeOpen: waiting)
         var resolution: SessionWaitResolution?
         if current == nil, let standing = open {
-            resolution = resolvedWaitOutcome(request: standing, conversationMovedAt: conversationMovedAt,
+            // `questionClosed` is the TRANSCRIPT's question closing (no notice behind it): a
+            // question recognised from the registry never had a transcript call open to close.
+            resolution = resolvedWaitOutcome(request: standing, answeredAt: answeredAt,
                                              questionClosed: standing.kind == SessionWaitKind.question.rawValue
-                                                && question == nil)
+                                                && standing.noticeType == nil && question == nil)
         }
         events += reconcileWaitRequests(previous: open, current: current, resolution: resolution,
                                         identity: identity, provider: "claude", now: now)
@@ -331,15 +339,16 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // somebody just gave (TranscriptFork.swift owns that rule).
     let file = watcher.file
     let modified = transcriptModified(file)
-    // What answers a wait is a stamped conversation event, which the tick's scan (`sawCapHit`, run
-    // earlier in the same tick) has already folded in; `modified` stays for the open-turn readings.
+    // What closes a notice is a stamped user or assistant event, which the tick's scan (`sawCapHit`,
+    // run earlier in the same tick) has already folded in; `modified` stays for the open-turn readings.
     let movedAt = watcher.lastConversationEventAt
     let notice = readUserNotice(pid: pid, dir: dir)
     let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt,
                                       keyboardBurstAt: keyboardBurstAt)
     // THE OTHER CHANNEL, and the only one that catches the case the hook cannot: Claude Code fires
     // no notification at all for `AskUserQuestion` or a plan awaiting approval (2.1.233, read off
-    // the binary 2026-08-15), so the state the board exists for was the one state it could not
+    // the binary 2026-08-15; 2.1.280 fires one and writes the call late, see `openWaitRequest`),
+    // so the state the board exists for was the one state it could not
     // show. The transcript says it outright - the tool call is open and only a person closes it -
     // and reading a fact rather than inferring one is the same move the fork join was fixed by.
     let question = watcher.openUserQuestion(asOf: modified)
@@ -381,11 +390,18 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     if question != nil, let file, let modified {
         questionSince = watcher.openTurn(of: file, modified: modified)?.startedAt
     }
+    // Which dialog a standing permission notice is really about, asked only while one stands: the
+    // watcher's project dir is `<config home>/projects/<slug>`, the registry is its sibling.
+    let dialog = waiting && notice?.type == "permission_prompt"
+        ? childPid.flatMap { claudeDialogWaitingFor(
+            configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
+            childPid: $0) }
+        : nil
     emit(tracker.reconcile(childPid: childPid, transcriptSessionId: watcher.transcriptSessionID,
                            accountID: accountID, directory: project.path, project: project.name,
                            worktree: project.worktree, notice: notice, waiting: waiting, question: question,
-                           questionSince: questionSince, quiet: quiet, wait: wait, conversationMovedAt: movedAt,
-                           now: now))
+                           questionSince: questionSince, quiet: quiet, wait: wait,
+                           answeredAt: watcher.lastPersonInputAt, dialogWaitingFor: dialog, now: now))
     return SessionTick(state: state, quiet: quietness, wait: wait)
 }
 

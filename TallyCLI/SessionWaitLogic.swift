@@ -21,7 +21,7 @@ import Foundation
 /// 2.1.233 `AskUserQuestion` fired no `Notification` at all (C3, plan §2). From 2.1.280 it fires
 /// the same `permission_prompt` a tool permission does, and its tool call is not in the transcript
 /// until it is answered (H1 rerun O5), so that row no longer sees it; `dialogWaitingFor` is what
-/// tells the two apart there (`claudeDialogWaitingFor`, UserNotice.swift).
+/// tells the two apart there (`readClaudeDialog`, UserNotice.swift).
 ///
 /// `dialogWaitingFor` is Claude Code's own name for the dialog on top (its session registry's
 /// `waitingFor`), read only while a `permission_prompt` stands. `codexQuestionTool` is the Codex

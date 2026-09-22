@@ -74,9 +74,15 @@ func supervisedSessionState(wait: UserWait?, hasTranscript: Bool, quiet: Bool) -
 /// as one that does not. A burst (two stamps inside `keyboardBurstGap`) is a person, and the
 /// answers a single keypress gives are covered by the transcript rule above, since Claude Code
 /// writes the moment it is unblocked.
+///
+/// WHILE CLAUDE CODE SAYS THE DIALOG IS STILL OPEN (`dialogHeld`, `claudeDialogHolds`) neither of
+/// those counts: only a record a person produced (`personInputAt`) closes it. A task notification
+/// moves the conversation with nobody there, and keys pressed inside a dialog are not its answer.
 func userNoticeStillOpen(_ notice: UserNotice?, conversationMovedAt: Date?,
-                         keyboardBurstAt: Date?) -> Bool {
+                         keyboardBurstAt: Date?, dialogHeld: Bool = false,
+                         personInputAt: Date? = nil) -> Bool {
     guard let notice else { return false }
+    if dialogHeld { return !(personInputAt.map { $0 > notice.at } ?? false) }
     if let conversationMovedAt, conversationMovedAt > notice.at { return false }
     if let keyboardBurstAt, keyboardBurstAt > notice.at { return false }
     return true
@@ -249,7 +255,7 @@ struct SessionWaitTracker {
     /// `questionSince`/`quiet`/`wait` are that tick's own readings; `answeredAt` (the watcher's
     /// `lastPersonInputAt`, never the file's mtime) is what explains a standing request going away
     /// as answered (`resolvedWaitOutcome`, §4.1c/§14 revision 1); `dialogWaitingFor` is Claude
-    /// Code's own name for its top dialog (`claudeDialogWaitingFor`).
+    /// Code's own name for its top dialog (`readClaudeDialog`).
     /// `permissionTool` is always nil here: revision 1 cuts the sidecar that would have supplied it.
     mutating func reconcile(childPid: Int?, transcriptSessionId: String?, accountID: String?,
                             directory: String?, project: String?, worktree: String?, notice: UserNotice?,
@@ -343,8 +349,17 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // run earlier in the same tick) has already folded in; `modified` stays for the open-turn readings.
     let movedAt = watcher.lastConversationEventAt
     let notice = readUserNotice(pid: pid, dir: dir)
-    let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt,
-                                      keyboardBurstAt: keyboardBurstAt)
+    // Claude Code's registry, asked only while a permission notice stands and BEFORE judging it, so
+    // a dialog it says is open outlives activity nobody typed. The watcher's project dir is
+    // `<config home>/projects/<slug>`, the registry is its sibling.
+    let registry = notice?.type == "permission_prompt"
+        ? childPid.flatMap { readClaudeDialog(
+            configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
+            childPid: $0) }
+        : nil
+    let waiting = userNoticeStillOpen(notice, conversationMovedAt: movedAt, keyboardBurstAt: keyboardBurstAt,
+                                      dialogHeld: notice.map { claudeDialogHolds($0, dialog: registry) } ?? false,
+                                      personInputAt: watcher.lastPersonInputAt)
     // THE OTHER CHANNEL, and the only one that catches the case the hook cannot: Claude Code fires
     // no notification at all for `AskUserQuestion` or a plan awaiting approval (2.1.233, read off
     // the binary 2026-08-15; 2.1.280 fires one and writes the call late, see `openWaitRequest`),
@@ -390,13 +405,8 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     if question != nil, let file, let modified {
         questionSince = watcher.openTurn(of: file, modified: modified)?.startedAt
     }
-    // Which dialog a standing permission notice is really about, asked only while one stands: the
-    // watcher's project dir is `<config home>/projects/<slug>`, the registry is its sibling.
-    let dialog = waiting && notice?.type == "permission_prompt"
-        ? childPid.flatMap { claudeDialogWaitingFor(
-            configHome: watcher.projectDir.deletingLastPathComponent().deletingLastPathComponent(),
-            childPid: $0) }
-        : nil
+    // Which dialog a standing permission notice is really about: the registry read above.
+    let dialog = waiting ? registry?.waitingFor : nil
     emit(tracker.reconcile(childPid: childPid, transcriptSessionId: watcher.transcriptSessionID,
                            accountID: accountID, directory: project.path, project: project.name,
                            worktree: project.worktree, notice: notice, waiting: waiting, question: question,

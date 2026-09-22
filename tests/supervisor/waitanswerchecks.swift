@@ -52,18 +52,22 @@ private final class WaitRig {
                         pid: pid, dir: state)
     }
 
-    func registry(pid: Int? = nil, status: String, waitingFor: String?) {
+    /// `updatedAgo` writes `statusUpdatedAt` (epoch milliseconds, as Claude Code does); nil omits it.
+    func registry(pid: Int? = nil, status: String, waitingFor: String?, updatedAgo: TimeInterval? = nil) {
         var object: [String: Any] = ["pid": pid ?? childPid, "status": status, "version": "2.1.280"]
         if let waitingFor { object["waitingFor"] = waitingFor }
+        if let updatedAgo {
+            object["statusUpdatedAt"] = Int((now.addingTimeInterval(-updatedAgo).timeIntervalSince1970 * 1000).rounded())
+        }
         try! JSONSerialization.data(withJSONObject: object).write(to: registry)
     }
 
-    func tick() -> [SessionWaitEvent] {
+    func tick(burstAt: Date? = nil) -> [SessionWaitEvent] {
         _ = watcher.sawCapHit()
         var emitted: [SessionWaitEvent] = []
         syncSessionState(&writer, pid: pid, project: PickProject(name: "p", path: file.path),
                          accountID: "claude:.claude", childPid: childPid, model: nil,
-                         supervisorVersion: nil, watcher: &watcher, keyboardBurstAt: nil,
+                         supervisorVersion: nil, watcher: &watcher, keyboardBurstAt: burstAt,
                          tracker: &tracker, dir: state, now: now, emit: { emitted += $0 })
         return emitted
     }
@@ -89,6 +93,21 @@ private final class WaitRig {
     func typed(ago: TimeInterval) {
         append(#"{"parentUuid":"a1","isSidechain":false,"type":"user","promptSource":"typed","origin":{"kind":"human"},"uuid":"u1","timestamp":"\#(stamp(ago))","message":{"role":"user","content":"red"}}"#,
                mtimeAgo: 0)
+    }
+
+    /// A background task finishing: stamped and main-chain, but nobody typed it.
+    func taskNotification(ago: TimeInterval) {
+        append(#"{"parentUuid":"a1","isSidechain":false,"type":"user","promptSource":"system","origin":{"kind":"task-notification"},"uuid":"u2","timestamp":"\#(stamp(ago))","message":{"role":"user","content":"<task-notification>done</task-notification>"}}"#,
+               mtimeAgo: 0)
+    }
+
+    /// A permission notice fired 20s ago over a dialog Claude Code's registry opened 6s before it
+    /// (the lead measured in H1e O6), standing over an open call to `tool`.
+    func heldDialog(_ tool: String, waitingFor: String = "permission prompt") -> [SessionWaitEvent] {
+        openCall(tool)
+        registry(status: "waiting", waitingFor: waitingFor, updatedAgo: 26)
+        notice("permission_prompt", ago: 20, message: "Claude needs your permission")
+        return tick()
     }
 
     func toolResult(ago: TimeInterval) {
@@ -194,4 +213,74 @@ func runWaitAnswerChecks() {
     let strangerOpened = stranger.tick()
     check("O5: a registry record naming another pid is not read",
           kinds(strangerOpened) == ["wait.opened"] && strangerOpened[0].request?.kind == "permission")
+
+    runDialogHoldChecks(root)
+}
+
+/// H1e O6: a dialog Claude Code's registry says is still open is not closed by conversation
+/// activity nobody typed. Rows are the O6 brief's state table.
+private func runDialogHoldChecks(_ root: URL) {
+    // Row 1: main-turn permission, a task notification lands while it stands.
+    let main = WaitRig(root, "hold-main", pid: "88910")
+    check("O6 row 1: a permission over a fresh registry dialog opens",
+          kinds(main.heldDialog("Bash")) == ["wait.opened"])
+    main.taskNotification(ago: 1)
+    check("O6 row 1: a task notification does not resolve it", main.tick().isEmpty)
+    check("O6 row 1: ...and its notice is still on disk", readUserNotice(pid: main.pid, dir: main.state) != nil)
+
+    // Row 2: the O6 original, a background subagent's dialog under a main turn waiting on agents.
+    let agent = WaitRig(root, "hold-agent", pid: "88911")
+    let agentOpened = agent.heldDialog("Agent")
+    agent.taskNotification(ago: 1)
+    check("O6 row 2: the sibling agent's task notification does not resolve it", agent.tick().isEmpty)
+    check("O6 row 2: ...nor on the tick after", agent.tick().isEmpty)
+    agent.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let agentResolved = agent.tick()
+    check("O6 row 2: the registry leaving waiting resolves the same wait, as unknown",
+          kinds(agentResolved) == ["wait.resolved"] && agentResolved[0].resolution == "unknown"
+              && agentResolved[0].request?.id == agentOpened.first?.request?.id)
+
+    // Row 3: a person's main-chain record answers even while the registry still says waiting.
+    let typed = WaitRig(root, "hold-typed", pid: "88912")
+    _ = typed.heldDialog("Bash")
+    typed.taskNotification(ago: 2)
+    typed.typed(ago: 0.5)
+    let typedResolved = typed.tick()
+    check("O6 row 3: a typed record resolves a held dialog as answered",
+          kinds(typedResolved) == ["wait.resolved"] && typedResolved[0].resolution == "answered")
+
+    // Row 5: the structured question kind of dialog is held the same way.
+    let question = WaitRig(root, "hold-question", pid: "88913")
+    let questionOpened = question.heldDialog("Agent", waitingFor: "input needed")
+    question.taskNotification(ago: 1)
+    check("O6 row 5: a held question survives a task notification",
+          questionOpened.first?.request?.kind == "question" && question.tick().isEmpty)
+
+    // Row 10: keys pressed while the dialog stays open (moving its selection) do not answer it.
+    let keys = WaitRig(root, "hold-keys", pid: "88914")
+    _ = keys.heldDialog("Bash")
+    check("O6 row 10: a keyboard burst over a held dialog resolves nothing",
+          keys.tick(burstAt: keys.now.addingTimeInterval(-1)).isEmpty)
+    keys.registry(status: "busy", waitingFor: nil, updatedAgo: 0)
+    let keysResolved = keys.tick(burstAt: keys.now.addingTimeInterval(-1))
+    check("O6 row 10: once the registry leaves waiting the burst resolves it as unknown",
+          kinds(keysResolved) == ["wait.resolved"] && keysResolved[0].resolution == "unknown")
+
+    // Row 8: any registry that is not this dialog's own falls back to the rule before O6.
+    let fallbacks: [(String, Int?, TimeInterval?)] = [
+        ("another pid", 1, 26), ("no statusUpdatedAt", nil, nil),
+        ("a waiting stretch begun 61s before the notice", nil, 81),
+        ("a status changed after the notice", nil, 10),
+    ]
+    for (index, (label, otherPid, updatedAgo)) in fallbacks.enumerated() {
+        let rig = WaitRig(root, "hold-fallback-\(index)", pid: "8892\(index)")
+        rig.openCall("Bash")
+        rig.registry(pid: otherPid, status: "waiting", waitingFor: "permission prompt", updatedAgo: updatedAgo)
+        rig.notice("permission_prompt", ago: 20, message: "Claude needs your permission")
+        _ = rig.tick()
+        rig.taskNotification(ago: 1)
+        let resolved = rig.tick()
+        check("O6 row 8: with \(label) a task notification still resolves the wait as unknown",
+              kinds(resolved) == ["wait.resolved"] && resolved[0].resolution == "unknown")
+    }
 }

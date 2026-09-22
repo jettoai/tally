@@ -195,8 +195,15 @@ func clearAnsweredUserNotice(_ judged: UserNotice, pid: String, dir: URL = super
 /// Claude Code's name for a structured question dialog (`AskUserQuestion`) in its session registry.
 let claudeQuestionDialogWaitingFor = "input needed"
 
+/// One registry reading while `status` is `waiting` (`readClaudeDialog`).
+struct ClaudeDialogReading: Equatable {
+    var waitingFor: String?
+    var since: Date?
+}
+
 /// What Claude Code says its top dialog is waiting for, off the registry it keeps per session at
-/// `<config home>/sessions/<pid>.json`: `waitingFor` while `status` is `waiting`, else nil.
+/// `<config home>/sessions/<pid>.json`: `waitingFor` while `status` is `waiting`, else nil, and
+/// since when (`statusUpdatedAt`, epoch milliseconds; nil when absent).
 ///
 /// WHY THIS FILE AND NOT THE NOTICE. From 2.1.280 a structured question fires the same
 /// `permission_prompt` notification, with the same message ("Claude needs your permission"), as a
@@ -206,10 +213,30 @@ let claudeQuestionDialogWaitingFor = "input needed"
 /// every permission kind; read off the 2.1.280 binary the same day). Undocumented, so it is a
 /// tripwire: any read that fails, names another pid, or says anything else is nil, and nil keeps
 /// the reading this file had before (a permission), which is late rather than wrong.
-func claudeDialogWaitingFor(configHome: URL, childPid: Int) -> String? {
+func readClaudeDialog(configHome: URL, childPid: Int) -> ClaudeDialogReading? {
     let file = configHome.appendingPathComponent("sessions/\(childPid).json")
     guard let data = try? Data(contentsOf: file),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           (object["pid"] as? Int) == childPid, object["status"] as? String == "waiting" else { return nil }
-    return object["waitingFor"] as? String
+    let since = (object["statusUpdatedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
+    return ClaudeDialogReading(waitingFor: object["waitingFor"] as? String, since: since)
+}
+
+/// How long before a permission notice the registry's waiting stretch may have begun and still be
+/// taken as the same dialog. Measured lead in H1e O6 (2.1.280): 6.02s, the notification delay.
+let claudeDialogNoticeLead: TimeInterval = 60
+
+/// Whether the registry says the dialog behind `notice` is still open, so only a person closes it
+/// (`userNoticeStillOpen`, H1e O6: a sibling agent's task notification closed a background agent's
+/// permission dialog that was still on screen).
+///
+/// SAME DIALOG, NOT JUST SOME DIALOG: the waiting stretch must have begun at or before the notice
+/// and within `claudeDialogNoticeLead` of it. A stretch begun after the notice is a later dialog;
+/// one begun long before is a registry that never left an older one. Either, or a registry without
+/// `statusUpdatedAt`, holds nothing and the rules before this one apply unchanged.
+func claudeDialogHolds(_ notice: UserNotice, dialog: ClaudeDialogReading?) -> Bool {
+    guard notice.type == "permission_prompt", let dialog, let since = dialog.since,
+          let waitingFor = dialog.waitingFor,
+          ["permission prompt", claudeQuestionDialogWaitingFor].contains(waitingFor) else { return false }
+    return since <= notice.at && notice.at.timeIntervalSince(since) <= claudeDialogNoticeLead
 }

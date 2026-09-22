@@ -55,8 +55,8 @@ struct SessionWaitTracker {
     /// (hard over hard replaces, UserNotice.swift) would otherwise be judged on the handshake of the
     /// request it replaced, and cleared as answered without ever opening.
     func dialogWitnessed(childPid: Int?, notice: UserNotice?) -> Bool {
-        guard let witness, let open, let childPid, let notice, let type = notice.type,
-              SessionWaitTracker.registryMeasuredNoticeTypes.contains(type) else { return false }
+        guard let witness, let open, let childPid, let notice,
+              SessionWaitTracker.isRegistryMeasured(notice.type) else { return false }
         return witness.requestID == open.id && witness.childPid == childPid
             && open.since == notice.at && open.noticeType == notice.type
     }
@@ -68,6 +68,11 @@ struct SessionWaitTracker {
     /// which can only close late. Checked where a witness is recorded AND where one is read, so a
     /// witness an older build seeded for such a kind is void. Measure on a real CLI before widening this.
     private static let registryMeasuredNoticeTypes: Set<String> = ["permission_prompt"]
+
+    /// False for a nil type: a request with no notice behind it has no registry dialog to measure.
+    private static func isRegistryMeasured(_ noticeType: String?) -> Bool {
+        noticeType.map(registryMeasuredNoticeTypes.contains) ?? false
+    }
 
     /// `pid` optional only so a test can build a tracker with nothing to seed or reseed, mirroring
     /// `SessionStateWriter`'s own escape hatch. `supervisorPid`/`supervisorStartedAt` are this
@@ -164,8 +169,8 @@ struct SessionWaitTracker {
             // Claude Code whose registry vocabulary moved. Either way the handshake fell back, and
             // this line is the only place that shows it. Once per wait, by construction. Only for a
             // measured kind: an unmeasured one never earns a witness, so its fallback is not drift.
-            if dialogOpen == nil, let registryVersion, let driftLog, let noticeType = standing.noticeType,
-               SessionWaitTracker.registryMeasuredNoticeTypes.contains(noticeType),
+            if dialogOpen == nil, let registryVersion, let driftLog,
+               SessionWaitTracker.isRegistryMeasured(standing.noticeType),
                !dialogWitnessed(childPid: childPid, notice: notice) {
                 appendHandoffLine("\(ISO8601DateFormatter().string(from: now)) pid=\(pid ?? "-") "
                     + "wait \(standing.id) closed by legacy rules; registry v\(registryVersion) "
@@ -178,8 +183,7 @@ struct SessionWaitTracker {
         // THE HANDSHAKE'S MEMORY: remembered while the registry says the standing request's dialog is
         // open, forgotten with the request (a new request starts unwitnessed, and the registry says
         // `waiting` for it on the very next tick if its dialog is really up).
-        if let current, dialogOpen == true, let childPid, let noticeType = current.noticeType,
-           SessionWaitTracker.registryMeasuredNoticeTypes.contains(noticeType) {
+        if let current, dialogOpen == true, let childPid, SessionWaitTracker.isRegistryMeasured(current.noticeType) {
             witness = DialogWitness(requestID: current.id, childPid: childPid)
         } else if current == nil || witness?.requestID != current?.id {
             witness = nil

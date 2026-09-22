@@ -56,13 +56,23 @@ func runAppRelaunchChecks() {
 
     // 26c. The app was already gone before the swap: the user quit it, and an update landing later
     // is not a relaunch anybody is owed.
+    //
+    // THE SPACING IS PART OF THE ASSERTION since 2026-09-22, and it used to be five seconds. What
+    // separates this from the incident is how long the app had been known gone when the swap was
+    // noticed, and the readings that answer that are on a grid up to seven seconds coarse
+    // (`appRelaunchAbsenceMemory`): a quit five seconds before a swap is inside it, and no station
+    // driven by real ticks can tell it from an app the installer had just taken. So the gap here is
+    // one a person would recognise as "the user quit it, and an update landed later" rather than
+    // one the old boolean happened to answer correctly by phase. The sweep in section 32 asserts
+    // the same case across every start phase.
     var quitFirst = AppRelaunchState()
     _ = tick(&quitFirst, old, alive: true, at: 0)
     _ = tick(&quitFirst, old, alive: false, at: 5)
     check("an update that lands on an app the user had already quit opens nothing",
-          tick(&quitFirst, new, alive: false, at: 10) == nil)
-    check("and it stays that way past the grace",
           tick(&quitFirst, new, alive: false, at: 40) == nil)
+    check("and it stays that way past the grace",
+          tick(&quitFirst, new, alive: false, at: 70) == nil)
+    check("nor does the arming the swap did not make hold an upgrade back", !quitFirst.isArmed)
 
     // 26d. Nothing to compare, or nothing that moved forward. Same reading of a version as the
     // self-update takes (`isNewerBuild`), for the same reason: a build we cannot reason about is a
@@ -301,6 +311,13 @@ func runAppRelaunchChecks() {
     try? plist?.write(to: contents.appendingPathComponent("Info.plist"))
     let cli = contents.appendingPathComponent("Helpers").appendingPathComponent("tally")
     FileManager.default.createFile(atPath: cli.path, contents: Data())
+    // The app's own executable, runnable: what a finished swap leaves behind, and what the tick
+    // below refuses to open a bundle without.
+    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"),
+                                             withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: contents.appendingPathComponent("MacOS")
+        .appendingPathComponent("Tally Dev").path, contents: Data(),
+        attributes: [.posixPermissions: 0o755])
     let paths = bundledAppPaths(cli)
     check("the bundle to open is the one this binary is embedded in",
           paths?.bundle == appBundle.path)
@@ -319,11 +336,15 @@ func runAppRelaunchChecks() {
     // assertions are printed on, and a line landing mid-print splits one of them.
     var said: [String] = []
     var claimed: [String] = []
+    // The durable line each decision leaves is collected the same way, and for a second reason:
+    // its default writes under the home directory, which no suite may touch.
+    var logged: [AppRelaunchEvent] = []
     func run(_ version: String?, alive: Bool, at offset: TimeInterval) {
         applyAppRelaunch(&wired, now: launch.addingTimeInterval(offset), installed: version,
                          bundle: paths, probe: { _ in alive },
                          claim: { _, bundle in claimed.append(bundle); return true },
-                         announce: { said.append($0) }, launch: { opened.append($0) })
+                         announce: { said.append($0) }, record: { event, _ in logged.append(event) },
+                         launch: { opened.append($0) })
     }
     run(old, alive: true, at: 0)
     run(new, alive: false, at: 10)
@@ -338,6 +359,52 @@ func runAppRelaunchChecks() {
     run(new, alive: false, at: 60)
     check("and no tick after it opens anything again", opened == [appBundle.path])
     check("nor says anything again", said.count == 1)
+    // EVERY DECISION LEFT A LINE, which is the half of this station a person reads after the next
+    // report. The first tick says somebody is watching at all, the swap says the relaunch is owed,
+    // and the open says it was paid: the three states a silent station is impossible to tell apart
+    // in (2026-09-22 cost hours of `log show` reading for want of them).
+    check("the tick that starts watching says so, once",
+          logged.filter { $0 == .watching(old) }.count == 1)
+    check("the swap that owes a relaunch is recorded as an arming", logged.contains(.armed(new)))
+    check("and so is the open it led to", logged.contains(.opened(new)))
+    check("nothing else is written for the ticks in between", logged.count == 3)
+
+    // A SWAP STILL IN PROGRESS IS NOT A BUNDLE TO OPEN. The app's executable is gone for a moment
+    // while the installer writes it, and this station must not hand the user a half-installed app -
+    // the check `selfUpdateBinary` spends on the same fact about its own binary.
+    // The timeline is the incident's own, so every gate BUT this one says "open it": the app runs
+    // under the old build, the version moves forward with the app gone, and the grace passes. Only
+    // the executable being absent holds it, which is what makes these four lines an assertion.
+    var midSwap = AppRelaunchState()
+    var midSwapOpened = 0
+    var midSwapProbes = 0
+    var midSwapLogged = 0
+    for (offset, version) in [(0.0, old), (10.0, new), (30.0, new)] {
+        applyAppRelaunch(&midSwap, now: launch.addingTimeInterval(offset), installed: version,
+                         bundle: paths, probe: { _ in midSwapProbes += 1; return offset == 0 },
+                         runnable: { _ in false }, claim: { _, _ in true },
+                         record: { _, _ in midSwapLogged += 1 },
+                         launch: { _ in midSwapOpened += 1 })
+    }
+    check("a bundle whose app is not runnable yet is never opened", midSwapOpened == 0)
+    check("and is not even asked about: no walk of the process table", midSwapProbes == 0)
+    check("nor does a tick that decided nothing write a line", midSwapLogged == 0)
+    check("and the station holding through it stays unarmed", !midSwap.isArmed)
+
+    // The line itself, which is the thing being read back. The bundle path is last because it is
+    // the one field that can contain a space.
+    let armedLine = appRelaunchLogLine(.armed(new), bundle: "/Applications/Tally.app", pid: "421",
+                                       now: launch)
+    check("an arming writes one line naming the version and the bundle",
+          armedLine.hasSuffix(" pid=421 app-relaunch=armed reason=- version=\(new) "
+                              + "bundle=/Applications/Tally.app\n"))
+    check("and a disarming carries the reason in the same column",
+          appRelaunchLogLine(.disarmed(new, reason: "app-returned"), bundle: "/A.app", pid: "421",
+                             now: launch)
+              .hasSuffix("app-relaunch=disarmed reason=app-returned version=\(new) "
+                         + "bundle=/A.app\n"))
+    check("the line is stamped with the moment it describes",
+          armedLine.hasPrefix(ISO8601DateFormatter().string(from: launch)))
 
     // The same wiring with no bundle to speak of: a dev build must not reach the process table or
     // the claim, let alone open something.
@@ -456,4 +523,136 @@ func runAppRelaunchChecks() {
           station.contains("[\"-g\", path]"))
     check("the process table is read in-process, never by spawning pgrep per tick",
           !station.contains("/usr/bin/pgrep"))
+
+    runAppRelaunchTimelineChecks()
+}
+
+// MARK: - 32. The 2026-09-22 timeline, driven through the tick every supervisor really runs
+
+/// THE MEASURED TIMELINE, and the first thing about this station that was ever driven rather than
+/// argued. Everything above feeds `appRelaunchDue` by hand, one call per named moment, which skips
+/// the throttle the live station reads its aliveness through (`AppPresenceScan`, five seconds) and
+/// therefore skips the only thing that decides whether the station arms at all.
+///
+/// What `/usr/bin/log show` recorded on 2026-09-22, the third time the user reported the icon gone:
+/// the app was sent its quit at 12:24:01.505 and was dead by .606, and the bundle carried 0.77.0
+/// about 2.4 seconds later. So the gap this station has to see across is smaller than one walk of
+/// the process table, and WHICH SIDE of it a supervisor's cached reading falls on depends on
+/// nothing but when that supervisor happened to start. Ten of them were resident that day, started
+/// at ten unrelated moments.
+///
+/// So the phase is swept rather than picked: 0 to 5 seconds in quarter-second steps, twenty-one
+/// runs of the same timeline, and the answer is how many of them open the app. A single phase would
+/// have been green or red by luck and would have stated nothing.
+func runAppRelaunchTimelineChecks() {
+    let old = "0.76.6"
+    let new = "0.77.0"
+    /// Seconds from this fixture's origin to the moment the app died, and to the moment the swap
+    /// finished. The second is the first plus the 2.4 seconds the log recorded.
+    let death: TimeInterval = 100
+    let swap = death + 2.4
+
+    let fixture = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-relaunch-timeline-\(UUID().uuidString)")
+    let appBundle = fixture.appendingPathComponent("Tally.app")
+    let contents = appBundle.appendingPathComponent("Contents")
+    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("Helpers"),
+                                             withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"),
+                                             withIntermediateDirectories: true)
+    let plist = try? PropertyListSerialization.data(
+        fromPropertyList: ["CFBundleExecutable": "Tally"] as [String: Any], format: .xml, options: 0)
+    try? plist?.write(to: contents.appendingPathComponent("Info.plist"))
+    let cli = contents.appendingPathComponent("Helpers").appendingPathComponent("tally")
+    FileManager.default.createFile(atPath: cli.path, contents: Data())
+    // The app's own executable, present and runnable: what the finished swap leaves behind.
+    FileManager.default.createFile(atPath: contents.appendingPathComponent("MacOS")
+        .appendingPathComponent("Tally").path, contents: Data(),
+        attributes: [.posixPermissions: 0o755])
+    let paths = bundledAppPaths(cli)
+    check("the timeline fixture is a bundle this station recognises", paths != nil)
+
+    /// One supervisor that started `phase` seconds into the fixture's clock, run through the whole
+    /// timeline at the loop's real two-second tick (`Supervisor.swift`, `usleep(2_000_000)`), and
+    /// answered with whether it ever opened the app.
+    func opensTheApp(startingAt phase: TimeInterval) -> Bool {
+        var state = AppRelaunchState()
+        var opened = 0
+        var now = phase
+        while now <= death + 120 {
+            let at = now
+            applyAppRelaunch(&state, now: launch.addingTimeInterval(at),
+                             installed: at >= swap ? new : old, bundle: paths,
+                             probe: { _ in at < death }, claim: { _, _ in true },
+                             announce: { _ in }, record: { _, _ in }, launch: { _ in opened += 1 })
+            now += 2
+        }
+        return opened > 0
+    }
+
+    var missed: [String] = []
+    for step in 0...20 {
+        let phase = Double(step) * 0.25
+        if !opensTheApp(startingAt: phase) { missed.append(String(format: "%.2f", phase)) }
+    }
+    check("every start phase across one scan interval reopens an app the update took away "
+          + "(missed: \(missed.isEmpty ? "none" : missed.joined(separator: " ")))", missed.isEmpty)
+
+    // The other side of the same sweep: an ordinary update, where Sparkle brings the app back two
+    // seconds after the swap. No phase may open anything, or the station is simply louder rather
+    // than more correct.
+    func opensAfterASparkleRelaunch(startingAt phase: TimeInterval) -> Bool {
+        let back = swap + 2
+        var state = AppRelaunchState()
+        var opened = 0
+        var now = phase
+        while now <= death + 120 {
+            let at = now
+            applyAppRelaunch(&state, now: launch.addingTimeInterval(at),
+                             installed: at >= swap ? new : old, bundle: paths,
+                             probe: { _ in at < death || at >= back }, claim: { _, _ in true },
+                             announce: { _ in }, record: { _, _ in }, launch: { _ in opened += 1 })
+            now += 2
+        }
+        return opened > 0
+    }
+
+    var noisy: [String] = []
+    for step in 0...20 {
+        let phase = Double(step) * 0.25
+        if opensAfterASparkleRelaunch(startingAt: phase) {
+            noisy.append(String(format: "%.2f", phase))
+        }
+    }
+    check("and no phase opens a second copy after Sparkle relaunched the app itself "
+          + "(opened at: \(noisy.isEmpty ? "none" : noisy.joined(separator: " ")))", noisy.isEmpty)
+
+    // An app the user quit well before the update landed is still nobody's to reopen, swept the
+    // same way: the memory the arming rests on is bounded, and this is the boundary it buys.
+    func opensAfterAUserQuit(startingAt phase: TimeInterval) -> Bool {
+        let quit = swap - 30
+        var state = AppRelaunchState()
+        var opened = 0
+        var now = phase
+        while now <= death + 120 {
+            let at = now
+            applyAppRelaunch(&state, now: launch.addingTimeInterval(at),
+                             installed: at >= swap ? new : old, bundle: paths,
+                             probe: { _ in at < quit }, claim: { _, _ in true },
+                             announce: { _ in }, record: { _, _ in }, launch: { _ in opened += 1 })
+            now += 2
+        }
+        return opened > 0
+    }
+
+    var reopened: [String] = []
+    for step in 0...20 {
+        let phase = Double(step) * 0.25
+        if opensAfterAUserQuit(startingAt: phase) { reopened.append(String(format: "%.2f", phase)) }
+    }
+    check("nor does any phase reopen an app the user had quit half a minute earlier "
+          + "(opened at: \(reopened.isEmpty ? "none" : reopened.joined(separator: " ")))",
+          reopened.isEmpty)
+
+    try? FileManager.default.removeItem(at: fixture)
 }

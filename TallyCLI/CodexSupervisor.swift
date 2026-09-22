@@ -98,6 +98,15 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                                    model: launchModel,
                                    childPid: Int(child), supervisorVersion: version)
     var nextTick = Date.distantPast
+    // The station that reopens the app when a silent update took it away and never brought it back
+    // (AppRelaunch.swift), which until 2026-09-22 only ran in `tally claude` sessions. An automatic
+    // install lands when the machine has been idle for five minutes, which is precisely when the
+    // terminal nobody is at may be running Codex rather than Claude: who is watching and when the
+    // update happens are negatively correlated, so a supervisor that does not watch is half the
+    // machine's cover gone. Nothing here has to cede to a self-update the way the other loop does,
+    // because this one has no self-update station: it never replaces its own process image.
+    var appRelaunch = AppRelaunchState()
+    var nextAppRelaunchTick = Date.distantPast
     while reaper.isRunning {
         if let terminal, !terminal.pump(timeout: 0.02) {
             if metadata.childStart == SessionMonitoring.generation(child) { kill(child, SIGHUP) }
@@ -112,6 +121,13 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
         guard Date() >= nextTick else { continue }
         nextTick = Date().addingTimeInterval(0.25)
         autoreleasepool {
+            // Every two seconds rather than on this loop's own quarter-second tick, which is the
+            // interval the station's readings are written for: it re-reads the bundle's Info.plist
+            // and walks the process table, and the app's absence is a state that lasts.
+            if Date() >= nextAppRelaunchTick {
+                nextAppRelaunchTick = Date().addingTimeInterval(2)
+                applyAppRelaunch(&appRelaunch)
+            }
             if observer == nil,
                let data = try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-binding")),
                let binding = try? JSONDecoder().decode(CodexSessionBinding.self, from: data),

@@ -31,6 +31,40 @@ import Foundation
 // is nothing to do) and the app never leaving for a whole minute (this update was not what would
 // have taken it away, so a quit hours later is the user's own).
 //
+// AND THE SWAP ARMS THROUGH A SHORT MEMORY OF THE APP, not off the single reading before it, which
+// is what kept this station silent through the second incident it was written to catch. The measured
+// 2026-09-22 timeline (`/usr/bin/log show`): the app was sent its quit at 12:24:01.505, was dead by
+// .606, and the bundle carried 0.77.0 about 2.4 seconds later. The readings are on a grid - the
+// process table is walked at most every `appRelaunchScanInterval` and the loop ticks every two
+// seconds - so whether the reading the swap tick carries forward still says "alive" depends on
+// nothing but WHEN THAT SUPERVISOR STARTED. Swept across one scan interval in quarter-second steps
+// (apprelaunchchecks.swift, section 32), a third of the start phases had the app already read as
+// gone at the swap and armed nothing, in the exact timeline of the incident. Ten supervisors were
+// resident that day, started at ten unrelated moments. So what the arming asks is how long the app
+// has been KNOWN gone when the swap is noticed, and a run of absence no longer than the grid itself
+// (`appRelaunchAbsenceMemory`) reads as "it was here when this started".
+//
+// WHAT THAT COSTS, and it is the only thing it costs: an app the user quit within those few seconds
+// of a swap landing is opened once. The swap is normally performed BY the running app (Sparkle
+// installs in-process), so the case needs somebody to drop a new build in by hand within seconds of
+// quitting; the arming window above already accepts the mirror image of that cost for a whole
+// minute on the other side.
+//
+// AND THE BUNDLE HAS TO BE RUNNABLE BEFORE ANY OF THIS IS ASKED. A swap in progress takes
+// `Contents/MacOS/<name>` away for a moment, and opening the bundle then is opening a half-installed
+// app. `selfUpdateBinary` (SelfUpdate.swift) spends the same filesystem check on the same fact for
+// the same reason: a tick that finds nothing does nothing, and the next one asks again.
+//
+// EVERY DECISION LEAVES A LINE, in `~/.tally/logs/app-relaunch.log`. Three incidents were reported
+// against this chain and the third cost hours to tell apart from the first two, because a station
+// that decides nothing and a station that was never watching look identical from outside: silence.
+// `warn` goes to a terminal that scrolls away, so the durable line is the one that answers it. A
+// supervisor that starts watching says so once, and after that every arming, every disarming with
+// the reason for it, every open and every claim lost to another supervisor is one line. What the
+// file has to settle in thirty seconds is which of the four happened: no lines at all (nobody was
+// watching), watching but never armed (the swap was not recognised), armed and disarmed (and the
+// reason is on the line), or opened.
+//
 // WHICH APP COUNTS AS ALIVE is the bundle THIS supervisor lives inside, matched on the executable
 // path a process actually runs (`Contents/MacOS/<name>`), not on a process name: a second copy
 // elsewhere on the machine, or the separately named Debug build, must not stand in for the one that
@@ -98,6 +132,15 @@ let appRelaunchArmWindow: TimeInterval = 60
 /// tick; the app's absence is a state that lasts, so a reading up to this old changes nothing.
 let appRelaunchScanInterval: TimeInterval = 5
 
+/// How long the app may ALREADY have been read as gone when a swap is noticed and still count as
+/// having been there for it. The readings this rests on are a grid: one walk of the process table
+/// every `appRelaunchScanInterval` at most, sampled by a loop that ticks every two seconds, so the
+/// freshest thing a tick can know about the app is up to seven seconds old and the swap itself is
+/// noticed up to two seconds after it lands. Seven seconds is that grid, and the header states both
+/// what the number buys (the incident's own timeline arms from every start phase) and what it costs
+/// (an app quit within seven seconds of somebody dropping a new build in is opened once).
+let appRelaunchAbsenceMemory: TimeInterval = 7
+
 /// One file per version some supervisor has already opened the app for, under a directory per app
 /// bundle. A directory inside the supervisor state directory rather than beside its per-pid files:
 /// the sweeps there read a filename as a pid (`supervisorStatePid`), and this is not one.
@@ -129,11 +172,15 @@ struct AppPresenceScan: Equatable {
 /// Everything this station remembers between ticks. All of it in memory, for the reason the header
 /// gives: nothing here outlives the process, and nothing here is worth an exec contract.
 struct AppRelaunchState: Equatable {
-    /// The most recent version observed, and whether the app was running the last time it was seen
-    /// under it. The pair is what tells "the user quit the app and an update landed later" (nothing
-    /// to do) from "the update took the app away" (the case this station exists for).
+    /// The most recent version observed, and when the app's current run of absence began (nil while
+    /// it is running). The pair is what tells "the user quit the app and an update landed later"
+    /// (nothing to do) from "the update took the app away" (the case this station exists for).
+    ///
+    /// A TIME RATHER THAN THE LAST READING'S BOOLEAN, which is the 2026-09-22 fix: the boolean was a
+    /// single sample off a grid coarser than the gap it was being asked about, so it answered by
+    /// start phase rather than by fact (header, `appRelaunchAbsenceMemory`).
     var seenVersion: String?
-    var seenAlive = false
+    var absentSince: Date?
     /// The version a swap moved to while the app was running, when that arming happened, and when
     /// the app was first seen missing under that version. Cleared the moment the app comes back,
     /// which is what a Sparkle relaunch that worked looks like from here.
@@ -143,6 +190,10 @@ struct AppRelaunchState: Equatable {
     /// The versions this process has already settled: opened the app for, or lost the claim on.
     var openedVersions: Set<String> = []
     var scan = AppPresenceScan()
+    /// What this station decided since the last tick drained it, on its way to the log. Held on the
+    /// state rather than returned, so the decision stays the pure function every gate above is
+    /// tested through and the writing stays with the caller that owns the filesystem.
+    var events: [AppRelaunchEvent] = []
 
     /// Whether this station is waiting on an update right now: armed by a swap and not yet settled
     /// one way or the other. The poll loop reads it to hold its OWN self-update back, for the reason
@@ -170,18 +221,27 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
                     grace: TimeInterval = appRelaunchGrace,
                     claim: (String) -> Bool) -> String? {
     guard let installed = observation.installedVersion else { return nil }
+    let previousVersion = state.seenVersion
     defer {
         state.seenVersion = installed
-        state.seenAlive = observation.appAlive
+        state.absentSince = observation.appAlive ? nil : (state.absentSince ?? observation.at)
     }
-    if let previous = state.seenVersion, previous != installed,
-       isNewerBuild(installed, than: previous), state.seenAlive {
+    if previousVersion == nil { state.events.append(.watching(installed)) }
+    // "Here for the swap" spans the reading grid rather than the last sample off it: a run of
+    // absence no longer than the grid is one this tick cannot tell from an app that was running.
+    let hereForTheSwap = state.absentSince.map {
+        observation.at.timeIntervalSince($0) < appRelaunchAbsenceMemory
+    } ?? true
+    if let previous = previousVersion, previous != installed,
+       isNewerBuild(installed, than: previous), hereForTheSwap {
         state.pendingVersion = installed
         state.armedAt = observation.at
         state.missingSince = nil
+        state.events.append(.armed(installed))
     }
     guard let pending = state.pendingVersion, pending == installed else { return nil }
-    func disarm() {
+    func disarm(_ reason: String? = nil) {
+        if let reason { state.events.append(.disarmed(pending, reason: reason)) }
         state.pendingVersion = nil
         state.armedAt = nil
         state.missingSince = nil
@@ -192,10 +252,10 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
         // is what happens every other time. If it has not, the app simply has not gone yet - the
         // reading can be `appRelaunchScanInterval` old and the incident's app outlived its own
         // installer by 24 milliseconds - so keep waiting, up to the arming window.
-        guard state.missingSince == nil else { disarm(); return nil }
+        guard state.missingSince == nil else { disarm("app-returned"); return nil }
         guard let armedAt = state.armedAt,
               observation.at.timeIntervalSince(armedAt) < appRelaunchArmWindow else {
-            disarm()
+            disarm("app-never-left")
             return nil
         }
         return nil
@@ -209,7 +269,9 @@ func appRelaunchDue(_ state: inout AppRelaunchState, observation: AppPresence,
     // Settled either way: this supervisor opens the app, or another one already has.
     state.openedVersions.insert(pending)
     disarm()
-    return claim(pending) ? pending : nil
+    let won = claim(pending)
+    state.events.append(won ? .opened(pending) : .claimLost(pending))
+    return won ? pending : nil
 }
 
 /// A bundle's identity as a filename: the first 16 hex of the SHA-256 of its path, spelled the way
@@ -349,14 +411,27 @@ func applyAppRelaunch(_ state: inout AppRelaunchState, now: Date = Date(),
                       installed: String? = supervisorBuildVersion(),
                       bundle: AppBundlePaths? = bundledAppPaths(),
                       probe: (String) -> Bool = appProcessAlive,
+                      runnable: (String) -> Bool = {
+                          FileManager.default.isExecutableFile(atPath: $0)
+                      },
                       claim: (String, String) -> Bool = { claimAppRelaunch($0, bundle: $1) },
                       announce: (String) -> Void = { warn($0) },
+                      record: (AppRelaunchEvent, String) -> Void = {
+                          appendAppRelaunchLine($0, bundle: $1)
+                      },
                       launch: (String) -> Void = openAppBundle) {
-    guard let bundle else { return }
+    // A swap in progress takes the app's executable away for a moment, and this tick has nothing
+    // true to say while it is gone: the version it would read is the same nil, and the bundle it
+    // would open is half installed. The next tick asks again (SelfUpdate.swift, `selfUpdateBinary`).
+    guard let bundle, runnable(bundle.executable) else { return }
     let alive = state.scan.alive(now: now) { probe(bundle.executable) }
     let seen = AppPresence(installedVersion: installed, appAlive: alive, at: now)
-    guard let target = appRelaunchDue(&state, observation: seen,
-                                      claim: { claim($0, bundle.bundle) }) else { return }
+    let target = appRelaunchDue(&state, observation: seen, claim: { claim($0, bundle.bundle) })
+    // Drained whatever the answer was: the decisions worth reading back are mostly the ones that
+    // opened nothing.
+    for event in state.events { record(event, bundle.bundle) }
+    state.events.removeAll()
+    guard let target else { return }
     announce("tally updated to \(target) but the app did not come back, opening it")
     launch(bundle.bundle)
 }

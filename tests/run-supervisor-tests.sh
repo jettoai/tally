@@ -140,7 +140,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift TallyCLI/Reload.swift \
-  Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AppRelaunch.swift \
+  Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AppRelaunch.swift TallyCLI/AppRelaunchLog.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
   TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/DroughtWatch.swift \

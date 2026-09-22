@@ -154,8 +154,13 @@ func runBusyChecks() {
     expect(!guardBody.isEmpty, "beginSilentInstall was located in the controller source")
     expect(guardBody.contains("apply(.silentInstallCouldNotStart)"),
            "P3: the guard that starts nothing says so, rather than returning in silence")
-    expect(source.contains("willDownloadUpdate") && source.contains("willExtractUpdate"),
+    // The callbacks themselves live in UpdaterDelegate.swift, split out of the controller for the
+    // 500-line rule.
+    let delegate = (try? String(contentsOfFile: "Tally/App/UpdaterDelegate.swift",
+                                encoding: .utf8)) ?? ""
+    expect(!delegate.isEmpty, "the Sparkle delegate source was located")
+    expect(delegate.contains("willDownloadUpdate") && delegate.contains("willExtractUpdate"),
            "P3: and the steps in between are subscribed to, or the chip has nothing to report")
-    expect(source.contains("didFinishUpdateCycleFor"),
+    expect(delegate.contains("didFinishUpdateCycleFor"),
            "P3: as is the cycle ending, which is the ending that carries no error")
 }

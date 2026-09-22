@@ -47,6 +47,36 @@ enum IdleInstall {
     /// way they were opened).
     static let taskWindowGrace: TimeInterval = 3600
 
+    /// One window, in the only terms the question below needs. Built from AppKit at the call site,
+    /// so the rule itself can be asked about a machine that is not there.
+    struct WindowState {
+        /// The window is running an application-modal session (`NSApp.modalWindow`).
+        let isApplicationModal: Bool
+        /// A sheet is attached to this window (`NSWindow.attachedSheet`), which is what SwiftUI's
+        /// `.sheet` modifier puts up.
+        let hasAttachedSheet: Bool
+    }
+
+    /// Whether something on screen is holding a thing the user has started and not finished. This
+    /// is what feeds `shouldInstall`'s `modalOpen`, the one veto with no expiry.
+    ///
+    /// The question is about intent, not about mechanism. `NSApp.modalWindow` answers the mechanism
+    /// question only, and it answers nil for a sheet attached to a window, which is exactly what
+    /// SwiftUI's `.sheet` is. So "Add account" - a half-filled form with an OAuth round trip in the
+    /// middle of it - never reached this veto at all. It was covered by `taskWindowOpen` instead,
+    /// because the sheet hangs off Settings and an open window used to veto forever; once
+    /// `taskWindowGrace` put an hour on that, the cover expired and the sheet could be restarted out
+    /// from under the person filling it in.
+    ///
+    /// Popovers are deliberately not counted here, and that is a decision rather than an oversight.
+    /// The test is whether the surface holds input the user has not committed: a popover dismisses
+    /// itself on a click anywhere outside it and keeps nothing, so this app's three (View Options,
+    /// the launch help, the account menu) stay on the `taskWindowOpen` side and are discounted after
+    /// `taskWindowGrace` like any other window.
+    static func decisionPending(windows: [WindowState]) -> Bool {
+        windows.contains { $0.isApplicationModal || $0.hasAttachedSheet }
+    }
+
     /// Whether the queued install may run right now.
     ///
     /// - Parameters:

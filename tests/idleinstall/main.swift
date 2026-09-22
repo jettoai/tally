@@ -113,10 +113,53 @@ for surface in ["isPopoverShown", "SettingsWindowController.shared.isWindowVisib
 expect(!windowBody.contains("modalWindow"),
        "the modal is NOT in the window list - it would inherit the grace and expire, and a "
            + "question the user has not answered must never expire")
-expect(controller.contains("modalOpen: NSApp.modalWindow != nil"),
-       "the modal reaches the rule through its own input, which has no expiry")
+expect(controller.contains("modalOpen: Self.decisionPending"),
+       "the no-expiry veto reaches the rule through its own input, and by way of the rule above "
+           + "rather than a question asked straight at AppKit")
+
+// The body of that reader alone, for the same reason windowBody is read alone.
+let decisionBody: String = {
+    guard let start = controller.range(of: "private static var decisionPending: Bool {"),
+          let end = controller.range(of: "\n    }", range: start.upperBound ..< controller.endIndex)
+    else { return "" }
+    return String(controller[start.upperBound ..< end.lowerBound])
+}()
+expect(!decisionBody.isEmpty, "UpdaterController has a decisionPending to read")
+expect(decisionBody.contains("attachedSheet"),
+       "it asks each window whether a sheet is attached to it - NSApp.modalWindow cannot see one, "
+           + "which is the whole of this defect")
+expect(decisionBody.contains("NSApp.modalWindow"),
+       "and it still asks about an application-modal window, which it always did catch")
 expect(controller.contains("taskWindowOpen: Self.taskWindowOnScreen"),
        "the windows reach the rule through the input that does have one")
+
+// MARK: what "a decision is sitting in front of the user" is actually read from
+//
+// `modalOpen` above is a boolean; the defect this section exists for was in how the app ARRIVES at
+// it. It asked `NSApp.modalWindow != nil`, a question about AppKit's modal session, and that answers
+// nil for a sheet attached to a window - which is what SwiftUI's `.sheet` is. So "Add account", a
+// half-filled form with an OAuth round trip in the middle of it, was invisible to this veto. It only
+// ever survived because the sheet hangs off Settings and an open window used to veto forever; the
+// hour-long taskWindowGrace took that cover away.
+
+func window(modal: Bool = false, sheet: Bool = false) -> IdleInstall.WindowState {
+    IdleInstall.WindowState(isApplicationModal: modal, hasAttachedSheet: sheet)
+}
+
+expect(!IdleInstall.decisionPending(windows: []), "no windows at all - nothing is being decided")
+expect(!IdleInstall.decisionPending(windows: [window(), window()]),
+       "two plain windows on screen - furniture, which is what taskWindowOpen is for")
+expect(IdleInstall.decisionPending(windows: [window(modal: true)]),
+       "an application-modal window counts, as it always did")
+expect(IdleInstall.decisionPending(windows: [window(sheet: true)]),
+       "a window with a sheet attached counts too - NSApp.modalWindow answers nil for one")
+expect(IdleInstall.decisionPending(windows: [window(), window(sheet: true), window()]),
+       "one sheet among ordinary windows is enough")
+
+// And why it is routed into modalOpen rather than taskWindowOpen: this one does not expire.
+expect(!install(modal: IdleInstall.decisionPending(windows: [window(sheet: true)]),
+                taskWindow: true, idleFor: 86_400, waiting: windowGrace * 10),
+       "Add account open, the machine idle for a day, hours past every grace - still no restart")
 
 if failures > 0 {
     print("\(failures) failure(s)")

@@ -130,7 +130,10 @@ final class UpdaterController: NSObject {
     /// Move the state and carry out what it asks for. Every Sparkle callback, every timer and
     /// every switch in Settings comes through here, which is the point: there is one place where
     /// a transition is written down.
-    private func apply(_ event: UpdateEvent) {
+    ///
+    /// Not private: the Sparkle delegate that raises most of these events lives in
+    /// UpdaterDelegate.swift.
+    func apply(_ event: UpdateEvent) {
         state.installsAutomatically = automaticallyDownloadsUpdates
         let actions = UpdateReducer.reduce(&state, event, now: Date())
         // Written only on a real change: this is an @Observable the panel header reads, and every
@@ -288,7 +291,8 @@ final class UpdaterController: NSObject {
 
     /// Sparkle's "install this on quit" handler, held from the moment the download it belongs to
     /// finishes preparing until the moment it is run.
-    private var pendingInstall: InstallHandler?
+    /// Not private: the callback that hands it over lives in UpdaterDelegate.swift.
+    var pendingInstall: InstallHandler?
     private var idleTimer: Timer?
 
     /// How often the idle conditions are re-tested. The install is in no hurry and the shortest
@@ -320,10 +324,12 @@ final class UpdaterController: NSObject {
 
     /// Read the world for `IdleInstall` and hand its verdict over. Which action that verdict earns
     /// is the reducer's to say.
-    private func installIfIdle() {
+    /// Not private: the install handler arriving is one of the moments worth asking at, and that
+    /// callback lives in UpdaterDelegate.swift.
+    func installIfIdle() {
         let idle = state.knownSince.map {
             IdleInstall.shouldInstall(
-                modalOpen: NSApp.modalWindow != nil,
+                modalOpen: Self.decisionPending,
                 taskWindowOpen: Self.taskWindowOnScreen,
                 pinnedPanelOpen: PinnedPanelController.shared.isVisible,
                 secondsSinceUserInput: Self.secondsSinceUserInput(),
@@ -353,11 +359,27 @@ final class UpdaterController: NSObject {
         pendingInstall = nil
     }
 
+    /// Surfaces holding something the user has started and not finished, which is the veto with no
+    /// expiry. `IdleInstall.decisionPending` is where the rule (and why a sheet is one of these and
+    /// a popover is not) is written down; this reads the windows for it, so the rule itself stays
+    /// answerable without a window server.
+    private static var decisionPending: Bool {
+        let modal = NSApp.modalWindow
+        var windows = NSApp.windows.map {
+            IdleInstall.WindowState(isApplicationModal: $0 === modal,
+                                    hasAttachedSheet: $0.attachedSheet != nil)
+        }
+        // A modal session belonging to a window that is not in `NSApp.windows` would otherwise lose
+        // its veto, and losing a veto is the one direction this must never fail in.
+        windows.append(IdleInstall.WindowState(isApplicationModal: modal != nil,
+                                               hasAttachedSheet: false))
+        return IdleInstall.decisionPending(windows: windows)
+    }
+
     /// Windows the user opened to DO something: a restart takes them away mid-task (a half-scrolled
     /// Settings pane, a rename in progress), so any of them means wait, for as long as
-    /// `IdleInstall.taskWindowGrace`. A modal is deliberately absent and asked for separately at
-    /// the call site: it is the one surface holding a decision the user has not given yet, so it
-    /// vetoes with no expiry. The pinned panel is absent for the opposite reason - it is meant to
+    /// `IdleInstall.taskWindowGrace`. Anything holding an unfinished decision or entry is
+    /// deliberately absent and asked for separately, just above: those veto with no expiry. The pinned panel is absent for the opposite reason - it is meant to
     /// stay up forever, so it has a grace of its own (`IdleInstall.pinnedPanelGrace`).
     private static var taskWindowOnScreen: Bool {
         StatusItemController.shared?.isPopoverShown == true
@@ -378,106 +400,6 @@ final class UpdaterController: NSObject {
 /// Carries Sparkle's install block from the delegate callback to the main actor. Objective-C blocks
 /// do not import as `Sendable`, and this one is safe to send: Sparkle's own implementation of it
 /// (`SPUAutomaticUpdateDriver.m`) dispatches to the main queue before touching anything.
-private struct InstallHandler: @unchecked Sendable {
+struct InstallHandler: @unchecked Sendable {
     let run: () -> Void
-}
-
-extension UpdaterController: SPUUpdaterDelegate {
-    /// What Sparkle just fetched, which is a reading of the same feed the poller reads.
-    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        let release = Self.release(from: item)
-        Task { @MainActor in self.apply(.sparkleFoundUpdate(release)) }
-    }
-
-    /// The two callbacks that account for the wait. Between a press and the restart Sparkle spends
-    /// most of its time in these, and with automatic installs on it spends all of it off screen:
-    /// the press was reported as "the app froze and then closed itself" because nothing in between
-    /// was ever said out loud.
-    nonisolated func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem,
-                             with request: NSMutableURLRequest) {
-        Task { @MainActor in self.apply(.sparkleWillDownload) }
-    }
-
-    nonisolated func updater(_ updater: SPUUpdater, willExtractUpdate item: SUAppcastItem) {
-        Task { @MainActor in self.apply(.sparkleWillExtract) }
-    }
-
-    /// Sparkle's driver has finished, whatever came of it. The errors arrive at `didAbortWithError`
-    /// as well and are handled there; this one is here for the endings that are not errors and
-    /// would otherwise leave a chip saying it was still working: a check that found nothing, an
-    /// update deferred because it needs the user's attention first.
-    nonisolated func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
-                             error: (any Error)?) {
-        Task { @MainActor in self.apply(.updateCycleEnded) }
-    }
-
-    /// Second chip state, the Ghostty semantic: the payload is already on disk, so a click means
-    /// "restart into the new version", not "start a download". The chip goes green + ↻.
-    nonisolated func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
-        let release = Self.release(from: item)
-        Task { @MainActor in self.apply(.sparkleStagedUpdate(release)) }
-    }
-
-    /// Sparkle's own view of an appcast entry, in the shape the plan compares. An item whose
-    /// `sparkle:version` will not read as an integer is not something this app's own ranking can
-    /// place, so it is left out and Sparkle's comparator remains the only judge of it.
-    nonisolated private static func release(from item: SUAppcastItem) -> FeedRelease? {
-        guard let build = Int(item.versionString) else { return nil }
-        return FeedRelease(build: build, display: item.displayVersionString,
-                           minimumSystemVersion: item.minimumSystemVersion)
-    }
-
-    /// Take the install over. Answering true stalls Sparkle's cycle and hands this app the
-    /// trigger; when it is pulled is the reducer's business, and the caller follows with the idle
-    /// question so a moment that has already arrived is not missed.
-    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
-                             immediateInstallationBlock immediateInstallHandler: @escaping () -> Void)
-        -> Bool {
-        let handler = InstallHandler(run: immediateInstallHandler)
-        let release = Self.release(from: item)
-        Task { @MainActor in
-            self.pendingInstall = handler
-            self.apply(.installHandlerArrived(release))
-            if self.pendingInstall != nil { self.installIfIdle() }
-        }
-        return true
-    }
-
-    /// What the user answered in Sparkle's own dialog. Implementing this is also what stops
-    /// Sparkle reaching for its deprecated `userDidSkipThisVersion:` (it prefers this one and only
-    /// falls back when this is absent, SPUUIBasedUpdateDriver.m:257-264).
-    ///
-    /// Skip is the one that matters: it is written to `SUSkippedVersion` at the moment the button
-    /// is pressed, and the app's own reading of that key happens when its poll completes, which is
-    /// usually earlier and, with automatic checks turned off, may never happen again. Without this
-    /// the chip would go on offering a version the user had just declined, and pressing it would
-    /// reopen the same update.
-    nonisolated func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice,
-                             forUpdate updateItem: SUAppcastItem,
-                             state updateState: SPUUserUpdateState) {
-        let build = Int(updateItem.versionString)
-        let answer: UpdateUserChoice
-        switch choice {
-        case .skip: answer = .skip
-        case .install: answer = .install
-        case .dismiss: answer = .dismiss
-        @unknown default: answer = .dismiss
-        }
-        Task { @MainActor in self.apply(.userMadeChoice(answer, build: build)) }
-    }
-
-    /// Sparkle gave up: a signature that did not verify, an authorisation the user cancelled, a
-    /// disk with no room, a feed it could not reach. The app is still here, so everything stood
-    /// down for a restart that is not coming gets put back, and the build that failed is
-    /// remembered so the idle timer does not spend the rest of the day re-downloading it.
-    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
-        Task { @MainActor in self.apply(.installAttemptFailed) }
-    }
-
-    nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        Task { @MainActor in
-            self.apply(.willRelaunch)
-            UpdateAvailability.shared.clear()
-        }
-    }
 }

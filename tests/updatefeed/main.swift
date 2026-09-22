@@ -399,8 +399,13 @@ expect(!runBody.contains("invalidate") && !runBody.contains("stopPolling"),
        "P1: handing the install to Sparkle stands nothing down - it can fail with the app alive")
 expect(teardownBody.contains("invalidate") && teardownBody.contains("stopPolling"),
        "P1: the teardown happens where the app is really being replaced, and nowhere else")
+// The Sparkle callbacks that raise these events were split out of the controller into
+// UpdaterDelegate.swift for the 500-line rule, so the event half is read from there.
+let delegateSource = (try? String(contentsOfFile: "Tally/App/UpdaterDelegate.swift",
+                                  encoding: .utf8)) ?? ""
+expect(!delegateSource.isEmpty, "the Sparkle delegate source was found")
 expect(controllerSource.contains("case .teardownForRelaunch: teardownForRelaunch()")
-        && controllerSource.contains(".willRelaunch"),
+        && delegateSource.contains(".willRelaunch"),
        "P1: and it is reached only from the relaunch event")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")

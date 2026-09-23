@@ -1,5 +1,14 @@
 import Foundation
 
+// Child mode for runFollowChecks (tests/waitevents/followchecks.swift): the suite re-executes its own
+// binary so `tally events --follow` runs as a real process with a real stdout pipe, real signals and
+// a real exit code, without building the `tally` binary.
+if let followDir = ProcessInfo.processInfo.environment["TALLY_WAITEVENTS_FOLLOW_CHILD_DIR"] {
+    let childArgs = (ProcessInfo.processInfo.environment["TALLY_WAITEVENTS_FOLLOW_CHILD_ARGS"] ?? "")
+        .split(separator: " ").map(String.init)
+    exit(runEvents(args: childArgs, dir: URL(fileURLWithPath: followDir)))
+}
+
 // The pure contract this feature stands on: `TallyCLI/SessionWaitEvent.swift` (the wire shape,
 // the id/idempotency hashes) and `TallyCLI/SessionWaitLogic.swift` (what a tick believes is
 // standing, what changed since the last one, how a resolved request is explained), plus the spool
@@ -417,6 +426,7 @@ try? FileManager.default.removeItem(at: t18Dir)
 
 runDeliveryHandoffChecks()
 runDeliveryContractChecks()
+runFollowChecks()
 
 // MARK: - Verdict
 

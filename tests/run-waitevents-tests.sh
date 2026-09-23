@@ -17,14 +17,15 @@
 # stands in for `parseISO` alone rather than pay that, and says why in its own header.
 # EventDelivery.swift and EventsCommand.swift (§12 T11-T13, package P4) need nothing beyond what is
 # already in this closure: CryptoKit and Foundation only.
+# EventsFollow.swift (`tally events --follow`) needs Darwin kqueue only.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/waitevents/main.swift tests/waitevents/support.swift \
   tests/waitevents/loopbackreceiver.swift tests/waitevents/deliveryhandoffchecks.swift \
-  tests/waitevents/deliverycontractchecks.swift \
+  tests/waitevents/deliverycontractchecks.swift tests/waitevents/followchecks.swift \
   TallyCLI/SessionWaitEvent.swift TallyCLI/SessionWaitLogic.swift TallyCLI/SessionWaitSpool.swift \
-  TallyCLI/EventDelivery.swift TallyCLI/EventsCommand.swift \
+  TallyCLI/EventDelivery.swift TallyCLI/EventsCommand.swift TallyCLI/EventsFollow.swift \
   TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/ReloadRequest.swift \
   TallyCLI/OpenTurn.swift Tally/Core/SessionMonitoring.swift TallyCLI/EventDeliverySpawn.swift
 "$out"

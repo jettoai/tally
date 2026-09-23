@@ -177,6 +177,7 @@ to avoid a timing side channel.
 
 ```
 tally events --since <seq> [--limit n]   # every event with seq > <seq>, oldest first (default limit 500)
+tally events --follow [--since <seq>]    # print events after <seq> (default: from --latest-seq), then block and print each new one
 tally events --latest-seq                # the highest seq written so far, for aligning on startup
 tally events --deliver-once [--replay-dead-letter]   # run one delivery pass by hand
 tally events sink set <url> --secret-stdin           # configure the one destination (secret read from stdin)
@@ -202,6 +203,40 @@ takes the lock again if anything arrived. That is what delivers the `wait.resolv
 deliverer the exit path spawns loses the lock and leaves, and the pass holding it picks them up.
 Both loops are bounded (5 reads, 5 lock rounds); a pass that reaches the bound with events still
 waiting, having moved the cursor, spawns one fresh deliverer for the rest.
+
+## Local consumers: `tally events --follow`
+
+`tally events --follow [--since <seq>]` prints every event with `seq > <seq>` in the same encoding
+as `--since`, then blocks and prints one JSON line per new event as soon as it is appended. It is
+woken by kernel file events on `~/.tally/events`, so the consumer does no polling, runs no listener
+and exposes no URL. Without `--since` it starts at `--latest-seq` (only new events).
+
+Exit codes:
+
+- `0` - stopped by SIGTERM or SIGINT, or its stdout was closed (the consumer went away).
+- `1` - setup failure (the events directory could not be watched).
+- `2` - usage error.
+- `3` - events were lost: either the spool was trimmed past the consumer's cursor, or the seq
+  counter is below the cursor (the spool was rebuilt). The stderr line names the case and both
+  numbers.
+
+Consumer contract:
+
+- Persist your own cursor (the `seq` of the last event you handled) after handling each event, and
+  restart with `tally events --follow --since <cursor>`.
+- Deduplicate on `idempotencyKey`.
+- On start and on exit code `3`, reconcile with `tally status --json`, then realign with
+  `tally events --latest-seq` and restart from there.
+
+A seq hole that is not a trim (an append that failed after taking its number) is reported on stderr
+and skipped: the missing event was never written, so no reader could have received it.
+
+The webhook sink and any number of `--follow` readers run together; neither moves the other's
+cursor. Trim is driven by the webhook delivery cursor only (it keeps about 1000 events behind it),
+so a follow consumer that lags more than ~1000 events behind a trim gets exit code `3`.
+
+The follower also re-checks the spool every 60 s as a safety net against a missed file event; that
+is not the delivery path.
 
 ## Deduplication
 

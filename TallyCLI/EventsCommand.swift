@@ -16,22 +16,26 @@ private func eventsWarn(_ message: String) {
     FileHandle.standardError.write(Data((message + "\n").utf8))
 }
 
-private let eventsUsage = "usage: tally events --since <n> [--limit n] | --latest-seq | "
-    + "--deliver-once [--replay-dead-letter] | sink set <url> --secret-stdin | sink show | sink clear"
+private let eventsUsage = "usage: tally events --since <n> [--limit n] | --follow [--since <n>] | "
+    + "--latest-seq | --deliver-once [--replay-dead-letter] | sink set <url> --secret-stdin | "
+    + "sink show | sink clear"
 
 /// The spool's own `seq` counter (SessionWaitSpool.swift) minus one: that file holds the NEXT seq an
 /// append will hand out, so the highest seq actually written is one less than it, or 0 when nothing
 /// has been appended yet. A local read rather than a call into `SessionWaitSpool.swift`, which keeps
 /// that file private to itself the same way `EventDelivery.swift`'s header explains for `cursor`.
-private func latestWrittenSeq(dir: URL = tallyEventsDir) -> Int {
+func latestWrittenSeq(dir: URL = tallyEventsDir) -> Int {
     guard let raw = try? String(contentsOf: dir.appendingPathComponent("seq"), encoding: .utf8),
           let next = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else { return 0 }
     return max(next - 1, 0)
 }
 
-func runEvents(args: [String]) -> Int32 {
+func runEvents(args: [String], dir: URL = tallyEventsDir) -> Int32 {
+    if args.contains("--follow") {
+        return runEventsFollow(args: args, dir: dir)
+    }
     if args.contains("--latest-seq") {
-        print(latestWrittenSeq())
+        print(latestWrittenSeq(dir: dir))
         return 0
     }
 
@@ -64,6 +68,45 @@ func runEvents(args: [String]) -> Int32 {
 
     eventsWarn(eventsUsage)
     return 2
+}
+
+/// Exit code for "events were lost between the cursor and what the spool still holds". Distinct
+/// from 0 (done), 1 (failure) and 2 (usage) so a consumer can branch on it: reconcile with
+/// `tally status --json`, then realign with `--latest-seq`.
+let eventsFollowLossExitCode: Int32 = 3
+
+private func runEventsFollow(args: [String], dir: URL) -> Int32 {
+    var since: Int? = nil
+    if let sinceIndex = args.firstIndex(of: "--since") {
+        guard sinceIndex + 1 < args.count, let parsed = Int(args[sinceIndex + 1]) else {
+            eventsWarn("--since requires an integer: \(eventsUsage)")
+            return 2
+        }
+        since = parsed
+    }
+    // Ignored so the kqueue EVFILT_SIGNAL registrations (which still record ignored signals) turn
+    // them into a clean return, and so a gone consumer is an EPIPE return value, never a death.
+    signal(SIGPIPE, SIG_IGN)
+    signal(SIGTERM, SIG_IGN)
+    signal(SIGINT, SIG_IGN)
+    let result = followSessionWaitEvents(since: since ?? latestWrittenSeq(dir: dir), dir: dir,
+                                         outputFD: STDOUT_FILENO, stopSignals: [SIGTERM, SIGINT],
+                                         warn: eventsWarn)
+    switch result {
+    case .stopped, .outputClosed:
+        return 0
+    case .trimmed(let cursor, let firstAvailable):
+        eventsWarn("tally events --follow: events lost (trimmed): cursor \(cursor), first available "
+                   + "seq \(firstAvailable); reconcile with tally status --json, then realign with --latest-seq")
+        return eventsFollowLossExitCode
+    case .rebuilt(let cursor, let latest):
+        eventsWarn("tally events --follow: events lost (spool rebuilt): cursor \(cursor), latest "
+                   + "seq \(latest); reconcile with tally status --json, then realign with --latest-seq")
+        return eventsFollowLossExitCode
+    case .setupFailed(let reason):
+        eventsWarn("tally events --follow: \(reason)")
+        return 1
+    }
 }
 
 /// A scheme and a non-empty host, nothing more: this is a webhook destination the supervisor's own

@@ -184,6 +184,9 @@ targets:
       # The reload request file and the live-supervisor registry: the Settings row and `tally
       # reload` must write the same file the same way, so both targets compile the one writer.
       - path: TallyCLI/ReloadRequest.swift
+      # When keyboard focus changed hands: the app records it and every supervisor reads it to tell a
+      # terminal's focus reports from typing, so both targets compile the one file format.
+      - path: TallyCLI/FocusEvents.swift
       # The nearly-dry gate in front of every account pick: the panel's smart-pick badge must
       # predict what `tally` launches, so both targets run the one implementation.
       - path: TallyCLI/AccountComfort.swift

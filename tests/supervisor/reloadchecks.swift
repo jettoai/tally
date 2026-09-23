@@ -149,8 +149,8 @@ func runReloadChecks() {
     check("crossing it escalates once",
           reloadWaitNote(state: &wait, epoch: 7,
                          now: waitT0.addingTimeInterval(reloadStillWaitingAfter)) == .stillWaiting)
-    check("and never again, however long the wait then runs",
-          reloadWaitNote(state: &wait, epoch: 7, now: waitT0.addingTimeInterval(3600)) == .silent)
+    check("and on every tick after it, so the badge follows the gate",
+          reloadWaitNote(state: &wait, epoch: 7, now: waitT0.addingTimeInterval(3600)) == .stillWaiting)
     // A second `tally reload` is a new request: its own first note, its own line, timed from when
     // IT was queued rather than from the one before it.
     check("a newer stamp raises its own badge again",

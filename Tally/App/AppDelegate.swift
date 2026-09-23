@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItemController = StatusItemController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First, before anything puts a window up: that window taking key is itself a focus change
+        // a supervisor must be able to explain (FocusEventRecorder).
+        FocusEventRecorder.shared.install()
         applyPreviewAppearance()
         openPanelForCapture()
         // The motion samples, when a launch asks for them: a window of its own, gated inside the

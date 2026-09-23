@@ -25,6 +25,10 @@ import Foundation
 /// The suffix that separates a pending-notice file from the presence/drift file of the same pid.
 let pendingNoticeSuffix = ".notice"
 
+/// The suffix of the keyboard trace a supervisor keeps while a reload waits (KeyboardTrace.swift).
+/// Declared here with the other suffixes so every build that sweeps supervisor state has it.
+let keyboardTraceSuffix = ".keyboard-trace"
+
 /// One thing the supervisor is waiting to do.
 struct PendingNotice: Equatable, Codable {
     /// What the status line shows. Short: it shares a line with the quota meters.
@@ -70,7 +74,8 @@ let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, superv
                                supervisorChildSuffix, supervisorAccountSuffix,
                                transcriptIdentitySuffix, sessionStateSuffix, userNoticeSuffix,
                                sessionAgentsSuffix, sessionAgentsLockSuffix, sessionTurnEndSuffix,
-                               quotaKnockNoticeSuffix, SessionMonitoring.suffix, ".codex-binding", ".codex-activity"]
+                               quotaKnockNoticeSuffix, SessionMonitoring.suffix, ".codex-binding", ".codex-activity",
+                               keyboardTraceSuffix]
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }
@@ -227,26 +232,34 @@ func supervisorPendingBadges(manualMove: PendingBadge? = nil, sessionModel: Pend
 /// what is on disk is what this writer last decided, whichever image decided it.
 struct PendingNoticeWriter {
     private var current: String?
+    private var currentDetail: String?
+    private var currentSince: Date?
 
     /// `pid` is optional only so a test can build a writer with nothing to reconcile; the supervisor
     /// always passes its own, because the file it may have to take over is named for it.
     init(pid: String? = nil, dir: URL = supervisorStateDir) {
-        current = pid.flatMap { readPendingNotice(pid: $0, dir: dir)?.badge }
+        let existing = pid.flatMap { readPendingNotice(pid: $0, dir: dir) }
+        current = existing?.badge
+        currentDetail = existing?.detail
+        currentSince = existing?.since
     }
 
-    /// Idempotent: same badge in, nothing happens.
+    /// Idempotent: same badge and detail in, nothing happens. A detail that changes under the same
+    /// badge (the reload's wait naming how long ago the last burst was) is rewritten WITHOUT
+    /// restarting `since`: the wait did not start again, only its description moved.
     mutating func sync(_ pending: PendingBadge?, pid: String, dir: URL = supervisorStateDir,
                        now: Date = Date()) {
-        guard pending?.badge != current else { return }
+        guard pending?.badge != current || pending?.detail != currentDetail else { return }
         guard let pending else {
             clearPendingNotice(pid: pid, dir: dir)
-            current = nil
+            current = nil; currentDetail = nil; currentSince = nil
             return
         }
-        writePendingNotice(PendingNotice(badge: pending.badge, detail: pending.detail, since: now,
+        let since = pending.badge == current ? (currentSince ?? now) : now
+        writePendingNotice(PendingNotice(badge: pending.badge, detail: pending.detail, since: since,
                                          kind: pending.kind),
                            pid: pid, dir: dir)
-        current = pending.badge
+        current = pending.badge; currentDetail = pending.detail; currentSince = since
     }
 }
 

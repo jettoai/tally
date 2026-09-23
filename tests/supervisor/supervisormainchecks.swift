@@ -422,6 +422,7 @@ func runSupervisorMainChecks() {
     runSafeguardChecks()
     runOpenTurnChecks()
     runKeyboardChecks()
+    runKeyboardFocusChecks()
     runTerminalDrainChecks()
     runPendingNoticeChecks()
     runSessionContextChecks()

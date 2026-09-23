@@ -81,8 +81,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// instructions the request was about. Held across relaunches, like the fuse and the quarantine.
     var reloadEpoch = readReloadRequest()?.epoch ?? 0
     /// What has been said about a queued reload: the stamp it was said for, so a session in use
-    /// says it once, and when the wait began, so a wait past five minutes says so once more.
+    /// says it once, and when the wait began, so past five minutes the badge is recomputed every
+    /// tick and names the gate holding it now.
     var reloadNotice = ReloadWait()
+    /// Every stamp the keyboard tracker classified while a reload waits (KeyboardTrace.swift).
+    var keyboardTrace = KeyboardTrace()
     /// How big this session's conversation has grown, published on the same track for `tally status`
     /// (SessionContext.swift). Outside the loop, like the notice: the session survives its children.
     var sessionContext = SessionContextWriter()
@@ -472,7 +475,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let installedVersion = supervisorBuildVersion()
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
-            keyboard.observe(stamp: lastKeyboardInput())
+            // Focus changes the app recorded (FocusEvents.swift) keep a terminal's focus reports
+            // from ending a burst; read only when a stamp is due to be classified.
+            let keyboardSeen = keyboard.observe(stamp: lastKeyboardInput(), now: Date(),
+                                                focusEvents: { readFocusEvents() })
             // THREE READINGS OF ONE POLICY, and the difference between them is a pin. `fleetPolicy`
             // is what the app and this project declare; `moving` is that with a pin RELEASED when
             // the account it names has nothing left (DroughtWatch.swift), which is the reading
@@ -826,7 +832,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             applyReloadRequest(plan: &plan, epoch: &reloadEpoch, notice: &reloadNotice,
                                account: account, watcher: &watcher,
                                childAge: Date().timeIntervalSince(launchedAt),
-                               keyboardIdle: { keyboard.idle($0) }, carryable: carryable,
+                               keyboardIdle: { keyboard.idle($0) },
+                               keyboardBurstAt: keyboard.lastBurstAt,
+                               keyboardStampAt: keyboard.lastStamp, carryable: carryable,
                                repick: {
                                    rebalanceMove(provider: provider.id, account: account,
                                                  primaryModel: effectivePrimary, mode: policy.mode,
@@ -846,6 +854,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine, reserves: reserves)
                                })
+            // While a reload waits, every stamp the tracker classified and why (KeyboardTrace.swift).
+            if keyboardTrace.record(keyboardSeen, queuedEpoch: reloadNotice.epoch) {
+                keyboardTrace.write(pid: supervisorPID)
+            }
             // How much context a resume of this conversation would reload, and which conversation
             // it is, for the surfaces outside this terminal (SessionContext.swift). `axes` is the
             // reading taken above, beside the board it also feeds.

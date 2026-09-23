@@ -139,7 +139,9 @@ is treated as not a person. When the conversation moves without a person (a task
 wakes the session), a standing wait resolves `unknown`. A `system` record does not move the
 conversation at all: an auto mode notice written 0.97 s after a wait opened used to resolve it
 `answered` (H1 rerun O4). An `idle_prompt` wait, once open, stays open through Claude Code writing
-to an otherwise idle transcript; only the conversation moving or a keyboard burst ends it.
+to an otherwise idle transcript; only the conversation moving or a keyboard burst ends it. A
+terminal focus report is not a burst: a stamp that a focus change recorded by Tally.app explains
+never ends one.
 
 ## Verifying a delivered event
 

@@ -75,7 +75,9 @@ enum ReloadWaitNote: Equatable {
     case silent
     /// This request is being held back: raised the first tick it happens.
     case queued
-    /// The wait has crossed `reloadStillWaitingAfter`: the badge upgrades once, and stays there.
+    /// The wait has crossed `reloadStillWaitingAfter`: from then on EVERY tick, so the badge names
+    /// the gate holding it now rather than the one that held it at the five minute mark (the
+    /// 2026-09-23 badge said "keyboard" for a wait the keyboard had held for 19 seconds of).
     case stillWaiting
 }
 
@@ -84,8 +86,9 @@ func reloadWaitNote(state: inout ReloadWait, epoch: Int, now: Date = Date()) -> 
         state = ReloadWait(epoch: epoch, since: now)
         return .queued
     }
-    guard !state.reminded, let since = state.since,
-          now.timeIntervalSince(since) >= reloadStillWaitingAfter else { return .silent }
+    guard let since = state.since, now.timeIntervalSince(since) >= reloadStillWaitingAfter else {
+        return .silent
+    }
     state.reminded = true
     return .stillWaiting
 }
@@ -181,6 +184,27 @@ func reloadWaitReason(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript:
     }
 }
 
+/// How long ago, in whole tens of seconds, for a detail line that is rewritten when it changes:
+/// ten second steps keep that to one write in five ticks.
+func reloadWaitAge(_ date: Date?, now: Date) -> Int? {
+    date.map { max(0, Int(now.timeIntervalSince($0)) / 10 * 10) }
+}
+
+/// The detail line of an escalated wait: the gate's full name, and for the keyboard gate what it
+/// is holding on (a burst, or a lone stamp's short hold). Pure.
+func reloadWaitDetail(_ reason: ReloadWaitReason, keyboardHeld: Bool, burstAt: Date?,
+                      stampAt: Date?, bar: TimeInterval, now: Date) -> String {
+    var clause = reason.full
+    if keyboardHeld {
+        if let burstAt, now.timeIntervalSince(burstAt) < bar, let age = reloadWaitAge(burstAt, now: now) {
+            clause += ", last burst \(age)s ago"
+        } else if let age = reloadWaitAge(stampAt, now: now) {
+            clause += ", last input \(age)s ago"
+        }
+    }
+    return "reload still waiting after 5m (\(clause))"
+}
+
 // MARK: - Supervisor-side decision
 
 /// What one poll tick does about the reload request it just read.
@@ -221,6 +245,8 @@ func reloadDecision(captured: Int, requested: Int?, relaunchPlanned: Bool,
 /// `keyboardIdle` is the keyboard half of the bar, injected rather than read here: the supervisor
 /// holds a `KeyboardActivity` fed on every tick (a burst is only visible across readings), and a
 /// closure keeps this testable without manufacturing atimes on a real terminal.
+/// `keyboardBurstAt` and `keyboardStampAt` are the same tracker's last burst and last stamp, read
+/// only to word the escalated badge's detail; they take no part in the decision.
 ///
 /// `repick` offers the account this session should come back on instead, or nil to keep the one it
 /// is on. The supervisor wires it to the idle rebalance, so a restart that is happening anyway also
@@ -238,6 +264,7 @@ func reloadDecision(captured: Int, requested: Int?, relaunchPlanned: Bool,
 func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: inout ReloadWait,
                         account: Snapshot.Account, watcher: inout TranscriptWatcher,
                         childAge: TimeInterval, keyboardIdle: (TimeInterval) -> Bool,
+                        keyboardBurstAt: Date? = nil, keyboardStampAt: Date? = nil,
                         carryable: Bool = false,
                         request requested: ReloadRequest? = readReloadRequest(),
                         repick: () -> Snapshot.Account? = { nil },
@@ -329,8 +356,12 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
             let reason = reloadWaitReason(transcriptQuiet: transcriptQuiet,
                                           keyboardQuiet: keyboardQuiet,
                                           hasTranscript: hasTranscript, childAge: childAge, bar: bar)
+            let keyboardHeld = transcriptQuiet && !keyboardQuiet
             notice.pending = PendingBadge("reload waiting (\(reason.short))",
-                                          detail: "reload still waiting after 5m (\(reason.full))")
+                                          detail: reloadWaitDetail(reason, keyboardHeld: keyboardHeld,
+                                                                   burstAt: keyboardBurstAt,
+                                                                   stampAt: keyboardStampAt,
+                                                                   bar: bar, now: now))
         }
     }
 }

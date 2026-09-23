@@ -230,7 +230,11 @@ func runKeyboardChecks() {
     // stops asking anything, or one whose tracker is never fed, reads as idle forever and every
     // value assertion above stays green.
     check("the tick feeds the tracker before anything decides on it",
-          source.contains("keyboard.observe(stamp: lastKeyboardInput())"))
+          source.contains("keyboard.observe(stamp: lastKeyboardInput(),"))
+    // And with the app's focus record, or focus reports go back to reading as typing
+    // (FocusEvents.swift) while every value assertion stays green.
+    check("the tick hands the tracker the recorded focus changes",
+          source.contains("focusEvents: { readFocusEvents() }"))
     if let observed = source.range(of: "keyboard.observe("),
        let firstGate = source.range(of: "keyboard.idle(") {
         check("the reading is taken before the first gate reads it",

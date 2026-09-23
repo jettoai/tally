@@ -86,8 +86,49 @@ func lastKeyboardInput(path: String? = controllingTTYPath) -> Date? {
 /// What the pair sees and the single stamp cannot: a pty in RAW mode stamps on every keystroke, so
 /// composing a prompt arrives as a RUN of stamps seconds apart, while a focus report or a terminal
 /// query reply arrives ALONE. This gap sits an order of magnitude above keystroke spacing and below
-/// the smallest chatter interval measured.
+/// the smallest chatter interval measured. That held for terminal query replies and did not hold for
+/// focus reports, which arrive in out/in PAIRS a few seconds apart (2026-09-23); those are told apart
+/// by the app's own record of focus changes instead (FocusEvents.swift).
 let keyboardBurstGap: TimeInterval = 15
+
+/// A stamp this close to a recorded focus change (FocusEvents.swift) is a focus report, not a key.
+/// Compared against the stamp's own atime, which is when the child actually read the bytes, so the
+/// 2s poll adds no error here: typical distance is under 0.2s, and a stamp further out than this is
+/// counted as typing, which is the side that waits rather than the side that interrupts.
+let keyboardFocusWindow: TimeInterval = 1
+/// How old a stamp must be before it is classified, when there is a focus source to consult: the
+/// window plus slack for the app to receive the notification and write it down. The longest a burst
+/// can be late is this plus one tick, 3.5s, and every bar the supervisor asks at is at least 5s, so
+/// the lone-stamp hold (`min(keyboardBurstGap, bar)`) covers the delay at every call site.
+let keyboardClassifyDelay: TimeInterval = 1.5
+/// More focus changes than this in the span before a stamp is not a person switching windows; it is
+/// a writer gone wrong, and trusting it would let it swallow real typing. Measured densest real
+/// switching (2026-09-22): 4 changes in 8 seconds.
+let keyboardFocusFloodLimit = 8
+let keyboardFocusFloodSpan: TimeInterval = 10
+
+/// Signed distance from `stamp` to the focus change that explains it, nil when none does (or the
+/// log is flooded). Pure.
+func focusOffset(of stamp: Date, in events: [Date]) -> TimeInterval? {
+    let offsets = events.map { $0.timeIntervalSince(stamp) }
+    guard let nearest = offsets.filter({ abs($0) <= keyboardFocusWindow })
+        .min(by: { abs($0) < abs($1) }) else { return nil }
+    let crowd = offsets.filter { $0 >= -keyboardFocusFloodSpan && $0 <= keyboardFocusWindow }.count
+    return crowd > keyboardFocusFloodLimit ? nil : nearest
+}
+
+/// One classified stamp, for the trace (KeyboardTrace.swift) and the tests.
+struct KeyboardObservation: Equatable {
+    let stamp: Date
+    /// Seconds since the stamp before it, nil for the first.
+    let gap: TimeInterval?
+    let burst: Bool
+    /// Distance to the focus change that explained it, nil when none did.
+    let focusOffset: TimeInterval?
+    /// Distance to the nearest recorded focus change within 5s, whether or not it explained the
+    /// stamp: the data a narrower `keyboardFocusWindow` would have to be justified by.
+    let nearestFocus: TimeInterval?
+}
 
 /// The terminal as the supervisor watches it over time: the newest stamp, and when two stamps last
 /// landed close enough together to be a person typing.
@@ -102,25 +143,56 @@ let keyboardBurstGap: TimeInterval = 15
 /// on a chattering terminal the gate never opened at all, so the queued relaunch never landed, and
 /// the user restarted the session by hand and lost that same text anyway.
 struct KeyboardActivity {
-    /// The newest atime seen on the terminal, whatever put it there.
+    /// The newest atime seen on the terminal, whatever put it there. Updated the moment it is read,
+    /// so the lone-stamp hold starts at once even while the stamp waits to be classified.
     var lastStamp: Date?
-    /// The newest stamp that arrived within `keyboardBurstGap` of the one before it.
+    /// The newest stamp that arrived within `keyboardBurstGap` of the one before it and that no
+    /// focus change explains.
     var lastBurstAt: Date?
+    /// The newest stamp already classified: what the next one is paired against. A focus stamp
+    /// may be the EARLIER half of a burst (switching in and then pasting is a person), never the
+    /// later half (a focus report arriving after anything is not typing).
+    private(set) var lastClassified: Date?
+    /// Stamps read but not yet classified, oldest first. At most two ticks' worth in practice.
+    private(set) var unclassified: [Date] = []
 
-    /// Take one poll's reading. Nil (no terminal, or a stat that failed) and a repeat of the stamp
-    /// already held both mean nothing new arrived: the node is re-stamped only by input.
+    /// Take one poll's reading and classify every stamp old enough to be. Nil (no terminal, or a
+    /// stat that failed) and a repeat of the stamp already held both mean nothing new arrived: the
+    /// node is re-stamped only by input. `focusEvents` is asked only when there is something to
+    /// classify; nil from it means this machine has no focus source, and every stamp is classified
+    /// at once, exactly as before focus events existed.
     ///
     /// The gap is required to be FORWARD as well as short. A stamp older than the one already held
     /// is not a keystroke that arrived quickly, it is time moving backwards (a clock adjustment, a
     /// terminal replaced under the same path), and reading its negative gap as "close together"
     /// would invent a burst and hold every non-urgent relaunch for the full 120s on no input at all.
-    mutating func observe(stamp: Date?) {
-        guard let stamp, stamp != lastStamp else { return }
-        if let previous = lastStamp,
-           (0 ... keyboardBurstGap).contains(stamp.timeIntervalSince(previous)) {
-            lastBurstAt = stamp
+    @discardableResult
+    mutating func observe(stamp: Date?, now: Date = Date(),
+                          focusEvents: () -> [Date]? = { nil }) -> [KeyboardObservation] {
+        if let stamp, stamp != lastStamp {
+            lastStamp = stamp
+            unclassified.append(stamp)
         }
-        lastStamp = stamp
+        guard !unclassified.isEmpty else { return [] }
+        let events = focusEvents()
+        var classified: [KeyboardObservation] = []
+        while let next = unclassified.first,
+              events == nil || now.timeIntervalSince(next) >= keyboardClassifyDelay
+                  || unclassified.count > 4 {
+            unclassified.removeFirst()
+            let offset = events.flatMap { focusOffset(of: next, in: $0) }
+            let nearest = events.flatMap { list in
+                list.map { $0.timeIntervalSince(next) }.filter { abs($0) <= 5 }
+                    .min(by: { abs($0) < abs($1) })
+            }
+            let gap = lastClassified.map { next.timeIntervalSince($0) }
+            let burst = offset == nil && gap.map { (0 ... keyboardBurstGap).contains($0) } == true
+            if burst { lastBurstAt = next }
+            lastClassified = next
+            classified.append(KeyboardObservation(stamp: next, gap: gap, burst: burst,
+                                                  focusOffset: offset, nearestFocus: nearest))
+        }
+        return classified
     }
 
     /// Whether the keyboard has been still for `bar` seconds.

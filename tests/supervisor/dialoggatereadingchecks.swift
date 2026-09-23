@@ -92,11 +92,8 @@ func runDialogGateReadingChecks() {
           resume(.idle, dialog: true) == .hold(.blocked))
     check("cap resume still holds behind a hard dialog on a blocked board",
           resume(.blocked, dialog: true) == .hold(.blocked))
-    if case .type = resume(.blocked, dialog: false) {
-        check("cap resume types into a blocked board that is only an idle prompt", true)
-    } else {
-        check("cap resume types into a blocked board that is only an idle prompt", false)
-    }
+    check("cap resume types into a blocked board that is only an idle prompt",
+          resume(.blocked, dialog: false) == .type(armed.offer?.line ?? ""))
 
     // MARK: - What the input log records
 

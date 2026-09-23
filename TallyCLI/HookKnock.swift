@@ -24,6 +24,9 @@ import Foundation
 /// the second, and that pair is the whole evidence that an idle session's hook never ran.
 let quotaKnockDeliveredOutcome = "quota-knock-delivered"
 
+/// The audit word a delivered Chrome-gap sentence leaves in the input log (ChromeReach.swift).
+let chromeGapDeliveredOutcome = "chrome-gap-delivered"
+
 /// `tally hook-knock <event>` - one of the two hooks a filed knock is delivered through.
 ///
 /// A SESSION THIS TOOL DID NOT LAUNCH IS NOT OURS TO SPEAK INTO: without the supervisor marker in
@@ -42,6 +45,7 @@ func runHookKnock(args: [String],
                   },
                   log: URL = sessionInputLog,
                   now: Date = Date(),
+                  chrome: ChromeGapDeps = .live,
                   emit: (String) -> Void = { print($0) }) -> Int32 {
     guard let supervisor = environment["TALLY_SUPERVISOR_PID"],
           let pid = pid_t(supervisor), alive(pid) else { return 0 }
@@ -70,13 +74,30 @@ func runHookKnock(args: [String],
         isTranscriptSessionID($0) ? $0 : nil
     }
     if let session, let watched = watching(supervisor), watched != session { return 0 }
-    guard let notice = claimQuotaKnockNotice(pid: supervisor, dir: dir) else { return 0 }
-    emit(quotaKnockHookOutput(event: event, context: notice.message))
-    // ON THE SAME CHANNEL THE TYPED KNOCK IS RECORDED ON, and for the same reason: the question that
-    // log answers is "what reached my conversation, and when", and a sentence nobody asked for is
-    // exactly the entry a reader needs to be able to tell from one they did.
-    appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: quotaKnockDeliveredOutcome,
-                                               text: notice.message, now: now), to: log)
+    // A CLAUDE IN CHROME CALL THAT CAME BACK "NOT CONNECTED" (ChromeReach.swift). Every other tool
+    // pays one `hasPrefix` here and nothing more.
+    var contexts: [String] = []
+    if event == "PostToolUse", let tool = payload?["tool_name"] as? String,
+       tool.hasPrefix(chromeToolPrefix),
+       let message = chromeGapNotice(tool: tool, response: payload?["tool_response"],
+                                     cwd: payload?["cwd"] as? String, supervisor: supervisor,
+                                     stateDir: dir, now: now, deps: chrome) {
+        contexts.append(message)
+        appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromeGapDeliveredOutcome,
+                                                   text: message, now: now), to: log)
+    }
+    if let notice = claimQuotaKnockNotice(pid: supervisor, dir: dir) {
+        contexts.append(notice.message)
+        // ON THE SAME CHANNEL THE TYPED KNOCK IS RECORDED ON, and for the same reason: the question
+        // that log answers is "what reached my conversation, and when", and a sentence nobody asked
+        // for is exactly the entry a reader needs to be able to tell from one they did.
+        appendSessionInputLine(sessionInputLogLine(pid: supervisor,
+                                                   outcome: quotaKnockDeliveredOutcome,
+                                                   text: notice.message, now: now), to: log)
+    }
+    // ONE DOCUMENT WHATEVER WAS CLAIMED: stdout carries exactly one hook JSON or nothing.
+    guard !contexts.isEmpty else { return 0 }
+    emit(quotaKnockHookOutput(event: event, context: contexts.joined(separator: "\n\n")))
     return 0
 }
 

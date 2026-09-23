@@ -165,6 +165,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/SessionSendWait.swift \
   TallyCLI/QuotaKnock.swift TallyCLI/QuotaKnockLogic.swift \
   TallyCLI/QuotaKnockNotice.swift TallyCLI/QuotaKnockHookContract.swift TallyCLI/HookKnock.swift \
+  TallyCLI/ChromeReach.swift TallyCLI/ChromeGapEvent.swift \
   TallyCLI/HostHealthKnock.swift TallyCLI/HostHealthKnockLogic.swift \
   Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthReaders.swift \
   Tally/Core/KeystrokeText.swift \

@@ -212,6 +212,8 @@ targets:
       # drifted second copy fails silently in both directions (QuotaKnockHookContract.swift states
       # them).
       - path: TallyCLI/QuotaKnockHookContract.swift
+      # The Chrome-gap event the hook files and the app announces: one shape for both processes.
+      - path: TallyCLI/ChromeGapEvent.swift
     dependencies:
       - package: Sparkle
     settings:

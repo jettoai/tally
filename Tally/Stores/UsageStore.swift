@@ -375,6 +375,9 @@ final class UsageStore {
             // credit otherwise. Same rule as every other surface here - it names the account, it
             // never redeems.
             ResetHintNotifier.shared.evaluate(accounts: labeled)
+            // And any Claude in Chrome "not connected" a supervised session hit since the last
+            // round (TallyCLI/ChromeReach.swift files them, this announces each once).
+            ChromeGapNotifier.shared.sweep()
         }
         // And the morning schedule, which reads this round's windows to decide whether any account
         // still needs its 5-hour window opened (EarlyStartStore says why the decision rides the

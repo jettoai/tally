@@ -29,6 +29,11 @@ let pendingNoticeSuffix = ".notice"
 /// Declared here with the other suffixes so every build that sweeps supervisor state has it.
 let keyboardTraceSuffix = ".keyboard-trace"
 
+/// The per-child Chrome-gap claim (ChromeReach.swift) is `<pid><infix><child>`: one file per child
+/// generation, so it carries the child after the supervisor instead of ending in a fixed suffix.
+/// Declared here for the same reason as the suffix above.
+let chromeGapNoticeInfix = ".chromegap."
+
 /// One thing the supervisor is waiting to do.
 struct PendingNotice: Equatable, Codable {
     /// What the status line shows. Short: it shares a line with the quota meters.
@@ -79,6 +84,7 @@ let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, superv
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }
+    if let infix = name.range(of: chromeGapNoticeInfix) { return pid_t(name[..<infix.lowerBound]) }
     guard let suffix = supervisorStateSuffixes.first(where: { name.hasSuffix($0) }) else {
         return nil
     }

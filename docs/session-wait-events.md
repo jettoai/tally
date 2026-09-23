@@ -225,6 +225,7 @@ Consumer contract:
 - Persist your own cursor (the `seq` of the last event you handled) after handling each event, and
   restart with `tally events --follow --since <cursor>`.
 - Deduplicate on `idempotencyKey`.
+- Discard a trailing fragment that does not end in a newline: a stop can land mid-line.
 - On start and on exit code `3`, reconcile with `tally status --json`, then realign with
   `tally events --latest-seq` and restart from there.
 

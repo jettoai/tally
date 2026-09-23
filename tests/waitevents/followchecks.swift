@@ -1,6 +1,6 @@
 import Foundation
 
-// `tally events --follow` (TallyCLI/EventsFollow.swift), F1-F14. Each check runs the follower as a
+// `tally events --follow` (TallyCLI/EventsFollow.swift), F1-F16. Each check runs the follower as a
 // real child process (this test binary re-executed in child mode, see the top of `main.swift`) so
 // stdout is a real pipe, signals are real signals and the exit code is a real exit code. Every child
 // is started against a fresh temp dir; `t12Event` and `expect` are top-level in `main.swift`.
@@ -92,6 +92,9 @@ final class FollowChild {
         out.fileHandleForReading.readabilityHandler = nil
         out.fileHandleForReading.closeFile()
     }
+
+    /// Stops reading but keeps the read end open, so the child's stdout pipe fills and stays full.
+    func pauseReading() { out.fileHandleForReading.readabilityHandler = nil }
 
     func stop() {
         if waitExit(timeout: 0) == nil, process.isRunning {
@@ -337,5 +340,21 @@ func runFollowChecks() {
         expect(child.seqs() == [1] && elapsed < 1.0,
                "F14: a missing events dir is created and followed (\(Int(elapsed * 1000)) ms, seqs \(child.seqs()))")
         child.stop()
+    }
+
+    // F15/F16: a stop signal ends the follower with 0 even while its stdout pipe is full and the
+    // consumer keeps the read end open without reading.
+    for (tag, sig) in [("F15", SIGTERM), ("F16", SIGINT)] {
+        let dir = freshDir(tag.lowercased())
+        writeCrafted(dir, seqs: Array(1...3000), nextSeq: 3001)   // ~1 MB, far over a 64 KiB pipe
+        let child = follow(dir, ["--since", "0"])
+        child.pauseReading()
+        Thread.sleep(forTimeInterval: 1.0)                         // let the pipe fill
+        let filled = child.lines.count < 3000                      // non-vacuous: output really backed up
+        kill(child.process.processIdentifier, sig)
+        let exit = child.waitExitOrStop(timeout: 2)
+        expect(filled && exit?.status == 0 && exit?.reason == .exit,
+               "\(tag): signal \(sig) ends a follower blocked on a full stdout pipe with 0 "
+               + "(filled \(filled), \(String(describing: exit)))")
     }
 }

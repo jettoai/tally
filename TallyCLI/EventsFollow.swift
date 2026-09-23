@@ -31,6 +31,10 @@ import Foundation
 // and are never treated as a line until their newline arrives; a reopen (new inode) drops `carry`,
 // because the trim that caused it ran under the appenders' lock after that write completed, so the
 // complete line is in the new file.
+//
+// NONBLOCKING STDOUT (pipe or socket): stop signals are ignored and only recorded by kqueue, so a
+// blocking write into a pipe the consumer stopped reading would never return; a full pipe is instead
+// waited on in a kqueue that also holds the stop signals.
 
 enum EventsFollowResult: Equatable {
     case stopped                                   // a stop signal arrived
@@ -63,10 +67,28 @@ func followSessionWaitEvents(since: Int, dir: URL = tallyEventsDir, outputFD: In
 
     _ = fcntl(outputFD, F_SETNOSIGPIPE, 1)   // same call as Tally/Core/Harness/HarnessProcess.swift
     var outStat = stat()
-    if fstat(outputFD, &outStat) == 0,
-       (outStat.st_mode & S_IFMT) == S_IFIFO || (outStat.st_mode & S_IFMT) == S_IFSOCK {
-        register(outputFD, EVFILT_WRITE)      // EV_EOF once the last reader closes
+    let outIsStream = fstat(outputFD, &outStat) == 0
+        && ((outStat.st_mode & S_IFMT) == S_IFIFO || (outStat.st_mode & S_IFMT) == S_IFSOCK)
+    if outIsStream { register(outputFD, EVFILT_WRITE) }  // EV_EOF once the last reader closes
+
+    // A full pipe is waited on in this second kqueue, which also holds the stop signals.
+    let waitKQ = kqueue()
+    guard waitKQ >= 0 else { return .setupFailed("kqueue failed: errno \(errno)") }
+    defer { close(waitKQ) }
+    for sig in stopSignals {
+        var change = kevent(ident: UInt(sig), filter: Int16(EVFILT_SIGNAL), flags: UInt16(EV_ADD | EV_CLEAR),
+                            fflags: 0, data: 0, udata: nil)
+        _ = kevent(waitKQ, &change, 1, nil, 0, nil)
     }
+    let savedOutFlags = fcntl(outputFD, F_GETFL)
+    let outNonBlocking = outIsStream && savedOutFlags >= 0  // unknown flags: leave the fd alone
+    if outNonBlocking {
+        var change = kevent(ident: UInt(outputFD), filter: Int16(EVFILT_WRITE), flags: UInt16(EV_ADD),
+                            fflags: 0, data: 0, udata: nil)  // level-triggered: "writable now"
+        _ = kevent(waitKQ, &change, 1, nil, 0, nil)
+        _ = fcntl(outputFD, F_SETFL, savedOutFlags | O_NONBLOCK)
+    }
+    defer { if outNonBlocking { _ = fcntl(outputFD, F_SETFL, savedOutFlags) } }
 
     var dirFD: Int32 = -1
     func openDir() {
@@ -96,16 +118,32 @@ func followSessionWaitEvents(since: Int, dir: URL = tallyEventsDir, outputFD: In
         if fileFD >= 0 { register(fileFD, EVFILT_VNODE, vnodeFlags) }
     }
 
-    /// Write one line to the consumer; false = consumer gone (EPIPE or any other write error).
-    func writeLine(_ line: String) -> Bool {
+    /// Blocks until the output is writable again, the consumer is gone, or a stop signal arrived.
+    func waitWritable() -> EventsFollowResult? {
+        var got = Array(repeating: kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil),
+                        count: 4)
+        let count = kevent(waitKQ, nil, 0, &got, Int32(got.count), nil)
+        if count < 0 { return errno == EINTR ? nil : .setupFailed("kevent failed: errno \(errno)") }
+        let ready = got.prefix(Int(count))
+        if ready.contains(where: { $0.filter == Int16(EVFILT_SIGNAL) }) { return .stopped }
+        if ready.contains(where: { $0.filter == Int16(EVFILT_WRITE) && $0.flags & UInt16(EV_EOF) != 0 }) {
+            return .outputClosed
+        }
+        return nil
+    }
+
+    /// Write one line to the consumer; nil = written, else why the follower must end.
+    func writeLine(_ line: String) -> EventsFollowResult? {
         let bytes = Array((line + "\n").utf8)
         var offset = 0
         while offset < bytes.count {
             let n = bytes[offset...].withUnsafeBytes { write(outputFD, $0.baseAddress, $0.count) }
-            if n < 0 { if errno == EINTR { continue }; return false }
-            offset += n
+            if n >= 0 { offset += n; continue }
+            if errno == EINTR { continue }
+            guard errno == EAGAIN else { return .outputClosed }   // EPIPE or any other write error
+            if let result = waitWritable() { return result }
         }
-        return true
+        return nil
     }
 
     /// Read fileFD to EOF, emit every complete line. Returns an exit result or nil to keep going.
@@ -137,7 +175,7 @@ func followSessionWaitEvents(since: Int, dir: URL = tallyEventsDir, outputFD: In
                 }
                 guard let data = try? encoder.encode(event),
                       let json = String(data: data, encoding: .utf8) else { continue }
-                guard writeLine(json) else { return .outputClosed }
+                if let result = writeLine(json) { return result }
                 cursor = event.seq
             }
         }

@@ -90,13 +90,13 @@ final class LoopbackReceiver: @unchecked Sendable {
                 headers[parts[0].lowercased()] = parts[1].trimmingCharacters(in: .whitespaces)
             }
             let length = headers["content-length"].flatMap { Int($0) } ?? 0
-            let body = String(text[split.upperBound...])
-            if body.utf8.count < length { continue }
+            let body = Data(text[split.upperBound...].utf8)
+            if body.count < length { continue }
             let event = headers["x-tally-event"] ?? "?"
-            let seq = (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])?["seq"] as? Int ?? -1
+            let seq = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["seq"] as? Int ?? -1
             lock.lock()
             entries.append((event, seq))
-            captured.append((headers, Data(body.utf8)))
+            captured.append((headers, body))
             let number = entries.count
             lock.unlock()
             let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current,

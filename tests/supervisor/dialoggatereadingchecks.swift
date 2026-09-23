@@ -82,11 +82,12 @@ func runDialogGateReadingChecks() {
     var armed = CapResumeState()
     armed.arm(reason: "cap", fresh: false, cappedAt: now, answeredAt: now.addingTimeInterval(-10),
               conversation: "dg-conversation", from: acct("A", label: "Claude"),
-              to: acct("B", label: "Claude 2"), userTurnAt: nil)
+              to: acct("B", label: "Claude 2"), userTurnAt: nil, caughtUp: true)
     func resume(_ session: SupervisedState, dialog: Bool) -> CapResumeDecision {
         armed.decide(state: session, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                      relaunchPlanned: false, dialogPossible: dialog, draftSuspected: false,
-                     userTurnAt: nil, conversation: "dg-conversation", now: now.addingTimeInterval(30))
+                     caughtUp: true, userTurnAt: nil, conversation: "dg-conversation",
+                     now: now.addingTimeInterval(30))
     }
     check("cap resume holds behind a dialog only the registry sees",
           resume(.idle, dialog: true) == .hold(.blocked))

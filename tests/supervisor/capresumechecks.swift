@@ -84,7 +84,7 @@ func runCapResumeChecks() {
     check("and a move that resumes nothing arms nothing, because there is no id to hold", {
         var nothing = CapResumeState()
         nothing.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-                    conversation: nil, from: capped, to: sibling, userTurnAt: nil)
+                    conversation: nil, from: capped, to: sibling, userTurnAt: nil, caughtUp: true)
         return !nothing.isArmed
     }())
 
@@ -123,7 +123,7 @@ func runCapResumeChecks() {
         if second {
             state.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(-600),
                       answeredAt: wall.addingTimeInterval(-610), conversation: armedConversation,
-                      from: capped, to: sibling, userTurnAt: nil)
+                      from: capped, to: sibling, userTurnAt: nil, caughtUp: true)
             state.spend()
             state.noteTyped(at: wall.addingTimeInterval(-590))
         }
@@ -131,7 +131,7 @@ func runCapResumeChecks() {
                   conversation: armedConversation, from: capped, to: sibling,
                   // The only user turn the previous child saw is the resume line this supervisor
                   // typed into it, which is exactly what must not read as somebody coming back.
-                  userTurnAt: second ? wall.addingTimeInterval(-589.8) : nil)
+                  userTurnAt: second ? wall.addingTimeInterval(-589.8) : nil, caughtUp: true)
         return state
     }
 
@@ -153,7 +153,8 @@ func runCapResumeChecks() {
                 let decision = state.decide(state: shape.state, quiet: .quiet, turnEnded: false,
                                             keyboardIdle: true, relaunchPlanned: false,
                                             dialogPossible: shape.dialog,
-                                            draftSuspected: shape.draft, userTurnAt: nil,
+                                            draftSuspected: shape.draft, caughtUp: true,
+                                            userTurnAt: nil,
                                             conversation: armedConversation,
                                             now: wall.addingTimeInterval(30))
                 let expected: CapResumeDecision
@@ -182,7 +183,7 @@ func runCapResumeChecks() {
     check("a prompt typed into the relaunched child ends the offer",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false, dialogPossible: false, draftSuspected: false,
-                           userTurnAt: wall.addingTimeInterval(20),
+                           caughtUp: true, userTurnAt: wall.addingTimeInterval(20),
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(30)) == .drop(.userTurn))
     // THE TWO FACTS THAT WERE ONE BRANCH AND ONE WORD UNTIL 2026-09-02, asserted apart: same
@@ -192,7 +193,7 @@ func runCapResumeChecks() {
     check("a keystroke burst waits where a prompt of their own ends it",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
-                           userTurnAt: nil,
+                           caughtUp: true, userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(30)) == .hold(.drafting))
     check("…and every ending this station can reach carries a word of its own",
@@ -204,7 +205,7 @@ func runCapResumeChecks() {
     check("a drafting hold that outlives the offer becomes the expiry rather than a standing wait",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
-                           userTurnAt: nil,
+                           caughtUp: true, userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(capResumeLife + 1)) == .drop(.expired))
     // AND THE SEQUENCE THOSE TWO ENDINGS ONLY MEAN ANYTHING IN, driven by the real predicate rather
@@ -223,7 +224,7 @@ func runCapResumeChecks() {
         typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                          relaunchPlanned: false, dialogPossible: false,
                          draftSuspected: draftEvidence(at: moment),
-                         userTurnAt: nil, conversation: armedConversation,
+                         caughtUp: true, userTurnAt: nil, conversation: armedConversation,
                          now: wall.addingTimeInterval(moment))
     }
     let evidenceFresh = burst.timeIntervalSince(wall) + 30
@@ -250,7 +251,8 @@ func runCapResumeChecks() {
         -> CapResumeDecision {
         state.decide(state: session, quiet: quiet, turnEnded: turnEnded,
                      keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
-                     dialogPossible: dialog, draftSuspected: false, userTurnAt: nil, conversation: conversation,
+                     dialogPossible: dialog, draftSuspected: false, caughtUp: true,
+                     userTurnAt: nil, conversation: conversation,
                      now: wall.addingTimeInterval(moment))
     }
     let ready = session(interrupted: true, second: false)
@@ -282,12 +284,13 @@ func runCapResumeChecks() {
     once.noteTyped(at: wall.addingTimeInterval(30))
     check("…and having typed it, says nothing more about that wall", decide(once) == .idle)
     once.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-             conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil)
+             conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil,
+             caughtUp: true)
     check("…which a second handoff carrying the SAME wall cannot undo", decide(once) == .idle)
     // And the way back: a person types, so the next genuine wall is armed for again.
     once.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(600),
              answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-             userTurnAt: wall.addingTimeInterval(120))
+             userTurnAt: wall.addingTimeInterval(120), caughtUp: true)
     check("but a wall that follows a person coming back is armed for again",
           decide(once, at: 610) == .type(sentence))
 
@@ -295,7 +298,8 @@ func runCapResumeChecks() {
     var dropped = session(interrupted: true, second: false)
     dropped.drop()
     dropped.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-                conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil)
+                conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil,
+                caughtUp: true)
     check("a wall whose offer was dropped does not come back on the next handoff",
           decide(dropped) == .idle)
 
@@ -311,12 +315,13 @@ func runCapResumeChecks() {
     func station(_ state: inout CapResumeState, typedAlready: Bool = false,
                  session: SupervisedState = .idle, draftSuspected: Bool = false,
                  userTurnAt: Date? = nil, conversation: String? = armedConversation,
-                 at moment: TimeInterval = 30,
+                 caughtUp: Bool = true, at moment: TimeInterval = 30,
                  injection: SessionInputInjection = .done) -> String? {
         applyCapResume(&state, pid: fixturePid, typedAlready: typedAlready, session: session,
                        quiet: .quiet, turnEnded: { asked += 1; return false },
                        keyboardIdle: true, relaunchPlanned: false, draftSuspected: draftSuspected,
-                       waitingOnPerson: false, userTurnAt: userTurnAt, conversation: conversation,
+                       waitingOnPerson: false, caughtUp: caughtUp, userTurnAt: userTurnAt,
+                       conversation: conversation,
                        now: wall.addingTimeInterval(moment), log: log,
                        // The clock read after the write, which in a suite is the same instant: what
                        // the production call buys with the second reading is the seconds an
@@ -413,7 +418,7 @@ func runCapResumeChecks() {
     check("an armed offer is not disarmed by a fresh relaunch, because arm just returns", {
         carried.arm(reason: "cap", fresh: true, cappedAt: wall.addingTimeInterval(60),
                     answeredAt: nil, conversation: "a-brand-new-window", from: capped, to: sibling,
-                    userTurnAt: nil)
+                    userTurnAt: nil, caughtUp: true)
         return carried.isArmed
     }())
     check("…so the window it lands in is what refuses it: another conversation ends the offer",
@@ -459,22 +464,129 @@ func runCapResumeChecks() {
           recurring.nudgedAt == wall.addingTimeInterval(45))
     recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(120),
                   answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-                  userTurnAt: wall.addingTimeInterval(45.5))
+                  userTurnAt: wall.addingTimeInterval(45.5), caughtUp: true)
     check("a second wall arms nothing, because the only turn since is this station's own line",
           !recurring.isArmed)
     // AND A PERSON REALLY COMING BACK STILL RE-ARMS IT, which is the boundary of that refusal:
     // what is discounted is a turn inside `capResumeOwnLineGrace` of the write, not every later one.
     recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(120),
                   answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-                  userTurnAt: wall.addingTimeInterval(90))
+                  userTurnAt: wall.addingTimeInterval(90), caughtUp: true)
     check("…while a prompt somebody typed a minute after that line does re-arm it",
           recurring.isArmed)
     check("…and the second offer waits on its own burst rather than on the first offer's stamps",
           recurring.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
-                           userTurnAt: nil,
+                           caughtUp: true, userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(130)) == .hold(.drafting))
 
     try? FileManager.default.removeItem(at: log)
+    runCapResumeCatchUpChecks(armed: session(interrupted: true, second: false),
+                              conversation: armedConversation, wall: wall, sentence: sentence)
+    runCapResumeArmCatchUpChecks(conversation: armedConversation, wall: wall, from: capped,
+                                 to: sibling)
+}
+
+// MARK: - 33k. The arm is not raised off a half-read transcript (8292c97 fixup, scope widened)
+
+/// The OLD child's watcher at the handoff: it has read the cap but not what came after it, where an
+/// answer would say the wall interrupted nothing. The budget is shrunk so the cap and that answer
+/// fall either side of one bounded read, which in production takes a cap landing inside the first
+/// catch-up ticks after a launch.
+func runCapResumeArmCatchUpChecks(conversation: String, wall: Date, from: Snapshot.Account,
+                                  to: Snapshot.Account) {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-capresume-arm-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let filler = catchUpToolResult(stamp(1), uuid: "t-after",
+                                   payload: String(repeating: "z", count: 256 << 10))
+    let answer = catchUpAssistant(stamp(3), uuid: "a-after", parent: "t-after", cacheCreation: 9)
+    /// The watcher after `ticks` bounded scans of `lines`, and the offer its readings raise.
+    func armed(_ lines: [String], ticks: Int)
+        -> (watcher: TranscriptWatcher, state: CapResumeState) {
+        writeCatchUp(lines.map { CatchUpLine(text: $0, fullPath: true) },
+                     to: dir.appendingPathComponent("\(conversation).jsonl"))
+        var w = TranscriptWatcher(projectDir: dir, since: wall.addingTimeInterval(-60),
+                                  resumeID: conversation)
+        w.scanBudgetBytes = 64 << 10
+        for _ in 0..<ticks { _ = w.sawCapHit() }
+        var state = CapResumeState()
+        state.arm(reason: "cap", fresh: false, cappedAt: w.capHitAt,
+                  answeredAt: w.lastMainChainEventAt, conversation: w.transcriptSessionID,
+                  from: from, to: to, userTurnAt: w.lastUserTurnAt, caughtUp: w.caughtUp)
+        return (w, state)
+    }
+    let cap = catchUpCap(stamp(0), uuid: "a-cap")
+    let half = armed([cap, filler, answer], ticks: 1)
+    check("the old child has read the wall but not the answer after it",
+          half.watcher.capHitAt != nil && half.watcher.lastMainChainEventAt == nil
+              && !half.watcher.caughtUp)
+    check("…so the handoff raises no offer off that half-read transcript", !half.state.isArmed)
+    let answered = armed([cap, filler, answer], ticks: 20)
+    check("read to the end, the answer says the wall interrupted nothing: still no offer",
+          answered.watcher.caughtUp && !answered.state.isArmed)
+    let unanswered = armed([cap, filler], ticks: 20)
+    check("read to the end with no answer after the wall, the offer is raised as before",
+          unanswered.watcher.caughtUp && unanswered.state.isArmed)
+    let unansweredHalf = armed([cap, filler], ticks: 1)
+    check("…but not from the tick that has read only the wall", !unansweredHalf.state.isArmed)
+}
+
+// MARK: - 33j. A bounded catch-up is not evidence that nobody typed (codex review of 8292c97)
+
+/// The review's own replay: 96 MiB of history, then a stop typed after the wall. The watcher is the
+/// real one at the product budget, so its first tick reads a third of the file; the offer must wait
+/// for the rest rather than read "no prompt yet" off a transcript it has not finished.
+func runCapResumeCatchUpChecks(armed: CapResumeState, conversation: String, wall: Date,
+                               sentence: String) {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-capresume-catchup-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let history = catchUpHistory(stamp, small: 200, big: 96, bigBytes: 1 << 20)
+    let stop = CatchUpLine(text: catchUpUser(stamp(10), uuid: "u-stop",
+                                             text: "Stop, do not continue."), fullPath: true)
+    /// One tick: the scan, then the decision off what it read, every other gate open.
+    func tick(_ w: inout TranscriptWatcher, at moment: TimeInterval = 30) -> CapResumeDecision {
+        _ = w.sawCapHit()
+        return armed.decide(state: .idle, quiet: .quiet, turnEnded: true, keyboardIdle: true,
+                            relaunchPlanned: false, dialogPossible: false, draftSuspected: false,
+                            caughtUp: w.caughtUp, userTurnAt: w.lastUserTurnAt,
+                            conversation: w.transcriptSessionID,
+                            now: wall.addingTimeInterval(moment))
+    }
+    /// Ticks until the watcher has read to the end; every decision on the way, in order.
+    func drain(_ lines: [CatchUpLine])
+        -> (first: TranscriptWatcher, decisions: [CapResumeDecision]) {
+        writeCatchUp(lines, to: dir.appendingPathComponent("\(conversation).jsonl"))
+        var w = TranscriptWatcher(projectDir: dir, since: wall.addingTimeInterval(5),
+                                  resumeID: conversation)
+        var decisions = [tick(&w)]
+        let first = w
+        while !w.caughtUp, decisions.count < 20 { decisions.append(tick(&w)) }
+        return (first, decisions)
+    }
+    let stopped = drain(history.lines + [stop])
+    check("the first tick of a large catch-up has not read the stop typed after the wall "
+          + "(offset \(stopped.first.offset))",
+          stopped.first.lastUserTurnAt == nil && !stopped.first.caughtUp)
+    check("…so the offer waits for the rest of the transcript rather than typing over the stop",
+          stopped.decisions.first == .hold(.catchingUp))
+    check("…holds on every tick until then (\(stopped.decisions))",
+          stopped.decisions.dropLast().allSatisfy { $0 == .hold(.catchingUp) }
+              && stopped.decisions.count > 1)
+    check("…and once the transcript is read to its end, the stop ends the offer",
+          stopped.decisions.last == .drop(.userTurn))
+    // The other half of the exit: with nobody in the tail, the wait ends in the line itself.
+    let quiet = drain(history.lines)
+    check("with no prompt in the tail the same catch-up ends in the resume line "
+          + "(\(quiet.decisions))",
+          quiet.decisions.first == .hold(.catchingUp) && quiet.decisions.last == .type(sentence))
+    // And the offer's own life still ends the wait: the hold is not a way to outlive it.
+    var late = TranscriptWatcher(projectDir: dir, since: wall.addingTimeInterval(5),
+                                 resumeID: conversation)
+    check("an offer whose life runs out mid catch-up is dropped as expired, not held",
+          tick(&late, at: capResumeLife + 1) == .drop(.expired) && !late.caughtUp)
 }

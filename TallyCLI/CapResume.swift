@@ -47,12 +47,9 @@ import Foundation
 //     (`capResumeFollowedByPerson`). What handles a second wall is what handled the first, bounded
 //     by the recovery fuse the supervisor already keeps (`RecoveryFuse`, three per ten minutes).
 //
-// WHY IT TYPES RATHER THAN FILES. The advisory knock next door chooses between the two because its
-// reader is a session mid-turn, where a keystroke interleaves with the answer being written and a
-// filed sentence does not (QuotaKnock.swift). This one has the opposite reader by construction: a
-// child that has just come up on a resumed conversation with nothing running in it. A filed notice
-// is handed over on the session's NEXT prompt or tool call, and waiting for a prompt is exactly the
-// wait this exists to end, so filing here would deliver the line at the one moment it is worthless.
+// WHY IT TYPES RATHER THAN FILES. Its reader is a child that has just come up on a resumed
+// conversation with nothing running in it (the opposite of the knock's, QuotaKnock.swift), and a
+// filed notice is handed over on the NEXT prompt: waiting for a prompt is the wait this ends.
 //
 // WHAT IT DOES NOT REACH, deliberately. `cap-fallback` is the other relaunch a wall can produce: the
 // session keeps its account and comes back on the declared fallback pairing (CapDetection.swift).
@@ -68,8 +65,7 @@ import Foundation
 // which is long enough for a resumed Claude Code to be reading its terminal. A bar of this
 // station's own would be a second, weaker spelling of a reading that already exists.
 //
-// WHAT IT COSTS ON AN ORDINARY TICK: one optional test. Everything behind it, `turnEnded` included,
-// is asked only while an arm stands, which is the seconds after a cap handoff and never otherwise.
+// WHAT IT COSTS ON AN ORDINARY TICK: one optional test; everything behind it waits for an arm.
 
 /// The marker every automatic resume line carries, and the reason it is not just `[tally]`.
 ///
@@ -178,12 +174,13 @@ enum CapResumeHold: Equatable {
     /// the offer's own life.
     case unlocated
     /// A run of keystrokes in that composer with no prompt sent since
-    /// (`sessionInputDraftSuspected`), which is EVIDENCE of somebody rather than the person
-    /// themselves: mouse reporting and an IME write the same shape. A wait for the reason the
-    /// dialog row above is one - if they are there they send a prompt, and if they are not the
-    /// evidence expires - and it was a final drop until 2026-09-02, when the evidence had no expiry
-    /// and this station's only measured failure mode was this branch.
+    /// (`sessionInputDraftSuspected`): EVIDENCE of somebody, since mouse reporting and an IME write
+    /// the same shape. A wait because a person sends a prompt and evidence expires; a final drop
+    /// until 2026-09-02, when this branch was the station's only measured failure mode.
     case drafting
+    /// The watcher is mid catch-up (`TranscriptWatcher.caughtUp`), so "no prompt since the wall" is
+    /// not known yet: a stop sent in the unread tail would be typed over (codex review of 8292c97).
+    case catchingUp
 }
 
 /// Why an arm will never be typed. All three are final: the arm is cleared and this wall gets no
@@ -339,11 +336,11 @@ struct CapResumeState: Equatable {
     /// composer.
     mutating func arm(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
                       conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
-                      userTurnAt: Date?) {
-        // The id the offer is ABOUT, and the reason its absence refuses here rather than inside
-        // the predicate above: no conversation is no id, and no id is nothing for a later tick to
-        // compare the window against.
-        guard let conversation,
+                      userTurnAt: Date?, caughtUp: Bool) {
+        // `caughtUp` FIRST: a watcher mid catch-up may not have read an answer after the wall, so
+        // "interrupted" is unknown and no arm costs one line, never a wrong one. And the id the
+        // offer is ABOUT: no id is nothing for a later tick to compare the window against.
+        guard caughtUp, let conversation,
               capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
                                    answeredAt: answeredAt),
               let cappedAt,
@@ -367,7 +364,7 @@ struct CapResumeState: Equatable {
     /// LAST: a composer behind a dialog is not one somebody is typing into. All are holds, so the
     /// order decides only which word the record carries.
     func decide(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bool, keyboardIdle: Bool,
-                relaunchPlanned: Bool, dialogPossible: Bool, draftSuspected: Bool,
+                relaunchPlanned: Bool, dialogPossible: Bool, draftSuspected: Bool, caughtUp: Bool,
                 userTurnAt: Date?, conversation: String?, now: Date = Date()) -> CapResumeDecision {
         guard let offer else { return .idle }
         // WHICH CONVERSATION IS ACTUALLY IN THAT WINDOW, asked FIRST, because every gate below it
@@ -385,6 +382,9 @@ struct CapResumeState: Equatable {
         // directions without a second clock: an offer nobody could type at ends here whatever is
         // holding it, and it ends saying `expired` rather than naming the hold that outlasted it.
         if now.timeIntervalSince(offer.at) > capResumeLife { return .drop(.expired) }
+        // THE EVIDENCE BEFORE THE MOMENT: the rows below read a session the watcher has not
+        // finished reading either, so this names the cause rather than a symptom the table catches.
+        if !caughtUp { return .hold(.catchingUp) }
         if let hold = automaticSessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
                                                 keyboardIdle: keyboardIdle,
                                                 relaunchPlanned: relaunchPlanned,
@@ -446,8 +446,9 @@ struct CapResumeState: Equatable {
 func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bool,
                     session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                     keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                    waitingOnPerson: Bool, seen: SessionInputSeen? = nil, userTurnAt: Date?,
-                    conversation: String?, now: Date = Date(), log: URL = sessionInputLog,
+                    waitingOnPerson: Bool, seen: SessionInputSeen? = nil, caughtUp: Bool,
+                    userTurnAt: Date?, conversation: String?, now: Date = Date(),
+                    log: URL = sessionInputLog,
                     stamped: () -> Date = { Date() },
                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
                         injectSessionInput($0, draft: $1)
@@ -456,8 +457,8 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
     let decision = state.decide(state: session, quiet: quiet, turnEnded: turnEnded(),
                                 keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
                                 dialogPossible: waitingOnPerson,
-                                draftSuspected: draftSuspected, userTurnAt: userTurnAt,
-                                conversation: conversation, now: now)
+                                draftSuspected: draftSuspected, caughtUp: caughtUp,
+                                userTurnAt: userTurnAt, conversation: conversation, now: now)
     switch decision {
     case .idle, .hold:
         return nil

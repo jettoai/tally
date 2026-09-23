@@ -11,7 +11,10 @@ extension TranscriptWatcher {
     /// what the full scan would have done with them.
     mutating func sawCapHit() -> Bool {
         locateFile()
-        guard let file, let handle = try? FileHandle(forReadingFrom: file) else { return false }
+        guard let file, let handle = try? FileHandle(forReadingFrom: file) else {
+            caughtUp = false
+            return false
+        }
         defer { try? handle.close() }
         let end = handle.seekToEndOfFile()
         if end < offset {
@@ -21,6 +24,7 @@ extension TranscriptWatcher {
         // A partial record may still contain a fallback flag, so only actual silence can settle a
         // pending model choice before the next complete event arrives.
         guard end > offset else {
+            caughtUp = true
             settlePendingIfQuiet()
             return false
         }
@@ -58,6 +62,8 @@ extension TranscriptWatcher {
             if scanCompleteLines(pending, sinceKey: sinceKey) { hit = true }
             offset += UInt64(pending.count)
         }
+        // A trailing record still being written does not count as unread: it is not a line yet.
+        caughtUp = atEnd || offset >= end
         return hit
     }
 

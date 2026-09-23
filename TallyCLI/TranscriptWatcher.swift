@@ -40,6 +40,11 @@ struct TranscriptWatcher {
     /// How many bytes one `sawCapHit` may read before leaving the rest to the next tick
     /// (`transcriptScanBudgetBytes`, issue #3). A var so a suite can drive a catch-up in small steps.
     var scanBudgetBytes = transcriptScanBudgetBytes
+    /// Whether the last `sawCapHit` read to the end of the file as it stood when that call began:
+    /// false while a bounded catch-up still has bytes left, and before the first scan. Every reading
+    /// here describes only the part already read, so a writer that acts on the ABSENCE of an event
+    /// (no prompt yet, so nobody is here) waits for this (`CapResumeHold.catchingUp`).
+    var caughtUp = false
     /// False sends every line through the full scan: the semantics before issue #3, which the
     /// catch-up checks compare the history path against. Nothing in the product sets it.
     var skipsHistoryCheaply = true

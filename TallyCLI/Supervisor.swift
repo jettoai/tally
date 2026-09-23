@@ -1023,6 +1023,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                          relaunchPlanned: replacingChild,
                                          draftSuspected: draftSuspected,
                                          waitingOnPerson: board.dialogPossible, seen: board.seen,
+                                         // Whether that reading covers the whole file yet: a
+                                         // prompt past a bounded catch-up is not in it.
+                                         caughtUp: watcher.caughtUp,
                                          userTurnAt: watcher.lastUserTurnAt,
                                          // WHICH conversation is in this window right now, which is
                                          // what says the offer still belongs to it: a relaunch that
@@ -1135,7 +1138,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                               answeredAt: watcher.lastMainChainEventAt,
                               conversation: watcher.transcriptSessionID,
                               from: leaving, to: plan.target,
-                              userTurnAt: watcher.lastUserTurnAt)
+                              userTurnAt: watcher.lastUserTurnAt,
+                              // The old child's reading covers its whole transcript, or no arm.
+                              caughtUp: watcher.caughtUp)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child

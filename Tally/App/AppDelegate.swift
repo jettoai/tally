@@ -126,6 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the guidance ships with the app. Only files that are already installed and ours are
         // touched: never an install, never someone else's skill of the same name.
         IntegrationsStore.shared.autoUpdateSkill()
+        // And the knock hooks: an install from an older app gains the Chrome-gap hook and loses a
+        // moved binary's path; a machine without them stays without (IntegrationsKnockHook.swift).
+        IntegrationsStore.shared.autoUpdateKnockHooks()
         // And the same for the PATH shims, which is the more urgent half of the same idea: the
         // script stands in front of every `claude` and `codex` typed on this machine, so a defect
         // in one may not wait for somebody to notice a Reinstall button (IntegrationsShim.swift).

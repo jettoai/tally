@@ -60,15 +60,31 @@ extension IntegrationsStore {
     /// AN ENTRY OF ITS OWN ALL THE SAME, because an entry is where a matcher would live if the user
     /// gave theirs one: putting ours into their entry would put their hook under our filter, in a
     /// file we are only supposed to be adding one line to.
-    static func knockHookEntry(command: String) -> [String: Any] {
-        ["hooks": [["type": "command", "command": command]]]
+    ///
+    /// The third event, `chromeGapHookEvent`, is the exception and carries a matcher: that entry
+    /// exists for Claude in Chrome alone (it carries no quota knock), so no other tool's failure
+    /// needs to spawn a process for it.
+    static func knockHookEntry(command: String, matcher: String? = nil) -> [String: Any] {
+        var entry: [String: Any] = ["hooks": [["type": "command", "command": command]]]
+        if let matcher { entry["matcher"] = matcher }
+        return entry
+    }
+
+    /// Every event this row registers: the knock channel's two, which the supervisor's all-of
+    /// question reads (`quotaKnockHookRegistered`), plus the Chrome-gap failure event.
+    nonisolated static let knockHookEvents = quotaKnockHookEvents + [chromeGapHookEvent]
+
+    nonisolated static func knockHookMatcher(_ event: String) -> String? {
+        event == chromeGapHookEvent ? chromeGapHookMatcher : nil
     }
 
     /// Whether an entry of ours is the CURRENT registration. An install pointing at an older command
     /// answers false here and true to `holdsOurKnockHook`, which is exactly the difference between
     /// "installed" and "installed correctly".
-    private static func isCurrentKnockEntry(_ entry: [String: Any], command: String) -> Bool {
-        NSDictionary(dictionary: entry).isEqual(to: knockHookEntry(command: command))
+    private static func isCurrentKnockEntry(_ entry: [String: Any], command: String,
+                                            event: String) -> Bool {
+        NSDictionary(dictionary: entry)
+            .isEqual(to: knockHookEntry(command: command, matcher: knockHookMatcher(event)))
     }
 
     /// The settings document with our hook for one event registered, or nil when nothing needs to
@@ -97,7 +113,7 @@ extension IntegrationsStore {
         case let existing as [[String: Any]]: entries = existing
         default: return nil
         }
-        let ourEntry = knockHookEntry(command: command)
+        let ourEntry = knockHookEntry(command: command, matcher: knockHookMatcher(event))
         var changed = false
         var placed = false
         var kept: [[String: Any]] = []
@@ -111,7 +127,7 @@ extension IntegrationsStore {
                 // such entry is a duplicate and simply goes.
                 if placed { changed = true; continue }
                 placed = true
-                if !isCurrentKnockEntry(entry, command: command) { changed = true }
+                if !isCurrentKnockEntry(entry, command: command, event: event) { changed = true }
                 kept.append(ourEntry)
             } else {
                 // Shared with the user. Ours comes out and theirs stays exactly where it was,
@@ -169,7 +185,7 @@ extension IntegrationsStore {
     private static func editKnockHooks(in file: URL,
                                        _ edit: (String, [String: Any]) -> [String: Any]?) throws {
         var failure: Error?
-        for event in quotaKnockHookEvents {
+        for event in knockHookEvents {
             do { _ = try editSettings(file) { edit(event, $0) } } catch { failure = failure ?? error }
         }
         if let failure { throw failure }
@@ -229,7 +245,7 @@ extension IntegrationsStore {
         guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return true }
         let hooks = settings["hooks"] as? [String: Any]
-        return quotaKnockHookEvents.contains { event in
+        return knockHookEvents.contains { event in
             ((hooks?[event] as? [[String: Any]]) ?? []).contains {
                 holdsOurKnockHook($0, event: event)
             }
@@ -241,9 +257,9 @@ extension IntegrationsStore {
     /// command this build no longer answers to is a hook that runs and delivers nothing.
     static func settingsCarryCurrentKnockHooks(_ file: URL) -> Bool {
         let entries = knockHookEntries(file)
-        return quotaKnockHookEvents.allSatisfy { event in
+        return knockHookEvents.allSatisfy { event in
             (entries[event] ?? []).contains {
-                isCurrentKnockEntry($0, command: knockHookCommand(event))
+                isCurrentKnockEntry($0, command: knockHookCommand(event), event: event)
             }
         }
     }
@@ -255,8 +271,45 @@ extension IntegrationsStore {
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let hooks = settings["hooks"] as? [String: Any] else { return [:] }
         var found: [String: [[String: Any]]] = [:]
-        for event in quotaKnockHookEvents { found[event] = hooks[event] as? [[String: Any]] ?? [] }
+        for event in knockHookEvents { found[event] = hooks[event] as? [[String: Any]] ?? [] }
         return found
+    }
+
+    /// The launch upkeep's decision over a given file set, pure so it is testable without the
+    /// machine's config homes: a file that carries both of our quota hooks and is not current (an
+    /// older app's install without the Chrome-gap hook, or one naming a moved binary). A file
+    /// without them is not installed and stays exactly as it is. One entry per physical file,
+    /// since homes can share one settings.json through a symlink.
+    static func knockHookFilesNeedingUpdate(_ files: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return files.filter { file in
+            seen.insert(file.resolvingSymlinksInPath().path).inserted
+                && settingsCarryKnockHooks(file) && !settingsCarryCurrentKnockHooks(file)
+        }
+    }
+
+    /// The same upsert the row's press runs, over exactly the files above. Returns the files
+    /// rewritten and the first failure.
+    static func autoUpdateKnockHooks(in files: [URL]) -> (updated: [URL], error: String?) {
+        var updated: [URL] = []
+        var failure: String?
+        for file in knockHookFilesNeedingUpdate(files) {
+            do { try upsertKnockHooks(in: file); updated.append(file) } catch {
+                failure = failure ?? error.localizedDescription
+            }
+        }
+        return (updated, failure)
+    }
+
+    /// An install made by an older app is silently brought up to date at launch, the way
+    /// `autoUpdateSkill` treats the skill: never an install, never a question, and a failure only
+    /// reaches `lastError`. `isUnshipped` for the reason given there.
+    func autoUpdateKnockHooks() {
+        guard !BuildVariant.isUnshipped else { return }
+        let result = Self.autoUpdateKnockHooks(in: Self.knockHookSettingsFiles())
+        if let error = result.error { lastError = error }
+        guard !result.updated.isEmpty else { return }
+        refresh()
     }
 
     /// The manifest component this registration is recorded under, in ONE place: written by the

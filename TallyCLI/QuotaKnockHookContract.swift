@@ -28,6 +28,17 @@ import Foundation
 /// and that conversation is precisely the one the typed channel can never interrupt.
 let quotaKnockHookEvents = ["UserPromptSubmit", "PostToolUse"]
 
+/// The event a Claude in Chrome call that FAILED arrives on: an MCP result carrying `isError` is
+/// delivered to `PostToolUseFailure` with its text in `error`, never to `PostToolUse` (hooks
+/// reference, and the 2.1.280 binary's schema). It carries only the Chrome-gap sentence, never a
+/// quota knock, which is why it is not in `quotaKnockHookEvents`: the supervisor's all-of question
+/// about the knock channel is unchanged by it.
+let chromeGapHookEvent = "PostToolUseFailure"
+
+/// The matcher that registration carries: the entry exists for Chrome alone, so no other tool's
+/// failure spawns a process for it.
+let chromeGapHookMatcher = "mcp__claude-in-chrome__.*"
+
 /// The program a registration names. The public path, like the hooks beside it, because that is the
 /// one that survives the app bundle moving - and a constant rather than a literal in the command
 /// below, because the supervisor has to be able to ask whether the thing at it can actually run

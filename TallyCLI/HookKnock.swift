@@ -61,8 +61,14 @@ func runHookKnock(args: [String],
     // CONTINUES THE CONVERSATION (`quotaKnockHookEvents` states the measurement), so a hook wired by
     // hand onto that event would spend a model turn on this. Returning silently leaves the sentence
     // on disk for one of the two events that carry it for free.
-    guard let event = quotaKnockHookEvent(registered: args.first,
-                                          payload: payload?["hook_event_name"] as? String)
+    //
+    // `PostToolUseFailure` IS THE ONE EXCEPTION, and only the Chrome branch runs on it: a Claude in
+    // Chrome call whose result is an error arrives there and never on `PostToolUse`. It claims no
+    // quota knock, so the knock channel's events are unchanged (`chromeGapHookEvent`).
+    let failure = payload?["hook_event_name"] as? String == chromeGapHookEvent
+    guard let event = failure ? chromeGapHookEvent
+            : quotaKnockHookEvent(registered: args.first,
+                                  payload: payload?["hook_event_name"] as? String)
     else { return 0 }
     // WHOSE EVENT IS THIS. The marker above is inherited by every descendant of a supervised
     // session, a `claude` launched from inside one included, so a nested session would otherwise
@@ -77,16 +83,19 @@ func runHookKnock(args: [String],
     // A CLAUDE IN CHROME CALL THAT CAME BACK "NOT CONNECTED" (ChromeReach.swift). Every other tool
     // pays one `hasPrefix` here and nothing more.
     var contexts: [String] = []
-    if event == "PostToolUse", let tool = payload?["tool_name"] as? String,
+    if event == "PostToolUse" || failure, let tool = payload?["tool_name"] as? String,
        tool.hasPrefix(chromeToolPrefix),
-       let message = chromeGapNotice(tool: tool, response: payload?["tool_response"],
-                                     cwd: payload?["cwd"] as? String, supervisor: supervisor,
-                                     stateDir: dir, now: now, deps: chrome) {
+       let message = chromeGapNotice(
+           tool: tool,
+           outcome: failure ? chromeFailureOutcome(tool: tool, error: payload?["error"] as? String)
+               : chromeReachOutcome(tool: tool, response: payload?["tool_response"]),
+           cwd: payload?["cwd"] as? String, supervisor: supervisor,
+           stateDir: dir, now: now, deps: chrome) {
         contexts.append(message)
         appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromeGapDeliveredOutcome,
                                                    text: message, now: now), to: log)
     }
-    if let notice = claimQuotaKnockNotice(pid: supervisor, dir: dir) {
+    if !failure, let notice = claimQuotaKnockNotice(pid: supervisor, dir: dir) {
         contexts.append(notice.message)
         // ON THE SAME CHANNEL THE TYPED KNOCK IS RECORDED ON, and for the same reason: the question
         // that log answers is "what reached my conversation, and when", and a sentence nobody asked

@@ -53,6 +53,31 @@ struct World {
                          emit: { printed.append($0) })
         return printed
     }
+    /// A `PostToolUseFailure` run in the shape the 2.1.280 binary's schema sends: `error` as a
+    /// top-level string, `mcp_server` for an MCP tool, and no `tool_response` at all.
+    func runFailure(tool: String = "mcp__claude-in-chrome__tabs_context_mcp", error: String,
+                    event: String = "PostToolUseFailure", child: Int? = 101,
+                    session: String = conversation) -> [String] {
+        let body: [String: Any] = ["hook_event_name": event, "session_id": session,
+                                   "transcript_path": "/tmp/x.jsonl", "permission_mode": "default",
+                                   "cwd": "/Users/x/workspace/finance", "tool_name": tool,
+                                   "tool_input": ["url": "https://example.com/"],
+                                   "tool_use_id": "toolu_01ABC", "error": error,
+                                   "is_interrupt": false, "duration_ms": 812,
+                                   "mcp_server": ["name": "claude-in-chrome", "type": "sdk"]]
+        var printed: [String] = []
+        _ = runHookKnock(args: [event], environment: ["TALLY_SUPERVISOR_PID": supervisorPID],
+                         input: { (try? JSONSerialization.data(withJSONObject: body)) ?? Data() },
+                         dir: state, alive: { _ in true }, watching: { _ in conversation },
+                         log: log, now: t0, chrome: deps(account: "c4", child: child),
+                         emit: { printed.append($0) })
+        return printed
+    }
+    func fileKnock() {
+        _ = writeQuotaKnockNotice(QuotaKnockNotice(message: "[tally] low.", at: t0),
+                                  pid: supervisorPID, dir: state)
+    }
+    func knockStillFiled() -> Bool { readQuotaKnockNotice(pid: supervisorPID, dir: state) != nil }
     func eventCount() -> Int {
         ((try? FileManager.default.contentsOfDirectory(atPath: events.path)) ?? [])
             .filter { $0.hasSuffix(".json") }.count
@@ -351,6 +376,98 @@ do {
     let out = w.run(tool: "mcp__claude-in-chrome__navigate", response: crashed)
     check("R2 and the hook says nothing and writes no lastOk",
           out.isEmpty && w.readLedger().accounts["c4"]?.lastOk == nil)
+}
+
+// MARK: - F1-F6: a Chrome call that failed arrives on PostToolUseFailure, with `error` and no
+// tool_response. The gap sentence rides that event; the quota knock never does.
+
+func hookEventName(_ out: [String]) -> String? {
+    guard let text = out.first, let data = text.data(using: .utf8),
+          let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return nil }
+    return (document["hookSpecificOutput"] as? [String: Any])?["hookEventName"] as? String
+}
+
+do {
+    let w = World("f1")
+    w.fileKnock()
+    let out = w.runFailure(error: "Browser extension is not connected. Please ensure the Claude browser extension is installed and running (https://claude.ai/chrome), and that you are logged into claude.ai with the same account as Claude Code.")
+    check("F1 a failed not-connected call emits one hook document", out.count == 1)
+    check("F1 it answers under PostToolUseFailure", hookEventName(out) == "PostToolUseFailure")
+    check("F1 carrying the gap sentence and nothing else",
+          context(out)?.hasPrefix("Tally: Claude in Chrome reported not connected") == true
+              && context(out)?.contains("[tally] low.") == false)
+    check("F1 the quota knock is not claimed on this event", w.knockStillFiled())
+    check("F1 the gap is recorded", w.readLedger().accounts["c4"]?.lastGap == t0)
+    check("F1 the same generation is told only once",
+          w.runFailure(error: "Browser extension is not connected.").isEmpty)
+    check("F1 a nested session's failure says nothing",
+          World("f1b").runFailure(error: "Browser extension is not connected.",
+                                  session: "11111111-2222-4333-8444-555555555555").isEmpty)
+}
+
+do {
+    let w = World("f2")
+    let out = w.runFailure(error: "Error: The Claude extension needs to be re-authenticated before this page can load. Open the extension and sign in.")
+    check("F2 a failure whose first sentence says re-authenticated is a gap",
+          context(out)?.contains("reported not connected") == true
+              && hookEventName(out) == "PostToolUseFailure")
+    let w2 = World("f2b")
+    check("F2 a failure that was never delivered to the extension is a gap",
+          context(w2.runFailure(tool: "mcp__claude-in-chrome__navigate", error: "The navigate tool call was never delivered to the Chrome extension: the computer running that browser may be offline or asleep.")) != nil)
+}
+
+do {
+    let w = World("f3")
+    check("F3 a failed timeout says nothing",
+          w.runFailure(tool: "mcp__claude-in-chrome__navigate",
+                       error: "The hidden tabs_context_mcp lookup did not respond within 8s. The Chrome extension may be slow to start, or the computer running that browser may be offline or asleep.").isEmpty)
+    check("F3 and writes no ledger", !w.ledgerExists())
+}
+
+do {
+    let w = World("f4")
+    check("F4 another failure says nothing",
+          w.runFailure(tool: "mcp__claude-in-chrome__navigate",
+                       error: "Can't interact with browser-internal or unparseable URLs like chrome://settings.").isEmpty)
+    check("F4 and never records ok", w.readLedger().accounts["c4"]?.lastOk == nil)
+}
+
+do {
+    let w = World("f5")
+    w.fileKnock()
+    check("F5 a failed non-Chrome tool prints nothing",
+          w.runFailure(tool: "Bash", error: "Browser extension is not connected.").isEmpty)
+    check("F5 and leaves the knock on disk", w.knockStillFiled())
+    check("F5 and writes no ledger", !w.ledgerExists())
+}
+
+do {
+    let w = World("f6")
+    w.fileKnock()
+    check("F6 Stop still prints nothing",
+          w.runFailure(error: "Browser extension is not connected.", event: "Stop").isEmpty)
+    check("F6 and consumes nothing", w.knockStillFiled() && !w.ledgerExists())
+}
+
+do {
+    let nav = "mcp__claude-in-chrome__navigate"
+    let rows: [(String, String, String?, ChromeReachOutcome)] = [
+        ("not connected", nav, "Browser extension is not connected. Please ensure it runs.", .gap),
+        ("not connected behind Error:", nav, "Error: Browser extension is not connected.", .gap),
+        ("re-authenticated", nav, "Error: The extension must be re-authenticated. Sign in.", .gap),
+        ("never delivered", nav, "The navigate tool call was never delivered to the Chrome extension: offline.", .gap),
+        ("re-authenticated after the first sentence", nav,
+         "Page crashed. The extension must be re-authenticated.", .unknown),
+        ("timeout", nav, "The hidden tabs_context_mcp lookup did not respond within 8s. Asleep.", .unknown),
+        ("a success-looking text", nav, "Navigated to https://example.com/", .unknown),
+        ("no error field", nav, nil, .unknown),
+        ("a non-Chrome tool", "Bash", "never delivered to the Chrome extension", .unknown),
+    ]
+    for (name, tool, error, expected) in rows {
+        check("F-classifier \(name) is \(expected)",
+              chromeFailureOutcome(tool: tool, error: error) == expected)
+    }
 }
 
 // MARK: - B6: the dead-pid sweep can read the supervisor out of a claim file

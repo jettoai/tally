@@ -5,7 +5,8 @@ import Foundation
 // Claude in Chrome's bridge is keyed by the CLI account's claude.ai user, so a session running on an
 // account the extension is not signed in to gets "Browser extension is not connected". Tally does
 // not read the browser's profile. It learns which accounts have reached Chrome from the tool results
-// themselves, on the PostToolUse hook it already runs (HookKnock.swift), and on a "not connected"
+// themselves, on the PostToolUse hook it already runs and on PostToolUseFailure, where a result
+// Claude Code marks as an error arrives (HookKnock.swift), and on a "not connected"
 // result it tells the session once per child generation what it observed.
 //
 // The ledger only chooses the wording. It proves an account reached Chrome once, not that the
@@ -58,6 +59,23 @@ func chromeReachOutcome(tool: String, response: Any?) -> ChromeReachOutcome {
     let lowered = trimmed.lowercased()
     if trimmed.isEmpty || chromeFailureMarkers.contains(where: lowered.contains) { return .unknown }
     return .ok
+}
+
+/// The outcome of a Chrome call that arrived on `PostToolUseFailure`, whose only text is `error`.
+/// Never `.ok`: a failed call is not a connection. Besides the gap openings, a first sentence saying
+/// the extension must be `re-authenticated` or that the call was `never delivered to the Chrome
+/// extension` is a gap here, and only here, because only an error result can carry either.
+func chromeFailureOutcome(tool: String, error: String?) -> ChromeReachOutcome {
+    guard let error else { return .unknown }
+    if chromeReachOutcome(tool: tool, response: ["content": error, "is_error": true]) == .gap {
+        return .gap
+    }
+    let trimmed = error.trimmingCharacters(in: .whitespacesAndNewlines)
+    let body = trimmed.hasPrefix("Error: ") ? String(trimmed.dropFirst("Error: ".count)) : trimmed
+    let firstSentence = body.components(separatedBy: ". ").first ?? body
+    let failureGaps = ["re-authenticated", "never delivered to the Chrome extension"]
+    return tool.hasPrefix(chromeToolPrefix) && failureGaps.contains(where: firstSentence.contains)
+        ? .gap : .unknown
 }
 
 /// accountID -> the last time each outcome was seen.
@@ -164,12 +182,13 @@ struct ChromeGapDeps {
     }
 }
 
-/// The Chrome branch of a PostToolUse run: the context sentence to deliver, or nil. Records the
-/// outcome in the ledger, and on a gap claims this generation's notice and files the app's event.
-func chromeGapNotice(tool: String, response: Any?, cwd: String?, supervisor: String,
-                     stateDir: URL, now: Date, deps: ChromeGapDeps) -> String? {
+/// The Chrome branch of a PostToolUse or PostToolUseFailure run, given the classified outcome: the
+/// context sentence to deliver, or nil. Records the outcome in the ledger, and on a gap claims this
+/// generation's notice and files the app's event.
+func chromeGapNotice(tool: String, outcome: ChromeReachOutcome, cwd: String?,
+                     supervisor: String, stateDir: URL, now: Date,
+                     deps: ChromeGapDeps) -> String? {
     guard tool.hasPrefix(chromeToolPrefix), let account = deps.account(supervisor) else { return nil }
-    let outcome = chromeReachOutcome(tool: tool, response: response)
     let ledger = recordChromeReach(outcome, account: account, now: now, file: deps.ledgerFile)
     guard outcome == .gap, let child = deps.child(supervisor),
           claimChromeGapNotice(supervisorPid: supervisor, childPid: child, dir: stateDir)

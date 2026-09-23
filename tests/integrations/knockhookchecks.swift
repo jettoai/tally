@@ -169,6 +169,96 @@ func runKnockHookChecks(tmp: URL) throws {
           IntegrationsStore.settingsCarryCurrentKnockHooks(settings)
               && commands("PostToolUse") == [IntegrationsStore.knockHookCommand("PostToolUse")])
 
+    // F7: THE CHROME-GAP FAILURE EVENT is a third registration of the same row, under a matcher,
+    // and outside the supervisor's all-of question about the knock channel.
+    func entries(_ event: String) -> [[String: Any]] {
+        ((document()["hooks"] as? [String: Any])?[event] as? [[String: Any]]) ?? []
+    }
+    try write(["hooks": Dictionary(uniqueKeysWithValues: quotaKnockHookEvents.map {
+        ($0, [["hooks": [["type": "command", "command": IntegrationsStore.knockHookCommand($0)]]]])
+    })])
+    check("F7 settings holding only the quota pair still register the knock channel",
+          quotaKnockHookRegistered(settings: document()))
+    check("F7 …are present but not current, so the row offers the repair",
+          IntegrationsStore.settingsCarryKnockHooks(settings)
+              && !IntegrationsStore.settingsCarryCurrentKnockHooks(settings))
+    try IntegrationsStore.upsertKnockHooks(in: settings)
+    check("F7 the repair adds the failure event's hook, under the Chrome matcher",
+          commands(chromeGapHookEvent) == [IntegrationsStore.knockHookCommand(chromeGapHookEvent)]
+              && entries(chromeGapHookEvent).first?["matcher"] as? String
+                  == "mcp__claude-in-chrome__.*")
+    check("F7 …leaves the quota pair without a matcher, and reads current",
+          quotaKnockHookEvents.allSatisfy { entries($0).allSatisfy { $0["matcher"] == nil } }
+              && IntegrationsStore.settingsCarryCurrentKnockHooks(settings))
+    check("F7 …and the knock channel's events are still exactly the two",
+          quotaKnockHookEvents == ["UserPromptSubmit", "PostToolUse"]
+              && quotaKnockHookRegistered(settings: document()))
+    _ = try IntegrationsStore.editSettings(settings) {
+        IntegrationsStore.settingsWithoutKnockHook(
+            IntegrationsStore.settingsWithoutKnockHook($0, event: "UserPromptSubmit") ?? $0,
+            event: "PostToolUse")
+    }
+    check("F7 a file left with only the failure hook still has something of ours",
+          IntegrationsStore.settingsMayCarryKnockHooks(settings)
+              && !quotaKnockHookRegistered(settings: document()))
+    try IntegrationsStore.upsertKnockHooks(in: settings)
+    try IntegrationsStore.removeKnockHooks(in: settings)
+    check("F7 removal clears all three", document()["hooks"] == nil
+              && !IntegrationsStore.settingsMayCarryKnockHooks(settings))
+
+    // F8: THE LAUNCH UPKEEP. An older app's install (the quota pair only) is brought up to date
+    // without a press; a file without our hooks and one already current are not written at all.
+    func hookCommands(_ file: URL, _ event: String) -> [String] {
+        let doc = (try? JSONSerialization.jsonObject(with: Data(contentsOf: file))) as? [String: Any]
+        return (((doc?["hooks"] as? [String: Any])?[event] as? [[String: Any]]) ?? [])
+            .flatMap { $0["hooks"] as? [[String: Any]] ?? [] }.compactMap { $0["command"] as? String }
+    }
+    let theirs: [String: Any] = ["matcher": "Bash",
+                                 "hooks": [["type": "command", "command": "~/bin/my-audit-log"]]]
+    let older = tmp.appendingPathComponent("knock-upkeep-older.json")
+    var olderHooks: [String: Any] = Dictionary(uniqueKeysWithValues: quotaKnockHookEvents.map {
+        ($0, [["hooks": [["type": "command", "command": IntegrationsStore.knockHookCommand($0)]]]])
+    })
+    olderHooks["PostToolUse"] = [theirs] + (olderHooks["PostToolUse"] as? [[String: Any]] ?? [])
+    olderHooks[chromeGapHookEvent] = [theirs]
+    try JSONSerialization.data(withJSONObject: ["hooks": olderHooks]).write(to: older)
+    let bare = tmp.appendingPathComponent("knock-upkeep-bare.json")
+    try JSONSerialization.data(withJSONObject: ["hooks": ["PostToolUse": [theirs]]]).write(to: bare)
+    let absent = tmp.appendingPathComponent("knock-upkeep-absent.json")
+    let current = tmp.appendingPathComponent("knock-upkeep-current.json")
+    try IntegrationsStore.upsertKnockHooks(in: current)
+    let bareBytes = try Data(contentsOf: bare)
+    let currentBytes = try Data(contentsOf: current)
+    check("F8 the upkeep picks exactly the older install",
+          IntegrationsStore.knockHookFilesNeedingUpdate([older, bare, absent, current, older])
+              == [older])
+    let upkeep = IntegrationsStore.autoUpdateKnockHooks(in: [older, bare, absent, current])
+    check("F8 …and rewrites only it, without error", upkeep.updated == [older] && upkeep.error == nil)
+    let failureEntries = (((try? JSONSerialization.jsonObject(with: Data(contentsOf: older)))
+        as? [String: Any])?["hooks"] as? [String: Any])?[chromeGapHookEvent] as? [[String: Any]] ?? []
+    check("F8 the older install now carries all three, the third under the Chrome matcher",
+          IntegrationsStore.settingsCarryCurrentKnockHooks(older)
+              && failureEntries.contains { $0["matcher"] as? String == chromeGapHookMatcher })
+    check("F8 the user's own hooks on the same events are kept",
+          hookCommands(older, "PostToolUse")
+              == ["~/bin/my-audit-log", IntegrationsStore.knockHookCommand("PostToolUse")]
+              && hookCommands(older, chromeGapHookEvent)
+                  == ["~/bin/my-audit-log", IntegrationsStore.knockHookCommand(chromeGapHookEvent)])
+    check("F8 a file without our hooks is byte for byte untouched",
+          (try? Data(contentsOf: bare)) == bareBytes)
+    check("F8 a missing file is not created",
+          !FileManager.default.fileExists(atPath: absent.path))
+    check("F8 a current install is byte for byte untouched",
+          (try? Data(contentsOf: current)) == currentBytes)
+    let knockSource = (try? String(contentsOfFile: "Tally/Stores/IntegrationsKnockHook.swift",
+                                   encoding: .utf8)) ?? ""
+    let launch = (try? String(contentsOfFile: "Tally/App/AppDelegate.swift", encoding: .utf8)) ?? ""
+    check("F8 the upkeep runs at launch, beside the skill's",
+          launch.contains("IntegrationsStore.shared.autoUpdateSkill()")
+              && launch.contains("IntegrationsStore.shared.autoUpdateKnockHooks()"))
+    check("F8 …and never from a build nobody installed",
+          knockSource.contains("func autoUpdateKnockHooks() {\n        guard !BuildVariant.isUnshipped"))
+
     // The manifest key is written by the install and read by the removal as provenance, so a second
     // spelling would mean the removal looked up an entry nothing had ever written. Its own key, not
     // the subagent hooks', or one Remove press would take the other feature out with it.

@@ -55,69 +55,13 @@ struct AccountCardView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-                // Banked rate-limit resets (Codex reset banking). Redeeming is the user's own
-                // economic decision: it only ever happens through THIS explicit click plus a
-                // confirmation that spells out the cost - never automatically.
-                //
-                // WHICH OF THE TWO RESETS THIS ACCOUNT HAS is one question asked in one place
-                // (`RedeemAction.offer`, through the facts), so this card and the compact row
-                // cannot come to offer different things. Claude's own weekly session-limit reset is
-                // the other arm, below.
-                if case .codexCredits(let resets) = facts.resetOffer {
-                    Button {
-                        if !DemoUsage.isActive { startRedeem() }
-                    } label: {
-                        HStack(spacing: 3) {
-                            // The redeem round-trips the provider's app server; without a busy
-                            // state the click reads as dead until the new quota pops in.
-                            if redeemBusy {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                Text(L("redeeming…"))
-                            } else {
-                                Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 9))
-                                Text(verbatim: "\(resets) ")
-                                    + Text(L(resets == 1 ? "reset available" : "resets available"))
-                                if let note = facts.resetExpiryNote() {
-                                    Text(verbatim: "· \(note)")
-                                        .foregroundStyle(facts.resetExpiryColor() ?? .secondary)
-                                }
-                            }
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    // Dormant accounts keep this row (the count comes from the last good reading)
-                    // but cannot act on it: redeeming talks to the provider's app server through
-                    // the account's own CLI home, and a signed-out one has no session to spend a
-                    // credit in - `RedeemAction.redeem` returns nil there, so the confirmation used
-                    // to be followed by nothing at all. The count stays visible, greyed like every
-                    // other dormant affordance, because the credits are still banked.
-                    .disabled(redeemBusy || facts.isDormant)
-                    .tallyTooltipAroundControl(facts.isDormant
-                          ? L("Signed out: renew the login to spend a banked reset.")
-                          : L("Use a reset"))
-                }
-                codexResetStatusRow
-                if case .claudeSessionLimit(let state) = facts.resetOffer {
-                    sessionLimitRow(state)
-                }
-                if let redeemOutcome {
-                    Text(RedeemAction.outcomeMessage(redeemOutcome))
-                        .font(.caption2)
-                        .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
-                        .tallyTooltip(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
-                }
-                if let outcome = facts.limitResetOutcome {
-                    Text(RedeemAction.sessionLimitOutcomeMessage(outcome))
-                        .font(.caption2)
-                        .foregroundStyle(outcome == .reset ? TallyColor.normal : .secondary)
-                        .tallyTooltip(RedeemAction.sessionLimitOutcomeDetail(outcome) ?? "")
-                }
             }
+            // The reset line sits OUTSIDE the error branch: which reset an account has is not a
+            // reading of its windows, so an account whose first poll failed still answers one of
+            // the four states rather than none (codex review of dcbc04f). Codex has nothing held
+            // over then and says "?"; Claude's state comes from the supervisor's record, not the
+            // poll. A failed read carries no count, so the redeem button cannot appear here.
+            resetRows
             // A login is renewing in the background, where the user has nothing else to look at:
             // the browser has the sign-in, and this line is the only thing on screen tying it to
             // THIS account. Outside the error branch on purpose - an account that stopped loading
@@ -289,6 +233,74 @@ struct AccountCardView: View {
     }
 
     // MARK: Reset banking - manual redeem (the only write Tally ever performs, user-confirmed)
+
+    /// Every reset this card offers, in whichever of the four states it is in, and what the last
+    /// press came to. Drawn for every account, the one that never loaded included (see `body`).
+    @ViewBuilder
+    private var resetRows: some View {
+        // Banked rate-limit resets (Codex reset banking). Redeeming is the user's own
+        // economic decision: it only ever happens through THIS explicit click plus a
+        // confirmation that spells out the cost - never automatically.
+        //
+        // WHICH OF THE TWO RESETS THIS ACCOUNT HAS is one question asked in one place
+        // (`RedeemAction.offer`, through the facts), so this card and the compact row
+        // cannot come to offer different things. Claude's own weekly session-limit reset is
+        // the other arm, below.
+        if case .codexCredits(let resets) = facts.resetOffer {
+            Button {
+                if !DemoUsage.isActive { startRedeem() }
+            } label: {
+                HStack(spacing: 3) {
+                    // The redeem round-trips the provider's app server; without a busy
+                    // state the click reads as dead until the new quota pops in.
+                    if redeemBusy {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text(L("redeeming…"))
+                    } else {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 9))
+                        Text(verbatim: "\(resets) ")
+                            + Text(L(resets == 1 ? "reset available" : "resets available"))
+                        if let note = facts.resetExpiryNote() {
+                            Text(verbatim: "· \(note)")
+                                .foregroundStyle(facts.resetExpiryColor() ?? .secondary)
+                        }
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // Dormant accounts keep this row (the count comes from the last good reading)
+            // but cannot act on it: redeeming talks to the provider's app server through
+            // the account's own CLI home, and a signed-out one has no session to spend a
+            // credit in - `RedeemAction.redeem` returns nil there, so the confirmation used
+            // to be followed by nothing at all. The count stays visible, greyed like every
+            // other dormant affordance, because the credits are still banked.
+            .disabled(redeemBusy || facts.isDormant)
+            .tallyTooltipAroundControl(facts.isDormant
+                  ? L("Signed out: renew the login to spend a banked reset.")
+                  : L("Use a reset"))
+        }
+        codexResetStatusRow
+        if case .claudeSessionLimit(let state) = facts.resetOffer {
+            sessionLimitRow(state)
+        }
+        if let redeemOutcome {
+            Text(RedeemAction.outcomeMessage(redeemOutcome))
+                .font(.caption2)
+                .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
+                .tallyTooltip(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
+        }
+        if let outcome = facts.limitResetOutcome {
+            Text(RedeemAction.sessionLimitOutcomeMessage(outcome))
+                .font(.caption2)
+                .foregroundStyle(outcome == .reset ? TallyColor.normal : .secondary)
+                .tallyTooltip(RedeemAction.sessionLimitOutcomeDetail(outcome) ?? "")
+        }
+    }
 
     /// Ask through the shared confirmation, then spend through the shared redeem, with the card's
     /// own chrome around it: a spinner while the app server answers (the click reads as dead

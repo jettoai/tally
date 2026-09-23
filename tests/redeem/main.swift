@@ -122,6 +122,49 @@ expect(singleEntryPoint, "the propagation store is started from RedeemAction alo
 // makes the passing line contradict itself, naming the very file it just confirmed.
 if !singleEntryPoint { print("  begin() is called from: \(beginCallers)") }
 
+// Every account answers one of the four reset states, the one whose first poll failed included:
+// the reset line is not a reading of the windows, so it must not sit inside either branch of the
+// card's error split, and the row must not gate its marks on that split (codex review of dcbc04f).
+func balancedBlock(_ source: String, after opener: String) -> String? {
+    guard let open = source.range(of: opener) else { return nil }
+    var depth = 1
+    var index = open.upperBound
+    while index < source.endIndex {
+        switch source[index] {
+        case "{": depth += 1
+        case "}":
+            depth -= 1
+            if depth == 0 { return String(source[open.upperBound ..< index]) }
+        default: break
+        }
+        index = source.index(after: index)
+    }
+    return nil
+}
+
+let rowSource = readSource("Tally/Views/AccountListRowView.swift")
+if let cardBody = functionBody(cardSource, from: "var body: some View {"),
+   let errorBranch = balancedBlock(cardBody, after: "if facts.isHardError {"),
+   let readingBranch = balancedBlock(cardBody, after: "} else {") {
+    expect(cardBody.contains("resetRows") && !errorBranch.contains("resetRows")
+           && !readingBranch.contains("resetRows"),
+           "A1 the card draws its reset line outside the error branch")
+    expect(!readingBranch.contains("codexResetStatusRow") && !readingBranch.contains("sessionLimitRow("),
+           "A2 no reset state is left in the branch a failed first poll skips")
+} else {
+    expect(false, "A the card body and both halves of its error split were found")
+}
+if let rowBody = functionBody(rowSource, from: "var body: some View {") {
+    let gatedOnOneLine = rowBody.split(separator: "\n")
+        .contains { $0.contains("usageMarks") && $0.contains("isHardError") }
+    let gatedInBlock = balancedBlock(rowBody, after: "if !facts.isHardError {")?
+        .contains("usageMarks") ?? false
+    expect(rowBody.contains("usageMarks") && !gatedOnOneLine && !gatedInBlock,
+           "A3 the list row draws its reset mark on a row that never loaded")
+} else {
+    expect(false, "A the list row's body was found")
+}
+
 runOfferChecks()
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")

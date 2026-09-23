@@ -396,11 +396,15 @@ expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id
        "the chip greys out where the menu entry does, asked of the same place")
 // An account that never loaded is EXACTLY the one whose login expired: `lastGood` is a memory-only
 // cache, so after every launch a signed-out account is a hard-error row until the first good poll.
-// The card has always drawn its login state outside its own error branch for that reason; the
-// compact row's error gate has to cover the marks about the READING and nothing else, or the row
-// hides the renewal button and the "renewing…" spinner at the one moment they are worth showing.
-expect(rowSource.contains("if !facts.isHardError { usageMarks }"),
-       "the compact row's error branch gates the usage marks alone")
+// The card has always drawn its login state outside its own error branch for that reason, and the
+// compact row draws its login marks outside it too, or the row hides the renewal button and the
+// "renewing…" spinner at the one moment they are worth showing. The usage marks are no longer
+// gated either: the reset "?" is not a reading, so a never-loaded row shows it (codex review of
+// dcbc04f; tests/redeem A3 holds that half).
+expect(rowSource.contains("            usageMarks\n            loginMarks\n")
+        && !rowSource.contains("isHardError { usageMarks")
+        && !rowSource.contains("isHardError { loginMarks"),
+       "the compact row's error branch gates neither the login marks nor the usage marks")
 let rowUsageMarks = functionBody(rowSource, from: "private var usageMarks: some View {") ?? ""
 let rowLoginMarks = functionBody(rowSource, from: "private var loginMarks: some View {") ?? ""
 expect(rowLoginMarks.contains("facts.isRenewingLogin")
@@ -410,7 +414,7 @@ expect(rowLoginMarks.contains("facts.isRenewingLogin")
 expect(!rowUsageMarks.isEmpty
         && !rowUsageMarks.contains("facts.isRenewingLogin")
         && !rowUsageMarks.contains("facts.isLoginExpired"),
-       "and the gated marks are about the reading only: stale numbers and banked resets")
+       "and the usage marks are about the reading only: stale numbers and banked resets")
 // AND THE LOGIN MARK IS THE ONE THAT SPEAKS (owner's report, 2026-08-24). An expired login is why
 // the numbers went stale, so both marks lit at once, two triangles a few points apart, saying one
 // thing in two colours. The rule lives in the facts, so the card cannot answer it differently.

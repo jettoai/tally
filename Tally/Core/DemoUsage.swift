@@ -12,6 +12,11 @@ import Foundation
 enum DemoUsage {
     static var isActive: Bool { UserDefaults.standard.bool(forKey: "TallyDemoData") }
 
+    /// `-TallyDemoHardError YES` (with `-TallyDemoData`): Claude 2 and Codex 3 read as accounts
+    /// whose first poll failed, so a capture can show the reset "?" on a card and a row that never
+    /// loaded. A modifier, off by default: the README grid keeps every card's numbers.
+    static var showsHardErrors: Bool { UserDefaults.standard.bool(forKey: "TallyDemoHardError") }
+
     /// Debug-only login scenarios, layered onto the synthetic account fixtures.
     static var loginHealthPreview: Bool {
         BuildVariant.isDev && isActive && UserDefaults.standard.bool(forKey: "TallyLoginHealthPreview")
@@ -104,7 +109,7 @@ enum DemoUsage {
     }
 
     static func accounts(now: Date = Date()) -> [AccountUsage] {
-        [
+        let fixtures = [
             // Every remaining percentage stays double-digit (10-99): a mixed column of "8%" and
             // "100%" reads ragged in the right-aligned figures, and this grid IS the README shot.
             claude("Claude", plan: "Max 20x", model: 3, session: 2, weekly: 8,
@@ -140,6 +145,18 @@ enum DemoUsage {
                   sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2,
                   expiresInHours: [220, nil], now: now),
         ]
+        guard showsHardErrors else { return fixtures }
+        // The failure a first poll produces: no metrics, no reset count, the provider's own short
+        // line. Identity survives, as it does on a real failed read (`AccountUsage.failure`).
+        let failures = ["claude:demo-Claude 2": L("No usage data"),
+                        "codex:demo-Codex 3": L("Codex CLI read failed")]
+        return fixtures.map { usage in
+            guard let message = failures[usage.id] else { return usage }
+            return AccountUsage(id: usage.id, providerID: usage.providerID,
+                                accountLabel: usage.accountLabel, planName: usage.planName,
+                                accountEmail: usage.accountEmail, metrics: [], refreshedAt: now,
+                                error: message)
+        }
     }
 
     /// Which fixture each supervised session gets during a capture, by pid in ASCENDING STRING

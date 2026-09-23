@@ -62,6 +62,63 @@ final class ResetHintNotifier {
         }
     }
 
+    /// `-TallyResetHintExpiryTest <dir>` (unshipped builds only): run the REAL expiry path once,
+    /// end to end, and write down what happened, because an installed app is the only build that
+    /// evaluates hints on its own and a unit test stops short of the system. Four rounds of one
+    /// fixture account go through the app-server decode, `ResetHintLogic.advance` and `post`: the
+    /// list, the list absent, the list null, the list again. One notification is the right answer.
+    /// The dedup state lives in memory only, so the persisted one is never touched, and no
+    /// authorization prompt is raised: a build that is not allowed to notify reports so and stops.
+    func runExpiryDeliveryTest(reportDirectory: String, completion: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let status = await center.notificationSettings().authorizationStatus
+            var lines = ["authorization=\(status.rawValue)"]
+            let accountID = "codex:verify-expiry"
+            if status == .authorized || status == .provisional {
+                let now = Date()
+                let expiry = Int(now.addingTimeInterval(4 * 3_600).timeIntervalSince1970)
+                let listed = #"{"availableCount":1,"credits":[{"id":"verify-1","status":"available","resetType":"codexRateLimits","expiresAt":\#(expiry)}]}"#
+                let rounds = [("listed", listed), ("absent", #"{"availableCount":1}"#),
+                              ("null", #"{"availableCount":1,"credits":null}"#), ("listed-again", listed)]
+                var state = ResetHintState()
+                for (name, json) in rounds {
+                    let bank = try? JSONDecoder().decode(CodexResetBank.self, from: Data(json.utf8))
+                    let usage = AccountUsage(
+                        id: accountID, providerID: "codex", accountLabel: "Tally verification",
+                        planName: nil,
+                        metrics: [UsageMetric(id: "weekly_all", kind: .weeklyAll, label: "Weekly",
+                                              modelName: nil, usedPercent: 80,
+                                              severity: .fromUsedPercent(80),
+                                              resetsAt: now.addingTimeInterval(3 * 86_400),
+                                              isActive: false)],
+                        refreshedAt: now, resetCreditsAvailable: bank?.availableCount,
+                        resetCredits: bank?.listed)
+                    let (next, hint) = ResetHintLogic.advance(state: state, accounts: [usage], now: now)
+                    state = next
+                    var outcome = "none"
+                    if let hint {
+                        let delivered = await post(hint)
+                        outcome = "\(hint.reason.rawValue) delivered=\(delivered)"
+                    }
+                    lines.append("round=\(name) hint=\(outcome)")
+                }
+                try? await Task.sleep(for: .seconds(2))
+                let ours = await center.deliveredNotifications().filter {
+                    $0.request.content.userInfo[Self.accountKey] as? String == accountID
+                }
+                lines.append("notificationCenter=\(ours.count)")
+                center.removeDeliveredNotifications(withIdentifiers: ours.map(\.request.identifier))
+            } else {
+                lines.append("skipped=not authorized, no prompt raised")
+            }
+            let url = URL(fileURLWithPath: (reportDirectory as NSString).expandingTildeInPath)
+                .appendingPathComponent("reset-hint-delivery.txt")
+            try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+            completion()
+        }
+    }
+
     // MARK: State persistence
 
     private func loadState() -> ResetHintState {

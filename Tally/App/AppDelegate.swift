@@ -156,6 +156,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: "TallyResetHintTest") {
             ResetHintNotifier.shared.postSampleNotification()
         }
+        // And the expiry hint's whole chain, delivery included (-TallyResetHintExpiryTest <dir>):
+        // an unshipped build never evaluates hints on its own, so this is the one way to see the
+        // real path reach the system. It writes its report and quits.
+        if BuildVariant.isUnshipped,
+           let dir = UserDefaults.standard.string(forKey: "TallyResetHintExpiryTest"), !dir.isEmpty {
+            ResetHintNotifier.shared.runExpiryDeliveryTest(reportDirectory: dir) { NSApp.terminate(nil) }
+        }
         // And for the login-expiry alert (-TallyLoginExpiryTest), whose "Renew login" button is the
         // one path into a renewal that no card is involved in.
         if UserDefaults.standard.bool(forKey: "TallyLoginExpiryTest") {

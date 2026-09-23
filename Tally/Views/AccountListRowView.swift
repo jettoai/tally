@@ -59,13 +59,14 @@ struct AccountListRowView: View {
             // the eye reads down (seen on screen, 2026-08-04): in a list the figures lining up IS
             // the feature.
             //
-            // Only the marks ABOUT USAGE answer to the error branch, because those are the ones a
-            // row with no reading has nothing to say about. The login marks stay outside it, the
-            // same way the card keeps its login state outside its own error branch: `lastGood`
-            // lives in memory, so after every launch a signed-out account IS the hard-error row
-            // until the first good poll, which is precisely when the renewal button is worth
-            // having on screen.
-            if !facts.isHardError { usageMarks }
+            // The usage marks are drawn on every row, the one that never loaded included: the
+            // stale mark needs `isStale`, which a never-loaded row does not have
+            // (`AccountFacts.isHardError`), and the reset mark is not a reading, so an account
+            // whose first poll failed still shows its "?" (codex review of dcbc04f). The login
+            // marks stay outside for their own reason: `lastGood` lives in memory, so after every
+            // launch a signed-out account IS the hard-error row until the first good poll, which
+            // is precisely when the renewal button is worth having on screen.
+            usageMarks
             loginMarks
             Spacer(minLength: 6)
             if facts.isHardError {
@@ -117,7 +118,7 @@ struct AccountListRowView: View {
     /// have gone stale, and banked resets waiting to be spent. Each keeps its card sentence as a
     /// tooltip, under a first line naming the account, because a glyph in a list of eight rows is
     /// the one place a sentence cannot say "this account" and be understood. A row that never
-    /// loaded shows none of them, which is what the error branch in the body decides.
+    /// loaded has no stale numbers to mark, and still shows its reset state.
     ///
     /// The stale mark also stands down while an EXPIRED login is the reason
     /// (`AccountFacts.showsStaleMark`), so this row never lights two triangles that mean one thing.

@@ -207,7 +207,8 @@ enum ResetHintLogic {
                 entry = ResetHintAccountState(cycleKey: entry.cycleKey)
             }
             // Expiry memory is per credit and outlives cycles and refills. It is pruned only on
-            // this successful read, down to the credits the provider still lists.
+            // this successful read, down to the credits the provider still lists. A nil list is a
+            // round that did not list them, not one that lists none, so it prunes nothing.
             var stages = previous?.expiryStages ?? [:]
             var rearmed = previous?.expiryRearmed ?? [:]
             if let listed = usage.resetCredits {

@@ -131,7 +131,8 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// Codex reset banking: how many banked rate-limit resets the account can still redeem
     /// (nil = the provider doesn't report the concept).
     var resetCreditsAvailable: Int?
-    /// Every banked credit the provider listed, as listed (nil = no list reported).
+    /// Every banked credit the provider listed, as listed (nil = no list this round: absent, null,
+    /// or a failed read; never the same as an empty list).
     var resetCredits: [BankedResetCredit]?
 
     /// The credits that can still be spent. A credit with no status counts, since the count beside

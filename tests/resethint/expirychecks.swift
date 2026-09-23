@@ -163,4 +163,40 @@ func runExpiryChecks() {
                                                    list: [credit("u", nil)]), now: now) == .expiryUnknown,
                "M23 plenty left, undated: expiry unknown")
     }
+
+    // An absent credit list is "not listed this round", never "none left" (codex review of dcbc04f).
+    func bank(_ json: String) -> CodexResetBank? {
+        try? JSONDecoder().decode(CodexResetBank.self, from: Data(json.utf8))
+    }
+    let expiresAt = Int(now.addingTimeInterval(4 * 3_600).timeIntervalSince1970)
+    let fullList = #"{"availableCount":1,"credits":[{"id":"A","status":"available","resetType":"codexRateLimits","expiresAt":\#(expiresAt)}]}"#
+    let absentList = #"{"availableCount":1}"#
+    let nullList = #"{"availableCount":1,"credits":null}"#
+    expect(bank(absentList) != nil && bank(absentList)?.listed == nil,
+           "B1 a bank without a credits key lists nothing, not an empty list")
+    expect(bank(nullList) != nil && bank(nullList)?.listed == nil,
+           "B2 a null credits list is not an empty one")
+    expect(bank(#"{"availableCount":0,"credits":[]}"#)?.listed == [],
+           "B3 an explicit empty list stays empty")
+    let undated = bank(#"{"availableCount":1,"credits":[{"id":"U","status":"available"}]}"#)?.listed
+    expect(undated?.count == 1 && undated?.first?.expiresAt == nil,
+           "B4 a credit with no expiry is kept, undated")
+    func reading(_ json: String) -> AccountUsage {
+        let decoded = bank(json)
+        return AccountUsage(id: "codex:bank", providerID: "codex", accountLabel: "bank",
+                            planName: nil, metrics: [metric("weekly_all", remaining: 20)],
+                            refreshedAt: now, resetCreditsAvailable: decoded?.availableCount,
+                            resetCredits: decoded?.listed)
+    }
+    for (label, gap) in [("absent", absentList), ("null", nullList)] {
+        let first = hint([reading(fullList)])
+        let middle = hint([reading(gap)], state: first.0)
+        let again = hint([reading(fullList)], state: middle.0)
+        expect(first.1?.reason == .expiryFinal && first.1?.creditKey == "A",
+               "B5 \(label): the listed credit is announced")
+        expect(middle.1 == nil
+               && middle.0.accounts["codex:bank"]?.expiryStages["A"] == ["expiryFinal"],
+               "B6 \(label): a round without the list keeps the credit's memory and says nothing")
+        expect(again.1 == nil, "B7 \(label): the list coming back does not repeat the announcement")
+    }
 }

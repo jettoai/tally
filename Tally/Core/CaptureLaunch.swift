@@ -64,6 +64,7 @@ enum CaptureLaunch {
         // Alerts posted to be looked at. A banner needs no focus, so taking it is pure cost.
         "TallyDryNotifyTest",
         "TallyResetHintTest",
+        "TallyResetHintExpiryTest",
         "TallyLoginExpiryTest",
         // The host-pressure alarm, which is a banner like the three above it and reaches it the
         // same way: the flag reports a load of 300 to the watch, and three samples later the
@@ -78,6 +79,8 @@ enum CaptureLaunch {
     static let modifierKeys = ["TallyUpdateChipReady", "TallyUpdateChipBusy", "TallyTokenGraphHover",
                                // Login incident fixtures only qualify TallyDemoData in a dev build.
                                "TallyLoginHealthPreview",
+                               // Qualifies TallyDemoData: two fixtures read as failed first polls.
+                               "TallyDemoHardError",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

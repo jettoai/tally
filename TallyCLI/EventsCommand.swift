@@ -92,16 +92,17 @@ private func runEventsFollow(args: [String], dir: URL) -> Int32 {
     let result = followSessionWaitEvents(since: since ?? latestWrittenSeq(dir: dir), dir: dir,
                                          outputFD: STDOUT_FILENO, stopSignals: [SIGTERM, SIGINT],
                                          warn: eventsWarn)
+    let realign = "reconcile with tally status --json, then realign with --latest-seq"
     switch result {
     case .stopped, .outputClosed:
         return 0
     case .trimmed(let cursor, let firstAvailable):
-        eventsWarn("tally events --follow: events lost (trimmed): cursor \(cursor), first available "
-                   + "seq \(firstAvailable); reconcile with tally status --json, then realign with --latest-seq")
+        eventsWarn("tally events --follow: events lost (trimmed): cursor \(cursor), "
+                   + "first available seq \(firstAvailable); \(realign)")
         return eventsFollowLossExitCode
     case .rebuilt(let cursor, let latest):
-        eventsWarn("tally events --follow: events lost (spool rebuilt): cursor \(cursor), latest "
-                   + "seq \(latest); reconcile with tally status --json, then realign with --latest-seq")
+        eventsWarn("tally events --follow: events lost (spool rebuilt): cursor \(cursor), "
+                   + "latest seq \(latest); \(realign)")
         return eventsFollowLossExitCode
     case .setupFailed(let reason):
         eventsWarn("tally events --follow: \(reason)")

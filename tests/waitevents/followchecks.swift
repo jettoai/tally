@@ -73,6 +73,13 @@ final class FollowChild {
         return (process.terminationStatus, process.terminationReason)
     }
 
+    /// `waitExit`, stopping the child when it has not exited by then so a failed check never leaks it.
+    func waitExitOrStop(timeout: TimeInterval) -> (status: Int32, reason: Process.TerminationReason)? {
+        let exit = waitExit(timeout: timeout)
+        if exit == nil { stop() }
+        return exit
+    }
+
     /// Only after the child exited (reading earlier would block on a live writer).
     func stderrText() -> String {
         if let stderrCache { return stderrCache }
@@ -200,8 +207,7 @@ func runFollowChecks() {
         let dir = freshDir("f5")
         writeCrafted(dir, seqs: [5, 6, 7], nextSeq: 8)
         let child = follow(dir, ["--since", "1"])
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         let text = child.stderrText()
         expect(exit?.status == 3 && exit?.reason == .exit && text.contains("trimmed")
                && text.contains("cursor 1") && text.contains("seq 5") && child.lines.isEmpty,
@@ -216,8 +222,7 @@ func runFollowChecks() {
         child.waitForLines(3, timeout: 5)
         writeSeq(dir, 10)
         renameOver(dir, seqs: [8, 9])
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         let text = child.stderrText()
         expect(exit?.status == 3 && text.contains("trimmed") && text.contains("cursor 3")
                && text.contains("seq 8"),
@@ -229,8 +234,7 @@ func runFollowChecks() {
         let dir = freshDir("f7")
         writeCrafted(dir, seqs: [1, 2, 3], nextSeq: 4)
         let child = follow(dir, ["--since", "30"])
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         let text = child.stderrText()
         expect(exit?.status == 3 && text.contains("rebuilt") && text.contains("cursor 30")
                && text.contains("latest seq 3") && child.lines.isEmpty,
@@ -246,8 +250,7 @@ func runFollowChecks() {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("spool.jsonl"))
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("seq"))
         appendReal(dir)
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         let text = child.stderrText()
         expect(exit?.status == 3 && text.contains("rebuilt"),
                "F8: seq regression while following exits 3 (\(String(describing: exit)), \(text.debugDescription))")
@@ -296,8 +299,7 @@ func runFollowChecks() {
         let child = follow(dir, ["--since", "0"])
         child.waitForLines(1, timeout: 5)
         child.closeStdout()
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         expect(exit?.status == 0 && exit?.reason == .exit,
                "F11: closing stdout ends the follower with 0 (\(String(describing: exit)))")
     }
@@ -309,8 +311,7 @@ func runFollowChecks() {
         let child = follow(dir, ["--since", "0"])
         child.waitForLines(1, timeout: 5)
         child.process.terminate()
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         expect(exit?.status == 0 && exit?.reason == .exit,
                "F12: SIGTERM ends the follower with 0 (\(String(describing: exit)))")
     }
@@ -319,8 +320,7 @@ func runFollowChecks() {
     do {
         let dir = freshDir("f13")
         let child = follow(dir, ["--since", "x"])
-        let exit = child.waitExit(timeout: 2)
-        if exit == nil { child.stop() }
+        let exit = child.waitExitOrStop(timeout: 2)
         expect(exit?.status == 2, "F13: --follow --since x exits 2 (\(String(describing: exit)))")
     }
 

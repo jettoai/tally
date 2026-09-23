@@ -82,6 +82,7 @@ func followSessionWaitEvents(since: Int, dir: URL = tallyEventsDir, outputFD: In
     var fileFD: Int32 = -1
     var filePos: Int64 = 0            // bytes consumed from fileFD (complete lines + carry)
     var carry = Data()                // bytes after the last newline: a partial line, never consumed
+    var readBuffer = [UInt8](repeating: 0, count: 64 * 1024)
     var prevSeqInFile: Int? = nil     // seq of the previous decodable line in THIS inode
     var cursor = since
     defer { if fileFD >= 0 { close(fileFD) } }
@@ -110,16 +111,19 @@ func followSessionWaitEvents(since: Int, dir: URL = tallyEventsDir, outputFD: In
     /// Read fileFD to EOF, emit every complete line. Returns an exit result or nil to keep going.
     func drain() -> EventsFollowResult? {
         guard fileFD >= 0 else { return nil }
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
-            let n = read(fileFD, &buffer, buffer.count)
+            let n = read(fileFD, &readBuffer, readBuffer.count)
             if n < 0 { if errno == EINTR { continue }; return nil }
             if n == 0 { return nil }
             filePos += Int64(n)
-            carry.append(contentsOf: buffer[0..<n])
-            while let newline = carry.firstIndex(of: 0x0A) {
-                let lineData = carry[carry.startIndex..<newline]
-                carry.removeSubrange(carry.startIndex...newline)
+            carry.append(contentsOf: readBuffer[0..<n])
+            // Complete lines are consumed by moving `lineStart` and dropped from `carry` once per
+            // read, not once per line (a per-line front removal copies the rest of the chunk each time).
+            var lineStart = carry.startIndex
+            defer { carry.removeSubrange(carry.startIndex..<lineStart) }
+            while let newline = carry[lineStart...].firstIndex(of: 0x0A) {
+                let lineData = carry[lineStart..<newline]
+                lineStart = newline + 1
                 guard let event = try? decoder.decode(SessionWaitEvent.self, from: Data(lineData))
                 else { continue }                          // undecodable: skip, like readSessionWaitEvents
                 defer { prevSeqInFile = event.seq }

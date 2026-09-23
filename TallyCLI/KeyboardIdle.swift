@@ -93,9 +93,10 @@ let keyboardBurstGap: TimeInterval = 15
 
 /// A stamp this close to a recorded focus change (FocusEvents.swift) is a focus report, not a key.
 /// Compared against the stamp's own atime, which is when the child actually read the bytes, so the
-/// 2s poll adds no error here: typical distance is under 0.2s, and a stamp further out than this is
+/// 2s poll adds no error here. The window is the typical distance itself, under 0.2s: at 1s (until
+/// 2026-09-23) it also swallowed a paste made just after switching in. A stamp further out is
 /// counted as typing, which is the side that waits rather than the side that interrupts.
-let keyboardFocusWindow: TimeInterval = 1
+let keyboardFocusWindow: TimeInterval = 0.2
 /// How old a stamp must be before it is classified, when there is a focus source to consult: the
 /// window plus slack for the app to receive the notification and write it down. The longest a burst
 /// can be late is this plus one tick, 3.5s, and every bar the supervisor asks at is at least 5s, so
@@ -112,13 +113,22 @@ func nearestOffset(_ offsets: [TimeInterval], within window: TimeInterval) -> Ti
     offsets.filter { abs($0) <= window }.min(by: { abs($0) < abs($1) })
 }
 
-/// Signed distance from `stamp` to the focus change that explains it, nil when none does (or the
-/// log is flooded). Pure.
-func focusOffset(of stamp: Date, in events: [Date]) -> TimeInterval? {
-    let offsets = events.map { $0.timeIntervalSince(stamp) }
-    guard let nearest = nearestOffset(offsets, within: keyboardFocusWindow) else { return nil }
-    let crowd = offsets.filter { $0 >= -keyboardFocusFloodSpan && $0 <= keyboardFocusWindow }.count
-    return crowd > keyboardFocusFloodLimit ? nil : nearest
+/// The focus change that explains `stamp`, nil when none does (or the log is flooded). One change
+/// is one report, so it explains one stamp: `used` are changes an earlier stamp already took, and a
+/// change that one of `others` (stamps not yet classified) sits closer to is left for that stamp.
+/// Pure.
+func explainingFocusChange(of stamp: Date, in events: [Date], used: Set<Date> = [],
+                           others: [Date] = []) -> Date? {
+    let distance = { (event: Date, to: Date) in abs(event.timeIntervalSince(to)) }
+    let crowd = events.filter {
+        let offset = $0.timeIntervalSince(stamp)
+        return offset >= -keyboardFocusFloodSpan && offset <= keyboardFocusWindow
+    }.count
+    guard crowd <= keyboardFocusFloodLimit else { return nil }
+    return events.filter { event in
+        distance(event, stamp) <= keyboardFocusWindow && !used.contains(event)
+            && !others.contains { distance(event, $0) < distance(event, stamp) }
+    }.min { distance($0, stamp) < distance($1, stamp) }
 }
 
 /// One classified stamp, for the trace (KeyboardTrace.swift) and the tests.
@@ -139,7 +149,9 @@ struct KeyboardObservation: Equatable {
 ///
 /// One per child, fed `lastKeyboardInput()` on every poll tick, because a burst lives in the GAP
 /// between successive stamps and no single stat can see one. The 2s tick is comfortably finer than
-/// `keyboardBurstGap`, so no burst can slip between two readings.
+/// `keyboardBurstGap`, so no burst can slip between two readings, with one exception: switching
+/// away mid-typing, where the read of the focus report re-stamps the node over the last keys and
+/// the report is the only trace of them. That is why a focus stamp may close a burst (`observe`).
 ///
 /// THE TRADE-OFF, taken deliberately: a lone stamp now holds the gate for `keyboardBurstGap`
 /// seconds rather than the caller's full bar, so text PASTED in (one read, one stamp) and then left
@@ -150,13 +162,18 @@ struct KeyboardActivity {
     /// The newest atime seen on the terminal, whatever put it there. Updated the moment it is read,
     /// so the lone-stamp hold starts at once even while the stamp waits to be classified.
     var lastStamp: Date?
-    /// The newest stamp that arrived within `keyboardBurstGap` of the one before it and that no
-    /// focus change explains.
+    /// The newest stamp that arrived within `keyboardBurstGap` of the one before it, where at
+    /// least one of the two is not explained by a focus change.
     var lastBurstAt: Date?
     /// The newest stamp already classified: what the next one is paired against. A focus stamp
-    /// may be the EARLIER half of a burst (switching in and then pasting is a person), never the
-    /// later half (a focus report arriving after anything is not typing).
+    /// may be either half of a burst whose other half is a key (switching in and then pasting, or
+    /// typing and then switching away, is a person); two focus stamps never make one (an out/in
+    /// pair is a window switch).
     private(set) var lastClassified: Date?
+    /// Whether `lastClassified` was a focus report.
+    private var lastClassifiedWasFocus = false
+    /// Focus changes that already explained a stamp, kept only while a later stamp could reach them.
+    private var usedFocus: Set<Date> = []
     /// Stamps read but not yet classified, oldest first. At most two ticks' worth in practice.
     private(set) var unclassified: [Date] = []
 
@@ -184,12 +201,19 @@ struct KeyboardActivity {
               events == nil || now.timeIntervalSince(next) >= keyboardClassifyDelay
                   || unclassified.count > 4 {
             unclassified.removeFirst()
-            let offset = events.flatMap { focusOffset(of: next, in: $0) }
+            let change = events.flatMap {
+                explainingFocusChange(of: next, in: $0, used: usedFocus, others: unclassified)
+            }
+            if let change { usedFocus.insert(change) }
+            usedFocus = usedFocus.filter { next.timeIntervalSince($0) <= keyboardFocusWindow }
+            let offset = change.map { $0.timeIntervalSince(next) }
             let nearest = events.flatMap { nearestOffset($0.map { $0.timeIntervalSince(next) }, within: 5) }
             let gap = lastClassified.map { next.timeIntervalSince($0) }
-            let burst = offset == nil && gap.map { (0 ... keyboardBurstGap).contains($0) } == true
+            let paired = gap.map { (0 ... keyboardBurstGap).contains($0) } == true
+            let burst = paired && !(change != nil && lastClassifiedWasFocus)
             if burst { lastBurstAt = next }
             lastClassified = next
+            lastClassifiedWasFocus = change != nil
             classified.append(KeyboardObservation(stamp: next, gap: gap, burst: burst,
                                                   focusOffset: offset, nearestFocus: nearest))
         }

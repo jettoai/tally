@@ -92,13 +92,49 @@ func runKeyboardFocusChecks() {
     check("a key outside the focus window is not explained by it", key != nil && key?.focusOffset == nil)
     check("and pairs with the focus stamp before it into a burst", key?.burst == true)
 
-    // T3b. Inside the window, even with a stamp 5.9s before it that would otherwise pair.
+    // T3b. The focus change is the report read right after it, not a paste 0.9s later.
     var inside = KeyboardActivity()
     _ = inside.observe(stamp: at(-5), now: at(-3), focusEvents: { focusAt })
+    _ = inside.observe(stamp: at(0.02), now: at(0.5), focusEvents: { focusAt })
     let insideSeen = inside.observe(stamp: at(0.9), now: at(3), focusEvents: { focusAt })
-    check("a stamp 0.9s after a focus change is that change",
-          insideSeen.count == 1 && insideSeen[0].burst == false
-              && abs((insideSeen[0].focusOffset ?? 0) + 0.9) < 0.001)
+    let report = insideSeen.first { $0.stamp == at(0.02) }
+    let paste = insideSeen.first { $0.stamp == at(0.9) }
+    check("the report next to a focus change is that change",
+          report.map { abs(($0.focusOffset ?? 0) + 0.02) < 0.001 } == true)
+    check("a paste 0.9s after it is not explained by it", paste != nil && paste?.focusOffset == nil)
+    check("and is a burst", paste?.burst == true && inside.lastBurstAt == at(0.9))
+
+    // T3c. Typing and then switching away: the out report re-stamps the node over the last keys,
+    // so the 2s poll sees one key and then the report. The report closes the burst.
+    var away = KeyboardActivity()
+    let awayKeys = stride(from: -3.0, through: -0.6, by: 0.8).map { at($0) }
+    _ = drive(&away, stamps: awayKeys + [at(0.02)], events: [t0], from: -1.7, to: 20)
+    check("typing then switching away is a burst", away.lastBurstAt == at(0.02))
+    check("that holds the full reload bar", !away.idle(followIdleSeconds, now: at(60)))
+
+    // T3d. Switching in and pasting soon after: the in report takes the focus change, and one
+    // change explains one stamp, so the paste pairs with the report even inside the window.
+    let inEvents = [at(-5), t0]
+    for delay in [0.15, 0.3] {
+        var pasteIn = KeyboardActivity()
+        _ = pasteIn.observe(stamp: at(-4.98), now: at(-3), focusEvents: { inEvents })
+        _ = pasteIn.observe(stamp: at(0.02), now: at(0.1), focusEvents: { inEvents })
+        let pasteSeen = pasteIn.observe(stamp: at(delay), now: at(2), focusEvents: { inEvents })
+        check("the in report is explained (paste at \(delay)s)",
+              pasteSeen.contains { $0.stamp == at(0.02) && $0.focusOffset != nil })
+        check("a paste \(delay)s after switching in is a burst",
+              pasteSeen.first { $0.stamp == at(delay) }.map { $0.focusOffset == nil && $0.burst } == true
+                  && pasteIn.lastBurstAt == at(delay))
+    }
+
+    // T3e. A key read just before the report: the change goes to the stamp nearest it.
+    var nearKey = KeyboardActivity()
+    let nearSeen = nearKey.observe(stamp: at(-0.15), now: at(-0.1), focusEvents: { focusAt })
+        + nearKey.observe(stamp: at(0.02), now: at(2), focusEvents: { focusAt })
+    check("the key is not the focus change",
+          nearSeen.first { $0.stamp == at(-0.15) }.map { $0.focusOffset == nil } == true)
+    check("the report nearest the change is",
+          nearSeen.first { $0.stamp == at(0.02) }.map { $0.focusOffset != nil } == true)
 
     // T4. Tally.app not running (no file): every stamp is classified at once, as it always was.
     var noApp = KeyboardActivity()

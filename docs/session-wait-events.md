@@ -140,8 +140,9 @@ wakes the session), a standing wait resolves `unknown`. A `system` record does n
 conversation at all: an auto mode notice written 0.97 s after a wait opened used to resolve it
 `answered` (H1 rerun O4). An `idle_prompt` wait, once open, stays open through Claude Code writing
 to an otherwise idle transcript; only the conversation moving or a keyboard burst ends it. A
-terminal focus report is not a burst: a stamp that a focus change recorded by Tally.app explains
-never ends one.
+terminal focus report is not typing: two stamps that focus changes recorded by Tally.app explain
+(switching out and back in) never end one, while a report that closes a run of real keys (typing,
+then switching away) still does.
 
 ## Verifying a delivered event
 

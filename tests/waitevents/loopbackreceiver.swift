@@ -13,11 +13,17 @@ final class LoopbackReceiver: @unchecked Sendable {
     private let fd: Int32
     private let lock = NSLock()
     private var entries: [(event: String, seq: Int)] = []
+    private var captured: [(headers: [String: String], body: Data)] = []
     private let onRequest: (Int) -> Void
+    private let status: (Int) -> Int
 
-    init(logFile: URL, onRequest: @escaping (Int) -> Void = { _ in }) {
+    /// `status(n)` is the HTTP status request `n` is answered with; header names in `requests` are
+    /// lowercased.
+    init(logFile: URL, onRequest: @escaping (Int) -> Void = { _ in },
+         status: @escaping (Int) -> Int = { _ in 200 }) {
         self.logFile = logFile
         self.onRequest = onRequest
+        self.status = status
         try? Data().write(to: logFile)
         let listener = socket(AF_INET, SOCK_STREAM, 0)
         var yes: Int32 = 1
@@ -50,6 +56,12 @@ final class LoopbackReceiver: @unchecked Sendable {
         return entries
     }
 
+    var requests: [(headers: [String: String], body: Data)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return captured
+    }
+
     private func acceptLoop() {
         while true {
             let client = accept(fd, nil, nil)
@@ -59,6 +71,10 @@ final class LoopbackReceiver: @unchecked Sendable {
     }
 
     private func handle(_ client: Int32) {
+        // A reply held past the sender's timeout is written to a socket the sender already closed;
+        // without this that write raises SIGPIPE and kills the whole test process.
+        var noSigPipe: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65536)
         while true {
@@ -77,8 +93,15 @@ final class LoopbackReceiver: @unchecked Sendable {
                 .first { $0.lowercased().hasPrefix("x-tally-event:") }
                 .map { String($0.split(separator: ":", maxSplits: 1)[1]).trimmingCharacters(in: .whitespaces) } ?? "?"
             let seq = (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])?["seq"] as? Int ?? -1
+            var headers: [String: String] = [:]
+            for line in head.components(separatedBy: "\r\n").dropFirst() {
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                headers[parts[0].lowercased()] = parts[1].trimmingCharacters(in: .whitespaces)
+            }
             lock.lock()
             entries.append((event, seq))
+            captured.append((headers, Data(body.utf8)))
             let number = entries.count
             lock.unlock()
             let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current,
@@ -89,7 +112,7 @@ final class LoopbackReceiver: @unchecked Sendable {
                 try? handle.close()
             }
             onRequest(number)
-            let reply = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            let reply = "HTTP/1.1 \(status(number)) X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             _ = reply.withCString { write(client, $0, strlen($0)) }
             break
         }

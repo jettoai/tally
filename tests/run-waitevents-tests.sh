@@ -22,6 +22,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/waitevents/main.swift tests/waitevents/support.swift \
   tests/waitevents/loopbackreceiver.swift tests/waitevents/deliveryhandoffchecks.swift \
+  tests/waitevents/deliverycontractchecks.swift \
   TallyCLI/SessionWaitEvent.swift TallyCLI/SessionWaitLogic.swift TallyCLI/SessionWaitSpool.swift \
   TallyCLI/EventDelivery.swift TallyCLI/EventsCommand.swift \
   TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/ReloadRequest.swift \

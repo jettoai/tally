@@ -203,8 +203,12 @@ waiting, having moved the cursor, spawns one fresh deliverer for the rest.
 ## Deduplication
 
 Every event carries `idempotencyKey`, computed from the request it describes, the event kind, and
-the resolution (when there is one). The same underlying wait event, recomputed on a retry or a
-resend, always produces the same key. A consumer that records "I have already acted on key X" and
+the resolution (when there is one). A `wait.updated` also folds in its own `seq`: one wait can be
+updated more than once (confidence upgraded, then a tool or summary filled in), and each update is a
+distinct event with a distinct key. Delivery retries and replays resend the spooled line itself, so
+every attempt of one event carries the same key. The same underlying wait event, recomputed on a
+retry or a resend, always produces the same key; the one exception is a `wait.updated` that is
+re-derived and appended to the spool again, which gets a new `seq` and so a new key. A consumer that records "I have already acted on key X" and
 skips a repeat is safe against: webhook retries, a `--replay-dead-letter` replay, and a supervisor
 self-update that takes the same session over and re-derives an event it already sent. The key
 includes `session.key`, which carries the supervisor's pid and start time, so the same key only
@@ -288,5 +292,13 @@ every distinct wait. Use it to correlate the lifecycle of one wait across multip
     older rules decide exactly as before this change (early or late, limitation 12), and the
     fallback leaves the limitation 12 line.
 16. A plain text question in a Codex reply (an ordinary reply that asks something, with no
-    structured `request_user_input` chooser) produces no wait event at all: this version reads no
-    Codex signal for it. Untested on a real Codex CLI.
+    structured `request_user_input` chooser) produces no wait event, and `tally status --json`
+    cannot tell it apart from a reply that asks nothing. Measured on Codex CLI 0.155.1
+    (2026-09-23, two plain text questions and one reply of "ok", each watched for 120 seconds):
+    no `wait.*` event and no notice, and every `tally status --json` sample, taken about once a
+    second, read `state: "idle"` from the moment the turn's `task_complete` landed, with no
+    `noticeType`, for the questions and the "ok" reply alike. Answering the question in plain
+    text is an ordinary new turn (`working`, then `idle`) and produces no event either. Codex's
+    rollout records both kinds of turn with the same record types in the same order: the question
+    exists only as the text of the final assistant message, and no rollout field says Codex is
+    waiting for a person. This version reads no Codex signal for it.

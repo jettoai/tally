@@ -103,6 +103,13 @@ func appendSessionWaitEvent(_ event: SessionWaitEvent, dir: URL = tallyEventsDir
 
     var stamped = event
     stamped.seq = readCounter(seqFile(dir: dir)) ?? 1
+    if stamped.kind == SessionWaitEventKind.updated.rawValue {
+        stamped.idempotencyKey = sessionWaitIdempotencyKey(requestID: stamped.request?.id,
+                                                           sessionKey: stamped.session.key,
+                                                           kind: stamped.kind,
+                                                           resolution: stamped.resolution,
+                                                           seq: stamped.seq)
+    }
 
     guard var line = spoolLine(for: stamped) else { return }
     if line.utf8.count > spoolLineByteLimit, let summary = stamped.request?.summary {

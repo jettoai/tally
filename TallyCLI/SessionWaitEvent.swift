@@ -35,7 +35,8 @@ struct SessionWaitEvent: Codable, Equatable {
     var request: SessionWaitRequest?
     /// One of `SessionWaitResolution`'s raw values, or nil when `kind != "wait.resolved"`.
     var resolution: String?
-    /// Filled by `sessionWaitIdempotencyKey` before the event is handed to the spool: a consumer
+    /// Filled by `sessionWaitIdempotencyKey` before the event is handed to the spool (a
+    /// `wait.updated` is restamped with its `seq` by the spool itself): a consumer
     /// that acts on this event and sees the same key again knows it already acted.
     var idempotencyKey: String = ""
 }
@@ -156,9 +157,15 @@ func sessionWaitRequestID(sessionKey: String, kind: String, noticeType: String?,
 /// rather than off anything that varies between retries, so the same event computed twice (a
 /// spool re-append, a webhook retry) always lands on the same key and a consumer that already acted
 /// on it can tell.
+///
+/// `seq` is set only for `wait.updated` (`appendSessionWaitEvent` restamps it once the spool hands
+/// out a seq): one request can be updated more than once, and without it the second update would
+/// share the first one's key and a consumer would drop it as a repeat. A retry or replay resends the
+/// spooled line, so its key still never changes.
 func sessionWaitIdempotencyKey(requestID: String?, sessionKey: String, kind: String,
-                               resolution: String?) -> String {
-    sha256Hex16("\(requestID ?? sessionKey)|\(kind)|\(resolution ?? "-")")
+                               resolution: String?, seq: Int? = nil) -> String {
+    let base = "\(requestID ?? sessionKey)|\(kind)|\(resolution ?? "-")"
+    return sha256Hex16(seq.map { "\(base)|\($0)" } ?? base)
 }
 
 /// §3.2's cap on `request.summary`: at most `byteLimit` UTF-8 bytes, and an ellipsis appended when

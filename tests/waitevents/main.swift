@@ -416,6 +416,7 @@ print("T18 receiver log: \(t18Log.path)")
 try? FileManager.default.removeItem(at: t18Dir)
 
 runDeliveryHandoffChecks()
+runDeliveryContractChecks()
 
 // MARK: - Verdict
 

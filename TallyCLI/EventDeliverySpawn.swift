@@ -58,7 +58,13 @@ func maybeSpawnEventDeliverer(now: Date, last: inout Date?, force: Bool = false,
 /// §14 revision 2, verbatim: `Process()` through `/bin/sh -c "... &"` rather than `posix_spawn`, so
 /// this needs nothing beyond what `Foundation` already gives the rest of this file.
 func spawnDetachedEventDeliverer() {
-    guard let exe = ownExecutablePath() else { return }
+    spawnDetachedEventDeliverer(executable: ownExecutablePath())
+}
+
+/// The same spawn with the binary named by the caller, so a test can hand it a slow stand-in and
+/// measure that the call returns while the stand-in is still running.
+func spawnDetachedEventDeliverer(executable: String?) {
+    guard let exe = executable else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/sh")
     p.arguments = ["-c", "\"$0\" events --deliver-once </dev/null >/dev/null 2>&1 &", exe]

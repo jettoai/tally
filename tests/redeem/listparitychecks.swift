@@ -7,20 +7,7 @@ import Foundation
 
 /// The text inside the parentheses that open at `opener` (which must end in "("), balanced.
 func balancedParens(_ source: String, after opener: String) -> String? {
-    guard let open = source.range(of: opener) else { return nil }
-    var depth = 1
-    var index = open.upperBound
-    while index < source.endIndex {
-        switch source[index] {
-        case "(": depth += 1
-        case ")":
-            depth -= 1
-            if depth == 0 { return String(source[open.upperBound ..< index]) }
-        default: break
-        }
-        index = source.index(after: index)
-    }
-    return nil
+    balancedBlock(source, after: opener, open: "(", close: ")")
 }
 
 func runListParityChecks(rowSource: String, offerSource: String) {

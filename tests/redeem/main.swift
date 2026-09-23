@@ -127,16 +127,18 @@ if !singleEntryPoint { print("  begin() is called from: \(beginCallers)") }
 // Every account answers one of the four reset states, the one whose first poll failed included:
 // the reset line is not a reading of the windows, so it must not sit inside either branch of the
 // card's error split, and the row must not gate its marks on that split (codex review of dcbc04f).
-func balancedBlock(_ source: String, after opener: String) -> String? {
-    guard let open = source.range(of: opener) else { return nil }
+/// The text inside the bracket pair that opens at `opener` (which must end in `open`), balanced.
+func balancedBlock(_ source: String, after opener: String,
+                   open: Character = "{", close: Character = "}") -> String? {
+    guard let start = source.range(of: opener) else { return nil }
     var depth = 1
-    var index = open.upperBound
+    var index = start.upperBound
     while index < source.endIndex {
         switch source[index] {
-        case "{": depth += 1
-        case "}":
+        case open: depth += 1
+        case close:
             depth -= 1
-            if depth == 0 { return String(source[open.upperBound ..< index]) }
+            if depth == 0 { return String(source[start.upperBound ..< index]) }
         default: break
         }
         index = source.index(after: index)

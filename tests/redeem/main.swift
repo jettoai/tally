@@ -88,11 +88,13 @@ func readSource(_ path: String) -> String {
 
 let cardSource = readSource("Tally/Views/AccountCardView.swift")
 let actionSource = readSource("Tally/Views/RedeemAction.swift")
-expect(!cardSource.isEmpty && !actionSource.isEmpty,
+let rowSource = readSource("Tally/Views/AccountListRowView.swift")
+expect(!cardSource.isEmpty && !actionSource.isEmpty && !rowSource.isEmpty,
        "the redeem call sites are readable from the suite")
 
 for (label, source, declaration) in [
     ("the card's redeem button", cardSource, "private func startRedeem() {"),
+    ("the list row's redeem button", rowSource, "private func startRedeem() {"),
     ("the notification's redeem", actionSource, "static func present(accountID: String?) {"),
 ] {
     if let body = functionBody(source, from: declaration) {
@@ -142,7 +144,6 @@ func balancedBlock(_ source: String, after opener: String) -> String? {
     return nil
 }
 
-let rowSource = readSource("Tally/Views/AccountListRowView.swift")
 if let cardBody = functionBody(cardSource, from: "var body: some View {"),
    let errorBranch = balancedBlock(cardBody, after: "if facts.isHardError {"),
    let readingBranch = balancedBlock(cardBody, after: "} else {") {
@@ -166,6 +167,7 @@ if let rowBody = functionBody(rowSource, from: "var body: some View {") {
 }
 
 runOfferChecks()
+runListParityChecks(rowSource: rowSource, offerSource: readSource("Tally/Core/ResetOffer.swift"))
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

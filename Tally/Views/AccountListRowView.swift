@@ -167,11 +167,14 @@ struct AccountListRowView: View {
             codexResetMark("0", help: L("No banked resets"))
         } else if facts.resetOffer == .codexUnknown {
             codexResetMark("?", help: facts.codexResetUnknownHelp)
+        } else if facts.resetOffer == .codexNotReported {
+            codexResetMark("\u{2013}", help: L("Resets not reported for this login"))
+                .accessibilityLabel(L("Resets not reported for this login"))
         }
     }
 
-    /// A Codex account with nothing to press: "0" banked or "?" unknown, greyed like every other
-    /// unavailable mark on this row. Not-reported draws nothing at row scale.
+    /// A Codex account with nothing to press: "0" banked, "?" unknown, or a dash for a login whose
+    /// read has no reset key at all, greyed like every other unavailable mark on this row.
     private func codexResetMark(_ text: String, help: String) -> some View {
         HStack(spacing: 2) {
             Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
@@ -216,7 +219,13 @@ struct AccountListRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(!facts.canResetSessionLimit && !facts.opensClaudeUsagePage)
-        .tallyTooltipAroundControl(facts.markOwner, detail: facts.limitResetHelp(state))
+        // The state's name first (for a used reset that is where its return date is), then what
+        // pressing does or why it cannot, the card's two lines under the account's name.
+        .tallyTooltipAroundControl(
+            facts.markOwner,
+            detail: facts.isResettingSessionLimit
+                ? L("resetting…")
+                : facts.limitResetLabel(state) + "\n" + facts.limitResetHelp(state))
         .accessibilityLabel(facts.limitResetLabel(state))
     }
 
@@ -282,10 +291,22 @@ struct AccountListRowView: View {
         }
         .buttonStyle(.plain)
         .disabled(redeemBusy || facts.isDormant)
-        .tallyTooltipAroundControl(facts.isDormant
-              ? L("Signed out: renew the login to spend a banked reset.")
-              : [L("Use a reset"), facts.resetExpiryNote()].compactMap { $0 }.joined(separator: " · "))
-        .accessibilityLabel(L(resets == 1 ? "reset available" : "resets available"))
+        .tallyTooltipAroundControl(facts.markOwner, detail: redeemHelp)
+        .accessibilityLabel([
+            "\(resets) " + L(resets == 1 ? "reset available" : "resets available"),
+            facts.resetExpiryNote(),
+        ].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    /// What hovering the banked-reset count says: what pressing does, or why it cannot, and then the
+    /// expiry in both cases. A signed-out login still holds its credits, so their deadline still
+    /// applies and is still worth reading.
+    private var redeemHelp: String {
+        if redeemBusy { return L("redeeming…") }
+        let action = facts.isDormant
+            ? L("Signed out: renew the login to spend a banked reset.")
+            : L("Use a reset")
+        return [action, facts.resetExpiryNote()].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// Every window this account reports, headline first, in the card's order. Each is a track plus

@@ -107,12 +107,16 @@ let keyboardClassifyDelay: TimeInterval = 1.5
 let keyboardFocusFloodLimit = 8
 let keyboardFocusFloodSpan: TimeInterval = 10
 
+/// The offset closest to zero among those within `window` of it, sign kept; nil when none is. Pure.
+func nearestOffset(_ offsets: [TimeInterval], within window: TimeInterval) -> TimeInterval? {
+    offsets.filter { abs($0) <= window }.min(by: { abs($0) < abs($1) })
+}
+
 /// Signed distance from `stamp` to the focus change that explains it, nil when none does (or the
 /// log is flooded). Pure.
 func focusOffset(of stamp: Date, in events: [Date]) -> TimeInterval? {
     let offsets = events.map { $0.timeIntervalSince(stamp) }
-    guard let nearest = offsets.filter({ abs($0) <= keyboardFocusWindow })
-        .min(by: { abs($0) < abs($1) }) else { return nil }
+    guard let nearest = nearestOffset(offsets, within: keyboardFocusWindow) else { return nil }
     let crowd = offsets.filter { $0 >= -keyboardFocusFloodSpan && $0 <= keyboardFocusWindow }.count
     return crowd > keyboardFocusFloodLimit ? nil : nearest
 }
@@ -181,10 +185,7 @@ struct KeyboardActivity {
                   || unclassified.count > 4 {
             unclassified.removeFirst()
             let offset = events.flatMap { focusOffset(of: next, in: $0) }
-            let nearest = events.flatMap { list in
-                list.map { $0.timeIntervalSince(next) }.filter { abs($0) <= 5 }
-                    .min(by: { abs($0) < abs($1) })
-            }
+            let nearest = events.flatMap { nearestOffset($0.map { $0.timeIntervalSince(next) }, within: 5) }
             let gap = lastClassified.map { next.timeIntervalSince($0) }
             let burst = offset == nil && gap.map { (0 ... keyboardBurstGap).contains($0) } == true
             if burst { lastBurstAt = next }

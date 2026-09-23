@@ -231,17 +231,12 @@ func supervisorPendingBadges(manualMove: PendingBadge? = nil, sessionModel: Pend
 /// Seeding costs one read per supervisor start and buys the invariant this type is supposed to have:
 /// what is on disk is what this writer last decided, whichever image decided it.
 struct PendingNoticeWriter {
-    private var current: String?
-    private var currentDetail: String?
-    private var currentSince: Date?
+    private var current: PendingNotice?
 
     /// `pid` is optional only so a test can build a writer with nothing to reconcile; the supervisor
     /// always passes its own, because the file it may have to take over is named for it.
     init(pid: String? = nil, dir: URL = supervisorStateDir) {
-        let existing = pid.flatMap { readPendingNotice(pid: $0, dir: dir) }
-        current = existing?.badge
-        currentDetail = existing?.detail
-        currentSince = existing?.since
+        current = pid.flatMap { readPendingNotice(pid: $0, dir: dir) }
     }
 
     /// Idempotent: same badge and detail in, nothing happens. A detail that changes under the same
@@ -249,17 +244,17 @@ struct PendingNoticeWriter {
     /// restarting `since`: the wait did not start again, only its description moved.
     mutating func sync(_ pending: PendingBadge?, pid: String, dir: URL = supervisorStateDir,
                        now: Date = Date()) {
-        guard pending?.badge != current || pending?.detail != currentDetail else { return }
+        guard pending?.badge != current?.badge || pending?.detail != current?.detail else { return }
         guard let pending else {
             clearPendingNotice(pid: pid, dir: dir)
-            current = nil; currentDetail = nil; currentSince = nil
+            current = nil
             return
         }
-        let since = pending.badge == current ? (currentSince ?? now) : now
-        writePendingNotice(PendingNotice(badge: pending.badge, detail: pending.detail, since: since,
-                                         kind: pending.kind),
-                           pid: pid, dir: dir)
-        current = pending.badge; currentDetail = pending.detail; currentSince = since
+        let since = pending.badge == current?.badge ? (current?.since ?? now) : now
+        let notice = PendingNotice(badge: pending.badge, detail: pending.detail, since: since,
+                                   kind: pending.kind)
+        writePendingNotice(notice, pid: pid, dir: dir)
+        current = notice
     }
 }
 

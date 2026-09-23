@@ -74,10 +74,15 @@ struct SessionWaitTracker {
     /// (hard over hard replaces, UserNotice.swift) would otherwise be judged on the handshake of the
     /// request it replaced, and cleared as answered without ever opening.
     func dialogWitnessed(childPid: Int?, notice: UserNotice?) -> Bool {
-        guard let witness, let open, let childPid, let notice,
+        guard let open, let childPid, let notice,
               SessionWaitTracker.isRegistryMeasured(notice.type) else { return false }
-        return witness.requestID == open.id && witness.childPid == childPid
+        return isWitness(of: open.id, childPid: childPid)
             && open.since == notice.at && open.noticeType == notice.type
+    }
+
+    /// Whether the handshake's memory (`witness`) is for request `requestID` under child `childPid`.
+    private func isWitness(of requestID: String, childPid: Int?) -> Bool {
+        witness?.requestID == requestID && witness?.childPid == childPid
     }
 
     /// The notice types whose dialog Claude Code's registry has been MEASURED to hold at `waiting`
@@ -148,9 +153,9 @@ struct SessionWaitTracker {
         // and a person pressing Esc on a re-announced dialog answered that request rather than
         // superseding it. The stamps compare to the millisecond: the witness's copy may have made a
         // round trip through the seed's fractional ISO 8601 text.
-        if let open, let witness, witness.requestID == open.id, witness.childPid == childPid,
+        if let open, isWitness(of: open.id, childPid: childPid),
            open.noticeType == notice.type, open.since < notice.at,
-           let stretch = witness.stretchBegan, abs(stretch.timeIntervalSince(began)) < 0.001 {
+           let stretch = witness?.stretchBegan, abs(stretch.timeIntervalSince(began)) < 0.001 {
             return .standing
         }
         return .unseen
@@ -284,7 +289,7 @@ struct SessionWaitTracker {
             // before the older rules closed it did hear `waiting` (O16).
             if dialogOpen == nil, let registryVersion, let driftLog,
                SessionWaitTracker.isRegistryMeasured(standing.noticeType),
-               !(witness?.requestID == standing.id && witness?.childPid == childPid) {
+               !isWitness(of: standing.id, childPid: childPid) {
                 appendHandoffLine("\(ISO8601DateFormatter().string(from: now)) pid=\(pid ?? "-") "
                     + "wait \(standing.id) closed by legacy rules; registry v\(registryVersion) "
                     + "never said waiting\n", to: driftLog)
@@ -298,7 +303,7 @@ struct SessionWaitTracker {
         // `waiting` for it on the very next tick if its dialog is really up).
         if let current, dialogOpen == true, let childPid, SessionWaitTracker.isRegistryMeasured(current.noticeType) {
             // The stretch is the one the FIRST witnessing tick saw (`DialogWitness.stretchBegan`).
-            let kept = witness?.requestID == current.id && witness?.childPid == childPid
+            let kept = isWitness(of: current.id, childPid: childPid)
             witness = DialogWitness(requestID: current.id, childPid: childPid,
                                     stretchBegan: kept ? witness?.stretchBegan : registryReading?.statusUpdatedAt)
         } else if current == nil || witness?.requestID != current?.id {

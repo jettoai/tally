@@ -83,22 +83,17 @@ final class LoopbackReceiver: @unchecked Sendable {
             data.append(contentsOf: buffer[0..<count])
             guard let text = String(data: data, encoding: .utf8),
                   let split = text.range(of: "\r\n\r\n") else { continue }
-            let head = String(text[..<split.lowerBound])
-            let length = head.components(separatedBy: "\r\n")
-                .first { $0.lowercased().hasPrefix("content-length:") }
-                .flatMap { Int($0.split(separator: ":")[1].trimmingCharacters(in: .whitespaces)) } ?? 0
-            let body = String(text[split.upperBound...])
-            if body.utf8.count < length { continue }
-            let event = head.components(separatedBy: "\r\n")
-                .first { $0.lowercased().hasPrefix("x-tally-event:") }
-                .map { String($0.split(separator: ":", maxSplits: 1)[1]).trimmingCharacters(in: .whitespaces) } ?? "?"
-            let seq = (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])?["seq"] as? Int ?? -1
             var headers: [String: String] = [:]
-            for line in head.components(separatedBy: "\r\n").dropFirst() {
+            for line in text[..<split.lowerBound].components(separatedBy: "\r\n").dropFirst() {
                 let parts = line.split(separator: ":", maxSplits: 1)
                 guard parts.count == 2 else { continue }
                 headers[parts[0].lowercased()] = parts[1].trimmingCharacters(in: .whitespaces)
             }
+            let length = headers["content-length"].flatMap { Int($0) } ?? 0
+            let body = String(text[split.upperBound...])
+            if body.utf8.count < length { continue }
+            let event = headers["x-tally-event"] ?? "?"
+            let seq = (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])?["seq"] as? Int ?? -1
             lock.lock()
             entries.append((event, seq))
             captured.append((headers, Data(body.utf8)))

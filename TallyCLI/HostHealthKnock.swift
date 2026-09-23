@@ -78,7 +78,7 @@ func loadHostHealthReport(_ file: URL = hostHealthReportFile) -> HostHealthRepor
 func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, typedAlready: Bool,
                           session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                           keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                          waitingOnPerson: Bool,
+                          waitingOnPerson: Bool, seen: SessionInputSeen? = nil,
                           filing: () -> Bool = { false },
                           file: URL = hostHealthReportFile,
                           modified: (URL) -> Date? = { hostHealthReportModified($0) },
@@ -124,8 +124,11 @@ func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, type
         // move (SessionInputDraft.swift states what reads it).
         return nil
     }
-    guard sessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
-                           keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned) == nil
+    // `waitingOnPerson` is `SessionTick.dialogPossible` here: an alert typed into an open dialog is
+    // an answer nobody gave (issue #2), so it waits for the dialog and is re-offered next tick.
+    guard automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
+                                    keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
+                                    dialogPossible: waitingOnPerson) == nil
     else { return nil }
     state.announced = alarm.at
     // The same protection a requested line gets, decided from the same reading: a sentence nobody
@@ -134,10 +137,10 @@ func applyHostHealthKnock(_ state: inout HostHealthKnockState, pid: String, type
     let written = inject(line, draft)
     switch written {
     case .held, .uncertain:
-        appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log)
+        appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log, seen: seen)
     case .done:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: hostHealthKnockOutcome,
-                                                  text: line, now: now), to: log)
+                                                  text: line, now: now, seen: seen), to: log)
     case .failed(let code):
         appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code,
                                                      outcome: hostHealthKnockFailedOutcome,

@@ -126,7 +126,7 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
                      account: Snapshot.Account, primaryModel: String?, typedAlready: Bool,
                      session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                      keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                     waitingOnPerson: Bool,
+                     waitingOnPerson: Bool, seen: SessionInputSeen? = nil,
                      quarantine: [String: (model: String?, until: Date)] = [:],
                      reserves: AccountReserves = .none,
                      filing: () -> Bool = { false },
@@ -185,9 +185,12 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     // buys - the mid-turn session, which every hold below refuses, is the session this feature was
     // written for.
     let filed = filing()
-    guard filed || sessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
-                                    keyboardIdle: keyboardIdle,
-                                    relaunchPlanned: relaunchPlanned) == nil
+    // `waitingOnPerson` is `SessionTick.dialogPossible` for this writer: a dialog that MAY be open,
+    // the registry included, so a sentence nobody asked for never lands as an answer (issue #2).
+    guard filed || automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
+                                             keyboardIdle: keyboardIdle,
+                                             relaunchPlanned: relaunchPlanned,
+                                             dialogPossible: waitingOnPerson) == nil
     else { return nil }
     guard let line = quotaKnockMessage(
         account: field.current,
@@ -226,10 +229,10 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     let written = inject(line, draft)
     switch written {
     case .held, .uncertain:
-        appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log)
+        appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log, seen: seen)
     case .done:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: quotaKnockOutcome,
-                                                  text: line, now: now), to: log)
+                                                  text: line, now: now, seen: seen), to: log)
     case .failed(let code):
         appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code, now: now), to: log)
     }

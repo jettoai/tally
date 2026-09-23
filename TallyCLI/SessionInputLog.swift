@@ -24,13 +24,17 @@ let sessionInputLog = FileManager.default.homeDirectoryForCurrentUser
 /// THERE IS NO `submit` FIELD. There was, and it read `yes` on every line ever written once typing
 /// and sending became one act: a column that cannot vary answers nothing anybody greps this file
 /// for, and it costs the eye a stop on every line.
+///
+/// `seen`, when handed, is what the tick saw (`SessionInputSeen`), between the outcome and `bytes=`
+/// so the text still goes last; a caller that hands none writes the line exactly as before.
 func sessionInputLogLine(pid: String, outcome: String, text: String,
-                         now: Date = Date()) -> String {
+                         now: Date = Date(), seen: SessionInputSeen? = nil) -> String {
     let visible = String(text.unicodeScalars.map { scalar -> Character in
         scalar.properties.isDefaultIgnorableCodePoint || scalar.value < 0x20 || scalar.value == 0x7F
             ? "·" : Character(scalar)
     }.prefix(40))
-    return "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(outcome) "
+    let reading = seen.map { " \($0.fields)" } ?? ""
+    return "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(outcome)\(reading) "
         + "bytes=\(text.utf8.count) text=\(visible)\n"
 }
 
@@ -41,15 +45,15 @@ func sessionInputLogLine(pid: String, outcome: String, text: String,
 /// the request stays queued for the next safe tick, while `.uncertain` wrote some and could not
 /// establish the submission - the one of the two whose session a person has to go and look at.
 func appendUnsentSessionInputLine(_ written: SessionInputInjection, pid: String, text: String,
-                                  now: Date, to log: URL) {
+                                  now: Date, to log: URL, seen: SessionInputSeen? = nil) {
     let outcome: String
     switch written {
     case .held: outcome = "held-input"
     case .uncertain: outcome = SessionInputOutcome.unconfirmedInput.rawValue
     case .done, .failed: return
     }
-    appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome, text: text, now: now),
-                           to: log)
+    appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome, text: text, now: now,
+                                               seen: seen), to: log)
 }
 
 /// The mode this log is kept at: readable by its owner and by nobody else.

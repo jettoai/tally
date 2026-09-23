@@ -343,8 +343,8 @@ func runKnockChecks() {
     }
     expect(station.contains("guard !undelivered(pid, dir) else { return nil }"),
            "a filed sentence nobody has read yet is not written over")
-    expect(station.contains("sessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),"),
-           "the typed channel asks the same gate every other writer asks")
+    expect(station.contains("automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),"),
+           "the typed channel asks the gate every writer nobody asked for asks")
     expect(station.contains("state.announced = alarm.at"),
            "the announcement is recorded before the bytes go out")
 

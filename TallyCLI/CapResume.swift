@@ -169,8 +169,8 @@ enum CapResumeHold: Equatable {
     /// The table every writer into this composer shares (SessionInput.swift): a turn of its own, a
     /// child that has not reported, somebody typing, a restart about to happen.
     case input(SessionInputHold)
-    /// This session is waiting on a person: a permission request, a plan approval. Its composer is
-    /// behind that dialog and a line typed now is an answer to a question nobody read it.
+    /// A dialog may be in front of the composer (`SessionTick.dialogPossible`), never the board's
+    /// `blocked`, which a soft idle prompt also reaches. A line typed now answers it unread.
     case blocked
     /// This tick cannot say WHICH conversation is in that window, so it cannot say the offer still
     /// belongs to it. A wait rather than a drop, because it is what a window with no transcript
@@ -362,18 +362,13 @@ struct CapResumeState: Equatable {
     /// prompt outranks the clock: it is the more specific fact and it is true whatever the clock
     /// says.
     ///
-    /// THEN THE SHARED TABLE, unchanged and asked through the same function every other writer into
-    /// this composer asks (`sessionInputHold`): a second spelling of those four rows is four gates
-    /// that can come to disagree about one instant.
-    ///
-    /// AND THIS STATION'S OWN TWO WAITS LAST, after the shared table rather than before it so that
-    /// table's stated precedence is not quietly reordered here. Between them the dialog comes
-    /// first: a composer behind a permission request is not one somebody is typing into, so naming
-    /// the draft there would describe the wrong wait. All of them are holds, so the ordering
-    /// decides only which word the record carries.
+    /// THEN THE GATE EVERY AUTOMATIC WRITER SHARES (`automaticSessionInputHold`): the table, then
+    /// the dialog row; a second spelling is gates that can disagree about one instant. THE DRAFT
+    /// LAST: a composer behind a dialog is not one somebody is typing into. All are holds, so the
+    /// order decides only which word the record carries.
     func decide(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bool, keyboardIdle: Bool,
-                relaunchPlanned: Bool, draftSuspected: Bool, userTurnAt: Date?,
-                conversation: String?, now: Date = Date()) -> CapResumeDecision {
+                relaunchPlanned: Bool, dialogPossible: Bool, draftSuspected: Bool,
+                userTurnAt: Date?, conversation: String?, now: Date = Date()) -> CapResumeDecision {
         guard let offer else { return .idle }
         // WHICH CONVERSATION IS ACTUALLY IN THAT WINDOW, asked FIRST, because every gate below it
         // is about whether now is a good moment to type into this conversation and none of them
@@ -390,12 +385,13 @@ struct CapResumeState: Equatable {
         // directions without a second clock: an offer nobody could type at ends here whatever is
         // holding it, and it ends saying `expired` rather than naming the hold that outlasted it.
         if now.timeIntervalSince(offer.at) > capResumeLife { return .drop(.expired) }
-        if let hold = sessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
-                                       keyboardIdle: keyboardIdle,
-                                       relaunchPlanned: relaunchPlanned) {
-            return .hold(.input(hold))
+        if let hold = automaticSessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
+                                                keyboardIdle: keyboardIdle,
+                                                relaunchPlanned: relaunchPlanned,
+                                                dialogPossible: dialogPossible) {
+            // The dialog row keeps this station's own word for it; every other row is the table's.
+            return .hold(hold == .dialog ? .blocked : .input(hold))
         }
-        if state == .blocked { return .hold(.blocked) }
         if draftSuspected { return .hold(.drafting) }
         return .type(offer.line)
     }
@@ -450,8 +446,8 @@ struct CapResumeState: Equatable {
 func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bool,
                     session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                     keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                    waitingOnPerson: Bool, userTurnAt: Date?, conversation: String?,
-                    now: Date = Date(), log: URL = sessionInputLog,
+                    waitingOnPerson: Bool, seen: SessionInputSeen? = nil, userTurnAt: Date?,
+                    conversation: String?, now: Date = Date(), log: URL = sessionInputLog,
                     stamped: () -> Date = { Date() },
                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
                         injectSessionInput($0, draft: $1)
@@ -459,6 +455,7 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
     guard !typedAlready, state.isArmed else { return nil }
     let decision = state.decide(state: session, quiet: quiet, turnEnded: turnEnded(),
                                 keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
+                                dialogPossible: waitingOnPerson,
                                 draftSuspected: draftSuspected, userTurnAt: userTurnAt,
                                 conversation: conversation, now: now)
     switch decision {
@@ -485,10 +482,10 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
         state.noteTyped(at: stamped())
         switch written {
         case .held, .uncertain:
-            appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log)
+            appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log, seen: seen)
         case .done:
             appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: capResumeOutcome,
-                                                       text: line, now: now), to: log)
+                                                       text: line, now: now, seen: seen), to: log)
         case .failed(let code):
             appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code,
                                                          outcome: capResumeFailedOutcome,

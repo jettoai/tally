@@ -60,6 +60,7 @@ swiftc -o "$out" tests/chromegap/main.swift \
   TallyCLI/SessionClear.swift \
   TallyCLI/SessionContext.swift \
   TallyCLI/SessionInput.swift \
+  TallyCLI/SessionInputAutomatic.swift \
   TallyCLI/SessionInputCommand.swift \
   TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionInputLanding.swift \

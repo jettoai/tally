@@ -173,6 +173,9 @@ enum SessionInputHold: Equatable {
     /// This tick is about to replace the child, so anything typed now goes to a process that is
     /// being terminated.
     case restart
+    /// A dialog may be standing in front of that composer. Only the writers nobody asked for are
+    /// held on it (`automaticSessionInputHold`); a requested line is never handed this reading.
+    case dialog
 
     /// What a refusal says about this hold, worded for the person reading stderr rather than for
     /// the log. `ttl` is named in every one of them: the sentence has to say what ran out as well
@@ -197,6 +200,8 @@ enum SessionInputHold: Equatable {
             return "somebody was typing in that terminal when the \(seconds)s ran out"
         case .restart:
             return "this session was being restarted when the \(seconds)s ran out"
+        case .dialog:
+            return "a dialog was open in that session when its \(seconds)s ran out"
         }
     }
 }

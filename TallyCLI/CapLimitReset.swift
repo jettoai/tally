@@ -278,7 +278,7 @@ func applyCapLimitReset(_ state: inout CapLimitResetState, pendingCap: PendingCa
                         pid: String, accountLabel: String, holding: Bool, typedAlready: Bool,
                         session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                         keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                        waitingOnPerson: Bool,
+                        waitingOnPerson: Bool, seen: SessionInputSeen? = nil,
                         settings: () -> LimitResetSettings = { readLimitResetSettings() },
                         now: Date = Date(), log: URL = sessionInputLog,
                         settingsURL: URL = limitResetSettingsURL,
@@ -299,11 +299,14 @@ func applyCapLimitReset(_ state: inout CapLimitResetState, pendingCap: PendingCa
     // and the symptom here is a weekly credit spent several times over.
     guard holding, state.injectedAt == nil, let pending = pendingCap,
           state.attemptedCapAt != pending.cappedAt,
-          !typedAlready, !relaunchPlanned, !waitingOnPerson else { return nil }
+          !typedAlready, !relaunchPlanned else { return nil }
     // The composer gate last, because it reads a file and a transcript tail through `turnEnded` -
-    // the order `applyQuotaKnock` states and for the same reason.
-    guard sessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
-                           keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned) == nil
+    // the order `applyQuotaKnock` states and for the same reason. The dialog row is asked here, in
+    // the gate every writer nobody asked for shares (`waitingOnPerson` is
+    // `SessionTick.dialogPossible`), rather than as a second spelling in the guard above.
+    guard automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
+                                    keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
+                                    dialogPossible: waitingOnPerson) == nil
     else { return nil }
     // MARKED BEFORE THE WRITE, the rule every station on this track keeps: past this line the bytes
     // are on the terminal or the write has failed, and a failure that repeats every two seconds is
@@ -320,14 +323,16 @@ func applyCapLimitReset(_ state: inout CapLimitResetState, pendingCap: PendingCa
     let written = inject(limitResetCommand, draft)
     switch written {
     case .held, .uncertain:
-        appendUnsentSessionInputLine(written, pid: pid, text: limitResetCommand, now: now, to: log)
+        appendUnsentSessionInputLine(written, pid: pid, text: limitResetCommand, now: now, to: log,
+                                     seen: seen)
     case .done:
         // A REFUSED WRITE STARTS NO WAIT. Nothing was typed, so no answer is coming, and the next
         // tick's hold falls through to the handoff - which is what the session would have done had
         // this station not existed.
         state.injectedAt = now
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: capLimitResetOutcome,
-                                                  text: limitResetCommand, now: now), to: log)
+                                                  text: limitResetCommand, now: now, seen: seen),
+                               to: log)
     case .failed(let code):
         appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code,
                                                      outcome: capLimitResetFailedOutcome, now: now),

@@ -952,7 +952,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let action = applySessionInput(
                 &sessionInput, session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
-                draftSuspected: draftSuspected, waitingOnPerson: board.waitingOnPerson,
+                // A dialog KNOWN open (the registry included) is typed into key by key, never stashed;
+                // this line may answer it, so it is not handed the automatic writers' hold.
+                draftSuspected: draftSuspected, waitingOnPerson: board.dialogOpen, seen: board.seen,
                 clearBoundary: {
                     windowRepickMove(provider: provider.id, account: account,
                                      primaryModel: effectivePrimary, mode: policy.mode,
@@ -1001,7 +1003,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 typedAlready: action.typed != nil, session: board.state, quiet: board.quiet,
                 turnEnded: turnOver, keyboardIdle: composerIdle,
                 relaunchPlanned: replacingChild, draftSuspected: draftSuspected,
-                waitingOnPerson: board.waitingOnPerson)
+                waitingOnPerson: board.dialogPossible, seen: board.seen)
             // On the same terms as the writers around it: what this tick typed is what the next
             // tick's draft reading has to discount.
             if resetTyped != nil { lastComposerWrite = Date() }
@@ -1020,7 +1022,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                          keyboardIdle: composerIdle,
                                          relaunchPlanned: replacingChild,
                                          draftSuspected: draftSuspected,
-                                         waitingOnPerson: board.waitingOnPerson,
+                                         waitingOnPerson: board.dialogPossible, seen: board.seen,
                                          userTurnAt: watcher.lastUserTurnAt,
                                          // WHICH conversation is in this window right now, which is
                                          // what says the offer still belongs to it: a relaunch that
@@ -1044,7 +1046,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
                                           relaunchPlanned: replacingChild,
                                           draftSuspected: draftSuspected,
-                                          waitingOnPerson: board.waitingOnPerson,
+                                          waitingOnPerson: board.dialogPossible, seen: board.seen,
                                           quarantine: quarantine,
                                           reserves: reserves,
                                           // The reading taken when THIS child was launched, not one
@@ -1068,7 +1070,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     || resetTyped != nil,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
-                draftSuspected: draftSuspected, waitingOnPerson: board.waitingOnPerson,
+                draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
+                seen: board.seen,
                 // The reading taken when THIS child was launched, for the reason the knock beside
                 // it states: a settings.json edited since says nothing about the hooks the running
                 // process holds.

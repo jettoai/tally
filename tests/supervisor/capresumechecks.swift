@@ -135,10 +135,13 @@ func runCapResumeChecks() {
         return state
     }
 
-    let shapes: [(name: String, state: SupervisedState, draft: Bool)] = [
-        ("nobody has touched it", .idle, false),
-        ("somebody is typing in it", .idle, true),
-        ("it is waiting on a person", .blocked, false),
+    // `dialog` is `SessionTick.dialogPossible`, which is what decides the dialog row since issue #2:
+    // the board's `blocked` alone is also a soft idle prompt, and that shape is typed into.
+    let shapes: [(name: String, state: SupervisedState, draft: Bool, dialog: Bool)] = [
+        ("nobody has touched it", .idle, false, false),
+        ("somebody is typing in it", .idle, true, false),
+        ("it is waiting on a person", .blocked, false, true),
+        ("it is only an idle prompt", .blocked, false, false),
     ]
     var grid = 0
     for (interrupted, wallName) in [(true, "a wall that cut a turn short"),
@@ -149,13 +152,14 @@ func runCapResumeChecks() {
                 let state = session(interrupted: interrupted, second: second)
                 let decision = state.decide(state: shape.state, quiet: .quiet, turnEnded: false,
                                             keyboardIdle: true, relaunchPlanned: false,
+                                            dialogPossible: shape.dialog,
                                             draftSuspected: shape.draft, userTurnAt: nil,
                                             conversation: armedConversation,
                                             now: wall.addingTimeInterval(30))
                 let expected: CapResumeDecision
                 if !interrupted || second {
                     expected = .idle
-                } else if shape.state == .blocked {
+                } else if shape.dialog {
                     expected = .hold(.blocked)
                 } else if shape.draft {
                     // A WAIT SINCE 2026-09-02, not the end of the offer: a burst is evidence about
@@ -170,14 +174,14 @@ func runCapResumeChecks() {
             }
         }
     }
-    check("every cell of the grid was asserted, not a sample of it", grid == 12)
+    check("every cell of the grid was asserted, not a sample of it", grid == 16)
 
     // The other half of "somebody is typing": a prompt of their OWN in the relaunched child, which
     // the draft reading cannot see because the burst that spelled it ended in a Return.
     let typedInto = session(interrupted: true, second: false)
     check("a prompt typed into the relaunched child ends the offer",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
-                           relaunchPlanned: false, draftSuspected: false,
+                           relaunchPlanned: false, dialogPossible: false, draftSuspected: false,
                            userTurnAt: wall.addingTimeInterval(20),
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(30)) == .drop(.userTurn))
@@ -187,7 +191,8 @@ func runCapResumeChecks() {
     // these two had fired.
     check("a keystroke burst waits where a prompt of their own ends it",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
-                           relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
+                           relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
+                           userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(30)) == .hold(.drafting))
     check("…and every ending this station can reach carries a word of its own",
@@ -198,7 +203,8 @@ func runCapResumeChecks() {
     // it, and it ends under its own word rather than the hold's.
     check("a drafting hold that outlives the offer becomes the expiry rather than a standing wait",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
-                           relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
+                           relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
+                           userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(capResumeLife + 1)) == .drop(.expired))
     // AND THE SEQUENCE THOSE TWO ENDINGS ONLY MEAN ANYTHING IN, driven by the real predicate rather
@@ -215,7 +221,8 @@ func runCapResumeChecks() {
     }
     func afterBurst(at moment: TimeInterval) -> CapResumeDecision {
         typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
-                         relaunchPlanned: false, draftSuspected: draftEvidence(at: moment),
+                         relaunchPlanned: false, dialogPossible: false,
+                         draftSuspected: draftEvidence(at: moment),
                          userTurnAt: nil, conversation: armedConversation,
                          now: wall.addingTimeInterval(moment))
     }
@@ -238,12 +245,12 @@ func runCapResumeChecks() {
     /// Every gate open, so each check can close exactly one of them.
     func decide(_ state: CapResumeState, session: SupervisedState = .idle,
                 quiet: SessionQuiet = .quiet, turnEnded: Bool = false, keyboardIdle: Bool = true,
-                relaunchPlanned: Bool = false, conversation: String? = armedConversation,
-                at moment: TimeInterval = 30)
+                relaunchPlanned: Bool = false, dialog: Bool = false,
+                conversation: String? = armedConversation, at moment: TimeInterval = 30)
         -> CapResumeDecision {
         state.decide(state: session, quiet: quiet, turnEnded: turnEnded,
                      keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
-                     draftSuspected: false, userTurnAt: nil, conversation: conversation,
+                     dialogPossible: dialog, draftSuspected: false, userTurnAt: nil, conversation: conversation,
                      now: wall.addingTimeInterval(moment))
     }
     let ready = session(interrupted: true, second: false)
@@ -257,8 +264,8 @@ func runCapResumeChecks() {
           decide(ready, keyboardIdle: false) == .hold(.input(.keyboard)))
     check("and a tick about to replace the child types nothing into it",
           decide(ready, relaunchPlanned: true) == .hold(.input(.restart)))
-    check("a session waiting on a person is waited for by this station's own gate",
-          decide(ready, session: .blocked) == .hold(.blocked))
+    check("a session waiting on a person is waited for by this station's own word",
+          decide(ready, session: .blocked, dialog: true) == .hold(.blocked))
     check("an offer that never reached a typeable moment is given up on, not held for ever",
           decide(ready, session: .unknown, at: capResumeLife + 1) == .drop(.expired))
     check("…measured from the wall, so it is still live one second inside the life",
@@ -464,7 +471,8 @@ func runCapResumeChecks() {
           recurring.isArmed)
     check("…and the second offer waits on its own burst rather than on the first offer's stamps",
           recurring.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
-                           relaunchPlanned: false, draftSuspected: true, userTurnAt: nil,
+                           relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
+                           userTurnAt: nil,
                            conversation: armedConversation,
                            now: wall.addingTimeInterval(130)) == .hold(.drafting))
 

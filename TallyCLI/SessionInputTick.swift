@@ -128,7 +128,7 @@ enum SessionInputRepick: Equatable {
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
                        relaunchPlanned: Bool, draftSuspected: Bool, waitingOnPerson: Bool,
-                       stashComposer: Bool = true, inputRefusal: ((SessionInputRequest) -> String?)? = nil,
+                       seen: SessionInputSeen? = nil, stashComposer: Bool = true, inputRefusal: ((SessionInputRequest) -> String?)? = nil,
                        confirmInput: () -> Bool = { true }, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
@@ -285,7 +285,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         clearSessionInputRequest(sessionKey: pid, dir: dir)
     }
     appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome.rawValue,
-                                               text: request.text, now: now),
+                                               text: request.text, now: now, seen: seen),
                            to: log)
     // AND WHAT THE LINE COST, on a line of its own beside it (the shape `receipt-lost` uses, and for
     // the same reason: the served line's business is what was typed). This is the one consequence of

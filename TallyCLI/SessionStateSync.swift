@@ -287,7 +287,10 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                            dialogOpen: dialogOpen, fastAnswer: fastAnswer, registryReading: reading,
                            registryVersion: registry.map { $0.version ?? "unknown" },
                            driftLog: watcher.auditLog, now: now))
-    return SessionTick(state: state, quiet: quietness, wait: wait)
+    // `reading`, taken on every tick with a child, and NOT `registry`, which exists only under a hard
+    // notice: without the notification hook the registry is the one witness a dialog has.
+    return SessionTick(state: state, quiet: quietness, wait: wait,
+                       dialogRegistry: reading.map { $0.isWaiting })
 }
 
 /// Compatibility for every caller before this package existed (mainly `tests/supervisor/`, which
@@ -329,6 +332,27 @@ struct SessionTick: Equatable {
     /// not to restart, and reading the word alone made the second one a veto too (see
     /// `waitingOnPerson`).
     let wait: UserWait?
+    /// What Claude Code's own session registry said about a dialog on this tick: true while it reads
+    /// `waiting`, false when readable and saying anything else, nil when it cannot be read (no
+    /// child, no file, a build that writes none, a record for another pid). The one dialog reading
+    /// that needs no hook: from 2.1.280 a structured question reaches the transcript only once
+    /// answered (UserNotice.swift). Kept out of `wait` on purpose: `wait` feeds the board, the
+    /// movers and the wait-event stream, and none of them is changed by it.
+    var dialogRegistry: Bool? = nil
+
+    /// Whether a dialog is KNOWN to be open, from facts only: a hard wait, or the registry saying
+    /// `waiting`. The requested line's draft reading, so a line sent into a dialog only the registry
+    /// sees is typed key by key with nothing stashed.
+    var dialogOpen: Bool { waitingOnPerson || dialogRegistry == true }
+
+    /// Whether a dialog MAY be open, which every writer nobody asked for holds on
+    /// (`automaticSessionInputHold`). An unreadable registry counts: without the notification hook
+    /// it is the only witness a dialog has, and a line typed into an unseen dialog is an answer
+    /// nobody gave (issue #2).
+    var dialogPossible: Bool { dialogOpen || dialogRegistry == nil }
+
+    /// What this tick saw, as an input log line records it.
+    var seen: SessionInputSeen { SessionInputSeen(state: state, wait: wait, registry: dialogRegistry) }
 
     /// Whether a PERSON is being waited for: a permission request, a plan awaiting approval, an
     /// open question. The reading every mover that restarts this child asks, spelled once here.

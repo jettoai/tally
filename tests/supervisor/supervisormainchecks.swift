@@ -408,6 +408,7 @@ func runSupervisorMainChecks() {
     runCapResetChecks()
     runCapSelfUpdateChecks()
     runForkChecks()
+    runTranscriptCatchUpChecks()
     runRequestTranscriptChecks()
     runRequestForwardChecks()
     runTranscriptIdentityChecks()

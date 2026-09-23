@@ -180,6 +180,7 @@ func isTranscriptSessionID(_ id: String) -> Bool {
 /// tailed, to find out which conversation in a project directory is the newest
 /// (LaunchResume.swift). Moved rather than copied - two extractions of one field is how they come
 /// to disagree about which spellings of an ISO stamp count.
+/// Byte twin: TranscriptLineBytes.swift; change both.
 func lineTimestamp(_ line: Substring) -> Date? {
     guard let key = line.range(of: "\"timestamp\":\"") else { return nil }
     let rest = line[key.upperBound...]

@@ -40,6 +40,7 @@ import Foundation
 /// And a zero total is never a real context: synthetic assistant turns (an interrupted call, an API
 /// error) are written with an all-zero usage, and reporting one would wipe a genuine reading with a
 /// 0 the way replayed history once poisoned `lastModel` (TranscriptWatcher.swift).
+/// Byte twin: TranscriptLineBytes.swift; change both.
 func contextTokens(inLine line: Substring) -> Int? {
     guard let usage = line.range(of: "\"usage\":{") else { return nil }
     var window = line[usage.upperBound...]

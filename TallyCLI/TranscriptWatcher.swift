@@ -18,6 +18,13 @@ import Foundation
 // Why a conversation moves to a new transcript, how a fork is told from a sibling session, and
 // the code that follows it: TranscriptFork.swift.
 
+/// Bytes one `sawCapHit` reads per block (TranscriptWatcherScan.swift, issue #3).
+let transcriptScanBlockBytes = 4 << 20
+/// Bytes one `sawCapHit` may read before yielding the rest of the file to the next tick, once at
+/// least one line has been consumed. Chosen by measurement (issue #3, optimized build, a 321 MB
+/// synthetic transcript): 64 MiB cost 332 ms a call, 32 MiB keeps a call under the 250 ms bar.
+let transcriptScanBudgetBytes = 32 << 20
+
 /// Watches one session transcript for a cap-hit event newer than `since`.
 struct TranscriptWatcher {
     let projectDir: URL
@@ -30,6 +37,15 @@ struct TranscriptWatcher {
     /// The unresolved authentication error in the currently bound transcript.
     var loginRequiredAt: Date? { loginSignals.requiredAt }
     var offset: UInt64 = 0
+    /// How many bytes one `sawCapHit` may read before leaving the rest to the next tick
+    /// (`transcriptScanBudgetBytes`, issue #3). A var so a suite can drive a catch-up in small steps.
+    var scanBudgetBytes = transcriptScanBudgetBytes
+    /// False sends every line through the full scan: the semantics before issue #3, which the
+    /// catch-up checks compare the history path against. Nothing in the product sets it.
+    var skipsHistoryCheaply = true
+    /// Lines handed to the full scan so far: the cost the history path keeps off the tick, counted
+    /// so a suite can bound it without timing anything.
+    var fullPathLines = 0
     let since: Date
     /// The session id this child was launched to resume, when known (set after a handoff, which
     /// relaunches with `--resume <id>`). Lets `locateFile` pin `<id>.jsonl` directly instead of
@@ -271,6 +287,7 @@ struct TranscriptWatcher {
 
     /// The top-level `uuid` of one transcript line, without a full parse. `"uuid":"` never appears
     /// inside `"parentUuid":"` (the leading quote guards it), so the first match is the event's own.
+    /// Byte twin: TranscriptLineBytes.swift; change both.
     func lineUUID(_ line: Substring) -> String? {
         guard let key = line.range(of: "\"uuid\":\"") else { return nil }
         let rest = line[key.upperBound...]
@@ -281,6 +298,7 @@ struct TranscriptWatcher {
     /// A user event's visible text by substring (no full parse - every user line hits this). Reads
     /// a string `content`, else the first `text` of an array `content`. Best-effort: an embedded
     /// escaped quote truncates it early, fine for a snippet already capped and newline-stripped.
+    /// Byte twin: TranscriptLineBytes.swift; change both.
     func userExcerpt(_ line: Substring) -> String? {
         guard let key = line.range(of: "\"content\":") else { return nil }
         let rest = line[key.upperBound...]

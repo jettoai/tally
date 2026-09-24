@@ -28,12 +28,14 @@ func claudeJSONData(_ value: [String: Any], replacing original: Data?) throws ->
     var writer = ClaudeJSONWriter(original: [], indent: Array("  ".utf8))
     try writer.write(value, old: nil, source: nil, depth: 0)
     writer.out.append(0x0A)
-    guard let data = claudeJSONVerified(writer.out, value) else {
-        throw NSError(domain: "tally", code: 7, userInfo: [
-            NSLocalizedDescriptionKey: "Could not encode the settings document.",
-        ])
-    }
+    guard let data = claudeJSONVerified(writer.out, value) else { throw claudeJSONEncodingError() }
     return data
+}
+
+private func claudeJSONEncodingError() -> NSError {
+    NSError(domain: "tally", code: 7, userInfo: [
+        NSLocalizedDescriptionKey: "Could not encode the settings document.",
+    ])
 }
 
 private func claudeJSONVerified(_ bytes: [UInt8], _ value: [String: Any]) -> Data? {
@@ -226,13 +228,13 @@ private struct ClaudeJSONWriter {
             for key in object.keys.sorted() where !placed.contains(key) {
                 members.append((key, nil, nil))
             }
-            guard !members.isEmpty else { out += Array("{}".utf8); return }
+            guard !members.isEmpty else { out += "{}".utf8; return }
             out.append(UInt8(ascii: "{"))
             for (index, member) in members.enumerated() {
-                out += Array((index == 0 ? "\n" : ",\n").utf8)
+                out += (index == 0 ? "\n" : ",\n").utf8
                 pad(depth + 1)
                 if let rawKey = member.rawKey { out += original[rawKey] } else { string(member.key) }
-                out += Array(": ".utf8)
+                out += ": ".utf8
                 try write(object[member.key]!, old: oldObject?[member.key], source: member.source,
                           depth: depth + 1)
             }
@@ -244,11 +246,11 @@ private struct ClaudeJSONWriter {
             var sources: [ClaudeJSONSource] = []
             if case .array(let sourced)? = source?.shape { sources = sourced }
             let paired = min(oldArray.count, sources.count)
-            guard !array.isEmpty else { out += Array("[]".utf8); return }
+            guard !array.isEmpty else { out += "[]".utf8; return }
             var used = Set<Int>()
             out.append(UInt8(ascii: "["))
             for (index, element) in array.enumerated() {
-                out += Array((index == 0 ? "\n" : ",\n").utf8)
+                out += (index == 0 ? "\n" : ",\n").utf8
                 pad(depth + 1)
                 let candidates = [index] + Array(0 ..< paired)
                 if let match = candidates.first(where: {
@@ -275,9 +277,9 @@ private struct ClaudeJSONWriter {
 
     private mutating func scalar(_ value: Any) throws {
         if let text = value as? String { string(text); return }
-        if value is NSNull { out += Array("null".utf8); return }
+        if value is NSNull { out += "null".utf8; return }
         if let number = value as? NSNumber {
-            if claudeJSONIsBool(number) { out += Array((number.boolValue ? "true" : "false").utf8); return }
+            if claudeJSONIsBool(number) { out += (number.boolValue ? "true" : "false").utf8; return }
             // Checked first: Foundation raises an Objective-C exception, not a Swift error, for NaN
             // and infinity.
             if JSONSerialization.isValidJSONObject([number]),
@@ -287,9 +289,7 @@ private struct ClaudeJSONWriter {
                 return
             }
         }
-        throw NSError(domain: "tally", code: 7, userInfo: [
-            NSLocalizedDescriptionKey: "Could not encode the settings document.",
-        ])
+        throw claudeJSONEncodingError()
     }
 
     /// `JSON.stringify`'s escaping: quote, backslash and control characters only.
@@ -297,17 +297,17 @@ private struct ClaudeJSONWriter {
         out.append(UInt8(ascii: "\""))
         for scalar in text.unicodeScalars {
             switch scalar {
-            case "\"": out += Array("\\\"".utf8)
-            case "\\": out += Array("\\\\".utf8)
-            case "\u{08}": out += Array("\\b".utf8)
-            case "\u{0C}": out += Array("\\f".utf8)
-            case "\n": out += Array("\\n".utf8)
-            case "\r": out += Array("\\r".utf8)
-            case "\t": out += Array("\\t".utf8)
+            case "\"": out += "\\\"".utf8
+            case "\\": out += "\\\\".utf8
+            case "\u{08}": out += "\\b".utf8
+            case "\u{0C}": out += "\\f".utf8
+            case "\n": out += "\\n".utf8
+            case "\r": out += "\\r".utf8
+            case "\t": out += "\\t".utf8
             case _ where scalar.value < 0x20:
-                out += Array(String(format: "\\u%04x", scalar.value).utf8)
+                out += String(format: "\\u%04x", scalar.value).utf8
             default:
-                out += Array(String(scalar).utf8)
+                out += String(scalar).utf8
             }
         }
         out.append(UInt8(ascii: "\""))

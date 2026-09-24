@@ -98,10 +98,7 @@ let quotaKnockLabelBytes = 32
 /// It exists because the alternative way to see this feature work is to burn an account down to 15%,
 /// and what it fires is the REAL sentence built from the REAL snapshot - it forces the moment, never
 /// the content, so what a reader sees is what a drought would have sent them.
-func quotaKnockForceRequested() -> Bool {
-    guard let raw = getenv("TALLY_QUOTA_KNOCK_FORCE") else { return false }
-    return String(cString: raw) == "1"
-}
+func quotaKnockForceRequested() -> Bool { quotaKnockFlagSet("TALLY_QUOTA_KNOCK_FORCE") }
 
 /// Whether this supervisor was asked to TYPE its quota knock even where the child could be handed it
 /// through the knock hooks (`TALLY_KNOCK_FORCE_TYPED=1`).
@@ -110,8 +107,11 @@ func quotaKnockForceRequested() -> Bool {
 /// supervisor that carries it, and it only ever turns filing OFF. It exists because a machine with
 /// the hooks installed files every knock, so the typed channel and its dialog gate (issue #2) cannot
 /// otherwise be exercised there without editing the settings every account shares.
-func quotaKnockTypedRequested() -> Bool {
-    guard let raw = getenv("TALLY_KNOCK_FORCE_TYPED") else { return false }
+func quotaKnockTypedRequested() -> Bool { quotaKnockFlagSet("TALLY_KNOCK_FORCE_TYPED") }
+
+/// Whether the development flag `name` is set to exactly "1"; unset or any other value is off.
+private func quotaKnockFlagSet(_ name: String) -> Bool {
+    guard let raw = getenv(name) else { return false }
     return String(cString: raw) == "1"
 }
 

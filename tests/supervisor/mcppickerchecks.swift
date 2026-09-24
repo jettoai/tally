@@ -764,13 +764,11 @@ func runMCPTransportChecks() {
         check("\(name)'s description names the in-conversation route",
               description.contains("From inside a conversation, run"))
     }
-    let pickTool: [String: Any] = listedTools.first { $0["name"] as? String == PromptHookTool.pick.rawValue } ?? [:]
-    let pickSchema = pickTool["inputSchema"] as? [String: Any] ?? [:]
-    let pickProperties = pickSchema["properties"] as? [String: Any] ?? [:]
-    let commandArgsProperty = pickProperties["command_args"] as? [String: Any] ?? [:]
-    let commandArgsDescription = commandArgsProperty["description"] as? String ?? ""
+    let pickTool = listedTools.first { $0["name"] as? String == PromptHookTool.pick.rawValue }
+    let pickProperties = (pickTool?["inputSchema"] as? [String: Any])?["properties"] as? [String: Any]
+    let commandArgs = pickProperties?[PromptHookInputField.commandArgs.rawValue] as? [String: Any]
     check("pick's command_args parameter carries a non-empty description",
-          !commandArgsDescription.isEmpty)
+          !(commandArgs?["description"] as? String ?? "").isEmpty)
     let elicitation = sent.first { $0["method"] as? String == "elicitation/create" }
     check("a bare tool call raises an elicitation from inside it", elicitation != nil)
     let requested = (elicitation?["params"] as? [String: Any])?["requestedSchema"] as? [String: Any]

@@ -1,0 +1,8 @@
+# Prompt text that ships inside code strings. Commits touching these files are
+# reviewed by Claude instead of codex (read by the ~/.claude review router).
+# One repo-relative path per line; no directories or globs.
+# TallyCLI/MCPServe.swift is left out on purpose: its tool descriptions sit next to
+# about 300 lines of JSON-RPC and elicitation logic that should keep codex review.
+Tally/Stores/IntegrationsSkillContent.swift
+Tally/Stores/IntegrationsTallyCommand.swift
+Tally/Core/PromptHookInput.swift

@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 23
+    nonisolated static let skillVersion = 24
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -207,7 +207,9 @@ extension IntegrationsStore {
         marked Recommended. Then run `tally account` on the one they picked. This is the
         path for a request made IN CONVERSATION, where a turn is already running and the
         picker is the fastest way to answer it; `/tally` typed by the user is the free path
-        and needs nothing from you.
+        and needs nothing from you. Tally's own running-low line (the last section) is a
+        different case: Tally has already picked the account it names by headroom, so it is
+        answered as that section says rather than with a picker.
 
         What happens next, and what to tell the user:
 
@@ -257,15 +259,16 @@ extension IntegrationsStore {
         default) are out of reach from inside a turn. `tally session send` is the way in:
 
         ```
-        tally session clear                      # end this window (the hand-over case)
+        tally session clear                      # clear this window: a /clear, a hand-over
         tally session send "/clear"              # type those six characters, nothing more
         tally session send                       # press Return alone
         tally session send "2" --session 65949   # another session, by its pid
         ```
 
-        USE `tally session clear` TO END A WINDOW, and `session send` for everything else.
-        They queue on identical terms; the difference is one decision the clear verb is
-        allowed to make and the send verb is not (below).
+        Use `tally session clear` whenever the point is to clear a window, whether the user
+        asked for a /clear or a hand-over is closing its window for the next one, and
+        `session send` for everything else. They queue on identical terms; the difference is
+        one decision the clear verb is allowed to make and the send verb is not (below).
 
         Run with no `--session` it addresses the session it is running in, which is what an
         agent clearing its own context wants: say what you have to say first, because the
@@ -283,8 +286,10 @@ extension IntegrationsStore {
         waiting helps, and the second send is refused as a duplicate.
 
         A queued line is not a late one. It waits for that session to come out of its own
-        turn, however long that takes, and is dropped only if no such moment arrives within
-        fifteen minutes. Subagents do not delay it at all.
+        turn for up to fifteen minutes from when it was queued, which covers the turns it is
+        meant for. A line still waiting then is dropped and the drop is recorded in
+        `~/.tally/logs/input.log`, because a turn that has run that long means the composer
+        belongs to something else by now. Subagents do not delay it at all.
 
         A cleared window may reopen on a different account, and that is deliberate. A
         conversation that has just been cleared is empty, so the restart that carries it off
@@ -300,7 +305,7 @@ extension IntegrationsStore {
         with no context, which is what a clear is. `tally session send "/clear"` types the
         line and nothing else; the same move can still happen afterwards, when Tally sees
         the window really closed, but a session woken by its own next turn can outrun that.
-        So a hand-over that is clearing its window for the next one should use the verb.
+        So any clear, a hand-over's included, should use the verb.
 
         Both endings are exit 0 and both are recorded. The receipt reads `sent to session
         <pid>` when it was typed and `window closed by moving session <pid> (reopened on
@@ -388,7 +393,7 @@ extension IntegrationsStore {
         Run it from the main repository: removing the worktree the current directory sits
         in is refused, which is the right answer and not a bug to work around.
 
-        # When an account runs low mid-conversation
+        # Continuing a conversation on another account from a terminal
 
         `tally resume` continues THIS directory's most recent Claude conversation on
         another account:
@@ -402,10 +407,13 @@ extension IntegrationsStore {
         uses, copies the transcript over when the accounts do not share a projects tree
         (never overwriting), and launches `claude --resume <id>` there. With no other
         eligible account it says so and resumes on the account the session is already on.
-        Suggest it when the current account's binding window is nearly drained and the
-        conversation is worth keeping; a session launched through `tally claude` also hands
-        itself off automatically when it actually hits a cap. Use `tally account` instead
-        when the user names the account to move to: `resume` picks one by headroom.
+
+        It is a launcher, so it belongs in the user's own terminal once the conversation
+        there has ended, for instance a session started bare that stopped at a cap. Run as a
+        tool call it would start a second Claude Code inside this one. A session launched
+        through `tally claude` seldom needs it, because it hands itself off automatically when
+        it actually hits a cap. Inside a running conversation the move is `tally account`,
+        whether the user names the account or Tally's line below does.
 
         # The line Tally sends when the account is running out
 
@@ -433,6 +441,10 @@ extension IntegrationsStore {
         - Wrap up and switch. Finish or checkpoint what is in flight (commit, write the
           hand-over), then run `tally account "<the account it named>"`. The move happens
           at the end of the turn and the conversation continues there with its context.
+          That command pins the session like any other `tally account`, since it is the
+          one verb that moves a running conversation, so say so in your answer along with
+          `tally account --auto`: the user who would rather choose, or have automatic
+          selection back, is then one command away from it.
         - Wait for the reset, which is right when the reset is close and little else is
           drawing on that window. Both numbers are in the line for that judgement: three
           sessions on one account drain it three times as fast as the percentage reads,

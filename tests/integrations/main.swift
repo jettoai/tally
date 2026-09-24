@@ -53,6 +53,8 @@ try MainActor.assumeIsolated {
     try runNotificationHookChecks(tmp: tmp)
     try runAgentHookChecks(tmp: tmp)
     try runKnockHookChecks(tmp: tmp)
+    // The same files written in their own layout, not Foundation's (claudejsonformatchecks.swift).
+    try runClaudeJSONFormatChecks(tmp: tmp)
     try runArtifactHookChecks(tmp: tmp)
     runSmartBadgeChecks()
     // And the one pass that installs one of those without anybody pressing anything: what a machine

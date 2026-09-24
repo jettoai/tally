@@ -232,8 +232,8 @@ final class IntegrationsStore {
     /// document instead (a `try?` and a `?? [:]`) would replace a user's whole harness
     /// configuration with the one key being registered, and the file it would eat is precisely the
     /// one already in trouble. Internal for the unit tests - a mis-write here eats user
-    /// configuration. JSON round-trip note: key order is not preserved (settings.json is
-    /// machine-managed JSON; Claude Code does the same).
+    /// configuration. Written in the file's own layout (claudeJSONData): keys keep their order and
+    /// untouched parts keep their bytes, so a dotfiles repository sees only the entry that changed.
     ///
     /// It writes to the PHYSICAL file, which is not always the path it was handed: this machine's
     /// multi-account setup symlinks `~/.claudeN/settings.json` at the main account's file so one
@@ -252,10 +252,12 @@ final class IntegrationsStore {
             ])
         }
         var settings: [String: Any] = [:]
+        var original: Data?
         // Present and unreadable is NOT absent. A permissions failure reaching the `?? [:]` path
         // would rewrite a file whose contents were never seen.
         if FileManager.default.fileExists(atPath: target.path) {
             guard let data = try? Data(contentsOf: target) else { throw unreadable() }
+            original = data
             // An empty file is a fresh document; only bytes that are there and do not parse are
             // the refusal.
             if !data.isEmpty {
@@ -265,8 +267,7 @@ final class IntegrationsStore {
             }
         }
         guard let merged = edit(settings) else { return false }
-        let out = try JSONSerialization.data(withJSONObject: merged,
-                                             options: [.prettyPrinted, .sortedKeys])
+        let out = try claudeJSONData(merged, replacing: original)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         try out.write(to: target, options: .atomic)

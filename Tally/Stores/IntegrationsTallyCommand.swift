@@ -33,14 +33,14 @@ extension IntegrationsStore {
 
         # Move this session, or change what answers it
 
-        READING THIS MEANS TALLY DID NOT ANSWER, and that is the whole of what happened here.
+        If you are reading this, Tally's hook did not answer, and that is the whole of what happened here.
         `/tally` is normally answered before any model is woken: a prompt hook queues the move or
         the model when one is named, and offers the accounts and the models on one panel when
         neither is. Neither spends a turn, which is the point, because the usual reason to reach for
         this command is that the account or the model this session is on has nothing left to answer
         with.
 
-        So this turn is the cost the command exists to avoid. SPEND IT ON ONE SHORT ANSWER.
+        So this turn is the cost the command exists to avoid: answer briefly and end it.
 
         ## If `$ARGUMENTS` names anything
 
@@ -56,7 +56,7 @@ extension IntegrationsStore {
         tally account "$ARGUMENTS"
         ```
 
-        Run ONE of them, once, and stop. Relay the one line it printed and nothing more. The change
+        Run one of them once and stop, then relay what it printed. The change
         happens when this turn ENDS, the conversation survives it, and naming only a model leaves
         the depth exactly as it is. A non-zero exit means nothing was queued and the message says
         why.

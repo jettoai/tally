@@ -152,10 +152,10 @@ try MainActor.assumeIsolated {
     // command exists to avoid. It therefore spends that turn on ONE answer rather than on a second
     // implementation of the picker.
     check("the command file says, first, that Tally did not answer",
-          commandFile.contains("READING THIS MEANS TALLY DID NOT ANSWER")
+          commandFile.contains("If you are reading this, Tally's hook did not answer")
               && commandFile.contains("/tally"))
     check("…and that this turn is the cost the command exists to avoid",
-          commandFile.contains("SPEND IT ON ONE SHORT ANSWER"))
+          commandFile.contains("answer briefly and end it"))
     check("…passes a model through as words and an account as one quoted word",
           commandFile.contains("tally model $ARGUMENTS")
               && commandFile.contains("tally account \"$ARGUMENTS\""))
@@ -244,7 +244,7 @@ try MainActor.assumeIsolated {
     check("skill teaches switching this session to a named account",
           currentSkill.contains("tally account \"Claude 4\""))
     check("skill says the move waits for the turn the agent is in",
-          skillProse.contains("THE MOVE HAPPENS WHEN THE CURRENT TURN ENDS"))
+          skillProse.contains("The move happens when the current turn ends"))
     check("…and tells the agent to finish answering rather than wait",
           skillProse.contains("Finish your answer as normal"))
     check("…and promises the conversation survives it",
@@ -255,7 +255,7 @@ try MainActor.assumeIsolated {
     // switch is not a one-shot nudge that the next idle rebalance may undo. An agent that relays it
     // as one leaves the user re-asking every ten minutes, which is the report this replaced.
     check("skill says the move sticks for the rest of the session",
-          skillProse.contains("IT STICKS FOR THE REST OF THE SESSION"))
+          skillProse.contains("It sticks for the rest of the session"))
     check("…and names what stops moving the session",
           skillProse.contains("stops")
               && skillProse.contains("the idle rebalance off a nearly"))
@@ -315,7 +315,8 @@ try MainActor.assumeIsolated {
     check("…and says why it is preferred, so the agent volunteers it",
           skillProse.contains("Prefer that phrasing when they ask \"how do I switch accounts\""))
     check("…while keeping the agent's own route unambiguous",
-          skillProse.contains("You cannot type a slash command yourself"))
+          skillProse.contains("when they ask you to move the session, run `tally account` as "
+              + "the tool call above"))
     // Unnamed account = a choice, and a choice is the user's. The picker spec is written in both
     // places an agent can arrive from (this skill, and the command file), so the two are asserted
     // against the same four requirements.
@@ -360,6 +361,16 @@ try MainActor.assumeIsolated {
               && skillProse.contains("An unmerged branch is refused"))
     check("skill says a parallel line inherits the project profile",
           skillProse.contains("The project profile above belongs to the repository"))
+    // The knock line reaches a session one of two ways depending on whether hooks are
+    // registered for its account (QuotaKnock.swift); the skill has to teach both rather than
+    // the older, hook-less one alone.
+    check("skill teaches the hook-context delivery path for the knock line",
+          skillProse.contains(
+              "it arrives as hook context on your next prompt or tool call"))
+    check("skill teaches the out-of-quota wall phrasing",
+          skillProse.contains("`out of quota` in place of `running low`"))
+    check("skill no longer claims the knock line is never typed mid-turn",
+          !skillProse.contains("it is never typed mid-turn"))
 
     // MARK: auto-update - old installs follow the app, absent and foreign files never do.
     let autoDir = tmp.appendingPathComponent("auto")

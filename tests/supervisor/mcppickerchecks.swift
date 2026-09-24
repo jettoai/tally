@@ -750,9 +750,27 @@ func runMCPTransportChecks() {
           ((sent.first?["result"] as? [String: Any])?["serverInfo"] as? [String: Any])?["name"]
               as? String == tallyMCPServerName)
     let listed = sent.first { $0["id"] as? Int == 2 }
+    let listedTools = ((listed?["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
     check("tools/list offers both pickers",
-          ((listed?["result"] as? [String: Any])?["tools"] as? [[String: Any]] ?? [])
-              .compactMap { $0["name"] as? String } == PromptHookTool.allCases.map(\.rawValue))
+          listedTools.compactMap { $0["name"] as? String } == PromptHookTool.allCases.map(\.rawValue))
+    // Under-described tools invite a blind call: a model that does not know the change waits for
+    // the turn to end, or that a plain `tally account`/`tally model` call answers faster, has no
+    // way to learn either from the schema alone.
+    for tool in listedTools {
+        let name = tool["name"] as? String ?? "?"
+        let description = tool["description"] as? String ?? ""
+        check("\(name)'s description says when the change takes effect",
+              description.contains("when the current turn ends"))
+        check("\(name)'s description names the in-conversation route",
+              description.contains("From inside a conversation, run"))
+    }
+    let pickTool: [String: Any] = listedTools.first { $0["name"] as? String == PromptHookTool.pick.rawValue } ?? [:]
+    let pickSchema = pickTool["inputSchema"] as? [String: Any] ?? [:]
+    let pickProperties = pickSchema["properties"] as? [String: Any] ?? [:]
+    let commandArgsProperty = pickProperties["command_args"] as? [String: Any] ?? [:]
+    let commandArgsDescription = commandArgsProperty["description"] as? String ?? ""
+    check("pick's command_args parameter carries a non-empty description",
+          !commandArgsDescription.isEmpty)
     let elicitation = sent.first { $0["method"] as? String == "elicitation/create" }
     check("a bare tool call raises an elicitation from inside it", elicitation != nil)
     let requested = (elicitation?["params"] as? [String: Any])?["requestedSchema"] as? [String: Any]

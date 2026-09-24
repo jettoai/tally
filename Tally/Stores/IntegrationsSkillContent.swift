@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 22
+    nonisolated static let skillVersion = 23
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -27,7 +27,7 @@ extension IntegrationsStore {
         """
         ---
         name: tally-quota
-        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs), moves a running conversation to another account (one the user names or the one with the most headroom), opens, lists and tears down git worktrees, the parallel lines of work a repository runs sessions in, and types a line into a supervised session, this one included, which is how a slash command like /clear or an answer to a prompt gets triggered from inside a turn. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, when the user asks to switch this session to a particular account, when the account a session is on runs low mid-conversation, when the user wants to start a parallel line of work on a branch of its own and to clean one up once it is merged, or when a session has to clear or compact its own context, or answer a prompt another session is sitting on.
+        description: Read this machine's AI subscription quota through Tally (every Claude and Codex account's 5-hour, weekly and flagship-model windows, resets, the pooled fleet view, and the usage advisor's verdict) and act on it: choose or switch the account a conversation runs on, set which model a project launches with, open and tear down the git worktrees parallel sessions run in, and type a line such as /clear or an answer to a prompt into a supervised session, this one included. Use for questions about quota, limits, resets, which account to use, or usage trends; before heavy multi-agent work; when the account under a session runs low; and whenever one of those actions is wanted.
         ---
 
         <!-- tally-skill v\(skillVersion), managed by Tally.app (Settings -> Integrations); safe to delete -->
@@ -139,7 +139,7 @@ extension IntegrationsStore {
         supervised session, the supervisor reads the choice out of the transcript and pins the
         session to it, so the model survives every relaunch Tally makes of its own accord (an
         account handoff, a reload, an app self-update) instead of being replaced by the one the
-        session was launched with. It is no longer read as a server-side degradation to be undone.
+        session was launched with.
 
         So when the user says they already changed the model themselves, believe them and check
         rather than re-doing it:
@@ -167,7 +167,7 @@ extension IntegrationsStore {
         The name is matched against the account labels and config-dir names `tally status`
         shows, case-insensitively.
 
-        THE USER HAS A CHEAPER WAY, and it is worth telling them about the first time they
+        The user has a cheaper way, and it is worth telling them about the first time they
         ask you to move accounts. Tally installs a `/tally` command with this skill, and a
         prompt hook answers it before any model is woken:
 
@@ -195,9 +195,9 @@ extension IntegrationsStore {
         fight).
 
         Prefer that phrasing when they ask "how do I switch accounts": a move that costs a
-        turn to ask for is a move that costs part of what it saves. You cannot type a slash
-        command yourself, so when THEY ask YOU to move the session, run `tally account` as
-        the tool call above.
+        turn to ask for is a move that costs part of what it saves. `/tally` is the user's
+        shortcut; when they ask you to move the session, run `tally account` as the tool
+        call above rather than typing `/tally` through `tally session send`.
 
         When the user asks to switch WITHOUT naming an account ("move me to whichever has
         room", "switch accounts"), read the fleet and let them choose rather than choosing
@@ -211,19 +211,19 @@ extension IntegrationsStore {
 
         What happens next, and what to tell the user:
 
-        - THE MOVE HAPPENS WHEN THE CURRENT TURN ENDS, not while you are running the
+        - The move happens when the current turn ends, not while you are running the
           command: the request waits for the session to stop writing, which includes the
           tool call you just made. Finish your answer as normal. The session then restarts
           on the named account with the conversation intact, so the next thing the user
           types is answered from the same context on the new account.
-        - IT STICKS FOR THE REST OF THE SESSION. The account named is where this
+        - It sticks for the rest of the session. The account named is where this
           conversation stays: automatic account selection (the idle rebalance off a nearly
           dry account, the re-pick after a `/clear`, the model-degradation rescue, a pin
           moved in the Tally panel) stops moving it. Say so when you relay the move, because
           it is the difference between
           this and asking again in ten minutes.
-        - The pin is the user's to release (`tally account --auto`), and a hard cap no longer
-          takes it from them. A hard cap is answered inside that decision where it can be: the
+        - The pin is the user's to release (`tally account --auto`), and a hard cap does not
+          take it from them. A hard cap is answered inside that decision where it can be: the
           session keeps the account and drops to the fallback model Settings declares, provided
           this account can still serve one COMFORTABLY (a window with a few percent left does not
           count). Otherwise it is handed on, which clears the pin and says so on the terminal -
@@ -273,14 +273,14 @@ extension IntegrationsStore {
         what it waits for. So a `/clear` asked for mid-answer lands once that answer is
         finished, not in the middle of it.
 
-        QUEUEING IS SUCCESS, for both verbs and for any target. The command stays a few
+        Queueing is success, for both verbs and for any target. The command stays a few
         seconds, long enough to catch a session that was already idle, then says the line is
         queued and exits 0. It does not wait for delivery: a line behind a turn is doing
         what it was asked to, and a caller inside that session that stayed would hold open
         the very turn it is waiting for. The printed line says which happened, and
         `~/.tally/logs/input.log` records what became of it. Do not follow it with a second
-        send, a sleep, or a background retry: those were workarounds for a wait that no
-        longer exists, and the second send is refused as a duplicate.
+        send, a sleep, or a background retry: the command has already waited as long as
+        waiting helps, and the second send is refused as a duplicate.
 
         A queued line is not a late one. It waits for that session to come out of its own
         turn, however long that takes, and is dropped only if no such moment arrives within
@@ -294,7 +294,7 @@ extension IntegrationsStore {
         when the account still has room, when the session is pinned (`tally account`), or
         when somebody is typing in that terminal.
 
-        WHICH VERB YOU USED DECIDES WHEN THAT QUESTION IS ASKED. `tally session clear` asks
+        Which verb you used decides when that question is asked. `tally session clear` asks
         it at the moment the line lands: a healthy account is cleared where it stands, and a
         nearly-dry one is left instead - the session is restarted on the healthier sibling
         with no context, which is what a clear is. `tally session send "/clear"` types the
@@ -407,10 +407,10 @@ extension IntegrationsStore {
         itself off automatically when it actually hits a cap. Use `tally account` instead
         when the user names the account to move to: `resume` picks one by headroom.
 
-        # The line Tally types when the account is running out
+        # The line Tally sends when the account is running out
 
-        Tally speaks into this conversation once, unasked, when the account under it is
-        running low. It looks like this:
+        Tally tells this conversation once, unasked, when the account under it is running
+        low. It looks like this:
 
         ```
         [tally] account Claude is running low: session 12% · resets 40m, 3 sessions on it.
@@ -418,31 +418,37 @@ extension IntegrationsStore {
         or wait for the reset.
         ```
 
-        It is typed into the composer by the supervisor watching this session, so it
-        arrives as a prompt nobody sent. Nothing is broken and nothing has been done to
-        the session: it is a fact handed over while there is still room to act on it,
+        It reaches you one of two ways. Where Tally's hooks are registered for this account,
+        it arrives as hook context on your next prompt or tool call, which can be in the
+        middle of a turn. Elsewhere the supervisor types it into the composer once the
+        current turn has ended, so it arrives as a prompt nobody sent. Either way nothing is
+        broken and nothing has been done to the session: it is a fact handed over while
+        there is still room to act on it,
         because Tally moves a session off a dying account only while that session is
         idle, and a conversation in the middle of a work package is exactly the one it
         leaves alone.
 
         Two answers, and the line carries what you need to choose between them:
 
-        - WRAP UP AND SWITCH. Finish or checkpoint what is in flight (commit, write the
+        - Wrap up and switch. Finish or checkpoint what is in flight (commit, write the
           hand-over), then run `tally account "<the account it named>"`. The move happens
           at the end of the turn and the conversation continues there with its context.
-        - WAIT FOR THE RESET, which is right when the reset is close and little else is
+        - Wait for the reset, which is right when the reset is close and little else is
           drawing on that window. Both numbers are in the line for that judgement: three
           sessions on one account drain it three times as fast as the percentage reads,
           so "40m" with three sessions on it is not the same runway as "40m" alone.
+
+        `out of quota` in place of `running low` means the next turn is the one that hits
+        the wall. That line names the exact command to run (`tally account "<account>"`)
+        instead of offering both answers.
 
         `No account has headroom` in place of an alternative means every sibling is as
         spent as this one, and pausing until the reset is the honest answer there.
 
         It is said once per window cycle per session, so a second line is a new drought
-        rather than a repeat, and it is never typed mid-turn: whatever you are writing
-        finishes first. Do not reply to it in the conversation, and do not run
-        `tally status` to confirm it: the numbers in it were read from the same snapshot
-        that command prints.
+        rather than a repeat. Act on it as part of the work in front of you rather than
+        answering it as a message, and do not run `tally status` to confirm it: the numbers
+        in it were read from the same snapshot that command prints.
         """
     }
 }

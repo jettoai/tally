@@ -116,25 +116,40 @@ let mcpProtocolVersion = "2025-11-25"
 /// future version may add to, and refusing an unknown key would turn that into a broken command.
 func mcpToolDescriptors() -> [[String: Any]] {
     let properties = Dictionary(uniqueKeysWithValues: PromptHookInputField.allCases.map {
-        ($0.rawValue, ["type": "string"] as Any)
+        ($0.rawValue, ["type": "string", "description": $0.toolDescription] as Any)
     })
     let schema: [String: Any] = ["type": "object", "properties": properties,
                                  "additionalProperties": true]
     return [
         ["name": PromptHookTool.pick.rawValue,
          "title": "Pick an account or a model",
-         "description": "Answers /tally: queues the move or the pair when one is named, and "
-             + "otherwise offers the accounts and the models on one panel.",
+         "description": "Answers the /tally prompt hook without a model turn: Claude Code calls "
+             + "it with the hook's own fields when the user types /tally. When command_args "
+             + "names an account it queues a move of this session to that account; when it "
+             + "names a model, with an optional effort, it queues that pair; when it is empty "
+             + "it opens a native panel where the user picks either. Changes take effect when "
+             + "the current turn ends. The result is a hook decision document whose reason is "
+             + "the line to show the user. From inside a conversation, run "
+             + "`tally account \"<name>\"` or `tally model <model> [effort]` instead: they find "
+             + "this session themselves and print their result directly.",
          "inputSchema": schema],
         ["name": PromptHookTool.pickAccount.rawValue,
          "title": "Pick an account",
-         "description": "Answers a registration written before /tally: queues the move when an "
-             + "account is named, and otherwise asks which one this conversation continues on.",
+         "description": "Answers an account-picker hook registration written before /tally; "
+             + "the next integration sync replaces it with pick. When command_args names an "
+             + "account it queues a move of this session there, and when it is empty it asks "
+             + "the user which account this conversation continues on. The move takes effect "
+             + "when the current turn ends. From inside a conversation, run "
+             + "`tally account \"<name>\"` instead.",
          "inputSchema": schema],
         ["name": PromptHookTool.pickModel.rawValue,
          "title": "Pick a model",
-         "description": "Answers a registration written before /tally: queues the pair when one "
-             + "is named, and otherwise asks which model and effort this conversation runs.",
+         "description": "Answers a model-picker hook registration written before /tally; the "
+             + "next integration sync replaces it with pick. When command_args names a model, "
+             + "with an optional effort, it queues that pair, and when it is empty it asks the "
+             + "user which model and effort this conversation runs. The change takes effect "
+             + "when the current turn ends. From inside a conversation, run "
+             + "`tally model <model> [effort]` instead.",
          "inputSchema": schema],
     ]
 }

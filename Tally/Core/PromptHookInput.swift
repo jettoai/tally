@@ -43,6 +43,21 @@ enum PromptHookInputField: String, CaseIterable, Sendable {
     /// The token Claude Code substitutes into the hook's `input` block. Derived rather than
     /// declared, so the written token and the key it arrives under are one spelling.
     var variable: String { "${\(rawValue)}" }
+
+    /// What the field carries, for the MCP tool schema a model reads (MCPServe.swift).
+    var toolDescription: String {
+        switch self {
+        case .commandName:
+            return "The slash command's name without the slash, as the prompt hook reports it."
+        case .commandArgs:
+            return "Everything typed after the command: an account name, or a model with an "
+                + "optional effort. Empty opens the picker panel."
+        case .sessionID: return "Claude Code's id for this conversation, from the hook payload."
+        case .cwd: return "The session's working directory, from the hook payload."
+        case .transcriptPath:
+            return "Path of this conversation's transcript file, from the hook payload."
+        }
+    }
 }
 
 /// The `input` block a prompt hook carries: every field, each holding its own substitution token.

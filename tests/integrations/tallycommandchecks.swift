@@ -91,9 +91,10 @@ func runTallyCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // of them still asserted on `skillProse`, main.swift), and a second copy here bought a longer
     // turn on the one path that exists because turns are expensive.
     check("command says, first, that Tally did not answer",
-          commandProse.contains("READING THIS MEANS TALLY DID NOT ANSWER"))
+          commandProse.contains("If you are reading this, Tally's hook did not answer"))
     check("…and that this turn is the cost the command exists to avoid",
-          commandProse.contains("SPEND IT ON ONE SHORT ANSWER"))
+          commandProse.contains("this turn is the cost the command exists to avoid: answer "
+              + "briefly and end it"))
     check("command tells an agent with nothing to act on to run nothing at all",
           commandProse.contains("Do not run anything and do not open a picker"))
     check("…and hands the user the two lines that work without any of it",

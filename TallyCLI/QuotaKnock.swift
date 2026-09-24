@@ -55,6 +55,10 @@ let quotaKnockFailedOutcome = "quota-knock-failed"
 /// sentence that was decided. What closes the pair is `quota-knock-delivered`, written by the hook.
 let quotaKnockFiledOutcome = "quota-knock-filed"
 
+/// The line a knock held by the automatic gate leaves (grep `input=quota-knock-held`), once per run
+/// of held ticks, carrying the tick's `state=`/`wait=`/`registry=` reading.
+let quotaKnockHeldOutcome = "quota-knock-held"
+
 /// And the word when the file could not be written, which is the filed channel's ENXIO.
 let quotaKnockFileFailedOutcome = "quota-knock-file-failed"
 
@@ -178,21 +182,17 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     // ladder (`quotaKnockSteps`): what supersedes a filed 15% sentence is the 0% one being filed
     // over it, and `writeQuotaKnockNotice` replaces the file it writes.
     if announced && state.announced == nil { clearQuotaKnockNotice(pid: pid, dir: dir) }
-    guard owed || state.forced else { return nil }
+    guard owed || state.forced else {
+        state.noteUnheld()
+        return nil
+    }
     // WHICH CHANNEL, asked before the composer gate rather than after it, because the answer decides
     // whether that gate applies at all: it exists to keep keystrokes out of a composer somebody else
     // is using, and a filed sentence is not keystrokes. This is the whole of what the migration
     // buys - the mid-turn session, which every hold below refuses, is the session this feature was
     // written for.
-    let filed = filing()
-    // `waitingOnPerson` is `SessionTick.dialogPossible` for this writer: a dialog that MAY be open,
-    // the registry included, so a sentence nobody asked for never lands as an answer (issue #2).
-    guard filed || automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
-                                             keyboardIdle: keyboardIdle,
-                                             relaunchPlanned: relaunchPlanned,
-                                             dialogPossible: waitingOnPerson) == nil
-    else { return nil }
-    guard let line = quotaKnockMessage(
+    let filed = filing() && !state.typedForced
+    func sentence() -> String? { quotaKnockMessage(
         account: field.current,
         alternative: capHandoffTarget(field.candidates, primaryModel: primaryModel,
                                       reserves: reserves, now: now),
@@ -202,7 +202,23 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
         // here: the bottom one is different news and carries the command that answers it
         // (`quotaKnockMessage`). A forced knock owes no rung and gets the ordinary sentence, which
         // is what that flag promises - the moment is forced, never the content.
-        step: state.owed, now: now) else { return nil }
+        step: state.owed, now: now) }
+    // `waitingOnPerson` is `SessionTick.dialogPossible` for this writer: a dialog that MAY be open,
+    // the registry included, so a sentence nobody asked for never lands as an answer (issue #2).
+    // A HOLD LEAVES ONE LINE PER RUN, with what the tick saw, so a sentence that waited is on the
+    // record rather than inferred from the absence of one; every tick of the run is re-offered.
+    if !filed, automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
+                                         keyboardIdle: keyboardIdle,
+                                         relaunchPlanned: relaunchPlanned,
+                                         dialogPossible: waitingOnPerson) != nil {
+        if state.noteHeld(), let line = sentence() {
+            appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: quotaKnockHeldOutcome,
+                                                       text: line, now: now, seen: seen), to: log)
+        }
+        return nil
+    }
+    state.noteUnheld()
+    guard let line = sentence() else { return nil }
     // Spent BEFORE the write, the rule `applySessionInput` states about its served stamp: past this
     // line the bytes are on the terminal or the write has failed, and a failure that repeats every
     // reading is the one way this types the same sentence into a conversation twice. The filed

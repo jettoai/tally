@@ -103,6 +103,18 @@ func quotaKnockForceRequested() -> Bool {
     return String(cString: raw) == "1"
 }
 
+/// Whether this supervisor was asked to TYPE its quota knock even where the child could be handed it
+/// through the knock hooks (`TALLY_KNOCK_FORCE_TYPED=1`).
+///
+/// A development flag on `quotaKnockForceRequested`'s terms: read once, at start-up, by the one
+/// supervisor that carries it, and it only ever turns filing OFF. It exists because a machine with
+/// the hooks installed files every knock, so the typed channel and its dialog gate (issue #2) cannot
+/// otherwise be exercised there without editing the settings every account shares.
+func quotaKnockTypedRequested() -> Bool {
+    guard let raw = getenv("TALLY_KNOCK_FORCE_TYPED") else { return false }
+    return String(cString: raw) == "1"
+}
+
 /// Whether two cycle keys name the same drought, including the case neither names one.
 ///
 /// nil is a legitimate key here and it means "this account publishes no reset time", which is a
@@ -153,8 +165,25 @@ struct QuotaKnockState: Equatable {
     private(set) var checkedAt: Date?
     /// The one forced knock a development flag asks for, spent by the first one that is sent.
     private(set) var forced: Bool
+    /// Whether this supervisor types the knock whatever the hooks say (`quotaKnockTypedRequested`).
+    let typedForced: Bool
+    /// Whether the run of gate holds this sentence is in has already left its one `input.log` line.
+    /// One line per run rather than per tick: a knock held behind a dialog is re-offered every tick.
+    private(set) var holdLogged = false
 
-    init(forced: Bool = quotaKnockForceRequested()) { self.forced = forced }
+    init(forced: Bool = quotaKnockForceRequested(), typedForced: Bool = quotaKnockTypedRequested()) {
+        self.forced = forced
+        self.typedForced = typedForced
+    }
+
+    /// The gate held the sentence on this tick; answers whether this is the first tick of the run.
+    mutating func noteHeld() -> Bool {
+        defer { holdLogged = true }
+        return !holdLogged
+    }
+
+    /// The gate let the sentence through, or nothing is owed any more: the next hold is a new run.
+    mutating func noteUnheld() { holdLogged = false }
 
     /// Whether this tick takes a reading at all. A forced knock does not wait out the interval:
     /// what it is for is somebody watching a terminal for it.

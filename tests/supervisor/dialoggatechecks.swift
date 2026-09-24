@@ -75,6 +75,53 @@ func runDialogGateChecks() {
     check("quota knock still types into a blocked board that is only an idle prompt",
           quotaKnock(.blocked, dialog: false) == 1)
 
+    // THE TYPED-CHANNEL LEVER (`TALLY_KNOCK_FORCE_TYPED`) and the one held line per run. Each tick
+    // runs against its own log so the count is this row's alone.
+    func knockTick(_ state: inout QuotaKnockState, filing: Bool, dialog: Bool, log: URL,
+                   tick: Int = 0) -> Int {
+        var typed = 0
+        applyQuotaKnock(&state, pid: fixturePid, provider: "claude", account: dying,
+                        primaryModel: "fable", typedAlready: false, session: .idle, quiet: .quiet,
+                        turnEnded: { false }, keyboardIdle: true, relaunchPlanned: false,
+                        draftSuspected: false, waitingOnPerson: dialog,
+                        seen: SessionInputSeen(state: .idle, wait: nil, registry: dialog),
+                        filing: { filing }, counting: { _ in 2 }, loaded: (fleet, nil),
+                        now: now.addingTimeInterval(Double(tick) * (quotaKnockInterval + 1)),
+                        log: log, dir: dir, inject: { _, _ in typed += 1; return .done })
+        return typed
+    }
+    func logLines(_ log: URL) -> [String] {
+        ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    }
+    check("the lever is off unless the flag is set", !QuotaKnockState(forced: false).typedForced)
+    for filing in [true, false] {
+        let plainLog = dir.appendingPathComponent("plain-\(filing).log")
+        var plain = QuotaKnockState(forced: false)
+        let typed = knockTick(&plain, filing: filing, dialog: false, log: plainLog)
+        let outcome = filing ? quotaKnockFiledOutcome : quotaKnockOutcome
+        check("without the lever the channel decision is unchanged (filing=\(filing))",
+              typed == (filing ? 0 : 1)
+                  && logLines(plainLog).contains { $0.contains("input=\(outcome) ") })
+        clearQuotaKnockNotice(pid: fixturePid, dir: dir)
+    }
+    let leverLog = dir.appendingPathComponent("lever.log")
+    var lever = QuotaKnockState(forced: false, typedForced: true)
+    let heldTyped = (0 ..< 3).map {
+        knockTick(&lever, filing: true, dialog: true, log: leverLog, tick: $0)
+    }
+    let held = logLines(leverLog).filter { $0.contains("input=\(quotaKnockHeldOutcome) ") }
+    check("with the lever a filing child's knock reaches the dialog gate and is held",
+          heldTyped == [0, 0, 0])
+    check("…leaving one held line for the whole run, with what the tick saw",
+          held.count == 1 && held[0].contains("state=idle wait=none registry=waiting"))
+    check("…and typed once the dialog is gone, not filed",
+          knockTick(&lever, filing: true, dialog: false, log: leverLog, tick: 3) == 1
+              && logLines(leverLog).contains { $0.contains("input=\(quotaKnockOutcome) ") }
+              && readQuotaKnockNotice(pid: fixturePid, dir: dir) == nil)
+    var run = QuotaKnockState(forced: false)
+    check("a hold after the gate let a sentence through is a new run",
+          run.noteHeld() && !run.noteHeld() && { run.noteUnheld(); return run.noteHeld() }())
+
     // MARK: - The limit reset
 
     // Already held on `waitingOnPerson` before issue #2, so these rows are a lock on the shared gate

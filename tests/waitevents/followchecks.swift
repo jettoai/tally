@@ -418,8 +418,9 @@ private func runFollowBesideDeliveryChecks(freshDir: (String) -> URL) {
 /// W3 `--latest-seq` and W4 `--since` through `runEvents`' own argument parsing, as a child whose
 /// home is a temp dir (see `FollowChild.init`), so no branch can read the user's spool.
 private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
-    func run(_ home: URL, _ args: [String]) -> (status: Int32?, lines: [String], seqs: [Int]) {
-        let child = FollowChild(dir: home.appendingPathComponent(".tally/events"), args: args, home: home)
+    /// `dir` defaults to the home spool; W6 passes a different one to tell the two apart.
+    func run(_ home: URL, _ args: [String], dir: URL? = nil) -> (status: Int32?, lines: [String], seqs: [Int]) {
+        let child = FollowChild(dir: dir ?? home.appendingPathComponent(".tally/events"), args: args, home: home)
         let exit = child.waitExitOrStop(timeout: 5)
         child.waitForLines(Int.max, timeout: 0.3)
         return (exit?.status, child.lines, child.seqs())
@@ -471,16 +472,14 @@ private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
     for event in distinctOpenedEvents("w6-home").prefix(3) {
         appendSessionWaitEvent(event, dir: w6Home.appendingPathComponent(".tally/events"))
     }
-    let w6Child = FollowChild(dir: w6Dir, args: ["--since", "0"], home: w6Home)
-    let w6Exit = w6Child.waitExitOrStop(timeout: 5)
-    w6Child.waitForLines(Int.max, timeout: 0.3)
+    let w6 = run(w6Home, ["--since", "0"], dir: w6Dir)
     let decoder = sessionWaitEventDecoder()
-    let w6Keys = w6Child.lines.compactMap {
+    let w6Keys = w6.lines.compactMap {
         try? decoder.decode(SessionWaitEvent.self, from: Data($0.utf8)).idempotencyKey
     }
-    expect(w6Exit?.status == 0 && w6Keys == given.map(\.idempotencyKey),
+    expect(w6.status == 0 && w6Keys == given.map(\.idempotencyKey),
            "W6: --since 0 prints the given dir's 5 events, not the home spool's "
-           + "(\(String(describing: w6Exit?.status)), \(w6Keys.count) lines, seqs \(w6Child.seqs()))")
+           + "(\(String(describing: w6.status)), \(w6Keys.count) lines, seqs \(w6.seqs))")
     try? FileManager.default.removeItem(at: w6Dir)
     try? FileManager.default.removeItem(at: w6Home)
 }

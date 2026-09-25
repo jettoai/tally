@@ -224,8 +224,8 @@ struct AccountFacts {
         }
     }
 
-    /// What hovering it says. Each state answers the question that state raises: what pressing does,
-    /// why there is nothing to press, and why this account has no reset at all.
+    /// What hovering it says: that a used reset is spent, or, for every other state, why Tally names
+    /// no count and which account to check on claude.ai.
     func limitResetHelp(_ state: LimitResetState) -> String {
         switch state {
         case .used:

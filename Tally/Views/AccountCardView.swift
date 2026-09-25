@@ -350,21 +350,21 @@ struct AccountCardView: View {
     // MARK: Claude's weekly session-limit reset
 
     /// The one line this card gives the weekly reset, in the shape the banked-reset control beside
-    /// it already uses: the same glyph, a count, a word, and the whole sentence on hover.
+    /// it already uses: the same glyph, a word, and the whole sentence on hover.
     ///
-    /// A BUTTON IN EVERY STATE, greyed in the three that cannot be pressed, rather than a button in
-    /// one state and a label in the others. What a reader has to be able to tell apart is "there is
-    /// nothing here" from "there is something here and you cannot have it yet", and a control that
-    /// disappears says the first about the second - which is precisely the confusion an account
-    /// outside the rollout would live in. Every state but `used` (`available`, `unknown`,
-    /// `notEnabled`) keeps the place as one line that names no number and opens claude.ai's usage page.
+    /// A BUTTON IN EVERY STATE rather than a button in one state and a label in the others. What a
+    /// reader has to be able to tell apart is "there is nothing here" from "there is something here
+    /// and you cannot have it yet", and a control that disappears says the first about the second -
+    /// which is precisely the confusion an account outside the rollout would live in. Every state but
+    /// `used` (`available`, `unknown`, `notEnabled`) keeps the place as one line that names no number
+    /// and opens claude.ai's usage page.
     @ViewBuilder
     private func sessionLimitRow(_ state: LimitResetState) -> some View {
         // The ask and the write are one call in `RedeemAction`, which is where the two manual UI
         // surfaces that offer this reset (this card and the compact row) share the same cost
         // wording, so neither can come apart from the other. The supervisor's own automatic reset
         // has its own notice for the same cost (`capLimitResetFirstNotice`, TallyCLI/CapLimitReset.swift).
-        // Unknown and not-supported open claude.ai's usage page, the one place those resets are
+        // Every state but `used` opens claude.ai's usage page, the one place those resets are
         // listed; drawn in the tertiary shade so the mark never reads as a redeem button.
         Button {
             if facts.opensClaudeUsagePage {

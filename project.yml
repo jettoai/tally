@@ -21,6 +21,11 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.9.4
+  # Opt-in crash and error reporting (ErrorReporting.swift). Off by default: the SDK is never
+  # started unless the user turns it on in Settings. App target only; the CLI does not link it.
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    exactVersion: 9.29.1
 
 schemes:
   Tally:
@@ -216,6 +221,7 @@ targets:
       - path: TallyCLI/ChromeGapEvent.swift
     dependencies:
       - package: Sparkle
+      - package: Sentry
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Tally/Resources/Tally.entitlements

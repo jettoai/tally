@@ -16,6 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // First, before anything puts a window up: that window taking key is itself a focus change
         // a supervisor must be able to explain (FocusEventRecorder).
         FocusEventRecorder.shared.install()
+        // Opt-in error reporting, before the initialisation below that could crash. Does nothing
+        // (no SDK call at all) unless the user turned it on in Settings.
+        ErrorReporting.startIfEnabled()
+        ErrorReporting.sendProbeIfAsked()
         applyPreviewAppearance()
         openPanelForCapture()
         // The motion samples, when a launch asks for them: a window of its own, gated inside the

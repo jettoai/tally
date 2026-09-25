@@ -15299,6 +15299,64 @@
           }
         }
       }
+    },
+    "Send crash and error reports": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送當機與錯誤回報"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送崩溃与错误报告"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラッシュとエラーのレポートを送信"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "충돌 및 오류 보고서 보내기"
+          }
+        }
+      }
+    },
+    "Off by default. When on, crash and error reports go to Sentry: the stack trace, app and macOS versions, Mac model, language and time zone, and the rough region Sentry infers from the connection. Never your IP address, accounts, usage numbers or file contents.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設關閉。開啟後，當機與錯誤回報會送到 Sentry：錯誤堆疊、App 與 macOS 版本、Mac 機型、語系與時區，以及 Sentry 由連線推得的大致地區。絕不含你的 IP 位址、帳號、用量數字或檔案內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认关闭。开启后，崩溃与错误报告会发送到 Sentry：错误堆栈、App 与 macOS 版本、Mac 机型、语言与时区，以及 Sentry 由连接推断的大致地区。绝不包含你的 IP 地址、账号、用量数字或文件内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定ではオフです。オンにすると、クラッシュとエラーのレポートが Sentry に送信されます。内容はスタックトレース、アプリと macOS のバージョン、Mac の機種、言語とタイムゾーン、接続から Sentry が推定するおおよその地域です。IP アドレス、アカウント、使用量の数値、ファイルの内容は決して送信されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값은 꺼짐입니다. 켜면 충돌 및 오류 보고서가 Sentry로 전송됩니다. 스택 트레이스, 앱 및 macOS 버전, Mac 모델, 언어와 시간대, 그리고 Sentry가 연결에서 추정한 대략적인 지역이 포함됩니다. IP 주소, 계정, 사용량 수치, 파일 내용은 절대 전송되지 않습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -47,6 +47,13 @@ else
   NOTARY_ARGS=(--key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
 fi
 
+echo "==> preflight: sentry-cli + Sentry auth env (dSYM upload)"
+SENTRY_ENV="$HOME/.config/op-env/sentry.env"
+command -v sentry-cli > /dev/null \
+  || { echo "sentry-cli not found - brew install getsentry/tools/sentry-cli" >&2; exit 1; }
+[ -f "$SENTRY_ENV" ] \
+  || { echo "Sentry env file missing ($SENTRY_ENV) - needs SENTRY_AUTH_TOKEN as an op:// reference" >&2; exit 1; }
+
 echo "==> xcodegen"
 xcodegen generate
 
@@ -59,6 +66,11 @@ xcodebuild archive \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
   -quiet
+
+echo "==> upload dSYMs to Sentry"
+# The token is injected by op run from op:// references; it never appears in this script or its output.
+op run --env-file="$SENTRY_ENV" -- \
+  sentry-cli debug-files upload --org taiwanbigdata --project tally "$ARCHIVE/dSYMs"
 
 echo "==> build tally CLI (universal)"
 xcodebuild build \

@@ -71,6 +71,9 @@ enum CaptureLaunch {
         // machine is in alarm (`HostHealthMonitor.testLoad`). A background launch for the family's
         // own reason - a banner needs no focus, so taking one is pure cost.
         "TallyHostHealthTest",
+        // The error reporting probe: one message sent to Sentry, nothing on screen, so taking the
+        // foreground is pure cost (`ErrorReporting.testEventFlag`).
+        "TallySentryTestEvent",
     ]
 
     /// Flags that qualify another flag and show nothing on their own. Inert alone, and the flag

@@ -257,6 +257,10 @@ struct SettingsView: View {
         // The Sparkle rows live in their own file (SettingsUpdateRows): the two switches carry a
         // hidden Sparkle-side dependency that needs truthful local state, not computed bindings.
         SettingsUpdateRows()
+
+        rowDivider
+
+        SettingsErrorReportingRow()
     }
 
 }

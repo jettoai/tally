@@ -466,20 +466,20 @@ struct LimitResetTarget: Equatable {
     var updatedAt: Date?
 }
 
-/// Whether the panel's session-limit control may be pressed.
+/// Whether the panel's session-limit control is offered as a press at all: the login's CLI takes a
+/// typed `/limit-reset` (`claudeLimitResetPressPathOpen`), its 5-hour window is full, and the reset
+/// is not already used. Everything else keeps the claude.ai pointer, which names no count.
 ///
-/// PURE AND HERE rather than spelled inside a view body, because it is a truth table with four
-/// inputs and two surfaces (the card and the compact row) draw it. Spelled twice, the two would
-/// come to grey different things, which is exactly what `AccountFacts` exists to stop for every
-/// other affordance on those surfaces.
-///
-/// A DEMO FIXTURE IS NEVER PRESSABLE, the rule the whole fixture file is under: it stands for an
-/// account that does not exist on this machine, so every affordance that would touch a real one
-/// stays greyed.
-func limitResetPressable(state: LimitResetState, hasSession: Bool, busy: Bool,
-                         demo: Bool) -> Bool {
-    guard !demo, !busy, state == .available else { return false }
-    return hasSession
+/// PURE AND HERE rather than spelled inside a view body, because two surfaces (the card and the
+/// compact row) draw it, and spelled twice they would come to grey different things.
+func limitResetOffered(state: LimitResetState, pathOpen: Bool, windowFull: Bool) -> Bool {
+    pathOpen && windowFull && state != .used
+}
+
+/// Whether an offered control may be pressed now: a session to type into, no press in flight, and
+/// not a demo fixture (it stands for an account that does not exist on this machine).
+func limitResetPressable(offered: Bool, hasSession: Bool, busy: Bool, demo: Bool) -> Bool {
+    offered && hasSession && !busy && !demo
 }
 
 /// The session to type `/limit-reset` into for `accountID`, or nil when there is none.

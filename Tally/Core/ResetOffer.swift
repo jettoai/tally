@@ -92,6 +92,19 @@ func claudeLimitResetFlagsOff(inState raw: Data) -> Bool? {
     return true
 }
 
+/// Whether a Claude login's cached flags open the path a press takes: `tengu_nifty_lemur` enabled
+/// and `tengu_cedar_ember` not. With cedar on, the CLI asks its own confirmation before spending,
+/// and Tally never types into a dialog, so that login goes to claude.ai instead.
+///
+/// FAIL-CLOSED: a missing flag, a renamed one or an unreadable file answers false, which draws the
+/// claude.ai pointer rather than a button that would type an unknown command into a session.
+func claudeLimitResetPressPathOpen(inState raw: Data) -> Bool {
+    guard let root = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+          let features = root["cachedGrowthBookFeatures"] as? [String: Any] else { return false }
+    func enabled(_ key: String) -> Bool? { (features[key] as? [String: Any])?["enabled"] as? Bool }
+    return enabled("tengu_nifty_lemur") == true && enabled("tengu_cedar_ember") != true
+}
+
 /// The Claude state a card shows: an unobserved account whose CLI path is off is "not supported
 /// here" (redeemable on claude.ai only). The flag never overrides a state a sentence settled.
 func claudeResetState(observed: LimitResetState, flagsOff: Bool?) -> LimitResetState {

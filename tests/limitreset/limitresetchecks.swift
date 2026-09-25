@@ -456,21 +456,28 @@ func runLimitResetChecks() {
                             accountID: "A")?.sessionKey == "2",
            "…and a dialog session is skipped in favour of one that can be typed into")
 
-    // MARK: - The button's enable matrix
+    // MARK: - The button's offer and enable matrix
 
-    expect(limitResetPressable(state: .available, hasSession: true, busy: false, demo: false),
-           "available, with a session to type into: pressable")
-    expect(!limitResetPressable(state: .available, hasSession: false, busy: false, demo: false),
-           "available with nothing running: nowhere to send the command, so not pressable")
-    expect(!limitResetPressable(state: .used, hasSession: true, busy: false, demo: false),
-           "already used: not pressable")
-    expect(!limitResetPressable(state: .notEnabled, hasSession: true, busy: false, demo: false),
-           "not in the rollout: not pressable")
-    expect(!limitResetPressable(state: .unknown, hasSession: true, busy: false, demo: false),
-           "nothing observed: not pressable")
-    expect(!limitResetPressable(state: .available, hasSession: true, busy: true, demo: false),
+    // Offered: path open (nifty on, cedar not) x 5-hour window full x not used. No count anywhere.
+    for state in [LimitResetState.available, .unknown, .notEnabled] {
+        expect(limitResetOffered(state: state, pathOpen: true, windowFull: true),
+               "path open, window full, \(state): offered as the press whatever the count reads")
+        expect(!limitResetOffered(state: state, pathOpen: false, windowFull: true),
+               "path closed (nifty off or cedar on), \(state): the claude.ai pointer, not a press")
+        expect(!limitResetOffered(state: state, pathOpen: true, windowFull: false),
+               "path open but window not full, \(state): the claude.ai pointer, not a press")
+    }
+    expect(!limitResetOffered(state: .used, pathOpen: true, windowFull: true),
+           "already used: never offered, it keeps 'Reset used · back <date>'")
+    expect(limitResetPressable(offered: true, hasSession: true, busy: false, demo: false),
+           "offered, with a session to type into: pressable")
+    expect(!limitResetPressable(offered: true, hasSession: false, busy: false, demo: false),
+           "offered with nothing running: drawn greyed, nowhere to send the command")
+    expect(!limitResetPressable(offered: false, hasSession: true, busy: false, demo: false),
+           "not offered: not pressable even with a session")
+    expect(!limitResetPressable(offered: true, hasSession: true, busy: true, demo: false),
            "a press already in flight: not pressable again")
-    expect(!limitResetPressable(state: .available, hasSession: true, busy: false, demo: true),
+    expect(!limitResetPressable(offered: true, hasSession: true, busy: false, demo: true),
            "a demo fixture is never pressable, having no real session behind it")
 
     // MARK: - The one reading the panel makes of that signal

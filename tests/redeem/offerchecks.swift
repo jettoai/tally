@@ -66,6 +66,32 @@ func runOfferChecks() {
     expect(claudeResetState(observed: .available, flagsOff: true) == .available,
            "flags: an observed state is never overridden")
 
+    // The press path: nifty enabled and cedar not; anything unreadable is closed.
+    func path(_ json: String) -> Bool { claudeLimitResetPressPathOpen(inState: Data(json.utf8)) }
+    expect(path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":true}}}"#),
+           "path: nifty on and cedar absent is open")
+    expect(path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":true},"tengu_cedar_ember":{"enabled":false}}}"#),
+           "path: nifty on and cedar off is open")
+    expect(!path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":true},"tengu_cedar_ember":{"enabled":true}}}"#),
+           "path: cedar on is closed (the CLI asks its own confirmation)")
+    expect(!path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":false,"version":0}}}"#),
+           "path: nifty off is closed (the fleet's real shape)")
+    expect(!path(#"{"cachedGrowthBookFeatures":{"tengu_cedar_ember":{"enabled":false}}}"#),
+           "path: nifty absent is closed")
+    expect(!path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":"yes"}}}"#)
+           && !path("not json") && !path("{}"), "path: unreadable is closed")
+
+    // The card and the row read the offer through one wiring in AccountFacts.
+    let facts = (try? String(contentsOfFile: "Tally/Views/AccountFacts.swift", encoding: .utf8)) ?? ""
+    expect(facts.contains("return state != .used && !offersSessionLimitReset"),
+           "facts: the claude.ai pointer stands down only for an offered press")
+    expect(facts.contains("windowFull: (session?.usedPercent ?? 0) >= 100"),
+           "facts: the offer needs the 5-hour window full")
+    expect(facts.contains("pathOpen: LimitResetStore.shared.pressPathOpen(accountID: usage.id)"),
+           "facts: the offer needs the flag path open")
+    expect(facts.contains("if offersSessionLimitReset { return L(\"Reset session limit\") }"),
+           "facts: an offered press says 'Reset session limit' and names no count")
+
     // Wording locks: the old claims are gone from the confirmation and the hint.
     let redeem = (try? String(contentsOfFile: "Tally/Views/RedeemAction.swift", encoding: .utf8)) ?? ""
     let notifier = (try? String(contentsOfFile: "Tally/Core/ResetHintNotifier.swift",

@@ -32,6 +32,9 @@ final class LimitResetStore {
     /// Per Claude account, whether its CLI flag cache says `/limit-reset` is off there
     /// (`claudeLimitResetFlagsOff`); absent means the cache could not tell.
     private(set) var flagsOff: [String: Bool] = [:]
+    /// Per Claude account, whether its flag cache opens the press path
+    /// (`claudeLimitResetPressPathOpen`); absent reads as closed.
+    private(set) var pathOpen: [String: Bool] = [:]
 
     private init() {
         settings = readLimitResetSettings()
@@ -71,22 +74,30 @@ final class LimitResetStore {
             if let record = readLimitReset(accountID: account.id) { found[account.id] = record }
         }
         records = found
-        flagsOff = Self.readFlags()
+        (flagsOff, pathOpen) = Self.readFlags()
     }
 
     /// Each Claude account's two reset flags, from the `.claude.json` Claude Code keeps beside its
     /// config (`claudeStateFile`). Local, zero-credential, and only those two keys are read; the
     /// file also holds personal fields, which are parsed past and never kept.
-    private static func readFlags() -> [String: Bool] {
-        var found: [String: Bool] = [:]
+    private static func readFlags() -> (off: [String: Bool], pathOpen: [String: Bool]) {
+        var off: [String: Bool] = [:]
+        var open: [String: Bool] = [:]
         for account in UsageStore.shared.discoveredAccounts where account.providerID == "claude" {
             guard let home = account.launchHome,
                   let raw = try? Data(contentsOf: claudeStateFile(forConfigDir:
-                                                        URL(fileURLWithPath: home))),
-                  let off = claudeLimitResetFlagsOff(inState: raw) else { continue }
-            found[account.id] = off
+                                                        URL(fileURLWithPath: home))) else { continue }
+            open[account.id] = claudeLimitResetPressPathOpen(inState: raw)
+            if let flagsOff = claudeLimitResetFlagsOff(inState: raw) { off[account.id] = flagsOff }
         }
-        return found
+        return (off, open)
+    }
+
+    /// Whether this account's CLI takes a typed `/limit-reset`. Demo fixtures answer from the
+    /// fixture table, so a capture can show the offered control without a file on this machine.
+    func pressPathOpen(accountID: String) -> Bool {
+        if DemoUsage.isActive { return DemoUsage.limitResetPressPathOpen(accountID: accountID) }
+        return pathOpen[accountID] ?? false
     }
 
     /// What this account's reset state MEANS right now (`limitResetEffective` owns the ageing

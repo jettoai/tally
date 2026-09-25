@@ -108,11 +108,20 @@ enum DemoUsage {
         }
     }
 
+    /// The one fixture whose CLI takes a typed `/limit-reset` (`claudeLimitResetPressPathOpen`).
+    /// "Claude" also sits at a full 5-hour window, so a capture shows "Reset session limit" beside
+    /// "Reset used" (Claude 3) and "Reset status unknown" (Claude 2, 4, 5). Greyed there, as every
+    /// demo affordance that would touch a real session is.
+    static func limitResetPressPathOpen(accountID: String) -> Bool {
+        accountID == "claude:demo-Claude"
+    }
+
     static func accounts(now: Date = Date()) -> [AccountUsage] {
         let fixtures = [
             // Every remaining percentage stays double-digit (10-99): a mixed column of "8%" and
             // "100%" reads ragged in the right-aligned figures, and this grid IS the README shot.
-            claude("Claude", plan: "Max 20x", model: 3, session: 2, weekly: 8,
+            // Claude's session sits at the wall: the fixture limitResetPressPathOpen offers.
+            claude("Claude", plan: "Max 20x", model: 3, session: 100, weekly: 8,
                    modelResetDays: 6.4, sessionResetHours: 4.6, weeklyResetDays: 6.4, now: now),
             claude("Claude 2", plan: "Max 20x", model: 52, session: 25, weekly: 39,
                    modelResetDays: 1.2, sessionResetHours: 3.1, weeklyResetDays: 1.2, now: now),

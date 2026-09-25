@@ -210,9 +210,10 @@ struct AccountListRowView: View {
                     }
                 }
             }
-            // Every Claude state reads as a mark, in the tertiary shade every other unavailable
-            // affordance on this row already uses; none of them is a redeem button any more.
-            .foregroundStyle(.tertiary)
+            // A pressable reset reads as a control; every other state reads as a mark, in the
+            // tertiary shade every other unavailable affordance on this row already uses.
+            .foregroundStyle(facts.canResetSessionLimit ? AnyShapeStyle(.secondary)
+                                                        : AnyShapeStyle(.tertiary))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

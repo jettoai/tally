@@ -366,8 +366,8 @@ func runFollowChecks() {
 }
 
 /// Five distinct `wait.opened` events, so each carries its own idempotency key.
-private func distinctOpenedEvents(_ tag: String, count: Int = 5) -> [SessionWaitEvent] {
-    (1...count).map { index in
+private func distinctOpenedEvents(_ tag: String) -> [SessionWaitEvent] {
+    (1...5).map { index in
         var request = t6Request
         request.id = "\(tag)-\(index)"
         return makeSessionWaitEvent(.opened, request: request, resolution: nil, identity: identity,
@@ -417,11 +417,11 @@ private func runFollowBesideDeliveryChecks(freshDir: (String) -> URL) {
 /// W3 `--latest-seq` and W4 `--since` through `runEvents`' own argument parsing, as a child whose
 /// home is a temp dir (see `FollowChild.init`), so no branch can read the user's spool.
 private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
-    func run(_ home: URL, _ args: [String]) -> (status: Int32?, lines: [String]) {
+    func run(_ home: URL, _ args: [String]) -> (status: Int32?, lines: [String], seqs: [Int]) {
         let child = FollowChild(dir: home.appendingPathComponent(".tally/events"), args: args, home: home)
         let exit = child.waitExitOrStop(timeout: 5)
         child.waitForLines(Int.max, timeout: 0.3)
-        return (exit?.status, child.lines)
+        return (exit?.status, child.lines, child.seqs())
     }
 
     // W3 (i): no events dir yet.
@@ -431,6 +431,7 @@ private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
     expect(missing.status == 0 && missing.lines == ["0"] && !created,
            "W3: --latest-seq with no events dir prints 0, exits 0 and creates nothing "
            + "(\(String(describing: missing.status)), \(missing.lines), created \(created))")
+    try? FileManager.default.removeItem(at: w3Missing)
 
     // W3 (ii)/(iii): the counter holds the NEXT seq; a blank counter reads as 0 (pinned, not endorsed).
     for (raw, want, label) in [("235", "234", "a seq file holding 235 prints 234"),
@@ -444,7 +445,6 @@ private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
                "W3: \(label) (\(String(describing: result.status)), \(result.lines))")
         try? FileManager.default.removeItem(at: home)
     }
-    try? FileManager.default.removeItem(at: w3Missing)
 
     // W4: --since parsing in the non-follow branch.
     let w4 = freshDir("w4")
@@ -458,9 +458,7 @@ private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
     expect(noValue.status == 2 && noValue.lines.isEmpty,
            "W4: --since with no value exits 2 and prints nothing (\(String(describing: noValue.status)))")
     let limited = run(w4, ["--since", "2", "--limit", "1"])
-    let decoder = sessionWaitEventDecoder()
-    let limitedSeqs = limited.lines.compactMap { try? decoder.decode(SessionWaitEvent.self, from: Data($0.utf8)).seq }
-    expect(limited.status == 0 && limited.lines.count == 1 && limitedSeqs == [3],
-           "W4: --since 2 --limit 1 prints exactly seq 3 (\(String(describing: limited.status)), seqs \(limitedSeqs))")
+    expect(limited.status == 0 && limited.lines.count == 1 && limited.seqs == [3],
+           "W4: --since 2 --limit 1 prints exactly seq 3 (\(String(describing: limited.status)), seqs \(limited.seqs))")
     try? FileManager.default.removeItem(at: w4)
 }

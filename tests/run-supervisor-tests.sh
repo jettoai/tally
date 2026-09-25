@@ -120,6 +120,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/dialoggatechecks.swift tests/supervisor/dialoggatereadingchecks.swift \
   tests/supervisor/knockchannelchecks.swift tests/supervisor/knockhookchecks.swift \
   tests/supervisor/waittrackerchecks.swift tests/supervisor/waitanswerchecks.swift \
+  tests/supervisor/waitspoolchecks.swift \
   tests/supervisor/contextchecks.swift tests/supervisor/inventorychecks.swift \
   tests/supervisor/resumepromptchecks.swift \
   tests/supervisor/standdownchecks.swift tests/supervisor/switchchecks.swift \

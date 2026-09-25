@@ -333,4 +333,45 @@ func runDeliveryContractChecks() {
            "R14: spawning a 5s deliverer returns in " + String(format: "%.3fs", r14Took)
            + " and the deliverer really ran (\"\(r14Ran)\")")
     try? FileManager.default.removeItem(at: r14Dir)
+
+    runUpdatedOverWireChecks()
 }
+
+// MARK: - W5 (begin): two wait.updated for one request, over real HTTP
+
+/// R7 proves the two keys differ in the spool and through an injected sender; this is the same pair
+/// through `defaultEventSender` to a loopback sink, so the headers asserted are the ones on the wire.
+func runUpdatedOverWireChecks() {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-waitevents-w5-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let receiver = LoopbackReceiver(logFile: dir.appendingPathComponent("receiver.log"))
+    _ = writeEventSinkConfig(EventSinkConfig(url: receiver.url, secret: "w5", createdAt: now), dir: dir)
+    var suspected = t6Request
+    suspected.confidence = SessionWaitConfidence.suspected.rawValue
+    suspected.tool = nil
+    var confirmed = suspected
+    confirmed.confidence = SessionWaitConfidence.confirmed.rawValue
+    let updates = reconcileWaitRequests(previous: suspected, current: confirmed, resolution: nil,
+                                        identity: identity, provider: "claude", now: now)
+        + reconcileWaitRequests(previous: confirmed, current: t6Request, resolution: nil,
+                                identity: identity, provider: "claude", now: now)
+    for event in updates { appendSessionWaitEvent(event, dir: dir) }
+    _ = deliverPendingEvents(replayDeadLetter: false, dir: dir, sleeper: { _ in }, handoff: {})
+    let posts = receiver.requests
+    let keys = posts.map { $0.headers["x-tally-idempotency-key"] ?? "" }
+    let bodyKeys = posts.map {
+        (try? sessionWaitEventDecoder().decode(SessionWaitEvent.self, from: $0.body))?.idempotencyKey ?? "?"
+    }
+    expect(updates.count == 2 && posts.count == 2
+           && posts.allSatisfy { $0.headers["x-tally-event"] == SessionWaitEventKind.updated.rawValue },
+           "W5: two wait.updated for one request reach the sink as two POSTs with X-Tally-Event wait.updated "
+           + "(\(posts.count) posts)")
+    expect(keys.count == 2 && !keys[0].isEmpty && keys[0] != keys[1],
+           "W5: ...carrying two different X-Tally-Idempotency-Key headers (\(keys))")
+    expect(keys.count == 2 && keys == bodyKeys,
+           "W5: ...each equal to its own body's idempotencyKey (\(bodyKeys))")
+    try? FileManager.default.removeItem(at: dir)
+}
+
+// MARK: - W5 (end)

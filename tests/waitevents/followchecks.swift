@@ -18,9 +18,12 @@ final class FollowChild {
     private var hasExited = false
     private var stderrCache: String?
 
-    init(dir: URL, args: [String]) {
+    /// `home`, when given, becomes the child's CFFIXED_USER_HOME: `runEvents`' `--since` branch reads
+    /// the default events dir rather than `dir`, so without it that branch reads the user's own spool.
+    init(dir: URL, args: [String], home: URL? = nil) {
         process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
         var env = ProcessInfo.processInfo.environment
+        if let home { env["CFFIXED_USER_HOME"] = home.path }
         env["TALLY_WAITEVENTS_FOLLOW_CHILD_DIR"] = dir.path
         env["TALLY_WAITEVENTS_FOLLOW_CHILD_ARGS"] = args.joined(separator: " ")
         process.environment = env
@@ -357,4 +360,107 @@ func runFollowChecks() {
                "\(tag): signal \(sig) ends a follower blocked on a full stdout pipe with 0 "
                + "(filled \(filled), \(String(describing: exit)))")
     }
+
+    runFollowBesideDeliveryChecks(freshDir: freshDir)
+    runEventsCursorCommandChecks(freshDir: freshDir)
+}
+
+/// Five distinct `wait.opened` events, so each carries its own idempotency key.
+private func distinctOpenedEvents(_ tag: String, count: Int = 5) -> [SessionWaitEvent] {
+    (1...count).map { index in
+        var request = t6Request
+        request.id = "\(tag)-\(index)"
+        return makeSessionWaitEvent(.opened, request: request, resolution: nil, identity: identity,
+                                    provider: "claude", now: now)
+    }
+}
+
+/// W2: a follower and webhook delivery reading one spool at once (docs/session-wait-events.md,
+/// "neither moves the other's cursor"): the follower prints every event, the sink receives every
+/// key, and only delivery owns `cursor`.
+private func runFollowBesideDeliveryChecks(freshDir: (String) -> URL) {
+    do {
+        let dir = freshDir("w2")
+        let receiver = LoopbackReceiver(logFile: dir.appendingPathComponent("receiver.log"))
+        _ = writeEventSinkConfig(EventSinkConfig(url: receiver.url, secret: "w2", createdAt: now), dir: dir)
+        let child = FollowChild(dir: dir, args: ["--follow", "--since", "0"])
+        for event in distinctOpenedEvents("w2") { appendSessionWaitEvent(event, dir: dir) }
+        _ = deliverPendingEvents(replayDeadLetter: false, dir: dir, sleeper: { _ in }, handoff: {})
+        child.waitForLines(5, timeout: 5)
+        let running = child.waitExit(timeout: 0) == nil
+        let spooledKeys = readSessionWaitEvents(since: 0, dir: dir).map(\.idempotencyKey)
+        let wireKeys = receiver.requests.map { $0.headers["x-tally-idempotency-key"] ?? "" }
+        expect(child.seqs() == [1, 2, 3, 4, 5] && running,
+               "W2: beside a delivery pass the follower prints seq 1-5 in order and keeps running "
+               + "(\(child.seqs()), running \(running))")
+        expect(wireKeys.count == 5 && Set(wireKeys).count == 5 && wireKeys == spooledKeys,
+               "W2: ...and the sink receives the same 5 keys the spool holds, in order (\(wireKeys.count) posts)")
+        expect(readEventDeliveryCursor(dir: dir) == 5,
+               "W2: ...and the delivery cursor is 5 (\(readEventDeliveryCursor(dir: dir)))")
+        child.stop()
+        try? FileManager.default.removeItem(at: dir)
+    }
+    do {
+        let dir = freshDir("w2-alone")
+        let child = FollowChild(dir: dir, args: ["--follow", "--since", "0"])
+        for event in distinctOpenedEvents("w2a") { appendSessionWaitEvent(event, dir: dir) }
+        child.waitForLines(5, timeout: 5)
+        let cursorExists = FileManager.default.fileExists(atPath: dir.appendingPathComponent("cursor").path)
+        expect(child.seqs() == [1, 2, 3, 4, 5] && !cursorExists,
+               "W2: a follower alone prints seq 1-5 and never writes the cursor file "
+               + "(\(child.seqs()), cursor exists \(cursorExists))")
+        child.stop()
+        try? FileManager.default.removeItem(at: dir)
+    }
+}
+
+/// W3 `--latest-seq` and W4 `--since` through `runEvents`' own argument parsing, as a child whose
+/// home is a temp dir (see `FollowChild.init`), so no branch can read the user's spool.
+private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
+    func run(_ home: URL, _ args: [String]) -> (status: Int32?, lines: [String]) {
+        let child = FollowChild(dir: home.appendingPathComponent(".tally/events"), args: args, home: home)
+        let exit = child.waitExitOrStop(timeout: 5)
+        child.waitForLines(Int.max, timeout: 0.3)
+        return (exit?.status, child.lines)
+    }
+
+    // W3 (i): no events dir yet.
+    let w3Missing = freshDir("w3-missing")
+    let missing = run(w3Missing, ["--latest-seq"])
+    let created = FileManager.default.fileExists(atPath: w3Missing.appendingPathComponent(".tally").path)
+    expect(missing.status == 0 && missing.lines == ["0"] && !created,
+           "W3: --latest-seq with no events dir prints 0, exits 0 and creates nothing "
+           + "(\(String(describing: missing.status)), \(missing.lines), created \(created))")
+
+    // W3 (ii)/(iii): the counter holds the NEXT seq; a blank counter reads as 0 (pinned, not endorsed).
+    for (raw, want, label) in [("235", "234", "a seq file holding 235 prints 234"),
+                               ("", "0", "a blank seq file prints 0")] {
+        let home = freshDir("w3-seq")
+        let events = home.appendingPathComponent(".tally/events")
+        try? FileManager.default.createDirectory(at: events, withIntermediateDirectories: true)
+        try? raw.write(to: events.appendingPathComponent("seq"), atomically: true, encoding: .utf8)
+        let result = run(home, ["--latest-seq"])
+        expect(result.status == 0 && result.lines == [want],
+               "W3: \(label) (\(String(describing: result.status)), \(result.lines))")
+        try? FileManager.default.removeItem(at: home)
+    }
+    try? FileManager.default.removeItem(at: w3Missing)
+
+    // W4: --since parsing in the non-follow branch.
+    let w4 = freshDir("w4")
+    for event in distinctOpenedEvents("w4") {
+        appendSessionWaitEvent(event, dir: w4.appendingPathComponent(".tally/events"))
+    }
+    let nonInteger = run(w4, ["--since", "x"])
+    expect(nonInteger.status == 2 && nonInteger.lines.isEmpty,
+           "W4: --since x exits 2 and prints nothing (\(String(describing: nonInteger.status)))")
+    let noValue = run(w4, ["--since"])
+    expect(noValue.status == 2 && noValue.lines.isEmpty,
+           "W4: --since with no value exits 2 and prints nothing (\(String(describing: noValue.status)))")
+    let limited = run(w4, ["--since", "2", "--limit", "1"])
+    let decoder = sessionWaitEventDecoder()
+    let limitedSeqs = limited.lines.compactMap { try? decoder.decode(SessionWaitEvent.self, from: Data($0.utf8)).seq }
+    expect(limited.status == 0 && limited.lines.count == 1 && limitedSeqs == [3],
+           "W4: --since 2 --limit 1 prints exactly seq 3 (\(String(describing: limited.status)), seqs \(limitedSeqs))")
+    try? FileManager.default.removeItem(at: w4)
 }

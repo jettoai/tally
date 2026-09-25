@@ -2,6 +2,12 @@ import Foundation
 
 runCodexPTYChildIfRequested()
 
+// Child mode for runWaitSpoolChecks (waitspoolchecks.swift): ticks under CFFIXED_USER_HOME so the
+// default emit writes a temp spool, never the user's ~/.tally/events.
+if let waitSpoolRoot = ProcessInfo.processInfo.environment[waitSpoolChildEnvKey] {
+    runWaitSpoolChild(root: URL(fileURLWithPath: waitSpoolRoot))
+}
+
 if ProcessInfo.processInfo.environment["TALLY_TEST_CODEX_RESUME_READER"] == "1" {
     runCodexResumeReader()
 }
@@ -380,6 +386,7 @@ runKnockChannelChecks()
 runKnockHookChecks()
 runWaitTrackerChecks()
 runWaitAnswerChecks()
+runWaitSpoolChecks()
 // LAST, because it registers the capture flag in this process's defaults and everything after it
 // would then be running in demo mode (`demoboardchecks.swift` says so at its own head).
 runCodexTerminalReplyChecks()

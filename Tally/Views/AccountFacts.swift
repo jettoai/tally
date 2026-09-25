@@ -143,25 +143,6 @@ struct AccountFacts {
     /// cannot come to offer different things (`RedeemAction.Offer` states what the two are).
     var resetOffer: RedeemAction.Offer { RedeemAction.offer(for: usage) }
 
-    /// A Claude account whose reset count Tally cannot read and whose control is not offered as a
-    /// press (`offersSessionLimitReset`): its mark opens claude.ai's usage page instead. No state
-    /// names a count; the "1" it used to draw came from assuming one a week.
-    var opensClaudeUsagePage: Bool {
-        guard case .claudeSessionLimit(let state) = resetOffer else { return false }
-        return state != .used && !offersSessionLimitReset
-    }
-
-    /// Whether the control is the "Reset session limit" press rather than the claude.ai pointer:
-    /// this login's CLI takes a typed `/limit-reset` and its 5-hour window is full
-    /// (`limitResetOffered`). Offered but without a session it is drawn greyed, never as the pointer.
-    var offersSessionLimitReset: Bool {
-        guard case .claudeSessionLimit(let state) = resetOffer else { return false }
-        let session = usage.metrics.first { $0.kind == .session }
-        return limitResetOffered(state: state,
-                                 pathOpen: LimitResetStore.shared.pressPathOpen(accountID: usage.id),
-                                 windowFull: (session?.usedPercent ?? 0) >= 100)
-    }
-
     /// The expiry beside a Codex banked-reset count: "until <date>", "expires in 2d" inside a week,
     /// and "expiry unknown" for any credit nobody dated (never read as "no expiry").
     func resetExpiryNote(now: Date = Date()) -> String? {
@@ -187,70 +168,6 @@ struct AccountFacts {
 
     /// Hover text for a Codex account whose resets could not be read this round.
     var codexResetUnknownHelp: String { L("Couldn't read resets this round") }
-
-    /// The "signed in as" line under a claude.ai pointer: the browser may be signed in to a
-    /// different Claude account than this card's.
-    private var claudeAccountLine: String {
-        identityEmail.isEmpty ? "" : "\n" + String(format: L("This card is %@."), identityEmail)
-    }
-
-    /// When this account's weekly session-limit reset comes back, where a sentence named a date.
-    var limitResetNextAt: Date? { LimitResetStore.shared.nextAvailableAt(accountID: usage.id) }
-
-    /// The supervised session Tally would type `/limit-reset` into, or nil when there is none.
-    var limitResetSession: LimitResetTarget? { LimitResetStore.shared.target(accountID: usage.id) }
-
-    /// Whether pressing the session-limit control would actually do anything.
-    ///
-    /// THREE THINGS HAVE TO BE TRUE and each of them fails visibly rather than silently: the press
-    /// has to be offered (`offersSessionLimitReset`), there has to be a session to type it into (the
-    /// command is interactive-only), and no press already in flight. A demo fixture is excluded on
-    /// the rule the whole file keeps - it has no session, so every such affordance stays greyed.
-    var canResetSessionLimit: Bool {
-        limitResetPressable(offered: offersSessionLimitReset, hasSession: limitResetSession != nil,
-                            busy: isResettingSessionLimit, demo: DemoUsage.isActive)
-    }
-
-    var isResettingSessionLimit: Bool { LimitResetStore.shared.pending.contains(usage.id) }
-
-    /// What the last press came to, for the few seconds a card shows it.
-    var limitResetOutcome: LimitResetStore.LimitResetSpend? {
-        LimitResetStore.shared.lastOutcome[usage.id]
-    }
-
-    /// The one line the control shows. An offered press says what it does and names no count.
-    /// Otherwise `available`, `notEnabled` and `unknown` share one line that names no number: Tally
-    /// has no trustworthy read of the count in any of them. That press opens claude.ai's usage page,
-    /// the one place those resets are listed.
-    func limitResetLabel(_ state: LimitResetState) -> String {
-        if offersSessionLimitReset { return L("Reset session limit") }
-        switch state {
-        case .used:
-            guard let back = limitResetNextAt else { return L("Reset used") }
-            return L("Reset used") + " · " + String(format: L("back %@"),
-                                                    AppLocale.shortDateTime(back))
-        case .available, .notEnabled, .unknown:
-            return L("Reset status unknown · Check on Claude")
-        }
-    }
-
-    /// What hovering it says: that a used reset is spent, or, for every other state, why Tally names
-    /// no count and which account to check on claude.ai.
-    func limitResetHelp(_ state: LimitResetState) -> String {
-        if offersSessionLimitReset {
-            return limitResetSession == nil
-                ? L("Open a session on this account to use its reset")
-                : L("Clears this account's 5-hour session limit now. Claude Code says it counts toward the weekly limit. This cannot be undone.")
-        }
-        switch state {
-        case .used:
-            return L("This account has already used its reset this week.")
-        case .available, .notEnabled, .unknown:
-            return L("Tally can't read how many resets this account has or when they expire.")
-                + "\n" + L("claude.ai is a separate sign-in in your browser. Check which account it shows before you use a reset there.")
-                + claudeAccountLine
-        }
-    }
 
     /// A reset was just redeemed here and the provider is still serving the spent numbers. The rows
     /// then say the reset is landing instead of "Limit reached", which alongside the green "Reset

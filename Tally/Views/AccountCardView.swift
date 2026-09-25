@@ -242,10 +242,9 @@ struct AccountCardView: View {
         // economic decision: it only ever happens through THIS explicit click plus a
         // confirmation that spells out the cost - never automatically.
         //
-        // WHICH OF THE TWO RESETS THIS ACCOUNT HAS is one question asked in one place
+        // WHICH RESET THIS ACCOUNT HAS is one question asked in one place
         // (`RedeemAction.offer`, through the facts), so this card and the compact row
-        // cannot come to offer different things. Claude's own weekly session-limit reset is
-        // the other arm, below.
+        // cannot come to offer different things.
         if case .codexCredits(let resets) = facts.resetOffer {
             Button {
                 if !DemoUsage.isActive { startRedeem() }
@@ -285,20 +284,11 @@ struct AccountCardView: View {
                   : L("Use a reset"))
         }
         codexResetStatusRow
-        if case .claudeSessionLimit(let state) = facts.resetOffer {
-            sessionLimitRow(state)
-        }
         if let redeemOutcome {
             Text(RedeemAction.outcomeMessage(redeemOutcome))
                 .font(.caption2)
                 .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
                 .tallyTooltip(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
-        }
-        if let outcome = facts.limitResetOutcome {
-            Text(RedeemAction.sessionLimitOutcomeMessage(outcome))
-                .font(.caption2)
-                .foregroundStyle(outcome == .reset ? TallyColor.normal : .secondary)
-                .tallyTooltip(RedeemAction.sessionLimitOutcomeDetail(outcome) ?? "")
         }
     }
 
@@ -345,55 +335,6 @@ struct AccountCardView: View {
         case .codexCredits, .claudeSessionLimit:
             EmptyView()
         }
-    }
-
-    // MARK: Claude's weekly session-limit reset
-
-    /// The one line this card gives the weekly reset, in the shape the banked-reset control beside
-    /// it already uses: the same glyph, a word, and the whole sentence on hover.
-    ///
-    /// A BUTTON IN EVERY STATE rather than a button in one state and a label in the others. What a
-    /// reader has to be able to tell apart is "there is nothing here" from "there is something here
-    /// and you cannot have it yet", and a control that disappears says the first about the second -
-    /// which is precisely the confusion an account outside the rollout would live in. Every state but
-    /// `used` (`available`, `unknown`, `notEnabled`) keeps the place as one line that names no number
-    /// and opens claude.ai's usage page.
-    @ViewBuilder
-    private func sessionLimitRow(_ state: LimitResetState) -> some View {
-        // The ask and the write are one call in `RedeemAction`, which is where the two manual UI
-        // surfaces that offer this reset (this card and the compact row) share the same cost
-        // wording, so neither can come apart from the other. The supervisor's own automatic reset
-        // has its own notice for the same cost (`capLimitResetFirstNotice`, TallyCLI/CapLimitReset.swift).
-        // Every state but `used` opens claude.ai's usage page, the one place those resets are
-        // listed; drawn in the tertiary shade so the mark never reads as a redeem button.
-        Button {
-            if facts.opensClaudeUsagePage {
-                NSWorkspace.shared.open(RedeemAction.claudeUsagePage)
-                return
-            }
-            guard facts.canResetSessionLimit else { return }
-            RedeemAction.startSessionLimit(usage: usage, label: label)
-        } label: {
-            HStack(spacing: 3) {
-                if facts.isResettingSessionLimit {
-                    ProgressView().controlSize(.mini)
-                    Text(L("resetting…"))
-                } else {
-                    Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
-                    Text(facts.limitResetLabel(state))
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(facts.opensClaudeUsagePage ? AnyShapeStyle(.tertiary)
-                                                        : AnyShapeStyle(.secondary))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!facts.canResetSessionLimit && !facts.opensClaudeUsagePage)
-        // The claude.ai pointer names this Tally account on its first line: the browser holds its
-        // own sign-in, and which account to check there is the whole question.
-        .tallyTooltipAroundControl(facts.opensClaudeUsagePage ? facts.label : facts.limitResetHelp(state),
-                                   detail: facts.opensClaudeUsagePage ? facts.limitResetHelp(state) : nil)
     }
 
     private var errorRow: some View {

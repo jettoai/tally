@@ -23,18 +23,21 @@ func runListParityChecks(rowSource: String, offerSource: String) {
     expect(!cases.isEmpty, "L0 the ResetOffer cases were read from its source")
     print("  ResetOffer cases: \(cases)")
 
+    // Claude's session-limit reset is deliberately the one state with no branch here (the work
+    // item that pulled its UI out of both surfaces), so the population check excludes it.
+    let requiredCases = cases.filter { $0 != "claudeSessionLimit" }
     let marks = balancedBlock(rowSource, after: "private var usageMarks: some View {") ?? ""
-    let missing = cases.filter { marks.range(of: "\\.\($0)\\b", options: .regularExpression) == nil }
+    let missing = requiredCases.filter { marks.range(of: "\\.\($0)\\b", options: .regularExpression) == nil }
     expect(!marks.isEmpty && missing.isEmpty,
-           "L1 the list row's reset mark has a branch for every ResetOffer state")
+           "L1 the list row's reset mark has a branch for every ResetOffer state but Claude's session limit")
     if !missing.isEmpty { print("  no branch for: \(missing)") }
+    expect(marks.range(of: "\\.claudeSessionLimit\\b", options: .regularExpression) == nil,
+           "L1b the list row draws nothing for Claude's session-limit reset")
 
-    let limitMark = functionBody(rowSource, from: "private func sessionLimitMark(") ?? ""
-    let limitHover = balancedParens(limitMark, after: ".tallyTooltipAroundControl(") ?? ""
-    expect(limitHover.contains("limitResetLabel(") && limitHover.contains("limitResetHelp("),
-           "L2 hovering the session-limit mark names its state, a used reset's return date included")
-    expect(limitHover.contains("\"resetting…\""),
-           "L3 hovering the session-limit spinner says the reset is running")
+    expect(functionBody(rowSource, from: "private func sessionLimitMark(") == nil,
+           "L2 the list row no longer has a Claude session-limit mark to draw")
+    expect(!rowSource.contains("limitResetOutcome"),
+           "L3 the list row no longer reads the Claude session-limit outcome")
 
     // The redeem hover, wherever it is built: the tooltip's own arguments, plus the helper they
     // name when they name one.

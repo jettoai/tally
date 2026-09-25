@@ -81,16 +81,27 @@ func runOfferChecks() {
     expect(!path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":"yes"}}}"#)
            && !path("not json") && !path("{}"), "path: unreadable is closed")
 
-    // The card and the row read the offer through one wiring in AccountFacts.
+    // The card and the row no longer draw any Claude session-limit reset control (the work item
+    // that pulled it out), so AccountFacts carries none of that offer's UI wiring any more.
     let facts = (try? String(contentsOfFile: "Tally/Views/AccountFacts.swift", encoding: .utf8)) ?? ""
-    expect(facts.contains("return state != .used && !offersSessionLimitReset"),
-           "facts: the claude.ai pointer stands down only for an offered press")
-    expect(facts.contains("windowFull: (session?.usedPercent ?? 0) >= 100"),
-           "facts: the offer needs the 5-hour window full")
-    expect(facts.contains("pathOpen: LimitResetStore.shared.pressPathOpen(accountID: usage.id)"),
-           "facts: the offer needs the flag path open")
-    expect(facts.contains("if offersSessionLimitReset { return L(\"Reset session limit\") }"),
-           "facts: an offered press says 'Reset session limit' and names no count")
+    expect(!facts.isEmpty && !facts.contains("offersSessionLimitReset")
+           && !facts.contains("opensClaudeUsagePage") && !facts.contains("canResetSessionLimit")
+           && !facts.contains("limitResetLabel") && !facts.contains("limitResetHelp"),
+           "facts: no Claude session-limit reset UI wiring is left")
+
+    let cardSource = (try? String(contentsOfFile: "Tally/Views/AccountCardView.swift",
+                                  encoding: .utf8)) ?? ""
+    let rowSource = (try? String(contentsOfFile: "Tally/Views/AccountListRowView.swift",
+                                 encoding: .utf8)) ?? ""
+    // `.codexCredits, .claudeSessionLimit: EmptyView()` in `codexResetStatusRow` legitimately names
+    // the case (an exhaustive switch), so the check is for the drawing functions and the outcome
+    // read, not the bare case name.
+    expect(!cardSource.isEmpty && !cardSource.contains("sessionLimitRow")
+           && !cardSource.contains("limitResetOutcome"),
+           "card: draws no Claude session-limit reset element")
+    expect(!rowSource.isEmpty && !rowSource.contains("sessionLimitMark")
+           && !rowSource.contains("limitResetOutcome") && !rowSource.contains(".claudeSessionLimit("),
+           "row: draws no Claude session-limit reset element")
 
     // Wording locks: the old claims are gone from the confirmation and the hint.
     let redeem = (try? String(contentsOfFile: "Tally/Views/RedeemAction.swift", encoding: .utf8)) ?? ""

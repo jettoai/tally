@@ -33,10 +33,6 @@ enum RedeemAction {
         return ResetOffer.of(usage, claudeState: claude)
     }
 
-    /// Where claude.ai lists a Claude account's resets (Settings > Usage). The unknown and
-    /// not-supported marks open it; nothing there is redeemed by Tally.
-    static let claudeUsagePage = URL(string: "https://claude.ai/settings/usage")!
-
     /// The confirmation's body: timing advice, cost + irreversibility, then the nearest expiry or
     /// the plain fact that nobody reported one.
     ///
@@ -117,74 +113,6 @@ enum RedeemAction {
     /// The server's own words for a failure, for a hover tooltip: diagnosable without putting a
     /// protocol token in front of everyone.
     static func outcomeDetail(_ outcome: CodexAppServerClient.RedeemOutcome) -> String? {
-        if case .failed(let detail) = outcome { return detail }
-        return nil
-    }
-
-    // MARK: Claude's weekly session-limit reset
-
-    /// The confirmation's body for the OTHER write, worded only from what Claude Code itself says
-    /// about the cost: it counts toward the weekly limit. No "one a week": resets are granted
-    /// occasionally and expire (support.claude.com, "What is a limit reset?").
-    ///
-    /// IT NAMES THE SESSION, which the banked-reset dialog has no equivalent of. This write is not
-    /// a request to a server; it is a slash command typed into one particular running conversation,
-    /// and that conversation's own composer is where the answer appears. Somebody who presses this
-    /// and then watches a different window would have no idea what happened.
-    static func sessionLimitMessage(session: LimitResetTarget?) -> String {
-        var parts = [
-            L("Clears this account's 5-hour session limit now. Claude Code says it counts toward the weekly limit. This cannot be undone."),
-        ]
-        if let session {
-            parts.append(String(format: L("Tally types /limit-reset into the session running as %@."),
-                                session.sessionKey))
-        }
-        return parts.joined(separator: "\n\n")
-    }
-
-    /// Ask, then spend. The question is the detached alert the banked reset uses, under the same
-    /// rule: it must NAME the account, because it opens in a window of its own. The write itself is
-    /// the store's (it has to reach a CLI and then wait on a file); what belongs here is that
-    /// nothing spends without the question having been answered.
-    ///
-    /// THE PAIR IS ONE CALL rather than two, because both surfaces make it and a card that asked
-    /// without spending, or spent without asking, would be one editing slip away. The session the
-    /// dialog names is read here rather than handed in, from the very store the write goes to, so
-    /// no surface words the question off a reading of its own.
-    ///
-    /// IT IS READ TWICE THOUGH, AND THE DIALOG IS THE WINDOW BETWEEN THE TWO. This call takes the
-    /// target to word the question; `LimitResetStore.spend` takes it again when the answer comes
-    /// back, and somebody can sit on that alert for as long as they like. If the roster changes in
-    /// between (the named session ends, or another session on this account becomes the target) the
-    /// command is typed into whatever the store names at that moment, or into nothing at all and
-    /// the row says `noSession`. What is guaranteed is that both readings come from one store, not
-    /// that the sentence somebody read still names the session written to.
-    static func startSessionLimit(usage: AccountUsage, label: String) {
-        let session = LimitResetStore.shared.target(accountID: usage.id)
-        guard CentredAlert.confirm(title: "\(label) · \(L("Reset session limit"))",
-                                   body: sessionLimitMessage(session: session),
-                                   confirmTitle: L("Reset")) else { return }
-        Task { _ = await LimitResetStore.shared.spend(accountID: usage.id) }
-    }
-
-    /// The outcome in the app's own voice, on the terms `outcomeMessage` states for its neighbour:
-    /// every case is a translated sentence, and Claude Code's own wording never reaches a row.
-    static func sessionLimitOutcomeMessage(_ outcome: LimitResetStore.LimitResetSpend) -> String {
-        switch outcome {
-        case .reset: return L("Session limit reset")
-        case .alreadyUsed: return L("This week's reset is already used")
-        // ONE SENTENCE FOR BOTH, because the difference between them is not one the user can act
-        // on: a refusal that names no reason and a login outside the rollout both come to "not yet".
-        case .notAvailable, .notEnabled: return L("Not available for this login yet")
-        case .noSession: return L("Open a session on this account to use its reset")
-        case .noAnswer: return L("No answer yet")
-        case .failed: return L("Reset failed")
-        }
-    }
-
-    /// The tool's own words for a failure, for a hover tooltip: diagnosable without putting a
-    /// process id and a refusal in front of everyone.
-    static func sessionLimitOutcomeDetail(_ outcome: LimitResetStore.LimitResetSpend) -> String? {
         if case .failed(let detail) = outcome { return detail }
         return nil
     }

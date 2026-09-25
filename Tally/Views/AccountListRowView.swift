@@ -155,14 +155,8 @@ struct AccountListRowView: View {
             Text(RedeemAction.outcomeMessage(outcome))
                 .foregroundStyle(outcome == .redeemed ? TallyColor.normal : .secondary)
                 .tallyTooltip(RedeemAction.outcomeDetail(outcome) ?? "")
-        } else if let outcome = facts.limitResetOutcome {
-            Text(RedeemAction.sessionLimitOutcomeMessage(outcome))
-                .foregroundStyle(outcome == .reset ? TallyColor.normal : .secondary)
-                .tallyTooltip(RedeemAction.sessionLimitOutcomeDetail(outcome) ?? "")
         } else if case .codexCredits(let resets) = facts.resetOffer {
             redeemButton(resets)
-        } else if case .claudeSessionLimit(let state) = facts.resetOffer {
-            sessionLimitMark(state)
         } else if facts.resetOffer == .codexNone {
             codexResetMark("0", help: L("No banked resets"))
         } else if facts.resetOffer == .codexUnknown {
@@ -182,50 +176,6 @@ struct AccountListRowView: View {
         }
         .foregroundStyle(.tertiary)
         .tallyTooltip(facts.markOwner, detail: help)
-    }
-
-    /// Claude's weekly session-limit reset at row scale, in the shape the banked-reset control
-    /// beside it already uses: the glyph and the count, with the whole sentence on hover. The row's
-    /// rule, applied to one more state - it hides words, never facts, and the words this one folds
-    /// away are the state's own name and its return date. No count is drawn in any state: the only
-    /// number the row could show came from assuming one reset a week. Every state but `used`
-    /// (`available`, `unknown`, `notEnabled`) adds a "?" and opens claude.ai's usage page.
-    private func sessionLimitMark(_ state: LimitResetState) -> some View {
-        // The same one call the card makes, so the question and the write have one implementation.
-        Button {
-            if facts.opensClaudeUsagePage {
-                NSWorkspace.shared.open(RedeemAction.claudeUsagePage)
-                return
-            }
-            guard facts.canResetSessionLimit else { return }
-            RedeemAction.startSessionLimit(usage: usage, label: facts.label)
-        } label: {
-            HStack(spacing: 2) {
-                if facts.isResettingSessionLimit {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
-                    if facts.opensClaudeUsagePage {
-                        Text(verbatim: "?")
-                    }
-                }
-            }
-            // A pressable reset reads as a control; every other state reads as a mark, in the
-            // tertiary shade every other unavailable affordance on this row already uses.
-            .foregroundStyle(facts.canResetSessionLimit ? AnyShapeStyle(.secondary)
-                                                        : AnyShapeStyle(.tertiary))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!facts.canResetSessionLimit && !facts.opensClaudeUsagePage)
-        // The state's name first (for a used reset that is where its return date is), then what
-        // pressing does or why it cannot, the card's two lines under the account's name.
-        .tallyTooltipAroundControl(
-            facts.opensClaudeUsagePage ? facts.label : facts.markOwner,
-            detail: facts.isResettingSessionLimit
-                ? L("resetting…")
-                : facts.limitResetLabel(state) + "\n" + facts.limitResetHelp(state))
-        .accessibilityLabel(facts.limitResetLabel(state))
     }
 
     /// The login's own two states, at row scale: renewing right now, or expired and offering the

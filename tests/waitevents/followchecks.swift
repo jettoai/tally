@@ -18,8 +18,8 @@ final class FollowChild {
     private var hasExited = false
     private var stderrCache: String?
 
-    /// `home`, when given, becomes the child's CFFIXED_USER_HOME: `runEvents`' `--since` branch reads
-    /// the default events dir rather than `dir`, so without it that branch reads the user's own spool.
+    /// `home`, when given, becomes the child's CFFIXED_USER_HOME, so a branch that ever falls back to
+    /// the default events dir reads a temp spool instead of the user's own (W6 relies on this).
     init(dir: URL, args: [String], home: URL? = nil) {
         process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
         var env = ProcessInfo.processInfo.environment
@@ -363,6 +363,7 @@ func runFollowChecks() {
 
     runFollowBesideDeliveryChecks(freshDir: freshDir)
     runEventsCursorCommandChecks(freshDir: freshDir)
+    runFollowSafetyPumpCheck(freshDir: freshDir)
 }
 
 /// Five distinct `wait.opened` events, so each carries its own idempotency key.
@@ -461,4 +462,77 @@ private func runEventsCursorCommandChecks(freshDir: (String) -> URL) {
     expect(limited.status == 0 && limited.lines.count == 1 && limited.seqs == [3],
            "W4: --since 2 --limit 1 prints exactly seq 3 (\(String(describing: limited.status)), seqs \(limited.seqs))")
     try? FileManager.default.removeItem(at: w4)
+
+    // W6: the non-follow --since branch reads the dir it is given, not the home spool. The two
+    // spools hold different events, so reading the wrong one cannot pass.
+    let w6Dir = freshDir("w6-dir"), w6Home = freshDir("w6-home")
+    let given = distinctOpenedEvents("w6-given")
+    for event in given { appendSessionWaitEvent(event, dir: w6Dir) }
+    for event in distinctOpenedEvents("w6-home").prefix(3) {
+        appendSessionWaitEvent(event, dir: w6Home.appendingPathComponent(".tally/events"))
+    }
+    let w6Child = FollowChild(dir: w6Dir, args: ["--since", "0"], home: w6Home)
+    let w6Exit = w6Child.waitExitOrStop(timeout: 5)
+    w6Child.waitForLines(Int.max, timeout: 0.3)
+    let decoder = sessionWaitEventDecoder()
+    let w6Keys = w6Child.lines.compactMap {
+        try? decoder.decode(SessionWaitEvent.self, from: Data($0.utf8)).idempotencyKey
+    }
+    expect(w6Exit?.status == 0 && w6Keys == given.map(\.idempotencyKey),
+           "W6: --since 0 prints the given dir's 5 events, not the home spool's "
+           + "(\(String(describing: w6Exit?.status)), \(w6Keys.count) lines, seqs \(w6Child.seqs()))")
+    try? FileManager.default.removeItem(at: w6Dir)
+    try? FileManager.default.removeItem(at: w6Home)
+}
+
+/// W7: the SAFETY PUMP (EventsFollow.swift). The follower watches the directory its path resolved to
+/// at start. Repointing that path (a symlink) at another directory that already holds an event
+/// changes no watched vnode, so no kqueue event fires and only the timed re-read can find the event.
+/// Run in-process so `safetyInterval` can be 1 s (whole seconds: the kevent timeout drops fractions).
+private func runFollowSafetyPumpCheck(freshDir: (String) -> URL) {
+    final class Outcome { var result: EventsFollowResult? }
+    let root = freshDir("w7")
+    let watched = root.appendingPathComponent("a"), unwatched = root.appendingPathComponent("b")
+    let link = root.appendingPathComponent("events"), staged = root.appendingPathComponent("events.next")
+    try? FileManager.default.createDirectory(at: watched, withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(at: unwatched, withIntermediateDirectories: true)
+    appendSessionWaitEvent(t12Event, dir: unwatched)
+    _ = symlink(watched.path, link.path)
+    _ = symlink(unwatched.path, staged.path)
+
+    let pipe = Pipe()
+    let readFD = pipe.fileHandleForReading.fileDescriptor
+    let writeFD = pipe.fileHandleForWriting.fileDescriptor
+    let outcome = Outcome()
+    let finished = DispatchSemaphore(value: 0)
+    Thread.detachNewThread {
+        outcome.result = followSessionWaitEvents(since: 0, dir: link, outputFD: writeFD, stopSignals: [],
+                                                 safetyInterval: 1, warn: { _ in })
+        finished.signal()
+    }
+    Thread.sleep(forTimeInterval: 0.4)                     // the follower is watching `a`
+    let repointed = rename(staged.path, link.path) == 0    // atomic swap: no watched vnode changes
+    let started = Date()
+    var output = Data()
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    while !output.contains(0x0A) {
+        let left = Int32(max(0, 3 - Date().timeIntervalSince(started)) * 1000)
+        var ready = pollfd(fd: readFD, events: Int16(POLLIN), revents: 0)
+        guard left > 0, poll(&ready, 1, left) > 0 else { break }
+        let count = read(readFD, &buffer, buffer.count)
+        if count <= 0 { break }
+        output.append(contentsOf: buffer[0..<count])
+    }
+    let elapsed = Date().timeIntervalSince(started)
+    let line = String(decoding: output.prefix { $0 != 0x0A }, as: UTF8.self)
+    let seq = try? sessionWaitEventDecoder().decode(SessionWaitEvent.self, from: Data(line.utf8)).seq
+    pipe.fileHandleForReading.closeFile()                  // EOF on the output ends the follower
+    let ended = finished.wait(timeout: .now() + 3) == .success
+    expect(repointed && seq == 1 && elapsed < 2.5,
+           "W7: an event no kqueue watch sees is printed by the 1 s safety re-read "
+           + "(repointed \(repointed), seq \(String(describing: seq)), \(Int(elapsed * 1000)) ms)")
+    expect(ended && outcome.result == .outputClosed,
+           "W7: ...and closing the output then ends that follower (\(String(describing: outcome.result)))")
+    if ended { pipe.fileHandleForWriting.closeFile() }
+    try? FileManager.default.removeItem(at: root)
 }

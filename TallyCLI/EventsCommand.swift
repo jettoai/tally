@@ -50,7 +50,7 @@ func runEvents(args: [String], dir: URL = tallyEventsDir) -> Int32 {
             limit = parsedLimit
         }
         let encoder = sessionWaitEventEncoder()
-        for event in readSessionWaitEvents(since: since, limit: limit) {
+        for event in readSessionWaitEvents(since: since, limit: limit, dir: dir) {
             guard let data = try? encoder.encode(event), let line = String(data: data, encoding: .utf8)
             else { continue }
             print(line)

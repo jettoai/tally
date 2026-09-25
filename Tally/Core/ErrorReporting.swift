@@ -60,14 +60,14 @@ enum ErrorReporting {
     private static func scrub(_ event: Event) -> Event {
         event.user = nil
         let home = NSHomeDirectory()
-        func fold(_ text: String?) -> String? { text?.replacingOccurrences(of: home, with: "~") }
+        func fold(_ text: String) -> String { text.replacingOccurrences(of: home, with: "~") }
         if let message = event.message {
-            let folded = SentryMessage(formatted: fold(message.formatted) ?? message.formatted)
-            folded.message = fold(message.message)
+            let folded = SentryMessage(formatted: fold(message.formatted))
+            folded.message = message.message.map(fold)
             folded.params = message.params
             event.message = folded
         }
-        event.exceptions?.forEach { $0.value = fold($0.value) ?? $0.value }
+        event.exceptions?.forEach { $0.value = $0.value.map(fold) }
         return event
     }
 }

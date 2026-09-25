@@ -143,11 +143,12 @@ struct AccountFacts {
     /// cannot come to offer different things (`RedeemAction.Offer` states what the two are).
     var resetOffer: RedeemAction.Offer { RedeemAction.offer(for: usage) }
 
-    /// A Claude account whose resets Tally cannot see or cannot spend here: its mark opens
-    /// claude.ai's usage page instead (never a redeem).
+    /// A Claude account whose reset count Tally cannot read: its mark opens claude.ai's usage page
+    /// instead (never a redeem). `available` is here too: it says a reset exists, never how many,
+    /// and the "1" it used to draw came from assuming one a week.
     var opensClaudeUsagePage: Bool {
         guard case .claudeSessionLimit(let state) = resetOffer else { return false }
-        return state == .unknown || state == .notEnabled
+        return state != .used
     }
 
     /// The expiry beside a Codex banked-reset count: "until <date>", "expires in 2d" inside a week,
@@ -208,20 +209,18 @@ struct AccountFacts {
         LimitResetStore.shared.lastOutcome[usage.id]
     }
 
-    /// The one line the control shows, per state. `unknown` names itself rather than a number:
-    /// nothing observed is shown as not known, never as zero.
+    /// The one line the control shows, per state. `available`, `notEnabled` and `unknown` share one
+    /// line that names no number: Tally has no trustworthy read of the count in any of them, so none
+    /// is shown as 0, 1, used or available. The press opens claude.ai's usage page, the one place
+    /// those resets are listed.
     func limitResetLabel(_ state: LimitResetState) -> String {
         switch state {
-        case .available:
-            return "1 " + L("reset available")
         case .used:
             guard let back = limitResetNextAt else { return L("Reset used") }
             return L("Reset used") + " · " + String(format: L("back %@"),
                                                     AppLocale.shortDateTime(back))
-        case .notEnabled:
-            return L("Reset unavailable")
-        case .unknown:
-            return L("Resets unknown")
+        case .available, .notEnabled, .unknown:
+            return L("Reset status unknown · Check on Claude")
         }
     }
 
@@ -229,17 +228,11 @@ struct AccountFacts {
     /// why there is nothing to press, and why this account has no reset at all.
     func limitResetHelp(_ state: LimitResetState) -> String {
         switch state {
-        case .available:
-            return limitResetSession == nil
-                ? L("Open a session on this account to use its reset")
-                : L("Clear this account's 5-hour limit now, using this week's reset.")
         case .used:
             return L("This account has already used its reset this week.")
-        case .notEnabled:
-            return L("Resets for this login can only be used on claude.ai, under Settings > Usage.")
-                + claudeAccountLine
-        case .unknown:
-            return L("Tally can't see this account's resets. claude.ai lists them under Settings > Usage.")
+        case .available, .notEnabled, .unknown:
+            return L("Tally can't read how many resets this account has or when they expire.")
+                + "\n" + L("claude.ai is a separate sign-in in your browser. Check which account it shows before you use a reset there.")
                 + claudeAccountLine
         }
     }

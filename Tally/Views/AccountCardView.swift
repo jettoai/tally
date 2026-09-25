@@ -356,7 +356,8 @@ struct AccountCardView: View {
     /// one state and a label in the others. What a reader has to be able to tell apart is "there is
     /// nothing here" from "there is something here and you cannot have it yet", and a control that
     /// disappears says the first about the second - which is precisely the confusion an account
-    /// outside the rollout would live in. `unknown` is drawn too, as a "?".
+    /// outside the rollout would live in. Every state but `used` (`available`, `unknown`,
+    /// `notEnabled`) keeps the place as one line that names no number and opens claude.ai's usage page.
     @ViewBuilder
     private func sessionLimitRow(_ state: LimitResetState) -> some View {
         // The ask and the write are one call in `RedeemAction`, which is where the two manual UI
@@ -379,7 +380,7 @@ struct AccountCardView: View {
                     Text(L("resetting…"))
                 } else {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 9))
-                    Text(state == .unknown ? "?" : facts.limitResetLabel(state))
+                    Text(facts.limitResetLabel(state))
                 }
             }
             .font(.caption2)
@@ -389,7 +390,10 @@ struct AccountCardView: View {
         }
         .buttonStyle(.plain)
         .disabled(!facts.canResetSessionLimit && !facts.opensClaudeUsagePage)
-        .tallyTooltipAroundControl(facts.limitResetHelp(state))
+        // The claude.ai pointer names this Tally account on its first line: the browser holds its
+        // own sign-in, and which account to check there is the whole question.
+        .tallyTooltipAroundControl(facts.opensClaudeUsagePage ? facts.label : facts.limitResetHelp(state),
+                                   detail: facts.opensClaudeUsagePage ? facts.limitResetHelp(state) : nil)
     }
 
     private var errorRow: some View {

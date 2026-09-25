@@ -187,8 +187,9 @@ struct AccountListRowView: View {
     /// Claude's weekly session-limit reset at row scale, in the shape the banked-reset control
     /// beside it already uses: the glyph and the count, with the whole sentence on hover. The row's
     /// rule, applied to one more state - it hides words, never facts, and the words this one folds
-    /// away are the state's own name and its return date. The count is only shown by the state that
-    /// has a reset to spend; the two that cannot be pressed stay the glyph alone.
+    /// away are the state's own name and its return date. No count is drawn in any state: the only
+    /// number the row could show came from assuming one reset a week. Every state but `used`
+    /// (`available`, `unknown`, `notEnabled`) adds a "?" and opens claude.ai's usage page.
     private func sessionLimitMark(_ state: LimitResetState) -> some View {
         // The same one call the card makes, so the question and the write have one implementation.
         Button {
@@ -204,17 +205,14 @@ struct AccountListRowView: View {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
-                    if state == .available {
-                        Text(verbatim: "1").monospacedDigit()
-                    } else if state == .unknown {
+                    if facts.opensClaudeUsagePage {
                         Text(verbatim: "?")
                     }
                 }
             }
-            // Available reads as a control; the two that cannot be pressed read as a mark, in the
-            // tertiary shade every other unavailable affordance on this row already uses.
-            .foregroundStyle(state == .available ? AnyShapeStyle(.secondary)
-                                                 : AnyShapeStyle(.tertiary))
+            // Every Claude state reads as a mark, in the tertiary shade every other unavailable
+            // affordance on this row already uses; none of them is a redeem button any more.
+            .foregroundStyle(.tertiary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -222,7 +220,7 @@ struct AccountListRowView: View {
         // The state's name first (for a used reset that is where its return date is), then what
         // pressing does or why it cannot, the card's two lines under the account's name.
         .tallyTooltipAroundControl(
-            facts.markOwner,
+            facts.opensClaudeUsagePage ? facts.label : facts.markOwner,
             detail: facts.isResettingSessionLimit
                 ? L("resetting…")
                 : facts.limitResetLabel(state) + "\n" + facts.limitResetHelp(state))

@@ -13652,35 +13652,6 @@
         }
       }
     },
-    "Reset unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法使用重置"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法使用重置"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リセット利用不可"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "리셋 사용 불가"
-          }
-        }
-      }
-    },
     "Open a session on this account to use its reset": {
       "extractionState": "manual",
       "localizations": {
@@ -13706,35 +13677,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 계정으로 세션을 열어야 리셋을 사용할 수 있습니다."
-          }
-        }
-      }
-    },
-    "Clear this account's 5-hour limit now, using this week's reset.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用本週的重置立即清除這個帳號的 5 小時限制。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用本周的重置立即清除这个账号的 5 小时限制。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今週のリセットを使って、このアカウントの 5 時間制限をいま解除します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이번 주 리셋을 써서 이 계정의 5시간 한도를 지금 해제합니다."
           }
         }
       }
@@ -14807,89 +14749,89 @@
         }
       }
     },
-    "Resets unknown": {
+    "Reset status unknown · Check on Claude": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重置不明"
+            "value": "重置狀態未知 · 到 Claude 查看"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重置不明"
+            "value": "重置状态未知 · 到 Claude 查看"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リセット不明"
+            "value": "リセット状況は不明 · Claude で確認"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "리셋 알 수 없음"
+            "value": "리셋 상태 알 수 없음 · Claude에서 확인"
           }
         }
       }
     },
-    "Resets for this login can only be used on claude.ai, under Settings > Usage.": {
+    "Tally can't read how many resets this account has or when they expire.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此登入的重置只能在 claude.ai 的「設定 > 用量」使用。"
+            "value": "Tally 讀不到這個帳號有幾次重置，也讀不到效期。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此登录的重置只能在 claude.ai 的“设置 > 用量”使用。"
+            "value": "Tally 读不到这个账号有几次重置，也读不到有效期。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このログインのリセットは claude.ai の「設定 > 使用量」でのみ使えます。"
+            "value": "Tally はこのアカウントのリセット回数と有効期限を読み取れません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 로그인의 리셋은 claude.ai의 설정 > 사용량에서만 쓸 수 있습니다."
+            "value": "Tally는 이 계정의 리셋 횟수와 만료일을 읽을 수 없습니다."
           }
         }
       }
     },
-    "Tally can't see this account's resets. claude.ai lists them under Settings > Usage.": {
+    "claude.ai is a separate sign-in in your browser. Check which account it shows before you use a reset there.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 看不到此帳號的重置。claude.ai 在「設定 > 用量」列出它們。"
+            "value": "claude.ai 是瀏覽器裡獨立的登入狀態。在那裡使用重置前，先核對網頁上登入的是哪個帳號。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 看不到此账号的重置。claude.ai 在“设置 > 用量”列出它们。"
+            "value": "claude.ai 是浏览器里独立的登录状态。在那里使用重置前，先核对网页上登录的是哪个账号。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally はこのアカウントのリセットを確認できません。claude.ai の「設定 > 使用量」に一覧があります。"
+            "value": "claude.ai はブラウザ側の別のサインインです。そこでリセットを使う前に、表示されているアカウントを確認してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally는 이 계정의 리셋을 볼 수 없습니다. claude.ai의 설정 > 사용량에 나와 있습니다."
+            "value": "claude.ai는 브라우저의 별도 로그인입니다. 그곳에서 리셋을 사용하기 전에 표시된 계정을 확인하세요."
           }
         }
       }

@@ -73,6 +73,24 @@ func runLaunchChecks() {
           startMode(["-c"], home: withSession).args == ["-c"])
     check("--print is not a session to continue",
           startMode(["-p", "hi"], home: withSession).args == ["-p", "hi"])
+    // ...EXCEPT onto a conversation another live session is writing: two writers on one transcript
+    // is what the live set exists to prevent, so the flag goes and a new conversation opens (owner
+    // ruling, 2026-09-26).
+    let runningNote = "that conversation is running in another window - starting a new one"
+    let typedLive = startMode(["--continue"], home: withSession, live: ["abc"])
+    check("a hand-typed --continue onto a live conversation opens a new one", typedLive.args.isEmpty)
+    check("...and says why", typedLive.note == runningNote)
+    let typedLiveID = startMode(["-r", "abc", "--verbose"], home: withSession, live: ["abc"])
+    check("a hand-typed -r <id> onto a live conversation opens a new one",
+          typedLiveID.args == ["--verbose"])
+    check("...and says why too", typedLiveID.note == runningNote)
+    check("only the session flag goes, never the prompt",
+          startMode(["-c", "--", "-c"], home: withSession, live: ["abc"]).args == ["--", "-c"])
+    let typedOther = startMode(["--resume", "xyz"], home: withSession, live: ["abc"])
+    check("a hand-typed resume of a conversation nobody is running passes as typed",
+          typedOther.args == ["--resume", "xyz"] && typedOther.note == nil)
+    check("a --continue that resolves to nothing passes as typed",
+          startMode(["--continue"], home: withoutSession, live: ["abc"]).args == ["--continue"])
     // The other two ways to say no, unchanged by the lookup.
     check("--new (wantsNew) still suppresses the injection",
           startMode([], home: withSession, wantsNew: true).args.isEmpty)
@@ -111,6 +129,11 @@ func runLaunchChecks() {
           startMode([], home: withSession).args == ["--resume", "abc"])
     check("…and it round-trips through the file",
           readLastConversation(cwd: workingDir.path, dir: records) == "abc")
+    let recordedLive = startMode([], home: withSession, live: ["abc"])
+    check("a recorded conversation another window is running is not resumed",
+          recordedLive.args.isEmpty)
+    check("...and the note says so rather than claiming there is nothing here",
+          recordedLive.note == "the last conversation here is running in another window - starting fresh")
     // A cleared conversation nobody typed into: resumed by nothing, and NEVER a reason to fall back
     // onto what came before it (owner ruling, 2026-08-25).
     write(startupOnlyTranscript(at: "2026-08-25T12:00:00.000Z"),

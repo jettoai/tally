@@ -181,7 +181,14 @@ extension TranscriptWatcher {
         // Recomputed on every scan rather than latched, so a candidate that resolves (either way)
         // releases the hold on the next pass without any bookkeeping of its own.
         hasUnresolvedFork = scan.unresolved.contains { $0 > live }
-        let forks = scan.forks.filter { $0.modified > live }
+        // AND NEVER A FILE ANOTHER LIVE SESSION HERE IS WRITING, the rule `bindFile` already follows.
+        // The marker proves a fork only when the join key is ours, and two paths make it somebody
+        // else's: a first binding guessed onto a sibling's file (the key latches the sibling's id,
+        // so the sibling's own `/clear` reads as our fork), and two processes launched with the same
+        // `--resume <id>` (both stamp that id into every file they move to).
+        let forks = scan.forks.filter {
+            $0.modified > live && !isForeign($0.url.deletingPathExtension().lastPathComponent)
+        }
         guard let newest = forks.first else { return }
         // Two candidates written since the bound file mean the child moved twice, and the newest is
         // the live one - the process writes to one transcript, so the other stopped growing. Only a

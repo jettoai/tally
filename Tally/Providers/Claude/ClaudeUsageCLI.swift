@@ -21,9 +21,13 @@ enum ClaudeUsageCLI {
         // without it every run fired the whole SessionStart hook set of ~/.claude/settings.json
         // (seen in the probe transcripts as hook_success / hook_additional_context lines). Auth is
         // untouched by it; EarlyStartCommand.swift carries the same flag and the reasoning in full.
+        // --no-session-persistence: the run leaves no transcript (print mode only), which kept about
+        // 300 files in the probe directory at steady state. The prune below stays for the files an
+        // older CLI, or a run from before this flag, still leaves behind.
         let output = await CLIRunner.run(
             binary,
-            arguments: ["-p", "/usage", "--strict-mcp-config", "--safe-mode"],
+            arguments: ["-p", "/usage", "--strict-mcp-config", "--safe-mode",
+                        "--no-session-persistence"],
             environment: ["CLAUDE_CONFIG_DIR": configDir],
             currentDirectory: probeDirectory,
             timeout: 60

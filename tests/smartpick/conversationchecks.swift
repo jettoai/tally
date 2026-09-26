@@ -113,7 +113,7 @@ func runConversationChecks() {
               == .resume("older"))
     check("a live RECORD is not resumed either",
           conversationStart(recorded: "newer", among: [older, newer], live: ["newer"])
-              == ConversationStart.none)
+              == .liveElsewhere)
 
     // ORDERING IS BY THE STAMP INSIDE THE FILE, and it is read with fractional seconds: two events
     // in one second are ordinary, and dropping the subseconds silently ties them.

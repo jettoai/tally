@@ -164,6 +164,25 @@ func runForkChecks() {
     check("a fork from before this launch is not adopted",
           olderWatcher.file?.lastPathComponent == "parent.jsonl")
 
+    // 2c. A marker is proof only while the join key is ours. A second process launched with the same
+    //     `--resume <id>` (a hand-typed resume into a live conversation) stamps that id into its own
+    //     `/clear` file too, and so does the sibling a first binding guessed onto. Such a file is one
+    //     another live session in this directory is writing, and it is never adopted.
+    let shared = ForkFixture("shared-key")
+    shared.write("parent.jsonl", ["{}"], born: -3600, wrote: -30)
+    shared.write("theirs.jsonl", [shared.marker(own: "theirs", launched: "parent")],
+                 born: 30, wrote: 120)
+    var unguardedShared = shared.watcher(pinnedTo: "parent")
+    unguardedShared.locateFile()
+    check("without the live set, another writer's file carrying our key is adopted (the defect)",
+          unguardedShared.file?.lastPathComponent == "theirs.jsonl")
+    var guardedShared = shared.watcher(pinnedTo: "parent")
+    guardedShared.isForeign = { $0 == "theirs" }
+    guardedShared.locateFile()
+    check("a fork another live session is writing is not followed",
+          guardedShared.file?.lastPathComponent == "parent.jsonl"
+              && guardedShared.resumeID == "parent")
+
     // 3. Cap bookkeeping survives the rebind: the offset restarts at the top of the new file (the
     //    parent's byte count means nothing there), while the launch-time guard still filters events
     //    older than this child.

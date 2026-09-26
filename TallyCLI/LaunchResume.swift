@@ -121,6 +121,10 @@ enum ConversationStart: Equatable {
     /// fresh. That lands in the same empty context a resumed clear would (owner ruling, 2026-08-25:
     /// a cleared session must never fall back onto what came before it).
     case unstarted
+    /// The conversation this machine last watched here is being written by another live session.
+    /// Nothing is taken instead, for the reason `.unstarted` gives: the one behind it is a step
+    /// backwards. Split from `.none` only so the launch can say what actually happened.
+    case liveElsewhere
 }
 
 /// The conversation a launch continues.
@@ -150,7 +154,7 @@ enum ConversationStart: Equatable {
 func conversationStart(recorded: String?, among candidates: [ConversationCandidate],
                        live: Set<String>) -> ConversationStart {
     if let recorded, let match = candidates.first(where: { $0.id == recorded }) {
-        if live.contains(match.id) { return .none }
+        if live.contains(match.id) { return .liveElsewhere }
         return match.resumable ? .resume(match.id) : .unstarted
     }
     let newest = candidates
@@ -172,9 +176,11 @@ func conversationStart(recorded: String?, among candidates: [ConversationCandida
 /// are shared across those homes, and picking accounts by headroom therefore walked the conversation
 /// backwards one launch at a time.
 ///
-/// A hand-typed flag is left exactly as typed: the worktree path strips one, but that is a launch
-/// into a directory the user just asked to create, whereas here someone who typed `--continue`
-/// deserves the CLI's own behaviour rather than a silently rewritten flag.
+/// A hand-typed flag is left exactly as typed, with ONE exception: when the conversation it names is
+/// being written by another live session here. Taking it puts two writers on one transcript, the
+/// thing `live` is refused for below, so the flag is dropped and the launch opens a new conversation
+/// with a line saying why (owner ruling, 2026-09-26). A target that cannot be resolved is passed as
+/// typed: the miss leans toward what the user asked for.
 ///
 /// `live` is passed in rather than read here, and it is the one input this cannot fetch for itself:
 /// finding it means reading the supervisors' state directory, which belongs to the caller's world
@@ -185,11 +191,16 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
                     cwd: String = FileManager.default.currentDirectoryPath,
                     recordDir: URL = lastConversationDir)
     -> (args: [String], note: String?) {
+    let dir = claudeProjectsDir(home: home)
+        .appendingPathComponent(projectSlug(forCwd: cwd))
+    if let target = handTypedTarget(args, projectDir: dir, cwd: cwd, recordDir: recordDir),
+       live.contains(target) {
+        return (removingHandTypedSession(args),
+                "that conversation is running in another window - starting a new one")
+    }
     guard policy.startMode == "continue", !wantsNew,
           !optionsOnly(args).contains(where: { sessionFlags.contains($0) })
     else { return (args, nil) }
-    let dir = claudeProjectsDir(home: home)
-        .appendingPathComponent(projectSlug(forCwd: cwd))
     switch conversationStart(recorded: readLastConversation(cwd: cwd, dir: recordDir),
                              among: conversationCandidates(in: dir), live: live) {
     case .resume(let id):
@@ -198,7 +209,47 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
         return (args, "no conversation to pick up in this directory - starting fresh")
     case .unstarted:
         return (args, "the last conversation here was cleared and never used - starting fresh")
+    case .liveElsewhere:
+        return (args, "the last conversation here is running in another window - starting fresh")
     }
+}
+
+/// The conversation a hand-typed `--resume <id>` / `-r <id>` or `--continue` / `-c` names, or nil
+/// when there is none or it cannot be told.
+///
+/// `--continue` is answered by the CLI out of a pointer private to the config home, which Tally
+/// cannot read; the stand-in is the same ranking the start mode uses, with nothing excluded (the
+/// question is which conversation, not whether it is free). A print run and `--fork-session` are
+/// not asked about: the first is not an interactive session and the second writes a new file.
+func handTypedTarget(_ args: [String], projectDir: URL, cwd: String, recordDir: URL) -> String? {
+    let options = optionsOnly(args)
+    if options.contains(where: { ["-p", "--print", "--fork-session"].contains($0) }) { return nil }
+    if let id = flagValue(args, "--resume") ?? flagValue(args, "-r") {
+        return id.hasPrefix("-") ? nil : id   // a bare `--resume` opens the picker
+    }
+    guard options.contains("--continue") || options.contains("-c") else { return nil }
+    if case .resume(let id) = conversationStart(
+        recorded: readLastConversation(cwd: cwd, dir: recordDir),
+        among: conversationCandidates(in: projectDir), live: []) { return id }
+    return nil
+}
+
+/// `args` without a hand-typed `--continue` / `-c` / `--resume <id>` / `-r <id>`, options only.
+func removingHandTypedSession(_ args: [String]) -> [String] {
+    let options = optionsOnly(args)
+    var kept: [String] = []
+    var index = 0
+    while index < options.count {
+        let argument = options[index]
+        index += 1
+        if argument == "--continue" || argument == "-c" { continue }
+        if argument == "--resume" || argument == "-r" {
+            if index < options.count, !options[index].hasPrefix("-") { index += 1 }
+            continue
+        }
+        kept.append(argument)
+    }
+    return kept + args[options.count...]
 }
 
 // MARK: - Reading the directory

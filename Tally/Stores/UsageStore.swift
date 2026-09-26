@@ -3,10 +3,11 @@ import Observation
 
 /// Owns the live usage snapshots and the periodic refresh loop. Shared singleton.
 ///
-/// Refresh model: fetch every enabled account concurrently, on a
-/// user-configurable interval. `onChange` lets the AppKit status item update its title without SwiftUI
-/// observation. Claude's usage endpoint rate-limits aggressively, so the default interval is
-/// conservative and manual refresh is available on demand.
+/// Refresh model: Claude accounts are probed one at a time on a per-account cadence
+/// (ProbeCadence.swift), other providers concurrently, on a user-configurable interval. `onChange`
+/// lets the AppKit status item update its title without SwiftUI observation. Claude's usage
+/// endpoint rate-limits aggressively, so the default interval is conservative and manual refresh
+/// is available on demand.
 @MainActor
 @Observable
 final class UsageStore {
@@ -296,12 +297,10 @@ final class UsageStore {
                 // signed-out account must not reach it even if it kept a home to be renewed at.
                 if let home = account.launchableHome { launchHomes[account.id] = home }
             }
-            await withTaskGroup(of: AccountUsage.self) { group in
-                for account in active {
-                    group.addTask { await provider.fetchUsage(for: account, userInitiated: userInitiated) }
-                }
-                for await usage in group { results.append(usage) }
-            }
+            // Claude one probe at a time on its own cadence, other providers concurrently.
+            results += await ProbeCadence.fetchRound(provider, active: active, previous: accounts,
+                                                     serial: provider.id == ClaudeAccounts.providerID,
+                                                     userInitiated: userInitiated)
         }
         // An account the user removed while this round was out fetching: its home went to the Trash
         // after the discovery above read it, so everything this round holds about it is an echo.

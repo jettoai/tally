@@ -319,6 +319,23 @@ func runKnockChecks() {
     expect(monitor.contains("if event == .alarm { post(report) }"),
            "a recovery is written down and not announced")
 
+    // THE FILES ARE WRITTEN OFF THE MAIN THREAD (Sentry TALLY-1D: `publish` held it past two seconds
+    // at load 40). Each write has exactly one call site, and it sits between the braces of the
+    // detached task, so moving either back onto the main actor turns this red.
+    for call in ["Self.publish(report)", "Self.append(line)"] {
+        let count = monitor.components(separatedBy: call).count - 1
+        guard count == 1, let site = monitor.range(of: call) else {
+            expect(false, "\(call) has exactly one call site")
+            continue
+        }
+        let opener = "await Task.detached(priority: .utility) {"
+        let enclosed = monitor.ranges(of: opener).contains { open in
+            open.upperBound < site.lowerBound
+                && (blockEnd(monitor, from: open.upperBound).map { site.upperBound <= $0 } ?? false)
+        }
+        expect(enclosed, "\(call) runs inside a detached background task, not on the main thread")
+    }
+
     // THE NOTIFICATION'S OWN BODY CANNOT BE DRIVEN FROM HERE (it is @MainActor, localised and ends in
     // SystemAlert), so what is stated is where it gets its names: the one phrase this suite asserts
     // repairs them.

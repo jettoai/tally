@@ -25,6 +25,10 @@ final class HostHealthMonitor {
     /// When the last sample was taken, which is the whole of the throttle. Nil before the first,
     /// so the first tick after launch samples at once rather than a minute later.
     private var lastSampledAt: Date?
+    /// The sample still in flight, which the next one waits on. One chain rather than a queue, so
+    /// two samples never interleave around the alarm scan and two reports can never land on disk
+    /// in the opposite order to the one they were taken in.
+    private var inFlight: Task<Void, Never>?
 
     private init() {}
 
@@ -47,11 +51,20 @@ final class HostHealthMonitor {
             return
         }
         lastSampledAt = now
-        sample(at: now)
+        let previous = inFlight
+        inFlight = Task {
+            await previous?.value
+            await sample(at: now)
+        }
     }
 
     /// One sample: read, fold, publish, and say something only if the machine has just crossed.
-    private func sample(at now: Date) {
+    ///
+    /// ONLY THE READING AND THE FOLD RUN ON THE MAIN THREAD. The process-table walk and the two
+    /// files go to a background task (Sentry TALLY-1D: the publish alone held the main thread past
+    /// two seconds at load 40), because the moment this watch has something to say is exactly the
+    /// moment the disk and the scheduler are slowest to answer.
+    private func sample(at now: Date) async {
         // A machine that will not answer is not a machine that is fine: nothing is folded in,
         // because a reading of zero free bytes would raise an alarm and a reading of zero load
         // would clear one. The next sample asks again.
@@ -63,14 +76,16 @@ final class HostHealthMonitor {
         // walks the process table, so the steady state pays for two syscalls a minute and nothing
         // more (`HostHealthReaders.heaviest`).
         if event == .alarm {
+            let top = await Task.detached(priority: .utility) { HostHealthReaders.heaviest() }.value
             tracker.lastAlarm = HostHealthAlarm(at: now, load1: reading.load1,
-                                                freeBytes: reading.freeBytes,
-                                                top: HostHealthReaders.heaviest())
+                                                freeBytes: reading.freeBytes, top: top)
         }
         let report = HostHealthLogic.report(tracker, reading: reading, at: now)
-        publish(report)
-        guard let event else { return }
-        append(hostHealthLogLine(event, report: report, now: now))
+        let line = event.map { hostHealthLogLine($0, report: report, now: now) }
+        await Task.detached(priority: .utility) {
+            Self.publish(report)
+            if let line { Self.append(line) }
+        }.value
         // A RECOVERY IS WRITTEN DOWN AND NOT ANNOUNCED. Somebody reading the log afterwards needs
         // to know when it ended; nobody needs a banner saying their machine is working again.
         if event == .alarm { post(report) }
@@ -81,7 +96,7 @@ final class HostHealthMonitor {
     /// Rewrite `~/.tally/host-health.json`. Atomic, because the readers are other processes: a
     /// `tally status` that read this file mid-write would print a parse failure as an absent
     /// section, which is the one answer this file must never produce by accident.
-    private func publish(_ report: HostHealthReport) {
+    nonisolated private static func publish(_ report: HostHealthReport) {
         guard let data = encodeHostHealthReport(report) else { return }
         let file = hostHealthReportFile
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
@@ -98,7 +113,7 @@ final class HostHealthMonitor {
     /// 0644 LIKE ITS NEIGHBOURS AND UNLIKE `input.log`, which is the distinction that file's own
     /// note draws: this holds events ABOUT the machine (a load average, a free figure, three
     /// executable names), not content out of somebody's conversation.
-    private func append(_ line: String) {
+    nonisolated private static func append(_ line: String) {
         let file = hostHealthLogFile
         let payload = Data(line.utf8)
         if let handle = try? FileHandle(forWritingTo: file) {

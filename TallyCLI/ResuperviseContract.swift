@@ -113,6 +113,13 @@ let resuperviseLastConversationFlag = "--last-conversation"
 /// those builds had.
 let resuperviseSessionModelFlag = "--session-model"
 
+/// The flag carrying cap resume's state (CapResume.swift): the standing offer, the newest wall it
+/// armed for, and when it last typed. A cap relaunch folds a pending self-update into the same tick,
+/// so without this the exec drops the arm every time an update is waiting. JSON like the pending
+/// cap. Optional by construction: a session with nothing to carry writes no flag, which is what
+/// every build predating this one wrote, and an absent flag means an empty state.
+let resuperviseCapResumeFlag = "--cap-resume"
+
 /// The fuse's recoveries as a flag value: absolute epoch seconds, comma separated. Absolute, not
 /// "N seconds ago", because the exec takes real time (and can be delayed by a slow disk mid-install)
 /// and durations re-based on arrival would silently stretch the window they are measured in.
@@ -226,6 +233,44 @@ func decodeSessionModel(_ raw: String) -> SessionModelPin? {
     return pin.isEmpty ? nil : pin
 }
 
+/// Cap resume's state as a flag value, epoch seconds like the pending cap. nil for an empty state,
+/// which writes no flag.
+func encodeCapResume(_ state: CapResumeState) -> String? {
+    var fields: [String: Any] = [:]
+    if let offer = state.offer {
+        fields["at"] = offer.at.timeIntervalSince1970
+        fields["conversation"] = offer.conversation
+        fields["line"] = offer.line
+    }
+    if let last = state.lastCapAt { fields["lastCapAt"] = last.timeIntervalSince1970 }
+    if let nudged = state.nudgedAt { fields["nudgedAt"] = nudged.timeIntervalSince1970 }
+    return fields.isEmpty ? nil : encodeResuperviseFields(fields)
+}
+
+/// The state a previous build wrote, or nil. Same standard as the pending cap: a key present but
+/// unreadable discards the whole value, and so does half an offer, since an offer typed into the
+/// wrong conversation or with no line is worse than no offer.
+func decodeCapResume(_ raw: String) -> CapResumeState? {
+    func seconds(_ value: Any?) -> Date?? {   // .some(nil) = absent, nil = malformed
+        guard let value else { return .some(nil) }
+        guard let epoch = value as? Double, epoch.isFinite else { return nil }
+        return .some(Date(timeIntervalSince1970: epoch))
+    }
+    guard let object = decodeResuperviseFields(raw),
+          let last = seconds(object["lastCapAt"]), let nudged = seconds(object["nudgedAt"]),
+          let at = seconds(object["at"]) else { return nil }
+    var offer: CapResumeState.Offer?
+    if let at {
+        guard let conversation = object["conversation"] as? String,
+              isTranscriptSessionID(conversation),
+              let line = object["line"] as? String, !line.isEmpty else { return nil }
+        offer = CapResumeState.Offer(at: at, conversation: conversation, line: line)
+    } else if object["conversation"] != nil || object["line"] != nil {
+        return nil
+    }
+    return CapResumeState(offer: offer, lastCapAt: last, nudgedAt: nudged)
+}
+
 /// One JSON object as a single argv token. Keys sorted so a given state always spells the same argv,
 /// which is what makes the round-trip tests assert a format rather than a dictionary ordering.
 /// Shared by the two flags that carry structured state, so neither can drift into a different
@@ -256,7 +301,7 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
                     recoveries: [Date] = [], sessionPin: String? = nil,
                     pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                     sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
-                    args: [String]) -> [String] {
+                    capResume: CapResumeState? = nil, args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow ? "--follow" : "--no-follow"]
     if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
@@ -275,6 +320,9 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
     if let lastConversation, isTranscriptSessionID(lastConversation) {
         argv += [resuperviseLastConversationFlag, lastConversation]
     }
+    if let capResume, let encoded = encodeCapResume(capResume) {
+        argv += [resuperviseCapResumeFlag, encoded]
+    }
     return argv + ["--"] + args
 }
 
@@ -292,6 +340,7 @@ struct ResuperviseArgs {
     var pendingCap: PendingCapRecovery?
     var sessionModel: SessionModelPin?
     var lastConversation: String?
+    var capResume: CapResumeState?
     var childArgs: [String] = []
 }
 
@@ -305,7 +354,8 @@ struct ResuperviseArgs {
 /// `--session-pin` means the session was never pinned by hand, an absent `--pin-override` means it
 /// never overrode a pin, an absent `--pending-cap` means the session was not waiting on a cap, and
 /// an absent `--session-model` means it pinned no model or effort of its own, and an absent
-/// `--last-conversation` means this supervisor has published no record of its own yet - which is
+/// `--last-conversation` means this supervisor has published no record of its own yet, and an absent
+/// `--cap-resume` means no resume was armed - which is
 /// what every build before each flag effectively said too.
 func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
     var parsed = ResuperviseArgs()
@@ -331,6 +381,7 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
             index += 2
         case resupervisePendingCapFlag: parsed.pendingCap = decodePendingCap(value()); index += 2
         case resuperviseSessionModelFlag: parsed.sessionModel = decodeSessionModel(value()); index += 2
+        case resuperviseCapResumeFlag: parsed.capResume = decodeCapResume(value()); index += 2
         // Re-validated rather than trusted: this value crossed a process boundary from a build we
         // cannot see, and it is about to name a file. Anything that is not an id is no memory, which
         // is the behaviour of every build that never wrote the flag.

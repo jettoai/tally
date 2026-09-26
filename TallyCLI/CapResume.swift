@@ -150,13 +150,6 @@ func capResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
     return keystrokeClipped(line, bytes: limit)
 }
 
-/// The line a dropped arm leaves. Pure, and shaped like the other entries in that log: the stamp,
-/// the session, what kind of record this is, and why.
-func capResumeDropLine(pid: String, why: CapResumeDrop, now: Date = Date()) -> String {
-    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(capResumeDroppedOutcome) "
-        + "reason=\(why.word)\n"
-}
-
 // MARK: - The decision
 
 /// What is standing between an arm and the terminal this tick. Both rows are a WAIT: the next tick
@@ -278,11 +271,9 @@ func capResumeFollowedByPerson(nudgedAt: Date?, userTurnAt: Date?,
 /// and SPENT by a tick of the next one, so a per-child value could never carry it across the one
 /// event it exists for.
 ///
-/// A SELF-UPDATE EXEC LOSES AN ARM, which is the honest cost of holding this in memory rather than
-/// on disk, stated the way `QuotaKnockState` states its own. That exec replaces the process image
-/// and restarts the child; a session it catches in the seconds between a cap handoff and its resume
-/// line comes back without the offer. The alternative is a file per session on a path that would
-/// have to be swept, for a window measured in seconds.
+/// A SELF-UPDATE EXEC CARRIES IT ACROSS (`resuperviseCapResumeFlag`). A cap relaunch folds a pending
+/// update into the SAME tick (`selfUpdateFold`), so an arm held only in memory was lost every time
+/// one was waiting, not in a window of seconds (2026-09-26: a session sat 22 minutes unresumed).
 struct CapResumeState: Equatable {
     /// One standing offer: the wall it is about, and the line that answers it.
     ///
@@ -321,6 +312,11 @@ struct CapResumeState: Equatable {
 
     /// Whether anything is waiting to be typed, which is the one question the ordinary tick asks.
     var isArmed: Bool { offer != nil }
+
+    /// What the supervisor this process replaced was holding (`decodeCapResume`).
+    init(offer: Offer? = nil, lastCapAt: Date? = nil, nudgedAt: Date? = nil) {
+        self.offer = offer; self.lastCapAt = lastCapAt; self.nudgedAt = nudgedAt
+    }
 
     /// Raise an arm for a relaunch that has just happened, or leave everything as it was.
     ///

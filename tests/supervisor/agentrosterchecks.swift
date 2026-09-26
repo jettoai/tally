@@ -48,7 +48,7 @@ func runAgentRosterChecks() {
           census?.carriedCensus == true && census?.census.map(Set.init) == ["a1", "a2"])
     check("…and an empty roll call is still a roll call",
           agentRosterEvent(payload("Stop", tasks: []), registered: "Stop")
-              == AgentRosterEvent(kind: .boundary, carriedCensus: true, census: []))
+              == AgentRosterEvent(kind: .boundary, carriedCensus: true, census: [], otherTasks: 0))
     check("a payload with no roll call at all says so",
           agentRosterEvent(payload("Stop"), registered: "Stop")?.carriedCensus == false)
     // Only subagents are counted: a shell command left running in the background is a background

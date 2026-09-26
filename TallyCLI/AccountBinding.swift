@@ -64,6 +64,15 @@ func requiringComfortable(_ accounts: [Snapshot.Account], primaryModel: String?,
     }
 }
 
+/// The accounts whose counted windows all keep more than `floor` percent (`hasRunway`).
+func requiringRunway(_ accounts: [Snapshot.Account], floor: Double, primaryModel: String?,
+                     reserves: AccountReserves = .none, now: Date) -> [Snapshot.Account] {
+    accounts.filter {
+        hasRunway(comfortWindows($0, primaryModel: primaryModel, reserves: reserves, now: now),
+                  floor: floor, now: now)
+    }
+}
+
 /// Whether ONE account still has room to work in, by exactly the gate the picks apply to candidates
 /// (imminent-reset exemption included). Asked of the account a session already RUNS on, which the
 /// filtering helpers above cannot answer: they take a field and return a field.

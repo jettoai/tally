@@ -364,10 +364,11 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     // capped session to an account with 1% left just caps it again a few minutes later, and unlike a
     // launch there is a running conversation to reload, so no comfortable sibling means WAIT rather
     // than move. A fleet pin the session pin is being cleared in favour of overrides that, because a
-    // pin is an instruction rather than a quota opinion.
+    // pin is an instruction rather than a quota opinion. A sibling with a full runway is preferred
+    // over one the knock would call running low (`capHandoffPick`).
     let reading = capReading(fleet: fleet, sessionPin: sessionPin, candidates: candidates)
     let target = reading.preferred
-        ?? capHandoffTarget(candidates, primaryModel: primary, reserves: reserves, now: now)
+        ?? capHandoffPick(candidates, primaryModel: primary, reserves: reserves, now: now)
     let action = capRecoveryAction(steering: steering, mode: reading.mode, fuseAllows: fuseAllows,
                                    snapshotStale: snapshotProblem != nil, hasTarget: target != nil)
     guard action == .handoff, let target else {
@@ -381,4 +382,18 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     warn("cap hit → handing off to \(target.label) (\(pickReason(target, primaryModel: primary)))")
     // Own the account move; a follow adoption later in the tick folds its pair into this plan.
     plan = RelaunchPlan(target: target, reason: "cap", countsFuse: true)
+}
+
+/// The account a CAP handoff moves to. Prefers a sibling with a full runway (every counted window
+/// above the running-low line the knock uses, `quotaKnockPercent`), and only when none has one falls
+/// back to the shared chooser and its nearly-dry gate. A cap handoff already costs a restart;
+/// landing on an account its own knock calls running low three seconds later buys the next wall and
+/// the next restart (2026-09-26: moved to 7% weekly while a 100% sibling was idle).
+/// Cap only: rebalance, turn boundary and window repick keep `capHandoffTarget` as it is.
+func capHandoffPick(_ candidates: [Snapshot.Account], primaryModel: String?,
+                    reserves: AccountReserves, now: Date) -> Snapshot.Account? {
+    let roomy = requiringRunway(candidates, floor: quotaKnockPercent, primaryModel: primaryModel,
+                                reserves: reserves, now: now)
+    return capHandoffTarget(roomy, primaryModel: primaryModel, reserves: reserves, now: now)
+        ?? capHandoffTarget(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
 }

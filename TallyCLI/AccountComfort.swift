@@ -81,6 +81,15 @@ func isComfortable(_ windows: [ComfortWindow], now: Date) -> Bool {
     return tightest > nearlyDryPercent
 }
 
+/// Whether every window keeps MORE than `floor` percent once imminent resets and reserves are
+/// counted: the effective reading `isComfortable` takes, with a caller's line instead of the
+/// nearly-dry one. Strictly above, the complement of "at or under", which every threshold in this
+/// repo uses (`quotaKnockStep`): an account this answers yes for is one the knock stays quiet on.
+func hasRunway(_ windows: [ComfortWindow], floor: Double, now: Date) -> Bool {
+    guard let tightest = windows.map({ effectiveRemaining($0, now: now) }).min() else { return false }
+    return tightest > floor
+}
+
 // The gate has two policies, and the difference between them is the point: what an EMPTY result
 // means depends on whether a session already exists. They are deliberately two functions rather
 // than one with a flag, so neither call site can be read as the other and quietly unified.

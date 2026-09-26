@@ -120,7 +120,7 @@ func consumeSelfUpdateAttempt() -> String? {
 func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: Bool,
                     recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
                     pendingCap: PendingCapRecovery? = nil, sessionModel: SessionModelPin? = nil,
-                    lastConversation: String? = nil,
+                    lastConversation: String? = nil, capResume: CapResumeState? = nil,
                     args: [String], binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
@@ -129,7 +129,7 @@ func execSelfUpdate(to target: String, id: String, label: String, home: String, 
                               recoveries: recoveries, sessionPin: sessionPin,
                               pinOverride: pinOverride, pendingCap: pendingCap,
                               sessionModel: sessionModel, lastConversation: lastConversation,
-                              args: args)
+                              capResume: capResume, args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -171,6 +171,23 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
     return (target, binary, home)
 }
 
+/// How long an idle self-update waits for background work (a subagent, a Monitor, a background
+/// shell) to finish before restarting anyway. An hour is two Monitor lifetimes (30 minutes each,
+/// after which the session itself decides whether to re-arm) and a routine delegated work package;
+/// any other relaunch in that hour still folds the update in (`selfUpdateFold`).
+let selfUpdateBackgroundHoldLimit: TimeInterval = 60 * 60
+
+/// Whether an otherwise-due idle self-update waits this tick because the session has background
+/// work that the restart would kill (2026-09-26: three Monitors killed, the session never woke).
+/// `heldSince` is the first tick it was held; the limit is what keeps an update from never landing
+/// on a session that always has something running.
+func selfUpdateHeldByBackground(working: Bool, heldSince: Date?, now: Date,
+                                limit: TimeInterval = selfUpdateBackgroundHoldLimit) -> Bool {
+    guard working else { return false }
+    guard let heldSince else { return true }
+    return now.timeIntervalSince(heldSince) < limit
+}
+
 /// Carry out the upgrade a planned relaunch folded in, if there is one. The attempt is recorded
 /// BEFORE the exec, and both live here so no caller can do one without the other: a successful exec
 /// carries the record across in the environment, a failed one leaves nothing behind, and without it
@@ -187,20 +204,23 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
 /// the session back on the fleet default a minute after the user chose otherwise. `lastConversation`
 /// is what this supervisor has already published as the last conversation watched in its directory,
 /// on the same terms again: an upgrade that dropped it would have the new image re-announce an
-/// unchanged conversation over a sibling's newer one (LastConversation.swift). Returns normally only
+/// unchanged conversation over a sibling's newer one (LastConversation.swift). `capResume` is the
+/// resume a cap relaunch armed in this same tick, which the exec would otherwise drop (CapResume.swift).
+/// Returns normally only
 /// when there was nothing to do or the exec failed, leaving the caller to respawn.
 func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: String)?,
                            attempted: inout String?, target: Snapshot.Account,
                            follow: Bool, recoveries: [Date], sessionPin: String? = nil,
                            pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                            sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
-                           args: [String]) {
+                           capResume: CapResumeState? = nil, args: [String]) {
     guard let upgrade else { return }
     attempted = upgrade.target
     execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
                    follow: follow, recoveries: recoveries, sessionPin: sessionPin,
                    pinOverride: pinOverride, pendingCap: pendingCap, sessionModel: sessionModel,
-                   lastConversation: lastConversation, args: args, binary: upgrade.binary)
+                   lastConversation: lastConversation, capResume: capResume, args: args,
+                   binary: upgrade.binary)
 }
 
 /// The upgrade a relaunch ALREADY happening this tick should carry, or nil to come back on the build
@@ -227,7 +247,8 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?,
 
 /// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
 /// [--fuse <epochs>] [--session-pin <accountID>] [--pin-override <accountID>]
-/// [--pending-cap <json>] [--session-model <json>] [--last-conversation <id>] -- <args...>`: the
+/// [--pending-cap <json>] [--session-model <json>] [--last-conversation <id>]
+/// [--cap-resume <json>] -- <args...>`: the
 /// other side of the exec.
 /// Rebuilds the account from what the previous supervisor passed rather than from the snapshot
 /// (which may be stale, or missing the account entirely at that instant) and resumes supervision,
@@ -254,5 +275,6 @@ func runResupervise(args: [String]) -> Never {
     runSupervised(provider, account: account, args: parsed.childArgs, follow: parsed.follow,
                   recoveries: parsed.recoveries, resumed: true, sessionPin: parsed.sessionPin,
                   pinOverride: parsed.pinOverride, pendingCap: parsed.pendingCap,
-                  sessionModel: parsed.sessionModel, lastConversation: parsed.lastConversation)
+                  sessionModel: parsed.sessionModel, lastConversation: parsed.lastConversation,
+                  capResume: parsed.capResume)
 }

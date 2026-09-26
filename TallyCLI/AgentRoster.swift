@@ -37,6 +37,10 @@ struct SessionAgentsRecord: Codable, Equatable, Sendable {
     /// question from whether it fires the hooks at all (`agentCensusClaudeVersion` says why).
     var trusted = false
     var updatedAt: Date
+    /// Background work that is not a subagent (a shell left running, a Monitor waiting for events),
+    /// as the last turn end's roll call counted it. nil until a `Stop` carrying the list is seen.
+    /// Only a COUNT: nothing reads which ones, and counting spares us naming a type we cannot see.
+    var background: Int? = nil
 
     /// What a card may draw: the number working, or nothing at all when the count cannot be
     /// believed. FAIL-CLOSED, and that is the whole design of the field above: an edge-counted
@@ -76,6 +80,8 @@ struct AgentRosterEvent: Equatable {
     /// one entry whose id this build did not recognise would be a roll call that quietly reads as
     /// "that one has finished" (`agentRosterEvent`).
     var census: [String]?
+    /// How many entries of that list were NOT subagents, whatever their type (`background`).
+    var otherTasks: Int?
 }
 
 /// The keys a background task might carry its own id under, in the order they are tried. Claude
@@ -86,7 +92,8 @@ let agentTaskIDKeys = ["agent_id", "agentId", "id", "task_id", "taskId"]
 
 /// The `background_tasks` entry type that is a subagent. Anything else in that list (a shell
 /// command left running, a fetch) is a background task of a different kind and is not what the card
-/// counts: it says "agents", and a session's agents are the conversations working under it.
+/// counts: it says "agents", and a session's agents are the conversations working under it. It is
+/// still work an idle restart would kill, so it is counted apart (`SessionAgentsRecord.background`).
 let subagentTaskType = "subagent"
 
 /// What one hook payload says, or nil when it is not an event this reads.
@@ -102,6 +109,7 @@ func agentRosterEvent(_ payload: [String: Any]?, registered: String?) -> AgentRo
     guard let tasks = payload?["background_tasks"] as? [[String: Any]] else { return event }
     event.carriedCensus = true
     let subagents = tasks.filter { ($0["type"] as? String) == subagentTaskType }
+    event.otherTasks = tasks.count - subagents.count
     let names = subagents.compactMap(identifier(in:))
     // All or nothing, deliberately: a partial roll call is indistinguishable from a complete one
     // that is missing somebody, and acting on it would retire an agent that is still working.
@@ -153,9 +161,13 @@ func advanceAgentRoster(_ record: SessionAgentsRecord?, event: AgentRosterEvent,
         case .boundary: break
         }
     }
+    // Background work is counted off the TURN END's list only: a subagent's own stop may carry a
+    // list scoped to that subagent, and the session-wide count is what an idle restart would kill.
+    let background = event.kind == .boundary && event.carriedCensus
+        ? event.otherTasks : record?.background
     return SessionAgentsRecord(live: live.sorted(),
                                trusted: (record?.trusted ?? false) || event.carriedCensus || declared,
-                               updatedAt: now)
+                               updatedAt: now, background: background)
 }
 
 // MARK: - Whose roster this is, and what it claims
@@ -198,6 +210,13 @@ func currentGenerationRoster(pid: String, childStartedAt: Date,
 /// before this reading existed.
 func rosterReportsWorking(_ record: SessionAgentsRecord?) -> Bool {
     (record?.reportable ?? 0) > 0
+}
+
+/// Whether that roster names ANY work still running in the background, subagent or not: what an
+/// idle restart would kill. Fail-open like `rosterReportsWorking`: no believable roster reads as no.
+func rosterReportsBackgroundWork(_ record: SessionAgentsRecord?) -> Bool {
+    guard let record, record.reportable != nil else { return false }
+    return !record.live.isEmpty || (record.background ?? 0) > 0
 }
 
 // MARK: - Which Claude Code can be believed

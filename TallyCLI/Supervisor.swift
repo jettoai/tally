@@ -35,7 +35,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    sessionPin: String? = nil, pinOverride: String? = nil,
                    pendingCap: PendingCapRecovery? = nil,
                    sessionModel: SessionModelPin? = nil,
-                   lastConversation: String? = nil) -> Never {
+                   lastConversation: String? = nil,
+                   capResume carriedResume: CapResumeState? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -163,7 +164,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// rules): the one line saying the turn was cut short and asking it to carry on. Per session and
     /// necessarily so - the arm is raised by the tick that ends one child and spent by a tick of the
     /// next one, which is the one event a per-child value could never carry it across.
-    var capResume = CapResumeState()
+    var capResume = carriedResume ?? CapResumeState()
+    /// The first tick an idle self-update was held for background work (`selfUpdateHeldByBackground`).
+    var selfUpdateHeldSince: Date?
     /// What this session has tried about answering a 5-hour wall with the account's own weekly
     /// `/limit-reset` rather than by moving the conversation (CapLimitReset.swift owns every rule).
     /// Per session and necessarily so, on `capResume`'s own terms: the wall is seen by one child
@@ -767,6 +770,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // One read, so the two cannot come to disagree about who is working.
             let roster = currentGenerationRoster(pid: supervisorPID, childStartedAt: launchedAt)
             let agentsWorking = rosterReportsWorking(roster)
+            let backgroundWorking = rosterReportsBackgroundWork(roster)
             applyProactiveMoves(plan: &plan, repick: &windowRepick, watcher: &watcher,
                                 keyboardIdle: { keyboard.idle($0) },
                                 draftSuspected: draftSuspected, provider: provider.id,
@@ -793,7 +797,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // A pending cap does NOT hold it back: that wait lasts as long as the sibling accounts
             // stay dry, so deferring to it never ended, and the capped session was the one session
             // on the machine that could not take a fix (2026-08-06, SelfUpdate.swift). The state
-            // rides across the exec instead - `carriedCap` below is what the argv carries.
+            // rides across the exec instead - `carriedCap` below is what the argv carries. It does
+            // wait for background work the restart would kill, up to `selfUpdateBackgroundHoldLimit`.
             let childAge = Date().timeIntervalSince(launchedAt)
             if selfUpdateDue(
                    captured: supervisorVersion, attempted: selfUpdateAttempted,
@@ -804,7 +809,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    relaunchPlanned: plan != nil || appRelaunch.isArmed,
                    uptime: childAge, home: account.launchHome,
                    installed: installedVersion) != nil {
-                plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
+                let now = Date()
+                if backgroundWorking { selfUpdateHeldSince = selfUpdateHeldSince ?? now }
+                if !selfUpdateHeldByBackground(working: backgroundWorking,
+                                               heldSince: selfUpdateHeldSince, now: now) {
+                    plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
+                }
             }
 
             // `tally reload`: adopt a pending request, or note that it is waiting for this session
@@ -1133,14 +1143,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // `plan.fresh || secondHead`, on the same terms the publish below reads them: a
                 // relaunch that dropped its resume starts an EMPTY window, and an offer to carry
                 // on with work the wall interrupted belongs to the conversation that holds it.
-                capResume.arm(reason: plan.reason, fresh: plan.fresh || secondHead,
-                              cappedAt: pendingCap?.cappedAt,
-                              answeredAt: watcher.lastMainChainEventAt,
-                              conversation: watcher.transcriptSessionID,
-                              from: leaving, to: plan.target,
-                              userTurnAt: watcher.lastUserTurnAt,
-                              // The old child's reading covers its whole transcript, or no arm.
-                              caughtUp: watcher.caughtUp)
+                armCapResume(&capResume, pid: supervisorPID, reason: plan.reason,
+                             fresh: plan.fresh || secondHead,
+                             cappedAt: pendingCap?.cappedAt,
+                             answeredAt: watcher.lastMainChainEventAt,
+                             conversation: watcher.transcriptSessionID,
+                             from: leaving, to: plan.target,
+                             userTurnAt: watcher.lastUserTurnAt,
+                             // The old child's reading covers its whole transcript, or no arm.
+                             caughtUp: watcher.caughtUp)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child
@@ -1202,6 +1213,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       pendingCap: carriedCap,
                                       sessionModel: sessionModelState.pin,
                                       lastConversation: lastConversation.published,
+                                      capResume: capResume,
                                       args: launchArgs)
                 return .childReplaced
             }

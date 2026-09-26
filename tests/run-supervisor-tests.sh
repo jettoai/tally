@@ -75,7 +75,8 @@ out=$(mktemp -d)/tally
 swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchecks.swift \
   tests/supervisor/reloadchecks.swift \
   tests/supervisor/capgatechecks.swift tests/supervisor/capresetchecks.swift \
-  tests/supervisor/capselfupdatechecks.swift \
+  tests/supervisor/capselfupdatechecks.swift tests/supervisor/capresumecarrychecks.swift \
+  tests/supervisor/caphandoffrunwaychecks.swift tests/supervisor/selfupdatebackgroundchecks.swift \
   tests/supervisor/caplimitresetchecks.swift \
   tests/supervisor/forkchecks.swift tests/supervisor/requesttranscriptchecks.swift \
   tests/supervisor/requestforwardchecks.swift tests/supervisor/transcriptidentitychecks.swift \
@@ -148,7 +149,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
   TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/DroughtWatch.swift \
-  TallyCLI/CapResume.swift \
+  TallyCLI/CapResume.swift TallyCLI/CapResumeLog.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/FocusEvents.swift TallyCLI/KeyboardTrace.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift TallyCLI/UnmanagedLaunch.swift \
   TallyCLI/TerminalHandover.swift \

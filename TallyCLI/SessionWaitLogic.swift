@@ -117,10 +117,11 @@ func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, 
 /// `SessionWaitEvent`, so every kind (including a tracker's closing `session.ended`) is keyed alike.
 func makeSessionWaitEvent(_ kind: SessionWaitEventKind, request: SessionWaitRequest?,
                           resolution: SessionWaitResolution?, identity: SessionWaitIdentity,
-                          provider: String, now: Date) -> SessionWaitEvent {
+                          provider: String, now: Date,
+                          reason: SessionEndReason? = nil) -> SessionWaitEvent {
     var built = SessionWaitEvent(at: now, kind: kind.rawValue, provider: provider,
                                  session: identity, request: request,
-                                 resolution: resolution?.rawValue)
+                                 resolution: resolution?.rawValue, reason: reason)
     built.idempotencyKey = sessionWaitIdempotencyKey(requestID: request?.id, sessionKey: identity.key,
                                                       kind: kind.rawValue,
                                                       resolution: resolution?.rawValue)

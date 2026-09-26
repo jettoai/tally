@@ -212,12 +212,12 @@ func runWaitTrackerChecks() {
           forwardSupervisorTermination(to: sleeper))
     let sleeperStatus = sleeper.wait()
     check("...which the child dies of", (sleeperStatus & 0x7f) == SIGTERM)
+    let endReason = supervisorEndReason(sleeperStatus)
     check("session.ended's reason names the signal the supervisor got and the one the child died of",
-          supervisorEndReason(sleeperStatus)
-              == SessionEndReason(supervisorSignal: SIGTERM, childStatus: SIGTERM)
-              && supervisorEndReason(sleeperStatus).supervisorSignal == Int(SIGTERM)
-              && supervisorEndReason(sleeperStatus).childSignal == Int(SIGTERM)
-              && supervisorEndReason(sleeperStatus).childExitCode == nil)
+          endReason == SessionEndReason(supervisorSignal: SIGTERM, childStatus: SIGTERM)
+              && endReason.supervisorSignal == Int(SIGTERM)
+              && endReason.childSignal == Int(SIGTERM)
+              && endReason.childExitCode == nil)
     let selfExit = SessionEndReason(supervisorSignal: 0, childStatus: 3 << 8)
     check("a child that exited on its own reads as no signal received, plus its exit code",
           selfExit.supervisorSignal == 0 && selfExit.childExitCode == 3 && selfExit.childSignal == nil)

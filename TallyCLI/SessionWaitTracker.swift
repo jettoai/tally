@@ -334,10 +334,8 @@ struct SessionWaitTracker {
         open = nil
         witness = nil
         lastReading = nil
-        var ended = makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
-                                         provider: "claude", now: now)
-        ended.reason = reason
-        events.append(ended)
+        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                           provider: "claude", now: now, reason: reason))
         if let pid { try? FileManager.default.removeItem(at: SessionWaitTracker.seedFile(pid: pid, dir: dir)) }
         return events
     }

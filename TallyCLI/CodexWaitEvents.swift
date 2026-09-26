@@ -97,10 +97,8 @@ struct CodexWaitTracker {
         open = nil
         openTurnID = nil
         openCallID = nil
-        var ended = makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
-                                         provider: "codex", now: now)
-        ended.reason = reason
-        events.append(ended)
+        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                           provider: "codex", now: now, reason: reason))
         return events
     }
 }

@@ -115,9 +115,10 @@ enum CodexAppServerClient {
 
     /// Redeems the SOONEST-EXPIRING available banked reset for this account (waste-minimizing
     /// order), via the official app-server's `account/rateLimitResetCredit/consume`. The only
-    /// write Tally ever performs against a provider, and only ever behind an explicit user
-    /// confirmation. Returns a short outcome token ("redeemed", "noCredit", …); nil = transport
-    /// failure before an answer.
+    /// write Tally ever performs against a provider: behind an explicit user confirmation, or
+    /// automatically once the account's weekly quota is used up if the user left that switch on
+    /// (`CodexAutoRedeemStore`). Returns a short outcome token ("redeemed", "noCredit", …); nil =
+    /// transport failure before an answer.
     static func consumeSoonestResetCredit(codexHome: String,
                                           timeout: TimeInterval = 30) async -> RedeemOutcome {
         guard let binary = CLIRunner.resolve("codex") else { return .failed(nil) }

@@ -232,7 +232,7 @@ struct AccountCardView: View {
         .tallyTooltip(facts.smartPickTooltip)
     }
 
-    // MARK: Reset banking - manual redeem (the only write Tally ever performs, user-confirmed)
+    // MARK: Reset banking - manual redeem (the only write Tally ever performs; see CodexAutoRedeemStore for the automatic one)
 
     /// Every reset this card offers, in whichever of the four states it is in, and what the last
     /// press came to. Drawn for every account, the one that never loaded included (see `body`).

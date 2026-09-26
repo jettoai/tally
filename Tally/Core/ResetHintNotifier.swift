@@ -5,7 +5,8 @@ import UserNotifications
 /// runs the pure `ResetHintLogic` after each refresh, and posts at most one notification naming one
 /// account. It keeps no timer of its own: the existing refresh loop drives it.
 ///
-/// The notification's only action opens the card's confirmation. Nothing here can spend a credit.
+/// The notification's only action opens the card's confirmation. The automatic redeem is
+/// CodexAutoRedeemStore's; this type only hands it each round first.
 @MainActor
 final class ResetHintNotifier {
     static let shared = ResetHintNotifier()
@@ -36,10 +37,16 @@ final class ResetHintNotifier {
     /// Feed one refresh's accounts. Accounts whose provider does not bank resets fall out inside
     /// the pure logic, so every provider can be handed over as-is.
     func evaluate(accounts: [AccountUsage]) {
+        // The automatic redeem answers a Codex account whose weekly window is empty BEFORE the
+        // reminder speaks, so the reminder never asks the user to press what Tally is pressing.
+        let claimed = CodexAutoRedeemStore.shared.evaluate(accounts: accounts)
         let (next, hint) = ResetHintLogic.advance(state: loadState(), accounts: accounts,
                                                   now: Date())
         saveState(next)
-        guard let hint else { return }
+        guard let hint,
+              !CodexAutoRedeemLogic.silencesDrainedHint(isDrained: hint.reason == .drained,
+                                                         accountID: hint.accountID,
+                                                         claimed: claimed) else { return }
         Task { @MainActor in
             // A refusal hands the announcement back so a later refresh can say it again. The state
             // is re-read rather than reused: the refresh loop can have run while macOS answered.

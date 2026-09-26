@@ -36,6 +36,12 @@ struct SettingsLaunchView: View {
             rowDivider
             SettingsLimitResetRow(store: LimitResetStore.shared)
         }
+        // Codex's counterpart: a banked reset spent on a weekly window that is already empty.
+        // Under the Codex provider gate for the reason the Claude rows sit under theirs.
+        if settings.isEnabled(CodexAutoRedeemLogic.providerID) {
+            rowDivider
+            SettingsCodexAutoRedeemRow(store: CodexAutoRedeemStore.shared)
+        }
         rowDivider
         if descriptors.isEmpty {
             Text(L("Enable a provider in Accounts to configure launches."))

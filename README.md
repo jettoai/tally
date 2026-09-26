@@ -123,8 +123,9 @@ subscriptions at once:
 - **Codex reset banking, visible and redeemable.** Banked rate-limit resets show right on the
   card ("3 resets available"), so you know your escape hatches before you hit a wall. Click to
   redeem one, behind a confirmation that names the account, spells out the cost, and warns you
-  off when redeeming would mostly be wasted; the soonest-expiring credit goes first, and Tally
-  never spends one automatically.
+  off when redeeming would mostly be wasted; the soonest-expiring credit goes first. And once an
+  account's weekly quota is used up, Tally can redeem the soonest-expiring credit on its own and
+  tell you it did (a switch in Settings, on by default).
 
 <p align="center">
   <img src="assets/screenshot-list.png" alt="The same nine accounts in Tally's compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the pin and drag controls at the end of each row; above them the same fleet gauges and advisor line the card density shows, with Codex reading Pro 1.7 · Team 0.9" width="900">

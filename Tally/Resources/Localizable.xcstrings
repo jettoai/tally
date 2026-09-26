@@ -15473,6 +15473,180 @@
           }
         }
       }
+    },
+    "Auto redeem Codex resets": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動兌換 Codex 重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动兑换 Codex 重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex のリセットを自動で使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 리셋 자동 사용"
+          }
+        }
+      }
+    },
+    "When a Codex account has used all of its weekly quota and has a banked reset, Tally redeems the one that expires soonest and sends a notification. It tries once per weekly window and never retries a failed redeem.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 帳號的每週額度用完、且有可兌換的重置時，Tally 會兌換最快到期的那一張並發通知。每個週期只試一次，失敗不重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 账号的每周额度用完、且有可兑换的重置时，Tally 会兑换最快到期的那一张并发通知。每个周期只试一次，失败不重试。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex アカウントの週間クォータを使い切り、使えるリセットがある場合、Tally は期限が最も近いものを使って通知します。週ごとに 1 回だけ試し、失敗しても再試行しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 계정의 주간 쿼터를 모두 쓰고 사용할 수 있는 리셋이 있으면, Tally가 만료가 가장 가까운 리셋을 사용하고 알림을 보냅니다. 주간 기간마다 한 번만 시도하며 실패해도 다시 시도하지 않습니다."
+          }
+        }
+      }
+    },
+    "%@: reset redeemed automatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：已自動兌換重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：已自动兑换重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：リセットを自動で使いました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 리셋을 자동으로 사용했습니다"
+          }
+        }
+      }
+    },
+    "Its weekly quota ran out, so Tally redeemed the banked reset that expires soonest. The counters clear within a minute.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每週額度已用完，Tally 已兌換最快到期的重置，用量約一分鐘內歸零。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每周额度已用完，Tally 已兑换最快到期的重置，用量约一分钟内归零。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週間クォータを使い切ったため、期限が最も近いリセットを使いました。1 分ほどで使用量がリセットされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주간 쿼터를 모두 써서 만료가 가장 가까운 리셋을 사용했습니다. 1분 안에 사용량이 초기화됩니다."
+          }
+        }
+      }
+    },
+    "%@: automatic reset failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：自動兌換失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：自动兑换失败"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：自動リセットに失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 자동 리셋 실패"
+          }
+        }
+      }
+    },
+    "Its weekly quota ran out and Tally could not redeem a banked reset. It will not try again for this window; you can still use a reset yourself.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每週額度已用完，但 Tally 兌換重置失敗。本週期不會再試，你仍可自行兌換。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每周额度已用完，但 Tally 兑换重置失败。本周期不会再试，你仍可自行兑换。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週間クォータを使い切りましたが、リセットを使えませんでした。この期間は再試行しません。手動でリセットを使うことはできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주간 쿼터를 모두 썼지만 리셋을 사용하지 못했습니다. 이번 기간에는 다시 시도하지 않으며, 직접 리셋을 사용할 수는 있습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

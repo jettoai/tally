@@ -2,8 +2,9 @@ import Foundation
 
 /// The one confirm-and-write behind every "use a reset" control (the account card's button and the
 /// banked-reset notification's action). Redeeming is the only write Tally ever performs, so it has
-/// exactly one path: one place the waste warning is worded, one place the credit is spent, and no
-/// surface that can skip the question.
+/// exactly one path: one place the waste warning is worded and one place the credit is spent. The
+/// automatic redeem (`CodexAutoRedeemStore`) skips the question by the user's own setting and
+/// spends through `redeem` below, never a second call.
 ///
 /// The spending itself is `CodexAppServerClient.consumeSoonestResetCredit`, which always picks the
 /// soonest-expiring credit; nothing here chooses for the user beyond that.

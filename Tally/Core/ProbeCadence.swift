@@ -23,10 +23,15 @@ enum ProbeCadence {
                       idleInterval: TimeInterval = idleInterval) -> Bool {
         if userInitiated || live { return true }
         // Never read, or the last read did not land: the failure-retry ladder sets the pace then.
-        guard let previous, previous.error == nil, !previous.lastRefreshFailed, !previous.isStale,
-              !previous.metrics.isEmpty else { return true }
+        guard let previous, landed(previous) else { return true }
         if now.timeIntervalSince(previous.refreshedAt) >= idleInterval { return true }
         return resetPassed(since: previous, now: now)
+    }
+
+    /// Whether a previous row is a reading that landed, so the cadence may skip the account.
+    static func landed(_ previous: AccountUsage) -> Bool {
+        previous.error == nil && !previous.lastRefreshFailed && !previous.isStale
+            && !previous.metrics.isEmpty
     }
 
     /// A window whose reset time fell between the last reading and now reads 0% today while the
@@ -106,8 +111,7 @@ enum ProbeCadence {
         guard !userInitiated, let fact, rendering else {
             return isDue(userInitiated: userInitiated, live: live || rendering, previous: previous, now: now)
         }
-        guard let previous, previous.error == nil, !previous.lastRefreshFailed, !previous.isStale,
-              !previous.metrics.isEmpty else { return true }
+        guard let previous, landed(previous) else { return true }
         if let flagshipAt = fact.flagshipAt, now.timeIntervalSince(flagshipAt) < factFreshness { return true }
         // The last probe counts too: an idle session keeps re-rendering an older, lower header.
         let wallFacts = [fact.fiveHour, fact.sevenDay].compactMap { $0 }.filter { $0.resetsAt > now }

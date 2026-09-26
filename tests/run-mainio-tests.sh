@@ -128,11 +128,9 @@ replay() {
     python3 "$lint" "$c" --dump > "$work/r-$sha.base"
     python3 "$lint" "$p" --baseline "$work/r-$sha.base" > "$work/r-$sha.out" 2>&1 || rc=$?
     sed 's/^/    | /' "$work/r-$sha.out"
-    local touched
-    touched=$(git diff --name-only "$sha^" "$sha" -- Tally | tr '\n' '|')
     if [ "$want" = red ]; then
         if [ $rc -eq 1 ] && command grep -E '^    Tally/' "$work/r-$sha.out" | cut -d: -f1 | sed 's/^ *//' \
-            | command grep -qxF -f <(echo "$touched" | tr '|' '\n' | command grep .); then
+            | command grep -qxF -f <(git diff --name-only "$sha^" "$sha" -- Tally); then
             pass "replay $sha parent red"
         else fail "replay $sha parent: wanted red on a file the fix touched, rc=$rc"; fi
     else

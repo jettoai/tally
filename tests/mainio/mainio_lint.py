@@ -200,15 +200,16 @@ def sites(root, api_rx, cat_names):
     out = []
     for rel in sorted(files):
         src, s = files[rel]
-        hits = sorted((m.start(), m) for m in api_rx.finditer(s))
+        hits = list(api_rx.finditer(s))
         src_lines = src.split('\n')
         stack, hi = [], 0
         for i, ch in enumerate(s + '\0'):
-            while hi < len(hits) and hits[hi][0] <= i:
-                pos, m = hits[hi]
+            while hi < len(hits) and hits[hi].start() <= i:
+                m = hits[hi]
+                pos = m.start()
                 hi += 1
                 if verdict(stack):
-                    cat = cat_names[int(next(k for k, v in m.groupdict().items() if v is not None)[1:])]
+                    cat = cat_names[int(m.lastgroup[1:])]
                     types = [e['name'] for e in stack if e['kind'] == 'type']
                     funcs = [e['name'] for e in stack if e['kind'] == 'func']
                     fn = '.'.join(filter(None, [types[-1] if types else '', funcs[-1] if funcs else '-']))

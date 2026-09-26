@@ -24,8 +24,13 @@ extension SessionRosterStore {
         let waiters = scanWaiters
         scanWaiters = []
         Task {
-            let scanned = await Task.detached(priority: .utility) { Self.scan() }.value
+            // The reload readiness rides the same hop: it reads the same registry, and a view body
+            // is the one place it must never be read (`ReloadReadinessStore`).
+            let (scanned, readiness) = await Task.detached(priority: .utility) {
+                (Self.scan(), currentReloadReadiness())
+            }.value
             publish(scanned)
+            ReloadReadinessStore.shared.publish(readiness)
             waiters.forEach { $0.resume() }
             if scanGate.finish() { startScan() }
         }

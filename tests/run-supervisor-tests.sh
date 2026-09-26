@@ -190,7 +190,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/TrustSeed.swift TallyCLI/TrustSeedRelaunch.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
-  Tally/Stores/SessionRosterScan.swift Tally/Core/CoalescingGate.swift \
+  Tally/Stores/SessionRosterScan.swift Tally/Stores/ReloadReadinessStore.swift Tally/Core/CoalescingGate.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SupervisorVersionStamp.swift \
   Tally/Core/SessionSidecar.swift Tally/Core/SessionPinScope.swift \

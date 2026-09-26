@@ -199,7 +199,7 @@ func runMachineLoadChecks() {
     // behaviourally next door (projectloadchecks.swift, "collected between the reading and the
     // question"); this line only rules out the milliseconds.
     check("…and the tick hands it no table of its own to decide with",
-          sampler.contains("rollup.load(sessions: byProject, strays: unattributed, at: now)")
+          sampler.contains("rollup.load(sessions: byProject, strays: unattributed, at: now, reads: strayReads)")
               && !sampler.contains("alive: Set(identities.keys)"))
     check("…and a project is watched from the tick a session names it until nothing works in it",
           accounting.contains("watching.formUnion(found.values)")

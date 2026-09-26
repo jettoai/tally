@@ -26,13 +26,40 @@ func runCoalescingGateChecks() {
     let timing = read("Tally/Stores/ProcessFootprintTiming.swift")
     let pass = read("Tally/Stores/ProcessFootprintPass.swift")
     let treeReads = read("Tally/Core/FootprintMachineRead.swift")
+    let footer = read("Tally/Views/PopoverFooterView.swift")
+    let reloadAction = read("Tally/Views/ReloadAction.swift")
+    let settingsReload = read("Tally/Views/SettingsReloadRow.swift")
+    // Each IO call appears once in the pass, and inside a detached hop: after `Task.detached` and
+    // before that hop's closing `}.value`.
+    func insideHop(_ call: String, of source: String) -> Bool {
+        guard let at = source.range(of: call) else { return false }
+        let before = source[..<at.lowerBound]
+        guard let hop = before.range(of: "await Task.detached(priority: .utility) {",
+                                     options: .backwards) else { return false }
+        return !source[hop.upperBound..<at.lowerBound].contains("}.value")
+            && source.components(separatedBy: call).count == 2
+    }
     check("the roster sources this check reads are readable",
           !roster.isEmpty && !scan.isEmpty && !login.isEmpty)
 
     check("the roster's reading happens off the main thread",
-          scan.contains("await Task.detached(priority: .utility) { Self.scan() }.value")
+          insideHop("Self.scan()", of: scan)
               && scan.contains("liveSessionStates().map(row)")
               && !roster.contains("liveSessionStates()"))
+    check("the reload sources this check reads are readable",
+          !footer.isEmpty && !reloadAction.isEmpty && !settingsReload.isEmpty)
+    check("the reload readiness is read off the main thread, in the roster's hop",
+          insideHop("currentReloadReadiness()", of: scan)
+              && scan.contains("ReloadReadinessStore.shared.publish(readiness)"))
+    check("the footer tooltip reads the published readiness, never the registry",
+          footer.contains("ReloadAction.tooltip(ReloadReadinessStore.shared.readiness)")
+              && !footer.contains("currentReloadReadiness"))
+    check("only the press reads the readiness live",
+          reloadAction.components(separatedBy: "currentReloadReadiness()").count == 2
+              && reloadAction.contains("static func tooltip(_ readiness: ReloadReadiness?)"))
+    check("the Settings row asks for a scan rather than scanning",
+          !settingsReload.contains("currentReloadReadiness()")
+              && settingsReload.components(separatedBy: "SessionRosterStore.shared.refresh()").count == 3)
     check("one roster scan in flight, the rest folded",
           roster.contains("guard scanGate.request() else { return }")
               && scan.contains("if scanGate.finish() { startScan() }"))
@@ -54,16 +81,6 @@ func runCoalescingGateChecks() {
               && !timing.contains("ProcessFootprintStore.shared.sample()"))
     check("the footprint pass waits for a fresh roster rather than reading a stale one",
           pass.contains("if viewers == 0 { await SessionRosterStore.shared.scanNow() }"))
-    // Each IO call appears once in the pass, and inside a detached hop: after `Task.detached` and
-    // before that hop's closing `}.value`.
-    func insideHop(_ call: String, of source: String) -> Bool {
-        guard let at = source.range(of: call) else { return false }
-        let before = source[..<at.lowerBound]
-        guard let hop = before.range(of: "await Task.detached(priority: .utility) {",
-                                     options: .backwards) else { return false }
-        return !source[hop.upperBound..<at.lowerBound].contains("}.value")
-            && source.components(separatedBy: call).count == 2
-    }
     check("the process table, the memory pressure and the leases are read off the main thread",
           insideHop("ProcessTree.liveProcesses()", of: pass)
               && insideHop("MachineMemoryPressure.current", of: pass)
@@ -74,4 +91,11 @@ func runCoalescingGateChecks() {
               && !pass.contains("ProcessTree.resourceSample(") && !pass.contains("readSessionAgents(")
               && !pass.contains("ProcessTree.listeningPorts(")
               && treeReads.contains("nonisolated static func take("))
+    check("the group ledger is read and written off the main thread",
+          insideHop("SessionProcessGroups.record(", of: pass)
+              && insideHop("SessionProcessGroups.load()", of: pass)
+              && pass.contains("groupLedger = SessionProcessGroups.Index(written)"))
+    check("the strays' counters are read off the main thread",
+          insideHop("ProjectLoadAccounting.readStrays(", of: pass)
+              && pass.contains("reads: strayReads)"))
 }

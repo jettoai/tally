@@ -128,7 +128,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .tallyTooltip(ReloadAction.tooltip())
+            .tallyTooltip(ReloadAction.tooltip(ReloadReadinessStore.shared.readiness))
             // View options: every layout dimension behind one footer icon. A popover card rather
             // than a native menu, because the column count is now a row of layout tiles - a picture
             // of each layout beats five numbers, and a menu can only list text. The keyboard and

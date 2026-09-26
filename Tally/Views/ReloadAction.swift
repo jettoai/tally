@@ -61,10 +61,12 @@ enum ReloadAction {
     }
 
     /// The tooltip for a control that triggers a reload: the ordinary two-clause explanation, or the
-    /// state note when there is something the click will not be able to do.
+    /// state note when there is something the click will not be able to do. Handed the state the
+    /// roster's scan last published (`ReloadReadinessStore`) rather than reading it: a tooltip is
+    /// evaluated on every render. Nil (no scan has landed yet) reads as the ordinary wording.
     @MainActor
-    static func tooltip() -> String {
-        let note = readinessNote(currentReloadReadiness())
+    static func tooltip(_ readiness: ReloadReadiness?) -> String {
+        let note = readiness.map(readinessNote) ?? ""
         guard note.isEmpty else { return note }
         return L("Reload running sessions") + " · " + L("Each restarts when it goes idle")
     }

@@ -49,10 +49,12 @@ extension ProcessFootprintStore {
         let walk = !(roots.isEmpty && rollup.accounted.isEmpty)
         let now = Date()
         let leaseReader = OrphanReclaimStore.shared.leaseReaderIfDue(at: now)
+        let readLedger = groupLedger == nil && !roots.isEmpty
         let machine = await Task.detached(priority: .utility) {
             FootprintMachineRead(processes: walk ? ProcessTree.liveProcesses() : [],
                                  pressure: MachineMemoryPressure.current,
-                                 leases: leaseReader?())
+                                 leases: leaseReader?(),
+                                 ledger: readLedger ? SessionProcessGroups.load() : nil)
         }.value
         let processes = machine.processes
         // EVERY LIVE PROCESS BY PID, out of the walk that has just been made anyway. Two readings
@@ -97,7 +99,7 @@ extension ProcessFootprintStore {
         // memory rather than from the file (see `groupLedger`), and skipped entirely on a board with
         // nothing on it - an empty roster is "not asked" rather than "nothing is running".
         let ledger = sessions.isEmpty ? SessionProcessGroups.Index()
-            : (groupLedger ?? SessionProcessGroups.Index(SessionProcessGroups.load()))
+            : (groupLedger ?? SessionProcessGroups.Index(machine.ledger ?? []))
         let adopted = ledger.entries.isEmpty ? [:] : SessionProcessGroups.adoptions(
             unclaimed: processes.lazy.filter { !claimed.contains($0.pid) },
             in: ledger, sessions: sessions, startedAt: began)
@@ -297,8 +299,15 @@ extension ProcessFootprintStore {
         // And the strays as they stand once the cards are settled: minus whatever a card turned out
         // to be counting, which is the adopted jobs' own children (`MachineLoadRollup.leftovers`).
         let unattributed = MachineLoadRollup.leftovers(strays: strayRoot, counted: counted)
+        // The strays' own counters, read off the main thread like every other reading of the pass;
+        // what they are paired against stays with the rollup (`ProjectLoadAccounting.readStrays`).
+        let pools = rollup.accounted.isEmpty || DemoUsage.isActive ? [:] : rollup.strayPools(unattributed)
+        let strayReads = await Task.detached(priority: .utility) {
+            ProjectLoadAccounting.readStrays(pools, at: now)
+        }.value
         let load = rollup.accounted.isEmpty
-            ? MachineLoad() : rollup.load(sessions: byProject, strays: unattributed, at: now)
+            ? MachineLoad()
+            : rollup.load(sessions: byProject, strays: unattributed, at: now, reads: strayReads)
         // AND WHETHER ANY OF IT SHOULD STILL BE RUNNING (`OrphanReclaimStore`, which paces itself).
         // THE SESSIONS GO WITH THE STRAYS: a checkout somebody is working in is one whose leftovers
         // this app reports rather than ends (`OrphanReclaim.Veto.sessionPresent`).
@@ -340,10 +349,19 @@ extension ProcessFootprintStore {
             // ...and a third thing to say: a group whose last member has now been gone long enough
             // to retire its claims. Without it the retirement would wait for whichever session next
             // happened to start a command.
-            groupLedger = claims.isEmpty && !stale && !absences.expired ? ledger
-                : SessionProcessGroups.Index(
+            if claims.isEmpty && !stale && !absences.expired {
+                groupLedger = ledger
+            } else {
+                // WRITTEN OFF THE MAIN THREAD: a lock, a read and an atomic rewrite held the menu bar
+                // on a loaded machine (Sentry TALLY-S, 2026-09-26). Still one writer at a time: this
+                // pass awaits the write, and passes run one at a time (`sampleGate`).
+                let absent = absences.ticks
+                let written = await Task.detached(priority: .utility) {
                     SessionProcessGroups.record(claims, sessions: sessions, liveGroups: liveGroups,
-                                                absentFor: { absences.ticks[$0] ?? 0 }))
+                                                absentFor: { absent[$0] ?? 0 })
+                }.value
+                groupLedger = SessionProcessGroups.Index(written)
+            }
         }
         // A pid is handed out again once its session has gone, so a series left behind would be
         // adopted by an unrelated tree and drawn as its own history.

@@ -155,6 +155,24 @@ func runProjectLoadChecks() {
     check("…and that figure is the strays' own, in the field the unclaimed card reads",
           reaped.projects.first?.strayCpuPercent == 50)
 
+    // THE PASS HANDS THE READINGS IN, and then nothing is asked of the machine on the main actor:
+    // the injected readers below would record any call.
+    var asked = 0
+    let handedIn = ProjectLoadAccounting(
+        sample: { _, _ in asked += 1; return ProcessResourceSample(times: [:], childTimes: [:], at: t0) },
+        departure: { _ in asked += 1; return .collected })
+    _ = handedIn.load(sessions: [], strays: [900: root, 901: root], at: t0,
+                      reads: StrayReads(samples: [root: ProcessResourceSample(
+                                            times: [900: 10, 901: 600], childTimes: [:], at: t0)],
+                                        departures: [:]))
+    let viaReads = handedIn.load(sessions: [], strays: [900: root], at: later,
+                                 reads: StrayReads(samples: [root: ProcessResourceSample(
+                                                       times: [900: 11], childTimes: [900: 600], at: later)],
+                                                   departures: [901: .collected]))
+    check("readings handed in are the whole of what a tick asks the machine", asked == 0)
+    check("…and read the same as the readers asked directly (the reaping pool, 50%)",
+          viaReads.projects.first?.cpuPercent == 50)
+
     // AND DEATH AND COLLECTION ARE TWO EVENTS THAT NOTHING MAKES LAND IN ONE INTERVAL. The table
     // drops a process at its exit and its seconds arrive at its collection, so a pool that settles
     // on the table settles a tick before the arrival it is cancelling: the credit comes off a tick

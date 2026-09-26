@@ -8,11 +8,11 @@ import SwiftUI
 /// who already knows); both go through `ReloadAction.presentConfirm`, which also writes the same
 /// request file the command writes.
 struct SettingsReloadRow: View {
-    /// Held rather than read inside `body`: a process scan there would re-run on every unrelated
-    /// redraw, and its answer would still never refresh for the one person it matters to, someone
-    /// who reads the note below, restarts their sessions in a terminal, and comes back to a
-    /// Settings window they left open. Coming back is the activation notification.
-    @State private var readiness: ReloadReadiness?
+    /// Read from the roster's published answer rather than scanned here: the scan runs off the main
+    /// thread (`ReloadReadinessStore`). Appearing and coming back to the app ask for a fresh scan,
+    /// for the one person it matters to: someone who reads the note below, restarts their sessions
+    /// in a terminal, and comes back to a Settings window they left open.
+    private var readiness: ReloadReadiness? { ReloadReadinessStore.shared.readiness }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -42,10 +42,10 @@ struct SettingsReloadRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .onAppear { readiness = currentReloadReadiness() }
+        .onAppear { SessionRosterStore.shared.refresh() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
-            readiness = currentReloadReadiness()
+            SessionRosterStore.shared.refresh()
         }
     }
 }

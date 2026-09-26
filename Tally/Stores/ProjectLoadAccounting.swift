@@ -296,12 +296,14 @@ final class ProjectLoadAccounting {
     /// the same terms every other fixture on that page is under: what is shown is the SHAPE, and no
     /// field of it came off this machine.
     ///
+    /// - Parameter reads: the machine's answers for this tick, read off the main thread by the pass
+    ///   (`readStrays`); nil asks the injected readers directly, which is how the suites drive it.
     func load(sessions: [MachineLoadRollup.SessionReading], strays: [pid_t: String],
-              at now: Date) -> MachineLoad {
+              at now: Date, reads: StrayReads? = nil) -> MachineLoad {
         let rollup = MachineLoadRollup.rows(
             sessions: sessions,
             strays: DemoUsage.isActive ? DemoUsage.strayReadings(for: sessions.map(\.root))
-                                       : measure(strays, at: now))
+                                       : measure(strays, at: now, reads: reads))
         // WHICH PROJECTS THE NEXT TICK LOOKS FOR, decided on what this one turned out to hold rather
         // than on whether it produced a row at all, and over several ticks rather than one
         // (`MachineLoadRollup.idleTicksBeforeDropping`).
@@ -318,14 +320,45 @@ final class ProjectLoadAccounting {
         return rollup
     }
 
+    /// The pools `measure` will read this tick, with what each held last tick: the state half of
+    /// the stray reading, on the main actor.
+    func strayPools(_ strays: [pid_t: String]) -> [String: StrayPool] {
+        var pidsByRoot: [String: Set<pid_t>] = [:]
+        for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
+        var pools: [String: StrayPool] = [:]
+        for (root, pids) in pidsByRoot {
+            pools[root] = StrayPool(pids: pids, held: Set(previous[root]?.times.keys.map { $0 } ?? []))
+        }
+        return pools
+    }
+
+    /// The machine half, callable from any thread: the samples first, then the fate of every pid a
+    /// pool held last tick and this sample no longer holds.
+    nonisolated static func readStrays(_ pools: [String: StrayPool], at now: Date) -> StrayReads {
+        var samples: [String: ProcessResourceSample] = [:]
+        var departures: [pid_t: ProcessDeparture] = [:]
+        for (root, pool) in pools {
+            let reading = ProcessTree.resourceSample(of: pool.pids, at: now)
+            samples[root] = reading
+            for pid in pool.held where reading.times[pid] == nil {
+                departures[pid] = ProcessTree.departure(of: pid)
+            }
+        }
+        return StrayReads(samples: samples, departures: departures)
+    }
+
     /// The strays of each project, read and turned into a rate.
-    private func measure(_ strays: [pid_t: String],
-                         at now: Date) -> [MachineLoadRollup.StrayReading] {
+    private func measure(_ strays: [pid_t: String], at now: Date,
+                         reads: StrayReads?) -> [MachineLoadRollup.StrayReading] {
+        // Handed-in answers first; the injected readers only when none were handed in.
+        let injected = self.departure
+        let departure: PoolDeparture = reads.map { reads in { reads.departures[$0] ?? injected($0) } }
+            ?? injected
         var pidsByRoot: [String: Set<pid_t>] = [:]
         for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
         var readings: [MachineLoadRollup.StrayReading] = []
         for (root, pids) in pidsByRoot {
-            var reading = sample(pids, now)
+            var reading = reads?.samples[root] ?? sample(pids, now)
             // Identities for whatever the reader did not supply them for, which in production is all
             // of them: `ProcessTree.resourceSample` asks `proc_pid_rusage` and that record carries no
             // birth time. A fixture that states its own stamps keeps them.
@@ -355,4 +388,19 @@ final class ProjectLoadAccounting {
         }
         return readings
     }
+}
+
+/// One stray pool as the reading hop needs it: the pids to sample now, and the pids last tick's
+/// reading held, whose fate is asked of every one the new reading no longer holds.
+struct StrayPool: Sendable {
+    let pids: Set<pid_t>
+    let held: Set<pid_t>
+}
+
+/// What `ProjectLoadAccounting.load` asks the machine, read together off the main thread by the
+/// footprint pass: each pool's sample, then what became of each member that left it, in that
+/// order, the same instant `measure` used to ask at.
+struct StrayReads: Sendable {
+    let samples: [String: ProcessResourceSample]
+    let departures: [pid_t: ProcessDeparture]
 }

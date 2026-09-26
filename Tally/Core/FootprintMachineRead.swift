@@ -7,6 +7,9 @@ struct FootprintMachineRead: Sendable {
     let pressure: MachineMemoryPressure
     /// The reclaim's leases, read only when its round is due (`OrphanReclaimStore.leaseReaderIfDue`).
     let leases: [OrphanLease]?
+    /// The group ledger's file, read only while the pass holds no copy in memory yet
+    /// (`ProcessFootprintStore.groupLedger`): once per launch, on the first board with sessions.
+    let ledger: [SessionProcessGroup]?
 }
 
 /// One session tree's readings for one pass: everything the card loop used to ask the machine per

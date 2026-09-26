@@ -185,7 +185,11 @@ extension IntegrationsStore {
             Self.oursNeedingHeal(binary: binary, nativePicker: nativePicker)
         }.value
         guard let ours else { return false }
-        return syncPromptCommands(forSkillFiles: ours)
+        // Re-read those SKILL.md files here: Settings may have removed the skill while the
+        // background read was away, and repairing from the stale list would write it all back.
+        let current = Self.oursAmong(ours)
+        guard !current.isEmpty else { return false }
+        return syncPromptCommands(forSkillFiles: current)
     }
 
     /// The skill files to repair from, or nil when nothing needs healing: the whole of the heal's

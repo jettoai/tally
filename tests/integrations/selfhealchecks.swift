@@ -515,7 +515,9 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     check("the heal check reads off the main thread and repairs on it",
           selfHeal.contains("let ours = await Task.detached(priority: .utility) {")
               && selfHeal.contains("discoverChanged: { [weak self] in await self?.healPromptHooksInBackground() ?? false }")
-              && selfHeal.contains("return syncPromptCommands(forSkillFiles: ours)"))
+              && selfHeal.contains("let current = Self.oursAmong(ours)\n"
+                + "        guard !current.isEmpty else { return false }\n"
+                + "        return syncPromptCommands(forSkillFiles: current)"))
     check("…and gated on the unshipped judgment before it reads anything",
           selfHeal.contains("func healPromptHooksInBackground() async -> Bool {\n"
             + "        guard !BuildVariant.isUnshipped else { return false }"))

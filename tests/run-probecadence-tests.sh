@@ -10,5 +10,5 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/probecadence/main.swift \
   Tally/Core/ProbeCadence.swift Tally/Providers/ProviderModels.swift \
-  TallyCLI/ReloadRequest.swift Tally/Core/SessionMonitoring.swift
+  TallyCLI/ReloadRequest.swift TallyCLI/LiveRates.swift Tally/Core/SessionMonitoring.swift
 "$out"

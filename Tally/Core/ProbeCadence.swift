@@ -60,7 +60,8 @@ enum ProbeCadence {
     /// through the store's carry (AccountRowCarry.swift). Other providers fetch every account at once.
     static func fetchRound(_ provider: any UsageProvider, active: [ProviderAccount],
                            previous: [AccountUsage], serial: Bool, userInitiated: Bool,
-                           live: Set<String>? = nil, now: Date = Date()) async -> [AccountUsage] {
+                           live: Set<String>? = nil, facts: [String: LiveRateFact]? = nil,
+                           now: Date = Date()) async -> [AccountUsage] {
         guard serial else {
             return await withTaskGroup(of: AccountUsage.self) { group in
                 for account in active {
@@ -72,15 +73,72 @@ enum ProbeCadence {
             }
         }
         let live = live ?? liveAccountIDs()
+        let facts = facts ?? Dictionary(uniqueKeysWithValues: active.compactMap { account in
+            readLiveRateFact(accountID: account.id).map { (account.id, $0) }
+        })
         let previous = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let due = ordered(active, live: live).filter {
-            isDue(userInitiated: userInitiated, live: live.contains($0.id), previous: previous[$0.id], now: now)
+            isDue(userInitiated: userInitiated, live: live.contains($0.id), fact: facts[$0.id],
+                  previous: previous[$0.id], now: now)
         }
         var results: [AccountUsage] = []
         for account in due {
             results.append(await provider.fetchUsage(for: account, userInitiated: userInitiated))
         }
         return results
+    }
+
+    // MARK: - The status-line channel (TallyCLI/LiveRates.swift)
+
+    /// A live account whose two main windows are arriving from its own status line is still probed
+    /// this often, for the flagship window the status line does not carry.
+    static let liveFlagshipInterval: TimeInterval = 5 * 60
+    /// A status-line fact counts as current while its sessions keep rendering.
+    static let factFreshness: TimeInterval = 3 * 60
+    /// Near a wall every reading matters to the picks and the cap handoff, so the probe runs every tick.
+    static let nearWallPercent: Double = 90
+
+    /// The full rule with the status-line channel. A missing or stale fact falls back to `isDue`
+    /// above, with a fact still being rendered counting as a live account.
+    static func isDue(userInitiated: Bool, live: Bool, fact: LiveRateFact?, previous: AccountUsage?,
+                      now: Date) -> Bool {
+        let rendering = fact.map { now.timeIntervalSince($0.observedAt) < factFreshness } ?? false
+        guard !userInitiated, let fact, rendering else {
+            return isDue(userInitiated: userInitiated, live: live || rendering, previous: previous, now: now)
+        }
+        guard let previous, previous.error == nil, !previous.lastRefreshFailed, !previous.isStale,
+              !previous.metrics.isEmpty else { return true }
+        if let flagshipAt = fact.flagshipAt, now.timeIntervalSince(flagshipAt) < factFreshness { return true }
+        if [fact.fiveHour, fact.sevenDay].contains(where: { ($0?.usedPercent ?? 0) >= nearWallPercent }) {
+            return true
+        }
+        if now.timeIntervalSince(previous.refreshedAt) >= liveFlagshipInterval { return true }
+        return resetPassed(since: previous, now: now)
+    }
+
+    /// Lay the status line's numbers over a row's session and weekly windows when they moved after
+    /// the row was read. The flagship window and `refreshedAt` are left alone: `refreshedAt` dates
+    /// the probe, and the snapshot's readers (CapDetection) read it as that. Only Claude rows ever
+    /// have a fact (the status line writes `claude:` ids), so the store passes every row through.
+    static func overlay(_ row: AccountUsage, fact: LiveRateFact?, now: Date) -> AccountUsage {
+        guard let fact, fact.accountID == row.id, row.error == nil,
+              fact.changedAt > row.refreshedAt else { return row }
+        var copy = row
+        copy.metrics = row.metrics.map { metric in
+            let window: LiveRateWindow?
+            switch metric.kind {
+            case .session: window = fact.fiveHour
+            case .weeklyAll: window = fact.sevenDay
+            default: window = nil
+            }
+            guard let window, window.resetsAt > now else { return metric }
+            var updated = metric
+            updated.usedPercent = window.usedPercent
+            updated.severity = .fromUsedPercent(window.usedPercent)
+            updated.resetsAt = window.resetsAt
+            return updated
+        }
+        return copy
     }
 
     /// Live accounts first, so the accounts being spent are read earliest in a serial round;

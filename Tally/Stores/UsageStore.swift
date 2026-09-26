@@ -345,6 +345,7 @@ final class UsageStore {
                                          known: Set(known.map(\.id)), enabledProviders: enabledNow)
         accounts = (merged + carried)
             .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
+            .map { ProbeCadence.overlay($0, fact: readLiveRateFact(accountID: $0.id), now: Date()) }
             .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
         // Who each polled account turned out to be, written down before the filter above can make
         // it unaskable: only enabled accounts are polled, so this round is the only chance to learn

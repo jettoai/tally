@@ -148,6 +148,19 @@ func runStatusline(args: [String]) -> Never {
     // rule can be asserted with injected inputs rather than read off this entry point.
     publishConversationIdentity(sessionID: sessionJSON?["session_id"] as? String,
                                 cwd: sessionJSON?["cwd"] as? String)
+    // The account's own rate limits as Claude Code reports them, for the app's poller
+    // (LiveRates.swift). Without a snapshot to name the flagship, count the session as on it: the
+    // app then probes once more rather than once less.
+    if let windows = parseLiveRateWindows(sessionJSON) {
+        let accountID = "claude:" + URL(fileURLWithPath: home).lastPathComponent
+        let previous = readLiveRateFact(accountID: accountID)
+        let onFlagship = problem != nil || sessionRunsFlagship(
+            windowName: snapshot?.accounts.first { $0.launchHome == home }?.modelWindowName,
+            sessionModel: sessionModel)
+        recordLiveRateFact(mergeLiveRateFact(previous: previous, accountID: accountID, windows: windows,
+                                             onFlagship: onFlagship, now: Date()),
+                           previous: previous)
+    }
 
     var quota: [String] = []
     /// The flagship window's own remaining, read only when THIS SESSION is spending it: matched
@@ -213,9 +226,8 @@ func runStatusline(args: [String]) -> Never {
         //
         // AND NOT EMPTY: `hasPrefix("")` is true of every string, so a mapper that ever hands back
         // an empty window name would otherwise hang the flagship meter on whatever model happened
-        // to be running - guarded here rather than trusted to never occur upstream.
-        if let windowName = account.modelWindowName?.lowercased(), !windowName.isEmpty,
-           let model = sessionModel?.lowercased(), model.hasPrefix(windowName) {
+        // to be running - guarded in `sessionRunsFlagship` rather than trusted to never occur upstream.
+        if sessionRunsFlagship(windowName: account.modelWindowName, sessionModel: sessionModel) {
             flagshipPiece = piece(nil, account.modelRemaining, account.modelResetsAt)
         }
     }

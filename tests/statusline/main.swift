@@ -89,15 +89,21 @@ check("an unknown depth leaves the model token untouched",
 // publishes actually names the model this session is running. Asserted as the exact match rule
 // (a prefix test on both sides lower-cased) so a looser or reversed comparison fails this rather
 // than passing on a coincidence.
+// The rule lives in LiveRates.swift (`sessionRunsFlagship`), shared with the live-rate fact.
 check("the flagship window is matched by name against the session's own model",
-      lineSource.contains("model.hasPrefix(windowName)"))
+      lineSource.contains("sessionRunsFlagship(windowName: account.modelWindowName, sessionModel: sessionModel)")
+          && sessionRunsFlagship(windowName: "fable", sessionModel: "fable 5.1")
+          && !sessionRunsFlagship(windowName: "fable 5.1", sessionModel: "fable")
+          && !sessionRunsFlagship(windowName: "fable", sessionModel: "Opus 5.5"))
 check("…both sides lower-cased, so \"Fable\" matches \"Fable 5.1\" case-insensitively",
-      lineSource.contains("account.modelWindowName?.lowercased()")
-          && lineSource.contains("sessionModel?.lowercased()"))
+      sessionRunsFlagship(windowName: "Fable", sessionModel: "fable 5.1")
+          && sessionRunsFlagship(windowName: "fable", sessionModel: "Fable 5.1"))
 // AND NOT EMPTY: `hasPrefix("")` is true of every string, so an empty window name must be turned
 // away before it ever reaches the prefix test - otherwise it would match every session's model.
 check("an empty flagship window name is turned away before the prefix test",
-      lineSource.contains("!windowName.isEmpty"))
+      !sessionRunsFlagship(windowName: "", sessionModel: "Fable 5.1")
+          && !sessionRunsFlagship(windowName: nil, sessionModel: "Fable 5.1")
+          && !sessionRunsFlagship(windowName: "fable", sessionModel: nil))
 // ONE ASSIGNMENT, ONLY INSIDE THE MATCH: `flagshipPiece` starts nil (declared as `var ... : String?`
 // with no initial value) and the only place anything is ever assigned to it is behind the match
 // guard above - a fallback model, a Codex account, or either field missing all fall through that

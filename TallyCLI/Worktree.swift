@@ -367,26 +367,9 @@ func worktreeHasTranscript(slug: String, homes: [String]) -> Bool {
 /// unless it looks like another flag) from the args. Returns whether anything was removed (the
 /// caller then warns). Used for a worktree with no conversation yet.
 func stripContinueResume(_ args: inout [String]) -> Bool {
-    var removed = false
-    var i = 0
-    // Only the options are stripped; `end` tracks the shrinking prefix so everything from the user's
-    // `--` onward is left exactly as typed (Snapshot.swift).
-    var end = optionsOnly(args).count
-    while i < end {
-        switch args[i] {
-        case "--continue", "-c":
-            args.remove(at: i)
-            end -= 1
-            removed = true
-        case "--resume", "-r":
-            args.remove(at: i)
-            end -= 1
-            removed = true
-            if i < end, !args[i].hasPrefix("-") { args.remove(at: i); end -= 1 }
-        default:
-            i += 1
-        }
-    }
+    let stripped = removingHandTypedSession(args)
+    let removed = stripped.count != args.count
+    args = stripped
     return removed
 }
 

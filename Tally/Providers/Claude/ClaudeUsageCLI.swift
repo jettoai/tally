@@ -4,9 +4,9 @@ import Foundation
 /// Anthropic with its own first-party identity. This usage reader does not read tokens, and an
 /// expired token heals itself (the CLI refreshes it as part of the run).
 enum ClaudeUsageCLI {
-    /// Dedicated probe cwd: every `-p` run writes a session transcript under the account's
-    /// `projects/<cwd-slug>/`, so giving the probe its own cwd both isolates that noise and makes
-    /// it safe to prune.
+    /// Dedicated probe cwd: a `-p` run from a CLI older than `--no-session-persistence` writes a
+    /// session transcript under the account's `projects/<cwd-slug>/`, so giving the probe its own
+    /// cwd both isolates that noise and makes it safe to prune.
     static let probeDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/probe", isDirectory: true)
 

@@ -234,24 +234,6 @@ func handTypedTarget(_ args: [String], projectDir: URL, cwd: String, recordDir: 
     return nil
 }
 
-/// `args` without a hand-typed `--continue` / `-c` / `--resume <id>` / `-r <id>`, options only.
-func removingHandTypedSession(_ args: [String]) -> [String] {
-    let options = optionsOnly(args)
-    var kept: [String] = []
-    var index = 0
-    while index < options.count {
-        let argument = options[index]
-        index += 1
-        if argument == "--continue" || argument == "-c" { continue }
-        if argument == "--resume" || argument == "-r" {
-            if index < options.count, !options[index].hasPrefix("-") { index += 1 }
-            continue
-        }
-        kept.append(argument)
-    }
-    return kept + args[options.count...]
-}
-
 // MARK: - Reading the directory
 
 /// Claude Code's own default config home: the one a launch that exports `CLAUDE_CONFIG_DIR` at all

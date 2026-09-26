@@ -109,9 +109,13 @@ enum ProbeCadence {
         guard let previous, previous.error == nil, !previous.lastRefreshFailed, !previous.isStale,
               !previous.metrics.isEmpty else { return true }
         if let flagshipAt = fact.flagshipAt, now.timeIntervalSince(flagshipAt) < factFreshness { return true }
-        if [fact.fiveHour, fact.sevenDay].contains(where: { ($0?.usedPercent ?? 0) >= nearWallPercent }) {
-            return true
-        }
+        // The last probe counts too: an idle session keeps re-rendering an older, lower header.
+        let wallFacts = [fact.fiveHour, fact.sevenDay].compactMap { $0 }.filter { $0.resetsAt > now }
+            .map(\.usedPercent)
+        let wallProbe = previous.metrics.filter {
+            ($0.kind == .session || $0.kind == .weeklyAll) && ($0.resetsAt.map { $0 > now } ?? true)
+        }.map(\.usedPercent)
+        if (wallFacts + wallProbe).contains(where: { $0 >= nearWallPercent }) { return true }
         if now.timeIntervalSince(previous.refreshedAt) >= liveFlagshipInterval { return true }
         return resetPassed(since: previous, now: now)
     }
@@ -131,7 +135,8 @@ enum ProbeCadence {
             case .weeklyAll: window = fact.sevenDay
             default: window = nil
             }
-            guard let window, window.resetsAt > now else { return metric }
+            guard let window, window.resetsAt > now,
+                  (window.changedAt ?? fact.changedAt) > row.refreshedAt else { return metric }
             var updated = metric
             updated.usedPercent = window.usedPercent
             updated.severity = .fromUsedPercent(window.usedPercent)

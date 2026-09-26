@@ -87,6 +87,22 @@ let lapsedRow = ProbeCadence.overlay(probed, fact: lapsed, now: now)
 check("B9 a fact window whose reset has passed is not laid over",
       lapsedRow.metrics[0] == probed.metrics[0] && lapsedRow.metrics[1].usedPercent == 60)
 
+// a6a9873 review: probe reads weekly 80%, then only the session window moves on the status line
+// while seven_day still repeats the older 30%.
+let t0 = now.addingTimeInterval(-600)
+let stale = mergeLiveRateFact(previous: nil, accountID: id, windows: (window(40, 3600), window(30, 86400)),
+                              onFlagship: false, now: t0)
+var weeklyProbed = probed; weeklyProbed.refreshedAt = now.addingTimeInterval(-300)
+weeklyProbed.metrics[1].usedPercent = 80; weeklyProbed.metrics[1].resetsAt = now.addingTimeInterval(86400)
+let sessionMoved = mergeLiveRateFact(previous: stale, accountID: id, windows: (window(45, 3600), window(30, 86400)),
+                                     onFlagship: false, now: now)
+let perWindow = ProbeCadence.overlay(weeklyProbed, fact: sessionMoved, now: now)
+check("B9b only the window that moved after the probe is laid over, the other keeps the probe's number",
+      perWindow.metrics[0].usedPercent == 45 && perWindow.metrics[1].usedPercent == 80)
+let legacy = try! JSONDecoder().decode(LiveRateFact.self, from: Data(
+    #"{"accountID":"claude:.claude3","observedAt":0,"changedAt":0,"fiveHour":{"usedPercent":5,"resetsAt":100}}"#.utf8))
+check("B9c a file written before per-window stamps still decodes", legacy.fiveHour?.usedPercent == 5)
+
 // MARK: - Cadence with the status-line channel
 
 func previousRow(readAgo: TimeInterval) -> AccountUsage {
@@ -103,6 +119,9 @@ check("B10 a rendering account off the flagship and clear of the wall waits 5 mi
 var nearWall = calm; nearWall.fiveHour = window(92, 3600)
 check("B11 a window at 90% or more reads every tick", due(nearWall, readAgo: 60))
 var onFlagship = calm; onFlagship.flagshipAt = now.addingTimeInterval(-60)
+var probedHigh = previousRow(readAgo: 60); probedHigh.metrics[0].usedPercent = 99
+check("B11b the last probe at 90% or more reads every tick though the fact repeats a lower header",
+      ProbeCadence.isDue(userInitiated: false, live: true, fact: calm, previous: probedHigh, now: now))
 check("B12 a session on the flagship model in the last 3 minutes reads every tick", due(onFlagship, readAgo: 60))
 var quiet = calm; quiet.observedAt = now.addingTimeInterval(-10 * 60)
 check("B13 a fact nobody has rendered for 10 minutes falls back: idle waits, live reads",

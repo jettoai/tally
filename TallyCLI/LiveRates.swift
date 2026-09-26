@@ -15,6 +15,9 @@ let liveRatesDir = FileManager.default.homeDirectoryForCurrentUser
 struct LiveRateWindow: Codable, Equatable, Sendable {
     var usedPercent: Double
     var resetsAt: Date
+    /// When this window's numbers last moved. Nil in files written before 2026-09-27; readers then
+    /// fall back to the fact's `changedAt`.
+    var changedAt: Date? = nil
 }
 
 struct LiveRateFact: Codable, Equatable, Sendable {
@@ -67,9 +70,17 @@ func mergeLiveRateWindow(_ old: LiveRateWindow?, _ new: LiveRateWindow?) -> Live
 
 func mergeLiveRateFact(previous: LiveRateFact?, accountID: String, windows: LiveRateWindows,
                        onFlagship: Bool, now: Date) -> LiveRateFact {
-    let five = mergeLiveRateWindow(previous?.fiveHour, windows.fiveHour)
-    let seven = mergeLiveRateWindow(previous?.sevenDay, windows.sevenDay)
-    let moved = previous == nil || five != previous?.fiveHour || seven != previous?.sevenDay
+    // Each window keeps its own change time, so one window moving does not date the other's
+    // older number as newer than a probe that read past it.
+    func stamped(_ old: LiveRateWindow?, _ new: LiveRateWindow?) -> LiveRateWindow? {
+        guard var merged = mergeLiveRateWindow(old, new) else { return nil }
+        let same = old.map { $0.usedPercent == merged.usedPercent && $0.resetsAt == merged.resetsAt } ?? false
+        merged.changedAt = same ? (old?.changedAt ?? previous?.changedAt) : now
+        return merged
+    }
+    let five = stamped(previous?.fiveHour, windows.fiveHour)
+    let seven = stamped(previous?.sevenDay, windows.sevenDay)
+    let moved = previous == nil || five?.changedAt == now || seven?.changedAt == now
     return LiveRateFact(accountID: accountID, observedAt: now,
                         changedAt: moved ? now : (previous?.changedAt ?? now),
                         fiveHour: five, sevenDay: seven,

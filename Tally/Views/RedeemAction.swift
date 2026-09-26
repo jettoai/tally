@@ -83,10 +83,10 @@ enum RedeemAction {
         // that never should have been made.
         let home = UsageStore.shared.discoveredAccounts
             .first(where: { $0.id == usage.id })?.launchableHome
-        // Every entry point shares the automatic redeem's in-flight and per-wall memory, so a manual
-        // redeem and the automatic one can never spend two credits on one wall.
+        // Every entry point, the automatic one included, passes the same in-flight and per-wall
+        // check, so whichever redeem comes second (in either order) sends no request.
         let autoRedeem = CodexAutoRedeemStore.shared
-        autoRedeem.beginRedeem(accountID: usage.id)
+        guard autoRedeem.beginRedeem(usage: usage) else { return nil }
         var outcome: CodexAppServerClient.RedeemOutcome?
         if let home {
             outcome = await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)

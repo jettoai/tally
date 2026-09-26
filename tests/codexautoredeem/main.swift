@@ -161,6 +161,33 @@ for outcome in ["redeemed", "alreadyUsed"] {
                "22 manual \(outcome), stale 0% \(Int(lag))s later does not spend a second credit")
     }
 }
+// 23 The reverse order: the automatic redeem spends first, then the user confirms a redeem on the
+// same wall while the provider still reports 0%.
+func blocks(_ state: CodexAutoRedeemState, _ u: AccountUsage = twoCredits, at: Date) -> Bool {
+    CodexAutoRedeemLogic.blocksRedeem(state: state, usage: u, now: at)
+}
+let autoPending = decide([twoCredits]).state
+expect(!blocks(autoPending, at: t0), "23 an automatic attempt still pending does not block by memory")
+for outcome in ["redeemed", "alreadyUsed"] {
+    let afterAuto = settle(outcome, autoPending, now: t0, twoCredits)
+    for lag: TimeInterval in [0, 30, 600] {
+        expect(blocks(afterAuto, at: t0.addingTimeInterval(lag)),
+               "23 automatic \(outcome), manual \(Int(lag))s later sends no request")
+    }
+}
+// 24 What the block leaves alone: the user's first redeem on a wall, a spend that is past the
+// cooldown, a window that has rolled over, and an attempt that spent nothing.
+expect(!blocks(CodexAutoRedeemState(), at: t0), "24 first redeem on a wall still spends")
+let spentAt0 = settle("redeemed", CodexAutoRedeemState(), now: t0, twoCredits)
+expect(!blocks(spentAt0, at: t0.addingTimeInterval(CodexAutoRedeemLogic.rearmCooldown)),
+       "24 a spend past the cooldown no longer blocks")
+expect(!blocks(spentAt0, usage(resetsAt: windowEnd.addingTimeInterval(7 * day), credits: 2),
+               at: t0.addingTimeInterval(60)),
+       "24 a new weekly window is a new wall")
+expect(!blocks(settle("failed", autoPending, now: t0, twoCredits), at: t0.addingTimeInterval(60)),
+       "24 a failed attempt does not block a manual redeem")
+expect(blocks(spentAt0, usage(weeklyUsed: nil, credits: 2), at: t0.addingTimeInterval(60)),
+       "24 a window the usage cannot name holds the spend back")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

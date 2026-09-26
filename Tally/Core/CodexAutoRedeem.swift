@@ -6,8 +6,9 @@ import Foundation
 // same four rules: it answers a wall that has already been hit and nothing earlier, one wall gets
 // one attempt, a failed attempt is never retried on the same wall, and a number held over from a
 // failed poll is not a reading. A wall is one run-out: quota that comes back and runs out again,
-// in the same week or the next, is a new wall. A redeem the user starts by hand counts for its wall
-// too, while in flight and after it spends (`settle`). The difference is who acts: Codex exposes
+// in the same week or the next, is a new wall. Every redeem, by hand or automatic, counts for its
+// wall in both directions: while one is in flight no other starts, and once one spends (`settle`)
+// no other starts on that wall within `rearmCooldown` (`blocksRedeem`). The difference is who acts: Codex exposes
 // the redeem through its own app-server, so the installed app spends the credit through the exact
 // call the card's button uses (`RedeemAction.redeem`), and no supervisor is involved.
 //
@@ -102,6 +103,20 @@ enum CodexAutoRedeemLogic {
             next.accounts[usage.id]?.outcome = outcome
         }
         return next
+    }
+
+    /// Whether a redeem, from any control, must not start: a credit was already spent (or found
+    /// spent) on this account's current weekly window within `rearmCooldown`, so the 0% on screen
+    /// is the provider still catching up, not a wall. A window the usage cannot name counts as the
+    /// same one, which only ever holds back a spend.
+    static func blocksRedeem(state: CodexAutoRedeemState, usage: AccountUsage, now: Date) -> Bool {
+        guard let entry = state.accounts[usage.id],
+              entry.outcome == "redeemed" || entry.outcome == "alreadyUsed",
+              now.timeIntervalSince(entry.attemptedAt) < rearmCooldown else { return false }
+        guard let key = weekly(usage).flatMap({ DryPoolLogic.resetKey($0.resetsAt) }) else {
+            return true
+        }
+        return DryPoolLogic.namesSameCycle(entry.cycleKey, key)
     }
 
     /// The reminder's "out of quota, a reset can clear it" is wrong advice for an account this

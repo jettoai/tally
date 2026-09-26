@@ -56,10 +56,16 @@ final class CodexAutoRedeemStore {
         return Set(due)
     }
 
-    /// Every redeem, from any control, runs between this and `endRedeem` (`RedeemAction.redeem`), so
-    /// a refresh landing while a manual redeem is on the wire cannot start an automatic one.
-    func beginRedeem(accountID: String) {
-        inFlight.insert(accountID)
+    /// Every redeem, from any control, runs between this and `endRedeem` (`RedeemAction.redeem`).
+    /// False means another redeem for this account is on the wire or already spent a credit on this
+    /// wall (`CodexAutoRedeemLogic.blocksRedeem`): the caller must not spend, and must not call
+    /// `endRedeem`, which would clear the other redeem's in-flight mark.
+    func beginRedeem(usage: AccountUsage) -> Bool {
+        guard !inFlight.contains(usage.id),
+              !CodexAutoRedeemLogic.blocksRedeem(state: loadState(), usage: usage, now: Date())
+        else { return false }
+        inFlight.insert(usage.id)
+        return true
     }
 
     /// Record what a redeem came to (`CodexAutoRedeemLogic.settle`) and clear it from in flight.

@@ -1,7 +1,7 @@
 import Foundation
 
-// The audit lines cap resume leaves in `~/.tally/logs/input.log`, split out of CapResume.swift at
-// the size cap. The station decides; this file only spells what it decided.
+// The audit lines cap resume leaves in `~/.tally/logs/input.log`, and the sentence it types, split
+// out of CapResume.swift at the size cap. The station decides; this file only spells what it decided.
 
 /// The word for an arm that was raised (grep `input=cap-resume-armed`). Without it an arm that is
 /// later lost leaves no trace at all: 2026-09-26 had to be reconstructed from a version number.
@@ -34,4 +34,24 @@ func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = session
     if let offer = state.offer, offer != before {
         appendSessionInputLine(capResumeArmedLine(pid: pid, offer: offer, now: now), to: log)
     }
+}
+
+/// The line typed into the session that has just been moved off a capped account.
+///
+/// Names both accounts because both are the news: which one ran out (so the reader knows why their
+/// turn died) and which one they are on now (so a decision to stop instead of carrying on is made
+/// against the right window). Names them through `quotaKnockName`, which is the one rule in this
+/// repo for what may go on a terminal's input queue as an account name: a label is free text from a
+/// rename popover, and a newline in the middle of this sentence would submit half of it as a prompt
+/// and type the rest into whatever came up next.
+///
+/// `limit` is the channel's byte budget, held here the way `quotaKnockMessage` holds its own: the
+/// names are clipped to a budget of their own first, and whatever is left is cut to the limit, so
+/// the guarantee is measured rather than reasoned about.
+func capResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
+                      limit: Int = sessionInputMaxBytes) -> String {
+    let line = "\(capResumeMarker) \(quotaKnockName(from)) hit its usage limit and cut a turn "
+        + "short, and this session is now on \(quotaKnockName(to)). "
+        + "Continue the work that was interrupted."
+    return keystrokeClipped(line, bytes: limit)
 }

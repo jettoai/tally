@@ -35,6 +35,30 @@ let switchRequestDir = FileManager.default.homeDirectoryForCurrentUser
 /// with a dash.
 let switchAutoRequest = "--auto"
 
+/// Which surface wrote a switch request, carried on line 4 of the file.
+///
+/// It exists for ONE reader: the resume a supervisor offers after a move (SelfSwitchResume.swift),
+/// which may only follow a move the conversation asked for ITSELF. Nothing else reads it, and every
+/// value but `session` means "a person chose this" or "cannot say", which is the silent answer.
+enum SwitchOrigin: String, Equatable {
+    /// `tally account` run by a process whose own environment names this session
+    /// (`TALLY_SUPERVISOR_PID`, adopted by the lookup): the agent's tool call is the main path.
+    case session
+    /// `tally account` from a shell that found the session by its directory.
+    case shell
+    /// A `/tally` or `/tally-account` prompt hook, which answers a person's prompt with no turn.
+    case promptHook = "prompt-hook"
+    /// The native picker: a person choosing a row on a panel.
+    case picker
+}
+
+/// What a request records about its writer. `session` survives only when the marker in this
+/// process's environment is the one the lookup landed on; a command that found its session by
+/// looking is somebody else's shell.
+func switchRequestOrigin(surface: SwitchOrigin, adopted: String?) -> SwitchOrigin {
+    surface == .session && adopted == nil ? .shell : surface
+}
+
 /// A parsed switch request: when it was made, and the account it names.
 struct SwitchRequest: Equatable {
     /// MILLISECONDS since the unix epoch, unlike the reload stamp's seconds. The supervisor acts
@@ -54,6 +78,9 @@ struct SwitchRequest: Equatable {
     /// A `var` with a default so the memberwise initialiser keeps working unchanged, which is the
     /// same additivity the file format below promises the other way round.
     var transcriptID: String?
+    /// Who wrote it (`SwitchOrigin`), or nil when the file has no fourth line: a request from a
+    /// build before it existed, which reads as "cannot say".
+    var origin: SwitchOrigin? = nil
 
     /// This request releases the session pin rather than naming somewhere to go.
     var isUnpin: Bool { accountID == switchAutoRequest }
@@ -69,13 +96,17 @@ struct SwitchRequest: Equatable {
 /// supervisor from such a build reads lines 1 and 2 of a new file and ignores what follows. An
 /// unusable value (one that could not name a transcript, `isTranscriptSessionID`) reads as ABSENT
 /// rather than as a broken request: it says nothing about the account, which is the instruction.
+/// LINE 4 names the writer (`SwitchOrigin`) on the same additive terms.
 func parseSwitchRequest(_ raw: String) -> SwitchRequest? {
     let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
         .map { $0.trimmingCharacters(in: .whitespaces) }
     guard let epoch = lines.first.flatMap({ Int($0) }),
           let accountID = lines.dropFirst().first, !accountID.isEmpty else { return nil }
     let transcript = lines.dropFirst(2).first.flatMap { isTranscriptSessionID($0) ? $0 : nil }
-    return SwitchRequest(epoch: epoch, accountID: accountID, transcriptID: transcript)
+    // LINE 4, additive on the terms line 3 is: absent or unknown reads as nil.
+    let origin = lines.dropFirst(3).first.flatMap { SwitchOrigin(rawValue: $0) }
+    return SwitchRequest(epoch: epoch, accountID: accountID, transcriptID: transcript,
+                         origin: origin)
 }
 
 func switchRequestFile(sessionKey: String, dir: URL = switchRequestDir) -> URL {
@@ -96,10 +127,11 @@ func readSwitchRequest(sessionKey: String, dir: URL = switchRequestDir) -> Switc
 /// writes its own unnamed effort: one shape on disk is one shape to read back, and a reader old
 /// enough to know only the first two lines is unaffected either way.
 func writeSwitchRequest(accountID: String, sessionKey: String, transcriptID: String? = nil,
-                        now: Date = Date(), dir: URL = switchRequestDir) throws {
+                        origin: SwitchOrigin? = nil, now: Date = Date(),
+                        dir: URL = switchRequestDir) throws {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let body = "\(Int(now.timeIntervalSince1970 * 1000))\n\(accountID)\n"
-        + "\(transcriptRequestLine(transcriptID))\n"
+        + "\(transcriptRequestLine(transcriptID))\n\(origin?.rawValue ?? "")\n"
     try body.write(to: switchRequestFile(sessionKey: sessionKey, dir: dir), atomically: true,
                    encoding: .utf8)
 }

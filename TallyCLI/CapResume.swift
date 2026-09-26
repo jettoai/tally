@@ -55,7 +55,10 @@ import Foundation
 // session keeps its account and comes back on the declared fallback pairing (CapDetection.swift).
 // That path already prints a sentence onto the terminal saying what it did and what to run to undo
 // it, and it changes the MODEL under the conversation, so "carry on" is not obviously what its owner
-// wants of a turn they may prefer to re-run themselves. Only `cap` is armed here.
+// wants of a turn they may prefer to re-run themselves. `cap` is armed here, and so is the one
+// other move nobody is going to follow up by hand: a `tally account` the conversation ran on
+// itself mid-work (`armSwitch`, SelfSwitchResume.swift). A move a PERSON made (the panel, `/tally`,
+// a shell of their own) is never armed: they are there, and the next prompt is theirs.
 //
 // WHAT KEEPS IT OFF A CHILD THAT IS STILL COMING UP, since nothing here counts a child's age. The
 // handoff COPIES the transcript into the target account's tree (`shareTranscript`), so the file the
@@ -129,26 +132,6 @@ let capResumeLife: TimeInterval = sessionInputDraftLife * 2
 /// cap minutes later does not re-arm. That fails towards silence, which is the direction this whole
 /// station fails in on purpose.
 let capResumeOwnLineGrace: TimeInterval = sessionInputDraftGrace
-
-/// The line typed into the session that has just been moved off a capped account.
-///
-/// Names both accounts because both are the news: which one ran out (so the reader knows why their
-/// turn died) and which one they are on now (so a decision to stop instead of carrying on is made
-/// against the right window). Names them through `quotaKnockName`, which is the one rule in this
-/// repo for what may go on a terminal's input queue as an account name: a label is free text from a
-/// rename popover, and a newline in the middle of this sentence would submit half of it as a prompt
-/// and type the rest into whatever came up next.
-///
-/// `limit` is the channel's byte budget, held here the way `quotaKnockMessage` holds its own: the
-/// names are clipped to a budget of their own first, and whatever is left is cut to the limit, so
-/// the guarantee is measured rather than reasoned about.
-func capResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
-                      limit: Int = sessionInputMaxBytes) -> String {
-    let line = "\(capResumeMarker) \(quotaKnockName(from)) hit its usage limit and cut a turn "
-        + "short, and this session is now on \(quotaKnockName(to)). "
-        + "Continue the work that was interrupted."
-    return keystrokeClipped(line, bytes: limit)
-}
 
 // MARK: - The decision
 
@@ -346,6 +329,20 @@ struct CapResumeState: Equatable {
         lastCapAt = cappedAt
         offer = Offer(at: cappedAt, conversation: conversation,
                       line: capResumeMessage(from: from, to: to))
+    }
+
+    /// Raise an arm for a move this conversation asked for ITSELF: a `tally account` run inside one
+    /// of its own turns (SelfSwitchResume.swift decides that it was). The same offer, latch and
+    /// anti-recursion gate as a wall's; `at` is the instant the request was written, which is what
+    /// one line per move is keyed on, and what the offer's life is measured from.
+    mutating func armSwitch(at: Date, fresh: Bool, conversation: String?, line: String,
+                            userTurnAt: Date?, caughtUp: Bool) {
+        guard caughtUp, !fresh, let conversation,
+              capResumeFreshCap(cappedAt: at, lastCapAt: lastCapAt),
+              capResumeFollowedByPerson(nudgedAt: nudgedAt, userTurnAt: userTurnAt)
+        else { return }
+        lastCapAt = at
+        offer = Offer(at: at, conversation: conversation, line: line)
     }
 
     /// What this tick owes, in the order the gates bite.

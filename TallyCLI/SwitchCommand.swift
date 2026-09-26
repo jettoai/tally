@@ -61,8 +61,10 @@ enum SwitchIntent: Equatable {
 /// and no account can be shadowed by it, since a label is matched against what `tally status` prints
 /// and none of those starts with a dash.
 func attemptSwitch(name: String, cwd: String = FileManager.default.currentDirectoryPath,
-                   marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> SwitchAttempt {
-    attemptSwitch(name == switchAutoRequest ? .auto : .pin(name), cwd: cwd, marker: marker)
+                   marker: SessionMarkerTrust = .trusted(liveSessionMarker()),
+                   surface: SwitchOrigin = .promptHook) -> SwitchAttempt {
+    attemptSwitch(name == switchAutoRequest ? .auto : .pin(name), cwd: cwd, marker: marker,
+                  surface: surface)
 }
 
 /// Resolve the account, find the session, and write the request. Everything the command does except
@@ -80,9 +82,14 @@ func attemptSwitch(name: String, cwd: String = FileManager.default.currentDirect
 /// types into. It is a parameter for the MCP server behind the native picker (MCPServe.swift),
 /// which is a long-lived child of Claude Code and so has to be told which directory the prompt came
 /// from rather than reading its own.
+///
+/// `surface` is which of those surfaces is asking, recorded on the request for the one reader that
+/// needs it (`SwitchOrigin`). The default is the silent one, so a new caller that forgets it can
+/// never make a supervisor type into a conversation.
 func attemptSwitch(_ intent: SwitchIntent,
                    cwd: String = FileManager.default.currentDirectoryPath,
-                   marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> SwitchAttempt {
+                   marker: SessionMarkerTrust = .trusted(liveSessionMarker()),
+                   surface: SwitchOrigin = .shell) -> SwitchAttempt {
     let (snapshot, problem) = loadSnapshot()
     var notes: [String] = []
     if let problem { notes.append(problem) }
@@ -187,7 +194,8 @@ func attemptSwitch(_ intent: SwitchIntent,
         // act on a session that has just been `/clear`ed instead of holding the request until the
         // session ends (RequestTranscript.swift states the deadlock in full).
         try writeSwitchRequest(accountID: target?.id ?? switchAutoRequest, sessionKey: sessionKey,
-                               transcriptID: marker.promptTranscriptID)
+                               transcriptID: marker.promptTranscriptID,
+                               origin: switchRequestOrigin(surface: surface, adopted: adopted))
     } catch {
         return .refusal("cannot write \(switchRequestFile(sessionKey: sessionKey).path): "
                             + "\(error.localizedDescription)",
@@ -371,7 +379,9 @@ func runSwitch(args: [String]) -> Int32 {
         """)
         return 2
     }
-    let attempt = attemptSwitch(intent)
+    // `.session` as the surface: a command typed or run INSIDE a session is how a conversation
+    // moves itself, and `attemptSwitch` downgrades it when the lookup did not land on the marker.
+    let attempt = attemptSwitch(intent, surface: .session)
     // The one line that answers the command goes to stdout when it worked, so a script can read it;
     // a refusal is stderr, like every other failure here. The notes are always stderr: they qualify
     // the answer rather than being it.

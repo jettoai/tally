@@ -699,7 +699,7 @@ func runMCPAddressingChecks() {
     for wiring in ["liveModelStatus(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
                    "attemptModel($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)",
                    "liveSwitchFleet(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
-                   "attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)"] {
+                   "attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker, surface: .picker)"] {
         check("the picker addresses the session the HOOK described: \(wiring)",
               picker.contains(wiring))
     }

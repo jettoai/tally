@@ -27,6 +27,27 @@ func runSwitchRequestChecks() {
     check("an account with no stamp is no request", parseSwitchRequest("\nacct-2\n") == nil)
     check("a garbage body is no request", parseSwitchRequest("switch please\nacct-2") == nil)
 
+    // Line 4 names the writer, additive like line 3: an old three-line file, an empty line or an
+    // unknown word all read as "cannot say", which is the silent answer (SelfSwitchResume.swift).
+    check("line 4 names the writer of a request",
+          parseSwitchRequest("1\nacct\n\nsession\n")?.origin == .session
+              && parseSwitchRequest("1\nacct\n\nprompt-hook\n")?.origin == .promptHook
+              && parseSwitchRequest("1\nacct\n\npicker\n")?.origin == .picker
+              && parseSwitchRequest("1\nacct\n\nshell\n")?.origin == .shell)
+    check("a request with no fourth line, an empty one or an unknown word names no writer",
+          parseSwitchRequest("1\nacct\n\n")?.origin == nil
+              && parseSwitchRequest("1\nacct\n\nbogus\n")?.origin == nil
+              && parseSwitchRequest("1\nacct\n\n\n")?.origin == nil)
+    check("a command run inside the session it found by its own marker writes `session`",
+          switchRequestOrigin(surface: .session, adopted: "42") == .session)
+    check("…and one that found it by looking is somebody else's shell",
+          switchRequestOrigin(surface: .session, adopted: nil) == .shell)
+    check("a hook and the picker keep their own word whatever the lookup did",
+          switchRequestOrigin(surface: .promptHook, adopted: nil) == .promptHook
+              && switchRequestOrigin(surface: .promptHook, adopted: "42") == .promptHook
+              && switchRequestOrigin(surface: .picker, adopted: nil) == .picker
+              && switchRequestOrigin(surface: .picker, adopted: "42") == .picker)
+
     // MARK: - 31b. The file: round trip, resolution, cleanup
 
     let switchDir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -38,6 +59,10 @@ func runSwitchRequestChecks() {
     check("a written request round-trips",
           readSwitchRequest(sessionKey: "4242", dir: switchDir)
               == SwitchRequest(epoch: 1_800_000_000_500, accountID: "acct-2"))
+    try! writeSwitchRequest(accountID: "acct-2", sessionKey: "4343", origin: .session,
+                            now: Date(timeIntervalSince1970: 1_800_000_000.5), dir: switchDir)
+    check("a request written with its writer reads it back",
+          readSwitchRequest(sessionKey: "4343", dir: switchDir)?.origin == .session)
     // Milliseconds, not seconds: "switch to A" then, on seeing the wrong one, "switch to B" is a
     // real sequence, and at second resolution the second request reads as already served and
     // disappears without a word.

@@ -97,7 +97,7 @@ func runRequestTranscriptChecks() {
                                 encoding: .utf8)) ?? "")
         .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     check("an id carrying a newline never becomes a line of its own",
-          hostile.count == 4 && hostile[2].isEmpty)
+          hostile.count == 5 && hostile[2].isEmpty && hostile[3].isEmpty)
     check("…and the request it rides on is still the one that was asked for",
           readSwitchRequest(sessionKey: "6161", dir: switchDir)
               == SwitchRequest(epoch: 1_800_000_000_000, accountID: "acct-2"))

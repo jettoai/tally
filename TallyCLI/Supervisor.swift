@@ -1152,6 +1152,17 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                              userTurnAt: watcher.lastUserTurnAt,
                              // The old child's reading covers its whole transcript, or no arm.
                              caughtUp: watcher.caughtUp)
+                // AND THE SAME OFFER FOR A MOVE THIS CONVERSATION ASKED FOR ITSELF: a `tally
+                // account` its own agent ran mid-work leaves that work sitting in the resumed window
+                // exactly as a wall does (SelfSwitchResume.swift decides which moves those are).
+                armSwitchResume(&capResume, pid: supervisorPID, reason: plan.reason,
+                                fresh: plan.fresh || secondHead, served: switchRecord,
+                                tail: { watcher.file.flatMap {
+                                    transcriptTail(of: $0, bytes: selfSwitchTailBytes)
+                                } },
+                                conversation: watcher.transcriptSessionID,
+                                from: leaving, to: plan.target,
+                                userTurnAt: watcher.lastUserTurnAt, caughtUp: watcher.caughtUp)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child

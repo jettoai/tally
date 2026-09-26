@@ -150,7 +150,7 @@ struct MCPPickerWorld {
         liveSwitchFleet(cwd: $0.sessionDirectory, marker: $0.sessionMarker)
     }
     var applyAccount: (SwitchIntent, MCPHookInput) -> SwitchAttempt = {
-        attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)
+        attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker, surface: .picker)
     }
 }
 

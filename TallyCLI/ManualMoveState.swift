@@ -195,6 +195,9 @@ struct PendingSwitchConsumption {
     /// already there.
     let sessionPin: String?
     let dir: URL
+    /// Who wrote the request this serves (`SwitchOrigin`), read after the relaunch by the resume
+    /// that may follow a move the conversation asked for itself (SelfSwitchResume.swift).
+    var origin: SwitchOrigin? = nil
 
     /// The file is unlinked only when it still holds the request that was SERVED. Between planning
     /// and here the child is terminated, and a second `tally switch` typed in that window overwrites

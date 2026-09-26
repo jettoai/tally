@@ -326,7 +326,8 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         guard let named else { return }
         warn("switching to \(named.label) as asked, and staying there until you say otherwise")
         plan = RelaunchPlan(target: named, reason: "switch", countsFuse: false)
-        record = PendingSwitchConsumption(epoch: request.epoch, sessionPin: named.id, dir: dir)
+        record = PendingSwitchConsumption(epoch: request.epoch, sessionPin: named.id, dir: dir,
+                                          origin: request.origin)
     }
 }
 

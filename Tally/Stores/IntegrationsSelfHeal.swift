@@ -167,22 +167,14 @@ extension IntegrationsStore {
     }
 
     /// Put back whatever is missing, or do nothing. Returns whether anything on disk changed.
-    @discardableResult
-    func healPromptHooks() -> Bool {
-        // Shared state belongs to the INSTALLED release app, the same rule `autoUpdateSkill`
-        // follows: a build nobody installed - the dev variant, or any bundle running out of a build
-        // products tree - must never write into the config homes.
-        guard !BuildVariant.isUnshipped else { return false }
-        guard let ours = Self.oursNeedingHeal(binary: Self.bundledCLIURL,
-                                              nativePicker: Self.nativePickerIsSupported)
-        else { return false }
-        return syncPromptCommands(forSkillFiles: ours)
-    }
-
-    /// The watcher's form of `healPromptHooks`: the same decision, with the reading off the main
-    /// thread. The check is a SKILL.md read and a settings plus state-file parse per home, and it
-    /// runs on every settle of the busiest directories on the machine; the repair it may lead to is
-    /// rare and stays here, on the main actor, exactly as the launch sync makes it.
+    ///
+    /// The reading runs off the main thread: it is a SKILL.md read and a settings plus state-file
+    /// parse per home, on every settle of the busiest directories on the machine. The repair it may
+    /// lead to is rare and stays here, on the main actor, exactly as the launch sync makes it.
+    ///
+    /// Shared state belongs to the INSTALLED release app, the same rule `autoUpdateSkill` follows: a
+    /// build nobody installed - the dev variant, or any bundle running out of a build products tree
+    /// - must never write into the config homes.
     func healPromptHooksInBackground() async -> Bool {
         guard !BuildVariant.isUnshipped else { return false }
         // Resolved here: the picker answer is cached in a main-actor static, and the helper path is
@@ -197,7 +189,7 @@ extension IntegrationsStore {
     }
 
     /// The skill files to repair from, or nil when nothing needs healing: the whole of the heal's
-    /// reading, callable from any thread, and the one spelling both forms above share.
+    /// reading, callable from any thread.
     nonisolated static func oursNeedingHeal(binary: URL, nativePicker: Bool) -> [URL]? {
         let files = installedSkillFiles()
         guard hooksNeedHealing(skillFiles: files, population: claudeHomes(),
@@ -234,11 +226,11 @@ extension IntegrationsStore {
     /// set is unchanged, which is what keeps the repair's own manifest write from rebuilding the
     /// stream that noticed the damage.
     func refreshSettingsWatcher() {
-        // The same gate as the repair it exists to run (`healPromptHooks`), and it has to be the
-        // same one: a watcher whose only action can never fire is an FSEvents stream over the busiest
-        // directories on the machine, woken by every session write, to decide nothing. Two gates
-        // spelt differently here also read as a claim that a build tree may watch but not write,
-        // which is not a distinction anything wants.
+        // The same gate as the repair it exists to run (`healPromptHooksInBackground`), and it has
+        // to be the same one: a watcher whose only action can never fire is an FSEvents stream over
+        // the busiest directories on the machine, woken by every session write, to decide nothing.
+        // Two gates spelt differently here also read as a claim that a build tree may watch but not
+        // write, which is not a distinction anything wants.
         guard !BuildVariant.isUnshipped else { return }
         let directories = Self.watchedSettingsDirectories()
         guard Self.settingsWatcherNeedsRestart(current: settingsWatcherRoots,

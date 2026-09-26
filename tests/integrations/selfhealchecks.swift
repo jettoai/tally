@@ -516,6 +516,9 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           selfHeal.contains("let ours = await Task.detached(priority: .utility) {")
               && selfHeal.contains("discoverChanged: { [weak self] in await self?.healPromptHooksInBackground() ?? false }")
               && selfHeal.contains("return syncPromptCommands(forSkillFiles: ours)"))
+    check("…and gated on the unshipped judgment before it reads anything",
+          selfHeal.contains("func healPromptHooksInBackground() async -> Bool {\n"
+            + "        guard !BuildVariant.isUnshipped else { return false }"))
     check("the marker and onboarding writes are gated before the round can reach them",
           knownAccounts.contains("for account in discovered where !BuildVariant.isUnshipped {"))
     check("…and so is the memory of which accounts exist, whose defaults domain is the release app's",

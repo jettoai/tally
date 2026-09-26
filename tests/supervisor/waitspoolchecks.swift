@@ -99,7 +99,8 @@ func runWaitSpoolChild(root: URL) -> Never {
     idle.tick()
 
     // The supervisor's own exit path (Supervisor.swift): the tracker's closing events, appended.
-    for event in idle.tracker.finish(now: Date()) { appendSessionWaitEvent(event) }
+    let reason = SessionEndReason(supervisorSignal: SIGHUP, childStatus: SIGHUP)
+    for event in idle.tracker.finish(now: Date(), reason: reason) { appendSessionWaitEvent(event) }
     exit(0)
 }
 
@@ -137,4 +138,12 @@ func runWaitSpoolChecks() {
           events.count == 5 && events[3].resolution == "session-ended"
               && events[3].request?.id == opened.last?.id && events[4].kind == "session.ended")
     check("W1: the spooled seqs are contiguous from 1 (\(events.map(\.seq)))", events.map(\.seq) == [1, 2, 3, 4, 5])
+    check("W1: session.ended carries its reason through the spool, and no other kind carries one",
+          events.last?.reason == SessionEndReason(supervisorSignal: SIGHUP, childStatus: SIGHUP)
+              && events.dropLast().allSatisfy { $0.reason == nil })
+    let endedLine = events.last.flatMap { try? sessionWaitEventEncoder().encode($0) }
+        .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    check("W1: the line `tally events` prints spells the reason out (\(endedLine))",
+          endedLine.contains(#""reason":{"#) && endedLine.contains(#""supervisorSignal":1"#)
+              && endedLine.contains(#""childSignal":1"#))
 }

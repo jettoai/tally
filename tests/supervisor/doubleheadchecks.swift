@@ -90,6 +90,35 @@ func runDoubleHeadChecks() {
     check("neither surface writes an em dash",
           !notice.contains("—") && !holdLine.contains("—"))
 
+    // MARK: - 47a2. A fresh session's first binding never guesses a sibling's live transcript
+    //
+    // 2026-09-26: a window reopened in a directory where another session was running had no file
+    // of its own yet (none exists before the first prompt), so the mtime guess took the sibling's
+    // conversation the moment the sibling wrote to it, and the spool attributed that conversation
+    // to the wrong supervisor.
+    let bindDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-doublehead-bind-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: bindDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: bindDir) }
+    try! Data("{}\n".utf8).write(to: bindDir.appendingPathComponent("\(siblingConversation).jsonl"))
+    let bindSince = Date().addingTimeInterval(-60)
+    var unguarded = TranscriptWatcher(projectDir: bindDir, since: bindSince)
+    unguarded.locateFile()
+    check("without the live set, the mtime guess takes the sibling's freshly written file (the defect)",
+          unguarded.transcriptSessionID == siblingConversation)
+    var guarded = TranscriptWatcher(projectDir: bindDir, since: bindSince,
+                                    isForeign: { elsewhere.contains($0) })
+    guarded.locateFile()
+    check("a fresh session does not bind a transcript another live session is writing",
+          guarded.file == nil)
+    try! Data("{}\n".utf8).write(to: bindDir.appendingPathComponent("\(ourConversation).jsonl"))
+    guarded.locateFile()
+    check("...and binds its own the moment it exists", guarded.transcriptSessionID == ourConversation)
+    let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the supervisor hands its watcher the live set without its own conversation",
+          supervisorSource.contains(
+              "isForeign: { liveConversations(in: cwd, excluding: supervisorPID).contains($0) })"))
+
     // MARK: - 47b. Which processes a handoff takes down with the child
 
     func proc(_ pid: pid_t, under parent: pid_t, startedAt: Int64 = 1_000) -> HandoffProcess {

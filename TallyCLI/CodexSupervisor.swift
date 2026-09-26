@@ -219,7 +219,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     terminal?.drainOutput()
     terminal?.close()
     let status = reaper.wait()
-    for event in codexWaits.finish(now: Date()) { appendSessionWaitEvent(event) }
+    let endReason = SessionEndReason(supervisorSignal: codexSupervisorSignal, childStatus: status)
+    for event in codexWaits.finish(now: Date(), reason: endReason) { appendSessionWaitEvent(event) }
     maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
     clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
     postSessionStateChanged(pid: pid)

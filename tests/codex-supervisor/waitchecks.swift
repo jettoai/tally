@@ -125,6 +125,13 @@ func runCodexWaitPermissionChecks() throws {
           finished.map(\.kind) == ["wait.resolved", "session.ended"] && finished[0].resolution == "session-ended"
           && finished[1].request == nil && finished[1].resolution == nil && finished[1].session.key == waitIdentity.key)
     var idleTracker = CodexWaitTracker(identity: waitIdentity)
-    check("finishing with nothing standing emits only session.ended", idleTracker.finish(now: start).map(\.kind) == ["session.ended"])
+    let reason = SessionEndReason(supervisorSignal: 15, childStatus: 15)
+    let idleEnd = idleTracker.finish(now: start, reason: reason)
+    check("finishing with nothing standing emits only session.ended", idleEnd.map(\.kind) == ["session.ended"])
+    check("session.ended carries the reason it was given", idleEnd.last?.reason == reason)
+    let codexSource = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
+    check("the Codex supervisor builds that reason from its received signal and the child's wait status",
+          codexSource.contains("SessionEndReason(supervisorSignal: codexSupervisorSignal, childStatus: status)")
+              && codexSource.contains("codexWaits.finish(now: Date(), reason: endReason)"))
     _ = finishFile
 }

@@ -313,8 +313,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
         var watcher = TranscriptWatcher(
             projectDir: URL(fileURLWithPath: account.launchHome!).appendingPathComponent("projects/\(slug)"),
-            since: launchedAt,
-            resumeID: flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r"))
+            since: launchedAt, resumeID: flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r"),
+            isForeign: { liveConversations(in: cwd, excluding: supervisorPID).contains($0) })
         var handoff = false
         /// Whether the relaunch this child ends in had to DROP the resume: the conversation it was
         /// in is being written by somebody else, so carrying it would fork it (HandoffResume.swift).
@@ -1232,7 +1232,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // without this the board hears nothing until some OTHER supervisor happens to move. For a
         // session that was BLOCKED that is not a stale row, it is a red dot in the menu bar for a
         // conversation that no longer exists, standing until an unrelated session changes state.
-        for event in sessionWaits.finish(now: Date()) { appendSessionWaitEvent(event) }
+        for event in sessionWaits.finish(now: Date(), reason: supervisorEndReason(status)) { appendSessionWaitEvent(event) }
         maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
         postSessionStateChanged(pid: supervisorPID)
         exit(supervisorExitCode(childStatus: status))

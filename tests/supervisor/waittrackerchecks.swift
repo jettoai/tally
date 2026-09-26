@@ -212,6 +212,15 @@ func runWaitTrackerChecks() {
           forwardSupervisorTermination(to: sleeper))
     let sleeperStatus = sleeper.wait()
     check("...which the child dies of", (sleeperStatus & 0x7f) == SIGTERM)
+    check("session.ended's reason names the signal the supervisor got and the one the child died of",
+          supervisorEndReason(sleeperStatus)
+              == SessionEndReason(supervisorSignal: SIGTERM, childStatus: SIGTERM)
+              && supervisorEndReason(sleeperStatus).supervisorSignal == Int(SIGTERM)
+              && supervisorEndReason(sleeperStatus).childSignal == Int(SIGTERM)
+              && supervisorEndReason(sleeperStatus).childExitCode == nil)
+    let selfExit = SessionEndReason(supervisorSignal: 0, childStatus: 3 << 8)
+    check("a child that exited on its own reads as no signal received, plus its exit code",
+          selfExit.supervisorSignal == 0 && selfExit.childExitCode == 3 && selfExit.childSignal == nil)
     signal(SIGTERM, SIG_DFL)
     signal(SIGHUP, SIG_DFL)
     let loopSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
@@ -222,6 +231,8 @@ func runWaitTrackerChecks() {
               && forwardAt != nil && tickAt != nil && forwardAt!.lowerBound < tickAt!.lowerBound)
     check("...and a signalled supervisor does not relaunch, it takes the exit path",
           loopSource.contains("if handoff, supervisorTerminationSignal == 0 { continue }"))
+    check("...where session.ended is given the reason built from the child's wait status",
+          loopSource.contains("sessionWaits.finish(now: Date(), reason: supervisorEndReason(status))"))
 
     try? FileManager.default.removeItem(at: dir)
 }

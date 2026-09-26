@@ -91,6 +91,12 @@ try script("printf 'Current session: 12%% used\\n'\nexit 0")
 let success = await ClaudeUsageCLI.fetchUsageText(configDir: dir.path, executable: stub.path)
 expect(success.map { !ClaudeUsageTextMapper.map(text: $0).isEmpty } == true,
        "successful official usage output produces actual metrics")
+let argvFile = dir.appendingPathComponent("argv")
+try script("printf '%s\\n' \"$@\" > '\(argvFile.path)'\nprintf 'Current session: 12%% used\\n'\nexit 0")
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: dir.path, executable: stub.path)
+let probeArgv = (try? String(contentsOf: argvFile, encoding: .utf8))?.split(separator: "\n").map(String.init)
+expect(probeArgv == ["-p", "/usage", "--strict-mcp-config", "--safe-mode"],
+       "the probe runs with MCP isolation and without the user's hooks and plugins (\(probeArgv ?? []))")
 usageHealth.record(accountID: account, authenticated: true)
 expect(!usageHealth.needsSignIn(account, local: .signedIn), "a genuine usage success clears the failure")
 expect(usageHealth.needsSignIn(account, local: .signedOut), "original signed-out verdict still warns")

@@ -80,6 +80,18 @@ one of `permission`, `question`, `unknown`. `request.confidence` is one of `conf
 `superseded`, `session-ended`, `unknown` (see Limitations below: `denied` is reserved for a future
 version and is never emitted by v1).
 
+`reason`, present only on `session.ended`, says why the session ended:
+
+```json
+"reason": { "supervisorSignal": 15, "childSignal": 15 }
+```
+
+`supervisorSignal` is the termination signal the supervisor received (`1` SIGHUP, a closed terminal;
+`15` SIGTERM, a kill), or `0` when none came and the session ended because its child exited on its
+own. Beside it is exactly one of `childExitCode` (the child exited normally with that code) or
+`childSignal` (the child was killed by that signal). The field was added without bumping `v`: lines
+written before it existed simply have no `reason`.
+
 `confidence == "confirmed"` is reserved for signals this build can prove reached a real dialog:
 Claude's structured question tool call, and Claude's `permission_prompt` /
 `worker_permission_prompt` / `elicitation_dialog` / `elicitation_url_dialog` / `agent_needs_input`

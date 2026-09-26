@@ -91,14 +91,16 @@ struct CodexWaitTracker {
 
     /// The supervisor is shutting down (§4.1b's last rule, same shape for Codex): a standing request
     /// resolves as `session-ended` first, then `session.ended` closes the session itself.
-    mutating func finish(now: Date) -> [SessionWaitEvent] {
+    mutating func finish(now: Date, reason: SessionEndReason? = nil) -> [SessionWaitEvent] {
         var events = reconcileWaitRequests(previous: open, current: nil, resolution: .sessionEnded,
                                            identity: identity, provider: "codex", now: now)
         open = nil
         openTurnID = nil
         openCallID = nil
-        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
-                                           provider: "codex", now: now))
+        var ended = makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                         provider: "codex", now: now)
+        ended.reason = reason
+        events.append(ended)
         return events
     }
 }

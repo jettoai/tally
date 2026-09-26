@@ -57,6 +57,11 @@ struct TranscriptWatcher {
     /// guessing by mtime - two sessions in one directory otherwise cross-bind to whichever file
     /// was touched last. nil on a fresh launch, where the heuristic still applies.
     var resumeID: String?
+    /// Whether a transcript id is being written by ANOTHER live session in this directory. The mtime
+    /// guess below skips those: a fresh child has no file until its first prompt, and until then the
+    /// newest file here is a sibling's, so without this a sibling's next write bound this session to
+    /// that conversation (2026-09-26: supervisor 43275 reported a477080c, which 28094 was running).
+    var isForeign: (String) -> Bool = { _ in false }
     /// The fork-discovery join key: the id THIS child process was launched with, which every file
     /// it moves the conversation into carries as its `session_id` (see TranscriptFork.swift). A
     /// per-process constant, so unlike `resumeID` it is NEVER moved by an adoption: `resumeID`
@@ -475,6 +480,7 @@ struct TranscriptWatcher {
                     .contentModificationDate else { return nil }
                 return modified >= since.addingTimeInterval(-5) ? (url, modified) : nil
             }
+            .filter { !isForeign($0.0.deletingPathExtension().lastPathComponent) }
             .max { $0.1 < $1.1 }
         file = candidate?.0
     }

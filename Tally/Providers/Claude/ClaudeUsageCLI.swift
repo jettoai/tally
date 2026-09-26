@@ -17,9 +17,13 @@ enum ClaudeUsageCLI {
         guard let binary = executable ?? CLIRunner.resolve("claude") else { return nil }
         try? FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
         // --strict-mcp-config: the probe must never load MCP servers (fork-bomb guard + speed).
+        // --safe-mode: nor the user's hooks and plugins. This runs once a minute per account, and
+        // without it every run fired the whole SessionStart hook set of ~/.claude/settings.json
+        // (seen in the probe transcripts as hook_success / hook_additional_context lines). Auth is
+        // untouched by it; EarlyStartCommand.swift carries the same flag and the reasoning in full.
         let output = await CLIRunner.run(
             binary,
-            arguments: ["-p", "/usage", "--strict-mcp-config"],
+            arguments: ["-p", "/usage", "--strict-mcp-config", "--safe-mode"],
             environment: ["CLAUDE_CONFIG_DIR": configDir],
             currentDirectory: probeDirectory,
             timeout: 60

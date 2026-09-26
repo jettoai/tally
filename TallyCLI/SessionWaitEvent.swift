@@ -35,10 +35,31 @@ struct SessionWaitEvent: Codable, Equatable {
     var request: SessionWaitRequest?
     /// One of `SessionWaitResolution`'s raw values, or nil when `kind != "wait.resolved"`.
     var resolution: String?
+    /// Why the session ended, present only on `session.ended` (added after v1 shipped; absent on
+    /// every other kind and on older spool lines, which is why the version was not bumped).
+    var reason: SessionEndReason?
     /// Filled by `sessionWaitIdempotencyKey` before the event is handed to the spool (a
     /// `wait.updated` is restamped with its `seq` by the spool itself): a consumer
     /// that acts on this event and sees the same key again knows it already acted.
     var idempotencyKey: String = ""
+}
+
+/// What a supervisor knows about why its session ended: the termination signal the SUPERVISOR
+/// received (0 when none came, so the child ended on its own), and how the CHILD left, which is
+/// exactly one of an exit code or the signal that killed it. Without the first, a closed window and
+/// a `kill` read the same as a child that exited by itself (2026-09-26, twelve sessions ended in one
+/// burst and the spool could not say which of the two it was).
+struct SessionEndReason: Codable, Equatable {
+    var supervisorSignal: Int
+    var childExitCode: Int?
+    var childSignal: Int?
+
+    /// `childStatus` is the raw `waitpid` status (the same decoding `supervisorExitCode` applies).
+    init(supervisorSignal: Int32, childStatus: Int32) {
+        self.supervisorSignal = Int(supervisorSignal)
+        let signal = childStatus & 0x7f
+        if signal == 0 { childExitCode = Int((childStatus >> 8) & 0xff) } else { childSignal = Int(signal) }
+    }
 }
 
 enum SessionWaitEventKind: String {

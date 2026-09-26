@@ -327,15 +327,17 @@ struct SessionWaitTracker {
 
     /// Supervisor shutdown (plan §4.1b's fifth rule, §6.11): a standing request resolves
     /// `session-ended` first, then `session.ended` closes the session itself.
-    mutating func finish(now: Date) -> [SessionWaitEvent] {
+    mutating func finish(now: Date, reason: SessionEndReason? = nil) -> [SessionWaitEvent] {
         var events = takeStaleSeedEvents(now: now)
         events += reconcileWaitRequests(previous: open, current: nil, resolution: .sessionEnded,
                                         identity: identity, provider: "claude", now: now)
         open = nil
         witness = nil
         lastReading = nil
-        events.append(makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
-                                           provider: "claude", now: now))
+        var ended = makeSessionWaitEvent(.ended, request: nil, resolution: nil, identity: identity,
+                                         provider: "claude", now: now)
+        ended.reason = reason
+        events.append(ended)
         if let pid { try? FileManager.default.removeItem(at: SessionWaitTracker.seedFile(pid: pid, dir: dir)) }
         return events
     }

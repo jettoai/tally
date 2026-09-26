@@ -331,10 +331,10 @@ let t16Claude = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encodi
 expect(t16Codex.contains("now: Date()) { appendSessionWaitEvent(event) }\n"
                          + "            maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)\n"),
        "T16: the Codex tick spawns delivery right after it spools its events")
-expect(t16Codex.contains("codexWaits.finish(now: Date()) { appendSessionWaitEvent(event) }\n"
+expect(t16Codex.contains("codexWaits.finish(now: Date(), reason: endReason) { appendSessionWaitEvent(event) }\n"
                          + "    maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)\n"),
        "T16: the Codex exit path force-spawns delivery after its finish events")
-expect(t16Claude.contains("sessionWaits.finish(now: Date()) { appendSessionWaitEvent(event) }\n"
+expect(t16Claude.contains("sessionWaits.finish(now: Date(), reason: supervisorEndReason(status)) { appendSessionWaitEvent(event) }\n"
                           + "        maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)\n"),
        "T16: the Claude exit path force-spawns delivery after its finish events")
 

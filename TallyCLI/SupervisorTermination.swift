@@ -31,6 +31,12 @@ func installSupervisorTerminationHandlers() {
 /// The termination signal this supervisor has received, or 0.
 var supervisorTerminationSignal: Int32 { claudeSupervisorSignal }
 
+/// The `session.ended` reason for a child that left with `childStatus`: which signal (if any) this
+/// supervisor received, beside how the child exited.
+func supervisorEndReason(_ childStatus: Int32) -> SessionEndReason {
+    SessionEndReason(supervisorSignal: claudeSupervisorSignal, childStatus: childStatus)
+}
+
 /// True when a termination signal has arrived, after forwarding it to the child if it is still
 /// running. The pid is safe to signal while `isRunning` holds: an unreaped child keeps its pid.
 func forwardSupervisorTermination(to child: ChildReaper) -> Bool {

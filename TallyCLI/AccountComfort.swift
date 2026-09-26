@@ -77,14 +77,13 @@ func effectiveRemaining(_ window: ComfortWindow, now: Date) -> Double {
 /// above the nearly-dry line. Reporting no counted windows is not proof of comfort, and such an
 /// account stays selectable through the all-drained fallback below.
 func isComfortable(_ windows: [ComfortWindow], now: Date) -> Bool {
-    guard let tightest = windows.map({ effectiveRemaining($0, now: now) }).min() else { return false }
-    return tightest > nearlyDryPercent
+    hasRunway(windows, floor: nearlyDryPercent, now: now)
 }
 
 /// Whether every window keeps MORE than `floor` percent once imminent resets and reserves are
-/// counted: the effective reading `isComfortable` takes, with a caller's line instead of the
-/// nearly-dry one. Strictly above, the complement of "at or under", which every threshold in this
-/// repo uses (`quotaKnockStep`): an account this answers yes for is one the knock stays quiet on.
+/// counted: `isComfortable` is this at the nearly-dry line. Strictly above, the complement of "at
+/// or under", which every threshold in this repo uses (`quotaKnockStep`): an account this answers
+/// yes for is one the knock stays quiet on.
 func hasRunway(_ windows: [ComfortWindow], floor: Double, now: Date) -> Bool {
     guard let tightest = windows.map({ effectiveRemaining($0, now: now) }).min() else { return false }
     return tightest > floor

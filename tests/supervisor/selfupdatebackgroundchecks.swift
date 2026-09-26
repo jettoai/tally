@@ -29,7 +29,7 @@ func runSelfUpdateBackgroundChecks() {
     }
     let afterStop = fold(nil, stop(mixed))
     check("background: a turn end records its count", afterStop.background == 2)
-    let afterSubagent = fold(afterStop, stop([["type": "shell", "id": "x"]] + [],
+    let afterSubagent = fold(afterStop, stop([["type": "shell", "id": "x"]],
                                              event: "SubagentStop"))
     check("background: a subagent's own stop does not overwrite the session's count",
           afterSubagent.background == 2)

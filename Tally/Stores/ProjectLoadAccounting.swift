@@ -323,13 +323,18 @@ final class ProjectLoadAccounting {
     /// The pools `measure` will read this tick, with what each held last tick: the state half of
     /// the stray reading, on the main actor.
     func strayPools(_ strays: [pid_t: String]) -> [String: StrayPool] {
-        var pidsByRoot: [String: Set<pid_t>] = [:]
-        for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
         var pools: [String: StrayPool] = [:]
-        for (root, pids) in pidsByRoot {
-            pools[root] = StrayPool(pids: pids, held: Set(previous[root]?.times.keys.map { $0 } ?? []))
+        for (root, pids) in Self.pidsByRoot(strays) {
+            pools[root] = StrayPool(pids: pids, held: previous[root].map { Set($0.times.keys) } ?? [])
         }
         return pools
+    }
+
+    /// Each project's strays, grouped by the root they work in.
+    private static func pidsByRoot(_ strays: [pid_t: String]) -> [String: Set<pid_t>] {
+        var pidsByRoot: [String: Set<pid_t>] = [:]
+        for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
+        return pidsByRoot
     }
 
     /// The machine half, callable from any thread: the samples first, then the fate of every pid a
@@ -352,12 +357,14 @@ final class ProjectLoadAccounting {
                          reads: StrayReads?) -> [MachineLoadRollup.StrayReading] {
         // Handed-in answers first; the injected readers only when none were handed in.
         let injected = self.departure
-        let departure: PoolDeparture = reads.map { reads in { reads.departures[$0] ?? injected($0) } }
-            ?? injected
-        var pidsByRoot: [String: Set<pid_t>] = [:]
-        for (pid, root) in strays { pidsByRoot[root, default: []].insert(pid) }
+        let departure: PoolDeparture
+        if let reads {
+            departure = { reads.departures[$0] ?? injected($0) }
+        } else {
+            departure = injected
+        }
         var readings: [MachineLoadRollup.StrayReading] = []
-        for (root, pids) in pidsByRoot {
+        for (root, pids) in Self.pidsByRoot(strays) {
             var reading = reads?.samples[root] ?? sample(pids, now)
             // Identities for whatever the reader did not supply them for, which in production is all
             // of them: `ProcessTree.resourceSample` asks `proc_pid_rusage` and that record carries no

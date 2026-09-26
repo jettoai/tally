@@ -391,11 +391,16 @@ func runSessionBoardOrderChecks() {
         rosterSource.components(separatedBy: "func \(function)() {").last?
             .components(separatedBy: "\n    }").first ?? ""
     }
-    let scanBody = body(of: "refresh")
+    // The scan's IO runs off the main thread now (SessionRosterScan.swift); what hands the seats
+    // over is `publish`, which is where the held seating is read.
+    let scanBody = rosterSource.components(separatedBy: "func publish(_ scanned: [SessionRow]) {").last?
+        .components(separatedBy: "\n    }").first ?? ""
+    let scanSource = (try? String(contentsOfFile: "Tally/Stores/SessionRosterScan.swift",
+                                  encoding: .utf8)) ?? ""
     let surfaceBody = body(of: "beginViewing")
     let openingBody = body(of: "beginViewingBoard")
     check("the three bodies this suite reads apart are found",
-          scanBody.contains("liveSessionStates()") && surfaceBody.contains("surfaces += 1")
+          scanBody.contains("DemoUsage.sessions(scanned)") && surfaceBody.contains("surfaces += 1")
               && openingBody.contains("boardViewers += 1"))
     // WHAT THE SCAN HANDS THE SEATS is the scan itself, through one named step: a capture lays its
     // fixture cards over the rows before anything is seated (`DemoUsage.sessions`, pinned in
@@ -403,9 +408,9 @@ func runSessionBoardOrderChecks() {
     // seating half - the rows come from the live scan, and the seats handed in are the held ones.
     check("the roster holds its seating between scans and never re-seats on one",
           rosterSource.contains("private var seating: [String]?")
-              && scanBody.contains("liveSessionStates().map(Self.row)")
-              && scanBody.contains("Self.seat(scanned, seating: self.seating)")
-              && !scanBody.contains("sortsByState"))
+              && scanSource.contains("liveSessionStates().map(row)")
+              && scanBody.contains("Self.seat(fixtured, seating: self.seating)")
+              && !scanBody.contains("sortsByState") && !scanSource.contains("sortsByState"))
     // And the one place it IS asked, counted after the arrival so the second host reads as a 2.
     check("…and the surface that opens the board is the one thing that asks the states again",
           openingBody.contains("Self.seatingOnOpen(seating, viewers: boardViewers,")

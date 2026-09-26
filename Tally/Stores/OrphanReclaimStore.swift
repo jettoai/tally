@@ -130,24 +130,38 @@ final class OrphanReclaimStore {
     ///     place every one of them (`OrphanReclaim.Sessions`). A tree in one of these checkouts is
     ///     never ended on inference alone (`OrphanReclaim.Veto.sessionPresent`), and a board that
     ///     could not place a row leaves the whole round in doubt (`Veto.sessionUnknown`).
+    ///   - leases: the leases, when the caller already read them off the main thread for this round
+    ///     (`leaseReaderIfDue`); nil reads them here.
     func observe(strays: [pid_t: String], processes: [ProcessIdentity],
-                 sessions: OrphanReclaim.Sessions, at now: Date) {
+                 sessions: OrphanReclaim.Sessions, at now: Date,
+                 leases prefetched: [OrphanLease]? = nil) {
         expireSuccessfulRecords(at: now)
         advance(at: now)
         // A CAPTURE MUST NEVER REACH THIS. The demo flag fabricates the board's readings
         // (`DemoUsage`), and a screenshot run that ended a real process because a fixture said it
         // was busy would be the worst possible version of this feature.
-        guard !DemoUsage.isActive else { return }
-        if let lastRound, now.timeIntervalSince(lastRound) < OrphanReclaim.roundInterval { return }
+        guard roundDue(at: now) else { return }
         lastRound = now
         // The table by pid, built once and handed down: every step below asks it something, and
         // three copies of one index is three chances for two of them to disagree.
         let table = Dictionary(processes.map { ($0.pid, $0) }) { first, _ in first }
-        let fromLeases = leases(among: processes, table: table, at: now)
+        let fromLeases = leases(among: processes, table: table, at: now, prefetched: prefetched)
         var acted = fromLeases.claimed
         acted.formUnion(sweeps.flatMap(\.targets))
         round(strays: strays.filter { !acted.contains($0.key) }, processes: processes,
               table: table, sessions: sessions, leased: fromLeases.tended, at: now)
+    }
+
+    /// Whether `observe` at this instant takes a round. A CAPTURE NEVER DOES (`DemoUsage`).
+    func roundDue(at now: Date) -> Bool {
+        !DemoUsage.isActive
+            && (lastRound.map { now.timeIntervalSince($0) >= OrphanReclaim.roundInterval } ?? true)
+    }
+
+    /// The lease reader, when a round is due: what the footprint pass calls off the main thread so
+    /// the round finds its leases already read (TALLY-A, 2026-09-26). Nil when no round is due.
+    func leaseReaderIfDue(at now: Date) -> (@Sendable () -> [OrphanLease])? {
+        roundDue(at: now) ? machine.leases : nil
     }
 
     /// TIER A: the leases whose writer has gone (`OrphanLease` carries the whole contract).
@@ -168,10 +182,10 @@ final class OrphanReclaimStore {
     /// - Returns: every pid this tier claimed, whether or not the kill has finished, and the pids
     ///   a live lease still speaks for (`OrphanReclaim.Veto.leased`).
     private func leases(among processes: [ProcessIdentity], table: [pid_t: ProcessIdentity],
-                        at now: Date) -> (claimed: Set<pid_t>, tended: Set<pid_t>) {
+                        at now: Date, prefetched: [OrphanLease]?) -> (claimed: Set<pid_t>, tended: Set<pid_t>) {
         var claimed: Set<pid_t> = []
         var tended: Set<pid_t> = []
-        for lease in machine.leases() {
+        for lease in prefetched ?? machine.leases() {
             // WHERE THE TABLE IS SILENT ABOUT THE SUPERVISOR, THE KERNEL IS ASKED ABOUT IT
             // DIRECTLY, and only a definite "no such process" gets past here (`OrphanReclaim.state`
             // carries the incident). `unsure` claims nothing, so the tree is left in the strays and

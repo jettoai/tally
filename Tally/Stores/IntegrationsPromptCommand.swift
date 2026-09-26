@@ -68,20 +68,20 @@ extension IntegrationsStore {
     // MARK: - The command file
 
     /// Where Claude Code looks for one of these in a config home.
-    static func promptCommandFile(inHome home: URL, command: PromptCommand) -> URL {
+    nonisolated static func promptCommandFile(inHome home: URL, command: PromptCommand) -> URL {
         promptCommandFile(inHome: home, named: command.name)
     }
 
     /// The same path by NAME, which is what a rename needs: the file left behind under a name this
     /// command no longer answers to is still at the place this spelling produces.
-    static func promptCommandFile(inHome home: URL, named name: String) -> URL {
+    nonisolated static func promptCommandFile(inHome home: URL, named name: String) -> URL {
         home.appendingPathComponent("commands/\(name).md")
     }
 
     /// The config home a `<home>/skills/<skill>/SKILL.md` path belongs to. The commands follow the
     /// skill's homes rather than discovering their own, which is what keeps them in step even for an
     /// account that has since logged out (its SKILL.md is still on disk, and so are its commands).
-    static func claudeHome(ofSkillFile file: URL) -> URL {
+    nonisolated static func claudeHome(ofSkillFile file: URL) -> URL {
         file.deletingLastPathComponent()      // the skill folder
             .deletingLastPathComponent()      // skills
             .deletingLastPathComponent()      // the config home
@@ -247,7 +247,7 @@ extension IntegrationsStore {
     ///
     /// Homes named by `files` are kept even when the population does not list them: an account that
     /// logged out since install is no longer discovered, and its SKILL.md is still on disk.
-    static func homesCarrying(_ files: [URL], population: [URL]) -> [URL] {
+    nonisolated static func homesCarrying(_ files: [URL], population: [URL]) -> [URL] {
         let wanted = Set(files.map { $0.resolvingSymlinksInPath().path })
         let sharing = population.filter {
             wanted.contains(claudeSkillFile(inHome: $0).resolvingSymlinksInPath().path)
@@ -375,7 +375,7 @@ extension IntegrationsStore {
     /// is its own. Judging on the survivors alone reported an install complete while a home was
     /// missing its half of it. Injected rather than discovered so the tests never touch a real
     /// config home (`claudeHomes()` enumerates the machine's).
-    static func promptCommandsAreCurrent(forSkillFiles files: [URL], population: [URL]) -> Bool {
+    nonisolated static func promptCommandsAreCurrent(forSkillFiles files: [URL], population: [URL]) -> Bool {
         promptCommands.allSatisfy {
             promptCommandIsCurrent(forSkillFiles: files, population: population, command: $0)
         }
@@ -384,7 +384,7 @@ extension IntegrationsStore {
     /// The same question about ONE command. Separate because they are separate answers: an app that
     /// gained a second command leaves every existing install current in the first and missing the
     /// second, and telling those apart is what makes the repair reportable.
-    static func promptCommandIsCurrent(forSkillFiles files: [URL], population: [URL],
+    nonisolated static func promptCommandIsCurrent(forSkillFiles files: [URL], population: [URL],
                                        command: PromptCommand) -> Bool {
         homesCarrying(files, population: population).allSatisfy { home in
             let text = try? String(contentsOf: promptCommandFile(inHome: home, command: command),

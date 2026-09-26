@@ -104,6 +104,10 @@ final class SessionRosterStore {
     /// earlier, while a second surface merely being open, on any page, counted as somebody reading
     /// the board and froze the seats for a first look that had not happened yet.
     @ObservationIgnored private var boardViewers = 0
+    /// The background scan's gate, its waiters and the last raw scan (SessionRosterScan.swift).
+    @ObservationIgnored var scanGate = CoalescingGate()
+    @ObservationIgnored var scanWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var lastScanned: [SessionRow]?
 
     private init() {}
     init(rows: [SessionRow]) { self.rows = rows }
@@ -119,7 +123,7 @@ final class SessionRosterStore {
     /// running all the same, and the sidecars it DOES write still say which account it is on, what
     /// it is running and how big the conversation is. Every accessor below therefore reads "what is
     /// known" rather than "what the state file said", and falls back rather than going blank.
-    struct SessionRow: Identifiable, Equatable {
+    struct SessionRow: Identifiable, Equatable, Sendable {
         /// The supervisor pid, as a string. Stable for the life of the session, which is what makes
         /// it the row's identity across refreshes.
         let id: String
@@ -310,6 +314,7 @@ final class SessionRosterStore {
     func beginViewingBoard() {
         boardViewers += 1
         seating = Self.seatingOnOpen(seating, viewers: boardViewers, sortsByState: sortsByState())
+        if let lastScanned { publish(lastScanned) }
         refresh()
     }
 
@@ -322,13 +327,23 @@ final class SessionRosterStore {
 
     // MARK: The scan
 
+    /// Ask for a scan. Never blocks: the reading runs off the main thread, one pass at a time, and
+    /// comes back through `publish` (SessionRosterScan.swift).
     func refresh() {
+        guard scanGate.request() else { return }
+        startScan()
+    }
+
+    /// Seat and publish one finished scan, on the main actor.
+    func publish(_ scanned: [SessionRow]) {
+        lastScanned = scanned
         // FIXTURE CARDS FOR A CAPTURE, and only for one: the flag lives in the volatile argument
         // domain, so an ordinary launch never has one (`DemoUsage.sessions`). Laid over the scan
         // BEFORE the seats are taken and before anything counts these rows, so the fixtures decide
         // the board's own order, its summary line and the menu bar's dot alike (`blockedCount`).
-        let scanned = DemoUsage.sessions(liveSessionStates().map(Self.row))
-        let (rows, seating) = Self.seat(scanned, seating: self.seating)
+        // The seats are read NOW, not when the scan started, so a board opened mid-scan keeps them.
+        let fixtured = DemoUsage.sessions(scanned)
+        let (rows, seating) = Self.seat(fixtured, seating: self.seating)
         self.seating = seating
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.
@@ -345,24 +360,8 @@ final class SessionRosterStore {
     /// caller's to hold, and it is what turning the switch off comes back to.
     func resortByState() {
         seating = nil
+        if let lastScanned { publish(lastScanned) }
         refresh()
-    }
-
-    /// One live session, joined with everything beside it on disk. Nothing here is required: a
-    /// session with no state, no context reading and no directory is still a session, and reads as
-    /// a card that knows only that it is running.
-    private static func row(_ live: LiveSessionState) -> SessionRow {
-        let pid = String(live.supervisorPid)
-        var row = SessionRow(id: pid, record: live.record,
-                             session: SessionSidecar.read(pid: pid),
-                             cwd: SessionSidecar.readCwd(pid: pid),
-                             child: SessionSidecar.readChildPid(pid: pid))
-        // ONCE PER ROW PER SCAN, here rather than in the accessor the card reads: the stamp is a
-        // sysctl and a card's body runs on every render, while the child it is read off cannot
-        // change its environment for as long as it lives. Off the row's OWN answer for which child
-        // that is, rather than a second spelling of the same precedence.
-        row.childSupervisorVersion = row.childPid.flatMap(supervisorVersionStamp(ofProcess:))
-        return row
     }
 
     /// The board's order: what needs somebody first, then what is moving, then what is not, then

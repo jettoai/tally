@@ -30,6 +30,7 @@ final class FakeMachine {
     var times: [pid_t: Double] = [:]
     var memory: [pid_t: UInt64] = [:]
     var leases: [OrphanLease] = []
+    var leaseReads = 0
     var cleared: [String] = []
     var terminals: Set<pid_t> = []
     var listening: Set<UInt16> = []
@@ -77,7 +78,7 @@ final class FakeMachine {
                 }
             },
             hasTerminal: { [self] pid in MainActor.assumeIsolated { terminals.contains(pid) } },
-            leases: { [self] in MainActor.assumeIsolated { leases } },
+            leases: { [self] in MainActor.assumeIsolated { leaseReads += 1; return leases } },
             clearLease: { [self] lease in
                 MainActor.assumeIsolated { cleared.append(lease.pidFile) }
             },
@@ -864,14 +865,30 @@ func runOrphanStoreChecks() {
     let source = (try? String(contentsOfFile: "Tally/Stores/OrphanReclaimStore.swift",
                               encoding: .utf8)) ?? ""
     check("a capture takes no round at all",
-          source.contains("guard !DemoUsage.isActive else { return }"))
+          source.contains("func roundDue(at now: Date) -> Bool {\n        !DemoUsage.isActive")
+              && source.contains("guard roundDue(at: now) else { return }"))
     // AND THE TICK HAS TO HAND THE SESSIONS OVER, which is the one step of this no fixture can
     // drive: the pass that produces them walks the real process table and reads a real roster. The
     // 2026-09-02 incident was exactly this shape - the rule was in the design note and the wiring
     // was nowhere - so the call site is pinned as a string, the way this repo pins the rest of that
     // pass (`machineloadchecks.swift`).
-    let tick = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
-                            encoding: .utf8)) ?? ""
+    let tick = ["Tally/Stores/ProcessFootprintStore.swift", "Tally/Stores/ProcessFootprintPass.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined(separator: "\n")
+    // THE LEASES ARE READ OFF THE MAIN THREAD BY THE PASS WHEN A ROUND IS DUE (TALLY-A, 2026-09-26),
+    // and a round handed them does not read them a second time on the main actor.
+    let prefetchedFake = FakeMachine()
+    let prefetchedStore = prefetchedFake.store()
+    check("a round is due on a store that has never taken one",
+          prefetchedStore.leaseReaderIfDue(at: t0) != nil)
+    prefetchedStore.observe(strays: [:], processes: [], sessions: OrphanReclaim.Sessions(), at: t0,
+                            leases: [])
+    check("a round handed its leases does not read them again", prefetchedFake.leaseReads == 0)
+    check("…and no round is due again inside the interval, so the pass reads no leases",
+          prefetchedStore.leaseReaderIfDue(at: t0.addingTimeInterval(1)) == nil)
+    let readingFake = FakeMachine()
+    readingFake.store().observe(strays: [:], processes: [], sessions: OrphanReclaim.Sessions(),
+                                at: t0)
+    check("…while a round with none handed over reads them itself", readingFake.leaseReads == 1)
     check("the tick hands the reclaim every checkout the ROSTER says a session is working in",
           !tick.isEmpty
               && tick.contains("checkouts: Set(rootOfSession.values),"))
@@ -921,7 +938,7 @@ func runOrphanStoreChecks() {
           byRoster.sent.isEmpty
               && fifteenth.records.first?.outcome == .reported(doubts: [.sessionPresent]))
     check("…and the guard sits before the round rather than after the sweep",
-          (source.range(of: "guard !DemoUsage.isActive")?.lowerBound).map { flag in
+          (source.range(of: "guard roundDue(at: now)")?.lowerBound).map { flag in
               (source.range(of: "lastRound = now")?.lowerBound).map { flag < $0 } ?? false
           } == true)
 }

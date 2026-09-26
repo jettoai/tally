@@ -92,7 +92,7 @@ extension IntegrationsStore {
     /// AND WHAT IT USED TO BE, which is what makes a merge cleanable. An entry written before two
     /// commands became one runs the old subcommand and calls the old tool, and is ours by exactly
     /// the same reasoning as one written yesterday (`PromptCommand.formerHookMarkers`).
-    private static func isOurHook(_ hook: [String: Any], command: PromptCommand) -> Bool {
+    private nonisolated static func isOurHook(_ hook: [String: Any], command: PromptCommand) -> Bool {
         if hook["type"] as? String == mcpHookTypeToken {
             let tools = ([command.mcpTool] + command.formerTools).map(\.rawValue)
             return hook["server"] as? String == tallyMCPServerName
@@ -116,7 +116,7 @@ extension IntegrationsStore {
     /// firing for the same slash command, and a user is free to put their own beside Tally's.
     /// Replacing the ENTRY (which is what this did) took the neighbours with it: overwritten on an
     /// update, deleted on uninstall, with nothing anywhere to say where they went.
-    private static func holdsOurHook(_ entry: [String: Any], command: PromptCommand,
+    private nonisolated static func holdsOurHook(_ entry: [String: Any], command: PromptCommand,
                                      matcher: String? = nil) -> Bool {
         guard entry["matcher"] as? String == (matcher ?? command.name) else { return false }
         return (entry["hooks"] as? [[String: Any]] ?? []).contains { isOurHook($0, command: command) }
@@ -255,7 +255,7 @@ extension IntegrationsStore {
     /// detection asks (an entry that is stale is still installed; the launch sync repairs the path
     /// silently), which is also what keeps a dev build from reporting the release app's install as
     /// broken because the two bundles sit in different places.
-    static func settingsCarryPromptHook(_ file: URL, hook: PromptCommand) -> Bool {
+    nonisolated static func settingsCarryPromptHook(_ file: URL, hook: PromptCommand) -> Bool {
         guard let data = try? Data(contentsOf: file),
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]
@@ -277,7 +277,7 @@ extension IntegrationsStore {
     /// registration has no command line at all now: a tool hook that names the wrong server is
     /// exactly as broken as a command hook naming a binary that moved, and only the full entry says
     /// so.
-    static func registeredPromptHooks(_ file: URL, hook: PromptCommand) -> [[String: Any]] {
+    nonisolated static func registeredPromptHooks(_ file: URL, hook: PromptCommand) -> [[String: Any]] {
         guard let data = try? Data(contentsOf: file),
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]

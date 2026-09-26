@@ -351,7 +351,8 @@ func runProcessTreeLineChecks() {
     // Both halves of the store, which was split at the repo's line cap: the sampling pass and the
     // timer that drives it (footprinttrendsurfacechecks.swift says the same).
     let storeSource = ["Tally/Stores/ProcessFootprintStore.swift",
-                       "Tally/Stores/ProcessFootprintTiming.swift"]
+                       "Tally/Stores/ProcessFootprintPass.swift",
+                 "Tally/Stores/ProcessFootprintTiming.swift", "Tally/Core/FootprintMachineRead.swift"]
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     check("the four sources this suite reads are readable",
           !cardSource.isEmpty && !boardCardSource.isEmpty && !boardSource.isEmpty
@@ -387,7 +388,7 @@ func runProcessTreeLineChecks() {
     // own slower beat, held in between, and never taken at all with nothing on screen.
     check("the ports are read on a slower beat than the tree and its CPU",
           storeSource.contains("ticks % Self.portsEveryNTicks == 0")
-              && storeSource.contains("private static let portsEveryNTicks = 3"))
+              && storeSource.contains("static let portsEveryNTicks = 3"))
     // A card in its own slot, drawn on every card whether or not it has numbers: a card that
     // dropped the row would stand shorter than the ones beside it (`sessionCardLine`).
     check("the card gives the footprint a line of its own, on every card",
@@ -477,9 +478,10 @@ func runProcessTreeLineChecks() {
     // session holds more - and no card can be asked that until every card has been read
     // (`FootprintAlarm.saturatedMemoryShare`).
     check("the machine's memory pressure is read once a tick and handed to the rule",
-          storeSource.contains("let pressure = MachineMemoryPressure.current")
+          storeSource.contains("pressure: MachineMemoryPressure.current,")
+              && storeSource.contains("let pressure = machine.pressure")
               && storeSource.contains("pressure: pressure,\n                                               largestHolder: one.key == heaviest)")
-              && (storeSource.range(of: "let pressure = MachineMemoryPressure.current")
+              && (storeSource.range(of: "let pressure = machine.pressure")
                   .flatMap { read in
                       storeSource.range(of: "for one in measurements {")
                           .map { read.upperBound < $0.lowerBound }
@@ -525,7 +527,7 @@ func runProcessTreeLineChecks() {
     // The agents are the one number here the machine cannot be asked for, so it is read from what
     // Claude Code's own hooks published - and only when that record says it can be believed.
     check("the agent count is read from the session's own roster, and only when it is trusted",
-          storeSource.contains("readSessionAgents(pid: key)?.reportable ?? 0"))
+          storeSource.contains("readSessionAgents(pid: String(root))?.reportable ?? 0"))
     // THE PORTS ARE THEIR OWN ELEMENT ON THE IDENTITY LINE, never a segment of the string that line
     // is otherwise drawn from: that string being nil is how the card knows it has nothing at all to
     // say yet and turns a spinner instead (`sessionIsLoading`), so a session that had published

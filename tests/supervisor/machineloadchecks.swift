@@ -154,8 +154,8 @@ func runMachineLoadChecks() {
     // the rollup the set it had BEFORE the cards were walked is the same double count with a passing
     // assertion beside it, which is how this was written the first time: the membership loop gathered
     // what the cards counted and nothing consumed it (`ProcessFootprintStore.sample`).
-    let sampler = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
-                               encoding: .utf8)) ?? ""
+    let sampler = ["Tally/Stores/ProcessFootprintStore.swift", "Tally/Stores/ProcessFootprintPass.swift"]
+        .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined(separator: "\n")
     check("the sources this suite reads are readable from it", !sampler.isEmpty)
     check("the tick pays the strays out of what its cards turned out to be counting",
           sampler.contains("MachineLoadRollup.leftovers(strays: strayRoot, counted: counted)")

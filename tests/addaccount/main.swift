@@ -115,6 +115,17 @@ expect(RenewLoginCommand.environment(envKey: envKey, home: first.dir.path, provi
                                      userHome: firstEver)[envKey] == .some(nil),
        "which the login runs against with the variable removed, not spelled out")
 
+// THE GATE IS ASYNC AND SERIALIZED (2026-09-26): its owner reads off the main thread, so a debounce
+// that settles while one is running folds into one follow-up, and a torn-down watcher reports nothing.
+let watcherGateSource = (try? String(contentsOfFile: "Tally/Core/AccountDirWatcher.swift",
+                                     encoding: .utf8)) ?? ""
+expect(watcherGateSource.contains("guard gate.request() else { return }")
+        && watcherGateSource.contains("} while self.gate.finish()"),
+       "the watcher never runs two gates at once")
+expect(watcherGateSource.contains("generation += 1")
+        && watcherGateSource.contains("if changed, self.generation == started { self.onChange() }"),
+       "a torn-down watcher reports nothing")
+
 try? fm.removeItem(at: tmp)
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

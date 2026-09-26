@@ -92,7 +92,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/loginchecks.swift tests/supervisor/sessionorderchecks.swift \
   tests/supervisor/supervisorfreshnesschecks.swift \
-  tests/supervisor/demoboardchecks.swift \
+  tests/supervisor/demoboardchecks.swift tests/supervisor/coalescinggatechecks.swift \
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/processtreecensuschecks.swift \
   tests/supervisor/sessiongroupchecks.swift tests/supervisor/machineloadchecks.swift \
@@ -190,6 +190,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/TrustSeed.swift TallyCLI/TrustSeedRelaunch.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
+  Tally/Stores/SessionRosterScan.swift Tally/Core/CoalescingGate.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \
   Tally/Core/SupervisorVersionStamp.swift \
   Tally/Core/SessionSidecar.swift Tally/Core/SessionPinScope.swift \
@@ -200,6 +201,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/SessionBoardGhosts.swift \
   Tally/Stores/ProjectLoadAccounting.swift \
   Tally/Stores/ProcessFootprintStore.swift Tally/Stores/ProcessFootprintTiming.swift \
+  Tally/Stores/ProcessFootprintPass.swift Tally/Core/FootprintMachineRead.swift \
   Tally/Core/OrphanReclaim.swift Tally/Core/OrphanVerdict.swift \
   Tally/Core/OrphanLease.swift Tally/Core/OrphanKill.swift \
   Tally/Core/OrphanReaders.swift Tally/Core/OrphanNotice.swift \

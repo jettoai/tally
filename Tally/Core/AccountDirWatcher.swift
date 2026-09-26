@@ -75,7 +75,8 @@ func accountSetChanged(from before: [ProviderAccount], to after: [ProviderAccoun
 /// Four parts, and the middle two are what keep an FSEvents stream from becoming a firehose: the
 /// ROOTS to watch, a cheap string FILTER over the paths that arrive, a DEBOUNCE so a burst settles
 /// into one answer, and a GATE (`discoverChanged`) that does the real work of deciding whether
-/// anything actually differs. Only past all four does `onChange` fire.
+/// anything actually differs. Only past all four does `onChange` fire. The gate is async: its owner
+/// does the reading off the main thread, and only one gate runs at a time (`CoalescingGate`).
 ///
 /// Generalized from the account-discovery watcher it started as (the filter and the gate above are
 /// still that use), because a second watcher arrived and the alternative was a second copy of the
@@ -131,8 +132,12 @@ final class AccountDirWatcher {
     private let isInteresting: (String) -> Bool
     /// Does the real work of deciding whether anything differs, and answers false when nothing
     /// does. Injected so the watcher itself needs no knowledge of what it is watching for.
-    private let discoverChanged: () -> Bool
+    private let discoverChanged: @MainActor () async -> Bool
     private let onChange: () -> Void
+    private var gate = CoalescingGate()
+    /// Bumped by `stop()`, so a gate that was already running when the watcher was torn down does
+    /// not report a change for roots nobody is watching any more.
+    private var generation = 0
 
     init(roots: [URL],
          shallowRoots: [URL] = [],
@@ -142,7 +147,7 @@ final class AccountDirWatcher {
              accountDirEventIsInteresting(
                  path: $0, home: FileManager.default.homeDirectoryForCurrentUser.path)
          },
-         discoverChanged: @escaping () -> Bool,
+         discoverChanged: @escaping @MainActor () async -> Bool,
          onChange: @escaping () -> Void) {
         self.roots = roots
         self.shallowRoots = shallowRoots
@@ -226,6 +231,7 @@ final class AccountDirWatcher {
     /// call on a watcher that never started; `start()` afterwards is a fresh stream, which is what
     /// makes re-pointing one at a different set of roots a stop-then-start rather than a leak.
     func stop() {
+        generation += 1
         debounceTask?.cancel()
         debounceTask = nil
         box.teardown()
@@ -236,10 +242,26 @@ final class AccountDirWatcher {
         guard paths.contains(where: isInteresting) else { return }
         // Coalesce: a login writes a burst, and the answer is only interesting once it settles.
         debounceTask?.cancel()
-        debounceTask = Task { [debounce, discoverChanged, onChange] in
+        debounceTask = Task { [weak self, debounce] in
             try? await Task.sleep(for: debounce)
-            guard !Task.isCancelled, discoverChanged() else { return }
-            onChange()
+            guard !Task.isCancelled, let self else { return }
+            self.runGate()
+        }
+    }
+
+    /// The gate, never twice at once: a debounce that settles while the previous answer is still
+    /// being worked out folds into one follow-up rather than a second concurrent pass
+    /// (`CoalescingGate`). Not cancelled by a newer event once started: the newer event only buys
+    /// the follow-up, and dropping a finished answer would be dropping the login it saw.
+    private func runGate() {
+        guard gate.request() else { return }
+        let started = generation
+        Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                let changed = await self.discoverChanged()
+                if changed, self.generation == started { self.onChange() }
+            } while self.gate.finish()
         }
     }
 }

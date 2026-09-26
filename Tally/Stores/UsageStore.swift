@@ -55,6 +55,7 @@ final class UsageStore {
     private var timer: DispatchSourceTimer?
     /// Held for the app's lifetime: the watcher tears its stream down when it is released.
     private var accountWatcher: AccountDirWatcher?
+    private var discoveryEpoch = 0  // bumped per adopt, so a background discovery landing late drops
 
     /// When the next automatic poll fires (main timer or an earlier failure retry) - drives the
     /// header's "updates in Xs" countdown.
@@ -86,7 +87,13 @@ final class UsageStore {
             reroot: { accountWatchRoots() },
             discoverChanged: { [weak self] in
                 guard let self else { return false }
-                let found = providers.flatMap { $0.discoverAccounts() }
+                // THE LISTING AND THE KEYCHAIN PROBES RUN OFF THE MAIN THREAD (2026-09-26, App
+                // Hanging with ten sessions writing through these homes).
+                let (providers, epoch) = (self.providers, self.discoveryEpoch)
+                let found = await Task.detached(priority: .utility) {
+                    providers.flatMap { $0.discoverAccounts() }
+                }.value
+                guard epoch == self.discoveryEpoch else { return false }  // a newer adopt wins
                 // A signed-out account is not discoverable - that is what being signed out means
                 // here - so the dormant ones are merged back in BEFORE anything compares sets.
                 // Without this every event on a machine with one would read as "an account
@@ -115,6 +122,7 @@ final class UsageStore {
     /// than at the probe's own five-minute interval - the tail of the Terminal-handoff path, where
     /// Tally cannot see the login finish at all (codex review, 2026-08-03).
     private func adoptDiscovered(_ accounts: [ProviderAccount]) {
+        discoveryEpoch += 1
         let dormantBefore = Set(discoveredAccounts.filter(\.isDormant).map(\.id))
         discoveredAccounts = accounts
         // Every route that produces a set passes through here, so this is the one place that can

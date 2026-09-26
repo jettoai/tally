@@ -90,7 +90,7 @@ extension IntegrationsStore {
     /// literally, an uninstall would take that file away and leave the current one behind, and the
     /// auto-update would keep the old folder up to date for ever. Read as a home, both reach the
     /// install that Claude Code actually loads, and the old folder is reached by the move.
-    static func currentSkillFile(forRecordedPath file: URL) -> URL {
+    nonisolated static func currentSkillFile(forRecordedPath file: URL) -> URL {
         let folder = file.deletingLastPathComponent().lastPathComponent
         guard formerSkillFolderNames.contains(folder) else { return file }
         return claudeSkillFile(inHome: claudeHome(ofSkillFile: file))

@@ -157,7 +157,7 @@ final class ProjectLoadAccounting {
     /// toss with somebody's cores on it, so the ambiguous id is dropped and the process stays a
     /// stray - which is the reading that says "this is work nobody here is answering for", and is
     /// true.
-    func conversationOwners(of board: [SessionRosterStore.SessionRow]) -> [String: String] {
+    nonisolated static func conversationOwners(of board: [SessionRosterStore.SessionRow]) -> [String: String] {
         var owners: [String: String] = [:]
         var contested: Set<String> = []
         for row in board {
@@ -202,8 +202,18 @@ final class ProjectLoadAccounting {
     func strays(among processes: [ProcessIdentity], claimed: Set<pid_t>,
                 adopted: [String: Set<pid_t>], board: [SessionRosterStore.SessionRow],
                 roots: Set<String>) -> (strays: [pid_t: String], adoptions: [String: Set<pid_t>]) {
-        guard !roots.isEmpty else { return ([:], adopted) }
-        var strayRoot: [pid_t: String] = [:]
+        let taken = strayCandidates(among: processes, claimed: claimed, adopted: adopted,
+                                    board: board, roots: roots)
+        return Self.strayScan(among: processes, taken: taken, adopted: adopted, board: board,
+                              roots: roots)
+    }
+
+    /// The state half of `strays`, on the main actor: this walk's birth stamps, and every pid a
+    /// card, an adoption or a session's host already holds.
+    func strayCandidates(among processes: [ProcessIdentity], claimed: Set<pid_t>,
+                         adopted: [String: Set<pid_t>], board: [SessionRosterStore.SessionRow],
+                         roots: Set<String>) -> Set<pid_t> {
+        guard !roots.isEmpty else { return [] }
         // The stamps come from THIS walk rather than from a later question about a pid, which is the
         // point of taking them here: by the time the pool notices a member is gone, the machine can
         // no longer say when it began (`strayStamps`).
@@ -218,7 +228,19 @@ final class ProjectLoadAccounting {
         let hosts = MachineLoadRollup.hosts(
             of: board.compactMap { pid_t($0.id) },
             parents: processes.reduce(into: [pid_t: pid_t]()) { $0[$1.pid] = $1.parent })
-        let taken = claimed.union(adopted.values.joined()).union(hosts)
+        return claimed.union(adopted.values.joined()).union(hosts)
+    }
+
+    /// The reading half of `strays`: one working directory per candidate, and for the strays a
+    /// program path and a command line. Callable from any thread (the footprint pass runs it
+    /// detached, 2026-09-26).
+    nonisolated static func strayScan(among processes: [ProcessIdentity], taken: Set<pid_t>,
+                                      adopted: [String: Set<pid_t>],
+                                      board: [SessionRosterStore.SessionRow],
+                                      roots: Set<String>) -> (strays: [pid_t: String],
+                                                              adoptions: [String: Set<pid_t>]) {
+        guard !roots.isEmpty else { return ([:], adopted) }
+        var strayRoot: [pid_t: String] = [:]
         for one in processes where !taken.contains(one.pid) {
             guard let directory = MachineLoadRollup.workingDirectory(of: one.pid),
                   let root = MachineLoadRollup.project(of: directory, roots: roots) else { continue }

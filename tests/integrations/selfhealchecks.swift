@@ -510,6 +510,12 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // guard (codex review of e7fe1a0). Pinned by shape rather than by presence, because a second
     // gate elsewhere in the same file would satisfy the check above while this one was gone.
     let knownAccounts = gateSource("Tally/Stores/KnownAccountsStore.swift")
+    // THE WATCHER'S HEAL READS OFF THE MAIN THREAD AND REPAIRS ON IT (2026-09-26, App Hanging).
+    let selfHeal = gateSource("Tally/Stores/IntegrationsSelfHeal.swift")
+    check("the heal check reads off the main thread and repairs on it",
+          selfHeal.contains("let ours = await Task.detached(priority: .utility) {")
+              && selfHeal.contains("discoverChanged: { [weak self] in await self?.healPromptHooksInBackground() ?? false }")
+              && selfHeal.contains("return syncPromptCommands(forSkillFiles: ours)"))
     check("the marker and onboarding writes are gated before the round can reach them",
           knownAccounts.contains("for account in discovered where !BuildVariant.isUnshipped {"))
     check("…and so is the memory of which accounts exist, whose defaults domain is the release app's",

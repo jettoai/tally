@@ -69,6 +69,13 @@ let watcherUse = (try? String(contentsOfFile: "Tally/Stores/UsageStore.swift", e
 check("the account watcher streams over accountWatchRoots, the home only as a shallow root",
       watcherUse.contains("roots: accountWatchRoots()")
           && watcherUse.contains("shallowRoots: [FileManager.default.homeDirectoryForCurrentUser]"))
+// The watcher's discovery lists and probes off the main thread (2026-09-26, App Hanging), and an
+// adopt that landed while it was reading wins over its older answer.
+check("discovery lists and probes off the main thread, and a newer adopted set wins",
+      watcherUse.contains("providers.flatMap { $0.discoverAccounts() }")
+          && watcherUse.contains("let found = await Task.detached(priority: .utility) {")
+          && watcherUse.contains("guard epoch == self.discoveryEpoch else { return false }")
+          && watcherUse.contains("discoveryEpoch += 1"))
 
 for name in protected { chmod(home.appendingPathComponent(name).path, 0o755) }
 try? fm.removeItem(at: home)

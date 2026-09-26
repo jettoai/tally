@@ -14,7 +14,7 @@ import Foundation
 /// this is a reader's view of that document: every field optional, unknown fields ignored, and the
 /// suffixes asserted against the writer's own constants in `tests/supervisor/sessionstatechecks.swift`
 /// so the two spellings cannot drift apart in silence.
-struct SessionSidecar: Equatable, Decodable {
+struct SessionSidecar: Equatable, Decodable, Sendable {
     var accountID: String?
     var contextTokens: Int?
     var updatedAt: Date?

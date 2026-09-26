@@ -52,18 +52,16 @@ extension IntegrationsStore {
     /// The order matters only for cost - the uninstall check is a file read per home, the currency
     /// check is that plus a settings parse - but the SECOND is the one that ends the write-event-
     /// write cycle, so it can never be skipped for a machine where the first passes.
-    /// - Parameter binary: the helper the entries are expected to name, defaulting to this app's.
+    /// - Parameter binary: the helper the entries are expected to name (this app's, from the heal).
     ///   Injected so a test can state a path without owning an app bundle.
     /// - Parameter nativePicker: whether the registration is the tool-plus-backstop pair or the
     ///   plain command hook, which is the installed Claude Code's answer (IntegrationsMCPServer)
     ///   and is injected here for the same reason the binary is: a test states it rather than
-    ///   depending on which Claude Code the machine running the suite happens to have. Resolved in
-    ///   the body rather than as a default argument, which is evaluated outside this actor.
-    static func hooksNeedHealing(skillFiles: [URL], population: [URL],
-                                 binary: URL? = nil,
-                                 nativePicker: Bool? = nil) -> Bool {
-        let helper = binary ?? bundledCLIURL
-        let nativePicker = nativePicker ?? nativePickerIsSupported
+    ///   depending on which Claude Code the machine running the suite happens to have. Both are
+    ///   resolved by the caller on the main actor, so this can run on the watcher's background hop.
+    nonisolated static func hooksNeedHealing(skillFiles: [URL], population: [URL],
+                                             binary helper: URL,
+                                             nativePicker: Bool) -> Bool {
         let ours = oursAmong(skillFiles)
         guard !ours.isEmpty else { return false }
         guard promptCommandsAreCurrent(forSkillFiles: ours, population: population) else { return true }
@@ -175,11 +173,36 @@ extension IntegrationsStore {
         // follows: a build nobody installed - the dev variant, or any bundle running out of a build
         // products tree - must never write into the config homes.
         guard !BuildVariant.isUnshipped else { return false }
-        let files = Self.installedSkillFiles()
-        guard Self.hooksNeedHealing(skillFiles: files, population: Self.claudeHomes()) else {
-            return false
-        }
-        return syncPromptCommands(forSkillFiles: Self.oursAmong(files))
+        guard let ours = Self.oursNeedingHeal(binary: Self.bundledCLIURL,
+                                              nativePicker: Self.nativePickerIsSupported)
+        else { return false }
+        return syncPromptCommands(forSkillFiles: ours)
+    }
+
+    /// The watcher's form of `healPromptHooks`: the same decision, with the reading off the main
+    /// thread. The check is a SKILL.md read and a settings plus state-file parse per home, and it
+    /// runs on every settle of the busiest directories on the machine; the repair it may lead to is
+    /// rare and stays here, on the main actor, exactly as the launch sync makes it.
+    func healPromptHooksInBackground() async -> Bool {
+        guard !BuildVariant.isUnshipped else { return false }
+        // Resolved here: the picker answer is cached in a main-actor static, and the helper path is
+        // this bundle's. Both go over as plain values.
+        let binary = Self.bundledCLIURL
+        let nativePicker = Self.nativePickerIsSupported
+        let ours = await Task.detached(priority: .utility) {
+            Self.oursNeedingHeal(binary: binary, nativePicker: nativePicker)
+        }.value
+        guard let ours else { return false }
+        return syncPromptCommands(forSkillFiles: ours)
+    }
+
+    /// The skill files to repair from, or nil when nothing needs healing: the whole of the heal's
+    /// reading, callable from any thread, and the one spelling both forms above share.
+    nonisolated static func oursNeedingHeal(binary: URL, nativePicker: Bool) -> [URL]? {
+        let files = installedSkillFiles()
+        guard hooksNeedHealing(skillFiles: files, population: claudeHomes(),
+                               binary: binary, nativePicker: nativePicker) else { return nil }
+        return oursAmong(files)
     }
 
     /// Whether the watcher has to be rebuilt, given what it is watching and what it should be.
@@ -234,7 +257,7 @@ extension IntegrationsStore {
             // slash commands spend costing a turn.
             debounce: .seconds(2),
             isInteresting: { settingsEventIsInteresting(path: $0, watching: paths) },
-            discoverChanged: { [weak self] in self?.healPromptHooks() ?? false },
+            discoverChanged: { [weak self] in await self?.healPromptHooksInBackground() ?? false },
             onChange: { [weak self] in self?.refresh() })
         watcher.start()
         settingsWatcher = watcher

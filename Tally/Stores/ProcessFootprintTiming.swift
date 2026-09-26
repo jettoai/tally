@@ -148,7 +148,16 @@ extension ProcessFootprintStore {
         if viewers == 0 { ticks = 0 }
         viewers += 1
         retime()
-        sample()
+        tick()
+    }
+
+    /// One timer beat. Never two passes at once: a beat that lands while the last pass is still
+    /// reading folds into one follow-up (`CoalescingGate`).
+    func tick() {
+        guard sampleGate.request() else { return }
+        Task {
+            repeat { await sample() } while sampleGate.finish()
+        }
     }
 
     /// The last surface showing the board has gone. The readings go on being taken, slower: what is
@@ -168,7 +177,7 @@ extension ProcessFootprintStore {
         timer?.invalidate()
         let timer = Timer(timeInterval: wanted, repeats: true) { _ in
             Task { @MainActor in
-                ProcessFootprintStore.shared.sample()
+                ProcessFootprintStore.shared.tick()
                 // AND THE ONE READING ON THIS TICK THAT IS ABOUT THE MACHINE RATHER THAN ABOUT A
                 // CARD: whether it is still standing up at all (HostHealthLogic.swift). It rides
                 // this timer rather than owning one because it needs a heartbeat and not a rate:

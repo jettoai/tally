@@ -119,7 +119,12 @@ final class LaunchPolicyStore {
     /// Per-account settings, keyed by config home (Tally/Core/AccountReserve.swift): which account
     /// the user browses claude.ai on, and the slice of its quota Tally's own choices must leave
     /// standing. Empty on a machine where nobody has marked one, which is most of them.
-    private(set) var accountSettings: [String: AccountRoleSetting]
+    private(set) var accountSettings: [String: AccountRoleSetting] { didSet { roleAnswers = [:] } }
+    /// Per home, the two role answers for the current `accountSettings`. Both are read from SwiftUI
+    /// bodies on every render, and the normalization under them resolves symlinks on disk once per
+    /// stored key (`artifactAccountHome`; Sentry TALLY-T, 2026-09-26), so each home pays that once
+    /// per change of the settings rather than once per frame.
+    @ObservationIgnored private var roleAnswers: [String: (personal: Bool, reserve: Int)] = [:]
 
     private init() {
         if let data = try? Data(contentsOf: Self.fileURL),
@@ -220,12 +225,20 @@ final class LaunchPolicyStore {
     /// The config home the user browses claude.ai on, or nil while nobody has marked one.
     var personalAccountHome: String? { AccountRoles.personalHome(accountSettings) }
 
-    func isPersonalAccount(home: String?) -> Bool {
-        AccountRoles.isPersonal(accountSettings, home: home)
-    }
+    func isPersonalAccount(home: String?) -> Bool { roleAnswer(home).personal }
 
     /// The slice of that account's quota Tally's own choices must leave standing, 0 by default.
-    func reserve(home: String?) -> Int { AccountRoles.reserve(accountSettings, home: home) }
+    func reserve(home: String?) -> Int { roleAnswer(home).reserve }
+
+    private func roleAnswer(_ home: String?) -> (personal: Bool, reserve: Int) {
+        // Read on every call, cache hit or not: it is what a body observing these answers tracks.
+        let settings = accountSettings
+        if let home, let known = roleAnswers[home] { return known }
+        let answer = (personal: AccountRoles.isPersonal(settings, home: home),
+                      reserve: AccountRoles.reserve(settings, home: home))
+        if let home { roleAnswers[home] = answer }
+        return answer
+    }
 
     /// Mark one account as the personal one (single select), or nil to unmark whichever holds it.
     ///

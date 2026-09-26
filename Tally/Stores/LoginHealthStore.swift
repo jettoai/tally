@@ -63,7 +63,7 @@ final class LoginHealthStore {
         guard !DemoUsage.isActive else { return }
         self.known = known
         labels = Dictionary(accounts.map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
-        SessionRosterStore.shared.refresh()
+        await SessionRosterStore.shared.scanNow()
         refreshSessions()
         guard !reading else { return }
         let now = Date()
@@ -100,11 +100,15 @@ final class LoginHealthStore {
     /// A person explicitly chose the incident. Re-resolve against live rows before focusing it.
     func openSession(_ id: String) {
         guard !DemoUsage.isActive else { return }
-        SessionRosterStore.shared.refresh()
-        refreshSessions()
-        guard let session = sessions.first(where: { $0.id == id }) else { return }
-        let handover = TerminalJump.prepare()
-        Task { await TerminalJump.jump(directory: session.directory, childPid: session.childPid, from: handover) }
+        // The scan is off the main thread now, so the re-resolve waits for one. `prepare` stays after
+        // the match: it activates the app, which a click on a session that has gone must not do.
+        Task {
+            await SessionRosterStore.shared.scanNow()
+            refreshSessions()
+            guard let session = sessions.first(where: { $0.id == id }) else { return }
+            let handover = TerminalJump.prepare()
+            await TerminalJump.jump(directory: session.directory, childPid: session.childPid, from: handover)
+        }
     }
 
     private func announce() {

@@ -8,7 +8,7 @@ import Foundation
 extension IntegrationsStore {
     /// One SKILL.md per discovered claude home, deduplicated by physical file (shared setups
     /// symlink the same skills tree everywhere - one edit must not be counted N times).
-    private static func claudeSkillFiles() -> [URL] {
+    private nonisolated static func claudeSkillFiles() -> [URL] {
         var seen = Set<String>()
         return ClaudeAccounts.discover().compactMap { account -> URL? in
             guard let home = account.launchHome else { return nil }
@@ -25,7 +25,7 @@ extension IntegrationsStore {
     /// A remembered path is read through `currentSkillFile(forRecordedPath:)`, which is what makes
     /// a manifest written before the folder move name the install of today rather than the one it
     /// recorded (IntegrationsSkillFolderMove.swift).
-    static func installedSkillFiles() -> [URL] {
+    nonisolated static func installedSkillFiles() -> [URL] {
         var files = claudeSkillFiles()
         for path in manifestPaths("claudeSkill") {
             let file = currentSkillFile(forRecordedPath: URL(fileURLWithPath: path))
@@ -38,12 +38,12 @@ extension IntegrationsStore {
     /// installed here", asked by the launch-time update and by the settings self-heal, which must
     /// agree: a heal that judged installation differently would put hooks back into a home the user
     /// had uninstalled from.
-    static func skillFileIsOurs(_ contents: String) -> Bool { contents.contains("tally-skill v") }
+    nonisolated static func skillFileIsOurs(_ contents: String) -> Bool { contents.contains("tally-skill v") }
 
     /// Those of `files` that exist and are ours. Absence is the signal the self-heal reads as "the
     /// user does not want this here", so it is asked of the file rather than of the manifest, which
     /// records intent from install time and not the state now.
-    static func oursAmong(_ files: [URL]) -> [URL] {
+    nonisolated static func oursAmong(_ files: [URL]) -> [URL] {
         files.filter {
             (try? String(contentsOf: $0, encoding: .utf8)).map(skillFileIsOurs) == true
         }
@@ -53,14 +53,14 @@ extension IntegrationsStore {
     /// JSON object. One reader for every asker, which is what lets a question about the manifest as
     /// a WHOLE be asked at all: whether any component has ever written a Claude settings.json is not
     /// answerable one component at a time (`settingsWriteAuthorized`).
-    static func manifestDocument(_ url: URL = manifestURL) -> [String: Any] {
+    nonisolated static func manifestDocument(_ url: URL = manifestURL) -> [String: Any] {
         ((try? JSONSerialization.jsonObject(
             with: (try? Data(contentsOf: url)) ?? Data())) as? [String: Any]) ?? [:]
     }
 
     /// The paths the manifest records for one component; empty when the entry, or the file, is
     /// absent or unreadable. Internal for the unit tests.
-    static func manifestPaths(_ component: String, manifest url: URL = manifestURL) -> [String] {
+    nonisolated static func manifestPaths(_ component: String, manifest url: URL = manifestURL) -> [String] {
         ((manifestDocument(url)[component] as? [String: Any])?["paths"] as? [String]) ?? []
     }
 

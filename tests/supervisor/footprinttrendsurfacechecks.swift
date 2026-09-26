@@ -15,7 +15,8 @@ func runFootprintTrendSurfaceChecks() {
     // here are about the pass AND about when it runs (ProcessFootprintTiming.swift). Read as one
     // string so a line moving between the two files does not silently stop being asserted.
     let store = ["Tally/Stores/ProcessFootprintStore.swift",
-                 "Tally/Stores/ProcessFootprintTiming.swift"]
+                 "Tally/Stores/ProcessFootprintPass.swift",
+                 "Tally/Stores/ProcessFootprintTiming.swift", "Tally/Core/FootprintMachineRead.swift"]
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     // BOTH HALVES OF THE CARD'S FOOTPRINT, for the reason the store's two are read as one: the
     // trend row became a file of its own at this repository's line cap
@@ -56,7 +57,9 @@ func runFootprintTrendSurfaceChecks() {
     check("the ports are never scanned in the background",
           store.contains("let readPorts = viewers > 0 && ticks % Self.portsEveryNTicks == 0"))
     check("…and the agent count is held rather than re-read there",
-          store.contains("agents: viewers > 0 ? (readSessionAgents(pid: key)?.reportable ?? 0)"))
+          store.contains("let readAgents = viewers > 0")
+              && store.contains("agents: readAgents ? (readSessionAgents(pid: String(root))?.reportable ?? 0) : nil")
+              && store.contains("agents: tree.agents ?? (footprints[key]?.agents ?? 0),"))
     // The measurement is the card's, exactly: Tally's own processes come out of the tree before
     // anything reaches the ring, so the line and the figure above it are about the same thing.
     //
@@ -805,7 +808,8 @@ func runFootprintTrendSurfaceChecks() {
     // program's path was what this used to cache, which cannot see the recycling it matters most
     // for - a restarted node under a tree of them (codex review of 0cd4a09).
     check("the ports are cached with the identity of the process holding them",
-          store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured),")
+          store.contains("ProcessTree.held(tree.listening ?? [:],")
+              && store.contains("listening: readPorts ? ProcessTree.listeningPorts(of: measured) : nil,")
               && store.contains("var ports: [String: [UInt16: ProcessPortHolder]] = [:]")
               // The loop's own body has since gained a second thing to collect (the live process
               // groups the ledger's sweep is decided on), so what is locked here is that the table

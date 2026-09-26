@@ -224,8 +224,8 @@ func runDemoSessionBoardChecks() {
     // ONE PLACE LAYS THEM ON, and it is upstream of everything that reads a row: the seats, the
     // arrangement, the summary counts and the menu bar's dot all come off `rows`.
     check("the scan is fixtured before the board is seated",
-          store.contains("let scanned = DemoUsage.sessions(liveSessionStates().map(Self.row))")
-              && store.contains("Self.seat(scanned, seating: self.seating)"))
+          store.contains("let fixtured = DemoUsage.sessions(scanned)")
+              && store.contains("Self.seat(fixtured, seating: self.seating)"))
     check("…and the counts are readings of those same rows rather than a second scan",
           store.contains("var blockedCount: Int { count(.blocked) }")
               && store.contains("rows.filter { $0.isReporting && $0.state == state }.count"))

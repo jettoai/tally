@@ -81,9 +81,18 @@ enum RedeemAction {
         // `launchableHome`, not the renewal home: a signed-out account has no session for the app
         // server to spend a credit on, and asking anyway would report a failure about a request
         // that never should have been made.
-        guard let home = UsageStore.shared.discoveredAccounts
-            .first(where: { $0.id == usage.id })?.launchableHome else { return nil }
-        return await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
+        let home = UsageStore.shared.discoveredAccounts
+            .first(where: { $0.id == usage.id })?.launchableHome
+        // Every entry point shares the automatic redeem's in-flight and per-wall memory, so a manual
+        // redeem and the automatic one can never spend two credits on one wall.
+        let autoRedeem = CodexAutoRedeemStore.shared
+        autoRedeem.beginRedeem(accountID: usage.id)
+        var outcome: CodexAppServerClient.RedeemOutcome?
+        if let home {
+            outcome = await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
+        }
+        autoRedeem.endRedeem(outcome, usage: usage)
+        return outcome
     }
 
     /// The refresh every redeem is followed by, in one place so no caller can pair a success with

@@ -5,9 +5,11 @@ import Foundation
 // THE MIRROR OF CLAUDE'S AUTOMATIC SESSION-LIMIT RESET (TallyCLI/CapLimitReset.swift), with the
 // same four rules: it answers a wall that has already been hit and nothing earlier, one wall gets
 // one attempt, a failed attempt is never retried on the same wall, and a number held over from a
-// failed poll is not a reading. The difference is who acts: Codex exposes the redeem through its
-// own app-server, so the installed app spends the credit through the exact call the card's button
-// uses (`RedeemAction.redeem`), and no supervisor is involved.
+// failed poll is not a reading. A wall is one run-out: quota that comes back and runs out again,
+// in the same week or the next, is a new wall. A redeem the user starts by hand counts for its wall
+// too, while in flight and after it spends (`settle`). The difference is who acts: Codex exposes
+// the redeem through its own app-server, so the installed app spends the credit through the exact
+// call the card's button uses (`RedeemAction.redeem`), and no supervisor is involved.
 //
 // Pure and Foundation-only so tests/codexautoredeem compiles it with the account types alone.
 
@@ -83,11 +85,22 @@ enum CodexAutoRedeemLogic {
         return (next, due.sorted())
     }
 
-    /// Write what an attempt came to onto its entry, leaving every other field as it was.
-    static func record(outcome: String, accountID: String,
-                       in state: CodexAutoRedeemState) -> CodexAutoRedeemState {
+    /// Fold what a redeem came to into the memory, whichever control started it (the card, the
+    /// notification, or `decide`). A credit spent, or found already spent, answers this wall: the
+    /// entry is (re)written from this account's weekly window and `now`, so the provider's stale 0%
+    /// during propagation cannot spend a second credit on the same wall. Anything else spent nothing
+    /// and only updates the outcome of an entry that already exists: an automatic attempt keeps
+    /// blocking its wall, and a manual attempt that spent nothing leaves the automatic path free.
+    static func settle(outcome: String, usage: AccountUsage, in state: CodexAutoRedeemState,
+                       now: Date) -> CodexAutoRedeemState {
         var next = state
-        next.accounts[accountID]?.outcome = outcome
+        if outcome == "redeemed" || outcome == "alreadyUsed",
+           let key = weekly(usage).flatMap({ DryPoolLogic.resetKey($0.resetsAt) }) {
+            next.accounts[usage.id] = CodexAutoRedeemAccountState(cycleKey: key, attemptedAt: now,
+                                                                  outcome: outcome)
+        } else {
+            next.accounts[usage.id]?.outcome = outcome
+        }
         return next
     }
 

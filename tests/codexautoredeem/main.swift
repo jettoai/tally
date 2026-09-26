@@ -125,15 +125,23 @@ let ancient = CodexAutoRedeemState(accounts: ["codex:z": CodexAutoRedeemAccountS
     cycleKey: "1", attemptedAt: t0.addingTimeInterval(-9 * day), outcome: "redeemed")])
 expect(decide([], state: ancient).state.accounts.isEmpty, "19 memory older than 8 days is pruned")
 // 20
-let recorded = CodexAutoRedeemLogic.record(outcome: "failed", accountID: "codex:a",
-                                           in: entry(at: t0, outcome: "pending"))
-expect(recorded.accounts["codex:a"]?.outcome == "failed"
-       && recorded.accounts["codex:a"]?.attemptedAt == t0
-       && recorded.accounts["codex:a"]?.cycleKey == DryPoolLogic.resetKey(windowEnd),
-       "20 record changes only the outcome")
-let untouched = entry(at: t0)
-expect(CodexAutoRedeemLogic.record(outcome: "x", accountID: "codex:none", in: untouched) == untouched,
-       "20 record on an unknown account is a no-op")
+func settle(_ outcome: String, _ state: CodexAutoRedeemState, now: Date = t0,
+            _ u: AccountUsage = usage()) -> CodexAutoRedeemState {
+    CodexAutoRedeemLogic.settle(outcome: outcome, usage: u, in: state, now: now)
+}
+let autoFailed = settle("failed", entry(at: t0, outcome: "pending"), now: t0.addingTimeInterval(30))
+expect(autoFailed.accounts["codex:a"]?.outcome == "failed"
+       && autoFailed.accounts["codex:a"]?.attemptedAt == t0
+       && autoFailed.accounts["codex:a"]?.cycleKey == DryPoolLogic.resetKey(windowEnd),
+       "20 an attempt that spent nothing changes only the outcome, so it still blocks its wall")
+expect(settle("failed", CodexAutoRedeemState()).accounts.isEmpty,
+       "20 a manual redeem that spent nothing leaves the automatic path free")
+expect(decide([usage()], state: settle("noCredit", CodexAutoRedeemState())).redeem == ["codex:a"],
+       "20 ... and the automatic path still answers the wall")
+let spent = settle("redeemed", entry(t0.addingTimeInterval(-4 * day), at: t0.addingTimeInterval(-5 * day)))
+expect(spent.accounts["codex:a"]?.cycleKey == DryPoolLogic.resetKey(windowEnd)
+       && spent.accounts["codex:a"]?.attemptedAt == t0,
+       "20 a spent credit rewrites the entry for this wall and restarts the cooldown")
 // 21
 expect(CodexAutoRedeemLogic.silencesDrainedHint(isDrained: true, accountID: "a", claimed: ["a"]),
        "21 drained hint for a claimed account is silenced")
@@ -141,6 +149,18 @@ expect(!CodexAutoRedeemLogic.silencesDrainedHint(isDrained: true, accountID: "b"
        "21 drained hint for another account still speaks")
 expect(!CodexAutoRedeemLogic.silencesDrainedHint(isDrained: false, accountID: "a", claimed: ["a"]),
        "21 an expiry hint is never silenced")
+// 22 The review's failure sample: two credits, the user redeems by hand, and the refreshes right
+// behind it still report the spent 0% while the provider catches up.
+let twoCredits = usage(credits: 2)
+expect(decide([twoCredits], inFlight: ["codex:a"]).redeem.isEmpty,
+       "22 a manual redeem still on the wire blocks the automatic one")
+for outcome in ["redeemed", "alreadyUsed"] {
+    let afterManual = settle(outcome, CodexAutoRedeemState(), now: t0, twoCredits)
+    for lag: TimeInterval in [5, 60, 600] {
+        expect(decide([twoCredits], state: afterManual, now: t0.addingTimeInterval(lag)).redeem.isEmpty,
+               "22 manual \(outcome), stale 0% \(Int(lag))s later does not spend a second credit")
+    }
+}
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

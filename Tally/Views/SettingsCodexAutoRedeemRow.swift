@@ -10,7 +10,7 @@ struct SettingsCodexAutoRedeemRow: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Auto redeem Codex resets")).font(.subheadline)
-                Text(L("When a Codex account has used all of its weekly quota and has a banked reset, Tally redeems the one that expires soonest and sends a notification. It tries once per weekly window and never retries a failed redeem."))
+                Text(L("When a Codex account has used all of its weekly quota and has a banked reset, Tally redeems the one that expires soonest and sends a notification. It redeems once each time the quota runs out (a reset you redeem yourself counts) and never retries a failed redeem; if the quota comes back and runs out again, it redeems again."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

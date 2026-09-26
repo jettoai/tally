@@ -46,17 +46,27 @@ final class CodexAutoRedeemStore {
         saveState(next)
         for id in due {
             guard let usage = accounts.first(where: { $0.id == id }) else { continue }
-            inFlight.insert(id)
             Task { @MainActor in
+                // `redeem` brackets the call with `beginRedeem`/`endRedeem`, like a manual redeem.
                 let outcome = await RedeemAction.redeem(usage: usage)
-                saveState(CodexAutoRedeemLogic.record(outcome: Self.name(outcome), accountID: id,
-                                                      in: loadState()))
                 await announce(outcome, usage: usage)
-                inFlight.remove(id)
                 await RedeemAction.followThrough(outcome: outcome, usage: usage)
             }
         }
         return Set(due)
+    }
+
+    /// Every redeem, from any control, runs between this and `endRedeem` (`RedeemAction.redeem`), so
+    /// a refresh landing while a manual redeem is on the wire cannot start an automatic one.
+    func beginRedeem(accountID: String) {
+        inFlight.insert(accountID)
+    }
+
+    /// Record what a redeem came to (`CodexAutoRedeemLogic.settle`) and clear it from in flight.
+    func endRedeem(_ outcome: CodexAppServerClient.RedeemOutcome?, usage: AccountUsage) {
+        saveState(CodexAutoRedeemLogic.settle(outcome: Self.name(outcome), usage: usage,
+                                              in: loadState(), now: Date()))
+        inFlight.remove(usage.id)
     }
 
     private static func name(_ outcome: CodexAppServerClient.RedeemOutcome?) -> String {
@@ -83,7 +93,7 @@ final class CodexAutoRedeemStore {
             NotificationRouter.shared.refreshCategories()
             _ = await SystemAlert.post(
                 title: String(format: L("%@: automatic reset failed"), usage.accountLabel),
-                body: L("Its weekly quota ran out and Tally could not redeem a banked reset. It will not try again for this window; you can still use a reset yourself."),
+                body: L("Its weekly quota ran out and Tally could not redeem a banked reset. It will not try again until the quota comes back and runs out again; you can still use a reset yourself."),
                 categoryID: ResetHintNotifier.categoryID,
                 userInfo: [ResetHintNotifier.accountKey: usage.id])
         case .alreadyUsed, .noCredit, nil:

@@ -57,17 +57,33 @@ enum ErrorReporting {
         DispatchQueue.global(qos: .utility).async { SentrySDK.flush(timeout: 5) }
     }
 
-    private static func scrub(_ event: Event) -> Event {
+    /// Folds the home directory to `~` in every field a path lands in. The crash converter writes
+    /// full binary image paths into `debugMeta[].codeFile` and each frame's `package`, so an app run
+    /// from ~/Downloads or ~/Applications would otherwise carry the login name. Field names are the
+    /// ones in sentry-cocoa 9.29.1's public headers (SentryDebugMeta.h, SentryFrame.h).
+    static func scrub(_ event: Event, home: String = NSHomeDirectory()) -> Event {
         event.user = nil
-        let home = NSHomeDirectory()
         func fold(_ text: String) -> String { text.replacingOccurrences(of: home, with: "~") }
+        func foldFrames(_ trace: SentryStacktrace?) {
+            trace?.frames.forEach { frame in
+                frame.package = frame.package.map(fold)
+                frame.fileName = frame.fileName.map(fold)
+                frame.module = frame.module.map(fold)
+            }
+        }
         if let message = event.message {
             let folded = SentryMessage(formatted: fold(message.formatted))
             folded.message = message.message.map(fold)
             folded.params = message.params
             event.message = folded
         }
-        event.exceptions?.forEach { $0.value = $0.value.map(fold) }
+        event.exceptions?.forEach {
+            $0.value = $0.value.map(fold)
+            foldFrames($0.stacktrace)
+        }
+        event.threads?.forEach { foldFrames($0.stacktrace) }
+        foldFrames(event.stacktrace)
+        event.debugMeta?.forEach { $0.codeFile = $0.codeFile.map(fold) }
         return event
     }
 }

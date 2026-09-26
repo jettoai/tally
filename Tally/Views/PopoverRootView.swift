@@ -120,6 +120,9 @@ struct PopoverRootView: View {
                             // Above everything, and only once: the gate in front of the very first
                             // morning message (EarlyStartNoticeStrip.swift).
                             earlyStartNotice
+                            // Below it when both are due: the one-time crash-report question
+                            // (ErrorReportingNoticeStrip.swift). Both stay visible.
+                            ErrorReportingNoticeStrip()
                             launchSummaryStrip
                             fleetStrip
                             advisorStrip

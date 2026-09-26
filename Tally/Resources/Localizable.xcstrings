@@ -15357,6 +15357,122 @@
           }
         }
       }
+    },
+    "Send crash and error reports?": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要傳送當機與錯誤回報嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要发送崩溃与错误报告吗？"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラッシュとエラーのレポートを送信しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "충돌 및 오류 보고서를 보낼까요?"
+          }
+        }
+      }
+    },
+    "Nothing is sent unless you turn this on. Reports go to Sentry: the stack trace, app and macOS versions, Mac model, language and time zone, and the rough region Sentry infers from the connection. Never your IP address, accounts, usage numbers or file contents. You can change this in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除非你開啟，否則不會傳送任何資料。回報會送到 Sentry：錯誤堆疊、App 與 macOS 版本、Mac 機型、語系與時區，以及 Sentry 由連線推得的大致地區。絕不含你的 IP 位址、帳號、用量數字或檔案內容。之後可在設定中更改。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除非你开启，否则不会发送任何数据。报告会发送到 Sentry：错误堆栈、App 与 macOS 版本、Mac 机型、语言与时区，以及 Sentry 由连接推断的大致地区。绝不包含你的 IP 地址、账号、用量数字或文件内容。之后可在设置中更改。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにしない限り何も送信されません。レポートは Sentry に送信され、内容はスタックトレース、アプリと macOS のバージョン、Mac の機種、言語とタイムゾーン、接続から Sentry が推定するおおよその地域です。IP アドレス、アカウント、使用量の数値、ファイルの内容は決して送信されません。あとから設定で変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜지 않으면 아무것도 전송되지 않습니다. 보고서는 Sentry로 전송되며 스택 트레이스, 앱 및 macOS 버전, Mac 모델, 언어와 시간대, 그리고 Sentry가 연결에서 추정한 대략적인 지역이 포함됩니다. IP 주소, 계정, 사용량 수치, 파일 내용은 절대 전송되지 않습니다. 나중에 설정에서 변경할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Turn on": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜기"
+          }
+        }
+      }
+    },
+    "No thanks": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不用了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不用了"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "괜찮습니다"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

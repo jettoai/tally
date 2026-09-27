@@ -101,11 +101,10 @@ func applyRestartWake(_ state: inout RestartWakeState, pid: String, candidate: C
                       }) -> String? {
     if let candidate {
         state.arm(candidate, child: launchedAt, notice: noticeUUID)
-        let stamp = ISO8601DateFormatter()
         appendSessionInputLine(restartWakeLogLine(
             pid: pid, outcome: "restart-wake-armed",
             fields: "source=\(source) conversation=\(candidate.conversation.prefix(8)) "
-                + "at=\(stamp.string(from: candidate.at))", now: now), to: log)
+                + "at=\(ISO8601DateFormatter().string(from: candidate.at))", now: now), to: log)
     }
     if let offer = state.offer, answeredAt.map({ $0 > offer.at }) == true {
         state.settle(nil)

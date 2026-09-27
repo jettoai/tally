@@ -302,8 +302,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         let spawnedByTally = relaunching
         let childNote = restartNote
         restartNote = nil
-        let resumesConversation = (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) != nil
-            || launchArgs.contains("--continue") || launchArgs.contains("-c")
+        let resumeID = flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")
+        let resumesConversation = resumeID != nil || launchArgs.contains(where: continueFlags.contains)
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)
@@ -329,7 +329,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
         var watcher = TranscriptWatcher(
             projectDir: URL(fileURLWithPath: account.launchHome!).appendingPathComponent("projects/\(slug)"),
-            since: launchedAt, resumeID: flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r"),
+            since: launchedAt, resumeID: resumeID,
             isForeign: { liveConversations(in: cwd, excluding: supervisorPID).contains($0) })
         var handoff = false
         /// Whether the relaunch this child ends in had to DROP the resume: the conversation it was
@@ -826,23 +826,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let heldBefore = selfUpdateHeldSince
                 selfUpdateHeldSince = nextSelfUpdateHeldSince(current: heldBefore,
                                                               working: backgroundWorking, now: now)
-                let heldCount = rosterBackgroundCount(roster)
-                let rawRoster = readSessionAgents(pid: supervisorPID)
-                let rosterState = selfUpdateRosterState(rawRoster, childStartedAt: launchedAt)
-                if heldBefore == nil, let held = selfUpdateHeldSince {
-                    appendHandoffLine(selfUpdateHoldLine(pid: supervisorPID, event: "held",
-                                                         background: heldCount, heldSince: held,
-                                                         roster: rosterState,
-                                                         rosterAt: rawRoster?.updatedAt),
-                                      to: handoffLog)
+                // The raw roster is read only on the ticks that write a line, not on every held one.
+                func logHold(_ event: String, heldSince: Date?) {
+                    let rawRoster = readSessionAgents(pid: supervisorPID)
+                    appendHandoffLine(selfUpdateHoldLine(
+                        pid: supervisorPID, event: event, background: rosterBackgroundCount(roster),
+                        heldSince: heldSince,
+                        roster: selfUpdateRosterState(rawRoster, childStartedAt: launchedAt),
+                        rosterAt: rawRoster?.updatedAt), to: handoffLog)
                 }
+                if heldBefore == nil, let held = selfUpdateHeldSince { logHold("held", heldSince: held) }
                 if !selfUpdateHeldByBackground(working: backgroundWorking,
                                                heldSince: selfUpdateHeldSince, now: now) {
                     plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
-                    appendHandoffLine(selfUpdateHoldLine(
-                        pid: supervisorPID, event: backgroundWorking ? "expired" : "released",
-                        background: heldCount, heldSince: selfUpdateHeldSince ?? heldBefore,
-                        roster: rosterState, rosterAt: rawRoster?.updatedAt), to: handoffLog)
+                    logHold(backgroundWorking ? "expired" : "released",
+                            heldSince: selfUpdateHeldSince ?? heldBefore)
                 }
             }
 

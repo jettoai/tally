@@ -113,13 +113,13 @@ final class HostHealthMonitor {
         try? data.write(to: file, options: .atomic)
     }
 
-    /// Append one line to `~/.tally/logs/host-health.log`.
+    /// Append one line to `file`, `~/.tally/logs/host-health.log` unless told otherwise (the CPU
+    /// watch writes its own log through this too).
     ///
     /// 0644 LIKE ITS NEIGHBOURS AND UNLIKE `input.log`, which is the distinction that file's own
     /// note draws: this holds events ABOUT the machine (a load average, a free figure, three
     /// executable names), not content out of somebody's conversation.
-    nonisolated private static func append(_ line: String) {
-        let file = hostHealthLogFile
+    nonisolated static func append(_ line: String, to file: URL = hostHealthLogFile) {
         let payload = Data(line.utf8)
         if let handle = try? FileHandle(forWritingTo: file) {
             defer { try? handle.close() }

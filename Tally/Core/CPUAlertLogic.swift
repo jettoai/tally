@@ -174,8 +174,14 @@ enum CPUAlertLogic {
             next.candidateSince = nil
             let cooling = (tracker.lastBannerAt.map { now.timeIntervalSince($0) < cooldown } ?? false)
                 && leader == tracker.announcedLeader
-            let silence: CPUAlertSilence? = hostRecent(hostAlarmed, hostAlarmAt, now: now)
-                ? .host : (cooling ? .cooldown : nil)
+            let silence: CPUAlertSilence?
+            if hostRecent(hostAlarmed, hostAlarmAt, now: now) {
+                silence = .host
+            } else if cooling {
+                silence = .cooldown
+            } else {
+                silence = nil
+            }
             if silence == nil {
                 next.lastBannerAt = now
                 next.announcedLeader = leader

@@ -75,7 +75,10 @@ final class CPUAlertMonitor {
             }
             let named = CPUAlertLogic.named(projects: projects, others: others)
             let line = CPUAlertLogic.logLine(event, busy: busy, cores: cores, culprits: named, now: now)
-            await Task.detached(priority: .utility) { Self.append(line) }.value
+            // A file of its own, so two detached appends never race on host-health.log.
+            await Task.detached(priority: .utility) {
+                HostHealthMonitor.append(line, to: cpuAlertLogFile)
+            }.value
             guard announce else { return }
             post(event, busy: busy, held: CPUAlertLogic.heldSeconds(since: alarmSince, now: now),
                  culprits: named)
@@ -118,21 +121,5 @@ final class CPUAlertMonitor {
                         percent, String(held), names)
         }
         Task { _ = await SystemAlert.post(title: title, body: body, categoryID: Self.categoryID) }
-    }
-
-    /// Append one line to `~/.tally/logs/cpu-alert.log`, a file of its own so two detached appends
-    /// never race on host-health.log.
-    nonisolated private static func append(_ line: String) {
-        let file = cpuAlertLogFile
-        let payload = Data(line.utf8)
-        if let handle = try? FileHandle(forWritingTo: file) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: payload)
-        } else {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                     withIntermediateDirectories: true)
-            try? payload.write(to: file)
-        }
     }
 }

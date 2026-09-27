@@ -49,7 +49,7 @@ enum ClaudeUsageCLI {
         let verdict = isolatedVerdict(isolated, shapeVerified: await routes.shapeVerified(key))
         switch verdict {
         case .accept(let sawModelWindow):
-            if sawModelWindow { await routes.markShapeVerified(key) }
+            if sawModelWindow { await routes.apply(.shapeVerified, key: key, now: now) }
             return isolated
         case .fallBack(let reason):
             let legacy = await legacyRead(binary: binary, configDir: configDir)
@@ -120,11 +120,18 @@ enum ClaudeUsageCLI {
     static func isolatedVerdict(_ text: String?, shapeVerified: Bool) -> IsolatedVerdict {
         guard let text else { return .fallBack(.noOutput) }
         if authenticationRejected(text) { return .fallBack(.notLoggedIn) }
+        let found = windows(in: text)
+        guard found.main else { return .fallBack(.incomplete) }
+        if !found.model && !shapeVerified { return .fallBack(.unconfirmedModelWindow) }
+        return .accept(sawModelWindow: found.model)
+    }
+
+    /// Which windows a reading carries: both main ones (session and all-models week), and any
+    /// model week.
+    private static func windows(in text: String) -> (main: Bool, model: Bool) {
         let ids = Set(ClaudeUsageTextMapper.map(text: text).map(\.id))
-        guard ids.contains("session"), ids.contains("weekly_all") else { return .fallBack(.incomplete) }
-        let sawModelWindow = ids.contains { $0.hasPrefix("weekly_model:") }
-        if !sawModelWindow && !shapeVerified { return .fallBack(.unconfirmedModelWindow) }
-        return .accept(sawModelWindow: sawModelWindow)
+        return (ids.contains("session") && ids.contains("weekly_all"),
+                ids.contains { $0.hasPrefix("weekly_model:") })
     }
 
     enum MemoryUpdate: Equatable { case none, holdLegacy, shapeVerified }
@@ -133,13 +140,12 @@ enum ClaudeUsageCLI {
     /// windows can convict the isolated read; a transient failure convicts nothing.
     static func memoryUpdate(reason: FallbackReason, legacy: String?) -> MemoryUpdate {
         guard let legacy, !authenticationRejected(legacy) else { return .none }
-        let ids = Set(ClaudeUsageTextMapper.map(text: legacy).map(\.id))
-        guard ids.contains("session"), ids.contains("weekly_all") else { return .none }
+        let found = windows(in: legacy)
+        guard found.main else { return .none }
         switch reason {
         case .noOutput: return .none
         case .notLoggedIn, .incomplete: return .holdLegacy
-        case .unconfirmedModelWindow:
-            return ids.contains { $0.hasPrefix("weekly_model:") } ? .holdLegacy : .shapeVerified
+        case .unconfirmedModelWindow: return found.model ? .holdLegacy : .shapeVerified
         }
     }
 
@@ -187,7 +193,6 @@ enum ClaudeUsageCLI {
             return now >= until
         }
         func shapeVerified(_ key: String) -> Bool { entries[key]?.shapeVerified ?? false }
-        func markShapeVerified(_ key: String) { entries[key, default: Entry()].shapeVerified = true }
         func apply(_ update: MemoryUpdate, key: String, now: Date) {
             switch update {
             case .none: break

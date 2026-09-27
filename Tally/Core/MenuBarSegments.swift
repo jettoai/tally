@@ -169,8 +169,8 @@ enum MenuBarSegments {
     /// The pooled layout's segments before they are drawn: one group per provider, or one per plan
     /// when the provider's summaries are split by plan. In a split every member lands in its own
     /// plan's group, including one with no metrics (so a plan whose accounts all failed still shows
-    /// its mark instead of vanishing), with named plans in display order and the unknown one last,
-    /// the order `FleetMath.summaries(byPlan:)` uses.
+    /// its mark instead of vanishing), split by `FleetMath.planGroups`, the same split and order
+    /// `FleetMath.summaries(byPlan:)` uses.
     static func poolGroups(_ accounts: [AccountUsage],
                            summaries: [FleetSummary]) -> [MenuBarPoolGroup] {
         providerGroups(accounts).flatMap { providerID, members -> [MenuBarPoolGroup] in
@@ -179,17 +179,10 @@ enum MenuBarSegments {
                 return [MenuBarPoolGroup(providerID: providerID, members: members,
                                          summary: mine.first, planTier: nil, tag: nil)]
             }
-            var order: [FleetSummary.Tier] = []
-            var byTier: [FleetSummary.Tier: [AccountUsage]] = [:]
-            for member in members {
-                let tier = FleetSummary.Tier(name: member.planName)
-                if byTier[tier] == nil { order.append(tier) }
-                byTier[tier, default: []].append(member)
-            }
-            let ordered = order.filter { $0.name != nil } + order.filter { $0.name == nil }
-            let tags = planTags(ordered.compactMap(\.name))
-            return ordered.map { tier in
-                MenuBarPoolGroup(providerID: providerID, members: byTier[tier]!,
+            let groups = FleetMath.planGroups(members)
+            let tags = planTags(groups.compactMap(\.tier.name))
+            return groups.map { tier, group in
+                MenuBarPoolGroup(providerID: providerID, members: group,
                                  summary: mine.first { $0.planTier == tier }, planTier: tier,
                                  tag: tier.name.map { tags[$0] ?? $0 } ?? "?")
             }

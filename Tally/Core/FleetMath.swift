@@ -182,19 +182,25 @@ enum FleetMath {
                 return summary(providerID, members, tier: nil, minMembers: minMembers, now: now,
                                label: label).map { [$0] } ?? []
             }
-            var order: [FleetSummary.Tier] = []
-            var byTier: [FleetSummary.Tier: [AccountUsage]] = [:]
-            for member in members {
-                let tier = FleetSummary.Tier(name: member.planName)
-                if byTier[tier] == nil { order.append(tier) }
-                byTier[tier, default: []].append(member)
-            }
-            // Named plans in display order, the unknown one last: it is the least informative row.
-            let ordered = order.filter { $0.name != nil } + order.filter { $0.name == nil }
-            return ordered.compactMap { tier in
-                summary(providerID, byTier[tier]!, tier: tier, minMembers: 1, now: now, label: label)
+            return planGroups(members).compactMap { tier, group in
+                summary(providerID, group, tier: tier, minMembers: 1, now: now, label: label)
             }
         }
+    }
+
+    /// `members` grouped by plan: named plans in display order, the unknown one last (it is the
+    /// least informative row). Shared with the menu bar's pooled strip, so both split in one order.
+    static func planGroups(_ members: [AccountUsage])
+        -> [(tier: FleetSummary.Tier, members: [AccountUsage])] {
+        var order: [FleetSummary.Tier] = []
+        var byTier: [FleetSummary.Tier: [AccountUsage]] = [:]
+        for member in members {
+            let tier = FleetSummary.Tier(name: member.planName)
+            if byTier[tier] == nil { order.append(tier) }
+            byTier[tier, default: []].append(member)
+        }
+        let ordered = order.filter { $0.name != nil } + order.filter { $0.name == nil }
+        return ordered.map { ($0, byTier[$0]!) }
     }
 
     /// The plan tier of every pooled account whose provider splits (two or more named plans among

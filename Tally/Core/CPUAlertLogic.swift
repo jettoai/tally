@@ -201,8 +201,6 @@ enum CPUAlertLogic {
                 next.phase = .normal
                 next.runSince = nil
                 next.alarmSince = nil
-                next.candidateLeader = nil
-                next.candidateSince = nil
                 return (next, .clear)
             }
             next.runSince = nil

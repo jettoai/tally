@@ -243,8 +243,11 @@ extension IntegrationsStore {
     }
 
     /// Modification time and size of every file the heal reads, split by how often a change to it
-    /// is worth a pass. `extra` carries the non-file inputs (helper path, picker answer).
-    nonisolated static func healFingerprint(homes: [URL], skillFiles: [URL],
+    /// is worth a pass: the settings.json, state file and slash-command files of every home the
+    /// repair can touch (`homes` plus the homes carrying `skillFiles`, which include a logged-out
+    /// account the manifest still remembers), and the SKILL.md files. `extra` carries the non-file
+    /// inputs (helper path, picker answer).
+    nonisolated static func healFingerprint(homes population: [URL], skillFiles: [URL],
                                             extra: String) -> HealFingerprint {
         func stamp(_ url: URL) -> String {
             let values = try? url.resolvingSymlinksInPath()
@@ -252,9 +255,16 @@ extension IntegrationsStore {
             guard let values, let date = values.contentModificationDate else { return "absent" }
             return "\(date.timeIntervalSinceReferenceDate):\(values.fileSize ?? -1)"
         }
+        let homes = population + homesCarrying(skillFiles, population: population)
         var config = ["extra": extra]
         for url in homes.map({ $0.appendingPathComponent("settings.json") }) + skillFiles {
             config[url.path] = stamp(url)
+        }
+        for home in homes {
+            for command in promptCommands {
+                let url = promptCommandFile(inHome: home, command: command)
+                config[url.path] = stamp(url)
+            }
         }
         var state: [String: String] = [:]
         for home in homes {

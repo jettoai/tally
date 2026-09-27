@@ -582,6 +582,39 @@ func runHealGateChecks(tmp: URL) throws {
             current: IntegrationsStore.healFingerprint(homes: [home], skillFiles: [skill],
                                                        extra: "bin|true"),
             sinceStateCheck: 1) == .run)
+    // A user's own edit to, or removal of, a Tally command file is something the heal reads.
+    let command = IntegrationsStore.promptCommandFile(
+        inHome: home, command: IntegrationsStore.tallyPromptCommand)
+    try FileManager.default.createDirectory(at: command.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try "tally command v1".write(to: command, atomically: true, encoding: .utf8)
+    let beforeCommand = fp()
+    try "the user's own command".write(to: command, atomically: true, encoding: .utf8)
+    check("heal gate: an edited command file runs a pass inside the interval",
+          gate(beforeCommand, 1) == .run)
+    let afterCommand = fp()
+    try FileManager.default.removeItem(at: command)
+    check("heal gate: a removed command file runs a pass inside the interval",
+          gate(afterCommand, 1) == .run)
+
+    // A logged-out home the manifest still remembers is repaired, so it is watched too.
+    let orphan = tmp.appendingPathComponent("gate-orphan-home")
+    let orphanSkill = IntegrationsStore.claudeSkillFile(inHome: orphan)
+    try FileManager.default.createDirectory(at: orphanSkill.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try "tally-skill v1".write(to: orphanSkill, atomically: true, encoding: .utf8)
+    let orphanSettings = orphan.appendingPathComponent("settings.json")
+    try "{}".write(to: orphanSettings, atomically: true, encoding: .utf8)
+    func orphanFP() -> HealFingerprint {
+        IntegrationsStore.healFingerprint(homes: [home], skillFiles: [orphanSkill],
+                                          extra: "bin|false")
+    }
+    let beforeOrphan = orphanFP()
+    try "{\"hooks\": {}}".write(to: orphanSettings, atomically: true, encoding: .utf8)
+    check("heal gate: a manifest-only home's settings.json change runs a pass",
+          IntegrationsStore.healGate(previous: beforeOrphan, current: orphanFP(),
+                                     sinceStateCheck: 1) == .run)
+
     try FileManager.default.removeItem(at: skill)
     check("heal gate: a removed SKILL.md (an uninstall) runs a pass", gate(afterSkill, 1) == .run)
 }

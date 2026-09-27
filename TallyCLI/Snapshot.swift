@@ -89,8 +89,8 @@ struct Snapshot: Decodable {
         var capacity: Double
         var dryAt: Date?
         var sustainable: Bool
-        /// Which pool this is when a model pool leads the gauge ("Fable"); nil = the weekly pool.
-        var poolName: String?
+        var poolName: String? // the model pool leading the gauge ("Fable"); nil = the weekly pool
+        var plan: String? = nil // plan when split by plan ("Pro", "unknown"); nil = whole provider
     }
     var fleet: [String: Fleet]?
     /// The panel's ordered pool list per provider (gauge focus applied app-side), leading pool

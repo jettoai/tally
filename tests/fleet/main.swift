@@ -354,5 +354,7 @@ do {
     expect(FleetTooltip.tightest(s[0].pools)?.remaining == 90, "a flat fleet still has a tightest")
 }
 
+runPlanSplitTests()
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all fleet tests passed")

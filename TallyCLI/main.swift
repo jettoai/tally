@@ -362,7 +362,8 @@ func runStatus(json: Bool = false) {
         if !pools.isEmpty {
             let now = Date()
             let pieces = pools.map { pool -> String in
-                var text = "\(poolLabel(pool.poolName)) "
+                var text = (pool.plan.map { "\($0.lowercased()) " } ?? "")
+                    + "\(poolLabel(pool.poolName)) "
                     + poolRemainingFigure(remaining: pool.remaining, capacity: pool.capacity)
                 if let dryAt = pool.dryAt, dryAt > now {
                     text += " (~\(shortETA(dryAt.timeIntervalSince(now))) left)"

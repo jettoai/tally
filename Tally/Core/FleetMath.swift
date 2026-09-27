@@ -6,9 +6,10 @@ import Foundation
 /// test harness can compile it standalone.
 ///
 /// Percentages pool with equal weights: one account's full window is 100 units, so a five-account
-/// pool holds 500 units ("5 accounts' worth"). That is exact when sibling accounts share a plan
-/// tier (the common multi-account setup); plan-weighted pooling can layer on once plan detection
-/// is reliable enough to trust.
+/// pool holds 500 units ("5 accounts' worth"). That is exact only when the accounts share a plan
+/// tier. Vendors do not publish how many times larger one tier is than another, so accounts on
+/// different NAMED plans are never summed: `summaries(byPlan: true)` gives each plan its own
+/// summary instead of guessing a weight.
 struct FleetPool: Hashable {
     /// One account's contribution to the pool, in the accounts' display order - the segments of
     /// the combined bar.
@@ -60,6 +61,20 @@ struct FleetSummary: Hashable {
     var accountCount: Int
     /// Ordered session → weekly → model pools; only classes that two or more accounts share.
     var pools: [FleetPool]
+    /// Which plan this summary covers when the provider's accounts sit on two or more named plans
+    /// (`FleetMath.summaries(byPlan: true)`); nil when the summary is the whole provider.
+    var planTier: Tier? = nil
+
+    /// One plan's slice of a provider. `name` nil = the accounts whose plan this machine cannot name,
+    /// grouped together once a split happens (the advisor's "Unknown plan" tier, same rule).
+    struct Tier: Hashable {
+        var name: String?
+        /// Stable identity for rate keys and view ids.
+        var key: String { name?.lowercased() ?? "?" }
+    }
+
+    /// View identity: the provider alone when unsplit, provider plus plan when split.
+    var id: String { planTier.map { "\(providerID)|plan=\($0.key)" } ?? providerID }
 
     /// The pool the strip headlines when no model focus resolves: the weekly budget when present,
     /// else the session window.
@@ -144,7 +159,15 @@ enum FleetMath {
     /// single-account provider gets. It changes nothing about the arithmetic or about who is in a
     /// pool - the members of a class are every account reporting it either way - so every pool the
     /// panel draws comes back from a `minMembers: 1` pass identical, member for member.
+    ///
+    /// `byPlan`: when a provider's pooled accounts sit on two or more NAMED plans, return one
+    /// summary per plan instead of one per provider (unknown-plan accounts form their own, last).
+    /// The provider still needs `minMembers` pooled accounts to appear at all; inside a split every
+    /// plan pools from ONE account, because a plan of one is still that plan's whole budget and the
+    /// alternative drops the provider's strip (and its fold header) entirely. Off by default, so a
+    /// caller that does not ask gets the unsplit summaries bit for bit.
     static func summaries(accounts: [AccountUsage], now: Date = Date(), minMembers: Int = 2,
+                          byPlan: Bool = false,
                           label: (AccountUsage) -> String) -> [FleetSummary] {
         var providerOrder: [String] = []
         var groups: [String: [AccountUsage]] = [:]
@@ -152,33 +175,71 @@ enum FleetMath {
             if groups[account.providerID] == nil { providerOrder.append(account.providerID) }
             groups[account.providerID, default: []].append(account)
         }
-        return providerOrder.compactMap { providerID in
-            guard let members = groups[providerID], members.count >= minMembers else { return nil }
-            var pools: [FleetPool] = []
-            for kind in [MetricKind.session, .weeklyAll] {
-                let entries = members.compactMap { account in
-                    account.metrics.first { $0.kind == kind }.map { (account, $0) }
-                }
-                if let pool = pool(kind: kind, entries: entries, now: now, minMembers: minMembers,
-                                   label: label) {
-                    pools.append(pool)
-                }
+        let tiers = byPlan ? planTiers(accounts: accounts) : [:]
+        return providerOrder.flatMap { providerID -> [FleetSummary] in
+            guard let members = groups[providerID], members.count >= minMembers else { return [] }
+            guard members.contains(where: { tiers[$0.id] != nil }) else {
+                return summary(providerID, members, tier: nil, minMembers: minMembers, now: now,
+                               label: label).map { [$0] } ?? []
             }
-            // Model-scoped windows pool per model name: two accounts' Fable windows are one
-            // budget, but a Fable window and an Opus window are not.
-            let modelEntries = members.flatMap { account in
-                account.metrics.filter { $0.kind == .weeklyModel }.map { (account, $0) }
+            var order: [FleetSummary.Tier] = []
+            var byTier: [FleetSummary.Tier: [AccountUsage]] = [:]
+            for member in members {
+                let tier = tiers[member.id] ?? FleetSummary.Tier(name: member.planName)
+                if byTier[tier] == nil { order.append(tier) }
+                byTier[tier, default: []].append(member)
             }
-            let byModel = Dictionary(grouping: modelEntries) { $0.1.modelName ?? $0.1.label }
-            for name in byModel.keys.sorted() {
-                if let pool = pool(kind: .weeklyModel, entries: byModel[name]!, now: now,
-                                   minMembers: minMembers, label: label) {
-                    pools.append(pool)
-                }
+            // Named plans in display order, the unknown one last: it is the least informative row.
+            let ordered = order.filter { $0.name != nil } + order.filter { $0.name == nil }
+            return ordered.compactMap { tier in
+                summary(providerID, byTier[tier]!, tier: tier, minMembers: 1, now: now, label: label)
             }
-            guard !pools.isEmpty else { return nil }
-            return FleetSummary(providerID: providerID, accountCount: members.count, pools: pools)
         }
+    }
+
+    /// The plan tier of every pooled account whose provider splits (two or more named plans among
+    /// its pooled accounts), keyed by account id. Accounts of providers that do not split are
+    /// absent. Shared by `summaries(byPlan:)` and the burn-rate pass, so the gauge and its pace
+    /// forecast cannot disagree about who is on which plan.
+    static func planTiers(accounts: [AccountUsage]) -> [String: FleetSummary.Tier] {
+        let pooled = accounts.filter { !$0.metrics.isEmpty }
+        var tiers: [String: FleetSummary.Tier] = [:]
+        for (_, members) in Dictionary(grouping: pooled, by: \.providerID)
+        where Set(members.compactMap(\.planName)).count >= 2 {
+            for member in members { tiers[member.id] = FleetSummary.Tier(name: member.planName) }
+        }
+        return tiers
+    }
+
+    /// One summary over `members`, pooled at `minMembers` and stamped with `tier`.
+    private static func summary(_ providerID: String, _ members: [AccountUsage],
+                                tier: FleetSummary.Tier?, minMembers: Int, now: Date,
+                                label: (AccountUsage) -> String) -> FleetSummary? {
+        var pools: [FleetPool] = []
+        for kind in [MetricKind.session, .weeklyAll] {
+            let entries = members.compactMap { account in
+                account.metrics.first { $0.kind == kind }.map { (account, $0) }
+            }
+            if let pool = pool(kind: kind, entries: entries, now: now, minMembers: minMembers,
+                               label: label) {
+                pools.append(pool)
+            }
+        }
+        // Model-scoped windows pool per model name: two accounts' Fable windows are one
+        // budget, but a Fable window and an Opus window are not.
+        let modelEntries = members.flatMap { account in
+            account.metrics.filter { $0.kind == .weeklyModel }.map { (account, $0) }
+        }
+        let byModel = Dictionary(grouping: modelEntries) { $0.1.modelName ?? $0.1.label }
+        for name in byModel.keys.sorted() {
+            if let pool = pool(kind: .weeklyModel, entries: byModel[name]!, now: now,
+                               minMembers: minMembers, label: label) {
+                pools.append(pool)
+            }
+        }
+        guard !pools.isEmpty else { return nil }
+        return FleetSummary(providerID: providerID, accountCount: members.count, pools: pools,
+                            planTier: tier)
     }
 
     /// One pooled window class, or nil when fewer than `minMembers` accounts share it (on the

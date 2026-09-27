@@ -289,13 +289,16 @@ enum DemoUsage {
 
     /// Fabricated burn rates so the fleet strip's forecast renders in screenshots: Claude spends
     /// faster than its combined refill budget (a concrete "lasts about …"), Codex within it
-    /// (the "sustainable" state). Real instances estimate these from ~/.tally/history.jsonl.
+    /// (the "sustainable" state). Codex mixes Pro and Team, so its gauge splits by plan and each
+    /// plan reads its own key. Real instances estimate these from ~/.tally/history.jsonl.
     static var fleetRates: [String: FleetRate] {
         // Keys cover every window the gauge focus can headline, so the forecast renders in demo
         // whichever focus is active (Fable pool by default, weekly when switched).
         ["claude|weeklyModel|fable": FleetRate(perHour: 4.6, sampledHours: 72),
          "claude|weeklyAll": FleetRate(perHour: 4.6, sampledHours: 72),
-         "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72)]
+         "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72),
+         "codex|weeklyAll|plan=pro": FleetRate(perHour: 1.0, sampledHours: 72),
+         "codex|weeklyAll|plan=team": FleetRate(perHour: 0.9, sampledHours: 72)]
     }
 
     /// Fabricated advisor readings so the advisor strip renders in screenshots too. Real instances

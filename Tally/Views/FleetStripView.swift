@@ -39,7 +39,7 @@ extension PopoverRootView {
 
     var fleetSummaries: [FleetSummary] {
         settings.showFleetGauge
-            ? FleetMath.summaries(accounts: store.orderedAccounts) { usage in
+            ? FleetMath.summaries(accounts: store.orderedAccounts, byPlan: true) { usage in
                 settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
             }
             : []
@@ -50,28 +50,41 @@ extension PopoverRootView {
         let summaries = fleetSummaries
         if !summaries.isEmpty {
             let gauged = summaries.filter { !displayedPools($0).isEmpty }
+            // A provider split by plan is still ONE provider: the side-by-side layout counts
+            // providers, and each column stacks that provider's plans, so splitting Codex never
+            // pushes Claude out of its column.
+            let columns = Self.providerRuns(gauged)
             // A design capture forces ONE callout (they all publish into a single preference slot),
             // so it forces the leading provider's - see `tallyTooltip(blocks:forced:)`.
-            let forcedID = TallyTooltip.previewForced(.fleet) ? gauged.first?.providerID : nil
+            let forcedID = TallyTooltip.previewForced(.fleet) ? gauged.first?.id : nil
+            // Only a provider's first summary heads its fold; a split provider's later plans do not.
+            let chevronOwners = Set(Self.providerRuns(summaries).compactMap { $0.first?.id })
             Group {
-                // Exactly two gauges stand side by side: the panel is wide enough for both, and
+                // Exactly two PROVIDERS stand side by side: the panel is wide enough for both, and
                 // one glance then covers the whole fleet instead of two stacked bands. Any other
                 // count keeps the label-column rows - a lone column would leave half the strip
                 // empty, and three or more would squeeze the bars past reading. The width guard
                 // covers the single-column panel (380pt, what a one-card-per-provider or fully
                 // folded view sizes to): half of it leaves the context lines shredded, and the
                 // full-width rows read better there than a split ever could.
-                if gauged.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
+                if columns.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
                     HStack(alignment: .top, spacing: 12) {
-                        ForEach(gauged, id: \.providerID) { summary in
-                            fleetColumn(summary, forcedTooltip: summary.providerID == forcedID)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(columns, id: \.first!.id) { run in
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(run, id: \.id) { summary in
+                                    fleetColumn(summary,
+                                                showsChevron: chevronOwners.contains(summary.id),
+                                                forcedTooltip: summary.id == forcedID)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(summaries, id: \.providerID) { summary in
-                            fleetGauge(summary, forcedTooltip: summary.providerID == forcedID)
+                        ForEach(summaries, id: \.id) { summary in
+                            fleetGauge(summary, showsChevron: chevronOwners.contains(summary.id),
+                                       forcedTooltip: summary.id == forcedID)
                         }
                     }
                 }
@@ -94,12 +107,13 @@ extension PopoverRootView {
     /// the row the pointer was on, over the cards - and answered a hover on Claude's bar with
     /// Codex's figures stacked under it. One target, one subject, one gap.
     @ViewBuilder
-    private func fleetGauge(_ summary: FleetSummary, forcedTooltip: Bool = false) -> some View {
+    private func fleetGauge(_ summary: FleetSummary, showsChevron: Bool,
+                            forcedTooltip: Bool = false) -> some View {
         let pools = displayedPools(summary)
         if !pools.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
-                    poolBlock(summary, pool, leading: index == 0)
+                    poolBlock(summary, pool, leading: index == 0, showsChevron: showsChevron)
                 }
             }
             .tallyTooltip(blocks: fleetTooltipBlocks([summary]), forced: forcedTooltip)
@@ -111,11 +125,12 @@ extension PopoverRootView {
     /// 88pt label column, so the identity moves above the bars instead of beside them - which is
     /// what buys the bar the column's whole width and makes the split worth taking.
     @ViewBuilder
-    private func fleetColumn(_ summary: FleetSummary, forcedTooltip: Bool = false) -> some View {
+    private func fleetColumn(_ summary: FleetSummary, showsChevron: Bool,
+                             forcedTooltip: Bool = false) -> some View {
         let pools = displayedPools(summary)
         if let leading = pools.first {
             VStack(alignment: .leading, spacing: 5) {
-                columnHeader(summary, leading)
+                columnHeader(summary, leading, showsChevron: showsChevron)
                 ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
                     VStack(alignment: .leading, spacing: 3) {
                         pooledBar(pool)
@@ -134,32 +149,58 @@ extension PopoverRootView {
     /// menu bar leads with - and the bar directly under it is that pool's, so
     /// the pairing reads in the normal top-down order; every other pool is named on its own context
     /// line. Whole row is the fold target, exactly like the rows' leading line.
-    private func columnHeader(_ summary: FleetSummary, _ leading: FleetPool) -> some View {
+    private func columnHeader(_ summary: FleetSummary, _ leading: FleetPool,
+                              showsChevron: Bool) -> some View {
         HStack(spacing: Self.fleetRowSpacing) {
-            providerLabel(summary.providerID, count: summary.accountCount)
+            providerLabel(summary.providerID, count: summary.accountCount, plan: summary.planTier)
                 .font(.footnote)
             Spacer(minLength: 6)
             Text(worthValue(leading))
                 .font(.footnote.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.primary)
                 .layoutPriority(1)
-            foldChevron(summary.providerID)
+            if showsChevron {
+                foldChevron(summary.providerID)
+            } else {
+                Color.clear.frame(width: Self.fleetChevronWidth, height: 1)
+            }
         }
         .contentShape(Rectangle())
-        .onTapGesture { settings.toggleCollapsed(summary.providerID) }
+        .onTapGesture { if showsChevron { settings.toggleCollapsed(summary.providerID) } }
     }
 
     /// Provider identity and fleet size on one line: mark, display name, ×N. The one label form the
     /// gauges and the grouped cards' section headings both speak, so the two surfaces cannot drift
     /// into naming the same provider two ways. The caller sets the font (the gauges take footnote,
-    /// a section heading is lighter).
-    func providerLabel(_ providerID: String, count: Int) -> some View {
+    /// a section heading is lighter). A split provider's plan rows show the plan name INSTEAD of the
+    /// provider name (vendor string, never translated): the mark already says which provider, and
+    /// the full "Codex Team ×1" did not fit the single-column 88pt label.
+    func providerLabel(_ providerID: String, count: Int,
+                       plan: FleetSummary.Tier? = nil) -> some View {
         HStack(spacing: 5) {
             ProviderIconView(providerID: providerID, size: 11)
-            (Text(ProviderCatalog.displayName(for: providerID)).foregroundStyle(Color.secondary)
+            (Text(plan.map(planName) ?? ProviderCatalog.displayName(for: providerID))
+                .foregroundStyle(Color.secondary)
              + Text(" ×\(count)").foregroundStyle(.tertiary))
         }
         .lineLimit(1)
+    }
+
+    /// A split provider's plan as shown: the vendor's name, or "Unknown plan".
+    private func planName(_ tier: FleetSummary.Tier) -> String { tier.name ?? L("Unknown plan") }
+
+    /// Consecutive summaries of one provider, in order: a provider split by plan arrives as
+    /// adjacent summaries (FleetMath keeps the provider order), so runs are providers.
+    static func providerRuns(_ summaries: [FleetSummary]) -> [[FleetSummary]] {
+        var runs: [[FleetSummary]] = []
+        for summary in summaries {
+            if runs.last?.first?.providerID == summary.providerID {
+                runs[runs.count - 1].append(summary)
+            } else {
+                runs.append([summary])
+            }
+        }
+        return runs
     }
 
     /// The disclosure affordance, shared by both gauge layouts and by the grouped cards' section
@@ -179,11 +220,13 @@ extension PopoverRootView {
     /// provider); follow-up pools leave it empty - a continuation indent, so every bar sits in
     /// the same column and ONE grammar names the pools: always the context line under the bar.
     @ViewBuilder
-    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool) -> some View {
+    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool,
+                           showsChevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: Self.fleetRowSpacing) {
                 if leading {
-                    providerLabel(summary.providerID, count: summary.accountCount)
+                    providerLabel(summary.providerID, count: summary.accountCount,
+                                  plan: summary.planTier)
                         .font(.footnote)
                         .frame(width: Self.fleetLabelWidth, alignment: .leading)
                 } else {
@@ -197,7 +240,7 @@ extension PopoverRootView {
                 // The leading row doubles as a disclosure header: the chevron is the affordance,
                 // the whole row is the target. Follow-up rows keep an equal-width spacer so every
                 // bar column aligns.
-                if leading {
+                if leading && showsChevron {
                     foldChevron(summary.providerID)
                 } else {
                     Color.clear.frame(width: Self.fleetChevronWidth, height: 1)
@@ -206,7 +249,7 @@ extension PopoverRootView {
             .contentShape(Rectangle())
             // Instant, not animated: the surrounding window resize can't be synchronized with
             // a SwiftUI layout animation, and the half-animated combination read as a bounce.
-            .onTapGesture { if leading { settings.toggleCollapsed(summary.providerID) } }
+            .onTapGesture { if leading && showsChevron { settings.toggleCollapsed(summary.providerID) } }
             contextLine(summary, pool)
         }
     }
@@ -291,7 +334,8 @@ extension PopoverRootView {
                                 _ pool: FleetPool) -> (text: String, tint: Color) {
         guard pool.kind != .session else { return ("", .secondary) }
         guard let rate = store.fleetRates[FleetForecast.rateKey(
-            provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName)] else {
+            provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName,
+            plan: summary.planTier?.key)] else {
             return (L("measuring pace…"), Color.secondary.opacity(0.7))
         }
         let now = Date()
@@ -431,7 +475,9 @@ extension PopoverRootView {
                                                         now: Date()))))
             }
             return TallyTooltipBlock(
-                title: "\(ProviderCatalog.displayName(for: summary.providerID)) ×\(model.accountCount)",
+                title: ProviderCatalog.displayName(for: summary.providerID)
+                    + (summary.planTier.map { " " + planName($0) } ?? "")
+                    + " ×\(model.accountCount)",
                 rows: rows)
         }
     }

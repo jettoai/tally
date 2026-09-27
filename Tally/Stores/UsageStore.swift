@@ -399,13 +399,13 @@ final class UsageStore {
         // the question several times a frame.
         LimitResetStore.shared.refresh()
         let now = Date()
+        let planKeys = FleetMath.planTiers(accounts: labeled).mapValues(\.key) // split gauges' plans
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in
-            let rates = FleetForecast.weeklyRates(samples: samples, now: now)
+            let rates = FleetForecast.weeklyRates(samples: samples, now: now, planOf: { planKeys[$0] })
             Task { @MainActor in
                 UsageStore.shared.fleetRates = rates
-                // The snapshot's fleet forecast is computed from these rates - refresh it.
-                UsageStore.shared.republishSnapshot()
+                UsageStore.shared.republishSnapshot() // the snapshot's fleet forecast reads these rates
             }
         }
         // And the usage advisor, which needs a wider window than the pace forecast above (weekly

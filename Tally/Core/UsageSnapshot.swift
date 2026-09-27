@@ -93,6 +93,10 @@ struct UsageSnapshot: Codable {
         /// changing meaning with the focus read as a wrong number. Added in 0.16.1 (optional, so
         /// older CLIs decode fine - the snapshot schema only ever gains fields).
         var poolName: String?
+        /// The plan this pool covers when the provider's accounts are split by plan ("Pro"; "unknown"
+        /// for accounts whose plan could not be read); nil = the whole provider. Optional, so older
+        /// CLIs decode fine (the snapshot schema only ever gains fields).
+        var plan: String? = nil
     }
     var fleet: [String: Fleet]?
     /// The panel's ordered pool list per provider (gauge focus applied app-side): every pool the

@@ -22,17 +22,22 @@ enum FleetForecast {
 
     /// One pooled window's identity in the rates dictionary: provider + window kind + model (for
     /// model-scoped windows). The gauge looks its headline pool up with the same key, whichever
-    /// window the focus resolves to.
-    static func rateKey(provider: String, window: String, model: String?) -> String {
+    /// window the focus resolves to. `plan` is `FleetSummary.Tier.key` for a provider whose gauge
+    /// splits by plan; nil keeps the provider-wide key.
+    static func rateKey(provider: String, window: String, model: String?,
+                        plan: String? = nil) -> String {
         "\(provider)|\(window)" + (model.map { "|\($0.lowercased())" } ?? "")
+            + (plan.map { "|plan=\($0)" } ?? "")
     }
 
     /// Burn rate per pooled weekly-cycle window (see `rateKey`) - the account-wide weekly AND each
     /// model-scoped weekly, so the forecast follows whichever pool the gauge headlines.
     /// Consumption = the sum of positive `used` deltas between consecutive samples of the same
     /// account whose window did not roll over in between (`resetAt` unchanged); a rollover resets
-    /// `used` downward and contributes nothing.
-    static func weeklyRates(samples: [UsageHistory.Sample], now: Date) -> [String: FleetRate] {
+    /// `used` downward and contributes nothing. `planOf` maps a sample's account id to its plan
+    /// key when the gauge splits that provider by plan (`FleetMath.planTiers`).
+    static func weeklyRates(samples: [UsageHistory.Sample], now: Date,
+                            planOf: (String) -> String? = { _ in nil }) -> [String: FleetRate] {
         let weekly = samples.filter {
             $0.window == MetricKind.weeklyAll.rawValue || $0.window == MetricKind.weeklyModel.rawValue
         }
@@ -44,11 +49,18 @@ enum FleetForecast {
         for (_, rows) in bySeries {
             let sorted = rows.sorted { $0.ts < $1.ts }
             guard let first = sorted.first else { continue }
-            let key = rateKey(provider: first.provider, window: first.window, model: first.model)
-            earliest[key] = min(earliest[key] ?? first.ts, first.ts)
-            for (previous, current) in zip(sorted, sorted.dropFirst())
-            where previous.resetAt == current.resetAt {
-                consumed[key, default: 0] += max(0, current.used - previous.used)
+            let base = rateKey(provider: first.provider, window: first.window, model: first.model)
+            // The provider-wide key accumulates exactly as before; a split provider's account ALSO
+            // feeds its plan's own key, so a plan's pool is forecast from that plan's spending only.
+            let keys = [base] + (planOf(first.account).map {
+                [rateKey(provider: first.provider, window: first.window, model: first.model, plan: $0)]
+            } ?? [])
+            for key in keys {
+                earliest[key] = min(earliest[key] ?? first.ts, first.ts)
+                for (previous, current) in zip(sorted, sorted.dropFirst())
+                where previous.resetAt == current.resetAt {
+                    consumed[key, default: 0] += max(0, current.used - previous.used)
+                }
             }
         }
         var rates: [String: FleetRate] = [:]

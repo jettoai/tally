@@ -71,13 +71,15 @@ extension UsageStore {
     /// Two shapes from one pass: `fleet` keeps the single headline pool (the pre-0.17 contract
     /// older CLIs render) and `fleetPools` carries the panel's ordered pool list (gauge focus
     /// applied, session pools excluded) for CLIs that render every pool the gauge shows.
+    /// A provider split by plan (FleetMath `byPlan`) publishes every plan's pools under its
+    /// `fleetPools` entry, each stamped with `plan`, and no single `fleet` pool.
     func fleetForSnapshot() -> ([String: UsageSnapshot.Fleet]?,
                                         [String: [UsageSnapshot.Fleet]]?) {
         guard SettingsStore.shared.showFleetGauge else { return (nil, nil) }
         var fleet: [String: UsageSnapshot.Fleet] = [:]
         var fleetPools: [String: [UsageSnapshot.Fleet]] = [:]
         let now = Date()
-        for summary in FleetMath.summaries(accounts: lastPublishedAccounts,
+        for summary in FleetMath.summaries(accounts: lastPublishedAccounts, byPlan: true,
                                            label: { $0.accountLabel }) {
             let focused = Self.focusedModel(providerID: summary.providerID,
                                             available: summary.modelPoolNames)
@@ -86,7 +88,7 @@ extension UsageStore {
                 var sustainable = false
                 if let rate = fleetRates[FleetForecast.rateKey(
                     provider: summary.providerID, window: pool.kind.rawValue,
-                    model: pool.modelName)] {
+                    model: pool.modelName, plan: summary.planTier?.key)] {
                     dryAt = FleetForecast.depletion(
                         remaining: pool.totalRemaining,
                         refills: pool.refills.map { ($0.at, $0.gain) },
@@ -99,9 +101,14 @@ extension UsageStore {
                     remaining: pool.totalRemaining,
                     capacity: Double(pool.members.count) * 100,
                     dryAt: dryAt, sustainable: sustainable,
-                    poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil)
+                    poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil,
+                    plan: summary.planTier.map { $0.name ?? "unknown" })
             }
-            if let pool = summary.headline(focusedModel: focused), pool.kind != .session {
+            // A provider split by plan has no single headline pool; older CLIs that read only
+            // `fleet` then print no pool line for it instead of one plan's pool labelled as the
+            // whole provider.
+            if summary.planTier == nil, let pool = summary.headline(focusedModel: focused),
+               pool.kind != .session {
                 fleet[summary.providerID] = published(pool)
             }
             // Mirrors FleetStripView.displayedPools, so `tally status` shows the same pools
@@ -114,7 +121,8 @@ extension UsageStore {
                 ordered = summary.headline(focusedModel: focused).map { [$0] } ?? []
             }
             let pools = ordered.filter { $0.kind != .session }
-            if !pools.isEmpty { fleetPools[summary.providerID] = pools.map(published) }
+            // Accumulate: a provider split by plan arrives once per plan.
+            if !pools.isEmpty { fleetPools[summary.providerID, default: []] += pools.map(published) }
         }
         return (fleet.isEmpty ? nil : fleet, fleetPools.isEmpty ? nil : fleetPools)
     }

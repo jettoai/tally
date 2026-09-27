@@ -19,10 +19,23 @@ func row(_ id: String = "claude:.claude3", readAgo: TimeInterval, resetsAt: Date
 func due(userInitiated: Bool = false, live: Bool = false, _ previous: AccountUsage?) -> Bool {
     ProbeCadence.isDue(userInitiated: userInitiated, live: live, previous: previous, now: now)
 }
+/// The round's rule: a live supervisor, with or without a status-line fact.
+func dueLive(userInitiated: Bool = false, live: Bool = true, _ fact: LiveRateFact?,
+             _ previous: AccountUsage?) -> Bool {
+    ProbeCadence.isDue(userInitiated: userInitiated, live: live, fact: fact, previous: previous, now: now)
+}
+func fact(observedAgo: TimeInterval, fiveHour: Double = 40) -> LiveRateFact {
+    let at = now.addingTimeInterval(-observedAgo)
+    return LiveRateFact(accountID: "claude:.claude3", observedAt: at, changedAt: at,
+                        fiveHour: LiveRateWindow(usedPercent: fiveHour, resetsAt: now.addingTimeInterval(3600)),
+                        sevenDay: nil, flagshipAt: nil)
+}
 
 // MARK: - Cadence
 
-check("A1 a live account is read every round", due(live: true, row(readAgo: 10)))
+// A live account follows the 5-minute live cadence even with no status-line fact (B rows below).
+check("A1 a live account with no fact read 10 seconds ago is skipped, 5 minutes ago is read",
+      !dueLive(nil, row(readAgo: 10)) && dueLive(nil, row(readAgo: 5 * 60)))
 check("A2 an idle account read 5 minutes ago is skipped", !due(row(readAgo: 5 * 60)))
 check("A3 an idle account read 15 minutes ago is read", due(row(readAgo: 15 * 60)))
 check("A4 a window that reset since the last read brings the read forward",
@@ -32,11 +45,41 @@ check("A5 a reset that had already passed at the last read does not",
 var failedRound = row(readAgo: 60); failedRound.lastRefreshFailed = true
 var staleRow = row(readAgo: 60); staleRow.isStale = true
 var errorRow = row(readAgo: 60); errorRow.error = "network down"
+var emptyRow = row(readAgo: 60); emptyRow.metrics = []
 check("A6 a failed, stale or errored last read is retried",
       due(failedRound) && due(staleRow) && due(errorRow))
 check("A7 an account never read is read", due(nil))
 check("A8 a manual refresh reads an idle account read just now",
       due(userInitiated: true, row(readAgo: 1)))
+
+// MARK: - Live accounts whose status line went quiet (fact older than 3 minutes, or none)
+
+let quiet = fact(observedAgo: 32 * 60)
+check("B1 a live account with a stale fact read 1 minute ago is skipped", !dueLive(quiet, row(readAgo: 60)))
+check("B2 a live account with a stale fact read 5 minutes ago is read", dueLive(quiet, row(readAgo: 5 * 60)))
+var highProbe = row(readAgo: 60); highProbe.metrics[0].usedPercent = 92
+check("B3 near a wall, by the last probe or by the stale fact, a live account reads every tick",
+      dueLive(quiet, highProbe) && dueLive(fact(observedAgo: 32 * 60, fiveHour: 95), row(readAgo: 60)))
+check("B3b a probe at 90% whose window has since reset is not a wall", {
+    var p = row(readAgo: 60, resetsAt: now.addingTimeInterval(-3600)); p.metrics[0].usedPercent = 92
+    return !dueLive(quiet, p)
+}())
+check("B4 a window that reset since the last read brings a live account's read forward",
+      dueLive(quiet, row(readAgo: 60, resetsAt: now.addingTimeInterval(-10))))
+check("B5 a live account with no fact read 1 minute ago is skipped", !dueLive(nil, row(readAgo: 60)))
+check("B6 a live account whose last read did not land is retried",
+      dueLive(quiet, nil) && dueLive(quiet, failedRound) && dueLive(quiet, staleRow)
+          && dueLive(quiet, errorRow) && dueLive(nil, emptyRow))
+check("B7 a manual refresh reads a live account with a stale fact read just now",
+      dueLive(userInitiated: true, quiet, row(readAgo: 1)) && dueLive(userInitiated: true, live: false, nil, row(readAgo: 1)))
+check("B8 an account with no live supervisor and a stale or no fact keeps the 15-minute idle cadence",
+      !dueLive(live: false, quiet, row(readAgo: 60)) && !dueLive(live: false, nil, row(readAgo: 60))
+          && dueLive(live: false, quiet, row(readAgo: 15 * 60)))
+let fresh = fact(observedAgo: 30)
+check("B9 a fresh fact keeps its own path: 5 minutes, sooner near a wall",
+      !dueLive(fresh, row(readAgo: 60)) && dueLive(fresh, row(readAgo: 5 * 60))
+          && dueLive(fact(observedAgo: 30, fiveHour: 95), row(readAgo: 60))
+          && !dueLive(live: false, fresh, row(readAgo: 60)))
 
 // MARK: - Live accounts
 
@@ -76,9 +119,9 @@ struct FakeProvider: UsageProvider {
         return row(account.id, readAgo: 0)
     }
 }
-// a: idle, read 5 minutes ago (not due). b: live, read 10 seconds ago. c: never read.
+// a: idle, read 5 minutes ago (not due). b: live, read 5 minutes ago (due). c: never read.
 let roundAccounts = [account("a"), account("b"), account("c")]
-let roundPrevious = [row("a", readAgo: 5 * 60), row("b", readAgo: 10)]
+let roundPrevious = [row("a", readAgo: 5 * 60), row("b", readAgo: 5 * 60)]
 
 let serialProbe = Probe()
 let serialRows = await ProbeCadence.fetchRound(FakeProvider(probe: serialProbe), active: roundAccounts,

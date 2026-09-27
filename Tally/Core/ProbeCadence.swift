@@ -11,7 +11,9 @@ import Foundation
 // start that signs in and runs no command. No flag keeps the three windows and drops the scan
 // (`--bare` never reads OAuth, `--disable-slash-commands` disables `/usage` itself), so the lever
 // is how many probes run and how many run at once: five at once cost 56.7 CPU seconds and 1.7 GB
-// together, the same five one after another 40.8 seconds and one process's worth of memory.
+// together, the same five one after another 40.8 seconds and one process's worth of memory. A
+// live account is read every 5 minutes, not every tick, even after its status line goes quiet (the
+// status line stops redrawing while a session waits on background subagents; see `isDue` below).
 enum ProbeCadence {
     /// How often an account with no live session is read. Its numbers only move when a window
     /// resets (handled separately below) or when something off this machine spends it: claude.ai,
@@ -103,18 +105,25 @@ enum ProbeCadence {
     /// Near a wall every reading matters to the picks and the cap handoff, so the probe runs every tick.
     static let nearWallPercent: Double = 90
 
-    /// The full rule with the status-line channel. A missing or stale fact falls back to `isDue`
-    /// above, with a fact still being rendered counting as a live account.
+    /// The full rule with the status-line channel. An account with a live supervisor or a fact
+    /// still being rendered is read every 5 minutes, every tick near a wall or on the flagship model;
+    /// any other account falls back to the idle cadence of `isDue` above.
+    ///
+    /// A live account whose fact went stale gets the same 5 minutes rather than every tick: the
+    /// status line stops redrawing while the main session waits on background subagents (the official
+    /// status line docs say it updates only after assistant messages and a few UI events), so a
+    /// stale fact under a live supervisor is the common case, and reading those accounts every tick
+    /// was the app's largest CPU cost (two such accounts, 2.47 probes a minute on 2026-09-27).
     static func isDue(userInitiated: Bool, live: Bool, fact: LiveRateFact?, previous: AccountUsage?,
                       now: Date) -> Bool {
         let rendering = fact.map { now.timeIntervalSince($0.observedAt) < factFreshness } ?? false
-        guard !userInitiated, let fact, rendering else {
-            return isDue(userInitiated: userInitiated, live: live || rendering, previous: previous, now: now)
+        guard !userInitiated, live || rendering else {
+            return isDue(userInitiated: userInitiated, live: false, previous: previous, now: now)
         }
         guard let previous, landed(previous) else { return true }
-        if let flagshipAt = fact.flagshipAt, now.timeIntervalSince(flagshipAt) < factFreshness { return true }
+        if let flagshipAt = fact?.flagshipAt, now.timeIntervalSince(flagshipAt) < factFreshness { return true }
         // The last probe counts too: an idle session keeps re-rendering an older, lower header.
-        let wallFacts = [fact.fiveHour, fact.sevenDay].compactMap { $0 }.filter { $0.resetsAt > now }
+        let wallFacts = [fact?.fiveHour, fact?.sevenDay].compactMap { $0 }.filter { $0.resetsAt > now }
             .map(\.usedPercent)
         let wallProbe = previous.metrics.filter {
             ($0.kind == .session || $0.kind == .weeklyAll) && ($0.resetsAt.map { $0 > now } ?? true)

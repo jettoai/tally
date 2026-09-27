@@ -26,10 +26,23 @@ final class UsageHistory: @unchecked Sendable {
         var resetAt: Date?
     }
 
+    private let url: URL
     private let queue = DispatchQueue(label: "tally.usage-history", qos: .utility)
     /// Last written (used, resetAt) per "account|window" key - the change filter.
     private var lastWritten: [String: (used: Double, resetAt: Date?)] = [:]
     private var didPrune = false
+
+    /// Incremental read cache: every sample decoded so far (file order), the byte offset just past
+    /// the last newline consumed, and the file's identity. A refresh decodes only the bytes appended
+    /// since; a different inode/device, a file shorter than the offset, or a byte before the offset
+    /// that is no longer a newline (in-place rewrite) drops the cache and reloads the whole file.
+    private var cached: [Sample] = []
+    private var cachedOffset: UInt64 = 0
+    private var cachedIdentity: [Int]?
+
+    init(fileURL: URL = UsageHistory.fileURL) {
+        url = fileURL
+    }
 
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -74,22 +87,62 @@ final class UsageHistory: @unchecked Sendable {
 
     /// Read every sample at or after `since` (line-by-line tolerant decode), delivered on the
     /// history queue - callers hop back to their own actor.
+    /// A trailing line without its newline is still being written and is left for the next call.
     func samples(since: Date, completion: @escaping @Sendable ([Sample]) -> Void) {
-        queue.async {
-            var out: [Sample] = []
-            if let data = try? Data(contentsOf: Self.fileURL) {
-                for line in data.split(separator: UInt8(ascii: "\n")) {
-                    guard let sample = try? Self.decoder.decode(Sample.self, from: Data(line)),
-                          sample.ts >= since else { continue }
-                    out.append(sample)
-                }
-            }
-            completion(out)
+        queue.async { [self] in
+            refreshCache()
+            // Keep the cache bounded to retention (plus a day of slack, so a caller asking for
+            // exactly `retentionDays` a moment earlier still gets every sample it asked for).
+            let floor = Date().addingTimeInterval(-TimeInterval(Self.retentionDays + 1) * 86_400)
+            cached.removeAll { $0.ts < floor }
+            completion(cached.filter { $0.ts >= since })
         }
     }
 
+    private func refreshCache() {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attrs[.size] as? NSNumber)?.uint64Value else {
+            invalidateCache()
+            return
+        }
+        let identity = [(attrs[.systemFileNumber] as? NSNumber)?.intValue ?? -1,
+                        (attrs[.deviceIdentifier] as? NSNumber)?.intValue ?? -1]
+        if identity != cachedIdentity || size < cachedOffset {
+            invalidateCache()
+            cachedIdentity = identity
+        }
+        guard size > cachedOffset, let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+        // Re-read the newline that ended the last consumed line: if it is gone, the file was
+        // rewritten in place and the cached samples no longer describe it.
+        let start = cachedOffset > 0 ? cachedOffset - 1 : 0
+        guard (try? handle.seek(toOffset: start)) != nil,
+              var data = try? handle.readToEnd() else { return }
+        if cachedOffset > 0 {
+            guard data.first == UInt8(ascii: "\n") else {
+                invalidateCache()
+                cachedIdentity = identity
+                refreshCache()
+                return
+            }
+            data = data.dropFirst()
+        }
+        guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return }
+        for line in data[data.startIndex..<lastNewline].split(separator: UInt8(ascii: "\n")) {
+            if let sample = try? Self.decoder.decode(Sample.self, from: Data(line)) {
+                cached.append(sample)
+            }
+        }
+        cachedOffset += UInt64(lastNewline - data.startIndex + 1)
+    }
+
+    private func invalidateCache() {
+        cached = []
+        cachedOffset = 0
+        cachedIdentity = nil
+    }
+
     private func append(_ lines: [Data]) {
-        let url = Self.fileURL
         let payload = lines.map { $0 + Data("\n".utf8) }.reduce(Data(), +)
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
@@ -105,7 +158,6 @@ final class UsageHistory: @unchecked Sendable {
     /// Drop samples older than the retention window. Line-by-line decode so one corrupt line
     /// (partial write, manual edit) costs only itself, not the whole file.
     private func prune(now: Date) {
-        let url = Self.fileURL
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
         let cutoff = now.addingTimeInterval(-TimeInterval(Self.retentionDays) * 86_400)
         let kept = data.split(separator: UInt8(ascii: "\n")).filter { line in
@@ -117,5 +169,6 @@ final class UsageHistory: @unchecked Sendable {
         let rewritten = kept.map { Data($0) + Data("\n".utf8) }.reduce(Data(), +)
         guard rewritten.count != data.count else { return }
         try? rewritten.write(to: url, options: .atomic)
+        invalidateCache()
     }
 }

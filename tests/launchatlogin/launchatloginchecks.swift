@@ -437,9 +437,9 @@ func runLaunchAtLoginChecks() {
         "TallyMotionDemo",
         "TallyStripSnapshot", "TallyWindowSnapshot",
         "TallyDryNotifyTest", "TallyResetHintTest", "TallyResetHintExpiryTest", "TallyLoginExpiryTest",
-        "TallyHostHealthTest", "TallySentryTestEvent",
+        "TallyHostHealthTest", "TallyCPUAlertTest", "TallySentryTestEvent",
     ]
-    check("the family is exactly these twenty-two flags",
+    check("the family is exactly these twenty-three flags",
           Set(CaptureLaunch.backgroundKeys) == expectedFamily)
     check("and it carries no duplicates",
           CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -492,8 +492,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to thirty-three, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 33 && scanned.count == 33)
+    check("which comes to thirty-four, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 34 && scanned.count == 34)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",

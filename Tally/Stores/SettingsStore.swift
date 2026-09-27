@@ -138,6 +138,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(showAdvisor, forKey: "showAdvisor") }
     }
 
+    /// Notify when the whole machine's CPU stays above the line for half a minute, naming the
+    /// project behind it (CPUAlertLogic.swift, which reads the same key). On by default.
+    var cpuAlertEnabled: Bool {
+        didSet { UserDefaults.standard.set(cpuAlertEnabled, forKey: CPUAlertLogic.enabledKey) }
+    }
+
     /// Providers whose account cards are folded away behind their fleet gauge (clicking the gauge
     /// row toggles it). A view gesture, not a Settings item: the collapse only takes effect while
     /// that provider's gauge is actually on screen, so cards can never become unreachable.
@@ -297,6 +303,7 @@ final class SettingsStore {
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
         showAdvisor = defaults.object(forKey: "showAdvisor") as? Bool ?? true
+        cpuAlertEnabled = CPUAlertLogic.isEnabled(defaults)
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
         // ALL THREE REMEMBERED COUNTS COME BACK THROUGH THE ONE RULE

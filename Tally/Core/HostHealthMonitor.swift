@@ -32,6 +32,11 @@ final class HostHealthMonitor {
 
     private init() {}
 
+    /// Whether the host watch is in alarm right now, and when it last raised one: read by the CPU
+    /// watch so the two never announce the same moment (CPUAlertLogic.hostQuiet).
+    var isAlarmed: Bool { tracker.state == .alarmed }
+    var lastAlarmAt: Date? { tracker.lastAlarm?.at }
+
     /// Volatile launch flag (argument domain, so nothing persists): `-TallyHostHealthTest`
     /// reports a load of 300 to the rules instead of the machine's own, which walks the alarm
     /// branch on a quiet machine. The memory reading is left alone, so what a run of this proves

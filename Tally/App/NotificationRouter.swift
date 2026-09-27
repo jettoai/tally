@@ -29,7 +29,8 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     /// enough to repeat before each alert that carries a button.
     func refreshCategories() {
         UNUserNotificationCenter.current()
-            .setNotificationCategories([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category])
+            .setNotificationCategories([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category,
+                                         CPUAlertMonitor.category])
     }
 
     /// Show the alert even while Tally is the active app.
@@ -63,6 +64,16 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
             let sessionID = content.userInfo[LoginHealthNotification.sessionKey] as? String
             if action == LoginHealthNotification.openActionID, let sessionID {
                 Task { @MainActor in LoginHealthStore.shared.openSession(sessionID) }
+            }
+            completionHandler()
+            return
+        }
+        if content.categoryIdentifier == CPUAlertMonitor.categoryID {
+            // The banner names a project; the Sessions page is where its row is. Shown first,
+            // then the tab set, because `show` adopts the pinned panel's tab when one is up.
+            Task { @MainActor in
+                MainWindowController.shared.show()
+                MainWindowController.shared.surfaceTab.tab = .sessions
             }
             completionHandler()
             return

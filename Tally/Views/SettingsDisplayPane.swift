@@ -135,6 +135,12 @@ extension SettingsView {
 
         rowDivider
 
+        toggleRow(L("CPU alert"),
+                  subtitle: L("Notify when CPU stays above 90% for 30 seconds, naming the project behind it."),
+                  isOn: $settings.cpuAlertEnabled)
+
+        rowDivider
+
         toggleRow(L("Glass pinned panel"),
                   subtitle: L("The pinned panel shows the desktop through frosted glass."),
                   isOn: $settings.isPanelTranslucent)

@@ -184,6 +184,9 @@ extension ProcessFootprintStore {
                 // it throttles itself to one sample a minute by the clock, so both rates above
                 // deliver it the same thing, and on an ordinary tick it costs one comparison.
                 HostHealthMonitor.shared.tick()
+                // The CPU watch rides the same heartbeat and throttles itself to one reading every
+                // ten seconds by the clock (CPUAlertLogic.sampleInterval).
+                CPUAlertMonitor.shared.tick()
             }
         }
         // `.common`, so the readings keep coming while a menu or a scroll is tracking - the same

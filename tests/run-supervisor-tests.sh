@@ -174,6 +174,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthReaders.swift \
   Tally/Core/KeystrokeText.swift \
   Tally/Core/HostHealthMonitor.swift Tally/Core/SystemAlert.swift \
+  Tally/Core/CPUAlertLogic.swift Tally/Core/CPUAlertReaders.swift Tally/Core/CPUAlertMonitor.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \

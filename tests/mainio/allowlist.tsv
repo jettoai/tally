@@ -1,3 +1,5 @@
 # Permanent exemptions: file<TAB>Type.func<TAB>api<TAB>reason. A row without a reason is red.
 Tally/MenuBar/MenuBarStrip.swift	MenuBarStripRenderer.writeSnapshot	write	demo-only README capture (-TallyStripSnapshot), never runs in a user session
 Tally/Core/ResetHintNotifier.swift	ResetHintNotifier.runExpiryDeliveryTest	write	developer test hook, not reachable from UI
+Tally/App/WindowSnapshot.swift	WindowSnapshot.write	createDirectory	dev/demo-only window capture (-TallyWindowSnapshot), the launch quits right after, never runs in a user session
+Tally/App/WindowSnapshot.swift	WindowSnapshot.write	write	dev/demo-only window capture (-TallyWindowSnapshot), the launch quits right after, never runs in a user session

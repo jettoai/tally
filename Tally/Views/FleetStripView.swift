@@ -328,24 +328,34 @@ extension PopoverRootView {
         return Text(phrase.text).foregroundStyle(phrase.tint)
     }
 
+    /// When this pool runs dry at its measured pace, `.some(nil)` when it outlasts the forecast
+    /// horizon, and nil when there is no pace yet (still measuring) or the pool is a session pool,
+    /// which paces work rather than capping it. Internal because the advisor row asks the same
+    /// question and must get the same answer: its "not enough at this pace" is exactly this
+    /// line's amber "lasts about", never a second threshold.
+    func poolDryDate(_ summary: FleetSummary, _ pool: FleetPool, now: Date) -> Date?? {
+        guard pool.kind != .session else { return nil }
+        guard let rate = store.fleetRates[FleetForecast.rateKey(
+            provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName,
+            plan: summary.planTier?.key)] else { return nil }
+        return .some(FleetForecast.depletion(
+            remaining: pool.totalRemaining,
+            refills: pool.refills.map { ($0.at, $0.gain) },
+            perHour: rate.perHour,
+            steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
+            now: now))
+    }
+
     /// The pace verdict as words plus its tint, so the line and its tooltip cannot drift: the row
     /// clips this sentence when a column is narrow, and the hover has to answer with the same one.
     private func forecastPhrase(_ summary: FleetSummary,
                                 _ pool: FleetPool) -> (text: String, tint: Color) {
         guard pool.kind != .session else { return ("", .secondary) }
-        guard let rate = store.fleetRates[FleetForecast.rateKey(
-            provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName,
-            plan: summary.planTier?.key)] else {
+        let now = Date()
+        guard let outlook = poolDryDate(summary, pool, now: now) else {
             return (L("measuring pace…"), Color.secondary.opacity(0.7))
         }
-        let now = Date()
-        let dry = FleetForecast.depletion(
-            remaining: pool.totalRemaining,
-            refills: pool.refills.map { ($0.at, $0.gain) },
-            perHour: rate.perHour,
-            steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
-            now: now)
-        guard let dry else {
+        guard let dry = outlook else {
             return ("\(L("sustainable at this pace")) ✓", TallyColor.normal)
         }
         let seconds = dry.timeIntervalSince(now)

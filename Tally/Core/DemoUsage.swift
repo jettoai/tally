@@ -304,8 +304,10 @@ enum DemoUsage {
     /// Fabricated advisor readings so the advisor strip renders in screenshots too. Real instances
     /// derive these from ~/.tally/history.jsonl, which a demo launch never has, so without fixtures
     /// the strip is simply absent from the shot. The numbers continue the story the gauges above
-    /// already tell: the five Claude accounts spend more per week than they refill (pace asks for a
-    /// sixth, one hollow pip), while the four Codex accounts stay inside their budget.
+    /// already tell: the five Claude accounts spend more per week than they refill (the row reads
+    /// "add 1 account"), while the four Codex accounts are enough on the four-week average, but
+    /// the Team pool's own pace runs it dry before its refill, so the row reads "Team not enough at
+    /// this pace".
     static var advisorReadings: [UsageAdvisor.Reading] {
         // 5.8 account-weeks over 5 accounts puts the pool past the 0.9 trigger on its own, and the
         // starved hours cross their 2h/wk trigger too, so both paths to "add an account" agree.
@@ -316,7 +318,7 @@ enum DemoUsage {
         // strip shows the pooled figure, the uniform-fleet case), and Codex spread over Pro and
         // Team, which is what puts the per-tier reading on screen. Each split sums to its own
         // pooled demand, the same invariant a real reading keeps.
-        // The window ladder the clickable figure cycles through, built from the same pooled numbers
+        // The window ladder the hover lists, built from the same pooled numbers
         // so the demo reads like a real fortnight: a slightly hotter recent week than the month
         // behind it, which is the situation the shorter windows exist for. The 28-day rung IS the
         // pooled figure, exactly as a live reading's is.

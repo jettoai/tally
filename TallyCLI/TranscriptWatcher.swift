@@ -129,6 +129,8 @@ struct TranscriptWatcher {
     /// refusal fails in the safe direction: a prompt that happens to contain one of these words is
     /// simply not counted, and the wait it would have ended lasts until the next prompt.
     var lastUserTurnAt: Date?
+    /// The newest post-launch stopped/killed background-work notice (`stoppedTaskNotice`).
+    var lastStoppedTasks: StoppedTaskNotice?
     /// The timestamp of the newest main-chain, post-launch CONVERSATION event: a `user` (tool
     /// results included) or `assistant` record carrying its own `uuid` and `timestamp`. This is the
     /// clock a standing notice is measured against ("has the conversation moved since the notice
@@ -485,4 +487,13 @@ struct TranscriptWatcher {
         file = candidate?.0
     }
 
+}
+
+/// A resumed Claude Code's notice of unfinished background work; `ids` omits `__orphan_summary__`.
+struct StoppedTaskNotice: Equatable {
+    let at: Date, uuid: String, ids: Set<String>
+    func merged(with other: StoppedTaskNotice) -> StoppedTaskNotice {
+        StoppedTaskNotice(at: max(at, other.at), uuid: other.at >= at ? other.uuid : uuid,
+                          ids: ids.union(other.ids))
+    }
 }

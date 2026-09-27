@@ -9,8 +9,9 @@ let capResumeArmedOutcome = "cap-resume-armed"
 
 /// The line a dropped arm leaves. Pure, and shaped like the other entries in that log: the stamp,
 /// the session, what kind of record this is, and why.
-func capResumeDropLine(pid: String, why: CapResumeDrop, now: Date = Date()) -> String {
-    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(capResumeDroppedOutcome) "
+func capResumeDropLine(pid: String, why: CapResumeDrop, outcome: String = capResumeDroppedOutcome,
+                       now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(outcome) "
         + "reason=\(why.word)\n"
 }
 
@@ -54,4 +55,14 @@ func capResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
         + "short, and this session is now on \(quotaKnockName(to)). "
         + "Continue the work that was interrupted."
     return keystrokeClipped(line, bytes: limit)
+}
+
+/// The three words a station on the cap resume door writes to `input.log`, so a second station can
+/// share the door and its gates without its lines reading as a wall's (RestartWake.swift).
+struct CapResumeOutcomes {
+    let typed: String
+    let failed: String
+    let dropped: String
+    static let cap = CapResumeOutcomes(typed: capResumeOutcome, failed: capResumeFailedOutcome,
+                                       dropped: capResumeDroppedOutcome)
 }

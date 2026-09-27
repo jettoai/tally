@@ -225,6 +225,11 @@ extension TranscriptWatcher {
            let ts = lineTimestamp(line), ts >= since {
             lastUserTurnAt = ts
         }
+        // Background work a relaunch stopped, as the resumed Claude Code reports it. Several
+        // notices in one child fold into one reading (RestartWake.swift types one line for them).
+        if let notice = stoppedTaskNotice(inLine: line) {
+            lastStoppedTasks = lastStoppedTasks.map { $0.merged(with: notice) } ?? notice
+        }
         // Claude Code's own `/model`, in the two events it writes. The invocation is what
         // marks the moment; the line it printed carries the effort, and is JSON-parsed only
         // past a substring prefilter (its text is ANSI-coded, so it cannot be read off the raw
@@ -349,4 +354,27 @@ func lineIsPersonInput<S: StringProtocol>(_ line: S) -> Bool {
         return false
     }
     return true
+}
+
+extension TranscriptWatcher {
+    /// The notice on this line, or nil. A main-chain, post-launch `user` record Claude Code wrote
+    /// itself: `origin.kind` is `task-notification`, or, on a build without that field, the content
+    /// OPENS with the tag. A prompt that merely quotes one is neither.
+    func stoppedTaskNotice(inLine line: Substring) -> StoppedTaskNotice? {
+        guard line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
+              line.contains("\"origin\":{\"kind\":\"task-notification\"}")
+                  || line.contains("\"content\":\"<task-notification>"),
+              line.contains("<status>stopped</status>") || line.contains("<status>killed</status>"),
+              let uuid = lineUUID(line), let ts = lineTimestamp(line), ts >= since
+        else { return nil }
+        var ids = Set<String>()
+        var rest = line[...]
+        while let open = rest.range(of: "<task-id>"),
+              let close = rest[open.upperBound...].range(of: "</task-id>") {
+            let id = rest[open.upperBound..<close.lowerBound]
+            if !id.hasPrefix("__orphan_summary__") { ids.insert(String(id)) }
+            rest = rest[close.upperBound...]
+        }
+        return StoppedTaskNotice(at: ts, uuid: uuid, ids: ids)
+    }
 }

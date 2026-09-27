@@ -220,6 +220,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // Where this session runs, for a `tally switch` typed in a shell with no session marker; written
     // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
     writeSupervisorCwd(cwd, pid: supervisorPID)
+    /// What the last handoff told the next child about the restart (RestartWake.swift): nil on a
+    /// first launch, on a fresh relaunch, and after an exec.
+    var restartNote: RestartNote? = nil
+    /// Whether this session is owed the line that wakes it after a restart killed its background
+    /// work. Per session, since it is raised and spent against the child after a handoff.
+    var restartWake = RestartWakeState()
 
     while true {
         let launchedAt = Date()
@@ -291,6 +297,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     to: handoffLog)
             }
         }
+        // Read before the flag flips below: whether THIS child is one Tally restarted, what the
+        // handoff said about it, and whether it resumes a conversation at all (RestartWake.swift).
+        let spawnedByTally = relaunching
+        let childNote = restartNote
+        restartNote = nil
+        let resumesConversation = (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) != nil
+            || launchArgs.contains("--continue") || launchArgs.contains("-c")
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)
@@ -810,10 +823,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    uptime: childAge, home: account.launchHome,
                    installed: installedVersion) != nil {
                 let now = Date()
+                let heldBefore = selfUpdateHeldSince
                 if backgroundWorking { selfUpdateHeldSince = selfUpdateHeldSince ?? now }
+                let heldCount = rosterBackgroundCount(roster)
+                if heldBefore == nil, let held = selfUpdateHeldSince {
+                    appendHandoffLine(selfUpdateHoldLine(pid: supervisorPID, event: "held",
+                                                         background: heldCount, heldSince: held),
+                                      to: handoffLog)
+                }
                 if !selfUpdateHeldByBackground(working: backgroundWorking,
                                                heldSince: selfUpdateHeldSince, now: now) {
                     plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
+                    appendHandoffLine(selfUpdateHoldLine(
+                        pid: supervisorPID, event: backgroundWorking ? "expired" : "released",
+                        background: heldCount, heldSince: selfUpdateHeldSince), to: handoffLog)
                 }
             }
 
@@ -1045,6 +1068,29 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // On the same terms as the two beside it: what this tick typed is what the next tick's
             // draft reading has to discount.
             if resumed != nil { lastComposerWrite = Date() }
+            // AND THE LINE THAT WAKES A SESSION WHOSE BACKGROUND WORK A RESTART KILLED
+            // (RestartWake.swift): after the cap resume, which already wakes a child it owns.
+            let stopped = watcher.lastStoppedTasks
+            let woke = applyRestartWake(
+                &restartWake, pid: supervisorPID,
+                candidate: restartWakeOffer(
+                    state: restartWake, spawnedByTally: spawnedByTally,
+                    resumesConversation: resumesConversation, note: childNote,
+                    launchedAt: launchedAt, notice: stopped,
+                    answeredAt: watcher.lastMainChainEventAt, userTurnAt: watcher.lastUserTurnAt,
+                    conversation: watcher.transcriptSessionID, caughtUp: watcher.caughtUp,
+                    capOwnsChild: capResume.isArmed
+                        || capResume.nudgedAt.map { $0 >= launchedAt } == true,
+                    now: tickNow),
+                source: stopped == nil ? "roster" : "notice", launchedAt: launchedAt,
+                noticeUUID: stopped?.uuid, answeredAt: watcher.lastMainChainEventAt,
+                typedAlready: action.typed != nil || resetTyped != nil || resumed != nil,
+                session: board.state, quiet: board.quiet, turnEnded: turnOver,
+                keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
+                draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
+                seen: board.seen, caughtUp: watcher.caughtUp,
+                userTurnAt: watcher.lastUserTurnAt, conversation: watcher.transcriptSessionID)
+            if woke != nil { lastComposerWrite = Date() }
             // AND THE ONE LINE NOBODY ASKED FOR: the account under this session is running out, and
             // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
             // the same gates, after the request station rather than beside it - a tick that has just
@@ -1053,7 +1099,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let knocked = applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
                                           account: account, primaryModel: effectivePrimary,
                                           typedAlready: action.typed != nil || resumed != nil
-                                              || resetTyped != nil,
+                                              || resetTyped != nil || woke != nil,
                                           session: board.state,
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
@@ -1080,7 +1126,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let hostKnocked = applyHostHealthKnock(
                 &hostHealthKnock, pid: supervisorPID,
                 typedAlready: action.typed != nil || resumed != nil || knocked != nil
-                    || resetTyped != nil,
+                    || resetTyped != nil || woke != nil,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
                 draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
@@ -1163,6 +1209,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 conversation: watcher.transcriptSessionID,
                                 from: leaving, to: plan.target,
                                 userTurnAt: watcher.lastUserTurnAt, caughtUp: watcher.caughtUp)
+                // AND WHAT THE NEXT CHILD NEEDS TO WAKE ITSELF IF THIS KILLED BACKGROUND WORK
+                // (RestartWake.swift): the reason and the roster's count.
+                restartNote = restartNoteForHandoff(reason: plan.reason,
+                                                    fresh: plan.fresh || secondHead, roster: roster)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child

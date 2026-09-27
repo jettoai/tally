@@ -617,6 +617,9 @@ func runDraftStashChecks() {
     /// `/limit-reset` into the composer, so it is under every rule this section states about the
     /// four before it.
     let limitReset = (call: "applyCapLimitReset(", until: "if resetTyped != nil {")
+    /// The sixth, the line that wakes a session a restart left with its background work killed
+    /// (RestartWake.swift).
+    let wake = (call: "applyRestartWake(", until: "if woke != nil {")
     /// That call's argument list. A call this cannot find yields nothing, so every check reading it
     /// goes red rather than vacuously green.
     func arguments(of writer: (call: String, until: String)) -> String {
@@ -641,31 +644,31 @@ func runDraftStashChecks() {
     // it. `supervisedSessionState` folds a soft `idle_prompt` into `blocked`, so a writer handed
     // `session == .blocked` as this question types one key at a time into the composer of every
     // idle session on a machine with the notification hook installed, which is the 2026-09-05
-    // correction. All FIVE writers are read here rather than the two above: the reading is per
+    // correction. All SIX writers are read here rather than the two above: the reading is per
     // call, and four of these calls reach no value this suite can inspect from outside.
     //
     // AND SINCE ISSUE #2 THE FOUR NOBODY ASKED FOR ARE HANDED A DIALOG THAT MAY BE OPEN, the
     // registry included and an unreadable one counted, while the requested line is handed only the
     // dialogs known to be open: it may answer one, so it types key by key rather than holding.
     check("every writer nobody asked for is handed a dialog that may be open, registry included",
-          [resume, knock, hostKnock, limitReset].allSatisfy {
+          [resume, knock, hostKnock, limitReset, wake].allSatisfy {
               arguments(of: $0).contains("waitingOnPerson: board.dialogPossible")
           })
     check("…and the requested line only the dialogs known to be open",
           arguments(of: requested).contains("waitingOnPerson: board.dialogOpen")
               && !arguments(of: requested).contains("dialogPossible"))
     // AND EVERY ONE OF THEM IS ACCOUNTED FOR, which is what stops a SIXTH writer joining the loop
-    // on a reading nobody looked at: five calls, five arguments. The count moved from four when the
+    // on a reading nobody looked at: six calls, six arguments. The count moved from four when the
     // session-limit reset joined (2026-09-06), which is the whole point of counting it here - the
     // new writer could not be added without this line being read and answered for.
-    check("…and there are exactly five of them, none on the hard wait alone",
-          loop.components(separatedBy: "waitingOnPerson: board.dialogPossible").count - 1 == 4
+    check("…and there are exactly six of them, none on the hard wait alone",
+          loop.components(separatedBy: "waitingOnPerson: board.dialogPossible").count - 1 == 5
               && loop.components(separatedBy: "waitingOnPerson: board.dialogOpen").count - 1 == 1
               && !loop.contains("waitingOnPerson: board.waitingOnPerson"))
-    check("…and each of the five records what its tick saw on the line it leaves",
-          [requested, resume, knock, hostKnock, limitReset].allSatisfy {
+    check("…and each of the six records what its tick saw on the line it leaves",
+          [requested, resume, knock, hostKnock, limitReset, wake].allSatisfy {
               arguments(of: $0).contains("seen: board.seen")
-          } && loop.components(separatedBy: "seen: board.seen").count - 1 == 5)
+          } && loop.components(separatedBy: "seen: board.seen").count - 1 == 6)
 
     // MARK: - The loop that carries a plan out
 

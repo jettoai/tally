@@ -441,7 +441,7 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
                     keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
                     waitingOnPerson: Bool, seen: SessionInputSeen? = nil, caughtUp: Bool,
                     userTurnAt: Date?, conversation: String?, now: Date = Date(),
-                    log: URL = sessionInputLog,
+                    outcomes: CapResumeOutcomes = .cap, log: URL = sessionInputLog,
                     stamped: () -> Date = { Date() },
                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
                         injectSessionInput($0, draft: $1)
@@ -460,7 +460,8 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
         // that was abandoned leaves no keystroke and no transcript event, so this line is the only
         // way the record can tell somebody taking over from this feature failing.
         state.drop()
-        appendSessionInputLine(capResumeDropLine(pid: pid, why: why, now: now), to: log)
+        appendSessionInputLine(capResumeDropLine(pid: pid, why: why, outcome: outcomes.dropped,
+                                                 now: now), to: log)
         return nil
     case .type(let line):
         state.spend()
@@ -478,11 +479,11 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
         case .held, .uncertain:
             appendUnsentSessionInputLine(written, pid: pid, text: line, now: now, to: log, seen: seen)
         case .done:
-            appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: capResumeOutcome,
+            appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcomes.typed,
                                                        text: line, now: now, seen: seen), to: log)
         case .failed(let code):
             appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code,
-                                                         outcome: capResumeFailedOutcome,
+                                                         outcome: outcomes.failed,
                                                          now: now), to: log)
         }
         // AFTER the line that says what was typed, the order both other writers use: what was

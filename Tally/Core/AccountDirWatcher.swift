@@ -138,6 +138,13 @@ final class AccountDirWatcher {
     /// Bumped by `stop()`, so a gate that was already running when the watcher was torn down does
     /// not report a change for roots nobody is watching any more.
     private var generation = 0
+    /// Bumped whenever the stream is deliberately torn down (`stop()`, a reroot), so a start still
+    /// in flight knows the stream it brings back is for a watch nobody wants any more.
+    private var streamEpoch = 0
+    /// One start in flight at a time. A start asked for meanwhile is remembered in `restartStream`
+    /// and run once the in-flight one lands, over whatever the roots are by then.
+    private var streamStarting = false
+    private var restartStream = false
 
     init(roots: [URL],
          shallowRoots: [URL] = [],
@@ -186,6 +193,7 @@ final class AccountDirWatcher {
             let desired = reroot()
             if desired != roots {
                 box.teardown()
+                streamEpoch += 1
                 roots = desired
                 startStream()
             }
@@ -193,13 +201,43 @@ final class AccountDirWatcher {
         handle([path])
     }
 
+    /// Creating and starting the stream happens OFF the main thread (Sentry TALLY-1N):
+    /// `FSEventStreamStart` is a synchronous RPC to fseventsd, and on a loaded machine it blocked
+    /// launch for over two seconds (`applicationDidFinishLaunching` -> here -> `mach_msg2_trap`).
+    /// Watching a little later costs nothing; the timer covers the gap, as it covers a stream that
+    /// never starts. The result comes back to the main actor, and is adopted only if nothing tore
+    /// the watch down or re-pointed it meanwhile; otherwise the fresh box's deinit tears it down.
     private func startStream() {
         guard box.stream == nil, !roots.isEmpty else { return }
-        // `self` is handed over unretained: the stream is owned by this object and torn down in
-        // deinit, so it cannot outlive it.
+        guard !streamStarting else { restartStream = true; return }
+        streamStarting = true
+        let epoch = streamEpoch, paths = roots.map(\.path)
+        DispatchQueue.global(qos: .utility).async { [self] in
+            // `self` is held strongly until the result lands on the main actor, so the unretained
+            // pointer the stream carries stays valid until the stream is adopted (then torn down in
+            // deinit) or torn down below.
+            let fresh = StreamBox()
+            fresh.stream = Self.makeStream(paths: paths, info: Unmanaged.passUnretained(self).toOpaque())
+            Task { @MainActor in
+                self.streamStarting = false
+                if epoch == self.streamEpoch, self.box.stream == nil {
+                    self.box.stream = fresh.stream
+                    fresh.stream = nil
+                }
+                if self.restartStream {
+                    self.restartStream = false
+                    self.startStream()
+                }
+            }
+        }
+    }
+
+    /// Create and start a stream over `paths`, or nil if either step fails (fail-open: the timer
+    /// carries on alone). Blocks on fseventsd, so never called on the main thread.
+    private nonisolated static func makeStream(paths: [String],
+                                               info: UnsafeMutableRawPointer) -> FSEventStreamRef? {
         var context = FSEventStreamContext(
-            version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil, release: nil, copyDescription: nil)
+            version: 0, info: info, retain: nil, release: nil, copyDescription: nil)
         let callback: FSEventStreamCallback = { _, info, count, paths, _, _ in
             guard let info, let paths = paths.assumingMemoryBound(to: UnsafePointer<CChar>?.self)
                 as UnsafeMutablePointer<UnsafePointer<CChar>?>? else { return }
@@ -215,16 +253,16 @@ final class AccountDirWatcher {
         // per busy directory rather than one per write, which is all the filter below needs and a
         // fraction of the traffic.
         guard let created = FSEventStreamCreate(
-            nil, callback, &context, roots.map(\.path) as CFArray,
+            nil, callback, &context, paths as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0,
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)) else { return }
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)) else { return nil }
         FSEventStreamSetDispatchQueue(created, DispatchQueue.global(qos: .utility))
         guard FSEventStreamStart(created) else {
             FSEventStreamInvalidate(created)
             FSEventStreamRelease(created)
-            return
+            return nil
         }
-        box.stream = created
+        return created
     }
 
     /// Stop watching, and cancel anything this watcher had queued. Safe to call twice, and safe to
@@ -232,6 +270,8 @@ final class AccountDirWatcher {
     /// makes re-pointing one at a different set of roots a stop-then-start rather than a leak.
     func stop() {
         generation += 1
+        streamEpoch += 1
+        restartStream = false
         debounceTask?.cancel()
         debounceTask = nil
         box.teardown()

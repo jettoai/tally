@@ -126,6 +126,34 @@ expect(watcherGateSource.contains("generation += 1")
         && watcherGateSource.contains("if changed, self.generation == started { self.onChange() }"),
        "a torn-down watcher reports nothing")
 
+// THE STREAM STARTS OFF THE MAIN THREAD (Sentry TALLY-1N): FSEventStreamStart is a synchronous RPC
+// to fseventsd and hung launch for seconds on a loaded machine. So a start is in flight for a while,
+// and these run a REAL stream through the two races that opens: stop-then-start while the first start
+// is still in flight must still end up watching, and a bare stop must not adopt the stream that lands.
+@MainActor
+func watcherSees(_ name: String, restart: Bool) async -> Bool {
+    let dir = tmp.appendingPathComponent(name)
+    try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    var fired = false
+    let watcher = AccountDirWatcher(roots: [dir], debounce: .milliseconds(50), isInteresting: { _ in true },
+                                    discoverChanged: { true }, onChange: { fired = true })
+    watcher.start()
+    watcher.stop()
+    if restart { watcher.start() }
+    // Keep writing rather than write once: on a loaded machine fseventsd can take seconds to
+    // register the stream, and a write before that is invisible to a since-now stream.
+    for i in 0 ..< 50 where !fired {
+        try! "\(i)".write(to: dir.appendingPathComponent("probe"), atomically: true, encoding: .utf8)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+    watcher.stop()
+    return fired
+}
+expect(await watcherSees("watch-restart", restart: true),
+       "a start asked for while one is in flight still ends up watching")
+expect(!(await watcherSees("watch-stopped", restart: false)),
+       "a stop while the start is in flight leaves nothing watching")
+
 try? fm.removeItem(at: tmp)
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

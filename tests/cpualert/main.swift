@@ -152,6 +152,29 @@ do {
     _ = back.feed(95, leader: "tally")
     _ = back.feed(95, leader: "bigdata")
     expect(back.tracker.candidateLeader == nil, "T7 the announced leader returning drops the candidate")
+
+    // Alarmed and past the cooldown, so only the thirty continuous seconds decide a handover.
+    func cooled() -> Run {
+        var run = Run(start: t0)
+        alarmed(&run)
+        for _ in 0..<60 { _ = run.feed(95, leader: nil) }
+        return run
+    }
+    var p1 = cooled()
+    let e7 = [p1.feed(95, leader: "tally"), p1.feed(50, leader: nil), p1.feed(50, leader: nil),
+              p1.feed(95, leader: "tally")]
+    expect(e7.allSatisfy { $0 == nil }, "T7 windows under the exit line break the new leader's run")
+    var p2 = cooled()
+    let e8 = [p2.feed(95, leader: "tally"), p2.feed(95, leader: "tally", gap: 300),
+              p2.feed(95, leader: "tally")]
+    expect(e8.allSatisfy { $0 == nil }, "T7 a gap while alarmed breaks the new leader's run")
+    var p3 = cooled()
+    let e9 = [p3.feed(95, leader: "tally"), p3.feed(50, leader: "kooai"),
+              p3.feed(95, leader: "tally"), p3.feed(95, leader: "tally")]
+    expect(e9.allSatisfy { $0 == nil }, "T7 a low window led by another project breaks the run")
+    var c2 = cooled()
+    let e10 = [c2.feed(95, leader: "tally"), c2.feed(95, leader: "tally"), c2.feed(95, leader: "tally")]
+    expect(e10 == [nil, nil, .handover], "T7 thirty continuous seconds past the cooldown still hand over")
 }
 
 // T8 host pressure silences

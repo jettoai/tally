@@ -158,7 +158,10 @@ enum CPUAlertLogic {
         guard let old = tracker.lastTicks, let windowStart = tracker.lastSampleAt,
               now.timeIntervalSince(windowStart) <= maxGap,
               let busy = busyPercent(from: old, to: ticks) else {
+            // An unread stretch breaks any run, the handover candidate's included.
             next.runSince = nil
+            next.candidateLeader = nil
+            next.candidateSince = nil
             return (next, nil)
         }
         switch tracker.phase {
@@ -189,6 +192,9 @@ enum CPUAlertLogic {
             return (next, .alarm(silence: silence))
         case .alarmed:
             if busy < exitPercent {
+                // A cool window is not the new leader holding a hot CPU.
+                next.candidateLeader = nil
+                next.candidateSince = nil
                 let since = next.runSince ?? windowStart
                 next.runSince = since
                 guard now.timeIntervalSince(since) >= clearAfter else { return (next, nil) }

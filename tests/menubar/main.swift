@@ -20,8 +20,8 @@ func metric(_ kind: MetricKind, used: Double, label: String? = nil, model: Strin
 }
 
 func account(_ id: String, provider: String = "claude", metrics: [UsageMetric],
-             error: String? = nil, stale: Bool = false) -> AccountUsage {
-    AccountUsage(id: id, providerID: provider, accountLabel: id, planName: nil,
+             error: String? = nil, stale: Bool = false, plan: String? = nil) -> AccountUsage {
+    AccountUsage(id: id, providerID: provider, accountLabel: id, planName: plan,
                  metrics: metrics, refreshedAt: now, error: error, isStale: stale)
 }
 
@@ -40,7 +40,7 @@ func panelSummaries(_ accounts: [AccountUsage]) -> [FleetSummary] {
 }
 
 func stripSummaries(_ accounts: [AccountUsage]) -> [FleetSummary] {
-    FleetMath.summaries(accounts: accounts, now: now, minMembers: 1) { $0.accountLabel }
+    FleetMath.summaries(accounts: accounts, now: now, minMembers: 1, byPlan: true) { $0.accountLabel }
 }
 
 func pooled(_ accounts: [AccountUsage], mode: DisplayMode = .remaining,
@@ -472,7 +472,7 @@ do {
     // adds is the one that would quietly pass a second one.
     expect(hoverSource.components(separatedBy: "displayLabel(accountID:").count == 3,
            "the fleet readings name accounts through one labeller (the per-account hover has its own)")
-    for site in ["FleetMath.summaries(accounts: orderedAccounts, minMembers: 1, label: Self.displayName)",
+    for site in ["FleetMath.summaries(accounts: orderedAccounts, minMembers: 1, byPlan: true,\n                            label: Self.displayName)",
                  "MenuBarSegments.windowGaps(members, pools: pools, label: displayName)",
                  "MenuBarSegments.missingFromPool(members, label: displayName)"] {
         expect(hoverSource.contains(site), "…and it is the one passed to `\(site.prefix(34))…`")
@@ -482,6 +482,8 @@ do {
            && hoverSource.contains("MenuBarSegments.windowGapDetail(gaps) { L($0) }"),
            "the hover says which drawn row is short, with the window name localized")
 }
+
+planSplitChecks()
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all menu-bar layout tests passed")

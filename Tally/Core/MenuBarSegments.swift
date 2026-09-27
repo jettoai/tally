@@ -15,6 +15,23 @@ struct MenuBarSegment: Sendable {
     /// slot, because the strip has room for one - which reading it carries follows from the layout
     /// the user picked, and the tooltip spells it out either way.
     var badge: Int?
+    /// The plan's short name when a provider's accounts sit on two or more plans and the pooled
+    /// layout draws one segment per plan ("P", "T"). Drawn in the badge's corner slot instead of
+    /// the count: two identical marks side by side must say WHICH budget each is before how big.
+    var tag: String? = nil
+}
+
+/// One pooled segment's inputs: a provider's accounts (or one plan's slice of them) and the pool
+/// `FleetMath` built over them. Shared by the strip and its hover, so both walk one list.
+struct MenuBarPoolGroup {
+    var providerID: String
+    var members: [AccountUsage]
+    /// nil when the group's accounts have no metrics to pool.
+    var summary: FleetSummary?
+    /// The plan this group covers when the provider splits by plan; nil when it does not.
+    var planTier: FleetSummary.Tier?
+    /// Shortest name that tells this plan apart from the provider's other plans.
+    var tag: String?
 }
 
 /// How the strip's segments are built, in both layouts. Pure over the fetched usages and the fleet
@@ -99,18 +116,21 @@ enum MenuBarSegments {
     /// A provider with no pool at all is one whose accounts have no metrics to pool - a first fetch
     /// that failed, or a provider that reported nothing - and reads the same way a lone account's
     /// segment does in that state.
+    ///
+    /// Summaries built `byPlan: true` split a provider whose accounts sit on two or more named
+    /// plans: each plan is its own segment, because an equal-weight average of a Pro and a Team
+    /// account is a number neither budget has (`poolGroups`).
     static func pooled(_ accounts: [AccountUsage], summaries: [FleetSummary], mode: DisplayMode,
                        focusedModel: (String, [String]) -> String?) -> [MenuBarSegment] {
-        let byProvider = Dictionary(summaries.map { ($0.providerID, $0) },
-                                    uniquingKeysWith: { first, _ in first })
-        return providerGroups(accounts).map { providerID, members in
+        poolGroups(accounts, summaries: summaries).map { group in
+            let providerID = group.providerID, members = group.members, tag = group.tag
             let missing = missingFromPool(members)
             // How many accounts this segment STANDS FOR - every account the provider has, not how
             // many made it into the pool. Counting only the contributors is what let a hole read as
             // a whole fleet: two accounts with one dead came back as `1`, which is no badge at all,
             // so the strip showed a healthy single account (codex review, 2026-08-12).
             let badge = members.count > 1 ? members.count : nil
-            guard let summary = byProvider[providerID] else {
+            guard let summary = group.summary else {
                 // No pool at all, so the segment is a mark - and WHICH mark the ERRORS decide,
                 // not the pool membership above: a provider whose accounts merely reported nothing
                 // has failed at nothing, and "!" is the error mark. (One question while
@@ -118,7 +138,7 @@ enum MenuBarSegments {
                 let allFailed = !members.isEmpty
                     && members.allSatisfy { $0.error != nil && !$0.isStale }
                 return MenuBarSegment(providerID: providerID, lines: [allFailed ? "!" : "—"],
-                                      dimmed: false, badge: badge)
+                                      dimmed: false, badge: badge, tag: tag)
             }
             // The pools this segment actually DRAWS, held rather than mapped straight to strings:
             // whether each of them covers everybody is the other half of "is this figure the whole
@@ -142,8 +162,54 @@ enum MenuBarSegments {
                 // the whole truth" and the tooltip says which.
                 dimmed: !missing.isEmpty || !windowGaps(members, pools: drawn).isEmpty
                     || members.contains(where: \.isStale),
-                badge: badge)
+                badge: badge, tag: tag)
         }
+    }
+
+    /// The pooled layout's segments before they are drawn: one group per provider, or one per plan
+    /// when the provider's summaries are split by plan. In a split every member lands in its own
+    /// plan's group, including one with no metrics (so a plan whose accounts all failed still shows
+    /// its mark instead of vanishing), with named plans in display order and the unknown one last,
+    /// the order `FleetMath.summaries(byPlan:)` uses.
+    static func poolGroups(_ accounts: [AccountUsage],
+                           summaries: [FleetSummary]) -> [MenuBarPoolGroup] {
+        providerGroups(accounts).flatMap { providerID, members -> [MenuBarPoolGroup] in
+            let mine = summaries.filter { $0.providerID == providerID }
+            guard mine.contains(where: { $0.planTier != nil }) else {
+                return [MenuBarPoolGroup(providerID: providerID, members: members,
+                                         summary: mine.first, planTier: nil, tag: nil)]
+            }
+            var order: [FleetSummary.Tier] = []
+            var byTier: [FleetSummary.Tier: [AccountUsage]] = [:]
+            for member in members {
+                let tier = FleetSummary.Tier(name: member.planName)
+                if byTier[tier] == nil { order.append(tier) }
+                byTier[tier, default: []].append(member)
+            }
+            let ordered = order.filter { $0.name != nil } + order.filter { $0.name == nil }
+            let tags = planTags(ordered.compactMap(\.name))
+            return ordered.map { tier in
+                MenuBarPoolGroup(providerID: providerID, members: byTier[tier]!,
+                                 summary: mine.first { $0.planTier == tier }, planTier: tier,
+                                 tag: tier.name.map { tags[$0] ?? $0 } ?? "?")
+            }
+        }
+    }
+
+    /// Each plan name's shortest case-insensitive prefix that no other name shares ("Pro" and
+    /// "Team" read "P" and "T"; "Plus" and "Pro" read "Pl" and "Pr"). A name that is a prefix of
+    /// another keeps its full spelling.
+    static func planTags(_ names: [String]) -> [String: String] {
+        var tags: [String: String] = [:]
+        for name in names {
+            let others = names.filter { $0 != name }.map { $0.lowercased() }
+            let lower = name.lowercased()
+            let length = (1...max(1, name.count)).first { k in
+                !others.contains { $0.hasPrefix(String(lower.prefix(k))) }
+            } ?? name.count
+            tags[name] = String(name.prefix(length))
+        }
+        return tags
     }
 
     /// The members whose numbers are missing from the pool ENTIRELY, each with its own name and its

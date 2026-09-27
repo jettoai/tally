@@ -35,8 +35,8 @@ private struct MenuBarStripView: View {
                             // Identical marks share one glyph - a tiny corner digit is the only
                             // identity the strip carries (which account, or how many accounts the
                             // pool sums); the full story lives in the tooltip.
-                            if let badge = segment.badge {
-                                Text("\(badge)")
+                            if let corner = segment.tag ?? segment.badge.map(String.init) {
+                                Text(corner)
                                     .font(.system(size: 7, weight: .heavy))
                                     .offset(x: 3.5, y: 1.5)
                             }
@@ -95,7 +95,7 @@ enum MenuBarStripRenderer {
     @MainActor
     static func stripImage(_ segments: [MenuBarSegment]) -> NSImage? {
         let signature = segments
-            .map { "\($0.providerID):\($0.lines.joined(separator: "/")):\($0.dimmed):\($0.badge ?? 0)" }
+            .map { "\($0.providerID):\($0.lines.joined(separator: "/")):\($0.dimmed):\($0.badge ?? 0):\($0.tag ?? "")" }
             .joined(separator: "|")
         if signature == lastSignature, let image = lastImage { return image }
 

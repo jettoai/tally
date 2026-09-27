@@ -40,9 +40,11 @@ extension UsageStore {
     /// The pools the POOLED strip sums: `FleetMath` over the same accounts the panel's fleet gauge
     /// reads, in the same order, differing only in `minMembers: 1` - which adds pools of one (a
     /// single-account provider, whose segment would otherwise have nothing to show) without
-    /// touching any pool the gauge itself draws.
+    /// touching any pool the gauge itself draws. Split by plan like the gauge (`byPlan: true`), so a
+    /// provider on two plans never reads as one averaged budget.
     private var menuBarPools: [FleetSummary] {
-        FleetMath.summaries(accounts: orderedAccounts, minMembers: 1, label: Self.displayName)
+        FleetMath.summaries(accounts: orderedAccounts, minMembers: 1, byPlan: true,
+                            label: Self.displayName)
     }
 
     /// The name every fleet reading calls an account by: the user's own. ONE function for the pools
@@ -100,11 +102,12 @@ extension UsageStore {
     /// the end - the strip can only say that something is off by dimming.
     private var pooledTooltip: String {
         let mode = SettingsStore.shared.displayMode
-        let byProvider = Dictionary(menuBarPools.map { ($0.providerID, $0) },
-                                    uniquingKeysWith: { first, _ in first })
-        return MenuBarSegments.providerGroups(orderedAccounts).map { providerID, members in
-            let head = "\(ProviderCatalog.displayName(for: providerID)) ×\(members.count)"
-            guard let summary = byProvider[providerID] else {
+        return MenuBarSegments.poolGroups(orderedAccounts, summaries: menuBarPools).map { group in
+            let members = group.members
+            // A plan split names the plan, the way the panel's fleet rows do ("Codex Pro ×3").
+            let plan = group.planTier.map { " \($0.name ?? L("Unknown plan"))" } ?? ""
+            let head = "\(ProviderCatalog.displayName(for: group.providerID))\(plan) ×\(members.count)"
+            guard let summary = group.summary else {
                 // No pool means no metrics to pool, so EVERY member is a missing one and the same
                 // naming applies: one account's error was standing in for all of them here too.
                 let named = Self.missingNamed(members)

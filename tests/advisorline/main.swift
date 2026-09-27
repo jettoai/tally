@@ -78,6 +78,37 @@ check("T12 an unnamed dry plan is kept as nil",
       decide(.sufficient, 14, [tier("Pro", 1, 3, dry: false), tier(nil, 0, 1, dry: true)],
              split: true) == .shortAtPace(plans: [nil]))
 
+// T14: the join with the gauge's dry pools, then the decision. The failure shape: the gauge draws
+// the provider unsplit (one of its named-plan accounts has no metrics) and forecasts that pool dry,
+// while the history splits into two named plans. The unsplit pool is every plan's.
+typealias Demand = UsageAdvisor.TierDemand
+typealias Dry = AdvisorConclusion.DryPool
+func join(_ verdict: UsageAdvisor.Verdict, _ demands: [Demand], _ dry: [Dry]) -> AdvisorConclusion {
+    AdvisorConclusion.join(verdict: verdict, daysOfData: 20, pooledDemandPerWeek: 3.0,
+                           tierDemands: demands, ownedAccounts: 4, dryPools: dry)
+}
+let proTeam = [Demand(plan: "Pro", demandPerWeek: 2.4, accountCount: 3),
+               Demand(plan: "Team", demandPerWeek: 0.6, accountCount: 1)]
+let unsplitDry = [Dry(byPlan: false, plan: nil, accountCount: 3)]
+check("T14 unsplit dry pool under split history is not enough",
+      join(.sufficient, proTeam, unsplitDry) != .enough)
+check("T14 unsplit dry pool marks every tier short",
+      join(.sufficient, proTeam, unsplitDry) == .shortAtPace(plans: []))
+check("T14 unsplit dry pool under split history, add names a plan",
+      join(.addAccount, proTeam, unsplitDry) == .add(count: 1, plan: "Pro"))
+check("T14 split history, nothing dry reads enough", join(.sufficient, proTeam, []) == .enough)
+check("T14 split history, one plan's pool dry names it",
+      join(.sufficient, proTeam, [Dry(byPlan: true, plan: "team", accountCount: 1)])
+        == .shortAtPace(plans: ["Team"]))
+check("T14 gauge-only plan still counts",
+      join(.sufficient, proTeam, [Dry(byPlan: true, plan: "Max", accountCount: 1)])
+        == .shortAtPace(plans: ["Max"]))
+check("T14 unsplit history and unsplit dry pool",
+      join(.sufficient, [Demand(plan: "Pro", demandPerWeek: 3, accountCount: 4)], unsplitDry)
+        == .shortAtPace(plans: []))
+check("T14 unsplit history, nothing dry reads enough",
+      join(.sufficient, [Demand(plan: "Pro", demandPerWeek: 3, accountCount: 4)], []) == .enough)
+
 // T13: source locks. The row goes through the one decision, and the gauge's forecast line reads
 // the shared dry predicate instead of calling the forecast math a second time.
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -87,7 +118,7 @@ func source(_ path: String) -> String {
 }
 let advisor = source("Tally/Views/AdvisorStripView.swift")
 check("T13 advisor source readable", !advisor.isEmpty)
-check("T13 row decides through AdvisorConclusion", advisor.contains("AdvisorConclusion.decide("))
+check("T13 row decides through AdvisorConclusion.join", advisor.contains("AdvisorConclusion.join("))
 check("T13 no pips", !advisor.contains("demandPips("))
 check("T13 no click-to-cycle window", !advisor.contains("cycleAdvisorWindow"))
 check("T13 no acct/wk unit on the row", !advisor.contains("acct/wk\", bundle"))

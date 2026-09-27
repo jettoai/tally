@@ -105,36 +105,18 @@ extension PopoverRootView {
         }
     }
 
-    /// The advisor's tiers joined with the gauge's dry signal by plan key (case-insensitive,
-    /// "?" for an unnamed plan, the rule `FleetSummary.Tier.key` uses). A plan the gauge shows
-    /// but the four-week history has not seen yet still counts, with no demand, so a short pool
-    /// is never dropped for lack of history.
+    /// The row's conclusion. The join with the gauge's dry pools and the decision both live in
+    /// `AdvisorConclusion.join`, so they are tested together.
     private func advisorConclusion(_ reading: UsageAdvisor.Reading,
                                    dryPools: [DryPool]) -> AdvisorConclusion {
-        func key(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
-        let dryKeys = Set(dryPools.compactMap { $0.summary.planTier?.key })
-        let gaugeSplit = Set(dryPools.compactMap { $0.summary.planTier?.name }).count
-        var tiers = splitTiers(reading.tierDemands).map { tier in
-            AdvisorConclusion.Tier(plan: tier.plan, demandPerWeek: tier.demandPerWeek,
-                                   accountCount: tier.accountCount,
-                                   runsDry: dryKeys.contains(key(tier.plan)))
-        }
-        if tiers.isEmpty {
-            // Unsplit: one tier for the whole provider, dry when any of its pools is.
-            let owned = store.orderedAccounts.filter { $0.providerID == reading.provider }.count
-            tiers = [.init(plan: nil, demandPerWeek: reading.demandPerWeek,
-                           accountCount: max(1, owned), runsDry: !dryPools.isEmpty)]
-        } else {
-            for entry in dryPools {
-                guard let tier = entry.summary.planTier,
-                      !tiers.contains(where: { key($0.plan) == tier.key }) else { continue }
-                tiers.append(.init(plan: tier.name, demandPerWeek: 0,
-                                   accountCount: entry.summary.accountCount, runsDry: true))
-            }
-        }
-        let split = Set(tiers.compactMap(\.plan)).count >= 2 || gaugeSplit >= 2
-        return AdvisorConclusion.decide(verdict: reading.verdict, daysOfData: reading.daysOfData,
-                                        tiers: tiers, split: split)
+        AdvisorConclusion.join(
+            verdict: reading.verdict, daysOfData: reading.daysOfData,
+            pooledDemandPerWeek: reading.demandPerWeek, tierDemands: reading.tierDemands,
+            ownedAccounts: store.orderedAccounts.filter { $0.providerID == reading.provider }.count,
+            dryPools: dryPools.map { entry in
+                .init(byPlan: entry.summary.planTier != nil, plan: entry.summary.planTier?.name,
+                      accountCount: entry.summary.accountCount)
+            })
     }
 
     /// The conclusion in words: the row's text, the hover's first line, and VoiceOver's label.
@@ -195,14 +177,6 @@ extension PopoverRootView {
         window.demandPerWeek.map { String(format: "%.1f", $0) } ?? Self.noFigure
     }
 
-    /// The tiers worth splitting the figure into: none unless the provider's accounts actually sit
-    /// on two or more NAMED plans. One plan (or none the app can name) means the accounts really
-    /// are interchangeable, and the pooled figure is then both exact and the shorter read.
-    private func splitTiers(_ tiers: [UsageAdvisor.TierDemand]) -> [UsageAdvisor.TierDemand] {
-        guard Set(tiers.compactMap(\.plan)).count >= 2 else { return [] }
-        return tiers
-    }
-
     private func tierName(_ tier: UsageAdvisor.TierDemand) -> String {
         tier.plan ?? L("Unknown plan")
     }
@@ -246,7 +220,7 @@ extension PopoverRootView {
         // up. The pooled line below stays: it is still the honest total percent-points, and
         // dropping it would make the tooltip disagree with `demandPerWeek` everywhere else this
         // app publishes it.
-        let tiers = splitTiers(reading.tierDemands)
+        let tiers = AdvisorConclusion.splitTiers(reading.tierDemands)
         for tier in tiers {
             let figure = String(format: "%.1f", tier.demandPerWeek)
             // The count goes in as a STRING: an interpolated Int would key the entry on `%lld`,

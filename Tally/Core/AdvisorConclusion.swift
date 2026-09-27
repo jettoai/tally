@@ -76,6 +76,56 @@ enum AdvisorConclusion: Equatable {
         return .enough
     }
 
+    /// A pool the fleet gauge forecasts running dry, reduced to what the join needs.
+    struct DryPool: Equatable {
+        /// False when the gauge draws the provider as one pool, not split by plan. That pool is
+        /// every plan's at once, so it runs every tier dry, whatever plans the history names.
+        var byPlan: Bool
+        /// The pool's plan when `byPlan`; nil there is a plan this machine cannot name.
+        var plan: String?
+        var accountCount: Int
+    }
+
+    /// The tiers worth splitting the figure into: none unless the provider's accounts actually sit
+    /// on two or more NAMED plans. One plan (or none the app can name) means the accounts really
+    /// are interchangeable, and the pooled figure is then both exact and the shorter read.
+    static func splitTiers(_ tiers: [UsageAdvisor.TierDemand]) -> [UsageAdvisor.TierDemand] {
+        guard Set(tiers.compactMap(\.plan)).count >= 2 else { return [] }
+        return tiers
+    }
+
+    /// The advisor's tiers joined with the gauge's dry pools by plan key (case-insensitive, "?"
+    /// for an unnamed plan, the rule `FleetSummary.Tier.key` uses), then decided. The two sides
+    /// can split differently: the history names the plan of an account that has failed since
+    /// launch, the gauge only splits on accounts with metrics. So an unsplit dry pool marks every
+    /// tier dry, and a plan the gauge shows but the history has not seen still counts, with no
+    /// demand, so a short pool is never dropped for lack of a matching tier.
+    static func join(verdict: UsageAdvisor.Verdict, daysOfData: Double, pooledDemandPerWeek: Double,
+                     tierDemands: [UsageAdvisor.TierDemand], ownedAccounts: Int,
+                     dryPools: [DryPool]) -> AdvisorConclusion {
+        func key(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
+        let planPools = dryPools.filter(\.byPlan)
+        let wholeProviderDry = planPools.count < dryPools.count
+        let dryKeys = Set(planPools.map { key($0.plan) })
+        var tiers = splitTiers(tierDemands).map { tier in
+            Tier(plan: tier.plan, demandPerWeek: tier.demandPerWeek, accountCount: tier.accountCount,
+                 runsDry: wholeProviderDry || dryKeys.contains(key(tier.plan)))
+        }
+        if tiers.isEmpty {
+            // Unsplit: one tier for the whole provider, dry when any of its pools is.
+            tiers = [Tier(plan: nil, demandPerWeek: pooledDemandPerWeek,
+                          accountCount: max(1, ownedAccounts), runsDry: !dryPools.isEmpty)]
+        } else {
+            for pool in planPools where !tiers.contains(where: { key($0.plan) == key(pool.plan) }) {
+                tiers.append(Tier(plan: pool.plan, demandPerWeek: 0, accountCount: pool.accountCount,
+                                  runsDry: true))
+            }
+        }
+        let split = Set(tiers.compactMap(\.plan)).count >= 2
+            || Set(planPools.compactMap(\.plan)).count >= 2
+        return decide(verdict: verdict, daysOfData: daysOfData, tiers: tiers, split: split)
+    }
+
     private static func ratio(_ tier: Tier) -> Double {
         tier.demandPerWeek / Double(max(1, tier.accountCount))
     }

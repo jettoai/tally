@@ -103,13 +103,12 @@ do {
     expect(same(read(h, since: all), reference(url, since: all)), "4a atomic rewrite equals reference")
     // Same size, new inode, different content: identity alone must catch it.
     let size = (try! Data(contentsOf: url)).count
-    var alt = lines(200...300, "c")
+    let alt = lines(200...300, "c")
     expect(alt.count == size, "4a same-size fixture")
     try! alt.write(to: url, options: .atomic)
     let got = read(h, since: all)
     expect(got.allSatisfy { $0.account == "c" } && same(got, reference(url, since: all)),
            "4a same-size atomic rewrite reloads")
-    alt = Data()
 }
 
 // 4b. In-process prune (first record of the run) drops expired lines: equals reference.

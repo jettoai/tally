@@ -21,9 +21,9 @@ enum ProbeCadence {
     static let idleInterval: TimeInterval = 15 * 60
 
     /// Whether this round probes one account.
-    static func isDue(userInitiated: Bool, live: Bool, previous: AccountUsage?, now: Date,
+    static func isDue(userInitiated: Bool, previous: AccountUsage?, now: Date,
                       idleInterval: TimeInterval = idleInterval) -> Bool {
-        if userInitiated || live { return true }
+        if userInitiated { return true }
         // Never read, or the last read did not land: the failure-retry ladder sets the pace then.
         guard let previous, landed(previous) else { return true }
         if now.timeIntervalSince(previous.refreshedAt) >= idleInterval { return true }
@@ -118,7 +118,7 @@ enum ProbeCadence {
                       now: Date) -> Bool {
         let rendering = fact.map { now.timeIntervalSince($0.observedAt) < factFreshness } ?? false
         guard !userInitiated, live || rendering else {
-            return isDue(userInitiated: userInitiated, live: false, previous: previous, now: now)
+            return isDue(userInitiated: userInitiated, previous: previous, now: now)
         }
         guard let previous, landed(previous) else { return true }
         if let flagshipAt = fact?.flagshipAt, now.timeIntervalSince(flagshipAt) < factFreshness { return true }

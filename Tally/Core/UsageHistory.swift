@@ -102,15 +102,12 @@ final class UsageHistory: @unchecked Sendable {
     private func refreshCache() {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = (attrs[.size] as? NSNumber)?.uint64Value else {
-            invalidateCache()
+            resetCache(identity: nil)
             return
         }
         let identity = [(attrs[.systemFileNumber] as? NSNumber)?.intValue ?? -1,
                         (attrs[.deviceIdentifier] as? NSNumber)?.intValue ?? -1]
-        if identity != cachedIdentity || size < cachedOffset {
-            invalidateCache()
-            cachedIdentity = identity
-        }
+        if identity != cachedIdentity || size < cachedOffset { resetCache(identity: identity) }
         guard size > cachedOffset, let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
         // Re-read the newline that ended the last consumed line: if it is gone, the file was
@@ -120,15 +117,14 @@ final class UsageHistory: @unchecked Sendable {
               var data = try? handle.readToEnd() else { return }
         if cachedOffset > 0 {
             guard data.first == UInt8(ascii: "\n") else {
-                invalidateCache()
-                cachedIdentity = identity
+                resetCache(identity: identity)
                 refreshCache()
                 return
             }
             data = data.dropFirst()
         }
         guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return }
-        for line in data[data.startIndex..<lastNewline].split(separator: UInt8(ascii: "\n")) {
+        for line in data[..<lastNewline].split(separator: UInt8(ascii: "\n")) {
             if let sample = try? Self.decoder.decode(Sample.self, from: Data(line)) {
                 cached.append(sample)
             }
@@ -136,10 +132,10 @@ final class UsageHistory: @unchecked Sendable {
         cachedOffset += UInt64(lastNewline - data.startIndex + 1)
     }
 
-    private func invalidateCache() {
+    private func resetCache(identity: [Int]?) {
         cached = []
         cachedOffset = 0
-        cachedIdentity = nil
+        cachedIdentity = identity
     }
 
     private func append(_ lines: [Data]) {
@@ -169,6 +165,6 @@ final class UsageHistory: @unchecked Sendable {
         let rewritten = kept.map { Data($0) + Data("\n".utf8) }.reduce(Data(), +)
         guard rewritten.count != data.count else { return }
         try? rewritten.write(to: url, options: .atomic)
-        invalidateCache()
+        resetCache(identity: nil)
     }
 }

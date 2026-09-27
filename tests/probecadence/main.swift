@@ -16,8 +16,8 @@ func row(_ id: String = "claude:.claude3", readAgo: TimeInterval, resetsAt: Date
                         planName: nil, accountEmail: nil, metrics: [metric],
                         refreshedAt: now.addingTimeInterval(-readAgo))
 }
-func due(userInitiated: Bool = false, live: Bool = false, _ previous: AccountUsage?) -> Bool {
-    ProbeCadence.isDue(userInitiated: userInitiated, live: live, previous: previous, now: now)
+func due(userInitiated: Bool = false, _ previous: AccountUsage?) -> Bool {
+    ProbeCadence.isDue(userInitiated: userInitiated, previous: previous, now: now)
 }
 /// The round's rule: a live supervisor, with or without a status-line fact.
 func dueLive(userInitiated: Bool = false, live: Bool = true, _ fact: LiveRateFact?,

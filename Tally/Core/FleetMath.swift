@@ -185,7 +185,7 @@ enum FleetMath {
             var order: [FleetSummary.Tier] = []
             var byTier: [FleetSummary.Tier: [AccountUsage]] = [:]
             for member in members {
-                let tier = tiers[member.id] ?? FleetSummary.Tier(name: member.planName)
+                let tier = FleetSummary.Tier(name: member.planName)
                 if byTier[tier] == nil { order.append(tier) }
                 byTier[tier, default: []].append(member)
             }

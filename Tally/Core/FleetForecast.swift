@@ -49,18 +49,21 @@ enum FleetForecast {
         for (_, rows) in bySeries {
             let sorted = rows.sorted { $0.ts < $1.ts }
             guard let first = sorted.first else { continue }
-            let base = rateKey(provider: first.provider, window: first.window, model: first.model)
+            var used = 0.0
+            for (previous, current) in zip(sorted, sorted.dropFirst())
+            where previous.resetAt == current.resetAt {
+                used += max(0, current.used - previous.used)
+            }
             // The provider-wide key accumulates exactly as before; a split provider's account ALSO
             // feeds its plan's own key, so a plan's pool is forecast from that plan's spending only.
-            let keys = [base] + (planOf(first.account).map {
-                [rateKey(provider: first.provider, window: first.window, model: first.model, plan: $0)]
-            } ?? [])
+            var keys = [rateKey(provider: first.provider, window: first.window, model: first.model)]
+            if let plan = planOf(first.account) {
+                keys.append(rateKey(provider: first.provider, window: first.window,
+                                    model: first.model, plan: plan))
+            }
             for key in keys {
                 earliest[key] = min(earliest[key] ?? first.ts, first.ts)
-                for (previous, current) in zip(sorted, sorted.dropFirst())
-                where previous.resetAt == current.resetAt {
-                    consumed[key, default: 0] += max(0, current.used - previous.used)
-                }
+                consumed[key, default: 0] += used
             }
         }
         var rates: [String: FleetRate] = [:]

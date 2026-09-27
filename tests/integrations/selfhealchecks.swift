@@ -18,6 +18,7 @@ import Foundation
 @MainActor
 func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     let binary = URL(fileURLWithPath: "/Applications/Tally.app/Contents/Helpers/tally")
+    try runHealGateChecks(tmp: tmp)
 
     /// A config home, with a SKILL.md whose contents are given (nil for a home with none at all).
     func makeHome(_ name: String, skill: String?) throws -> URL {
@@ -530,4 +531,57 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           gateSource("Tally/Stores/LoginStatusStore.swift").contains(
             "private func persistIdentities() {\n"
             + "        guard !BuildVariant.isUnshipped else { return }"))
+}
+
+/// The gate in front of the heal's read (2026-09-27): settings and SKILL.md changes run a pass,
+/// a `.claude.json` rewrite alone is re-checked at most once per interval.
+func runHealGateChecks(tmp: URL) throws {
+    let home = tmp.appendingPathComponent("gate-home")
+    let skill = IntegrationsStore.claudeSkillFile(inHome: home)
+    try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    let settings = home.appendingPathComponent("settings.json")
+    let state = claudeStateFile(forConfigDir: home)
+    try "{}".write(to: settings, atomically: true, encoding: .utf8)
+    try "tally-skill v1".write(to: skill, atomically: true, encoding: .utf8)
+    try "{}".write(to: state, atomically: true, encoding: .utf8)
+    func fp() -> HealFingerprint {
+        IntegrationsStore.healFingerprint(homes: [home], skillFiles: [skill], extra: "bin|false")
+    }
+    func gate(_ previous: HealFingerprint?, _ since: TimeInterval?) -> IntegrationsStore.HealGate {
+        IntegrationsStore.healGate(previous: previous, current: fp(), sinceStateCheck: since)
+    }
+    let base = fp()
+    check("heal gate: the first settle runs a pass", gate(nil, nil) == .run)
+    check("heal gate: nothing changed skips", gate(base, 10) == .skip)
+
+    // (1) The CLI rewriting .claude.json (size change) is not a full pass inside the interval.
+    try "{\"numStartups\": 1}".write(to: state, atomically: true, encoding: .utf8)
+    let afterState = fp()
+    check("heal gate: a .claude.json rewrite moves only the state half",
+          afterState.config == base.config && afterState.state != base.state)
+    check("heal gate: …and does not run a pass inside the interval",
+          gate(base, 10) == .deferState(IntegrationsStore.stateCheckInterval - 10))
+    // (3) A removed MCP server is looked at again within the interval.
+    check("heal gate: …but runs once the interval has passed",
+          gate(base, IntegrationsStore.stateCheckInterval) == .run)
+    check("heal gate: …or when no state check has happened yet", gate(base, nil) == .run)
+
+    // (2) settings.json and SKILL.md changes run a pass right away, whatever the throttle says.
+    try "{\"hooks\": {}}".write(to: settings, atomically: true, encoding: .utf8)
+    check("heal gate: a settings.json change runs a pass inside the interval",
+          gate(afterState, 1) == .run)
+    let afterSettings = fp()
+    try "tally-skill v2 changed".write(to: skill, atomically: true, encoding: .utf8)
+    check("heal gate: a SKILL.md change runs a pass inside the interval",
+          gate(afterSettings, 1) == .run)
+    let afterSkill = fp()
+    check("heal gate: a changed helper path or picker answer runs a pass",
+          IntegrationsStore.healGate(
+            previous: afterSkill,
+            current: IntegrationsStore.healFingerprint(homes: [home], skillFiles: [skill],
+                                                       extra: "bin|true"),
+            sinceStateCheck: 1) == .run)
+    try FileManager.default.removeItem(at: skill)
+    check("heal gate: a removed SKILL.md (an uninstall) runs a pass", gate(afterSkill, 1) == .run)
 }

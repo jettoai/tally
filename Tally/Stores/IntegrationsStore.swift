@@ -26,6 +26,11 @@ final class IntegrationsStore {
     /// What that watcher is currently pointed at, so a manifest change can tell whether the stream
     /// has to be rebuilt or left alone (`settingsWatcherNeedsRestart`).
     @ObservationIgnored var settingsWatcherRoots: [URL] = []
+    /// What the files the heal reads looked like when it last ran (`healGate`), when it last read the
+    /// state files, and the one deferred re-check a throttled state change leaves behind.
+    @ObservationIgnored var healFingerprint: HealFingerprint?
+    @ObservationIgnored var lastStateCheck: Date?
+    @ObservationIgnored var stateRecheckTask: Task<Void, Never>?
     /// The tab completion install still in flight, HELD so a Remove can cancel it. It outlives the
     /// press that started it because it waits on two child processes, and an unheld task is one
     /// nothing can call off (IntegrationsCompletion.swift).

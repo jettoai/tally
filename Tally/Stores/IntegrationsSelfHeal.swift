@@ -42,6 +42,13 @@ func settingsEventIsInteresting(path: String, watching directories: [String]) ->
     return directories.contains { trimmed($0) == path }
 }
 
+/// What the heal's inputs looked like: `config` (settings files, SKILL.md, helper) triggers a pass
+/// on any change, `state` (`.claude.json`, rewritten by every claude process) only on a throttle.
+struct HealFingerprint: Equatable, Sendable {
+    var config: [String: String]
+    var state: [String: String]
+}
+
 extension IntegrationsStore {
     /// Whether the hooks need putting back, given what is installed and where.
     ///
@@ -181,6 +188,28 @@ extension IntegrationsStore {
         // this bundle's. Both go over as plain values.
         let binary = Self.bundledCLIURL
         let nativePicker = Self.nativePickerIsSupported
+        // THE GATE IN FRONT OF THE READ (2026-09-27, sampled at 20-55% of the app's CPU). Every
+        // claude process, the app's own usage probes included, rewrites its `.claude.json`, so
+        // nearly every probe woke this and re-parsed every home's state file. The settings files
+        // and SKILL.md are now the only trigger for a full pass; a state file alone is re-checked
+        // at most once per `stateCheckInterval`, which bounds how long a removed server stays out.
+        let previous = healFingerprint
+        let sinceStateCheck = lastStateCheck.map { Date().timeIntervalSince($0) }
+        let extra = "\(binary.path)|\(nativePicker)"
+        let now = await Task.detached(priority: .utility) {
+            Self.healFingerprint(homes: Self.claudeHomes(), skillFiles: Self.installedSkillFiles(),
+                                 extra: extra)
+        }.value
+        switch Self.healGate(previous: previous, current: now, sinceStateCheck: sinceStateCheck) {
+        case .skip:
+            return false
+        case .deferState(let delay):
+            scheduleStateRecheck(after: delay)
+            return false
+        case .run:
+            healFingerprint = now
+            lastStateCheck = Date()
+        }
         let ours = await Task.detached(priority: .utility) {
             Self.oursNeedingHeal(binary: binary, nativePicker: nativePicker)
         }.value
@@ -190,6 +219,60 @@ extension IntegrationsStore {
         let current = Self.oursAmong(ours)
         guard !current.isEmpty else { return false }
         return syncPromptCommands(forSkillFiles: current)
+    }
+
+    /// The longest a state-file-only change waits for its re-check: the bound on how long an MCP
+    /// server another program removed stays out.
+    nonisolated static let stateCheckInterval: TimeInterval = 300
+
+    enum HealGate: Equatable {
+        case run
+        case skip
+        /// Only state files moved and they were read less than an interval ago: look again then.
+        case deferState(TimeInterval)
+    }
+
+    /// Whether a watcher settle runs the heal. Pure so all three answers are testable.
+    nonisolated static func healGate(previous: HealFingerprint?, current: HealFingerprint,
+                                     sinceStateCheck: TimeInterval?,
+                                     interval: TimeInterval = stateCheckInterval) -> HealGate {
+        guard let previous, previous.config == current.config else { return .run }
+        guard previous.state != current.state else { return .skip }
+        guard let since = sinceStateCheck, since < interval else { return .run }
+        return .deferState(interval - since)
+    }
+
+    /// Modification time and size of every file the heal reads, split by how often a change to it
+    /// is worth a pass. `extra` carries the non-file inputs (helper path, picker answer).
+    nonisolated static func healFingerprint(homes: [URL], skillFiles: [URL],
+                                            extra: String) -> HealFingerprint {
+        func stamp(_ url: URL) -> String {
+            let values = try? url.resolvingSymlinksInPath()
+                .resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            guard let values, let date = values.contentModificationDate else { return "absent" }
+            return "\(date.timeIntervalSinceReferenceDate):\(values.fileSize ?? -1)"
+        }
+        var config = ["extra": extra]
+        for url in homes.map({ $0.appendingPathComponent("settings.json") }) + skillFiles {
+            config[url.path] = stamp(url)
+        }
+        var state: [String: String] = [:]
+        for home in homes {
+            let url = claudeStateFile(forConfigDir: home)
+            state[url.path] = stamp(url)
+        }
+        return HealFingerprint(config: config, state: state)
+    }
+
+    /// One held re-check per throttle window, so a burst of state writes schedules it once.
+    private func scheduleStateRecheck(after delay: TimeInterval) {
+        guard stateRecheckTask == nil else { return }
+        stateRecheckTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self else { return }
+            self.stateRecheckTask = nil
+            if await self.healPromptHooksInBackground() { self.refresh() }
+        }
     }
 
     /// The skill files to repair from, or nil when nothing needs healing: the whole of the heal's

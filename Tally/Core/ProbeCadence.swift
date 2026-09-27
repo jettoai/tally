@@ -9,8 +9,10 @@ import Foundation
 // account's `projects` directory, and the Tally-managed homes usually share that directory through
 // a symlink. Measured on CC 2.1.283: 6.4 to 7.5 CPU seconds per probe at load 40, against 0.7 for a
 // start that signs in and runs no command. No flag keeps the three windows and drops the scan
-// (`--bare` never reads OAuth, `--disable-slash-commands` disables `/usage` itself), so the lever
-// is how many probes run and how many run at once: five at once cost 56.7 CPU seconds and 1.7 GB
+// (`--bare` never reads OAuth, `--disable-slash-commands` disables `/usage` itself); what does is an
+// empty config home with the Keychain lookup kept on the account (`ClaudeUsageCLI.probeHomeRoot`,
+// about 0.6 CPU seconds, 2026-09-27). The cadence below still decides how many probes run and how
+// many run at once: five at once cost 56.7 CPU seconds and 1.7 GB
 // together, the same five one after another 40.8 seconds and one process's worth of memory. A
 // live account is read every 5 minutes, not every tick, even after its status line goes quiet (the
 // status line stops redrawing while a session waits on background subagents; see `isDue` below).

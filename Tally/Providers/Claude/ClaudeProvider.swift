@@ -28,7 +28,8 @@ struct ClaudeProvider: UsageProvider {
         guard CLIRunner.resolve("claude") != nil else {
             return failed(L("Claude CLI not found"))
         }
-        // Default home runs with CLAUDE_CONFIG_DIR unset (Keychain-namespacing rule; see
+        // Default home runs with CLAUDE_CONFIG_DIR unset on the old read and with an empty
+        // CLAUDE_SECURESTORAGE_CONFIG_DIR on the isolated one (Keychain-namespacing rule; see
         // ClaudeUsageCLI.fetchUsageText).
         let defaultHome = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude").path

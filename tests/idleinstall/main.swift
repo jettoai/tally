@@ -13,6 +13,7 @@ func expect(_ condition: Bool, _ name: String) {
 let bar = IdleInstall.idleBar
 let grace = IdleInstall.pinnedPanelGrace
 let windowGrace = IdleInstall.taskWindowGrace
+let cap = IdleInstall.idleBarCap
 
 func install(modal: Bool = false, taskWindow: Bool = false, pinned: Bool = false,
              idleFor: TimeInterval = 1_000, waiting: TimeInterval = 60) -> Bool {
@@ -28,6 +29,8 @@ expect(windowGrace > bar,
        "the window grace outlasts the idle bar, or it would never be the binding rule")
 expect(windowGrace < grace,
        "an ordinary window is discounted sooner than a pinned panel, which is built to sit there")
+expect(cap > grace,
+       "the idle bar cap outlasts the pinned grace, so both graces have expired by the time it lifts")
 
 // MARK: a modal is an absolute veto - a decision is sitting in front of the user
 
@@ -57,13 +60,28 @@ expect(!install(taskWindow: true, idleFor: bar - 1, waiting: windowGrace * 10),
 // MARK: the machine must be quiet
 
 expect(!install(idleFor: 0), "someone is typing right now")
-expect(!install(idleFor: 180, waiting: grace * 10),
+expect(!install(idleFor: 180, waiting: grace),
        "nothing on screen at all, but the last keystroke was three minutes ago - somebody is there")
 expect(!install(idleFor: bar - 1), "one second short of the bar is still not idle")
 expect(install(idleFor: bar), "the bar itself counts as idle")
 expect(install(idleFor: bar + 1), "past the bar")
-expect(!install(idleFor: 0, waiting: grace * 10),
+expect(!install(idleFor: 0, waiting: grace),
        "the grace expiring never waives the human-presence bar")
+
+// MARK: after a day of waiting the idle bar is lifted
+//
+// The regression this section exists for: an agent driving the machine (or a VM forwarding input)
+// keeps machine-wide input from ever going quiet, so the idle bar alone meant a downloaded update
+// never installed at all (live report 2026-09-27, idle readings of 0 to 2 seconds for hours).
+
+expect(!install(idleFor: 0, waiting: cap - 1), "someone typing, one second short of the cap - wait")
+expect(install(idleFor: 0, waiting: cap), "someone typing, waiting reached the cap - install")
+expect(install(idleFor: 180, waiting: grace * 10),
+       "last keystroke three minutes ago, but the update has waited 60 hours - install")
+expect(install(taskWindow: true, pinned: true, idleFor: 0, waiting: cap),
+       "at the cap both graces have long expired, so a window and a pinned panel do not hold it")
+expect(!install(modal: true, idleFor: 0, waiting: cap * 10),
+       "the cap never lifts the modal veto - a question the user has not answered never expires")
 
 // MARK: the pinned panel holds the install off, but only for a while
 

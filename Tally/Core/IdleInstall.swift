@@ -24,8 +24,8 @@ enum IdleInstall {
     /// How long a pinned panel may hold the install off before it stops counting as a reason to
     /// wait. The panel exists to sit on screen indefinitely, so treating it like a window the user
     /// just opened would mean anyone who pins never updates at all. After this it is discounted:
-    /// the panel restores itself on the next launch, and `idleBar` still guarantees nobody is
-    /// watching the moment it happens.
+    /// the panel restores itself on the next launch, and `idleBar` still keeps the restart from
+    /// landing while someone is at the machine (until `idleBarCap`).
     static let pinnedPanelGrace: TimeInterval = 6 * 3600
 
     /// How long an ordinary Tally window (the popover, Settings, the main window) may hold the
@@ -46,6 +46,18 @@ enum IdleInstall {
     /// restart (the popover is one click on the strip, Settings and the main window reopen the same
     /// way they were opened).
     static let taskWindowGrace: TimeInterval = 3600
+
+    /// How long an update may wait on `idleBar` before the bar stops applying.
+    ///
+    /// Machine-wide input is a proxy for a person, and some machines never go quiet by it: an agent
+    /// driving the desktop, or a VM forwarding input, posts events every few seconds around the
+    /// clock, so an update downloaded there never installed at all (live report 2026-09-27, idle
+    /// readings of 0 to 2 seconds for hours on end). What makes a restart costly is not this app:
+    /// relaunching Tally only blinks the menu-bar strip, and the expensive handover (the supervisor
+    /// restarting Claude sessions) has its own protection in the self-update hold, which waits for
+    /// background work. So after a day the bar is dropped. Both graces have long expired by then,
+    /// which leaves an open modal as the only thing that still holds the install off.
+    static let idleBarCap: TimeInterval = 24 * 3600
 
     /// One window, in the only terms the question below needs. Built from AppKit at the call site,
     /// so the rule itself can be asked about a machine that is not there.
@@ -87,8 +99,9 @@ enum IdleInstall {
     ///   - pinnedPanelOpen: the pinned usage panel is on screen. Vetoes only until
     ///     `pinnedPanelGrace` has passed (see above).
     ///   - secondsSinceUserInput: seconds since the last keyboard or mouse event, machine wide.
+    ///     Must reach `idleBar`, until `waiting` reaches `idleBarCap` (see above).
     ///   - waiting: how long this app has known about the update (`UpdateState.knownSince`), which
-    ///     is the clock both grace periods are measured on. It is deliberately not "how long the
+    ///     is the clock both grace periods and `idleBarCap` are measured on. It is deliberately not "how long the
     ///     window has been open": what the grace is there to bound is how long an update may be
     ///     held back, and a window opened after the update was already known has no claim to start
     ///     that clock again.
@@ -98,9 +111,8 @@ enum IdleInstall {
         if modalOpen { return false }
         if taskWindowOpen, waiting < taskWindowGrace { return false }
         if pinnedPanelOpen, waiting < pinnedPanelGrace { return false }
-        // The human-presence bar is never waived: no amount of waiting makes it acceptable to
-        // restart the app out from under someone who is typing.
-        return secondsSinceUserInput >= idleBar
+        // The human-presence bar holds for a day, then gives way (see `idleBarCap`).
+        return secondsSinceUserInput >= idleBar || waiting >= idleBarCap
     }
 
     /// Whether Sparkle's standard alert should present a SCHEDULED update.

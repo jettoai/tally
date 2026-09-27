@@ -294,6 +294,11 @@ func runSessionBoardOrderChecks() {
     check("the arrangement is remembered under the key it has always been remembered under",
           SessionBoardOrder.defaultsKey == "sessionBoardOrder")
     UserDefaults.standard.removePersistentDomain(forName: suite)
+    // removePersistentDomain only clears cfprefsd's in-memory copy, and its own write-behind
+    // to disk is asynchronous, so a deleted file can be recreated moments later as a 42-byte
+    // empty dict. Force that pending write to land now, then remove the stub it lands as.
+    defaults.synchronize()
+    try? FileManager.default.removeItem(atPath: NSHomeDirectory() + "/Library/Preferences/\(suite).plist")
 
     // MARK: the parts that only exist inside a view
 

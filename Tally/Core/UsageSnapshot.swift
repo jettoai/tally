@@ -159,14 +159,23 @@ struct UsageSnapshot: Codable {
         )
     }
 
+    /// Serial, so writes land in the order they were issued and a later snapshot is never
+    /// overwritten by an earlier one.
+    private static let writeQueue = DispatchQueue(label: "ai.jetto.tally.snapshot-write", qos: .utility)
+
     /// Atomic write; failures are silently ignored (the snapshot is a convenience export - it must
-    /// never break the app's own refresh loop).
+    /// never break the app's own refresh loop). Encoding and file IO run on a serial background
+    /// queue because a mkdir on the main thread once stalled refresh for 2 seconds on a busy disk
+    /// (TALLY-1G).
     func write() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(self) else { return }
-        try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
-        try? data.write(to: Self.fileURL, options: .atomic)
+        let snapshot = self
+        Self.writeQueue.async {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            guard let data = try? encoder.encode(snapshot) else { return }
+            try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+            try? data.write(to: Self.fileURL, options: .atomic)
+        }
     }
 }

@@ -127,10 +127,21 @@ func applyRestartWake(_ state: inout RestartWakeState, pid: String, candidate: C
 }
 
 /// The self-update background hold's record in `handoff.log` (grep `self-update-hold=`): `held` on
-/// the first held tick, `released` or `expired` when the restart is planned.
+/// the first held tick, `released` or `expired` when the restart is planned. `roster` and
+/// `rosterAt` are `selfUpdateRosterState`, so a release with work running says which reading lost it.
 func selfUpdateHoldLine(pid: String, event: String, background: Int, heldSince: Date?,
-                        now: Date = Date()) -> String {
+                        roster: String, rosterAt: Date?, now: Date = Date()) -> String {
     let stamp = ISO8601DateFormatter()
     return "\(stamp.string(from: now)) pid=\(pid) self-update-hold=\(event) "
-        + "background=\(background) heldSince=\(heldSince.map { stamp.string(from: $0) } ?? "none")\n"
+        + "background=\(background) heldSince=\(heldSince.map { stamp.string(from: $0) } ?? "none") "
+        + "roster=\(roster) rosterAt=\(rosterAt.map { stamp.string(from: $0) } ?? "none")\n"
+}
+
+/// Why `currentGenerationRoster` did or did not hand the gate a roster, for the log only: `none` (no
+/// file), `untrusted` (a count this Claude Code cannot vouch for), `stale` (written before this
+/// child started) or `ok`. Mirrors that function's guard, and decides nothing.
+func selfUpdateRosterState(_ record: SessionAgentsRecord?, childStartedAt: Date) -> String {
+    guard let record else { return "none" }
+    if record.reportable == nil { return "untrusted" }
+    return record.updatedAt >= childStartedAt ? "ok" : "stale"
 }

@@ -30,11 +30,6 @@ func runHookAgents(args: [String]) -> Int32 {
     let session = (payload?["session_id"] as? String).flatMap {
         isTranscriptSessionID($0) ? $0 : nil
     }
-    if let session, let watching = readSessionContext(pid: supervisor)?.transcriptSessionID,
-       watching != session {
-        return 0
-    }
-    let claudeCode = ProcessInfo.processInfo.environment[claudeCodeExecPathVariable]
     // ONE INSTANT FOR THE WHOLE RUN, stamped into both documents this hook writes.
     //
     // They are compared against each other by a reader that has to know whether a roster describes
@@ -44,6 +39,13 @@ func runHookAgents(args: [String]) -> Int32 {
     // stamped a second BEFORE the turn end it belongs to, and that reader would correctly refuse to
     // believe it. One instant makes the pairing exact rather than probable.
     let now = Date()
+    let watching = session == nil ? nil : readSessionContext(pid: supervisor)?.transcriptSessionID
+    if let dropped = hookAgentsDropLine(event, session: session, watching: watching,
+                                        pid: supervisor, now: now) {
+        appendHandoffLine(dropped, to: handoffLog)
+        return 0
+    }
+    let claudeCode = ProcessInfo.processInfo.environment[claudeCodeExecPathVariable]
     // THE ROSTER LANDS FIRST, AND THE BOUNDARY IS WHAT PUBLISHES THE PAIR. This ordering is a fix
     // (codex review of d21f2e0, P1): the boundary used to be written first, on the reasoning that
     // its recorded instant should be as close to the turn end as possible - but the instant is
@@ -68,6 +70,18 @@ func runHookAgents(args: [String]) -> Int32 {
         writeSessionTurnEnd(ended, pid: supervisor)
     }
     return 0
+}
+
+/// The `handoff.log` record of an event dropped as another conversation's (grep
+/// `hook-agents-dropped`), or nil when the event is this conversation's or either side cannot say.
+/// A nested session's hooks land here too, so the line is expected now and then; it carries the two
+/// ids' first 8 characters and the event's background count, and nothing else off the payload.
+func hookAgentsDropLine(_ event: AgentRosterEvent, session: String?, watching: String?,
+                        pid: String, now: Date) -> String? {
+    guard let session, let watching, watching != session else { return nil }
+    return "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) hook-agents-dropped "
+        + "event=\(event.kind.rawValue) session=\(session.prefix(8)) watching=\(watching.prefix(8)) "
+        + "background=\(event.otherTasks.map(String.init) ?? "none")\n"
 }
 
 /// Where Claude Code says which build is running, exported to everything it spawns

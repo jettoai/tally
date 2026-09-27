@@ -824,11 +824,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    installed: installedVersion) != nil {
                 let now = Date()
                 let heldBefore = selfUpdateHeldSince
-                if backgroundWorking { selfUpdateHeldSince = selfUpdateHeldSince ?? now }
+                selfUpdateHeldSince = nextSelfUpdateHeldSince(current: heldBefore,
+                                                              working: backgroundWorking, now: now)
                 let heldCount = rosterBackgroundCount(roster)
+                let rawRoster = readSessionAgents(pid: supervisorPID)
+                let rosterState = selfUpdateRosterState(rawRoster, childStartedAt: launchedAt)
                 if heldBefore == nil, let held = selfUpdateHeldSince {
                     appendHandoffLine(selfUpdateHoldLine(pid: supervisorPID, event: "held",
-                                                         background: heldCount, heldSince: held),
+                                                         background: heldCount, heldSince: held,
+                                                         roster: rosterState,
+                                                         rosterAt: rawRoster?.updatedAt),
                                       to: handoffLog)
                 }
                 if !selfUpdateHeldByBackground(working: backgroundWorking,
@@ -836,7 +841,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
                     appendHandoffLine(selfUpdateHoldLine(
                         pid: supervisorPID, event: backgroundWorking ? "expired" : "released",
-                        background: heldCount, heldSince: selfUpdateHeldSince), to: handoffLog)
+                        background: heldCount, heldSince: selfUpdateHeldSince ?? heldBefore,
+                        roster: rosterState, rosterAt: rawRoster?.updatedAt), to: handoffLog)
                 }
             }
 

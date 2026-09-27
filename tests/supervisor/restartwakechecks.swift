@@ -199,7 +199,22 @@ func runRestartWakeChecks() {
               && rosterBackgroundCount(nil) == 0)
     let t = wakeAt("2026-09-27T08:00:00.000Z")
     let hold = selfUpdateHoldLine(pid: "42", event: "expired", background: 3, heldSince: t,
+                                  roster: "ok", rosterAt: wakeAt("2026-09-27T08:59:58.000Z"),
                                   now: wakeAt("2026-09-27T09:00:00.000Z"))
     check("R12 the hold line reads as its grep expects",
-          hold == "2026-09-27T09:00:00Z pid=42 self-update-hold=expired background=3 heldSince=2026-09-27T08:00:00Z\n")
+          hold == "2026-09-27T09:00:00Z pid=42 self-update-hold=expired background=3 heldSince=2026-09-27T08:00:00Z roster=ok rosterAt=2026-09-27T08:59:58Z\n")
+    let released = selfUpdateHoldLine(pid: "42", event: "released", background: 0, heldSince: nil,
+                                      roster: "none", rosterAt: nil,
+                                      now: wakeAt("2026-09-27T09:00:00.000Z"))
+    check("R12 a release with no roster file says so",
+          released == "2026-09-27T09:00:00Z pid=42 self-update-hold=released background=0 heldSince=none roster=none rosterAt=none\n")
+    check("R12 roster state tells the gate's four readings apart",
+          selfUpdateRosterState(nil, childStartedAt: t) == "none"
+              && selfUpdateRosterState(SessionAgentsRecord(live: [], trusted: false, updatedAt: t,
+                                                           background: 1), childStartedAt: t) == "untrusted"
+              && selfUpdateRosterState(SessionAgentsRecord(live: [], trusted: true,
+                                                           updatedAt: t.addingTimeInterval(-1),
+                                                           background: 1), childStartedAt: t) == "stale"
+              && selfUpdateRosterState(SessionAgentsRecord(live: [], trusted: true, updatedAt: t,
+                                                           background: 1), childStartedAt: t) == "ok")
 }

@@ -188,6 +188,12 @@ func selfUpdateHeldByBackground(working: Bool, heldSince: Date?, now: Date,
     return now.timeIntervalSince(heldSince) < limit
 }
 
+/// The hold's start after this due tick: kept while work runs, cleared the tick it does not, so a
+/// later hold in the same supervisor gets the whole limit rather than what the first one left.
+func nextSelfUpdateHeldSince(current: Date?, working: Bool, now: Date) -> Date? {
+    working ? (current ?? now) : nil
+}
+
 /// Carry out the upgrade a planned relaunch folded in, if there is one. The attempt is recorded
 /// BEFORE the exec, and both live here so no caller can do one without the other: a successful exec
 /// carries the record across in the environment, a failed one leaves nothing behind, and without it

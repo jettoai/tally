@@ -83,6 +83,57 @@ func runSelfUpdateBackgroundChecks() {
               && selfUpdateHeldByBackground(working: rosterReportsBackgroundWork(incident),
                                             heldSince: nil, now: t0))
 
+    // B9. A cleared window with a Monitor running (2026-09-27, supervisor 36708). The turn end
+    // before the clear carried an empty list; the new conversation's first turn end names the
+    // Monitor. The roster must count it and hand it to the gate as this child's.
+    let clearedAt = t0.addingTimeInterval(60)
+    let beforeClear = fold(nil, stop([]))
+    let monitorStop = stop([["type": "monitor", "id": "bzsyqpoyk"]])
+    let afterClear = advanceAgentRoster(beforeClear, event: monitorStop, declared: true,
+                                        now: clearedAt.addingTimeInterval(18))
+    check("background: a Monitor armed after a clear is counted",
+          (afterClear.background ?? 0) >= 1 && rosterReportsBackgroundWork(afterClear))
+    let rosterDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-bgcount-\(UUID().uuidString)")
+    writeSessionAgents(afterClear, pid: "36708", dir: rosterDir)
+    check("background: …and the cleared child's roster reaches the gate",
+          rosterReportsBackgroundWork(currentGenerationRoster(pid: "36708",
+                                                              childStartedAt: clearedAt,
+                                                              dir: rosterDir)))
+    try? FileManager.default.removeItem(at: rosterDir)
+    let fresh = "99de728d-0000-4000-8000-000000000001"
+    let gone = "11111111-0000-4000-8000-000000000002"
+    check("background: an event from the conversation the supervisor now watches is kept",
+          hookAgentsDropLine(monitorStop, session: fresh, watching: fresh, pid: "36708",
+                             now: clearedAt) == nil)
+    check("background: an id either side cannot give is kept",
+          hookAgentsDropLine(monitorStop, session: nil, watching: fresh, pid: "36708",
+                             now: clearedAt) == nil
+              && hookAgentsDropLine(monitorStop, session: fresh, watching: nil, pid: "36708",
+                                    now: clearedAt) == nil)
+    check("background: an event while it still watches the old conversation is dropped, on record",
+          hookAgentsDropLine(monitorStop, session: fresh, watching: gone, pid: "36708",
+                             now: t0)
+              == "2026-08-12T21:46:40Z pid=36708 hook-agents-dropped event=Stop session=99de728d watching=11111111 background=1\n")
+    check("background: a dropped event with no list says none",
+          hookAgentsDropLine(stop(nil, event: "SubagentStart"), session: fresh, watching: gone,
+                             pid: "1", now: t0)?.hasSuffix("event=SubagentStart session=99de728d watching=11111111 background=none\n") == true)
+
+    // B10. The hold's start is per wait: kept while work runs, cleared the tick it does not.
+    let firstHold = nextSelfUpdateHeldSince(current: nil, working: true, now: t0)
+    let stillHeld = nextSelfUpdateHeldSince(current: firstHold, working: true,
+                                            now: t0.addingTimeInterval(50 * 60))
+    let ended = nextSelfUpdateHeldSince(current: stillHeld, working: false,
+                                        now: t0.addingTimeInterval(55 * 60))
+    let secondAt = t0.addingTimeInterval(56 * 60)
+    let secondHold = nextSelfUpdateHeldSince(current: ended, working: true, now: secondAt)
+    check("background: a hold keeps its first tick while work runs",
+          firstHold == t0 && stillHeld == t0)
+    check("background: a second hold after the work ended gets the whole limit",
+          ended == nil && secondHold == secondAt
+              && selfUpdateHeldByBackground(working: true, heldSince: secondHold,
+                                            now: secondAt.addingTimeInterval(30 * 60)))
+
     // B7. Wired into the idle self-update, and nowhere else.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     let gateEnd = loop.range(of: "reason: \"self-update\"")?.lowerBound ?? loop.startIndex
@@ -91,4 +142,9 @@ func runSelfUpdateBackgroundChecks() {
           gate.contains("selfUpdateHeldByBackground("))
     check("background: …off this child's own roster",
           loop.contains("let backgroundWorking = rosterReportsBackgroundWork(roster)"))
+    check("background: the loop takes the hold's start from the per-wait rule",
+          loop.contains("selfUpdateHeldSince = nextSelfUpdateHeldSince("))
+    let hook = (try? String(contentsOfFile: "TallyCLI/HookAgents.swift", encoding: .utf8)) ?? ""
+    check("background: the hook writes the drop record before it returns",
+          hook.contains("appendHandoffLine(dropped, to: handoffLog)\n        return 0"))
 }

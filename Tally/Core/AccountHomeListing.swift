@@ -32,10 +32,13 @@ struct AccountHomeListing {
 }
 
 /// Every `<home>/<base>*` directory other than `<home>/<base>` itself, sorted by name.
+/// `*.lock` names are skipped: Claude Code guards each `~/.claude.json` write with a lock that is a
+/// directory (`~/.claude.json.lock`), created and removed on every write, and counting it as an
+/// account made the watch roots churn and rebuild the FSEvents stream (Sentry TALLY-1J).
 func accountConfigDirs(base: String, home: URL,
                        listing: AccountHomeListing = .live) -> [URL] {
     listing.names(home.path)
-        .filter { $0.hasPrefix(base) && $0 != base }
+        .filter { $0.hasPrefix(base) && $0 != base && !$0.hasSuffix(".lock") }
         .sorted()
         .map { home.appendingPathComponent($0, isDirectory: true) }
         .filter { listing.isDirectory($0.path) }

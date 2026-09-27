@@ -13,7 +13,7 @@ let fm = FileManager.default
 let home = URL(fileURLWithPath: NSTemporaryDirectory())
     .appendingPathComponent("tally-homelisting-\(UUID().uuidString)", isDirectory: true)
 let protected = ["Downloads", "Desktop", "Documents"]
-for name in protected + [".claude", ".claude-work", ".codex2", "Projects"] {
+for name in protected + [".claude", ".claude-work", ".codex2", "Projects", ".claude.json.lock"] {
     try! fm.createDirectory(at: home.appendingPathComponent(name), withIntermediateDirectories: true)
 }
 // Not config dirs: a file with a matching name, and a symlink (the replaced `.isDirectoryKey`
@@ -39,6 +39,9 @@ let claude = accountConfigDirs(base: ".claude", home: home, listing: recording)
 check("finds the custom claude account", claude.map(\.lastPathComponent) == [".claude-work"])
 let codex = accountConfigDirs(base: ".codex", home: home, listing: recording)
 check("finds the numbered codex account", codex.map(\.lastPathComponent) == [".codex2"])
+check("the .claude.json.lock write-lock directory is not an account, real accounts still are",
+      !claude.contains { $0.lastPathComponent == ".claude.json.lock" }
+          && claude.map(\.lastPathComponent) == [".claude-work"])
 check("discovery never touches Downloads, Desktop or Documents", touchedProtected().isEmpty)
 check("the home is only listed; only matching names are asked about",
       Set(touched) == Set([home.path] + [".claude-work", ".claude2", ".codex2", ".codex-link"]

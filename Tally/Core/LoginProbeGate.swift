@@ -193,6 +193,22 @@ enum LoginProbeGate {
         }
     }
 
+    /// Whether a round may skip spawning the status CLI for this account because the usage probe
+    /// already answered the same question since the previous round began. `reportedAt` is the
+    /// landing generation that answer was recorded at (nil = no answer since then).
+    ///
+    /// A forced account always asks: forcing exists because the usage answer may predate a login
+    /// (2026-08-03). A landing after the report makes it a memory, the same rule a round's own
+    /// readings are held to. An account this run has no probe email for yet asks once, because the
+    /// usage probe cannot name who is signed in and the status CLI is the fresher witness of that.
+    static func coveredByUsage(_ accountID: String, reportedAt: Int?, state: State,
+                               landings: Landings, userInitiated: Bool,
+                               hasProbeEmail: Bool) -> Bool {
+        guard !userInitiated, state.forced[accountID] == nil, hasProbeEmail,
+              let reportedAt else { return false }
+        return !landings.isStale(accountID, since: reportedAt)
+    }
+
     enum Decision: Equatable {
         /// Run a round now.
         case run

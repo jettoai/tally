@@ -128,6 +128,9 @@ final class LoginStatusStore {
     /// question before the credential existed, so it does not get to answer it
     /// (LoginProbeGate.Landings).
     private var landings = LoginProbeGate.Landings()
+    /// Accounts the usage probe reported a login answer for since the last round began, with the
+    /// landing generation it was recorded at (LoginProbeGate.coveredByUsage).
+    private var usageReports: [String: Int] = [:]
 
     /// A renewal reported success for this account. The stale verdict goes NOW - the CLI that just
     /// signed in is a better witness than a probe from before it ran - and the next round is forced,
@@ -201,32 +204,31 @@ final class LoginStatusStore {
         // Taken before a single CLI is spawned: everything this round says is about the machine as
         // it is right now, and a login that lands while it runs makes all of it a memory.
         let mark = landings.mark
+        let reports = usageReports
+        usageReports = [:]
 
+        // Accounts the usage probe already answered for are not asked again (their verdict and
+        // alert were written by `usageAuthentication`, and an account absent from `readings` keeps
+        // both). The rest are asked one at a time: several CLIs spawned at once is a burst of
+        // processes every five minutes for an answer that takes a fraction of a second each.
         var readings: [String: LoginStatusCommand.Reading] = [:]
-        await withTaskGroup(of: (String, LoginStatusCommand.Reading)?.self) { group in
-            for account in accounts {
-                guard let home = account.launchHome,
-                      let arguments = LoginStatusCommand.arguments(providerID: account.providerID),
-                      let envKey = IntegrationsStore.Shim(rawValue: account.providerID)?.envKey
-                else { continue }
-                let id = account.id
-                let executable = ProviderCLI.executable(account.providerID,
-                                                        devOverrideKey: Self.devCLIKey)
-                let environment = RenewLoginCommand.environment(envKey: envKey, home: home,
-                                                                providerID: account.providerID)
-                group.addTask {
-                    let output = await CLIRunner.run(executable, arguments: arguments,
-                                                     environment: environment,
-                                                     timeout: LoginStatusCommand.timeout)
-                    // stdout and stderr together: claude answers on one, codex on the other.
-                    return (id, LoginStatusCommand.read(
-                        exitCode: output?.exitCode,
-                        output: (output?.stdout ?? "") + "\n" + (output?.stderr ?? "")))
-                }
-            }
-            for await result in group {
-                if let result { readings[result.0] = result.1 }
-            }
+        for account in accounts {
+            guard let home = account.launchHome,
+                  let arguments = LoginStatusCommand.arguments(providerID: account.providerID),
+                  let envKey = IntegrationsStore.Shim(rawValue: account.providerID)?.envKey
+            else { continue }
+            if LoginProbeGate.coveredByUsage(account.id, reportedAt: reports[account.id], state: gate,
+                                             landings: landings, userInitiated: userInitiated,
+                                             hasProbeEmail: emails[account.id] != nil) { continue }
+            let executable = ProviderCLI.executable(account.providerID, devOverrideKey: Self.devCLIKey)
+            let environment = RenewLoginCommand.environment(envKey: envKey, home: home,
+                                                            providerID: account.providerID)
+            let output = await CLIRunner.run(executable, arguments: arguments, environment: environment,
+                                             timeout: LoginStatusCommand.timeout)
+            // stdout and stderr together: claude answers on one, codex on the other.
+            readings[account.id] = LoginStatusCommand.read(
+                exitCode: output?.exitCode,
+                output: (output?.stdout ?? "") + "\n" + (output?.stderr ?? ""))
         }
 
         // Whole readings, not just their verdicts: an account that signed in while this round ran
@@ -272,6 +274,8 @@ final class LoginStatusStore {
                                            since: mark, landings: landings) else { return }
         if authenticated { verdicts[account.id] = .signedIn }
         landings.land([account.id])
+        // Taken after this answer's own landing, so only a later one makes it stale.
+        usageReports[account.id] = landings.mark
         guard !BuildVariant.isUnshipped, !DemoUsage.isActive else { return }
         let (next, fresh) = LoginUsageHealth.updateAlert(state: loadState(), accountID: account.id,
                                                         authenticated: authenticated)

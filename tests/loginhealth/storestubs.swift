@@ -33,7 +33,8 @@ enum IntegrationsStore {
 }
 
 enum ProviderCLI {
-    static func executable(_ provider: String, devOverrideKey: String) -> String { "/usr/bin/false" }
+    nonisolated(unsafe) static var path = "/usr/bin/false"
+    static func executable(_ provider: String, devOverrideKey: String) -> String { path }
 }
 
 @MainActor

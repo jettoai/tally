@@ -848,6 +848,35 @@ landings.land(["claude:.claude2"])
 expect(landings.isStale("codex:.codex2", since: roundBefore)
         && !landings.isStale("codex:.codex2", since: roundAfter),
        "a second landing does not re-open the first: what is stale is what was asked too early")
+// A usage read that already answered "is this account signed in" since the last round spares the
+// status CLI (login-dedupe, 2026-09-27). Each exception is one way that answer can be the wrong one.
+var usageLandings = LoginProbeGate.Landings()
+usageLandings.land(["claude:.claude2"])
+let reportedAt = usageLandings.mark
+func covered(_ id: String = "claude:.claude2", reportedAt: Int? = reportedAt,
+             state: LoginProbeGate.State = LoginProbeGate.State(), userInitiated: Bool = false,
+             hasProbeEmail: Bool = true) -> Bool {
+    LoginProbeGate.coveredByUsage(id, reportedAt: reportedAt, state: state, landings: usageLandings,
+                                  userInitiated: userInitiated, hasProbeEmail: hasProbeEmail)
+}
+expect(covered(), "#1/#2 a current usage answer covers the account, whichever way it went")
+expect(!covered(reportedAt: nil), "#3 no usage answer since the last round: ask")
+var forcedUsage = LoginProbeGate.State()
+forcedUsage.forced["claude:.claude2"] = LoginProbeGate.renewed
+expect(!covered(state: forcedUsage), "#4 a forced account always asks (2026-08-03)")
+var handedUsage = LoginProbeGate.State()
+handedUsage.forced["claude:.claude2"] = LoginProbeGate.handedOff
+expect(!covered(state: handedUsage), "#4 …a Terminal handoff too")
+usageLandings.land(["claude:.claude2"])
+expect(!covered(), "#5 a landing after the usage answer makes it a memory: ask")
+expect(covered(reportedAt: usageLandings.mark), "#5 …and one recorded after the landing is current")
+expect(!covered(reportedAt: usageLandings.mark, userInitiated: true), "#6 an explicit refresh asks everyone")
+expect(!covered(reportedAt: usageLandings.mark, hasProbeEmail: false),
+       "an account with no probe email this run asks once, so the card can name who is signed in")
+expect(storeSource.contains("usageReports[account.id] = landings.mark")
+        && storeSource.contains("LoginProbeGate.coveredByUsage(account.id, reportedAt: reports[account.id]")
+        && !storeSource.contains("withTaskGroup"),
+       "#8 the store records the usage answer, consults it, and asks the rest one at a time")
 var untouched = LoginProbeGate.Landings()
 untouched.land([])
 expect(untouched == LoginProbeGate.Landings(),

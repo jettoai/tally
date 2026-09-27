@@ -4,7 +4,7 @@ import Foundation
 @main
 struct LoginStoreChecks {
     @MainActor
-    static func main() {
+    static func main() async {
         var failures = 0
         var passed = 0
         func check(_ condition: Bool, _ name: String) {
@@ -47,6 +47,7 @@ struct LoginStoreChecks {
         check(!store.isExpired(account.id), "the existing removal path still clears usage rejection")
         reject(account, since: beforeRemoval)
         check(!store.isExpired(account.id), "a pre-removal callback still cannot revive the account")
+        await probeRounds(check)
         print("login store: \(passed) passed, \(failures) failed")
         exit(failures == 0 ? 0 : 1)
     }

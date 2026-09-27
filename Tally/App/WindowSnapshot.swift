@@ -46,7 +46,7 @@ enum WindowSnapshot {
 
     /// One PNG per window, named after the window's title (the untitled ones - the pinned panel is
     /// one - fall back to their number, which is what tells two of them apart).
-    private static func write(into dir: URL) {
+    @MainActor private static func write(into dir: URL) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         for window in NSApp.windows where window.isVisible && window.frame.width > 1 {
             // NOT EVERY `windowNumber` IS A `CGWindowID`. AppKit hands the status item's own windows
@@ -61,17 +61,47 @@ enum WindowSnapshot {
             // Through the compositor. `boundsIgnoreFraming` keeps the shot to the window itself
             // rather than to the shadow around it, which is what leaves the corners transparent
             // instead of sitting on a grey halo.
-            guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
-                                                      [.boundsIgnoreFraming, .bestResolution])
-            else { continue }
+            let composited = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
+                                                     [.boundsIgnoreFraming, .bestResolution])
+                .map(NSBitmapImageRep.init(cgImage:))
+            // THE COMPOSITOR SOMETIMES HANDS BACK A FULLY TRANSPARENT IMAGE of a window that is on
+            // screen (a tall Settings window, 2026-09-27; not reproduced by screen, height or
+            // off-screen placement). Then the window draws itself instead: no material or rounded
+            // corners, but a picture rather than an empty file.
+            let rep: NSBitmapImageRep
+            if let composited, !isBlank(composited) {
+                rep = composited
+            } else if let drawn = selfDrawn(window) {
+                rep = drawn
+                FileHandle.standardError.write(Data(
+                    "snapshot: compositor image of \"\(title)\" was blank, drew the window instead\n".utf8))
+            } else { continue }
             let file = dir.appendingPathComponent("\(title).png")
-            guard let data = NSBitmapImageRep(cgImage: image)
-                .representation(using: .png, properties: [:]) else { continue }
+            guard let data = rep.representation(using: .png, properties: [:]) else { continue }
             try? data.write(to: file)
             FileHandle.standardError.write(Data("snapshot: \(file.path)\n".utf8))
         }
         // The launch existed to take these; nothing else it could do afterwards is wanted, and a
         // capture instance left running is a second Tally in the menu bar the user did not ask for.
         NSApp.terminate(nil)
+    }
+
+    /// Every sampled pixel fully transparent. A grid rather than every pixel: a real window has
+    /// opaque content across most of its area, so a sparse sample cannot miss it.
+    private static func isBlank(_ rep: NSBitmapImageRep) -> Bool {
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 16) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 16)
+            where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0 { return false }
+        }
+        return true
+    }
+
+    /// The window drawn by AppKit rather than the compositor. The content view's superview is the
+    /// frame view, so the title bar comes along with the content.
+    @MainActor private static func selfDrawn(_ window: NSWindow) -> NSBitmapImageRep? {
+        guard let view = window.contentView?.superview ?? window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep
     }
 }

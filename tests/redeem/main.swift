@@ -157,15 +157,21 @@ if let cardBody = functionBody(cardSource, from: "var body: some View {"),
 } else {
     expect(false, "A the card body and both halves of its error split were found")
 }
-if let rowBody = functionBody(rowSource, from: "var body: some View {") {
+// The marks travel inside the row's identity column (so the meters start at one x down a block),
+// so the invariant is checked at both layers: the body draws that column outside the error split,
+// and the column itself draws the marks.
+if let rowBody = functionBody(rowSource, from: "var body: some View {"),
+   let identityColumn = functionBody(rowSource, from: "private var identityColumn: some View {") {
     let gatedOnOneLine = rowBody.split(separator: "\n")
-        .contains { $0.contains("usageMarks") && $0.contains("isHardError") }
-    let gatedInBlock = balancedBlock(rowBody, after: "if !facts.isHardError {")?
-        .contains("usageMarks") ?? false
-    expect(rowBody.contains("usageMarks") && !gatedOnOneLine && !gatedInBlock,
+        .contains { $0.contains("identityColumn") && $0.contains("isHardError") }
+    let gatedInBlock = ["if facts.isHardError {", "if !facts.isHardError {"].contains {
+        balancedBlock(rowBody, after: $0)?.contains("identityColumn") ?? false
+    }
+    expect(rowBody.contains("identityColumn") && !gatedOnOneLine && !gatedInBlock
+           && identityColumn.contains("usageMarks"),
            "A3 the list row draws its reset mark on a row that never loaded")
 } else {
-    expect(false, "A the list row's body was found")
+    expect(false, "A the list row's body and identity column were found")
 }
 
 runOfferChecks()

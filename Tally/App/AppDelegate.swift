@@ -209,12 +209,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// capture racing that animation photographs whichever frame it caught.
     ///
     /// Gated on the demo data or a dev build, like `-TallyAppearance`: it must never be reachable in
-    /// a release instance somebody is actually using, and it deliberately does NOT go through
-    /// `setPinned`, which would write the pin into the shared defaults domain and change the real
-    /// app's state.
+    /// a release instance somebody is actually using. The two gates then split. A dev build keeps
+    /// its settings in a defaults domain of its own, so there the panel is a real pinned panel: the
+    /// pin is recorded, the footer's pin button reads as pinned, and pressing it unpins and closes
+    /// the panel exactly as a hand-pinned one does (a capture panel whose pin button read "not
+    /// pinned" was reported as a window that is neither, 2026-09-28). A release build running the
+    /// demo data shares the real app's domain, so there it only shows the panel and records
+    /// nothing, which would otherwise change the real app's state.
     private func openPanelForCapture() {
         guard DemoUsage.isActive || BuildVariant.isDev,
               UserDefaults.standard.bool(forKey: "TallyPanelCapture") else { return }
+        if BuildVariant.isDev { SettingsStore.shared.isUsagePanelPinned = true }
         PinnedPanelController.shared.show(atTopLeft: CGPoint(x: 120, y: 160))
     }
 

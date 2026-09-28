@@ -91,6 +91,15 @@ extension PopoverRootView {
     private func rowStack(_ accounts: [AccountUsage]) -> some View {
         let columns = listColumnCount
         let width = listColumnWidth
+        // One identity column and one set of meter columns per block, so every row's figures and
+        // track lengths line up down the block. A grouped layout calls this once per provider,
+        // which is what lets a one-window provider lay one long bar per row.
+        let identityWidth = accounts.compactMap { listIdentityWidths[$0.id] }.max()
+        let meterSlots = accounts
+            .map { AccountFacts(usage: $0, settings: settings) }
+            .filter { !$0.isHardError }
+            .map(\.orderedMetrics.count)
+            .max() ?? 0
         // Row-major, the same chunking the card grid uses, so the reading order is the one the eye
         // already learned here: across, then down.
         return VStack(spacing: 0) {
@@ -102,7 +111,7 @@ extension PopoverRootView {
                             // the columns are separate runs of accounts, and one line through both
                             // would read as a single row cut in half.
                             if band > 0 { Divider() }
-                            listRow(usage)
+                            listRow(usage, identityWidth: identityWidth, meterSlots: meterSlots)
                         }
                         .frame(width: width)
                     }
@@ -117,8 +126,15 @@ extension PopoverRootView {
         .tallyCard()
     }
 
-    private func listRow(_ usage: AccountUsage) -> some View {
-        AccountListRowView(usage: usage, settings: settings, showsDragHandle: true)
+    private func listRow(_ usage: AccountUsage, identityWidth: CGFloat?,
+                         meterSlots: Int) -> some View {
+        AccountListRowView(usage: usage, settings: settings, showsDragHandle: true,
+                           identityWidth: identityWidth, meterSlots: meterSlots,
+                           onIdentityWidth: { width in
+                               if listIdentityWidths[usage.id] != width {
+                                   listIdentityWidths[usage.id] = width
+                               }
+                           })
             .opacity(cardLift?.id == usage.id ? 0 : 1)
             .contentShape(Rectangle())
             // Same frame registration the cards use, so the one drag gesture reorders both

@@ -233,6 +233,50 @@ do {
            "session-only fleet keeps its session pool")
 }
 
+// 15c. displayPools draws a model pool only when it IS the focus: a launch model no reported
+// window carries (opus while the only model window is Fable) leaves the strip with the weekly total;
+// a fleet with only model pools still shows them; an undeclared primary keeps the flagship's pool.
+do {
+    let order = ["fable", "opus", "sonnet"]
+    let s = summarize([
+        account("c1", metrics: [metric(.weeklyAll, used: 10),
+                                metric(.weeklyModel, used: 40, model: "Fable 5")]),
+        account("c2", metrics: [metric(.weeklyAll, used: 20),
+                                metric(.weeklyModel, used: 60, model: "Fable 5")]),
+    ])
+    expect(s.first?.displayPools(focusedModel: nil).map(\.kind) == [.weeklyAll],
+           "no focus draws the weekly total alone")
+    let twoModels = summarize([
+        account("c1", metrics: [metric(.weeklyAll, used: 10),
+                                metric(.weeklyModel, used: 40, model: "Fable 5"),
+                                metric(.weeklyModel, used: 20, model: "Sonnet 5")]),
+        account("c2", metrics: [metric(.weeklyAll, used: 20),
+                                metric(.weeklyModel, used: 60, model: "Fable 5"),
+                                metric(.weeklyModel, used: 30, model: "Sonnet 5")]),
+    ])
+    let focusedFable = twoModels.first?.displayPools(focusedModel: "Fable 5") ?? []
+    expect(focusedFable.compactMap(\.modelName) == ["Fable 5"]
+               && focusedFable.map(\.kind) == [.weeklyModel, .weeklyAll],
+           "a focused pool leads the weekly total and hides the other model pool")
+    let modelOnly = summarize([
+        account("c1", metrics: [metric(.weeklyModel, used: 40, model: "Fable 5")]),
+        account("c2", metrics: [metric(.weeklyModel, used: 60, model: "Fable 5")]),
+    ])
+    expect(modelOnly.first?.displayPools(focusedModel: nil).map(\.kind) == [.weeklyModel],
+           "a fleet with only model pools never draws an empty strip")
+    let opus = FleetFocus.focusedModel(.all, primaryModel: "opus",
+                                       available: s.first?.modelPoolNames ?? [], flagshipOrder: order)
+    expect(opus == nil && s.first?.displayPools(focusedModel: opus)
+               .contains { $0.kind == .weeklyModel } == false,
+           "an opus launch model with only a Fable window draws no Fable pool")
+    let undeclared = FleetFocus.focusedModel(.all, primaryModel: nil,
+                                             available: s.first?.modelPoolNames ?? [],
+                                             flagshipOrder: order)
+    expect(undeclared == "Fable 5" && s.first?.displayPools(focusedModel: undeclared)
+               .contains { $0.modelName == "Fable 5" } == true,
+           "an unreadable launch model keeps the flagship's pool")
+}
+
 // 16. headline(focusedModel:) returns the named model pool, and degrades to the weekly budget
 // when the name matches no pool (schema drift / missing window).
 do {

@@ -98,6 +98,25 @@ enum PanelGeometry {
         return 2 * contentPadding + count * rowWidth + (count - 1) * columnGap
     }
 
+    /// How a list row's meter clusters share the width they are given. The row lays its windows on
+    /// `slots` equal columns (the most windows any row in its block reports), and a row with fewer
+    /// windows lets its LEADING window span the columns it has no window for. The figures therefore
+    /// stay in the columns they always stood in, right-aligned as before, and a one-window account
+    /// draws one long bar instead of one short bar beside a blank the width of two windows.
+    ///
+    /// Returns one width per cluster, in order; the clusters and the `gap` between them fill
+    /// `width` exactly. Empty when there is nothing to lay out.
+    static func meterClusterWidths(in width: CGFloat, count: Int, slots: Int,
+                                   gap: CGFloat) -> [CGFloat] {
+        guard count > 0 else { return [] }
+        let columns = max(slots, count)
+        let slot = max(0, (width - gap * CGFloat(columns - 1)) / CGFloat(columns))
+        return (0 ..< count).map { index in
+            let span = index == 0 ? columns - count + 1 : 1
+            return slot * CGFloat(span) + gap * CGFloat(span - 1)
+        }
+    }
+
     /// How many columns of `columnWidth` a display of `usableWidth` can seat. Never fewer than one:
     /// on a display too narrow even for a single column the panel overflows a little rather than
     /// showing nothing at all, the same floor `ScreenFitStack.minFlexibleHeight` keeps on the other

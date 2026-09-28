@@ -478,6 +478,8 @@ for display in displays {
     }
 }
 
+checkMeterColumns()
+
 if failures == 0 {
     print("\nall panel width assertions passed")
     exit(0)

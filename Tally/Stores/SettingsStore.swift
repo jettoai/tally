@@ -253,8 +253,9 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
     }
 
-    /// Cards in one continuous grid (default) or split into a section per provider. Off by default:
-    /// with a single provider the sections are pure overhead, and the flat grid is the denser read.
+    /// Cards in one continuous grid or split into a section per provider. Defaults to on: an install
+    /// that never chose sees its providers apart (2026-09-28). With a single provider the grouped
+    /// layout draws no headings (`PanelSections`), so the default costs that install nothing.
     var groupByProvider: Bool {
         didSet { UserDefaults.standard.set(groupByProvider, forKey: "groupByProvider") }
     }
@@ -339,7 +340,7 @@ final class SettingsStore {
         sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),
                                                       max: SettingsStore.maxSessionsColumns)
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
-        groupByProvider = defaults.bool(forKey: "groupByProvider")
+        groupByProvider = defaults.object(forKey: "groupByProvider") as? Bool ?? true
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
         gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all
     }

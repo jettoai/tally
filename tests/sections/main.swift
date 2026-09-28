@@ -113,6 +113,27 @@ let viaChevrons = PanelSections.toggling("claude", in: PanelSections.toggling("c
 check("folding both from either entry point, in either order, is the same state",
       viaHeadings == viaChevrons && viaHeadings == pooled)
 
+// 4. Sections are the default: an install that never chose sees its providers apart, and a stored
+// choice still wins. Source-string checks on the settings line itself, the same shape other
+// suites use for app-target code this harness cannot compile.
+func sourceLines(_ path: String) -> [String] {
+    ((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
+        .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+}
+let settingsLines = sourceLines("Tally/Stores/SettingsStore.swift")
+check("an unset groupByProvider reads as grouped",
+      settingsLines.contains(
+          "groupByProvider = defaults.object(forKey: \"groupByProvider\") as? Bool ?? true"))
+check("groupByProvider is no longer read as a bare bool (unset = false)",
+      !settingsLines.contains { $0.hasPrefix("groupByProvider = defaults.bool(forKey: \"groupByProvider\")") })
+
+// 5. The advice strip pairs its two providers on the one-column LIST panel too, not only from the
+// card grid's two-column width up (that stacked both lines down the left half of the list panel).
+let advisorLines = sourceLines("Tally/Views/AdvisorStripView.swift")
+let pairLine = advisorLines.first { $0.hasPrefix("if readings.count == 2, popoverWidth >=") } ?? ""
+check("the advice pair gates on the list panel width",
+      pairLine.contains("advisorPairPanelWidth") && !pairLine.contains("twoColumnPanelWidth"))
+
 print(failures == 0 ? "\nAll panel section assertions passed."
                     : "\n\(failures) assertion(s) failed.")
 exit(failures == 0 ? 0 : 1)

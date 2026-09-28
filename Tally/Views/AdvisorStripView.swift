@@ -16,6 +16,13 @@ extension PopoverRootView {
     /// a no-data glyph, not prose (Tally/CLAUDE.md), spelled the same way the menu bar spells it.
     private static let noFigure = "—"
 
+    /// The narrowest panel the two providers' advice stands side by side on: the one-column list,
+    /// 504pt, where each half is 234pt. Not the card grid's two-column width (560) the fleet strip
+    /// gates on: that one left the list panel's two advice lines stacked down its left half with the
+    /// right half empty (reported 2026-09-28). The one-column CARD panel (380) stays stacked.
+    static let advisorPairPanelWidth: CGFloat =
+        PanelGeometry.listPanelWidth(columns: 1, rowWidth: AccountListRowView.minComfortableWidth)
+
     @ViewBuilder
     var advisorStrip: some View {
         let readings = visibleAdvisorReadings
@@ -24,7 +31,7 @@ extension PopoverRootView {
                 // Two providers stand side by side on a wide enough panel, under the fleet gauges
                 // that already split the same way: stacking two short rows down the left half left
                 // the right half empty and the advisor reading as a separate, lesser strip.
-                if readings.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
+                if readings.count == 2, popoverWidth >= Self.advisorPairPanelWidth {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(readings, id: \.provider) { reading in
                             advisorRow(reading)

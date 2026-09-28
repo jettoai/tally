@@ -96,18 +96,24 @@ struct FleetSummary: Hashable {
         return headline
     }
 
-    /// The pools the strip renders, in display order: the focused/primary pool leads, other model
-    /// pools follow, the account-wide weekly closes - both runways visible at once (the primary
-    /// budget a rationing user spends first AND the total the fallback keeps burning after it).
-    /// Session-only fleets keep their session pool so the strip never goes empty.
+    /// The pools the strip renders, in display order: the focused model's pool leads, the
+    /// account-wide weekly closes - both runways visible at once (the primary budget a rationing
+    /// user spends first AND the total the fallback keeps burning after it). A model pool is drawn
+    /// only when it IS the focus: a launch model that no reported window carries (opus while the
+    /// only model window is Fable) burns the account-wide weekly, so the Fable pool would be a
+    /// budget nobody is spending leading the strip (reported 2026-09-28). An undeclared launch model
+    /// focuses the flagship (`FleetFocus`), so its pool still shows. Session-only fleets keep their
+    /// session pool, and a fleet whose only weekly-cycle pools are model pools keeps them, so the
+    /// strip never goes empty.
     func displayPools(focusedModel: String?) -> [FleetPool] {
         let weeklyCycle = pools.filter { $0.kind != .session }
         guard !weeklyCycle.isEmpty else { return headline.map { [$0] } ?? [] }
-        func rank(_ pool: FleetPool) -> Int {
-            if pool.kind == .weeklyModel, (pool.modelName ?? pool.label) == focusedModel { return 0 }
-            return pool.kind == .weeklyModel ? 1 : 2
+        func isFocus(_ pool: FleetPool) -> Bool {
+            pool.kind == .weeklyModel && (pool.modelName ?? pool.label) == focusedModel
         }
-        return weeklyCycle.sorted { rank($0) < rank($1) }
+        let shown = weeklyCycle.filter { $0.kind != .weeklyModel || isFocus($0) }
+        guard !shown.isEmpty else { return weeklyCycle }
+        return shown.sorted { (isFocus($0) ? 0 : 1) < (isFocus($1) ? 0 : 1) }
     }
 }
 

@@ -52,6 +52,10 @@ struct PopoverRootView: View {
     static let reorderSpace = "tallyCardReorder"
     @State var cardFrames: [String: CGRect] = [:]
     @State var cardLift: CardLift?
+    /// Each list row's identity group width as it last measured itself, by account id. A block's
+    /// shared identity column is the widest of its own rows' entries (`rowStack`); an entry for an
+    /// account no longer listed is never read.
+    @State var listIdentityWidths: [String: CGFloat] = [:]
     /// True while the reorder drag is tracking. @GestureState resets automatically on BOTH end and
     /// cancellation - the only hook SwiftUI guarantees for a cancelled gesture (onEnded is skipped) -
     /// so cardLift cleanup keys off its reset instead of trusting onEnded alone.

@@ -57,6 +57,8 @@ enum CaptureLaunch {
         // quarter-second change should have is a question nobody can answer from a diff
         // (`MotionDemoWindow`).
         "TallyMotionDemo",
+        // Settings held open while every pane switch is timed, then quits (SettingsTabBench).
+        "TallySettingsTabBench",
         loginItemPreview,
         // Artefacts written to disk rather than shown.
         "TallyStripSnapshot",   // the menu bar strip as a standalone PNG

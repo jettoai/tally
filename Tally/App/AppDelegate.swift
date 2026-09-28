@@ -71,7 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A capture launch stands in for the restore on the same terms, and is asked second because
         // the preview is the more specific instruction: it names a row, this one names at most a
         // pane.
-        if !openSettingsForLoginItemPreview(), !openSettingsForCapture() {
+        if !openSettingsForLoginItemPreview(), !openSettingsForCapture(),
+           !SettingsTabBench.startIfRequested() {
             SettingsWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         }
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's

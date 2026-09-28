@@ -434,12 +434,12 @@ func runLaunchAtLoginChecks() {
         "TallyPanelCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
         "TallyEmptyStatePreview",
         "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
-        "TallyMotionDemo",
+        "TallyMotionDemo", "TallySettingsTabBench",
         "TallyStripSnapshot", "TallyWindowSnapshot",
         "TallyDryNotifyTest", "TallyResetHintTest", "TallyResetHintExpiryTest", "TallyLoginExpiryTest",
         "TallyHostHealthTest", "TallyCPUAlertTest", "TallySentryTestEvent",
     ]
-    check("the family is exactly these twenty-three flags",
+    check("the family is exactly these twenty-four flags",
           Set(CaptureLaunch.backgroundKeys) == expectedFamily)
     check("and it carries no duplicates",
           CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -478,6 +478,7 @@ func runLaunchAtLoginChecks() {
     // a deliberate act, which is the point: the alternative is a silent absence.
     let notLaunchFlags: Set<String> = [
         "TallyPanelDragEnded",    // a Notification.Name (PinnedPanelController)
+        "TallySettingsTabBenchSelect",  // a Notification.Name (SettingsTabBench)
         "TallyPinnedUsagePanel",  // a window frame autosave name
         // A stored preference, not a launch argument: the Settings switch for "check for updates"
         // (UpdaterController). It lives in Tally's own defaults because Sparkle's copy of the same
@@ -492,8 +493,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to thirty-four, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 34 && scanned.count == 34)
+    check("which comes to thirty-five, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 35 && scanned.count == 35)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",

@@ -305,14 +305,14 @@ func checkPanelSummon() {
     check("…through the one function that writes this window's height, not a second frame write",
           settingsSource.components(separatedBy: "writer.setFrame(frame, display: true)").count == 2
               && settingsSource.contains(
-                  "private func fitHeight(on screen: NSScreen?, animate: Bool = false)"))
+                  "private func fitHeight(on screen: NSScreen?, animate: Bool = false,"))
     check("…and the cap itself is the shared arithmetic rather than numbers inline here",
           settingsSource.contains("ResizeAnchor.fittedWindowHeight(reported: reportedHeight,")
               && !settingsSource.contains("- 40") && !settingsSource.contains("max(200,"))
     // Same-screen summons must not resize either, and the guard that decides that is a comparison
     // against the height the window already has: without it, every summon writes a frame.
     check("…with no write at all when the fitted height is the height it already is",
-          settingsSource.contains("guard abs(target - window.frame.height) > 1 else { return }"))
+          settingsSource.contains("guard abs(target - window.frame.height) > 1 else { completion?(); return }"))
 
     // 9bb. AND THE HEIGHT IT FITS IS THE PANE IN FRONT, not the tallest of the five. All five used
     //      to lay out together so a tab switch never resized the window, which stood every pane in
@@ -346,7 +346,7 @@ func checkPanelSummon() {
     // The floor under a short pane is the sidebar, MEASURED. A constant here is only ever wrong on
     // the shortest pane, which is exactly where nobody looks - and it goes stale on a new section.
     check("…with the sidebar measured as the floor rather than allowed for with a number",
-          settingsView.contains("onContentHeight(max(paneHeight, sidebarHeight))")
+          settingsView.contains("max((paneHeights[item] ?? 0) + 2 * Self.paneInset, sidebarHeight)")
               && !settingsView.contains("max(height, 250)"))
     // And the sidebar's measurement stops before the spacer that fills the window: measuring that
     // one would be measuring the window's height and reporting it back as the content's.
@@ -374,7 +374,7 @@ func checkPanelSummon() {
     // and counting it as never having happened animates the next one from a height nobody saw.
     check("…which is recorded before the guard that can return without writing a frame",
           precedes("hasFitted = true",
-                   "guard abs(target - window.frame.height) > 1 else { return }",
+                   "guard abs(target - window.frame.height) > 1 else { completion?(); return }",
                    in: settingsSource))
     check("…and the resize holds the top edge, so the sidebar row under the cursor does not move",
           settingsSource.contains("frame.origin.y = top - target"))
@@ -417,4 +417,37 @@ func checkPanelSummon() {
               source.contains("var isWindowOpen: Bool { isWindowVisible || window?.isMiniaturized == true }")
                   && source.contains(write))
     }
+}
+
+// A PANE SWITCH NEVER PUTS A PANE IN A WINDOW THE WRONG SIZE FOR IT (Albert, 2026-09-28: the window
+// "unrolled" under a pane that was already there and cut off). Growing, the window arrives first and
+// the pane after it; shrinking, the pane goes in first, since the taller window already fits it.
+func checkPaneSwitchOrder() {
+    check("a switch to a taller pane grows the window before the pane goes in",
+          !ResizeAnchor.paneSwitchSwapsContentFirst(current: 400, target: 600))
+    check("…and a switch to a shorter one puts the pane in first",
+          ResizeAnchor.paneSwitchSwapsContentFirst(current: 600, target: 400))
+    check("…as does one to a pane the same height, rounding included",
+          ResizeAnchor.paneSwitchSwapsContentFirst(current: 400, target: 400)
+              && ResizeAnchor.paneSwitchSwapsContentFirst(current: 400, target: 400.4))
+    // Two panes both over the display's cap land on one window height, so the "grow" there writes
+    // no frame (fitHeight's no-op guard) and the pane goes in on the same turn.
+    check("…and two panes both past the display's cap are one window height, so there is nothing to grow",
+          near(ResizeAnchor.fittedWindowHeight(reported: 1200, chrome: 28, visibleHeight: 900),
+               ResizeAnchor.fittedWindowHeight(reported: 1400, chrome: 28, visibleHeight: 900)))
+
+    // Every way a pane changes goes through the one function that keeps that order.
+    let view = code(of: "Tally/Views/SettingsView.swift")
+    let assignments = view.split(separator: "\n").filter {
+        $0.trimmingCharacters(in: .whitespaces).hasPrefix("section = ")
+    }
+    check("the pane in front is assigned in exactly two places, the two halves of select (\(assignments.count))",
+          assignments.count == 2)
+    check("…and the sidebar and the Launch pane's link both go through it",
+          view.contains("Button {\n                    select(item)\n                }")
+              && view.contains("select(.integrations)"))
+    let controller = code(of: "Tally/MenuBar/SettingsWindowController.swift")
+    check("…with the window's half run to its end before the pane goes in",
+          controller.contains("}, completionHandler: { MainActor.assumeIsolated { completion?() } })")
+              && controller.contains("fitHeight(on: self.window?.screen, animate: true, completion: commit)"))
 }

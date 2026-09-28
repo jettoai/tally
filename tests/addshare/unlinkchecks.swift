@@ -499,7 +499,7 @@ func runUnlinkChecks(root: URL) {
           sites.count == 2)
     let handOff = sites.count > 1 ? String(sites[1].prefix { $0 != "}" }) : ""
     check("…wired to the section selection this window already has, not to a notion of its own",
-          handOff.contains("section = .integrations"))
+          handOff.contains("select(.integrations)"))
     check("…and onto the page the sharing control is on, not whichever was open last",
           handOff.contains("integrationsGroup = .commandLine"))
 }

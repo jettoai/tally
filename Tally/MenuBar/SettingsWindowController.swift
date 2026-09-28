@@ -15,7 +15,7 @@ import SwiftUI
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
 
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
     /// THE HEIGHT THE VIEW LAST REPORTED, kept rather than applied and forgotten.
     ///
     /// The number is a CONTENT height and says nothing about a display; what it becomes depends on
@@ -99,7 +99,11 @@ final class SettingsWindowController {
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(
                 store: .shared, settings: .shared,
-                onContentHeight: { [weak self] height in self?.applyContentHeight(height) }))
+                onContentHeight: { [weak self] height in self?.applyContentHeight(height) },
+                onPaneSwitch: { [weak self] height, commit in
+                    guard let self else { return commit() }
+                    self.applyPaneSwitch(height, commit: commit)
+                }))
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = NSWindow(contentViewController: hosting)
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
@@ -192,6 +196,19 @@ final class SettingsWindowController {
         }
     }
 
+    /// A pane switch that has to GROW the window first (`ResizeAnchor.paneSwitchSwapsContentFirst`):
+    /// the window takes the new height, and `commit` puts the new pane in when it has arrived.
+    /// Deferred a runloop turn for the same reason as a report, and `commit` always runs, whether
+    /// the window moved, was already that height, or was capped by the display.
+    private func applyPaneSwitch(_ height: CGFloat, commit: @escaping @MainActor @Sendable () -> Void) {
+        guard height.isFinite, height > 1 else { return commit() }
+        reportedHeight = height
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return commit() }
+            self.fitHeight(on: self.window?.screen, animate: true, completion: commit)
+        }
+    }
+
     /// Apply the last reported height against `screen`, which is the ONE place this window's size is
     /// written and the only reason `reportedHeight` is kept.
     ///
@@ -208,8 +225,11 @@ final class SettingsWindowController {
     /// `animate`: whether this change is one the user is watching. Defaults to false so that the
     /// callers who are placing the window (below) cannot animate by omission - a summon animating
     /// its height while the window is also being moved to another display is two motions at once.
-    private func fitHeight(on screen: NSScreen?, animate: Bool = false) {
-        guard let window, reportedHeight > 1 else { return }
+    ///
+    /// `completion`: run once the height is in place, including when there was nothing to change.
+    private func fitHeight(on screen: NSScreen?, animate: Bool = false,
+                           completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard let window, reportedHeight > 1 else { completion?(); return }
         let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
         let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
         let target = ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
@@ -219,19 +239,19 @@ final class SettingsWindowController {
         // happened would animate the next one from a height nobody saw arrive.
         let animated = animate && hasFitted && window.isVisible
         hasFitted = true
-        guard abs(target - window.frame.height) > 1 else { return }
+        guard abs(target - window.frame.height) > 1 else { completion?(); return }
         var frame = window.frame
         let top = frame.maxY
         frame.size.height = target
         frame.origin.y = top - target   // keep the title bar where the user sees it
-        NSAnimationContext.runAnimationGroup { context in
+        NSAnimationContext.runAnimationGroup({ context in
             context.duration = animated ? Self.paneResizeDuration : 0
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             // ONE frame write either way: `animator()` is the same call through a proxy, so an
             // animated resize and an instant one cannot drift into two different frames.
             let writer: NSWindow = animated ? window.animator() : window
             writer.setFrame(frame, display: true)
-        }
+        }, completionHandler: { MainActor.assumeIsolated { completion?() } })   // AppKit calls it on main
     }
 }
 

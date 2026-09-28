@@ -14,11 +14,24 @@ struct SettingsView: View {
     @Bindable var settings: SettingsStore
     /// Reports the content's full natural height so the host window can fit itself exactly.
     var onContentHeight: (CGFloat) -> Void = { _ in }
+    /// Called on a pane switch that grows the window: the host resizes to `height`, then runs the
+    /// closure that puts the new pane in. The default commits at once (previews, no host).
+    var onPaneSwitch: (_ height: CGFloat, _ commit: @escaping @MainActor @Sendable () -> Void) -> Void =
+        { _, commit in commit() }
 
     /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER, reported as their maximum. The sidebar is
     /// measured, not guessed at: a constant would go stale on a new section, and go stale silently.
-    @State private var paneHeight: CGFloat = 0
     @State private var sidebarHeight: CGFloat = 0
+
+    /// Every pane's own natural height, measured while collapsed too, so a switch knows the height
+    /// it is going to BEFORE the pane is on screen.
+    @State private var paneHeights: [Section: CGFloat] = [:]
+    /// The pane the sidebar has been clicked to while the window is still growing for it.
+    @State private var pendingSection: Section?
+    /// Which click is the latest, so a click during a growing switch wins over the one before it.
+    @State private var switchToken = 0
+    /// The pane's inset inside the scroll view, counted into every reported height.
+    private static let paneInset: CGFloat = 16
 
     enum Section: String, CaseIterable {
         case accounts, launch, display, integrations, about
@@ -72,8 +85,7 @@ struct SettingsView: View {
             // content outgrows the screen cap applied by the controller.
             ScrollView {
                 pane
-                    .padding(16)
-                    .background(heightProbe { paneHeight = $0 })
+                    .padding(Self.paneInset)
             }
             .frame(width: 500)
         }
@@ -87,6 +99,18 @@ struct SettingsView: View {
         // that never does (owner's report, 2026-08-24). At the root and outside the ScrollView, per
         // `tallyTooltipLayer`: a host inside the scroll would clip the callout at the pane's edge.
         .tallyTooltipLayer()
+        // Dev-only pane switch measurement (SettingsTabBench); inert on every other launch.
+        .onReceive(NotificationCenter.default.publisher(for: SettingsTabBench.selectNotification)) {
+            if let item = ($0.object as? String).flatMap(Section.init(rawValue:)) { select(item) }
+        }
+        .onChange(of: benchShown, initial: true) { _, shown in
+            if SettingsTabBench.isActive { SettingsTabBench.shown = shown }
+        }
+    }
+
+    private var benchShown: SettingsTabBench.Shown {
+        SettingsTabBench.Shown(section: section.rawValue,
+                               height: (paneHeights[section] ?? 0) + 2 * Self.paneInset)
     }
 
     private var sidebar: some View {
@@ -102,7 +126,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Section.allCases, id: \.self) { item in
                 Button {
-                    section = item
+                    select(item)
                 } label: {
                     HStack(spacing: 7) {
                         Image(systemName: item.symbol)
@@ -116,9 +140,11 @@ struct SettingsView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(section == item ? Color.accentColor.opacity(0.18) : .clear)
+                            .fill((pendingSection ?? section) == item
+                                  ? Color.accentColor.opacity(0.18) : .clear)
                     )
-                    .foregroundStyle(section == item ? Color.accentColor : Color.primary)
+                    .foregroundStyle((pendingSection ?? section) == item
+                                     ? Color.accentColor : Color.primary)
                 }
                 .buttonStyle(.plain)
             }
@@ -130,7 +156,34 @@ struct SettingsView: View {
         GeometryReader { proxy in
             Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
                 take(height)
-                onContentHeight(max(paneHeight, sidebarHeight))
+                onContentHeight(reportedHeight(for: pendingSection ?? section))
+            }
+        }
+    }
+
+    /// The height the window has to cover for `item`: its pane plus inset, or the sidebar when taller.
+    private func reportedHeight(for item: Section) -> CGFloat {
+        max((paneHeights[item] ?? 0) + 2 * Self.paneInset, sidebarHeight)
+    }
+
+    /// THE ONE WAY A PANE CHANGES (sidebar click and the Launch pane's link to Integrations).
+    /// Order per `ResizeAnchor.paneSwitchSwapsContentFirst`: never a pane in a window the wrong size.
+    private func select(_ item: Section) {
+        let shown = pendingSection ?? section
+        guard item != shown else { return }
+        switchToken += 1
+        let token = switchToken
+        let target = reportedHeight(for: item)
+        if ResizeAnchor.paneSwitchSwapsContentFirst(current: reportedHeight(for: section), target: target) {
+            pendingSection = nil
+            section = item
+            onContentHeight(target)
+        } else {
+            pendingSection = item
+            onPaneSwitch(target) {
+                guard token == switchToken else { return }
+                pendingSection = nil
+                section = item
             }
         }
     }
@@ -147,10 +200,16 @@ struct SettingsView: View {
     /// a glance at another pane and a click back put the committed model on screen with nothing
     /// said (found by review of 5e9e03d). A waiting pane keeps its state and adds no height; the
     /// three lines above the frame keep it unseen, unhittable and unread.
+    ///
+    /// EACH PANE IS MEASURED WHILE COLLAPSED TOO (its natural height, before the frame folds it),
+    /// so a switch knows where it is going before the pane is shown: a taller pane waits for the
+    /// window to grow, a shorter one goes in first (`select`, `ResizeAnchor.paneSwitchSwapsContentFirst`).
     private var pane: some View {
         ZStack(alignment: .top) {
             ForEach(Section.allCases, id: \.self) { item in
                 paneContent(item)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(heightProbe { paneHeights[item] = $0 })
                     .opacity(section == item ? 1 : 0)
                     .allowsHitTesting(section == item)
                     .accessibilityHidden(section != item)
@@ -175,7 +234,7 @@ struct SettingsView: View {
         case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings,
                                                        visible: section == item,
                                                        showIntegrations: {
-                                                           section = .integrations
+                                                           select(.integrations)
                                                            integrationsGroup = .commandLine
                                                        }) }
         case .display: sectionCard { displayRows }

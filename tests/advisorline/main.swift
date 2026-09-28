@@ -14,8 +14,9 @@ func tier(_ plan: String?, _ demand: Double, _ owned: Int, dry: Bool) -> Tier {
     Tier(plan: plan, demandPerWeek: demand, accountCount: owned, runsDry: dry)
 }
 func decide(_ verdict: UsageAdvisor.Verdict, _ days: Double, _ tiers: [Tier],
-            split: Bool) -> AdvisorConclusion {
-    AdvisorConclusion.decide(verdict: verdict, daysOfData: days, tiers: tiers, split: split)
+            split: Bool, starved: Double = 0) -> AdvisorConclusion {
+    AdvisorConclusion.decide(verdict: verdict, daysOfData: days, tiers: tiers, split: split,
+                             starvedHoursPerWeek: starved)
 }
 
 // T1: the demo Codex fleet, sufficient on the pooled four weeks while the Team pool runs dry.
@@ -25,10 +26,13 @@ check("T1 demo Codex names the short plan",
 // T2: the demo Claude fleet, 5.8 account-weeks over 5 accounts.
 check("T2 demo Claude asks for one more",
       decide(.addAccount, 14, [tier(nil, 5.8, 5, dry: true)], split: false) == .add(count: 1, plan: nil))
-// T3: split and nothing dry, the tier most over its own capacity is named.
-check("T3 split add names the tightest tier",
+// T3: split and nothing dry, nothing starved: the tightest tier is near capacity, not short.
+check("T3 split near capacity names the tightest tier",
       decide(.addAccount, 14, [tier("Pro", 1.7, 3, dry: false), tier("Team", 0.9, 1, dry: false)],
-             split: true) == .add(count: 1, plan: "Team"))
+             split: true) == .nearCapacity(demandPerWeek: 0.9, owned: 1, plan: "Team"))
+check("T3b split, nothing dry but starved 3h/wk, adds the tightest tier",
+      decide(.addAccount, 14, [tier("Pro", 1.7, 3, dry: false), tier("Team", 0.9, 1, dry: false)],
+             split: true, starved: 3) == .add(count: 1, plan: "Team"))
 // T4: a dry tier wins over a tighter one that still lasts.
 check("T4 split add prefers the dry tier",
       decide(.addAccount, 14, [tier("Pro", 1.7, 3, dry: true), tier("Team", 0.9, 1, dry: false)],
@@ -85,7 +89,8 @@ typealias Demand = UsageAdvisor.TierDemand
 typealias Dry = AdvisorConclusion.DryPool
 func join(_ verdict: UsageAdvisor.Verdict, _ demands: [Demand], _ dry: [Dry]) -> AdvisorConclusion {
     AdvisorConclusion.join(verdict: verdict, daysOfData: 20, pooledDemandPerWeek: 3.0,
-                           tierDemands: demands, ownedAccounts: 4, dryPools: dry)
+                           tierDemands: demands, ownedAccounts: 4, dryPools: dry,
+                           starvedHoursPerWeek: 0)
 }
 let proTeam = [Demand(plan: "Pro", demandPerWeek: 2.4, accountCount: 3),
                Demand(plan: "Team", demandPerWeek: 0.6, accountCount: 1)]
@@ -204,6 +209,73 @@ for key in ["%@: %@ acct/wk", "%@ by window: %@ acct/wk", "Click the figures to 
     }
     check("T21 \(key) translated", complete)
 }
+// T22-T28: "add" must be backed by something visible this week (2026-09-28, TG 2810: "this pace
+// holds" sat above "add 1 account"). Replays the live readings from `tally status --json`.
+func joinLive(_ verdict: UsageAdvisor.Verdict, pooled: Double, _ demands: [Demand], owned: Int,
+              _ dry: [Dry], starved: Double) -> AdvisorConclusion {
+    AdvisorConclusion.join(verdict: verdict, daysOfData: 28, pooledDemandPerWeek: pooled,
+                           tierDemands: demands, ownedAccounts: owned, dryPools: dry,
+                           starvedHoursPerWeek: starved)
+}
+let claudeLive = [Demand(plan: "Max 20x", demandPerWeek: 4.7975, accountCount: 5)]
+check("T22 Claude 4.8 over 5, pool lasts, 0 starved: near capacity",
+      joinLive(.addAccount, pooled: 4.7975, claudeLive, owned: 5, [], starved: 0)
+        == .nearCapacity(demandPerWeek: 4.7975, owned: 5, plan: nil))
+let codexLive = [Demand(plan: "Pro", demandPerWeek: 1.9725, accountCount: 1),
+                 Demand(plan: "Team", demandPerWeek: 1.8375, accountCount: 1)]
+let proDry = Dry(byPlan: true, plan: "Pro", accountCount: 1)
+let teamDry = Dry(byPlan: true, plan: "Team", accountCount: 1)
+check("T23 Codex, both pools dry: still adds the tightest, Pro",
+      joinLive(.addAccount, pooled: 3.81, codexLive, owned: 2, [proDry, teamDry], starved: 0.009)
+        == .add(count: 1, plan: "Pro"))
+check("T23b Codex, only Team dry: adds Team",
+      joinLive(.addAccount, pooled: 3.81, codexLive, owned: 2, [teamDry], starved: 0.009)
+        == .add(count: 1, plan: "Team"))
+check("T24 starved 3h/wk with nothing dry still adds",
+      joinLive(.addAccount, pooled: 4.7975, claudeLive, owned: 5, [], starved: 3)
+        == .add(count: 1, plan: nil))
+check("T24b exactly 2h/wk starved is not past the trigger",
+      joinLive(.addAccount, pooled: 4.7975, claudeLive, owned: 5, [], starved: 2)
+        == .nearCapacity(demandPerWeek: 4.7975, owned: 5, plan: nil))
+check("T25 split, nothing dry: near capacity quotes the tightest tier's own figure",
+      joinLive(.addAccount, pooled: 3.81, codexLive, owned: 2, [], starved: 0)
+        == .nearCapacity(demandPerWeek: 1.9725, owned: 1, plan: "Pro"))
+check("T26 a verdict the weekly figure did not trip quotes no figure",
+      joinLive(.addAccount, pooled: 2.0, [Demand(plan: nil, demandPerWeek: 2.0, accountCount: 5)],
+               owned: 5, [], starved: 0) == .nearCapacity(demandPerWeek: nil, owned: 5, plan: nil))
+
+// T27: exhaustive, addAccount reads "add" exactly when a pool is dry or the fleet starved.
+func isAdd(_ c: AdvisorConclusion) -> Bool { if case .add = c { return true }; return false }
+var t27Cases = 0, t27Bad = 0
+for starved in [0.0, 2.0, 3.0] {
+    for a in [false, true] {
+        t27Cases += 1
+        if isAdd(decide(.addAccount, 28, [tier(nil, 4.8, 5, dry: a)], split: false, starved: starved))
+            != (a || starved > 2) { t27Bad += 1 }
+        for b in [false, true] {
+            t27Cases += 1
+            let pair = [tier("Pro", 1.97, 1, dry: a), tier("Team", 1.84, 1, dry: b)]
+            if isAdd(decide(.addAccount, 28, pair, split: true, starved: starved))
+                != (a || b || starved > 2) { t27Bad += 1 }
+        }
+    }
+}
+check("T27 add iff dry or starved (\(t27Cases) cases)", t27Bad == 0 && t27Cases == 18)
+
+// T28: the near-capacity strings exist in every shipped language, and the tint is one step under add.
+for key in ["near capacity", "near capacity: %@ accounts a week over 4 weeks, %@ owned",
+            "near capacity: %@ %@ accounts a week over 4 weeks, %@ owned"] {
+    let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
+    let complete = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
+        let value = ((locs[lang] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
+        return !(value ?? "").isEmpty
+    }
+    check("T28 \(key) translated", complete)
+}
+check("T28 near capacity is not drawn in the purchase amber",
+      advisor.contains("case .nearCapacity: return .primary"))
+check("T28 row passes starved hours to the join",
+      advisor.contains("starvedHoursPerWeek: reading.starvedHoursPerWeek"))
 let fleet = source("Tally/Views/FleetStripView.swift")
 var phraseBody = ""
 if let start = fleet.range(of: "private func forecastPhrase") {

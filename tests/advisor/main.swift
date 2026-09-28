@@ -223,6 +223,27 @@ if let r = reading(heavy) {
     check("add-account headline", UsageAdvisor.englishHeadline(r).contains("adding an account"))
 }
 
+// 10b. The CLI headline follows the panel's rule: an addAccount verdict that no dry pool and no
+// starved time backs reads "near capacity" (2026-09-28, TG 2810).
+let nearReading = UsageAdvisor.Reading(provider: "claude", verdict: .addAccount, demandPerWeek: 4.7975,
+                                       activeBurnPerHour: 4.8, starvedHoursPerWeek: 0,
+                                       daysOfData: 28, accountCount: 5)
+check("headline near capacity when no pool runs dry",
+      UsageAdvisor.englishHeadline(nearReading, poolsDry: false)
+        == "near capacity: 4.8 accounts a week over 4 weeks, 5 owned")
+check("headline still adds when a pool runs dry",
+      UsageAdvisor.englishHeadline(nearReading, poolsDry: true) == "consider adding an account")
+check("headline keeps the verdict's words with no gauge reading",
+      UsageAdvisor.englishHeadline(nearReading) == "consider adding an account")
+var starvedReading = nearReading
+starvedReading.starvedHoursPerWeek = 3
+check("headline still adds when the fleet sat starved",
+      UsageAdvisor.englishHeadline(starvedReading, poolsDry: false) == "consider adding an account")
+var untrippedReading = nearReading
+untrippedReading.demandPerWeek = 2.0
+check("headline quotes no figure the weekly demand alone does not reach",
+      UsageAdvisor.englishHeadline(untrippedReading, poolsDry: false) == "near capacity")
+
 // 11. Plan tiers: the same weekly demand split by the plan each account is on. Three accounts,
 //     two plans - p1 burns 100% over two weeks (0.5 account-weeks), t1 and t2 burn 50% each
 //     (0.25 + 0.25 = 0.5). The pooled figure stays 1.0 either way.

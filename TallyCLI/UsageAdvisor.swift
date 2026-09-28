@@ -289,15 +289,26 @@ enum UsageAdvisor {
     }
 
     /// English one-liner for the CLI and the --json `headline` field. The panel builds its own
-    /// localized version from `verdict`.
-    static func englishHeadline(_ r: Reading) -> String {
+    /// localized version from `AdvisorConclusion` and this follows that row's rule, so the two never
+    /// disagree: an `addAccount` verdict that no dry pool and no starved time backs is "near
+    /// capacity", not advice to buy (2026-09-28). `poolsDry` is the fleet gauge's reading from the
+    /// snapshot (true when any pool it draws has a dry date); nil when there is no gauge reading,
+    /// which keeps the verdict's own words. The `verdict` field itself never changes meaning.
+    static func englishHeadline(_ r: Reading, poolsDry: Bool? = nil) -> String {
         switch r.verdict {
         case .collecting:
             // Floor, never round: at 6.6 days the reading is still collecting, so "7 of 7 days"
             // would read as a contradiction.
             return "collecting data (\(Int(r.daysOfData)) of \(Int(minimumDays)) days)"
         case .addAccount:
-            return "consider adding an account"
+            guard poolsDry == false, r.starvedHoursPerWeek <= starvedTriggerHours else {
+                return "consider adding an account"
+            }
+            let owned = max(1, r.accountCount)
+            // Same rule as the panel: quote the four-week figure only when it is what tripped.
+            guard r.demandPerWeek / Double(owned) >= demandTriggerRatio else { return "near capacity" }
+            return String(format: "near capacity: %.1f accounts a week over 4 weeks, %d owned",
+                          r.demandPerWeek, owned)
         case .sufficient:
             return "current accounts are sufficient"
         }

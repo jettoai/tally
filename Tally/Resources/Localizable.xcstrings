@@ -16140,6 +16140,93 @@
           }
         }
       }
+    },
+    "near capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接近上限"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接近上限"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限に近い"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한도에 근접"
+          }
+        }
+      }
+    },
+    "near capacity: %@ accounts a week over 4 weeks, %@ owned": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接近上限：近 4 週平均每週用掉 %1$@ 個帳號，現有 %2$@ 個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接近上限：近 4 周平均每周用掉 %1$@ 个账号，现有 %2$@ 个"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限に近い：直近 4 週は週 %1$@ アカウント分を消費、保有 %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한도에 근접: 최근 4주 주당 %1$@ 계정분 사용, 보유 %2$@개"
+          }
+        }
+      }
+    },
+    "near capacity: %@ %@ accounts a week over 4 weeks, %@ owned": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接近上限：%1$@ 近 4 週平均每週用掉 %2$@ 個帳號，現有 %3$@ 個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接近上限：%1$@ 近 4 周平均每周用掉 %2$@ 个账号，现有 %3$@ 个"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限に近い：%1$@ は直近 4 週で週 %2$@ アカウント分を消費、保有 %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한도에 근접: %1$@ 최근 4주 주당 %2$@ 계정분 사용, 보유 %3$@개"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

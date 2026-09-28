@@ -88,6 +88,10 @@ extension PopoverRootView {
                 // how many of which plan to add.
                 Text(sentence)
                     .foregroundStyle(conclusionTint(conclusion))
+                    // Two lines, not one: "near capacity" carries its four-week figure, which
+                    // overruns a 234pt half-column in every locale.
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             // One window's acct/wk figure on the panel itself, split by plan like the pool rows
@@ -109,7 +113,8 @@ extension PopoverRootView {
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())
-        .tallyTooltip(advisorTooltip(reading, sentence: sentence, dryPools: dryPools, now: now))
+        .tallyTooltip(advisorTooltip(reading, sentence: sentence, conclusion: conclusion,
+                                     dryPools: dryPools, now: now))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence), \(line)")
     }
@@ -144,7 +149,8 @@ extension PopoverRootView {
             dryPools: dryPools.map { entry in
                 .init(byPlan: entry.summary.planTier != nil, plan: entry.summary.planTier?.name,
                       accountCount: entry.summary.accountCount)
-            })
+            },
+            starvedHoursPerWeek: reading.starvedHoursPerWeek)
     }
 
     /// The conclusion in words: the row's text, the hover's first line, and VoiceOver's label.
@@ -167,6 +173,16 @@ extension PopoverRootView {
             case (let plan?, _):
                 return String(localized: "add \(number) \(plan) accounts", bundle: AppLocale.bundle)
             }
+        case .nearCapacity(let demand, let owned, let plan):
+            guard let demand else { return L("near capacity") }
+            let figure = String(format: "%.1f", demand)
+            let count = "\(owned)"
+            guard let plan else {
+                return String(localized: "near capacity: \(figure) accounts a week over 4 weeks, \(count) owned",
+                              bundle: AppLocale.bundle)
+            }
+            return String(localized: "near capacity: \(plan) \(figure) accounts a week over 4 weeks, \(count) owned",
+                          bundle: AppLocale.bundle)
         case .shortAtPace(let plans):
             guard !plans.isEmpty else { return L("not enough at this pace") }
             let names = plans.map { $0 ?? L("Unknown plan") }.joined(separator: " · ")
@@ -177,6 +193,10 @@ extension PopoverRootView {
     private func conclusionTint(_ conclusion: AdvisorConclusion) -> Color {
         switch conclusion {
         case .enough, .collecting: return .secondary
+        // One step under "add": the calm level of the three-step ramp, drawn the way
+        // FootprintSparklineView's `.calm` is (no tint, the primary label colour), so it stands out
+        // from the grey "enough" without borrowing the amber that asks for a purchase.
+        case .nearCapacity: return .primary
         case .add, .shortAtPace: return TallyColor.warning
         }
     }
@@ -274,6 +294,7 @@ extension PopoverRootView {
     /// is really "can I wait for the refill". Same wording as the gauge's refill label and the
     /// same +gain the fleet tooltip lists, so one schedule never reads two ways.
     private func advisorTooltip(_ reading: UsageAdvisor.Reading, sentence: String,
+                                conclusion: AdvisorConclusion,
                                 dryPools: [DryPool], now: Date) -> String {
         let demand = String(format: "%.1f", reading.demandPerWeek)
         let burn = "\(Int(reading.activeBurnPerHour.rounded()))%"
@@ -287,8 +308,12 @@ extension PopoverRootView {
             let body = UsageFormat.durationBody(entry.dry.timeIntervalSince(now))
             lines.append(name + " · " + String(localized: "lasts about \(body)", bundle: AppLocale.bundle))
         }
-        let verdict = verdictSentence(reading)
-        lines.append(String(localized: "4-week average: \(verdict)", bundle: AppLocale.bundle))
+        // Near capacity IS the four-week reading, already on the first line with its figure;
+        // "4-week average: add 1 account" under it would bring the contradiction back.
+        if case .nearCapacity = conclusion {} else {
+            let verdict = verdictSentence(reading)
+            lines.append(String(localized: "4-week average: \(verdict)", bundle: AppLocale.bundle))
+        }
         // Each tier's four-week figure spelled out in full, with the reason they are not added
         // up. The pooled line below stays: it is still the honest total percent-points, and
         // dropping it would make the tooltip disagree with `demandPerWeek` everywhere else this

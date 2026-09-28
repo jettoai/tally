@@ -274,6 +274,16 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
     return (headroomPick(), nil)
 }
 
+/// Whether the fleet gauge forecasts any of this provider's pools running dry, read off the pools
+/// the app published (`fleetPools`, else the single headline pool; the same fallback the human
+/// report's fleet line uses). Nil when the snapshot carries none (the gauge is switched off, or an
+/// older app): the advisor headline then keeps the verdict's own words.
+func advisorPoolsDry(_ snapshot: Snapshot, provider: String) -> Bool? {
+    let pools = (snapshot.fleetPools?[provider] ?? snapshot.fleet?[provider].map { [$0] } ?? [])
+        .filter { $0.capacity > 0 }
+    return pools.isEmpty ? nil : pools.contains { $0.dryAt != nil }
+}
+
 /// `quarantined` is the live cap quarantine per provider (Quarantine.swift). It is a parameter
 /// rather than a file read so the report stays a pure function, but callers must pass it: `best`
 /// promises "would launch", and a report that named an account the launcher is currently skipping
@@ -294,7 +304,7 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
         (reading.provider, StatusReport.Advisor(
-            headline: UsageAdvisor.englishHeadline(reading),
+            headline: UsageAdvisor.englishHeadline(reading, poolsDry: advisorPoolsDry(snapshot, provider: reading.provider)),
             verdict: reading.verdict.rawValue,
             demandPerWeek: reading.demandPerWeek,
             tierDemands: reading.tierDemands.map {

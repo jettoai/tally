@@ -378,7 +378,7 @@ func runStatus(json: Bool = false) {
     // The "should I add an account?" verdict per provider, from the recorded burn history. One
     // trailing line each (only when there is a reading), same vocabulary as the panel's strip.
     for reading in advisor {
-        print("advisor: \(reading.provider) \(UsageAdvisor.englishHeadline(reading))")
+        print("advisor: \(reading.provider) \(UsageAdvisor.englishHeadline(reading, poolsDry: advisorPoolsDry(snapshot, provider: reading.provider)))")
     }
     // AND WHETHER THE MACHINE UNDER ALL OF IT IS STILL STANDING UP, which no other line here can
     // say: every figure above is about a subscription, and the 2026-09-05 incident was a laptop

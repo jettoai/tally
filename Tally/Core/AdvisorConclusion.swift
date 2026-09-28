@@ -11,6 +11,8 @@ import Foundation
 /// states a conclusion, and one rule keeps it honest against the gauge above it: while any plan's
 /// pool is forecast to run dry, this never says "enough". The dry signal is the gauge's own
 /// predicate (`FleetForecast.depletion` returning a date), passed in, never recomputed here.
+/// The other direction holds too: "add" needs a dry pool or starved hours behind it; the four-week
+/// ratio alone reads "near capacity".
 enum AdvisorConclusion: Equatable {
     /// History is shorter than the verdict's gate; advice arrives in this many whole days.
     case collecting(daysLeft: Int)
@@ -19,6 +21,13 @@ enum AdvisorConclusion: Equatable {
     /// The four-week verdict asks for more accounts. `plan` names the tier to buy when the
     /// provider is split across plans, nil when its accounts are interchangeable.
     case add(count: Int, plan: String?)
+    /// The four-week verdict asks for more, yet nothing backs it this week: no pool runs dry at the
+    /// current pace and the fleet was not starved. Close to what the accounts hold, nothing short
+    /// yet, so the row does not ask for a purchase (2026-09-28: "this pace holds" sat above "add 1
+    /// account"). `demandPerWeek` is the four-week figure behind it (the named tier's when `plan`
+    /// is set), nil when that figure alone is under the trigger: a flagship pool or a reserve
+    /// tripped the verdict, and quoting a figure that looks comfortable would contradict the word.
+    case nearCapacity(demandPerWeek: Double?, owned: Int, plan: String?)
     /// At least one pool runs dry at this week's pace. `plans` names the tiers that do when only
     /// some of a split provider's tiers are short; empty means the whole provider.
     /// A nil entry is a tier whose plan this machine cannot name.
@@ -43,15 +52,23 @@ enum AdvisorConclusion: Equatable {
     }
 
     /// `split` is true when the tiers carry two or more named plans; the row then names the plan.
+    /// `starvedHoursPerWeek` is the reading's own, the second thing that can back "add".
     static func decide(verdict: UsageAdvisor.Verdict, daysOfData: Double, tiers: [Tier],
-                       split: Bool) -> AdvisorConclusion {
+                       split: Bool, starvedHoursPerWeek: Double) -> AdvisorConclusion {
         let dry = tiers.filter(\.runsDry)
         if verdict == .addAccount {
+            // "Add" has to be backed by something the reader can see this week: a pool the gauge
+            // shows running dry, or hours the whole fleet sat at zero. The four-week ratio alone
+            // is "near capacity". Same strict comparison the verdict itself uses.
+            let backed = !dry.isEmpty || starvedHoursPerWeek > UsageAdvisor.starvedTriggerHours
             // The advisor always reports at least one tier; an empty list still gets the
             // verdict's own advice rather than a crash.
             guard split, !tiers.isEmpty else {
                 let demand = tiers.reduce(0) { $0 + $1.demandPerWeek }
                 let owned = tiers.reduce(0) { $0 + $1.accountCount }
+                guard backed || tiers.isEmpty else {
+                    return nearCapacityReading(demand, owned: owned, plan: nil)
+                }
                 return .add(count: shortfall(demandPerWeek: demand, owned: owned), plan: nil)
             }
             // Prefer a tier the gauge already shows running dry, so the row names the plan the
@@ -60,6 +77,9 @@ enum AdvisorConclusion: Equatable {
             let candidates = dry.isEmpty ? tiers : dry
             var pick = candidates[0]
             for tier in candidates.dropFirst() where ratio(tier) > ratio(pick) { pick = tier }
+            guard backed else {
+                return nearCapacityReading(pick.demandPerWeek, owned: pick.accountCount, plan: pick.plan)
+            }
             return .add(count: shortfall(demandPerWeek: pick.demandPerWeek, owned: pick.accountCount),
                         plan: pick.plan)
         }
@@ -74,6 +94,13 @@ enum AdvisorConclusion: Equatable {
             return .collecting(daysLeft: max(1, left))
         }
         return .enough
+    }
+
+    /// "Near capacity", quoting the four-week figure only when that figure is itself past the trigger.
+    private static func nearCapacityReading(_ demand: Double, owned: Int, plan: String?) -> AdvisorConclusion {
+        let accounts = max(1, owned)
+        let reached = demand / Double(accounts) >= UsageAdvisor.demandTriggerRatio
+        return .nearCapacity(demandPerWeek: reached ? demand : nil, owned: accounts, plan: plan)
     }
 
     /// A pool the fleet gauge forecasts running dry, reduced to what the join needs.
@@ -102,7 +129,7 @@ enum AdvisorConclusion: Equatable {
     /// demand, so a short pool is never dropped for lack of a matching tier.
     static func join(verdict: UsageAdvisor.Verdict, daysOfData: Double, pooledDemandPerWeek: Double,
                      tierDemands: [UsageAdvisor.TierDemand], ownedAccounts: Int,
-                     dryPools: [DryPool]) -> AdvisorConclusion {
+                     dryPools: [DryPool], starvedHoursPerWeek: Double) -> AdvisorConclusion {
         let planPools = dryPools.filter(\.byPlan)
         let wholeProviderDry = planPools.count < dryPools.count
         let dryKeys = Set(planPools.map { planKey($0.plan) })
@@ -122,7 +149,8 @@ enum AdvisorConclusion: Equatable {
         }
         let split = Set(tiers.compactMap(\.plan)).count >= 2
             || Set(planPools.compactMap(\.plan)).count >= 2
-        return decide(verdict: verdict, daysOfData: daysOfData, tiers: tiers, split: split)
+        return decide(verdict: verdict, daysOfData: daysOfData, tiers: tiers, split: split,
+                      starvedHoursPerWeek: starvedHoursPerWeek)
     }
 
     /// A plan's join key: case-insensitive, "?" for an unnamed plan (`FleetSummary.Tier.key`'s rule).

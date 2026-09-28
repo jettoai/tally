@@ -396,19 +396,30 @@ final class LaunchPolicyStore {
     /// launcher itself never uses this cache - it reads the records fresh on every launch.
     private static let quarantineCacheTTL: TimeInterval = 5
 
-    /// Kept out of the observation graph on purpose: a body that mutated observed state would
-    /// invalidate the view it is drawing.
-    @ObservationIgnored
-    private var quarantineCache: (model: String?, readAt: Date, accounts: Set<String>)?
+    /// The last read per primary model, so providers on different models never evict each other.
+    /// Observed so the badge redraws when a background read lands; written only when it changes.
+    private var quarantineByModel: [String?: Set<String>] = [:]
+    /// Touched from a body, so kept out of the observation graph.
+    @ObservationIgnored private var quarantineReadAt: [String?: Date] = [:]
+    @ObservationIgnored private var quarantineReading: Set<String?> = []
 
+    /// Memory only here: a stale entry starts one background read (the directory scan froze the
+    /// menu bar, Sentry TALLY-1Y) and the last read answers meanwhile, empty before the first.
     private func quarantinedNow(primaryModel: String?, now: Date) -> Set<String> {
-        if let cache = quarantineCache, cache.model == primaryModel,
-           now.timeIntervalSince(cache.readAt) < Self.quarantineCacheTTL, cache.readAt <= now {
-            return cache.accounts
+        let fresh = quarantineReadAt[primaryModel].map {
+            now.timeIntervalSince($0) < Self.quarantineCacheTTL && $0 <= now } ?? false
+        if !fresh, quarantineReading.insert(primaryModel).inserted {
+            Task { [weak self] in
+                let live = await Task.detached {
+                    quarantinedAccounts(forPrimary: primaryModel, now: now) }.value
+                guard let self else { return }
+                self.quarantineReading.remove(primaryModel)
+                self.quarantineReadAt[primaryModel] = now
+                if self.quarantineByModel[primaryModel] != live {
+                    self.quarantineByModel[primaryModel] = live }
+            }
         }
-        let live = quarantinedAccounts(forPrimary: primaryModel, now: now)
-        quarantineCache = (primaryModel, now, live)
-        return live
+        return quarantineByModel[primaryModel] ?? []
     }
 
     /// The badge the panel shows. Two steps, exactly as the launcher picks (`launchPick` on the

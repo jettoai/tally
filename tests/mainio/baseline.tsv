@@ -82,7 +82,6 @@ Tally/Stores/LaunchPolicyStore.swift	LaunchPolicyStore.init	readData	1
 Tally/Stores/LaunchPolicyStore.swift	LaunchPolicyStore.persist	createDirectory	1
 Tally/Stores/LaunchPolicyStore.swift	LaunchPolicyStore.persist	write	1
 Tally/Stores/LimitResetStore.swift	LimitResetStore.cliPath	isExecutableFile	1
-Tally/Stores/LimitResetStore.swift	LimitResetStore.readFlags	readData	1
 Tally/Stores/OrphanReclaimStore.swift	Machine.-	processTree	4
 Tally/Stores/ProjectLoadAccounting.swift	ProjectLoadAccounting.-	processTree	2
 Tally/Stores/RenewLoginStore.swift	RenewLoginStore.credentialStamp	attributesOfItem	1

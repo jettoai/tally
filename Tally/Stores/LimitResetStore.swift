@@ -74,21 +74,37 @@ final class LimitResetStore {
             if let record = readLimitReset(accountID: account.id) { found[account.id] = record }
         }
         records = found
-        (flagsOff, pathOpen) = Self.readFlags()
+        // OFF THE MAIN THREAD: each `.claude.json` is 100-250 KB, and reading and parsing them all
+        // here froze the menu bar on a loaded machine (Sentry TALLY-1T). The newest request wins,
+        // so a slow read that lands after a newer one is dropped rather than overwriting it.
+        let homes = UsageStore.shared.discoveredAccounts.compactMap { account in
+            account.providerID == "claude" ? account.launchHome.map { (account.id, $0) } : nil
+        }
+        flagsGeneration += 1
+        let generation = flagsGeneration
+        Task { [weak self] in
+            let flags = await Task.detached { Self.readFlags(homes: homes) }.value
+            guard let self, self.flagsGeneration == generation else { return }
+            if self.flagsOff != flags.off { self.flagsOff = flags.off }
+            if self.pathOpen != flags.pathOpen { self.pathOpen = flags.pathOpen }
+        }
     }
+
+    @ObservationIgnored private var flagsGeneration = 0
 
     /// Each Claude account's two reset flags, from the `.claude.json` Claude Code keeps beside its
     /// config (`claudeStateFile`). Local, zero-credential, and only those two keys are read; the
-    /// file also holds personal fields, which are parsed past and never kept.
-    private static func readFlags() -> (off: [String: Bool], pathOpen: [String: Bool]) {
+    /// file also holds personal fields, which are parsed past and never kept. One parse per file.
+    nonisolated private static func readFlags(homes: [(String, String)])
+        -> (off: [String: Bool], pathOpen: [String: Bool]) {
         var off: [String: Bool] = [:]
         var open: [String: Bool] = [:]
-        for account in UsageStore.shared.discoveredAccounts where account.providerID == "claude" {
-            guard let home = account.launchHome,
-                  let raw = try? Data(contentsOf: claudeStateFile(forConfigDir:
+        for (id, home) in homes {
+            guard let raw = try? Data(contentsOf: claudeStateFile(forConfigDir:
                                                         URL(fileURLWithPath: home))) else { continue }
-            open[account.id] = claudeLimitResetPressPathOpen(inState: raw)
-            if let flagsOff = claudeLimitResetFlagsOff(inState: raw) { off[account.id] = flagsOff }
+            let features = claudeCachedFeatures(inState: raw)
+            open[id] = claudeLimitResetPressPathOpen(features: features)
+            if let flagsOff = claudeLimitResetFlagsOff(features: features) { off[id] = flagsOff }
         }
         return (off, open)
     }

@@ -274,14 +274,16 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
     return (headroomPick(), nil)
 }
 
-/// Whether the fleet gauge forecasts any of this provider's pools running dry, read off the pools
-/// the app published (`fleetPools`, else the single headline pool; the same fallback the human
-/// report's fleet line uses). Nil when the snapshot carries none (the gauge is switched off, or an
-/// older app): the advisor headline then keeps the verdict's own words.
-func advisorPoolsDry(_ snapshot: Snapshot, provider: String) -> Bool? {
+/// The advisor's English headline, told whether the fleet gauge forecasts any of this provider's
+/// pools running dry, read off the pools the app published (`fleetPools`, else the single headline
+/// pool; the same fallback the human report's fleet line uses). With none in the snapshot (the gauge
+/// is switched off, or an older app) the headline keeps the verdict's own words.
+func advisorHeadline(_ reading: UsageAdvisor.Reading, in snapshot: Snapshot) -> String {
+    let provider = reading.provider
     let pools = (snapshot.fleetPools?[provider] ?? snapshot.fleet?[provider].map { [$0] } ?? [])
         .filter { $0.capacity > 0 }
-    return pools.isEmpty ? nil : pools.contains { $0.dryAt != nil }
+    let poolsDry = pools.isEmpty ? nil : pools.contains { $0.dryAt != nil }
+    return UsageAdvisor.englishHeadline(reading, poolsDry: poolsDry)
 }
 
 /// `quarantined` is the live cap quarantine per provider (Quarantine.swift). It is a parameter
@@ -304,7 +306,7 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
         (reading.provider, StatusReport.Advisor(
-            headline: UsageAdvisor.englishHeadline(reading, poolsDry: advisorPoolsDry(snapshot, provider: reading.provider)),
+            headline: advisorHeadline(reading, in: snapshot),
             verdict: reading.verdict.rawValue,
             demandPerWeek: reading.demandPerWeek,
             tierDemands: reading.tierDemands.map {

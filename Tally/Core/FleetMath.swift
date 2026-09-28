@@ -113,7 +113,7 @@ struct FleetSummary: Hashable {
         }
         let shown = weeklyCycle.filter { $0.kind != .weeklyModel || isFocus($0) }
         guard !shown.isEmpty else { return weeklyCycle }
-        return shown.sorted { (isFocus($0) ? 0 : 1) < (isFocus($1) ? 0 : 1) }
+        return shown.filter(isFocus) + shown.filter { !isFocus($0) }
     }
 }
 

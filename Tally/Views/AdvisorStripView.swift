@@ -3,9 +3,10 @@ import SwiftUI
 /// The usage advisor strip: one line per provider under the fleet gauge answering "do I need
 /// another account?" as a conclusion, not a figure to convert: enough accounts, add how many of
 /// which plan, not enough at this pace, or how many days until advice. The provider's own icon and
-/// name on the left, the same identity the gauge above uses. The raw figures (the window ladder in
-/// acct/wk, the per-plan split, burn, starved hours, the next refills) and the two horizons behind
-/// the conclusion live in the hover tooltip. The rule that keeps this line consistent with the pool
+/// name on the left, the same identity the gauge above uses. Under the conclusion, a second small
+/// line shows the window ladder (acct/wk over 1, 3, 7 and 28 days) without needing a hover. The rest
+/// of the figures (the per-plan split, burn, starved hours, the next refills) and the two horizons
+/// behind the conclusion live in the hover tooltip. The rule that keeps this line consistent with the pool
 /// lines above it is `AdvisorConclusion`. It has its own visibility switch (`showAdvisor`),
 /// independent of the fleet gauge.
 extension PopoverRootView {
@@ -67,23 +68,30 @@ extension PopoverRootView {
         let dryPools = advisorDryPools(reading.provider, now: now)
         let conclusion = advisorConclusion(reading, dryPools: dryPools)
         let sentence = conclusionSentence(conclusion)
-        return HStack(spacing: 6) {
-            // The same identity the gauge above uses, so the row reads as its sibling.
-            ProviderIconView(providerID: reading.provider, size: 11)
-            Text(ProviderCatalog.displayName(for: reading.provider))
+        let ladder = ladderLine(reading)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                // The same identity the gauge above uses, so the row reads as its sibling.
+                ProviderIconView(providerID: reading.provider, size: 11)
+                Text(ProviderCatalog.displayName(for: reading.provider))
+                    .foregroundStyle(Color.secondary)
+                // The conclusion, nothing to convert: whether the accounts are enough and, if not,
+                // how many of which plan to add.
+                Text(sentence)
+                    .foregroundStyle(conclusionTint(conclusion))
+                Spacer(minLength: 0)
+            }
+            // How many accounts a week each window burns, on the panel itself: the comparison
+            // across windows is what the conclusion rests on, so it must not hide behind a hover.
+            Text(ladder)
                 .foregroundStyle(Color.secondary)
-            // The conclusion, nothing to convert: whether the accounts are enough and, if not,
-            // how many of which plan to add. The figures behind it are in the hover.
-            Text(sentence)
-                .foregroundStyle(conclusionTint(conclusion))
-            Spacer(minLength: 0)
         }
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())
         .tallyTooltip(advisorTooltip(reading, sentence: sentence, dryPools: dryPools, now: now))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence)")
+        .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence), \(ladder)")
     }
 
     private typealias DryPool = (summary: FleetSummary, pool: FleetPool, dry: Date)
@@ -170,6 +178,11 @@ extension PopoverRootView {
             .joined(separator: " · ")
     }
 
+    /// The ladder with its label and unit, shared by the row's second line and the hover.
+    private func ladderLine(_ reading: UsageAdvisor.Reading) -> String {
+        String(localized: "by window: \(demandLadder(reading)) acct/wk", bundle: AppLocale.bundle)
+    }
+
     /// One window's pooled figure to one decimal, or the no-data glyph while it is still short of
     /// its gate. ONE place decides what a missing number looks like: the row and the ladder show the
     /// same window side by side, and two spellings of "not yet" would read as two different states.
@@ -240,8 +253,7 @@ extension PopoverRootView {
                    bundle: AppLocale.bundle))
         // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
         // last month's average?), so every rung is side by side.
-        lines.append(String(localized: "by window: \(demandLadder(reading)) acct/wk",
-                            bundle: AppLocale.bundle))
+        lines.append(ladderLine(reading))
         for refill in upcomingRefills(reading.provider, now: now) {
             lines.append(refillText(refill, style: settings.resetDisplay, now: now)
                          + " (+\(Int(refill.gain.rounded()))%)")

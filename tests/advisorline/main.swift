@@ -121,7 +121,14 @@ check("T13 advisor source readable", !advisor.isEmpty)
 check("T13 row decides through AdvisorConclusion.join", advisor.contains("AdvisorConclusion.join("))
 check("T13 no pips", !advisor.contains("demandPips("))
 check("T13 no click-to-cycle window", !advisor.contains("cycleAdvisorWindow"))
-check("T13 no acct/wk unit on the row", !advisor.contains("acct/wk\", bundle"))
+var rowBody = ""
+if let start = advisor.range(of: "private func advisorRow") {
+    let rest = advisor[start.upperBound...]
+    rowBody = String(rest[..<(rest.range(of: "    private ")?.lowerBound ?? rest.endIndex)])
+}
+check("T13 advisorRow found", !rowBody.isEmpty)
+// The window ladder is on the panel, not only in the hover (2026-09-28: hiding it lost the figures).
+check("T13 row shows the window ladder", rowBody.contains("Text(ladder)") && rowBody.contains("ladderLine(reading)"))
 let fleet = source("Tally/Views/FleetStripView.swift")
 var phraseBody = ""
 if let start = fleet.range(of: "private func forecastPhrase") {

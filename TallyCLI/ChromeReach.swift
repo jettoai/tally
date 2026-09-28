@@ -169,7 +169,6 @@ struct ChromeGapDeps {
     /// Account id -> display label. Read only on the notice path.
     var labels: () -> [String: String]
     var ledgerFile: URL
-    var eventDir: URL
 
     static var live: ChromeGapDeps {
         ChromeGapDeps(account: { readSupervisorAccount(pid: $0) },
@@ -178,14 +177,14 @@ struct ChromeGapDeps {
                           Dictionary((loadSnapshot().0?.accounts ?? []).map { ($0.id, $0.label) },
                                      uniquingKeysWith: { first, _ in first })
                       },
-                      ledgerFile: chromeReachLedgerFile, eventDir: chromeGapEventDir)
+                      ledgerFile: chromeReachLedgerFile)
     }
 }
 
 /// The Chrome branch of a PostToolUse or PostToolUseFailure run, given the classified outcome: the
 /// context sentence to deliver, or nil. Records the outcome in the ledger, and on a gap claims this
-/// generation's notice and files the app's event.
-func chromeGapNotice(tool: String, outcome: ChromeReachOutcome, cwd: String?,
+/// generation's notice.
+func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
                      supervisor: String, stateDir: URL, now: Date,
                      deps: ChromeGapDeps) -> String? {
     guard tool.hasPrefix(chromeToolPrefix), let account = deps.account(supervisor) else { return nil }
@@ -196,9 +195,6 @@ func chromeGapNotice(tool: String, outcome: ChromeReachOutcome, cwd: String?,
     let labels = deps.labels()
     let label = labels[account] ?? account
     let reachable = chromeReachableAccounts(ledger).map { labels[$0] ?? $0 }.sorted()
-    writeChromeGapEvent(ChromeGapEvent(account: account, label: label, cwd: cwd,
-                                       reachable: reachable, at: now),
-                        supervisorPid: supervisor, childPid: child, dir: deps.eventDir)
     return chromeGapMessage(accountLabel: label,
                             reachedBefore: chromeReachable(ledger, account: account),
                             reachableLabels: reachable)

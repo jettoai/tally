@@ -220,8 +220,6 @@ targets:
       # drifted second copy fails silently in both directions (QuotaKnockHookContract.swift states
       # them).
       - path: TallyCLI/QuotaKnockHookContract.swift
-      # The Chrome-gap event the hook files and the app announces: one shape for both processes.
-      - path: TallyCLI/ChromeGapEvent.swift
       # The status line's rate-limit facts: `tally statusline claude` writes them, the poller reads
       # them to show fresher session and weekly numbers and to probe live accounts less often.
       - path: TallyCLI/LiveRates.swift

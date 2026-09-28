@@ -1,8 +1,8 @@
 import Foundation
 
-// The Chrome-gap notice (TallyCLI/ChromeReach.swift, the branch in TallyCLI/HookKnock.swift and the
-// app's event file in TallyCLI/ChromeGapEvent.swift). Every collaborator is injected: nothing here
-// reads a real ~/.tally, supervisor, snapshot, Claude session or browser.
+// The Chrome-gap notice (TallyCLI/ChromeReach.swift, the branch in TallyCLI/HookKnock.swift). Every
+// collaborator is injected: nothing here reads a real ~/.tally, supervisor, snapshot, Claude session
+// or browser.
 
 var failures = 0
 func check(_ name: String, _ condition: Bool) {
@@ -23,12 +23,11 @@ let timeoutString = "Error: The hidden tabs_context_mcp lookup did not respond w
 let authError = "Authentication error occurred. Please ensure you are logged into the Claude browser extension with the same claude.ai account as Claude Code."
 let tabsOk = "{\"availableTabs\":[{\"tabId\":1841,\"title\":\"Example\",\"url\":\"https://example.com/\"}],\"tabGroupId\":22}"
 
-/// One scratch world: supervisor state, ledger, event directory and input log.
+/// One scratch world: supervisor state, ledger and input log.
 struct World {
     let base: URL
     var state: URL { base.appendingPathComponent("supervisor-state") }
     var ledger: URL { base.appendingPathComponent("tally/chrome-reach.json") }
-    var events: URL { base.appendingPathComponent("tally/chrome-gap") }
     var log: URL { base.appendingPathComponent("input.log") }
     init(_ name: String) {
         base = root.appendingPathComponent(name)
@@ -37,7 +36,7 @@ struct World {
     }
     func deps(account: String?, child: Int?) -> ChromeGapDeps {
         ChromeGapDeps(account: { _ in account }, child: { _ in child }, labels: { labels },
-                      ledgerFile: ledger, eventDir: events)
+                      ledgerFile: ledger)
     }
     func run(tool: String = "mcp__claude-in-chrome__tabs_context_mcp", response: Any? = notConnectedList,
              event: String = "PostToolUse", account: String? = "c4", child: Int? = 101,
@@ -78,10 +77,6 @@ struct World {
                                   pid: supervisorPID, dir: state)
     }
     func knockStillFiled() -> Bool { readQuotaKnockNotice(pid: supervisorPID, dir: state) != nil }
-    func eventCount() -> Int {
-        ((try? FileManager.default.contentsOfDirectory(atPath: events.path)) ?? [])
-            .filter { $0.hasSuffix(".json") }.count
-    }
     func ledgerExists() -> Bool { FileManager.default.fileExists(atPath: ledger.path) }
     func readLedger() -> ChromeReachLedger { readChromeReachLedger(file: ledger) }
     func seedOk(_ account: String) {
@@ -110,17 +105,16 @@ do {
           !text.contains("has connected to Chrome on this machine before"))
     check("T1 this generation's claim file exists", FileManager.default.fileExists(
         atPath: w.state.appendingPathComponent("\(supervisorPID).chromegap.101").path))
-    check("T1 one event file is filed for the app", w.eventCount() == 1)
+    check("T1 the hook files nothing for the app", !FileManager.default.fileExists(
+        atPath: w.base.appendingPathComponent("tally/chrome-gap").path))
     check("T1 the input log records the delivery",
           w.logText().contains("pid=\(supervisorPID) input=chrome-gap-delivered "))
     let again = w.run()
     check("T2 the same generation is told only once", again.isEmpty)
-    check("T2 no second event file", w.eventCount() == 1)
 
     // T4: the same session moved again, a new child, still an account that never reached Chrome.
     let moved = w.run(child: 102)
     check("T4 a new child generation is told again", context(moved)?.contains("\"Claude 4\"") == true)
-    check("T4 and files its own event", w.eventCount() == 2)
 }
 
 // MARK: - T3 / T4b: an account that reached Chrome before still gets told, in the other wording
@@ -258,20 +252,6 @@ do {
         check("T17 variant \(index) never says signed in to some accounts only",
               lowered.range(of: "signed in to [^.]* only", options: .regularExpression) == nil)
     }
-    let notifier = (try? String(contentsOfFile: "Tally/Core/ChromeGapNotifier.swift",
-                                encoding: .utf8)) ?? ""
-    // The wording is every L("...") literal in the notifier; comments are not shown to anybody.
-    let pushWords = (try? NSRegularExpression(pattern: "L\\(\"([^\"]*)\"\\)"))
-        .map { regex in
-            regex.matches(in: notifier, range: NSRange(notifier.startIndex..., in: notifier))
-                .compactMap { Range($0.range(at: 1), in: notifier).map { String(notifier[$0]) } }
-        } ?? []
-    check("T17 the push wording is found", pushWords.count >= 3)
-    check("T17 the push wording has no em dash, no only-claim and no mismatch",
-          !pushWords.contains { word in
-              word.contains("\u{2014}") || word.lowercased().contains(" only")
-                  || word.lowercased().contains("mismatch")
-          })
 }
 
 // MARK: - T18: the classifier
@@ -308,24 +288,6 @@ do {
     }
 }
 
-// MARK: - T20: the app's drain
-
-do {
-    let dir = root.appendingPathComponent("t20")
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let fresh = ChromeGapEvent(account: "c4", label: "Claude 4", cwd: "/w/finance",
-                               reachable: ["Claude"], at: t0.addingTimeInterval(-60))
-    let stale = ChromeGapEvent(account: "c5", label: "Claude 5", cwd: nil, reachable: [],
-                               at: t0.addingTimeInterval(-31 * 60))
-    writeChromeGapEvent(fresh, supervisorPid: "1", childPid: 2, dir: dir)
-    writeChromeGapEvent(stale, supervisorPid: "1", childPid: 3, dir: dir)
-    try? "garbage".write(to: dir.appendingPathComponent("1.4.json"), atomically: true, encoding: .utf8)
-    let drained = drainChromeGapEvents(dir: dir, now: t0)
-    check("T20 only the fresh, readable event is returned", drained == [fresh])
-    check("T20 the fresh, the stale and the damaged file are all deleted",
-          ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).isEmpty)
-}
-
 // MARK: - T21: an account that reached Chrome, then was signed out of the extension
 
 do {
@@ -351,7 +313,6 @@ do {
     let out = w.run(tool: "mcp__claude-in-chrome__get_page_text", response: page)
     check("R1 and says nothing", out.isEmpty)
     check("R1 and writes no lastGap", w.readLedger().accounts["c4"]?.lastGap == nil)
-    check("R1 and files no event", w.eventCount() == 0)
     check("R1 the same sentence behind an Error: prefix is still a gap",
           chromeReachOutcome(tool: "mcp__claude-in-chrome__tabs_context_mcp",
                              response: "Error: Browser extension is not connected. Please ensure it is running.") == .gap)

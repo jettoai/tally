@@ -89,7 +89,7 @@ func runHookKnock(args: [String],
            tool: tool,
            outcome: failure ? chromeFailureOutcome(tool: tool, error: payload?["error"] as? String)
                : chromeReachOutcome(tool: tool, response: payload?["tool_response"]),
-           cwd: payload?["cwd"] as? String, supervisor: supervisor,
+           supervisor: supervisor,
            stateDir: dir, now: now, deps: chrome) {
         contexts.append(message)
         appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromeGapDeliveredOutcome,

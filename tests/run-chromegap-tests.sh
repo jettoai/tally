@@ -1,6 +1,6 @@
 #!/bin/bash
-# Compiles the Chrome-gap notice (TallyCLI/ChromeReach.swift, the branch in TallyCLI/HookKnock.swift,
-# TallyCLI/ChromeGapEvent.swift) with its assertion harness and runs it. No Xcode target is needed;
+# Compiles the Chrome-gap notice (TallyCLI/ChromeReach.swift, the branch in TallyCLI/HookKnock.swift)
+# with its assertion harness and runs it. No Xcode target is needed;
 # exits non-zero on failure. Every collaborator is injected, so nothing here touches a real ~/.tally,
 # supervisor, snapshot, Claude session or browser.
 #
@@ -25,7 +25,6 @@ swiftc -o "$out" tests/chromegap/main.swift \
   TallyCLI/AccountPick.swift \
   TallyCLI/AccountReserveReader.swift \
   TallyCLI/AgentRoster.swift \
-  TallyCLI/ChromeGapEvent.swift \
   TallyCLI/ChromeReach.swift \
   TallyCLI/CodexLaunchArgs.swift \
   TallyCLI/CodexSessionEvents.swift \

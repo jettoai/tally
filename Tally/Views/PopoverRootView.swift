@@ -278,9 +278,8 @@ struct PopoverRootView: View {
                                     in: usableScreenWidth)
     }
 
-    /// The visible accounts bucketed by provider. Both densities' auto rules ask about these
-    /// buckets, in different words: the cards ask whether ANY provider has siblings, the list how
-    /// many accounts the biggest section has to seat.
+    /// The visible accounts bucketed by provider: the cards' auto rule asks whether ANY provider
+    /// has siblings.
     private var visibleByProvider: [[AccountUsage]] {
         Array(Dictionary(grouping: visibleAccounts, by: \.providerID).values)
     }
@@ -288,35 +287,16 @@ struct PopoverRootView: View {
     /// How many columns of compact rows. Its own setting (`listColumns`), because a row is nearly
     /// twice a card's width and the two densities are comfortable at different counts.
     ///
-    /// Auto resolves differently here than it does for the cards, and deliberately: a card is narrow
-    /// enough that the screen is never the binding constraint, so the cards' auto asks the CONTENT
-    /// (one column until a provider has siblings). A row is wide enough that the screen IS the
-    /// constraint, so the list's auto asks how many rows the display can take side by side. Capped
-    /// at the same four an explicit choice tops out at.
+    /// Auto is always ONE column: the list is the dense, narrow reading of the fleet, and a second
+    /// column of rows nearly doubles the panel for someone who only asked the app to choose (Albert,
+    /// 2026-09-28). More columns are available, they just have to be chosen.
     var listColumnCount: Int {
-        let seats = PanelGeometry.seats(columnWidth: AccountListRowView.minComfortableWidth,
-                                        in: usableScreenWidth)
-        if (1 ... SettingsStore.maxListColumns).contains(settings.listColumns) {
-            // Chosen, and still bounded by the display: three 480pt rows need 1484pt of panel,
-            // which a laptop screen does not have (see `PanelGeometry`).
-            return min(settings.listColumns, seats)
-        }
-        // Auto stops at TWO, one below what an explicit choice can ask for. A wide display would
-        // otherwise seat three or four rows across and hand a nearly full-screen panel to someone
-        // who only asked the app to choose; three is available, it just has to be chosen. Also
-        // never more columns than there are accounts to seat, because an empty column is panel
-        // width spent on nothing.
-        return min(2, max(1, min(seats, seatsPerRun)))
-    }
-
-    /// How many accounts the widest single RUN of rows has to seat. Grouping is why this is not
-    /// simply the fleet's size: each section lays its own provider's accounts out on its own (see
-    /// `accountBlock`), so two providers with one account each fill two sections of one row, and a
-    /// second column would be a full row-width of nothing in every one of them - while the panel
-    /// itself got twice as wide to hold it.
-    private var seatsPerRun: Int {
-        guard settings.groupByProvider else { return visibleAccounts.count }
-        return visibleByProvider.map(\.count).max() ?? 0
+        guard (1 ... SettingsStore.maxListColumns).contains(settings.listColumns) else { return 1 }
+        // Chosen, and still bounded by the display: three 480pt rows need 1484pt of panel, which a
+        // laptop screen does not have (see `PanelGeometry`).
+        return min(settings.listColumns,
+                   PanelGeometry.seats(columnWidth: AccountListRowView.minComfortableWidth,
+                                       in: usableScreenWidth))
     }
 
     /// The two-column panel width, named because two other surfaces gate on reaching it (the fleet

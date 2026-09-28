@@ -76,8 +76,8 @@ enum ResetExpiryUrgency: Equatable {
 let claudeLimitResetFlags = ["tengu_nifty_lemur", "tengu_cedar_ember"]
 
 /// The `cachedGrowthBookFeatures` object of a `.claude.json`, or nil when the file is not JSON or
-/// the object is missing or not a dictionary. Both flag readers below go through it; a caller that
-/// wants both parses once and hands the result to their `features:` forms.
+/// the object is missing or not a dictionary. Both flag readers below take its result, so a caller
+/// that wants both parses once.
 func claudeCachedFeatures(inState raw: Data) -> [String: Any]? {
     let root = try? JSONSerialization.jsonObject(with: raw) as? [String: Any]
     return root?["cachedGrowthBookFeatures"] as? [String: Any]
@@ -88,10 +88,6 @@ func claudeCachedFeatures(inState raw: Data) -> [String: Any]? {
 ///
 /// true: at least one flag present and none enabled. false: one is enabled. nil: neither present
 /// (renamed, or never evaluated) or a shape this cannot read, which must stay `unknown`.
-func claudeLimitResetFlagsOff(inState raw: Data) -> Bool? {
-    claudeLimitResetFlagsOff(features: claudeCachedFeatures(inState: raw))
-}
-
 func claudeLimitResetFlagsOff(features: [String: Any]?) -> Bool? {
     guard let features else { return nil }
     let present = claudeLimitResetFlags.compactMap { features[$0] }
@@ -109,10 +105,6 @@ func claudeLimitResetFlagsOff(features: [String: Any]?) -> Bool? {
 ///
 /// FAIL-CLOSED: a missing flag, a renamed one or an unreadable file answers false, which draws the
 /// claude.ai pointer rather than a button that would type an unknown command into a session.
-func claudeLimitResetPressPathOpen(inState raw: Data) -> Bool {
-    claudeLimitResetPressPathOpen(features: claudeCachedFeatures(inState: raw))
-}
-
 func claudeLimitResetPressPathOpen(features: [String: Any]?) -> Bool {
     guard let features else { return false }
     func enabled(_ key: String) -> Bool? { (features[key] as? [String: Any])?["enabled"] as? Bool }

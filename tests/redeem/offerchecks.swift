@@ -15,7 +15,9 @@ private func usage(_ provider: String, count: Int? = nil, list: [BankedResetCred
     return value
 }
 
-private func flags(_ json: String) -> Bool? { claudeLimitResetFlagsOff(inState: Data(json.utf8)) }
+private func flags(_ json: String) -> Bool? {
+    claudeLimitResetFlagsOff(features: claudeCachedFeatures(inState: Data(json.utf8)))
+}
 
 func runOfferChecks() {
     let dated = BankedResetCredit(id: "a", resetType: "codexRateLimits", status: "available",
@@ -67,7 +69,9 @@ func runOfferChecks() {
            "flags: an observed state is never overridden")
 
     // The press path: nifty enabled and cedar not; anything unreadable is closed.
-    func path(_ json: String) -> Bool { claudeLimitResetPressPathOpen(inState: Data(json.utf8)) }
+    func path(_ json: String) -> Bool {
+        claudeLimitResetPressPathOpen(features: claudeCachedFeatures(inState: Data(json.utf8)))
+    }
     expect(path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":true}}}"#),
            "path: nifty on and cedar absent is open")
     expect(path(#"{"cachedGrowthBookFeatures":{"tengu_nifty_lemur":{"enabled":true},"tengu_cedar_ember":{"enabled":false}}}"#),

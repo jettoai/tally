@@ -91,8 +91,8 @@ subscriptions at once:
   window as a small bar plus its figure, the launch controls shrunk to icons. It hides words, never
   facts, so the window names, the resets and what each control does move into hover callouts (Tally
   draws its own, on the panel's own glass, rather than waiting on the system tooltip). Each density
-  remembers its own column count behind the one picker, and the list's Auto asks the screen how many
-  rows fit side by side instead of counting the cards.
+  remembers its own column count behind the one picker, and the list's Auto keeps one column, its
+  bars stretching to fill each row.
 - **Your layout, one card at a time.** A view-options card in the footer sets the density and the
   column count with layout tiles (each tile drawing the layout it produces), switches the fleet
   gauge and the advisor on or off, folds providers behind their gauges, and can seat the cards in a

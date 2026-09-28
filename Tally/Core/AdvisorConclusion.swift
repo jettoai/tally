@@ -103,20 +103,19 @@ enum AdvisorConclusion: Equatable {
     static func join(verdict: UsageAdvisor.Verdict, daysOfData: Double, pooledDemandPerWeek: Double,
                      tierDemands: [UsageAdvisor.TierDemand], ownedAccounts: Int,
                      dryPools: [DryPool]) -> AdvisorConclusion {
-        func key(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
         let planPools = dryPools.filter(\.byPlan)
         let wholeProviderDry = planPools.count < dryPools.count
-        let dryKeys = Set(planPools.map { key($0.plan) })
+        let dryKeys = Set(planPools.map { planKey($0.plan) })
         var tiers = splitTiers(tierDemands).map { tier in
             Tier(plan: tier.plan, demandPerWeek: tier.demandPerWeek, accountCount: tier.accountCount,
-                 runsDry: wholeProviderDry || dryKeys.contains(key(tier.plan)))
+                 runsDry: wholeProviderDry || dryKeys.contains(planKey(tier.plan)))
         }
         if tiers.isEmpty {
             // Unsplit: one tier for the whole provider, dry when any of its pools is.
             tiers = [Tier(plan: nil, demandPerWeek: pooledDemandPerWeek,
                           accountCount: max(1, ownedAccounts), runsDry: !dryPools.isEmpty)]
         } else {
-            for pool in planPools where !tiers.contains(where: { key($0.plan) == key(pool.plan) }) {
+            for pool in planPools where !tiers.contains(where: { planKey($0.plan) == planKey(pool.plan) }) {
                 tiers.append(Tier(plan: pool.plan, demandPerWeek: 0, accountCount: pool.accountCount,
                                   runsDry: true))
             }
@@ -125,6 +124,9 @@ enum AdvisorConclusion: Equatable {
             || Set(planPools.compactMap(\.plan)).count >= 2
         return decide(verdict: verdict, daysOfData: daysOfData, tiers: tiers, split: split)
     }
+
+    /// A plan's join key: case-insensitive, "?" for an unnamed plan (`FleetSummary.Tier.key`'s rule).
+    private static func planKey(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
 
     private static func ratio(_ tier: Tier) -> Double {
         tier.demandPerWeek / Double(max(1, tier.accountCount))
@@ -183,10 +185,9 @@ extension AdvisorConclusion {
             return WindowFigures(split: false,
                                  figures: [WindowFigure(plan: nil, demandPerWeek: window.demandPerWeek)])
         }
-        func key(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
         func rank(_ plan: String?) -> Int {
             if plan == nil { return Int.max }
-            return planOrder.firstIndex { $0 != nil && key($0) == key(plan) } ?? planOrder.count
+            return planOrder.firstIndex { $0 != nil && planKey($0) == planKey(plan) } ?? planOrder.count
         }
         let ordered = tiers.enumerated().sorted { a, b in
             let (ra, rb) = (rank(a.element.plan), rank(b.element.plan))
@@ -196,7 +197,7 @@ extension AdvisorConclusion {
             // A window that reads has every plan the four weeks saw (both split the same samples
             // by the same planOf), so a missing plan there burned nothing inside the window.
             let figure = window.demandPerWeek == nil ? nil
-                : (window.tierDemands.first { key($0.plan) == key(tier.plan) }?.demandPerWeek ?? 0)
+                : (window.tierDemands.first { planKey($0.plan) == planKey(tier.plan) }?.demandPerWeek ?? 0)
             return WindowFigure(plan: tier.plan, demandPerWeek: figure)
         })
     }

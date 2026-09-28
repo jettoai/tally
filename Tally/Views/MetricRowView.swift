@@ -12,6 +12,9 @@ struct MetricRowView: View {
     /// counters yet. An exhausted row then reports the pending reset rather than the limit it is
     /// about to lose.
     var settlingReset: Bool = false
+    /// The figure is held over from before this window's reset, which has already happened
+    /// (`AccountUsage.resetPassed`): the row shows "?" and says so instead of a stale percentage.
+    var resetPassed: Bool = false
     /// The personal account's water line, 0 on every other account (ReserveMark.swift). Passed for
     /// every window because the bar is per window, and DRAWN on the ones the reserve is held back
     /// from: the weekly all-models bar, the 5h one and the FLAGSHIP model's (PersonalAccount.
@@ -46,9 +49,9 @@ struct MetricRowView: View {
                     .lineLimit(1)
                     .frame(width: Self.labelWidth, alignment: .leading)
                 bar
-                Text(UsageFormat.percent(metric, mode: mode))
+                Text(UsageFormat.percent(metric, mode: mode, resetPassed: resetPassed))
                     .font((prominent ? Font.callout : Font.footnote).weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(resetPassed ? Color.secondary : Color.primary)
                     .frame(width: 46, alignment: .trailing)
             }
             contextLine
@@ -61,9 +64,12 @@ struct MetricRowView: View {
         GeometryReader { geo in
             ZStack(alignment: mode == .used ? .leading : .trailing) {
                 Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(metric.severity.color)
-                    .frame(width: max(3, geo.size.width * UsageFormat.fillFraction(metric, mode: mode)))
+                if !resetPassed {
+                    Capsule()
+                        .fill(metric.severity.color)
+                        .frame(width: max(3, geo.size.width * UsageFormat.fillFraction(
+                            metric, mode: mode, resetPassed: resetPassed)))
+                }
                 ReserveMark(reserve: barReserve)
             }
         }
@@ -84,13 +90,21 @@ struct MetricRowView: View {
     /// one click away instead of a settings entry); hover previews the other format.
     @ViewBuilder
     private var contextLine: some View {
-        if metric.severity == .critical || metric.resetsAt != nil || sessionNotStarted {
+        if resetPassed || metric.severity == .critical || metric.resetsAt != nil || sessionNotStarted {
             HStack(spacing: 6) {
-                if metric.severity == .critical {
+                // A window that has already reset is not at its limit, whatever the held-over
+                // figure says: "Limit reached" there is exactly the line that got misread.
+                if metric.severity == .critical && !resetPassed {
                     criticalNote
                 }
                 Spacer(minLength: 0)
-                if let resetsAt = metric.resetsAt {
+                if resetPassed {
+                    Text(L("Reset passed, awaiting refresh"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .tallyTooltip(UsageFormat.resetAbsolute(metric.resetsAt) ?? "")
+                } else if let resetsAt = metric.resetsAt {
                     resetLabel(resetsAt)
                 } else if sessionNotStarted {
                     Text(L("5h starts on first use"))

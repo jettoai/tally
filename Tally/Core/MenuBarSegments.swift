@@ -81,7 +81,8 @@ enum MenuBarSegments {
     /// One segment per account, in the accounts' display order. The caller passes the accounts the
     /// strip may show (the per-account menu-bar switches are its filter).
     static func perAccount(_ accounts: [AccountUsage], mode: DisplayMode,
-                           focusedModel: (String, [String]) -> String?) -> [MenuBarSegment] {
+                           focusedModel: (String, [String]) -> String?,
+                           now: Date = Date()) -> [MenuBarSegment] {
         // Same-provider accounts are visually identical marks, so number them (1, 2, …) - the one
         // piece of identity the strip needs. A lone account gets no badge.
         let providerCounts = Dictionary(grouping: accounts, by: \.providerID).mapValues(\.count)
@@ -96,7 +97,10 @@ enum MenuBarSegments {
                                       dimmed: false, badge: badge)
             }
             let lines = metrics(account, focusedModel: focusedModel).map {
-                percent(used: $0.usedPercent, remaining: $0.remainingPercent, mode: mode)
+                // A held-over figure its reset has overtaken reads as unknown, never as the old
+                // percentage (`AccountUsage.resetPassed`).
+                account.resetPassed($0, now: now)
+                    ? "?" : percent(used: $0.usedPercent, remaining: $0.remainingPercent, mode: mode)
             }
             return MenuBarSegment(providerID: account.providerID,
                                   lines: lines.isEmpty ? ["—"] : lines,

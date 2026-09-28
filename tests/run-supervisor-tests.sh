@@ -190,7 +190,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift Tally/Core/PathIdentity.swift \
   Tally/Core/TrustSeed.swift TallyCLI/TrustSeedRelaunch.swift \
-  TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
+  TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Stores/SessionRosterScan.swift Tally/Stores/ReloadReadinessStore.swift Tally/Core/CoalescingGate.swift \
   Tally/Stores/SessionRosterFreshness.swift Tally/Core/BuildVariant.swift \

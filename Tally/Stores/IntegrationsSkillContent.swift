@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 25
+    nonisolated static let skillVersion = 26
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -46,7 +46,10 @@ extension IntegrationsStore {
           `weeklyRemaining`, and `modelRemaining` (the flagship window named by
           `modelWindowName`, e.g. Fable) are percent left, 0-100; each pairs with a
           `...ResetsAt` ISO 8601 timestamp. A missing key means the provider does not
-          report that window.
+          report that window. `sessionResetPassed` / `weeklyResetPassed` / `modelResetPassed` sit
+          beside each `...ResetsAt`: `true` means the account's polls have been failing since
+          before that reset, so the figure is from the previous window; call that window unknown
+          rather than quoting the number.
         - `best: true` marks the account `tally claude` / `tally codex` would launch right
           now (a manual pin is honoured); `pinned` marks the pin itself. `launchHome` is
           that account's config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).

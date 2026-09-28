@@ -39,6 +39,7 @@ struct AccountCardView: View {
                 if let headline = usage.headline {
                     MetricRowView(metric: headline, mode: settings.displayMode, prominent: true,
                                   settlingReset: facts.isSettlingReset,
+                                  resetPassed: usage.resetPassed(headline),
                                   reserve: facts.reservePercent, isHeadline: true)
                 }
                 if !facts.secondaryMetrics.isEmpty {
@@ -46,6 +47,7 @@ struct AccountCardView: View {
                         ForEach(facts.secondaryMetrics) { metric in
                             MetricRowView(metric: metric, mode: settings.displayMode,
                                           settlingReset: facts.isSettlingReset,
+                                          resetPassed: usage.resetPassed(metric),
                                           reserve: facts.reservePercent)
                         }
                     }

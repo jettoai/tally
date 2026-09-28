@@ -78,7 +78,7 @@ swiftc -o "$out" tests/chromegap/main.swift \
   TallyCLI/SessionSwitch.swift \
   TallyCLI/SessionTurnEnd.swift \
   TallyCLI/Snapshot.swift \
-  TallyCLI/StatusReport.swift \
+  TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift \
   TallyCLI/SupervisorRuntime.swift \
   TallyCLI/SwitchBadges.swift \
   TallyCLI/SwitchDecision.swift \

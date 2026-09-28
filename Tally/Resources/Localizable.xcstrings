@@ -16256,6 +16256,93 @@
           }
         }
       }
+    },
+    "Reset passed, awaiting refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已過重置時間，等待更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已过重置时间，等待更新"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット時刻経過・更新待ち"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정 시각 지남 · 업데이트 대기"
+          }
+        }
+      }
+    },
+    "No quota returned: if it persists, run /login": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未回傳額度：持續發生請執行 /login"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未返回额度：持续发生请运行 /login"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータ未取得：続く場合は /login を実行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "할당량 없음: 계속되면 /login 실행"
+          }
+        }
+      }
+    },
+    "Claude Code answered /usage for this account without its limits. It usually clears on a later refresh; if it keeps happening, run /login in a Claude Code session on this account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 回覆了這個帳號的 /usage，但沒有附上額度。通常之後的更新就會恢復；若持續發生，請在這個帳號的 Claude Code session 執行 /login。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 返回了这个账号的 /usage，但没有附带额度。通常之后的刷新就会恢复；如果持续发生，请在这个账号的 Claude Code 会话中运行 /login。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code はこのアカウントの /usage に応答しましたが、上限の情報がありませんでした。通常は次の更新で解消します。続く場合は、このアカウントの Claude Code セッションで /login を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code가 이 계정의 /usage에 응답했지만 한도 정보가 없습니다. 보통 다음 새로고침에서 해결됩니다. 계속되면 이 계정의 Claude Code 세션에서 /login을 실행하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

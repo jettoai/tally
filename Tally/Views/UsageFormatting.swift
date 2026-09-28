@@ -1,8 +1,10 @@
 import SwiftUI
 
 enum UsageFormat {
-    /// "90%" - the displayed value for a meter under the current mode.
-    static func percent(_ metric: UsageMetric, mode: DisplayMode) -> String {
+    /// "90%" - the displayed value for a meter under the current mode, or "?" when the figure is
+    /// a held-over one its window's reset has already overtaken (`AccountUsage.resetPassed`).
+    static func percent(_ metric: UsageMetric, mode: DisplayMode, resetPassed: Bool = false) -> String {
+        if resetPassed { return "?" }
         let value = mode == .used ? metric.usedPercent : metric.remainingPercent
         return "\(Int(value.rounded()))%"
     }
@@ -14,7 +16,8 @@ enum UsageFormat {
 
     /// Bar fill fraction - matches the displayed number (used or remaining) so the bar and the value
     /// always agree. Colour still keys off used-severity, so it never flips with the toggle.
-    static func fillFraction(_ metric: UsageMetric, mode: DisplayMode) -> Double {
+    static func fillFraction(_ metric: UsageMetric, mode: DisplayMode, resetPassed: Bool = false) -> Double {
+        if resetPassed { return 0 }
         let value = mode == .used ? metric.usedPercent : metric.remainingPercent
         return min(1, max(0, value / 100))
     }

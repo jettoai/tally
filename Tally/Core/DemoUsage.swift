@@ -17,6 +17,11 @@ enum DemoUsage {
     /// loaded. A modifier, off by default: the README grid keeps every card's numbers.
     static var showsHardErrors: Bool { UserDefaults.standard.bool(forKey: "TallyDemoHardError") }
 
+    /// `-TallyDemoPastReset YES` (with `-TallyDemoData`): Claude 4 reads as an account whose polls
+    /// have failed since before its 5-hour window reset, so a capture shows the "?" and the
+    /// "Reset passed" line instead of a spent window. A modifier, off by default like the one above.
+    static var showsPastReset: Bool { UserDefaults.standard.bool(forKey: "TallyDemoPastReset") }
+
     /// Debug-only login scenarios, layered onto the synthetic account fixtures.
     static var loginHealthPreview: Bool {
         BuildVariant.isDev && isActive && UserDefaults.standard.bool(forKey: "TallyLoginHealthPreview")
@@ -154,12 +159,36 @@ enum DemoUsage {
                   sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2,
                   expiresInHours: [220, nil], now: now),
         ]
-        guard showsHardErrors else { return fixtures }
+        var result = fixtures
+        if showsPastReset {
+            result = result.map { usage in
+                guard usage.id == "claude:demo-Claude 4" else { return usage }
+                var held = usage
+                // Last good read 84 minutes ago with the 5h window spent; it refilled 70 minutes
+                // ago and nothing has been read since: the 2026-09-28 report, as a fixture.
+                held.refreshedAt = now.addingTimeInterval(-84 * 60)
+                held.metrics = held.metrics.map { metric in
+                    guard metric.kind == .session else { return metric }
+                    var spent = metric
+                    spent.usedPercent = 100
+                    spent.severity = .fromUsedPercent(100)
+                    spent.resetsAt = now.addingTimeInterval(-70 * 60)
+                    return spent
+                }
+                held.isStale = true
+                held.lastRefreshFailed = true
+                held.pollsKeepFailing = true
+                held.error = L("No quota returned: if it persists, run /login")
+                held.errorDetail = L("Claude Code answered /usage for this account without its limits. It usually clears on a later refresh; if it keeps happening, run /login in a Claude Code session on this account.")
+                return held
+            }
+        }
+        guard showsHardErrors else { return result }
         // The failure a first poll produces: no metrics, no reset count, the provider's own short
         // line. Identity survives, as it does on a real failed read (`AccountUsage.failure`).
         let failures = ["claude:demo-Claude 2": L("No usage data"),
                         "codex:demo-Codex 3": L("Codex CLI read failed")]
-        return fixtures.map { usage in
+        return result.map { usage in
             guard let message = failures[usage.id] else { return usage }
             return AccountUsage(id: usage.id, providerID: usage.providerID,
                                 accountLabel: usage.accountLabel, planName: usage.planName,

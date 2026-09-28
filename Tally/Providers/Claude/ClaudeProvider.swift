@@ -21,9 +21,9 @@ struct ClaudeProvider: UsageProvider {
         // account, and a config dir signed in as somebody else reports the new identity even while
         // the last-good numbers are the old account's.
         let profile = ClaudeAccounts.profile(configDir: home)
-        func failed(_ message: String) -> AccountUsage {
+        func failed(_ message: String, detail: String? = nil) -> AccountUsage {
             .failure(account: account, providerID: id, message: message,
-                     planName: profile.plan, accountEmail: profile.email)
+                     planName: profile.plan, accountEmail: profile.email, errorDetail: detail)
         }
         guard CLIRunner.resolve("claude") != nil else {
             return failed(L("Claude CLI not found"))
@@ -45,7 +45,11 @@ struct ClaudeProvider: UsageProvider {
         }
         let metrics = ClaudeUsageTextMapper.map(text: text)
         guard !metrics.isEmpty else {
-            return failed(L("No usage data"))
+            // The CLI ran and was not refused, yet printed no `Current ...` line: Claude answered
+            // without this account's limits (2026-09-28, a 403 behind a clean exit). Say what to
+            // do, the way the credentials line above does; the longer why hovers.
+            return failed(L("No quota returned: if it persists, run /login"),
+                          detail: L("Claude Code answered /usage for this account without its limits. It usually clears on a later refresh; if it keeps happening, run /login in a Claude Code session on this account."))
         }
         await LoginStatusStore.shared.usageAuthentication(account: account, authenticated: true, since: authMark)
         return AccountUsage(

@@ -298,28 +298,29 @@ struct AccountListRowView: View {
     /// NAME and its reset live in the cluster's tooltip, because spelling both out per window is
     /// what makes the card as tall as it is.
     private func meterCluster(_ metric: UsageMetric) -> some View {
-        HStack(spacing: 4) {
-            bar(metric)
-            Text(UsageFormat.percent(metric, mode: settings.displayMode))
+        let passed = usage.resetPassed(metric)
+        return HStack(spacing: 4) {
+            bar(metric, resetPassed: passed)
+            Text(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))
                 .font(.caption.monospacedDigit())
                 // The figure carries the warning here, unlike on a card. A track this short is too small
                 // for its colour alone to be the alarm, and the row has no space for the card's
                 // "Limit reached" line. Not while a redeemed reset settles, though: the number is
                 // seconds from being replaced, so that is a wait rather than a warning.
-                .foregroundStyle(metric.severity == .critical && !facts.isSettlingReset
-                                 ? TallyColor.critical : Color.primary)
+                .foregroundStyle(passed ? Color.secondary : metric.severity == .critical
+                                 && !facts.isSettlingReset ? TallyColor.critical : Color.primary)
                 .frame(width: Self.valueWidth, alignment: .trailing)
         }
         .tallyTooltip(meterHelp(metric))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(L(metric.label)), \(UsageFormat.percent(metric, mode: settings.displayMode))")
+        .accessibilityLabel("\(L(metric.label)), \(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))")
     }
 
     /// Used fills from the left, remaining anchors right - the same boundary the card's bars split
     /// at, so the two densities never draw one number two ways. The track takes the cluster's width
     /// (never under `barWidth`), and the fill is measured off the track it is drawn in.
-    private func bar(_ metric: UsageMetric) -> some View {
-        let fraction = UsageFormat.fillFraction(metric, mode: settings.displayMode)
+    private func bar(_ metric: UsageMetric, resetPassed: Bool) -> some View {
+        let fraction = UsageFormat.fillFraction(metric, mode: settings.displayMode, resetPassed: resetPassed)
         let fillAlignment: Alignment = settings.displayMode == .used ? .leading : .trailing
         return Capsule()
             .fill(.quaternary)
@@ -328,7 +329,7 @@ struct AccountListRowView: View {
             .overlay {
                 GeometryReader { geo in
                     Capsule()
-                        .fill(metric.severity.color)
+                        .fill(resetPassed ? Color.clear : metric.severity.color)
                         .frame(width: max(2, geo.size.width * fraction), height: Self.barHeight)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: fillAlignment)
                 }
@@ -352,7 +353,8 @@ struct AccountListRowView: View {
     private func meterHelp(_ metric: UsageMetric) -> String {
         let name = L(metric.label)
         var text = name
-        if let reset = UsageFormat.resetText(metric.resetsAt, style: settings.resetDisplay) {
+        if let reset = usage.resetPassed(metric) ? L("Reset passed, awaiting refresh")
+            : UsageFormat.resetText(metric.resetsAt, style: settings.resetDisplay) {
             text += " · \(reset)"
         }
         // What the hatching at the end of the track is. The card can afford to let the mark speak

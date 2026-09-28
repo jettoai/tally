@@ -89,6 +89,8 @@ enum CaptureLaunch {
                                "TallyLoginHealthPreview",
                                // Qualifies TallyDemoData: two fixtures read as failed first polls.
                                "TallyDemoHardError",
+                               // Qualifies TallyDemoData: Claude 4 held over past its 5h reset.
+                               "TallyDemoPastReset",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

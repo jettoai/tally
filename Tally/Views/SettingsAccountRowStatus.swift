@@ -76,13 +76,16 @@ extension SettingsAccountsView {
     func liveStatus(_ account: AccountUsage) -> some View {
         HStack(spacing: 8) {
             ForEach(account.metrics.filter { !$0.isModelScoped }.prefix(2)) { metric in
+                let passed = account.resetPassed(metric)
                 HStack(spacing: 3) {
-                    Circle().fill(metric.severity.color).frame(width: 5, height: 5)
-                    Text(UsageFormat.percent(metric, mode: settings.displayMode))
+                    Circle().fill(passed ? Color.secondary : metric.severity.color).frame(width: 5, height: 5)
+                    Text(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                .tallyTooltip("\(L(metric.label)) \(UsageFormat.percent(metric, mode: settings.displayMode)) \(UsageFormat.modeWord(settings.displayMode))")
+                .tallyTooltip(passed
+                    ? "\(L(metric.label)) ? · \(L("Reset passed, awaiting refresh"))"
+                    : "\(L(metric.label)) \(UsageFormat.percent(metric, mode: settings.displayMode)) \(UsageFormat.modeWord(settings.displayMode))")
             }
         }
     }

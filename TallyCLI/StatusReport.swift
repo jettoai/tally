@@ -43,6 +43,18 @@ struct StatusReport: Encodable {
         var modelWindowName: String?
         var modelRemaining: Double?
         var modelResetsAt: Date?
+        /// Whether the window's figure above was read BEFORE its reset and that reset has
+        /// already happened (`HeldOverReset`): the account's latest polls failed, so the number
+        /// is a held-over one from the previous window and says nothing about the current one.
+        /// Quote that window as unknown, not as the number beside it.
+        ///
+        /// ADDED BESIDE THE FIGURE RATHER THAN NULLING IT, because this contract only gains
+        /// fields: a missing `...Remaining` already means "the provider does not report that
+        /// window", and scripts that do arithmetic on it must keep working. Present exactly when
+        /// the matching `...ResetsAt` is; absent means there is no reset instant to judge by.
+        var sessionResetPassed: Bool?
+        var weeklyResetPassed: Bool?
+        var modelResetPassed: Bool?
         var resetCreditsAvailable: Int?
         var resetCreditsNextExpiry: Date?
         var resetCreditsExpiryUnknown: Bool?
@@ -344,6 +356,9 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                 modelWindowName: account.modelWindowName,
                 modelRemaining: account.modelRemaining,
                 modelResetsAt: account.modelResetsAt,
+                sessionResetPassed: account.resetPassedFlag(account.sessionResetsAt, now: now),
+                weeklyResetPassed: account.resetPassedFlag(account.weeklyResetsAt, now: now),
+                modelResetPassed: account.resetPassedFlag(account.modelResetsAt, now: now),
                 resetCreditsAvailable: account.resetCreditsAvailable,
                 resetCreditsNextExpiry: account.resetCreditsNextExpiry,
                 resetCreditsExpiryUnknown: account.resetCreditsExpiryUnknown,
@@ -450,5 +465,29 @@ func resetStatusSuffix(_ account: Snapshot.Account) -> String {
     case "unknown": return " · resets unknown"
     case "notSupported": return ""
     default: return banked > 0 ? bankedText : ""
+    }
+}
+
+extension Snapshot.Account {
+    /// Whether this row's numbers are held over from an earlier round: the badge or the
+    /// un-debounced flag. nil `lastRefreshFailed` (an older app) leaves the badge alone to answer.
+    var numbersHeldOver: Bool { isStale || lastRefreshFailed == true }
+
+    /// `HeldOverReset.passed` for one of this row's windows, by its reset instant.
+    func windowResetPassed(_ resetsAt: Date?, now: Date) -> Bool {
+        HeldOverReset.passed(resetsAt: resetsAt, refreshedAt: refreshedAt,
+                             heldOver: numbersHeldOver, now: now)
+    }
+
+    /// The JSON form: nil when the window has no reset instant, so the key is omitted exactly
+    /// where `...ResetsAt` is.
+    func resetPassedFlag(_ resetsAt: Date?, now: Date) -> Bool? {
+        resetsAt.map { windowResetPassed($0, now: now) }
+    }
+
+    /// One window's figure on a `tally status` text line: the percentage, or "? (reset passed)"
+    /// when the held-over figure predates a reset that has already happened.
+    func statusFigure(_ remaining: Double?, resetsAt: Date?, now: Date) -> String {
+        windowResetPassed(resetsAt, now: now) ? "? (reset passed)" : fmt(remaining)
     }
 }

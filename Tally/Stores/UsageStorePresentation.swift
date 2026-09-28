@@ -87,6 +87,9 @@ extension UsageStore {
             if let error = account.error, !account.isStale { return "\(label): \(error)" }
             let parts = MenuBarSegments.metrics(account, focusedModel: Self.focusedModel)
                 .map { metric in
+                    if account.resetPassed(metric) {
+                        return "\(L(metric.label)) ? (\(L("Reset passed, awaiting refresh")))"
+                    }
                     let value = mode == .used ? metric.usedPercent : metric.remainingPercent
                     return "\(L(metric.label)) \(Int(value.rounded()))%"
                 }

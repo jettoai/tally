@@ -81,6 +81,9 @@ targets:
       # `tally add --no-share` and the Settings row - and a second spelling of "the same place" is
       # precisely how this comparison went wrong four times in three days.
       - path: Tally/Core/PathIdentity.swift
+      # Whether a held-over window has been overtaken by its reset: `tally status` and the panel
+      # ask the one judge, so the two cannot print different answers for one snapshot row.
+      - path: Tally/Core/HeldOverReset.swift
       # And its other half: `tally share` puts an account that ALREADY EXISTS on that same set of
       # links, which the Settings "Shared harness" row does too. One engine for both surfaces, for
       # the reason above - a second copy is how one of them starts backing a file up where the

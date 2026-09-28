@@ -483,6 +483,7 @@ do {
            "the hover says which drawn row is short, with the window name localized")
 }
 
+resetPassedStripChecks()
 planSplitChecks()
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

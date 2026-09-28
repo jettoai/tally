@@ -5,6 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/menubar/main.swift tests/menubar/plansplitchecks.swift Tally/Core/MenuBarSegments.swift Tally/Core/FleetMath.swift \
-    Tally/Providers/ProviderModels.swift Tally/Stores/DisplaySettings.swift
+swiftc -o "$out" tests/menubar/main.swift tests/menubar/plansplitchecks.swift tests/menubar/resetpassedchecks.swift Tally/Core/MenuBarSegments.swift Tally/Core/FleetMath.swift \
+    Tally/Providers/ProviderModels.swift Tally/Stores/DisplaySettings.swift \
+    Tally/Core/HeldOverReset.swift Tally/Core/HeldOverResetUsage.swift
 "$out"

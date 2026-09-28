@@ -333,6 +333,8 @@ func runStatus(json: Bool = false) {
               projectPolicySummary(declared,
                                    accountLabel: projectPolicyAccountLabel(declared, in: snapshot)))
     }
+    // One instant for every row, so two windows on one line cannot straddle a reset.
+    let reportedAt = Date()
     for provider in providers {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
         guard !accounts.isEmpty else { continue }
@@ -348,8 +350,10 @@ func runStatus(json: Bool = false) {
             var state = account.error.map { " !\($0)" } ?? (account.isStale ? " (stale)" : "")
             if pinned { state += " (pinned)" }
             state += resetStatusSuffix(account)
-            print("\(marker) \(account.label): session \(fmt(account.sessionRemaining)) · " +
-                  "weekly \(fmt(account.weeklyRemaining)) · model \(fmt(account.modelRemaining))\(state)")
+            print("\(marker) \(account.label): " +
+                  "session \(account.statusFigure(account.sessionRemaining, resetsAt: account.sessionResetsAt, now: reportedAt)) · " +
+                  "weekly \(account.statusFigure(account.weeklyRemaining, resetsAt: account.weeklyResetsAt, now: reportedAt)) · " +
+                  "model \(account.statusFigure(account.modelRemaining, resetsAt: account.modelResetsAt, now: reportedAt))\(state)")
         }
         // The pooled cross-account view: the share of each pool still unspent ("fable pool 12%"),
         // with a dry forecast or a sustainable tick. THE ONLY CLI SURFACE THAT PRINTS A POOL - the

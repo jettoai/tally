@@ -273,15 +273,10 @@ struct PopoverRootView: View {
     var columnCount: Int {
         let chosen = (1 ... 4).contains(settings.panelColumns)
             ? settings.panelColumns
-            : (visibleByProvider.contains { $0.count > 1 } ? 2 : 1)
+            : (Dictionary(grouping: visibleAccounts, by: \.providerID).values.contains { $0.count > 1 }
+                ? 2 : 1)
         return PanelGeometry.seated(chosen, columnWidth: PanelGeometry.cardColumnWidth,
                                     in: usableScreenWidth)
-    }
-
-    /// The visible accounts bucketed by provider: the cards' auto rule asks whether ANY provider
-    /// has siblings.
-    private var visibleByProvider: [[AccountUsage]] {
-        Array(Dictionary(grouping: visibleAccounts, by: \.providerID).values)
     }
 
     /// How many columns of compact rows. Its own setting (`listColumns`), because a row is nearly

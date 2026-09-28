@@ -130,3 +130,74 @@ enum AdvisorConclusion: Equatable {
         tier.demandPerWeek / Double(max(1, tier.accountCount))
     }
 }
+
+/// The advisor row's second line: which window it reads and how that window's figure splits.
+/// Pure and language-free so the panel and the test harness read one rule; the view only formats.
+extension AdvisorConclusion {
+    /// The window after `current` on `UsageAdvisor.displayWindows`, wrapping (28 -> 1 -> 3 -> 7 -> 28).
+    /// A value that is not on the ladder counts as the last one, so the next click lands on the
+    /// shortest window rather than nowhere.
+    static func nextWindow(after current: Double,
+                           windows: [Double] = UsageAdvisor.displayWindows) -> Double {
+        guard !windows.isEmpty else { return current }
+        let index = windows.firstIndex(of: current) ?? windows.count - 1
+        return windows[(index + 1) % windows.count]
+    }
+
+    /// The window the row reads: the remembered span, else the reading's last one (the full
+    /// lookback), else one built from the four-week figures for a reading that carries no ladder.
+    static func window(_ days: Double, in reading: UsageAdvisor.Reading) -> UsageAdvisor.WindowDemand {
+        reading.windowDemands.first { $0.days == days }
+            ?? reading.windowDemands.last
+            ?? UsageAdvisor.WindowDemand(days: UsageAdvisor.lookbackDays,
+                                         demandPerWeek: reading.demandPerWeek,
+                                         tierDemands: reading.tierDemands,
+                                         minimumDays: UsageAdvisor.minimumDays)
+    }
+
+    struct WindowFigure: Equatable {
+        /// The plan this figure is for. Only meaningful when `WindowFigures.split`; nil there is a
+        /// plan this machine cannot name.
+        var plan: String?
+        /// Account-weeks per week, or nil while the window is still short of its own gate.
+        var demandPerWeek: Double?
+    }
+
+    struct WindowFigures: Equatable {
+        /// True when the provider sits on two or more named plans: one figure per plan, named.
+        var split: Bool
+        var figures: [WindowFigure]
+    }
+
+    /// One window's figure, split by plan exactly when the hover's four-week split is. WHETHER to
+    /// split is decided on the four-week tiers, not on the window's own: a window still collecting
+    /// has no tiers, and deciding on it would drop the plan names on the short windows and bring
+    /// them back on the long one. Plans follow `planOrder` (the fleet gauge's order, so the row
+    /// names plans in the order the pool rows above it do), then any the gauge did not list, the
+    /// unnamed plan last.
+    static func windowFigures(_ window: UsageAdvisor.WindowDemand,
+                              readingTiers: [UsageAdvisor.TierDemand],
+                              planOrder: [String?]) -> WindowFigures {
+        let tiers = splitTiers(readingTiers)
+        guard !tiers.isEmpty else {
+            return WindowFigures(split: false,
+                                 figures: [WindowFigure(plan: nil, demandPerWeek: window.demandPerWeek)])
+        }
+        func key(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
+        func rank(_ plan: String?) -> Int {
+            if plan == nil { return Int.max }
+            return planOrder.firstIndex { $0 != nil && key($0) == key(plan) } ?? planOrder.count
+        }
+        let ordered = tiers.enumerated().sorted { a, b in
+            let (ra, rb) = (rank(a.element.plan), rank(b.element.plan))
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }.map(\.element)
+        return WindowFigures(split: true, figures: ordered.map { tier in
+            // A window that reads has every plan the four weeks saw (both split the same samples
+            // by the same planOf), so a missing plan there burned nothing inside the window.
+            let figure = window.demandPerWeek == nil ? nil
+                : (window.tierDemands.first { key($0.plan) == key(tier.plan) }?.demandPerWeek ?? 0)
+            return WindowFigure(plan: tier.plan, demandPerWeek: figure)
+        })
+    }
+}

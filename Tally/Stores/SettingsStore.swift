@@ -138,6 +138,19 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(showAdvisor, forKey: "showAdvisor") }
     }
 
+    /// Which window the advisor row's second line reads its acct/wk figure over: one of
+    /// `UsageAdvisor.displayWindows`, cycled by clicking that line.
+    ///
+    /// A VIEW SETTING AND ONLY THAT. The conclusion on the first line stays on its own rule whatever
+    /// this says: a recommendation that changed with the reader's zoom level would be a different
+    /// piece of advice per click. What this moves is the figure, which answers "is this month's
+    /// average still what I am doing THIS week".
+    ///
+    /// Remembered because it is an opinion about how the reader reads, not about this session.
+    var advisorWindowDays: Double {
+        didSet { UserDefaults.standard.set(advisorWindowDays, forKey: "advisorWindowDays") }
+    }
+
     /// Notify when the whole machine's CPU stays above the line for half a minute, naming the
     /// project behind it (CPUAlertLogic.swift, which reads the same key). On by default.
     var cpuAlertEnabled: Bool {
@@ -175,9 +188,9 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(panelColumns, forKey: "panelColumns") }
     }
 
-    /// Cards or the compact one-row-per-account list (see `PanelDensity`). Cards by default: the
-    /// list only pays for itself once a fleet outgrows the screen, and it is the denser read that
-    /// hides detail, not the one to meet the app with.
+    /// Cards or the compact one-row-per-account list (see `PanelDensity`). The list by default: a
+    /// fleet of several accounts reads on one screen without scrolling, and the cards are one click
+    /// away in the footer. A stored choice is kept as it is; only an unset one lands on the list.
     var panelDensity: PanelDensity {
         didSet { UserDefaults.standard.set(panelDensity.rawValue, forKey: "panelDensity") }
     }
@@ -303,6 +316,12 @@ final class SettingsStore {
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
         showAdvisor = defaults.object(forKey: "showAdvisor") as? Bool ?? true
+        // Anything that is not one of the offered windows reads as the default (the full lookback),
+        // which covers a missing key, a build that offered a window this one no longer does, and a
+        // hand-edited plist.
+        let storedWindow = defaults.object(forKey: "advisorWindowDays") as? Double ?? 0
+        advisorWindowDays = UsageAdvisor.displayWindows.contains(storedWindow)
+            ? storedWindow : UsageAdvisor.lookbackDays
         cpuAlertEnabled = CPUAlertLogic.isEnabled(defaults)
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
@@ -314,7 +333,7 @@ final class SettingsStore {
         // that rule by hand, which made a four-column machine that had once seen a wider ladder
         // land on auto where its neighbours landed on the widest tile.
         panelColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "panelColumns"), max: 4)
-        panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .cards
+        panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .list
         listColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "listColumns"),
                                                   max: SettingsStore.maxListColumns)
         sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),

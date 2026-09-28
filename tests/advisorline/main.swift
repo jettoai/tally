@@ -109,6 +109,59 @@ check("T14 unsplit history and unsplit dry pool",
 check("T14 unsplit history, nothing dry reads enough",
       join(.sufficient, [Demand(plan: "Pro", demandPerWeek: 3, accountCount: 4)], []) == .enough)
 
+// T15-T19: the row's second line reads one window, cycled by a click, split by plan like the
+// pool rows above it (2026-09-28: the ladder pooled Codex Pro and Team into one figure).
+typealias Window = UsageAdvisor.WindowDemand
+typealias Figure = AdvisorConclusion.WindowFigure
+check("T15 28 -> 1", AdvisorConclusion.nextWindow(after: 28) == 1)
+check("T15 1 -> 3", AdvisorConclusion.nextWindow(after: 1) == 3)
+check("T15 3 -> 7", AdvisorConclusion.nextWindow(after: 3) == 7)
+check("T15 7 -> 28", AdvisorConclusion.nextWindow(after: 7) == 28)
+check("T15 off-ladder value lands on the shortest", AdvisorConclusion.nextWindow(after: 5) == 1)
+
+let maxOnly = [Demand(plan: "Max 20x", demandPerWeek: 5.8, accountCount: 5)]
+let single = AdvisorConclusion.windowFigures(
+    Window(days: 7, demandPerWeek: 6.0, tierDemands: [Demand(plan: "Max 20x", demandPerWeek: 6.0, accountCount: 5)],
+           minimumDays: 1),
+    readingTiers: maxOnly, planOrder: ["Max 20x"])
+check("T16 one plan does not split", !single.split)
+check("T16 one plan reads the pooled window figure", single.figures == [Figure(plan: nil, demandPerWeek: 6.0)])
+
+let codexTiers = [Demand(plan: "Pro", demandPerWeek: 1.7, accountCount: 3),
+                  Demand(plan: "Team", demandPerWeek: 0.9, accountCount: 1)]
+let threeDay = Window(days: 3, demandPerWeek: 2.8,
+                      tierDemands: [Demand(plan: "Pro", demandPerWeek: 1.8, accountCount: 3),
+                                    Demand(plan: "Team", demandPerWeek: 1.0, accountCount: 1)],
+                      minimumDays: 1)
+let gaugeOrder = AdvisorConclusion.windowFigures(threeDay, readingTiers: codexTiers, planOrder: ["Team", "Pro"])
+check("T17 two plans split", gaugeOrder.split)
+check("T17 split follows the gauge's order",
+      gaugeOrder.figures == [Figure(plan: "Team", demandPerWeek: 1.0), Figure(plan: "Pro", demandPerWeek: 1.8)])
+let noOrder = AdvisorConclusion.windowFigures(
+    threeDay, readingTiers: [Demand(plan: nil, demandPerWeek: 0.1, accountCount: 1)] + codexTiers, planOrder: [])
+check("T17b no gauge order keeps the reading's, unnamed plan last",
+      noOrder.figures.map(\.plan) == ["Pro", "Team", nil])
+check("T17b plan absent from the window reads zero", noOrder.figures.last?.demandPerWeek == 0)
+
+let collectingDay = AdvisorConclusion.windowFigures(
+    Window(days: 1, demandPerWeek: nil, tierDemands: [], minimumDays: 1),
+    readingTiers: codexTiers, planOrder: ["Pro", "Team"])
+check("T18 collecting window keeps the plan names", collectingDay.split
+      && collectingDay.figures == [Figure(plan: "Pro", demandPerWeek: nil), Figure(plan: "Team", demandPerWeek: nil)])
+
+let ladderReading = UsageAdvisor.Reading(
+    provider: "codex", verdict: .sufficient, demandPerWeek: 2.6, activeBurnPerHour: 10,
+    starvedHoursPerWeek: 0, daysOfData: 14, accountCount: 4, tierDemands: codexTiers,
+    windowDemands: [Window(days: 1, demandPerWeek: 3.0, minimumDays: 1), threeDay,
+                    Window(days: 28, demandPerWeek: 2.6, minimumDays: 7)])
+check("T19 remembered window is read", AdvisorConclusion.window(3, in: ladderReading).days == 3)
+check("T19 unknown window falls back to the last", AdvisorConclusion.window(5, in: ladderReading).days == 28)
+var bare = ladderReading
+bare.windowDemands = []
+let fallback = AdvisorConclusion.window(7, in: bare)
+check("T19 no ladder falls back to the four weeks", fallback.days == 28 && fallback.demandPerWeek == 2.6
+      && fallback.tierDemands == codexTiers)
+
 // T13: source locks. The row goes through the one decision, and the gauge's forecast line reads
 // the shared dry predicate instead of calling the forecast math a second time.
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -120,15 +173,37 @@ let advisor = source("Tally/Views/AdvisorStripView.swift")
 check("T13 advisor source readable", !advisor.isEmpty)
 check("T13 row decides through AdvisorConclusion.join", advisor.contains("AdvisorConclusion.join("))
 check("T13 no pips", !advisor.contains("demandPips("))
-check("T13 no click-to-cycle window", !advisor.contains("cycleAdvisorWindow"))
 var rowBody = ""
 if let start = advisor.range(of: "private func advisorRow") {
     let rest = advisor[start.upperBound...]
     rowBody = String(rest[..<(rest.range(of: "    private ")?.lowerBound ?? rest.endIndex)])
 }
 check("T13 advisorRow found", !rowBody.isEmpty)
-// The window ladder is on the panel, not only in the hover (2026-09-28: hiding it lost the figures).
-check("T13 row shows the window ladder", rowBody.contains("Text(ladder)") && rowBody.contains("ladderLine(reading)"))
+// One window's figure is on the panel and the line itself cycles the window (2026-09-28).
+check("T13 row line is the cycle button",
+      rowBody.contains("Button(action: cycleAdvisorWindow)") && rowBody.contains("windowLine(reading)"))
+check("T13 row no longer lists every window", !rowBody.contains("ladderLine"))
+check("T13 row splits through windowFigures", advisor.contains("AdvisorConclusion.windowFigures("))
+check("T13 hover ladder is per plan", advisor.contains("ladderLines(reading)"))
+
+// T20: the panel meets a fresh install with the list, and the advisor window is remembered.
+let settingsSource = source("Tally/Stores/SettingsStore.swift")
+check("T20 density defaults to list", settingsSource.contains("?? \"\") ?? .list")
+    && !settingsSource.contains("?? \"\") ?? .cards"))
+check("T20 advisor window persisted", settingsSource.contains("forKey: \"advisorWindowDays\""))
+
+// T21: the three new strings exist in every shipped language.
+let catalog = (try? Data(contentsOf: root.appendingPathComponent("Tally/Resources/Localizable.xcstrings")))
+    .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+let strings = catalog?["strings"] as? [String: Any] ?? [:]
+for key in ["%@: %@ acct/wk", "%@ by window: %@ acct/wk", "Click the figures to change the window."] {
+    let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
+    let complete = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
+        let value = ((locs[lang] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
+        return !(value ?? "").isEmpty
+    }
+    check("T21 \(key) translated", complete)
+}
 let fleet = source("Tally/Views/FleetStripView.swift")
 var phraseBody = ""
 if let start = fleet.range(of: "private func forecastPhrase") {

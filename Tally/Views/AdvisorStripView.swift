@@ -4,7 +4,9 @@ import SwiftUI
 /// another account?" as a conclusion, not a figure to convert: enough accounts, add how many of
 /// which plan, not enough at this pace, or how many days until advice. The provider's own icon and
 /// name on the left, the same identity the gauge above uses. Under the conclusion, a second small
-/// line shows the window ladder (acct/wk over 1, 3, 7 and 28 days) without needing a hover. The rest
+/// line shows the acct/wk figure over one window (1, 3, 7 or 28 days, clicked to cycle and
+/// remembered in `advisorWindowDays`), split by plan when the provider's accounts sit on two or
+/// more plans. The rest
 /// of the figures (the per-plan split, burn, starved hours, the next refills) and the two horizons
 /// behind the conclusion live in the hover tooltip. The rule that keeps this line consistent with the pool
 /// lines above it is `AdvisorConclusion`. It has its own visibility switch (`showAdvisor`),
@@ -68,7 +70,7 @@ extension PopoverRootView {
         let dryPools = advisorDryPools(reading.provider, now: now)
         let conclusion = advisorConclusion(reading, dryPools: dryPools)
         let sentence = conclusionSentence(conclusion)
-        let ladder = ladderLine(reading)
+        let line = windowLine(reading)
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 // The same identity the gauge above uses, so the row reads as its sibling.
@@ -81,21 +83,28 @@ extension PopoverRootView {
                     .foregroundStyle(conclusionTint(conclusion))
                 Spacer(minLength: 0)
             }
-            // How many accounts a week each window burns, on the panel itself: the comparison
-            // across windows is what the conclusion rests on, so it must not hide behind a hover.
-            // Wraps instead of truncating: two-digit figures overrun a 262pt column in most locales.
-            // fixedSize keeps the second line when a short panel squeezes the header vertically.
-            Text(ladder)
-                .foregroundStyle(Color.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            // One window's acct/wk figure on the panel itself, split by plan like the pool rows
+            // above it. The line is the control: clicking it cycles the window (one setting for
+            // every provider row, so two rows never show figures over different spans). The
+            // conclusion above does not move with it. Wraps instead of truncating: a split figure
+            // overruns a 262pt column in most locales. fixedSize keeps the second line when a short
+            // panel squeezes the header vertically.
+            Button(action: cycleAdvisorWindow) {
+                Text(line)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())
         .tallyTooltip(advisorTooltip(reading, sentence: sentence, dryPools: dryPools, now: now))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence), \(ladder)")
+        .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence), \(line)")
     }
 
     private typealias DryPool = (summary: FleetSummary, pool: FleetPool, dry: Date)
@@ -173,25 +182,65 @@ extension PopoverRootView {
         return String(localized: "\(count)d", bundle: AppLocale.bundle)
     }
 
-    /// Every window's pooled figure on one line: "1d 4.1 · 3d 3.8 · 7d 3.6 · 28d 3.4". Windows that
-    /// have not reached their own gate keep their rung and show the no-data glyph, so the ladder is
-    /// the same shape on day one as it is in month two.
-    private func demandLadder(_ reading: UsageAdvisor.Reading) -> String {
-        reading.windowDemands
-            .map { "\(windowLabel($0.days)) \(pooledFigure($0))" }
+    /// The plans of this provider in the fleet gauge's order, so the advisor names them in the
+    /// order the pool rows above it do.
+    private func gaugePlanOrder(_ providerID: String) -> [String?] {
+        FleetMath.planGroups(store.orderedAccounts.filter { $0.providerID == providerID })
+            .map(\.tier.name)
+    }
+
+    /// A figure to one decimal, or the no-data glyph while its window is short of its gate. ONE
+    /// place decides what a missing number looks like, so "not yet" never reads two ways.
+    private func figureText(_ demand: Double?) -> String {
+        demand.map { String(format: "%.1f", $0) } ?? Self.noFigure
+    }
+
+    /// The window's figures without label or unit: "5.8", or "Pro 1.7 · Team 0.9" for a split
+    /// provider (the unit then follows the whole list rather than repeating per plan).
+    private func figuresText(_ figures: AdvisorConclusion.WindowFigures) -> String {
+        guard figures.split else { return figureText(figures.figures.first?.demandPerWeek) }
+        return figures.figures
+            .map { "\($0.plan ?? L("Unknown plan")) \(figureText($0.demandPerWeek))" }
             .joined(separator: " · ")
     }
 
-    /// The ladder with its label and unit, shared by the row's second line and the hover.
-    private func ladderLine(_ reading: UsageAdvisor.Reading) -> String {
-        String(localized: "by window: \(demandLadder(reading)) acct/wk", bundle: AppLocale.bundle)
+    /// The row's second line: "7d: 5.8 acct/wk", or "7d: Pro 2.1 · Team 1.4 acct/wk".
+    private func windowLine(_ reading: UsageAdvisor.Reading) -> String {
+        let window = AdvisorConclusion.window(settings.advisorWindowDays, in: reading)
+        let figures = figuresText(AdvisorConclusion.windowFigures(
+            window, readingTiers: reading.tierDemands, planOrder: gaugePlanOrder(reading.provider)))
+        let label = windowLabel(window.days)
+        return String(localized: "\(label): \(figures) acct/wk", bundle: AppLocale.bundle)
     }
 
-    /// One window's pooled figure to one decimal, or the no-data glyph while it is still short of
-    /// its gate. ONE place decides what a missing number looks like: the row and the ladder show the
-    /// same window side by side, and two spellings of "not yet" would read as two different states.
-    private func pooledFigure(_ window: UsageAdvisor.WindowDemand) -> String {
-        window.demandPerWeek.map { String(format: "%.1f", $0) } ?? Self.noFigure
+    /// Next window along, wrapping. ONE setting for every provider row, deliberately: the question
+    /// ("is last month still what I am doing this week") is about the reader's own week, and two
+    /// rows answering it over different spans would put two numbers on screen that cannot be compared.
+    private func cycleAdvisorWindow() {
+        settings.advisorWindowDays = AdvisorConclusion.nextWindow(after: settings.advisorWindowDays)
+    }
+
+    /// Every window side by side for the hover: one line for a provider on one plan, one line per
+    /// plan for a split one (the same split and order as the row), because a ladder that pooled Pro
+    /// and Team would contradict the "counted separately" line right above it.
+    private func ladderLines(_ reading: UsageAdvisor.Reading) -> [String] {
+        let order = gaugePlanOrder(reading.provider)
+        let perWindow = reading.windowDemands.map {
+            AdvisorConclusion.windowFigures($0, readingTiers: reading.tierDemands, planOrder: order)
+        }
+        guard let first = perWindow.first, first.split else {
+            let rungs = zip(reading.windowDemands, perWindow)
+                .map { "\(windowLabel($0.days)) \(figuresText($1))" }
+                .joined(separator: " · ")
+            return [String(localized: "by window: \(rungs) acct/wk", bundle: AppLocale.bundle)]
+        }
+        return first.figures.indices.map { index in
+            let plan = first.figures[index].plan ?? L("Unknown plan")
+            let rungs = zip(reading.windowDemands, perWindow)
+                .map { "\(windowLabel($0.days)) \(figureText($1.figures[index].demandPerWeek))" }
+                .joined(separator: " · ")
+            return String(localized: "\(plan) by window: \(rungs) acct/wk", bundle: AppLocale.bundle)
+        }
     }
 
     private func tierName(_ tier: UsageAdvisor.TierDemand) -> String {
@@ -256,8 +305,9 @@ extension PopoverRootView {
             String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
                    bundle: AppLocale.bundle))
         // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
-        // last month's average?), so every rung is side by side.
-        lines.append(ladderLine(reading))
+        // last month's average?), so every rung is side by side, per plan when the provider splits.
+        lines.append(contentsOf: ladderLines(reading))
+        lines.append(L("Click the figures to change the window."))
         for refill in upcomingRefills(reading.provider, now: now) {
             lines.append(refillText(refill, style: settings.resetDisplay, now: now)
                          + " (+\(Int(refill.gain.rounded()))%)")

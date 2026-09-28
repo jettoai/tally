@@ -170,11 +170,16 @@ final class StatusItemController: NSObject {
             // to the front, and with a Tally window open on another display the menu bar (and the
             // status item's own window with it) can follow it there. Read afterwards, the item's
             // rectangle is then the one on the display nobody clicked on.
+            // AN UNPINNED PANEL IS A LOOK, NOT A SURFACE THE USER CHOSE: a capture launch puts one up
+            // without pinning (CaptureLaunch), and the summon is where it gives way, so a click on the
+            // item ends with exactly one surface, the one that dismisses itself. Pinned never gets here.
+            PinnedPanelController.shared.hide()
             guard let anchorView = decoyAnchorViewForShow(button: button) else { return }
             takeForegroundForPopover()
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
             // The real anchor is watched only to feed the decoy from it.
             watchRealAnchor()
+            watchOutsidePresses()
             let window = popoverWindow
             window?.makeKey()
             // Nothing should start focused, the same clear `PinnedPanelController.show` makes on its
@@ -388,9 +393,32 @@ final class StatusItemController: NSObject {
         anchorObservers = []
     }
 
+    /// A PRESS IN ANOTHER APP, which the transient behaviour never hears about when the popover
+    /// opened without the app coming forward (`takeForegroundForPopover` stands down while a Tally
+    /// window is on screen, on any Space): nothing of ours resigns active or key, so the popover
+    /// stayed up over whatever the user clicked (reported 2026-09-28). The same watch
+    /// `ViewOptionsCard.watchForPresses` keeps for its card. Presses on our own windows, the item
+    /// included, are not delivered here and keep their existing paths.
+    private var outsidePressMonitor: Any?
+
+    private func watchOutsidePresses() {
+        stopWatchingOutsidePresses()
+        outsidePressMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover.performClose(nil) }
+        }
+    }
+
+    private func stopWatchingOutsidePresses() {
+        if let outsidePressMonitor { NSEvent.removeMonitor(outsidePressMonitor) }
+        outsidePressMonitor = nil
+    }
+
     /// Put the decoy away with the popover, so nothing of ours is left over the menu bar.
     private func retireDecoyAnchor() {
         stopWatchingRealAnchor()
+        stopWatchingOutsidePresses()
         decoyAnchor?.orderOut(nil)
     }
 

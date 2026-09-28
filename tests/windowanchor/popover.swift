@@ -114,6 +114,31 @@ func checkPopoverAnchor() {
     check("…with the real anchor watched only so the decoy can follow it",
           toggle.contains("watchRealAnchor()"))
 
+    // 12c'. A CLICK ELSEWHERE CLOSES IT (reported 2026-09-28). Two ways it stayed up. An unpinned
+    //      panel (a capture launch's) sat beside the popover and never dismisses, so the showing puts
+    //      it away first; the pinned branch returns above, so this can never take a hand-pinned one.
+    //      And a popover opened without the app coming forward hears nothing of a press in another
+    //      app, so it watches for one globally from the moment it shows until the close.
+    check("the showing puts an unpinned panel away before the popover goes up",
+          precedes("PinnedPanelController.shared.hide()", "decoyAnchorViewForShow(button: button)", in: toggle)
+              && precedes("if SettingsStore.shared.isUsagePanelPinned {\n",
+                          "            return\n        }\n", in: toggle)
+              && precedes("            return\n        }\n", "PinnedPanelController.shared.hide()", in: toggle))
+    func bodyOf(_ signature: String) -> String {
+        guard let start = statusSource.range(of: signature),
+              let end = statusSource.range(of: "\n    }\n", range: start.upperBound ..< statusSource.endIndex)
+        else { return "" }
+        return String(statusSource[start.upperBound ..< end.lowerBound])
+    }
+    let watch = bodyOf("private func watchOutsidePresses()")
+    check("…and once shown it watches for a press in another app, which closes it",
+          precedes("popover.show(relativeTo:", "watchOutsidePresses()", in: toggle)
+              && watch.contains("NSEvent.addGlobalMonitorForEvents(")
+              && watch.contains("popover.performClose(nil)"))
+    check("…and every close takes the watch down with the decoy",
+          bodyOf("private func retireDecoyAnchor()").contains("stopWatchingOutsidePresses()")
+              && bodyOf("private func stopWatchingOutsidePresses()").contains("NSEvent.removeMonitor("))
+
     // 12d. WHAT COMING FORWARD MAY COST, and the assertion here is the reverse of the one it
     //      replaces. Until 2026-08-15 this suite asserted `NSApp.activate(ignoringOtherApps: true)`
     //      as the first statement of the showing - the shape of the code, written down as if it

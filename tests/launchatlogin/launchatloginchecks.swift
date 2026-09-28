@@ -425,6 +425,32 @@ func runLaunchAtLoginChecks() {
               && settingsController.contains("Self.recordRestore(false)")
               && settingsController.contains("Self.recordRestore(isWindowOpen)"))
 
+    // THE PANEL CAPTURE, held to the same rule (reported 2026-09-28). It once recorded the pin, and a
+    // pinned panel is what every later click on the menu-bar item summons: it never dismisses on a
+    // click elsewhere, and the next ordinary launch restored it. It also restored Settings beside the
+    // panel, a window of ours on screen that keeps the popover from coming forward.
+    let appDelegate = (try? String(contentsOfFile: "Tally/App/AppDelegate.swift", encoding: .utf8)) ?? ""
+    func body(of signature: String, in text: String) -> String {
+        guard let start = text.range(of: signature),
+              let end = text.range(of: "\n    }\n", range: start.upperBound ..< text.endIndex)
+        else { return "" }
+        return String(text[start.upperBound ..< end.lowerBound])
+    }
+    let capturePanel = body(of: "private func openPanelForCapture()", in: appDelegate)
+    check("the panel capture's source is readable from the capture checks", !capturePanel.isEmpty)
+    check("…and it shows the panel without writing the pin",
+          capturePanel.contains("PinnedPanelController.shared.show(")
+              && !capturePanel.contains("isUsagePanelPinned"))
+    let launch = body(of: "func applicationDidFinishLaunching(", in: appDelegate)
+    let restoreCall = "SettingsWindowController.shared.restoreAtLaunchIfNeeded("
+    let restoreGate = launch.range(of: restoreCall).map { call in
+        launch[..<call.lowerBound].components(separatedBy: "if ").last ?? ""
+    } ?? ""
+    check("…and a panel capture launch stands in for the Settings restore",
+          restoreGate.contains("!isPanelCaptureLaunch")
+              && body(of: "private var isPanelCaptureLaunch: Bool", in: appDelegate)
+                  .contains("forKey: \"TallyPanelCapture\""))
+
     // The membership itself, written out rather than derived from the list under test. The grid above
     // is generated FROM `backgroundKeys`, so dropping a member silently drops its own check with it:
     // shrinking the family back to one flag left that loop green over a single cell. Spelled out, both

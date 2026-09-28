@@ -4,29 +4,28 @@ import Observation
 /// The one vendor that stamps its own name onto every id it ships.
 private let modelVendorPrefix = "claude-"
 
-/// A model id AS A CARD PRINTS IT: the vendor's name off the front, everything else kept.
-/// `claude-opus-5` -> `opus-5`, `claude-fable-5` -> `fable-5`, `gpt-5.6-sol` unchanged.
+/// A model as a card prints it. A Claude model is printed as its FAMILY (`claude-opus-5-5`,
+/// `opus` and `opus[1m]` all read `opus`), because the alias a session was launched with cannot be
+/// resolved to a version before its first observed turn, and one board printing `opus` on one card
+/// and `opus-5-5` on the next was two spellings of one answer (Albert, 2026-09-28). Every other id
+/// is kept whole: `gpt-5.6-sol` and `gpt-5.6-terra` are told apart by their last segment.
 ///
-/// WHY THE VENDOR GOES AND NOTHING ELSE DOES. The card already names the vendor one field to the
-/// left - the account serving the session is called "Claude 5" - so an identity line reading
-/// "Claude 5 · claude-opus-5 · high" said Claude twice and spent a truncating line's width doing it.
-/// Every segment after that prefix is kept because every one of them tells two models apart.
-///
-/// NOT `shortModelName`, and the split is by what the answer is FOR rather than by taste.
-/// That one normalises for a JUDGEMENT - "is what is serving this session the model I asked for" -
-/// so it keeps the family and drops the rest (`claude-opus-4-8` -> `opus`), which is exactly the
-/// right coarseness for a comparison and the wrong one here: run a Codex id through it and
-/// `gpt-5.6-sol` reads `gpt`, erasing the only segment that separates it from `gpt-5.6-terra`.
-/// This one is read by a person, so it drops the one segment that is already on screen and nothing
-/// else. Neither may be applied on the writing side: what the supervisor publishes is read by the
-/// drift check and the status line too (`syncSessionState`).
+/// Not `shortModelName` (DriftMonitor.swift), which normalises for the drift JUDGEMENT and cuts a
+/// Codex id to `gpt`; and applied on the reading side only, since what the supervisor publishes is
+/// read by the drift check and the status line too (`syncSessionState`).
 func displayModelName(_ id: String) -> String {
-    // A bare prefix and nothing after it is left whole: dropping it would trade an odd-looking id
-    // for an empty field, and a blank is the one answer that says less than the raw string.
-    guard id.lowercased().hasPrefix(modelVendorPrefix), id.count > modelVendorPrefix.count
-    else { return id }
-    return String(id.dropFirst(modelVendorPrefix.count))
+    let bare = String(id.prefix { $0 != "[" })
+    let lowered = bare.lowercased()
+    if lowered.hasPrefix(modelVendorPrefix) {
+        let family = lowered.dropFirst(modelVendorPrefix.count).split(separator: "-")
+            .first { !$0.isEmpty && $0.allSatisfy(\.isLetter) }
+        return family.map(String.init) ?? id
+    }
+    return claudeModelFamilies.contains(lowered) ? lowered : id
 }
+
+/// The Claude aliases `--model` accepts that a card may see bare.
+private let claudeModelFamilies: Set<String> = ["opus", "sonnet", "haiku", "fable"]
 
 /// WHICH SESSIONS ARE RUNNING AND WHAT THEY ARE DOING, as the panel draws them.
 ///
@@ -202,9 +201,9 @@ final class SessionRosterStore {
         ///
         /// AND ALL THREE ARE SPELLED THE ONE WAY HERE, which is why the normalisation is on the row
         /// rather than in the view that draws it: only the first two are raw ids (the state record's
-        /// was already trimmed by its writer), so a board reading them straight printed
-        /// `claude-opus-5` on the cards that had been observed and `opus` on the ones that had
-        /// fallen back - two spellings of one answer, side by side, on the same page.
+        /// was already trimmed to its family by its writer), so every source is printed as the
+        /// family (`displayModelName`) and an observed `claude-opus-5-5` and a launched `opus`
+        /// read the same on one page.
         var model: String? {
             Self.firstAnswer(session?.observedModel, session?.runningModel, record?.model)
                 .map(displayModelName)

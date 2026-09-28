@@ -98,7 +98,7 @@ extension DemoUsage {
         // The one with a parallel line beside it, which is the only way that field is ever drawn.
         SessionFixture(project: "atlas", worktree: "feat-search",
                        directory: "/Users/you/workspace/atlas-feat-search",
-                       account: "claude:demo-Claude 2", model: "claude-opus-5", effort: "high",
+                       account: "claude:demo-Claude 2", model: "claude-opus-5-5", effort: "high",
                        context: 61_000, state: .working, since: 12 * 60, activity: 20,
                        // AND THE CARD THAT IS A BUILD BEHIND, which is the badge's own fixture: a
                        // real board only has one for the few minutes after an update lands, and a
@@ -122,7 +122,7 @@ extension DemoUsage {
         // And the other scope, which is undone somewhere else entirely: a `tally account` typed
         // inside this conversation.
         SessionFixture(project: "beacon", directory: "/Users/you/workspace/beacon",
-                       account: "claude:demo-Claude 2", model: "claude-opus-5", effort: "xhigh",
+                       account: "claude:demo-Claude 2", model: "opus", effort: "xhigh",
                        context: 208_000, state: .working, since: 65, activity: 10,
                        pin: .session),
         // THE QUIET CARD: a supervisor too old to publish a state, drawn dimmed from the sidecars

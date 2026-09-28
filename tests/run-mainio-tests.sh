@@ -70,7 +70,7 @@ store=Tally/Stores/UsageStore.swift
 
 echo "== M1: IO added to a View computed property"
 t=$(fresh m1)
-mutate "$t/$card" $'var sessionPortsText: String? {\n' $'var sessionPortsText: String? {\n        '"$probe"$'\n'
+mutate "$t/$card" $'var sessionPortsSpellings: [String] {\n' $'var sessionPortsSpellings: [String] {\n        '"$probe"$'\n'
 landed "$t/$card" "$probe"
 expect m1 red "$t" "$card"
 
@@ -82,7 +82,7 @@ expect m2 red "$t" "HostHealthMonitor.publish"
 
 echo "== M3: the same line as M1 inside Task.detached (control: must stay green)"
 t=$(fresh m3)
-mutate "$t/$card" $'var sessionPortsText: String? {\n' $'var sessionPortsText: String? {\n        Task.detached { '"$probe"$' }\n'
+mutate "$t/$card" $'var sessionPortsSpellings: [String] {\n' $'var sessionPortsSpellings: [String] {\n        Task.detached { '"$probe"$' }\n'
 landed "$t/$card" "$probe"
 expect m3 green "$t"
 

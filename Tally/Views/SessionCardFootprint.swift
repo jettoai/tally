@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 // WHAT THE SESSION IS DOING TO THE MACHINE, as the card draws it. Split from SessionCardView.swift
@@ -49,48 +48,19 @@ extension SessionCardView {
                                     backgroundUnit: L("background jobs"))
     }
 
-    /// What this session is holding open, as the identity line prints it, or nothing when it is
-    /// holding nothing. How many of the ports say what is holding them is decided in the pure rule
-    /// on a measured POINT budget rather than by the layout (`ProcessTree.portsText`, and
-    /// `SessionCardView.sessionIdentityRow` for why it is not a choice between two candidates).
-    ///
-    /// THE RULE IS PURE AND THE RULER IS NOT, which is why the measuring is done from here. A
-    /// budget in points needs somebody who can turn a spelling into points, and that is a font -
-    /// which the rule's own file cannot see and the assertion harness has no target for. So the
-    /// rule asks for a ruler and this hands it the real one, the same way it is handed the program
-    /// a pid is running (`ProcessTree.held`).
-    var sessionPortsText: String? {
-        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
-        return ProcessTree.portsText(footprint, width: Self.portsWidth)
+    /// What this session is holding open, in every spelling the identity row may choose from, widest
+    /// and most informative first (`ProcessTree.portsSpellings`). Empty when it holds nothing.
+    var sessionPortsSpellings: [String] {
+        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return [] }
+        return ProcessTree.portsSpellings(footprint)
     }
 
-    /// The same ports with EVERY name said and every port listed, whatever the row had room to
+    /// The same ports with every name said and every port listed, whatever the row had room to
     /// print (`SessionCardView.sessionIdentityRow` hands this to VoiceOver).
-    ///
-    /// A LISTENER HAS NO WIDTH TO RUN OUT OF, which is the rule the trend row one screen down
-    /// already keeps about its own dropped words (`spokenTrends`). Both of the two budgets this
-    /// spelling is subject to are about ROOM - how many points of names fit, and how many ports fit
-    /// beside an identity before the rest become `+N` - so both are lifted here, and what is left is
-    /// the whole fact: every port this session holds, each with whoever holds it.
     var sessionPortsSpoken: String? {
         guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
-        return ProcessTree.portsText(footprint, maxPorts: .max, budget: .infinity,
-                                     width: Self.portsWidth)
+        return ProcessTree.portsSpoken(footprint)
     }
-
-    /// How wide one spelling of the ports is, in the font the identity row draws them in.
-    ///
-    /// MEASURED IN THE FONT THAT IS ACTUALLY DRAWN, digits and all: the row asks for
-    /// `.caption2.monospacedDigit()`, whose digits are a shade wider than the proportional ones, so
-    /// a budget checked against the plain text style would be spending points these strings do not
-    /// have (they are mostly digits). Held as a stored font rather than resolved per call - this is
-    /// asked once per card per spelling on every tick of an open board.
-    static func portsWidth(_ text: String) -> Double {
-        NSAttributedString(string: text, attributes: [.font: portsFont]).size().width
-    }
-
-    private static let portsFont = NSFont.monospacedDigitSystemFont(
-        ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .regular)
 
     /// The fields no shape is kept for, in the order the whole line is written in: how many agents
     /// are working and what is being written (`FootprintTrendMetric`). The three that DO have a

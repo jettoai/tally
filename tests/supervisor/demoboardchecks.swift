@@ -111,9 +111,9 @@ func runDemoSessionBoardChecks() {
           Set(board.compactMap(\.providerID)) == ["claude", "codex"])
     // The model ids are stored raw, so the card's own normalisation is the thing being exercised
     // rather than a pre-shortened string (`displayModelName`).
-    check("the model each card prints is the short form the board spells everywhere",
-          board.compactMap(\.model).allSatisfy { !$0.hasPrefix("claude-") }
-              && board.compactMap(\.model).contains("fable-5")
+    check("the model each card prints is the one spelling the board uses everywhere",
+          board.compactMap(\.model).allSatisfy { ["fable", "opus", "sonnet", "gpt-5.6-sol"].contains($0) }
+              && board.compactMap(\.model).filter { $0 == "opus" }.count >= 2
               && board.compactMap(\.model).contains("gpt-5.6-sol"))
     check("one reporting card names no effort, which is the segment the identity line drops",
           board.filter { $0.isReporting && $0.effort == nil }.count == 1)

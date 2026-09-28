@@ -2,7 +2,7 @@
 # Split from the census pattern (mainio plan section 1.1). Order matters only for readability:
 # every regex is joined into one alternation and the leftmost match on a line wins.
 # ProcessTree is listed member by member, because most of its members are pure formatters
-# (portsText, segments, memoryText...) and matching the whole namespace misreports 29 sites.
+# (portsSpellings, segments, memoryText...) and matching the whole namespace misreports 29 sites.
 contentsOfDirectory	\bcontentsOfDirectory\(
 attributesOfItem	\battributesOfItem\(
 fileExists	\bfileExists\(atPath|(?:FileManager\.default|\bfm)\.fileExists\b

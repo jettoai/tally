@@ -32,7 +32,7 @@ func runProcessTreeLineChecks() {
                            unit: "procs") == "2 procs")
     // THE PORTS ARE NOT A FIELD OF THIS SENTENCE ANY MORE: they are their own element on the
     // identity line, where they are not the first thing a narrow card truncates away
-    // (`ProcessTree.portsText`, asserted below).
+    // (`ProcessTree.portsSpellings`, asserted below).
     check("…and a session holding ports says nothing about them here",
           ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: 5, listeningPorts: [3000]),
                            unit: "procs") == "2 procs · 5% CPU")
@@ -176,89 +176,52 @@ func runProcessTreeLineChecks() {
     let holding = ProcessFootprint(processes: 2, cpuPercent: nil,
                                    listeningPorts: [3000, 5173, 8080],
                                    portNames: [3000: "next-server", 5173: "node"])
-    // A RULER OF THE HARNESS'S OWN, because the real one is a font and there is no target with
-    // AppKit in it here (`SessionCardView.portsWidth` is the production one). Two of them, and the
-    // pair is the point: measured with the app's own font at 10pt (2026-08-17),
-    // `:3000 (MMMMMMMMMMMMMMM) :5173` is 204.1pt over 29 characters, while the same shape whose
-    // name is fifteen full-width characters is 220.4pt over the same 29 - so a rule counting
-    // characters cannot tell the fitting spelling from the one that runs off the card.
-    func narrow(_ text: String) -> Double { Double(text.count) * 5.1 }
-    func wide(_ text: String) -> Double { Double(text.count) * 7.6 }
-    // AND A THIRD RULER THAT IS NOT THE CHARACTER COUNT TIMES ANYTHING, which is the only kind that
-    // can state what changed here: against a linear ruler `w(s) = k · s.count` a budget in points
-    // and a budget in characters are the SAME RULE with k divided out, so the two above - useful as
-    // they are for the ends of the budget - would pass just as well on the implementation this
-    // replaced. This one charges per glyph, the way a font does.
-    func perGlyph(_ text: String) -> Double {
-        text.reduce(0) { $0 + ($1.isASCII ? 5.1 : 10.0) }
+    // THE PORTS ARE WHAT GIVE WAY, SO THE RULE IS A LADDER RATHER THAN A BUDGET. The card offers
+    // these to `ViewThatFits` beside an identity that asks for room first
+    // (`SessionCardView.sessionIdentityRow`), so which rung is drawn is decided by the real font at
+    // the real width, and all this rule owns is the order and the spellings.
+    check("the ports are offered most informative first, names going from the right",
+          ProcessTree.portsSpellings(holding) == [
+              ":3000 (next-server) :5173 (node) +1", ":3000 (next-server) :5173 +1",
+              ":3000 :5173 +1", ":3000 (next-server) +2", ":3000 +2"])
+    // A NUMBER IS NEVER CUT: every rung leads with the first port, and every port token on it is a
+    // port the session really holds, whole.
+    func portTokens(_ spelling: String) -> [UInt16?] {
+        spelling.split(separator: " ").filter { $0.hasPrefix(":") }.map { UInt16($0.dropFirst()) }
     }
-    // THE BUDGET IS WHAT DECIDES HOW MANY NAMES ARE PRINTED, and it is decided here rather than by
-    // the layout: the card used to hand two spellings to `ViewThatFits`, which chooses on its
-    // candidates' IDEAL width and so measured the whole untruncated identity string against the
-    // named ports - a test no ordinary card passes, which left the names silently off.
-    check("a card with room says what is holding every port it lists",
-          ProcessTree.portsText(holding, budget: 220, width: narrow)
-              == ":3000 (next-server) :5173 (node) +1")
-    // NAMES GO FROM THE RIGHT AND THE NUMBERS NEVER GO. 155pt is the measured budget of the
-    // narrowest card: the one-named spelling is 142.6pt of it and naming both is 177.5pt, so the
-    // narrow card still names the first port.
-    check("…and a narrow one names as many as fit, from the left",
-          ProcessTree.portsText(holding, width: narrow) == ":3000 (next-server) :5173 +1"
-              && ProcessTree.portsBudget == 155)
-    check("…dropping every name rather than any number when even one will not fit",
-          ProcessTree.portsText(holding, budget: 100, width: narrow) == ":3000 :5173 +1")
-    check("…and a spelling that cannot fit at all is still the numbers",
-          ProcessTree.portsText(holding, budget: 1, width: narrow) == ":3000 :5173 +1")
-    // THE SAME STRING, THE SAME CHARACTER COUNT, THE OTHER ANSWER - which is the whole of what
-    // changed unit here (codex review of 0cd4a09). A capital-heavy ASCII name does it as readily as
-    // a CJK one: the calibration that produced "thirty characters" was taken over lower-case
-    // program names, and this app ships in five languages.
-    check("a spelling is measured in the points it takes rather than in characters",
-          ProcessTree.portsText(holding, width: wide) == ":3000 :5173 +1"
-              && ProcessTree.portsText(holding, width: narrow) == ":3000 (next-server) :5173 +1")
-    // AND THE PAIR THAT SAYS IT WITHOUT THE RULER'S HELP: two cards whose named spellings are the
-    // same LENGTH and different WIDTHS, answered differently. Nothing about a budget in characters
-    // can produce these two answers, whatever constant it is calibrated with - which is what the
-    // pair of rulers above, both of them the character count times something, cannot state.
-    let capitals = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000, 5173],
-                                    portNames: [3000: "MMMMMMMMMMMMMMM"])
-    // Spelled as escapes rather than as the glyphs themselves, so this file stays ASCII: fifteen
-    // full-width characters, exactly as many as the capitals above.
-    let fullWidth = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000, 5173],
-                                     portNames: [3000: String(repeating: "\u{4E00}", count: 15)])
-    check("…the precondition being that the two named spellings are the same length",
-          ProcessTree.portsText(capitals, budget: .infinity, width: perGlyph)?.count
-              == ProcessTree.portsText(fullWidth, budget: .infinity, width: perGlyph)?.count)
-    check("…and the wide one loses its name where the narrow one keeps it, at equal length",
-          ProcessTree.portsText(capitals, width: perGlyph) == ":3000 (MMMMMMMMMMMMMMM) :5173"
-              && ProcessTree.portsText(fullWidth, width: perGlyph) == ":3000 :5173")
-    // And the budget stays clear of the width that would CLIP rather than merely crowd: a 264pt
-    // card gives 236pt of content, of which the provider mark (11), three gaps of four and the
-    // minimum gutter (6) leave 207 for a ports string that is laid out at its own width and refuses
-    // to shrink (`SessionCardView.sessionIdentityRow`).
-    check("…and what may be spent is under what would run off the card",
-          ProcessTree.portsBudget <= 207)
-    // A name nobody could read is simply absent, which is the same shape as a culprit nobody could
-    // name on the line above.
-    check("a port nobody could be named for shows the number alone",
-          ProcessTree.portsText(ProcessFootprint(processes: 1, cpuPercent: nil,
-                                                 listeningPorts: [3000, 5173]),
-                                width: narrow) == ":3000 :5173")
-    check("the cap is the caller's to set, and what is past it is a count",
-          ProcessTree.portsText(holding, maxPorts: 1, width: narrow) == ":3000 (next-server) +2")
-    // A card holding ONE port has room for a long name that two ports could not both carry: 28
-    // characters of `:3000 (Google Chrome Helper)` is 149.5pt measured, inside the budget.
-    check("…and a single port is named even by a program with a long name",
-          ProcessTree.portsText(ProcessFootprint(processes: 1, cpuPercent: nil,
-                                                 listeningPorts: [3000],
-                                                 portNames: [3000: "Google Chrome Helper"]),
-                                width: narrow) == ":3000 (Google Chrome Helper)")
-    check("…with nothing added when everything fits",
-          ProcessTree.portsText(holding, maxPorts: 3, budget: 330, width: narrow)
-              == ":3000 (next-server) :5173 (node) :8080")
+    check("…every rung leading with the first port and no port number cut",
+          ProcessTree.portsSpellings(holding).allSatisfy { spelling in
+              spelling.hasPrefix(":3000")
+                  && portTokens(spelling).allSatisfy { $0.map(holding.listeningPorts.contains) == true }
+          })
+    // UNIQUE, because `ViewThatFits` traps on two candidates with one id, and a single port or a
+    // nameless pair would otherwise spell several rungs alike.
+    let onePortNamed = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000],
+                                        portNames: [3000: "x"])
+    let onePortBare = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000])
+    let twoPortsBare = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000, 5173])
+    check("…and no two rungs spelled alike, whatever the ports and names",
+          [holding, onePortNamed, onePortBare, twoPortsBare].allSatisfy {
+              let ladder = ProcessTree.portsSpellings($0)
+              return Set(ladder).count == ladder.count
+          })
+    check("a single named port is its name or its number",
+          ProcessTree.portsSpellings(onePortNamed) == [":3000 (x)", ":3000"])
+    check("…a single nameless one is only its number",
+          ProcessTree.portsSpellings(onePortBare) == [":3000"])
     check("a session listening on nothing has no ports line at all",
-          ProcessTree.portsText(ProcessFootprint(processes: 4, cpuPercent: 9,
-                                                 listeningPorts: []), width: narrow) == nil)
+          ProcessTree.portsSpellings(ProcessFootprint(processes: 4, cpuPercent: 9,
+                                                      listeningPorts: [])) == [])
+    // The eight-port card (2026-09-28 sample): the narrowest rung is the first port and a count.
+    let eight = ProcessFootprint(processes: 1, cpuPercent: nil,
+                                 listeningPorts: [3200, 20243, 3201, 5432, 6379, 8080, 8081, 9229],
+                                 portNames: [3200: "node", 20243: "node"])
+    check("…and a card holding many ports narrows to the first one and a count",
+          ProcessTree.portsSpellings(eight).contains(":3200 :20243 +6")
+              && ProcessTree.portsSpellings(eight).last == ":3200 +7")
+    // A LISTENER HAS NO WIDTH TO RUN OUT OF: every port, each with its name.
+    check("VoiceOver is told every port and every name",
+          ProcessTree.portsSpoken(holding) == ":3000 (next-server) :5173 (node) :8080")
 
     // MARK: the agents field
 
@@ -536,48 +499,35 @@ func runProcessTreeLineChecks() {
           boardCardSource.contains("return joined([account, row.model, row.effort])")
               && boardCardSource.contains("sessionCardLine { sessionIdentityRow }")
               && boardCardSource.contains("!row.isReporting && sessionIdentityLine == nil"))
-    // THE PORTS ARE LAID OUT AT THEIR OWN WIDTH AND THE IDENTITY ASKS LAST, which is a layout
-    // priority rather than a list of candidates: `ViewThatFits` chooses on IDEAL width, and a
-    // truncating Text's ideal is its whole untruncated string, so a candidate list measured the
-    // full identity against the named ports and fell to the bare spelling on every ordinary card.
-    check("…the identity giving way for them rather than the two being candidates",
-          boardCardSource.contains(".lineLimit(1).truncationMode(.tail).layoutPriority(-1)")
-              && boardCardSource.contains("Text(verbatim: ports)")
-              && boardCardSource.contains(".lineLimit(1).fixedSize()"))
+    // THE IDENTITY ASKS FOR ROOM FIRST AND THE PORTS TAKE WHAT IS LEFT (Albert, 2026-09-28): the
+    // identity carries the higher priority, and the ports are a `ViewThatFits` over non-truncating
+    // spellings whose last candidate is empty, for a card whose identity alone fills the line.
+    // Read off the row itself: the headline above keeps a `Spacer(minLength: 6)` of its own.
+    let identityRow = boardCardSource.components(separatedBy: "private var sessionIdentityRow")
+        .dropFirst().first?.components(separatedBy: "private var sessionIdentityLine").first ?? ""
+    check("…the ports giving way for the identity rather than the other way round",
+          identityRow.contains(".lineLimit(1).truncationMode(.tail).layoutPriority(1)")
+              && identityRow.contains("ViewThatFits(in: .horizontal)")
+              && identityRow.contains("ForEach(spellings, id: \\.self)")
+              && identityRow.contains("Color.clear.frame(width: 0, height: 0)")
+              && identityRow.contains(".lineLimit(1).fixedSize()")
+              && !boardCardSource.contains("layoutPriority(-1)")
+              && !identityRow.contains("Spacer(minLength: 6)"))
     check("…and no candidate list is left on this row to choose between them",
           !boardCardSource.contains("identityRow(ports:"))
-    // THE READER-END COPY OF A RULE SAYS THE SAME THING THE RULE DOES. The budget changed unit and
-    // the paragraph on this card that cites it went on saying "character budget" for a commit,
-    // which is the drift a grep closes and a memory does not (codex review of 707a1a7).
-    check("…described on the card in the unit the rule actually spends",
-          boardCardSource.contains("on a measured POINT budget (`ProcessTree.portsText`)")
-              && !boardCardSource.contains("character budget"))
-    // AND THE PRIORITY ON THIS ROW IS NOT THE ONE THAT WAS DELETED NEXT DOOR. It reads the same and
-    // is not the same: here the row is a plain `HStack` and something really is compressed, while
-    // the trend row's was inside a `ViewThatFits`, which never asks a candidate to give room up. A
-    // note filing the two under one rule invites the next reader to remove this one too, and this
-    // one is what keeps a port number whole.
-    check("…and the live priority here not filed under the dead one's rule",
-          boardCardSource.contains("THAT PRIORITY IS LOAD-BEARING HERE AND WAS NOT ON THE TREND ROW")
-              && !boardCardSource.contains("which is the same rule the trend row's culprit names"))
-    // WHAT THE BUDGET DROPPED IS STILL SPOKEN IN FULL, which is the rule the trend row keeps for
-    // its own dropped words: both of the limits on this spelling are about room, so both are lifted
-    // for a listener who has none.
     check("…and a listener told every name and every port the row had no room for",
-          boardCardSource.contains(".accessibilityLabel(sessionPortsSpoken ?? ports)")
-              && cardSource.contains("ProcessTree.portsText(footprint, maxPorts: .max,"
-                                     + " budget: .infinity,"))
+          boardCardSource.contains(".accessibilityLabel(sessionPortsSpoken")
+              && cardSource.contains("ProcessTree.portsSpoken(footprint)"))
     check("…asked of the same pure rule the assertions above state",
-          cardSource.contains("ProcessTree.portsText(footprint, width: Self.portsWidth)"))
-    // THE RULE IS PURE AND THE RULER IS NOT: the budget is in points, so the one thing the rule
-    // cannot do for itself is turn a spelling into points, and the card hands it a measurement in
-    // the font it is about to draw the string in - digits included, since these strings are mostly
-    // digits and the row asks for monospaced ones.
-    check("…and measured in the very font that row draws, rather than against a guess",
-          cardSource.contains("NSAttributedString(string: text, attributes: [.font: portsFont])")
-              && cardSource.contains("NSFont.monospacedDigitSystemFont(")
-              && cardSource.contains("ofSize: NSFont.preferredFont(forTextStyle: .caption2)"
-                                     + ".pointSize, weight: .regular)")
-              && boardCardSource.contains(".font(.caption2.monospacedDigit()).foregroundStyle"
-                                          + "(.tertiary)"))
+          cardSource.contains("ProcessTree.portsSpellings(footprint)"))
+    // THE POINT BUDGET IS GONE WITH ITS RULER: the width is decided by the layout in the real font.
+    let ruleSource = (try? String(contentsOfFile: "Tally/Core/ProcessTreeLine.swift",
+                                  encoding: .utf8)) ?? ""
+    check("…and no point budget or ruler is left to drift from the layout",
+          !ruleSource.isEmpty
+              && !(cardSource + ruleSource + boardCardSource).contains("portsBudget")
+              && !(cardSource + ruleSource + boardCardSource).contains("portsWidth"))
+    check("…drawn in the monospaced digits every other figure on the card uses",
+          boardCardSource.contains(".font(.caption2.monospacedDigit()).foregroundStyle"
+                                   + "(.tertiary)"))
 }

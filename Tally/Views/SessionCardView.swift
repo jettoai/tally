@@ -253,65 +253,41 @@ struct SessionCardView: View {
         !row.isReporting && sessionIdentityLine == nil && sessionStatsLine(now: .now) == nil
     }
 
-    /// The card's second line: who is serving this session, and what it is HOLDING OPEN.
+    /// The card's second line: who is serving this session, and which ports it holds open.
     ///
-    /// THE PORTS ARE UP HERE BECAUSE THEY ARE THE ONE READING SOMEBODY ACTS ON. Everything else the
-    /// footprint says is a fact about this session's own cost; a port is a fact about the MACHINE -
-    /// it is what the next `pnpm dev` in another window collides with, and it is invisible
-    /// everywhere else in this app. Down on the footprint sentence it was the last field of a line
-    /// truncated at its tail, so it was the first thing a narrow card dropped (Albert, 2026-08-16).
+    /// THE IDENTITY IS NEVER SHORTENED FOR THE PORTS (Albert, 2026-09-28, reversing 2026-08-16):
+    /// the account, model and effort ask for room first (`layoutPriority(1)`), and the ports take
+    /// what is left, as the widest spelling that fits whole (`ProcessTree.portsSpellings`). This is
+    /// a `ViewThatFits` over non-truncating texts, so each candidate's ideal width is its real one;
+    /// the last candidate is empty, which is what a card whose identity alone fills the line draws.
+    /// A port number is never cut, and VoiceOver still hears every port by name.
     ///
-    /// AND THE IDENTITY IS WHAT GIVES WAY FOR THEM, by asking for the room LAST rather than by
-    /// being one of two candidates: the ports are laid out at their own width (`fixedSize`) and the
-    /// identity carries `layoutPriority(-1)`, so a row with too little of it takes the shortfall off
-    /// the name and never off the numbers. How many of the ports say what is holding them is decided
-    /// before the layout ever runs, on a measured POINT budget (`ProcessTree.portsText`).
-    ///
-    /// THAT PRIORITY IS LOAD-BEARING HERE AND WAS NOT ON THE TREND ROW, which is worth writing down
-    /// because the two were once called one rule. This is a plain `HStack`: when the row is short
-    /// something really is compressed, and the priority is what decides which of the two it is. The
-    /// culprit names one file over sat inside a `ViewThatFits`, which only ever takes a candidate
-    /// whose ideal width ALREADY fits - nothing there was ever asked to give room up, so the same
-    /// modifier was dead code and has been removed (`SessionCardView.sessionFootprintTrends`).
-    /// Deleting this one on the strength of that reasoning would compress the PORTS instead, and a
-    /// truncated port number is a wrong port rather than a shortened name.
-    ///
-    /// IT WAS A `ViewThatFits` AND THAT WAS WRONG, which is worth keeping written down because the
-    /// mistake looks like the idiom: that view chooses by its candidates' IDEAL width, and a
-    /// truncating `Text` has the width of its whole untruncated string as its ideal. The fit test
-    /// was therefore "does the FULL identity fit beside the named ports", which no ordinary card
-    /// passes, so every card fell to the bare candidate and the names this row was built for were
-    /// never drawn. A candidate list cannot express "this one shrinks and that one does not"; a
-    /// layout priority can.
-    ///
-    /// A VIEW OF ITS OWN RATHER THAN A SEGMENT OF `sessionIdentityLine`, which is not a style
-    /// choice: that string being nil is how this card knows it has nothing at all to say yet and
-    /// turns an indicator instead (`sessionIsLoading`), so ports written into it would take the
-    /// indicator AWAY from a session that has published nothing but a dev server's port - the card
-    /// would read as one that knows what it is and is merely quiet.
+    /// Its own view rather than a segment of `sessionIdentityLine`: that string being nil is how
+    /// the card knows it has nothing to say yet (`sessionIsLoading`).
     private var sessionIdentityRow: some View {
         HStack(spacing: 4) {
             if let identity = sessionIdentityLine {
                 ProviderIconView(providerID: row.providerID ?? "", size: 11, usesProviderColor: true)
                 if let scope = row.pinScope { pinMark(scope) }
-                // LAST IN THE QUEUE FOR ROOM. A truncated account name still says which account; a
-                // truncated port number is a wrong port.
                 Text(identity).font(.caption2).foregroundStyle(ProviderIdentityStyle.color(for: row.providerID ?? ""))
-                    .lineLimit(1).truncationMode(.tail).layoutPriority(-1)
+                    .lineLimit(1).truncationMode(.tail).layoutPriority(1)
             }
-            if let ports = sessionPortsText {
-                Spacer(minLength: 6)
-                // Held at its own width, so the identity beside it is what the HStack takes the
-                // room from; monospaced for the reason every other figure on this card is - the
-                // digits are re-read every couple of seconds and must not shuffle the line.
-                // WHAT THE BUDGET DROPPED IS STILL SPOKEN IN FULL, the rule the trend row below
-                // keeps for its own dropped words (`spokenTrends`): a listener has no width to run
-                // out of, and the name a narrow card gave up is the very thing this row was moved
-                // up here to say.
-                Text(verbatim: ports)
-                    .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-                    .lineLimit(1).fixedSize()
-                    .accessibilityLabel(sessionPortsSpoken ?? ports)
+            let spellings = sessionPortsSpellings
+            if !spellings.isEmpty {
+                ViewThatFits(in: .horizontal) {
+                    // Unique by construction (`ProcessTree.portsSpellings`); ViewThatFits traps on
+                    // a repeated id.
+                    ForEach(spellings, id: \.self) { spelling in
+                        Text(verbatim: spelling)
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                            .lineLimit(1).fixedSize()
+                            .padding(.leading, 2)
+                    }
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(sessionPortsSpoken ?? spellings[0])
             }
         }
     }
@@ -346,8 +322,8 @@ struct SessionCardView: View {
     /// read as Tally misbehaving rather than as an instruction being obeyed.
     ///
     /// LEADING THE LINE RATHER THAN TRAILING IT, and held at its own width: it qualifies the name
-    /// that follows it, and the identity beside it is what gives room up (`layoutPriority(-1)`), so
-    /// a mark laid out after it would be the first casualty of the narrow card it exists for.
+    /// that follows it, and the ports beside it are what give room up, so a mark laid out after
+    /// them would be the first casualty of the narrow card it exists for.
     ///
     /// A SCOPE RATHER THAN A DOT, because the three send a reader somewhere different to undo it,
     /// and the hover is where that answer fits. On the LABEL as well as in the callout, for the

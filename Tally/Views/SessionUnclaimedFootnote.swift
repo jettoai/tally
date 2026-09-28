@@ -131,7 +131,7 @@ extension SessionUnclaimedFootnote {
     /// and nothing else (`ProjectLoadAccounting.measure`) - and neither of them names a culprit,
     /// because a pool has no leader to blame (`ProcessFootprint.memoryLeader` is a tree's field).
     ///
-    /// AND NO PORTS, WHICH IS A GAP RATHER THAN A CHOICE. `ProcessTree.portsText` reads them off a
+    /// AND NO PORTS, WHICH IS A GAP RATHER THAN A CHOICE. `ProcessTree.portsSpellings` reads them off a
     /// `ProcessFootprint`, and the strays never produce one: the descriptor tables are read per
     /// session tree, on one visible tick in three (`ProcessFootprintStore`), and nothing reads them
     /// for a pool. A dev server nobody is answering for is exactly the leftover whose port somebody

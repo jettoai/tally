@@ -681,19 +681,24 @@ func runSessionStateChecks() {
     check("…and both effort answers, so a pin outranks what is merely running",
           read?.sessionEffort == "xhigh" && read?.runningEffort == "high")
     let joined = SessionRosterStore.SessionRow(id: "9201", record: nil, session: read)
-    // The OBSERVED id wins, and it reaches the card without the vendor's name on it: the sidecar
-    // holds `claude-fable-5`, the row draws `fable-5`.
-    check("the card prefers the model it was SEEN answering with", joined.model == "fable-5")
+    // The OBSERVED id wins, and it reaches the card as its family: the sidecar holds
+    // `claude-fable-5`, the row draws `fable`.
+    check("the card prefers the model it was SEEN answering with", joined.model == "fable")
     check("…and the effort somebody pinned over the one the child was launched with",
           joined.effort == "xhigh")
 
     // MARK: the model as a card prints it
 
-    // THE VENDOR IS NAMED ONCE PER LINE. The account beside it already says Claude, so an identity
-    // line carrying `claude-opus-5` said it twice and spent a truncating line's width on the repeat.
-    check("a card names the model without repeating the vendor the account already names",
-          displayModelName("claude-opus-5") == "opus-5"
-              && displayModelName("claude-fable-5") == "fable-5")
+    // A CLAUDE MODEL IS ITS FAMILY (Albert, 2026-09-28): the alias a session launched with cannot
+    // be resolved to a version before its first observed turn, so the family is the one spelling
+    // the observed id and the alias agree on.
+    check("a card names a Claude model by its family",
+          displayModelName("claude-opus-5-5") == "opus"
+              && displayModelName("claude-fable-5") == "fable"
+              && displayModelName("claude-3-5-sonnet-20241022") == "sonnet")
+    check("…with a context suffix dropped from an alias and an id alike",
+          displayModelName("opus[1m]") == "opus"
+              && displayModelName("claude-opus-5-5[1m]") == "opus")
     // AND NOTHING ELSE IS DROPPED, which is the whole difference from the judgement's normalisation
     // one file over: `sol` and `terra` are what two Codex sessions are told apart by, and
     // `shortModelName` would leave both cards reading `gpt`.
@@ -719,7 +724,14 @@ func runSessionStateChecks() {
     check("…and a raw id that only the launch knew arrives trimmed too",
           SessionRosterStore.SessionRow(
             id: "9214", record: nil,
-            session: SessionSidecar(runningModel: "claude-sonnet-5")).model == "sonnet-5")
+            session: SessionSidecar(runningModel: "claude-sonnet-5")).model == "sonnet")
+    // The 2026-09-28 board: one card launched on the alias, the next observed on the full id.
+    let byAlias = SessionRosterStore.SessionRow(
+        id: "9216", record: SessionStateRecord(state: "idle", since: t0, updatedAt: t0, model: "opus"))
+    let byId = SessionRosterStore.SessionRow(
+        id: "9217", record: nil, session: SessionSidecar(observedModel: "claude-opus-5-5"))
+    check("…so an alias and an observed id of one family read the same on one page",
+          byAlias.model == "opus" && byId.model == "opus")
 
     // MARK: the account the card names, and the provider it marks
 

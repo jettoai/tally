@@ -38,7 +38,7 @@ enum SessionFilter: String, CaseIterable, Identifiable {
 extension PopoverRootView {
     /// The narrowest a card may be laid out at, which is what decides how many fit. Measured
     /// against the longest line these cards actually carry - an account, a model id and an effort
-    /// word ("Claude 5 · fable-5 · high", the model as `displayModelName` prints it) - so a
+    /// word ("Claude 5 · fable · high", the model as `displayModelName` prints it) - so a
     /// two-column panel seats the identity line rather than truncating every card on the page. The
     /// figure did not move when that line lost its vendor prefix, because it also fixes the column
     /// counts: the two-column panel (480pt of content) takes exactly two, and the single-column one

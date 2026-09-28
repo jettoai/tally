@@ -268,6 +268,9 @@ enum DemoUsage {
             one.memoryBytes = 4_100_000_000
             one.memoryLeader = "bun"
             one.alerts = FootprintAlerts(cpu: .residue, memory: .residue)
+            // Two long-named ports: the identity must stay whole and the names give way.
+            one.listeningPorts = [3196, 3197]
+            one.portNames = [3196: "Python", 3197: "Python"]
         case 1:
             one.processes = 2
             one.cpuPercent = 4
@@ -306,6 +309,9 @@ enum DemoUsage {
             one.memoryBytes = 68_000_000_000
             one.memoryLeader = "node"
             one.alerts = FootprintAlerts(cpu: .saturation, memory: .saturation)
+            // Eight ports: the narrowest spelling is the first port and a count.
+            one.listeningPorts = [3200, 20243, 3201, 5432, 6379, 8080, 8081, 9229]
+            one.portNames = [3200: "node", 20243: "node"]
         default:
             one.processes = 0
             one.cpuPercent = 1

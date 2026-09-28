@@ -21,7 +21,7 @@ import Foundation
 struct ProcessFootprintSegment: Equatable {
     /// THE PORTS ARE NOT ONE OF THESE ANY MORE: they moved to the identity line, where they are
     /// their own element beside the account and the model rather than the last field of a sentence
-    /// that truncates (`ProcessTree.portsText`, `SessionCardView.sessionIdentityRow`).
+    /// that truncates (`ProcessTree.portsSpellings`, `SessionCardView.sessionIdentityRow`).
     ///
     /// `background` is the one of these that is about WHERE a reading came from rather than what it
     /// reads: how many of the processes counted beside it are jobs the tree walk could not have
@@ -150,90 +150,43 @@ extension ProcessTree {
             .map(\.text).joined(separator: pickEffortSeparator)
     }
 
-    /// The ports the session is holding, as the identity line prints them: `:3000 (next-server)`,
-    /// with anything past `maxPorts` becoming a count.
+    /// The spellings the identity row may draw a session's ports in, most informative first. The
+    /// row offers them to `ViewThatFits` and draws the first that fits beside the whole identity
+    /// (`SessionCardView.sessionIdentityRow`), so the ports are what give way on a narrow card.
     ///
-    /// A FIELD OF ITS OWN ON THE LINE ABOVE, WHICH IS WHERE IT MOVED FROM the footprint sentence.
-    /// Down there it was the last field of a line truncated at its tail, so the one reading on this
-    /// card that a person ACTS on - the port their next `pnpm dev` is about to collide with - was
-    /// the first thing a narrow card dropped (Albert, 2026-08-16). Up beside the account and the
-    /// model, the identity is what gives way instead.
-    ///
-    /// HOW MANY NAMES FIT IS DECIDED HERE, IN POINTS, RATHER THAN BY THE LAYOUT. The card used
-    /// to offer the named and the bare spelling to `ViewThatFits` and let it choose, which chose
-    /// wrong on every ordinary card: that view picks by its candidates' IDEAL width, and the ideal
-    /// width of a truncating identity string is the whole untruncated string - so the fit test was
-    /// asking "do the full identity AND the named ports both fit", which a 22-character identity
-    /// (108pt measured) and one named port (95.1pt) already fail on a 236pt card. The named spelling
-    /// was therefore almost never chosen, and the feature this row exists for was silently off.
-    ///
-    /// SO THE RULE IS A BUDGET, AND THE BUDGET IS IN THE UNIT THE LAYOUT SPENDS. A 264pt card gives
-    /// 236pt of content, and the identity row lays out a provider mark (11pt), three gaps of four
-    /// and a gutter of at least six around these strings (`SessionCardView.sessionIdentityRow`), so
-    /// 207pt of ports is where the row stops fitting the card at all - the ports are drawn at their
-    /// own width (`fixedSize`) and the identity beside them has already given up everything it has.
-    /// An account name truncated below about 60pt stops being a name, so what the ports may spend
-    /// before the line beside them stops saying anything is about 155pt, and that is the budget
-    /// (`portsBudget`), a good 50pt clear of the width that would clip.
-    ///
-    /// IT USED TO BE COUNTED IN CHARACTERS, and thirty of them was calibrated on lower-case ASCII
-    /// program names, which run about 5.2 to 5.9 points each. The strings this actually prints do
-    /// not: measured with the app's own font at 10pt (2026-08-17),
-    /// `:3000 (MMMMMMMMMMMMMMM) :5173` is 29 characters and 204.1pt, and the same shape whose name
-    /// is fifteen full-width characters is 29 characters and 220.4pt - the same length, 16pt apart,
-    /// both inside a thirty-character budget and both past the 207pt that clips. Tally ships in five
-    /// languages, so a program named in Chinese, Japanese or Korean is an expected reading rather
-    /// than an exotic one, and a capital-heavy ASCII name needs no other language at all. The unit
-    /// was the defect, not the calibration (codex review of 0cd4a09).
-    ///
-    /// AND THE NEW UNIT IS SLIGHTLY TIGHTER ON ORDINARY NAMES, which is a consequence worth naming
-    /// rather than discovering: `:3000 (webpack-dev-srv) :5173` is 29 characters and 155.6pt, so it
-    /// was printed under the thirty-character rule and loses its name under this one, though it
-    /// would not have been clipped. That is the budget doing what it is for - it is the width at
-    /// which the ACCOUNT NAME beside it stops being readable, not the width at which the row
-    /// overflows - and the exchange is one program name for about two characters of identity on the
-    /// cards that sit right on the line. Raising it towards 207 would buy those names back and spend
-    /// the identity down to an ellipsis.
-    ///
-    /// NAMES ARE ADDED FROM THE LEFT AND THE NUMBERS ARE NEVER DROPPED. The widest spelling that
-    /// fits the budget wins, and a spelling with no names at all is returned even when it does not
-    /// fit: a port number is the fact this row is here for, and the name is the help. Measured the
-    /// same way: `:3000` is 28.8pt, `:3000 (next-server)` 95.1pt, `:3000 (next-server) :5173 +1`
-    /// 142.6pt and naming both of those 177.5pt - so a card holding one named port and a second
-    /// bare one prints the name, and the same card asked to name both prints neither name.
-    ///
-    /// - Parameters:
-    ///   - maxPorts: how many are listed before the rest become `+N`. Two is what fits beside an
-    ///     identity line at the panel's narrowest column.
-    ///   - budget: how many points the row may spend, defaulting to the measurement above.
-    ///     A parameter so the harness can state both ends of the rule without a card around it.
-    ///   - width: how wide a spelling is in the font the card draws it in. Asked as a function for
-    ///     the reason `held` asks for a program that way: this stays pure and the harness can state
-    ///     it with no AppKit and no card around it, while the one production caller measures the
-    ///     real thing (`SessionCardView.portsWidth`). No default, because a ruler nobody passed
-    ///     would have to be a guess about a font this file cannot see.
-    static func portsText(_ footprint: ProcessFootprint, maxPorts: Int = 2,
-                          budget: Double = portsBudget,
-                          width: (String) -> Double) -> String? {
-        guard !footprint.listeningPorts.isEmpty else { return nil }
-        let shown = Array(footprint.listeningPorts.prefix(maxPorts))
-        let rest = footprint.listeningPorts.count - shown.count
-        func spelled(naming: Int) -> String {
-            let fields = shown.enumerated().map { index, port -> String in
-                guard index < naming, let name = footprint.portNames[port] else { return ":\(port)" }
-                return ":\(port) (\(name))"
-            }
-            return (fields + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")
+    /// Every rung starts with the first port and no rung cuts a number: names go first, from the
+    /// right; then the second port becomes part of the count. The rungs are unique, because
+    /// `ViewThatFits` traps on two candidates with the same id, and one port or no names would
+    /// otherwise spell several rungs alike.
+    static func portsSpellings(_ footprint: ProcessFootprint, maxPorts: Int = 2) -> [String] {
+        let ports = footprint.listeningPorts
+        guard let first = ports.first else { return [] }
+        func field(_ port: UInt16, named: Bool) -> String {
+            guard named, let name = footprint.portNames[port] else { return ":\(port)" }
+            return ":\(port) (\(name))"
         }
-        for naming in stride(from: shown.count, through: 1, by: -1) {
-            let candidate = spelled(naming: naming)
-            if width(candidate) <= budget { return candidate }
+        func line(_ fields: [String], rest: Int) -> String {
+            (fields + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")
         }
-        return spelled(naming: 0)
+        let shown = Array(ports.prefix(maxPorts))
+        let rest = ports.count - shown.count
+        var ladder: [String] = []
+        for naming in stride(from: shown.count, through: 0, by: -1) {
+            ladder.append(line(shown.enumerated().map { field($1, named: $0 < naming) }, rest: rest))
+        }
+        if ports.count > 1 {
+            ladder.append(line([field(first, named: true)], rest: ports.count - 1))
+            ladder.append(line([field(first, named: false)], rest: ports.count - 1))
+        }
+        var seen = Set<String>()
+        return ladder.filter { seen.insert($0).inserted }
     }
 
-    /// How many points of ports an identity line may carry (see `portsText`).
-    static let portsBudget: Double = 155
+    /// Every port this session holds, each with its name, for a listener: VoiceOver has no width to
+    /// run out of, so nothing the row dropped is dropped here.
+    static func portsSpoken(_ footprint: ProcessFootprint) -> String? {
+        portsSpellings(footprint, maxPorts: .max).first
+    }
 
     /// The same line in the pieces it is drawn from, each saying what it is and whether it is a
     /// warning. `line` is these joined, and stays the sentence a reader hears.

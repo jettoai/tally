@@ -67,8 +67,7 @@ struct MetricRowView: View {
                 if !resetPassed {
                     Capsule()
                         .fill(metric.severity.color)
-                        .frame(width: max(3, geo.size.width * UsageFormat.fillFraction(
-                            metric, mode: mode, resetPassed: resetPassed)))
+                        .frame(width: max(3, geo.size.width * UsageFormat.fillFraction(metric, mode: mode)))
                 }
                 ReserveMark(reserve: barReserve)
             }

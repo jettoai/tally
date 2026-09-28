@@ -299,28 +299,33 @@ struct AccountListRowView: View {
     /// what makes the card as tall as it is.
     private func meterCluster(_ metric: UsageMetric) -> some View {
         let passed = usage.resetPassed(metric)
+        let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
         return HStack(spacing: 4) {
             bar(metric, resetPassed: passed)
-            Text(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))
+            Text(figure)
                 .font(.caption.monospacedDigit())
                 // The figure carries the warning here, unlike on a card. A track this short is too small
                 // for its colour alone to be the alarm, and the row has no space for the card's
                 // "Limit reached" line. Not while a redeemed reset settles, though: the number is
                 // seconds from being replaced, so that is a wait rather than a warning.
-                .foregroundStyle(passed ? Color.secondary : metric.severity == .critical
-                                 && !facts.isSettlingReset ? TallyColor.critical : Color.primary)
+                .foregroundStyle(figureColor(metric, resetPassed: passed))
                 .frame(width: Self.valueWidth, alignment: .trailing)
         }
         .tallyTooltip(meterHelp(metric))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(L(metric.label)), \(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))")
+        .accessibilityLabel("\(L(metric.label)), \(figure)")
+    }
+
+    private func figureColor(_ metric: UsageMetric, resetPassed: Bool) -> Color {
+        if resetPassed { return .secondary }
+        return metric.severity == .critical && !facts.isSettlingReset ? TallyColor.critical : .primary
     }
 
     /// Used fills from the left, remaining anchors right - the same boundary the card's bars split
     /// at, so the two densities never draw one number two ways. The track takes the cluster's width
     /// (never under `barWidth`), and the fill is measured off the track it is drawn in.
     private func bar(_ metric: UsageMetric, resetPassed: Bool) -> some View {
-        let fraction = UsageFormat.fillFraction(metric, mode: settings.displayMode, resetPassed: resetPassed)
+        let fraction = UsageFormat.fillFraction(metric, mode: settings.displayMode)
         let fillAlignment: Alignment = settings.displayMode == .used ? .leading : .trailing
         return Capsule()
             .fill(.quaternary)

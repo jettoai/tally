@@ -16,8 +16,7 @@ enum UsageFormat {
 
     /// Bar fill fraction - matches the displayed number (used or remaining) so the bar and the value
     /// always agree. Colour still keys off used-severity, so it never flips with the toggle.
-    static func fillFraction(_ metric: UsageMetric, mode: DisplayMode, resetPassed: Bool = false) -> Double {
-        if resetPassed { return 0 }
+    static func fillFraction(_ metric: UsageMetric, mode: DisplayMode) -> Double {
         let value = mode == .used ? metric.usedPercent : metric.remainingPercent
         return min(1, max(0, value / 100))
     }

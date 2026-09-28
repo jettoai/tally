@@ -45,7 +45,8 @@ final class NotificationRouter {
 
 enum SystemAlert {
     @MainActor
-    static func post(title: String, body: String, categoryID: String?, userInfo: [String: String]) async -> Bool {
+    static func post(title: String, body: String, categoryID: String?, userInfo: [String: String],
+                     at: Date = Date()) async -> Bool {
         fatalError("An unshipped login-store test must not submit system notifications")
     }
 }

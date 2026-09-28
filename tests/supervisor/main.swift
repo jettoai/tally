@@ -393,6 +393,15 @@ runWaitTrackerChecks()
 runWaitAnswerChecks()
 runWaitSpoolChecks()
 runCoalescingGateChecks()
+// Every notification opens with the event's clock time (Tally/Core/SystemAlert.swift).
+let alertAt = Date(timeIntervalSince1970: 23 * 3_600 + 59 * 60)
+check("an alert body opens with the event's clock time",
+      SystemAlert.stampedBody("CPU 100%", at: alertAt).hasPrefix(AppLocale.shortTime(alertAt))
+          && SystemAlert.stampedBody("CPU 100%", at: alertAt).hasSuffix("CPU 100%"))
+check("and the one delivery path stamps every body before asking for authorization",
+      ((try? String(contentsOfFile: "Tally/Core/SystemAlert.swift", encoding: .utf8)) ?? "")
+          .components(separatedBy: "requestAuthorization").first?
+          .contains("let body = stampedBody(body, at: at)") == true)
 // LAST, because it registers the capture flag in this process's defaults and everything after it
 // would then be running in demo mode (`demoboardchecks.swift` says so at its own head).
 runCodexTerminalReplyChecks()

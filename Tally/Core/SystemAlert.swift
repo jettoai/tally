@@ -14,9 +14,14 @@ enum SystemAlert {
     ///
     /// The content is built here rather than by the caller so no non-Sendable notification value
     /// crosses an actor boundary.
+    ///
+    /// `at` is when the thing being reported happened; the body opens with its clock time so an alert
+    /// read later still says when. It defaults to now, which is the event time for every
+    /// caller that posts the moment it detects; a caller that posts a queued event passes its time.
     @MainActor
     static func post(title: String, body: String, categoryID: String? = nil,
-                     userInfo: [String: String] = [:]) async -> Bool {
+                     userInfo: [String: String] = [:], at: Date = Date()) async -> Bool {
+        let body = stampedBody(body, at: at)
         let center = UNUserNotificationCenter.current()
         guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else {
             return false
@@ -34,5 +39,11 @@ enum SystemAlert {
         } catch {
             return false
         }
+    }
+
+    /// The body as delivered: the event's clock time first, in the app's language like every other
+    /// time Tally shows, then the words.
+    static func stampedBody(_ body: String, at: Date) -> String {
+        String(format: L("%1$@ · %2$@"), AppLocale.shortTime(at), body)
     }
 }

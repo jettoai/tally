@@ -12,7 +12,7 @@ final class ChromeGapNotifier {
     func sweep(now: Date = Date()) {
         for event in drainChromeGapEvents(now: now) {
             let alert = Self.alert(for: event)
-            Task { _ = await SystemAlert.post(title: alert.title, body: alert.body) }
+            Task { _ = await SystemAlert.post(title: alert.title, body: alert.body, at: event.at) }
         }
     }
 

@@ -83,8 +83,12 @@ extension PopoverRootView {
             }
             // How many accounts a week each window burns, on the panel itself: the comparison
             // across windows is what the conclusion rests on, so it must not hide behind a hover.
+            // Wraps instead of truncating: two-digit figures overrun a 262pt column in most locales.
+            // fixedSize keeps the second line when a short panel squeezes the header vertically.
             Text(ladder)
                 .foregroundStyle(Color.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .font(.caption2)
         .lineLimit(1)

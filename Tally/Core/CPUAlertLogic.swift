@@ -7,7 +7,10 @@ import Foundation
 // free) and names memory holders by executable. This one asks what a person with a dev server and
 // a build running actually wants to know: the CPU has been pinned for half a minute, whose work is
 // it? The answer comes from the per-project rollup the session board already keeps
-// (`MachineLoadRollup`), so it names a checkout rather than `node`.
+// (`MachineLoadRollup`), so it names a checkout rather than `node`. A process outside every
+// session root is filed under the checkout its working directory is in (`processName`) and summed
+// with that project by name (`named`), so a checkout's jobs started from a terminal are one cause
+// rather than one entry per interpreter.
 //
 // PURE, on the split this repository makes everywhere it takes a reading: the syscalls are in
 // CPUAlertReaders.swift and the banner and the log are in CPUAlertMonitor.swift.
@@ -137,9 +140,27 @@ enum CPUAlertLogic {
         culprits.reduce(0) { $0 + $1.percent } < busy * explainedFraction
     }
 
-    /// Projects and unattributed processes merged into what the banner names.
+    /// The name an unattributed process is filed under: the checkout its working directory is in
+    /// (the nearest directory at or above it holding `.git`, named by its last component the way
+    /// the rollup names a root), or `executable` when there is none or the directory could not be
+    /// read. `home` and `/` are never a checkout, so a home directory under version control does
+    /// not swallow every process on the machine.
+    static func processName(cwd: String?, executable: String, home: String,
+                            isCheckout: (String) -> Bool) -> String {
+        var dir = cwd ?? ""
+        while !dir.isEmpty, dir != "/", dir != home {
+            if isCheckout(dir) { return (dir as NSString).lastPathComponent }
+            dir = (dir as NSString).deletingLastPathComponent
+        }
+        return executable
+    }
+
+    /// Projects and unattributed processes merged into what the banner names: one entry per name,
+    /// shares summed, so a project's session work and its processes outside the session tree add up.
     static func named(projects: [CPUAlertCulprit], others: [CPUAlertCulprit]) -> [CPUAlertCulprit] {
-        Array(ranked(projects + others.filter { $0.percent >= minimumShare }).prefix(maxNames))
+        let summed = Dictionary((projects + others).map { ($0.name, $0.percent) }, uniquingKeysWith: +)
+        return Array(ranked(summed.map { CPUAlertCulprit(name: $0.key, percent: $0.value) }
+            .filter { $0.percent >= minimumShare }).prefix(maxNames))
     }
 
     private static func hostRecent(_ alarmed: Bool, _ at: Date?, now: Date) -> Bool {
@@ -252,12 +273,14 @@ enum CPUAlertLogic {
     }
 
     /// The banner's names, largest first, cleaned the way `phrase` is (control characters stripped,
-    /// an emptied name left out) and paired with the leader's own test (`leaderShare`): `share`
-    /// carries every name's own rounded percent when the leading culprit clears it, or every share
-    /// reads nil when nobody does, which the caller reads as "no single cause" rather than pointing
-    /// at a project a reader would ask "why does 9% count" about.
+    /// an emptied name left out) and paired with the single-cause test: `share` carries every
+    /// name's own rounded percent when the leading culprit clears `leaderShare` AND outweighs the
+    /// other names combined, or every share reads nil otherwise, which the caller reads as "no
+    /// single cause" rather than pointing at a project a reader would ask "why does 9% count" about,
+    /// or calling one of three projects at 30% each the cause.
     static func namedShares(_ culprits: [CPUAlertCulprit]) -> [(name: String, share: Int?)] {
-        let leading = culprits.first.map { $0.percent >= leaderShare } ?? false
+        let rest = culprits.dropFirst().reduce(0) { $0 + $1.percent }
+        let leading = culprits.first.map { $0.percent >= leaderShare && $0.percent > rest } ?? false
         return culprits.compactMap { culprit -> (name: String, share: Int?)? in
             let name = keystrokeStripped(culprit.name)
             guard !name.isEmpty else { return nil }

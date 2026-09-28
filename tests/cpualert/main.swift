@@ -291,6 +291,44 @@ do {
            "T16 nobody past leaderShare names the field with no percentages")
 }
 
+// T17 attribution by checkout (the real crossing: 2026-09-28 07:05 cpu=98 top=python3.13:10,
+// python3.13:10,finance:5 read "no single cause: python3.13, python3.13, finance" while both
+// interpreters were working in the finance checkout).
+do {
+    let home = "/Users/a"
+    let finance = "/Users/a/workspace/taiwanbigdata/finance"
+    let checkouts: Set<String> = [finance, "/Users/a/workspace/geo", "/Users/a/workspace/voice", home]
+    func name(_ cwd: String?, _ exe: String) -> String {
+        L.processName(cwd: cwd, executable: exe, home: home) { checkouts.contains($0) }
+    }
+    expect(name(finance, "python3.13") == "finance" && name(finance + "/engine/jobs", "python3.13") == "finance",
+           "T17 a process working in a checkout, or below it, is filed under the checkout")
+    let projects = L.projectCulprits([CPUAlertProjectInput(name: "finance", oneCorePercent: 80)], cores: 16)
+    let n = L.named(projects: projects,
+                    others: [CPUAlertCulprit(name: name(finance, "python3.13"), percent: 10),
+                             CPUAlertCulprit(name: name(finance + "/engine", "python3.13"), percent: 10)])
+    let shares = L.namedShares(n)
+    expect(n.map(\.name) == ["finance"] && n.first?.percent == 25,
+           "T17 the session's share and its checkout's processes add up to one name")
+    expect(shares.first?.name == "finance" && shares.first?.share == 25,
+           "T17 the replayed crossing reads mostly finance")
+
+    let spread = L.named(projects: [CPUAlertCulprit(name: "geo", percent: 30)],
+                         others: [CPUAlertCulprit(name: name("/Users/a/workspace/voice", "node"), percent: 30),
+                                  CPUAlertCulprit(name: name(finance, "python3.13"), percent: 30)])
+    let spreadShares = L.namedShares(spread)
+    expect(spreadShares.map(\.name) == ["finance", "geo", "voice"] && spreadShares.allSatisfy { $0.share == nil },
+           "T17 three projects at 30% each is no single cause, named by project")
+
+    expect(name(nil, "python3.13") == "python3.13", "T17 an unreadable working directory falls back to the executable")
+    expect(name("/tmp/scratch", "node") == "node" && name("/", "launchd") == "launchd",
+           "T17 a directory in no checkout falls back to the executable")
+    expect(name(home + "/Downloads", "ffmpeg") == "ffmpeg", "T17 a home directory under version control is not a checkout")
+    let kept = L.named(projects: [], others: [CPUAlertCulprit(name: name(nil, "python3.13"), percent: 12)])
+    expect(kept.map(\.name) == ["python3.13"] && kept.first?.percent == 12,
+           "T17 the fallback keeps its share of the machine")
+}
+
 // MARK: - structural promises, read as text
 
 func read(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }

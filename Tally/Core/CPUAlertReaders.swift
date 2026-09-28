@@ -27,9 +27,11 @@ enum CPUAlertReaders {
     /// machine, over a two-second window. Own CPU only (not `childTimes`), so a parent is not
     /// charged for children it reaped.
     ///
-    /// NAMES, NEVER ARGUMENTS: the executable's display name, the rule `HostHealthProcess` states.
-    /// A process whose program cannot be read is named "unknown" rather than guessed at.
-    static func unattributed(roots: Set<String>, cores: Int, limit: Int = 2) async -> [CPUAlertCulprit] {
+    /// NAMES, NEVER ARGUMENTS: the checkout the working directory is in, else the executable's
+    /// display name, the rule `HostHealthProcess` states (`CPUAlertLogic.processName`). A process
+    /// whose program cannot be read is named "unknown" rather than guessed at. One entry per
+    /// process; `CPUAlertLogic.named` sums entries that share a name.
+    static func unattributed(roots: Set<String>, cores: Int) async -> [CPUAlertCulprit] {
         guard cores > 0 else { return [] }
         let pids = ProcessTree.liveProcesses().map(\.pid)
         let first = ProcessTree.resourceSample(of: pids)
@@ -42,14 +44,17 @@ enum CPUAlertReaders {
             return (pid, (now - before) / elapsed * 100 / Double(cores))
         }
         .sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1 }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         var out: [CPUAlertCulprit] = []
         for (pid, share) in ranked.prefix(5) {
-            if let dir = MachineLoadRollup.workingDirectory(of: pid),
-               MachineLoadRollup.project(of: dir, roots: roots) != nil { continue }
-            let name = ProcessTree.executablePath(of: pid)
+            let dir = MachineLoadRollup.workingDirectory(of: pid)
+            if let dir, MachineLoadRollup.project(of: dir, roots: roots) != nil { continue }
+            let executable = ProcessTree.executablePath(of: pid)
                 .flatMap { ProcessTree.displayName(forPath: $0) } ?? "unknown"
+            let name = CPUAlertLogic.processName(cwd: dir, executable: executable, home: home) {
+                FileManager.default.fileExists(atPath: $0 + "/.git")
+            }
             out.append(CPUAlertCulprit(name: name, percent: share))
-            if out.count == limit { break }
         }
         return out
     }

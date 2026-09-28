@@ -269,6 +269,9 @@ targets:
         CFBundleName: Tally
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
+        # The default banner style disappears after a few seconds; alerts (CPU running hot, a pool
+        # about to run dry) stay on screen until dismissed, so they are not missed.
+        NSUserNotificationAlertStyle: alert
         # A background "Renew login" that does not complete falls back to a real Terminal window,
         # opened through osascript. Apple events are a user-granted permission and macOS reads the
         # reason from the RESPONSIBLE app (this one, not the osascript it spawns), so without this

@@ -16,7 +16,7 @@ final class RenewLoginStore {
 
     /// Accounts with a login running right now: two racing each other would write the same
     /// credential twice.
-    private(set) var inFlight: Set<String> = []
+    private(set) var inFlight: Set<String> = DemoUsage.renewingLoginPreview
 
     /// …and the ones whose login has succeeded but whose discovery has not caught up yet
     /// (AccountSignIn.swift owns that rule and the bug it closes). Observable state, so the moment
@@ -77,6 +77,15 @@ final class RenewLoginStore {
               // third spelling of CLAUDE_CONFIG_DIR / CODEX_HOME can never drift in.
               let envKey = IntegrationsStore.Shim(rawValue: providerID)?.envKey
         else { return }
+        // The signed-in address names the account; the nickname ("Claude 5") only does to the user
+        // who chose it, and a notification is read away from every list that pairs the two. The
+        // account being renewed is often one no poll has named yet, so Claude's own config file
+        // (no credentials in it) stands in. Codex has no such file: its address comes only from the
+        // CLI, and auth.json is not opened (CodexIdentity).
+        let polled = UsageStore.shared.accounts.first { $0.id == accountID }?.accountEmail
+            ?? (providerID == ClaudeAccounts.providerID
+                ? ClaudeAccounts.profile(configDir: home).email : nil)
+        let named = LoginStatusStore.shared.identityEmail(accountID: accountID, polled: polled) ?? label
         let executable = Self.providerExecutable(providerID)
         let environment = RenewLoginCommand.environment(envKey: envKey, home: home,
                                                         providerID: providerID)
@@ -88,7 +97,7 @@ final class RenewLoginStore {
         endSettling(accountID)
         Task {
             let announced = await SystemAlert.post(
-                title: "\(label) · " + L("Renewing login"),
+                title: "\(named) · " + L("Renewing login"),
                 body: L("Finish the sign-in in your browser; Tally will say when it lands."))
             // The card's own line is the other signal, but it is only a signal where a card is on
             // screen - the popover closes along with the menu that was clicked in it. With
@@ -130,7 +139,7 @@ final class RenewLoginStore {
                 // The verdict goes out FIRST. The refresh below re-reads every account through
                 // their CLIs and takes seconds, and a user who just finished a sign-in should not
                 // wait on unrelated network calls to hear whether it worked.
-                _ = await SystemAlert.post(title: "\(label) · " + L("Login renewed"),
+                _ = await SystemAlert.post(title: "\(named) · " + L("Login renewed"),
                                            body: L("This account is signed in again."))
                 // The reason to renew is usually that this account stopped reading, so ask again
                 // now rather than leaving a recovered account looking broken until the next tick.
@@ -143,7 +152,7 @@ final class RenewLoginStore {
                 // window (or retried), and the chip has to come down on its own.
                 handOff(accountID, providerID: providerID, home: home)
                 _ = await SystemAlert.post(
-                    title: "\(label) · " + L("Login not renewed"),
+                    title: "\(named) · " + L("Login not renewed"),
                     body: Self.reason(failure) + " " + (opened
                         ? L("A Terminal window is open on the same command, so you can finish it there.")
                         : L("The login command is on the clipboard: paste it into a terminal.")))

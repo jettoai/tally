@@ -35,7 +35,7 @@ struct AccountListRowView: View {
     @State private var redeemOutcome: CodexAppServerClient.RedeemOutcome?
 
     /// The card's own answers, shared rather than re-derived (see `AccountFacts`).
-    private var facts: AccountFacts { AccountFacts(usage: usage, settings: settings) }
+    var facts: AccountFacts { AccountFacts(usage: usage, settings: settings) }
 
     /// The narrowest a row still reads as one line rather than a squeeze, and so the width of ONE
     /// list column. Built from what a row has to carry: the identity (provider mark, name, plan)
@@ -64,7 +64,10 @@ struct AccountListRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             identityColumn
-            if facts.isHardError {
+            if facts.isRenewingLogin {
+                Spacer(minLength: 6)
+                renewingTail
+            } else if facts.isHardError {
                 Spacer(minLength: 6)
                 errorTail
             } else {
@@ -223,9 +226,7 @@ struct AccountListRowView: View {
     @ViewBuilder
     private var loginMarks: some View {
         if facts.isRenewingLogin {
-            ProgressView()
-                .controlSize(.mini)
-                .tallyTooltip(L("renewing login…"))
+            EmptyView()  // Said once, in the meters' place (`renewingTail`).
         } else if facts.isLoginExpired {
             // A button, exactly like the card's chip: noticing the expiry is only useful next to
             // the thing that fixes it.
@@ -367,24 +368,6 @@ struct AccountListRowView: View {
         // where every other word this row folds away already lives.
         if barReserve(metric) > 0 { text += "\n" + L("Kept for web use") }
         return text
-    }
-
-    /// An account that has never loaded: the reason, then the retry, in place of the meters it has
-    /// none of.
-    private var errorTail: some View {
-        HStack(spacing: 6) {
-            // One line at this width, so the callout is where the whole sentence lives, reason
-            // included: the compact row folds every other word it cannot fit into one too.
-            Text(usage.error ?? "")
-                .foregroundStyle(TallyColor.warning)
-                .lineLimit(1)
-                .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
-            Button(L("Retry")) {
-                Task { await UsageStore.shared.refresh(userInitiated: true) }
-            }
-            .buttonStyle(.borderless)
-            .font(.caption2)
-        }
     }
 
     /// The launch affordances, in the card's order and with the card's rules: the mode badge as a

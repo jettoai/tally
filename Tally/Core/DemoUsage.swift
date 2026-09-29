@@ -22,6 +22,13 @@ enum DemoUsage {
     /// "Reset passed" line instead of a spent window. A modifier, off by default like the one above.
     static var showsPastReset: Bool { UserDefaults.standard.bool(forKey: "TallyDemoPastReset") }
 
+    /// `-TallyDemoRenewingLogin <account id>` (with `-TallyDemoData`): that fixture reads as having
+    /// a login renewal running, so a capture can show the "Browser sign-in…" state on a card or row.
+    static var renewingLoginPreview: Set<String> {
+        guard isActive, let id = UserDefaults.standard.string(forKey: "TallyDemoRenewingLogin") else { return [] }
+        return [id]
+    }
+
     /// Debug-only login scenarios, layered onto the synthetic account fixtures.
     static var loginHealthPreview: Bool {
         BuildVariant.isDev && isActive && UserDefaults.standard.bool(forKey: "TallyLoginHealthPreview")

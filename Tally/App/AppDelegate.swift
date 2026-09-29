@@ -175,6 +175,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: "TallyLoginExpiryTest") {
             LoginStatusStore.shared.postSampleNotification()
         }
+        // And a real renewal of one account (-TallyRenewLoginTest <account id>, dev builds, never on
+        // demo fixtures), paired with -TallyRenewLoginCLI <stub> so the notifications and the
+        // panel's signing-in state can be seen on a real account without a real login.
+        if BuildVariant.isDev, !DemoUsage.isActive,
+           let id = UserDefaults.standard.string(forKey: "TallyRenewLoginTest"), !id.isEmpty {
+            UsageStore.shared.ensureDiscovered()
+            RenewLoginStore.shared.renew(accountID: id)
+        }
         // …and the last mile of the capture family: `-TallyWindowSnapshot <dir>` photographs
         // whatever the flags above put on screen and quits (WindowSnapshot.swift says why the app
         // takes its own picture rather than leaving it to `screencapture`). Last, because what it

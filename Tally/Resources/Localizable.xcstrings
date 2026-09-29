@@ -8056,31 +8056,31 @@
         }
       }
     },
-    "renewing login…": {
+    "Browser sign-in…": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新登入中…"
+            "value": "瀏覽器登入中…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新登录中…"
+            "value": "浏览器登录中…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ログインを更新中…"
+            "value": "ブラウザでログイン中…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그인 갱신 중…"
+            "value": "브라우저 로그인 중…"
           }
         }
       }

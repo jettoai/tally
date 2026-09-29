@@ -26,7 +26,7 @@ extension SettingsAccountsView {
         case .renewing:
             HStack(spacing: 3) {
                 ProgressView().controlSize(.mini)
-                Text(L("renewing login…"))
+                Text(L("Browser sign-in…"))
             }
             .font(.caption2)
             .foregroundStyle(.secondary)

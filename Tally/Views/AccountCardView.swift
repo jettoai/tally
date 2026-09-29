@@ -71,7 +71,7 @@ struct AccountCardView: View {
             if facts.isRenewingLogin {
                 HStack(spacing: 3) {
                     ProgressView().controlSize(.mini)
-                    Text(L("renewing login…"))
+                    Text(L("Browser sign-in…"))
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -99,7 +99,7 @@ struct AccountCardView: View {
     /// The provider's own CLI says this account is no longer signed in. In the severity red the
     /// card already speaks in ("Near limit", "Limit reached"), and in the badge shape the header
     /// uses, because unlike those it is a BUTTON: pressing it starts the very renewal the right-
-    /// click menu offers, which is the whole point of noticing. It replaces the "renewing login…"
+    /// click menu offers, which is the whole point of noticing. It replaces the "Browser sign-in…"
     /// line rather than sitting beside it, so the card shows one login state at a time, and the
     /// next probe after a successful sign-in clears it with nothing left to dismiss.
     private var loginExpiredChip: some View {

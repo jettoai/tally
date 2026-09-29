@@ -519,8 +519,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to thirty-six, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 36 && scanned.count == 36)
+    check("which comes to thirty-eight, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 38 && scanned.count == 38)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",
@@ -539,9 +539,10 @@ func runLaunchAtLoginChecks() {
     check("the interactive CLI overrides are not members, they exist to be driven",
           CaptureLaunch.interactiveKeys.allSatisfy {
               CaptureLaunch.mayTakeForeground(activeKeys: [$0]) })
-    check("and there are four of them: the three stand-in chains and the pick claim override",
+    check("and there are five of them: the three stand-in chains, the pick claim override and the renewal trigger",
           Set(CaptureLaunch.interactiveKeys)
-            == ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI", "TallyPickClaim"])
+            == ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI", "TallyPickClaim",
+                "TallyRenewLoginTest"])
     // The newest stand-in is the one that does not merely REDIRECT a spawn: without it an unshipped
     // build refuses to send a morning message at all (`EarlyStartStore.mayRun`), because what it would
     // otherwise spend is a real subscription's 5-hour window rather than a stub's exit code. Classified

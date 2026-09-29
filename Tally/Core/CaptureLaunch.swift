@@ -91,6 +91,8 @@ enum CaptureLaunch {
                                "TallyDemoHardError",
                                // Qualifies TallyDemoData: Claude 4 held over past its 5h reset.
                                "TallyDemoPastReset",
+                               // Qualifies TallyDemoData: one fixture shows a login renewal running.
+                               "TallyDemoRenewingLogin",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel
@@ -143,7 +145,7 @@ enum CaptureLaunch {
     /// named constant instead. That is why the completeness check now scans for the LITERALS rather
     /// than for any particular way of looking one up.
     static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI",
-                                  pickClaimOverride]
+                                  pickClaimOverride, "TallyRenewLoginTest"]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without

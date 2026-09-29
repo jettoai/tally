@@ -399,6 +399,7 @@ do {
 }
 
 runPlanSplitTests()
+runCapWeightTests()
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all fleet tests passed")

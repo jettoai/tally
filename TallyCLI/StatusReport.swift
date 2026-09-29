@@ -86,6 +86,9 @@ struct StatusReport: Encodable {
     /// gauge is on and the provider has 2+ accounts. Units: one account's full weekly = 100.
     var fleet: [String: Snapshot.Fleet]?
     var fleetPools: [String: [Snapshot.Fleet]]?
+    /// Each provider's weekly remaining across all its plans, weighted by plan capacity: the one
+    /// number to draw a provider from, single-account providers included. Absent from older apps.
+    var fleetWeighted: [String: Snapshot.Weighted]?
     /// The usage advisor's per-provider verdict, computed from the burn-rate history the app
     /// records (never from the snapshot). Present only when there is any history; absent below
     /// the collecting threshold is impossible - a young reading is emitted with `verdict:
@@ -374,6 +377,7 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         accounts: accounts,
         fleet: snapshot.fleet,
         fleetPools: snapshot.fleetPools,
+        fleetWeighted: snapshot.fleetWeighted,
         advisor: advisorByProvider.isEmpty ? nil : advisorByProvider,
         sessions: sessions,
         projectPolicy: projectPolicy)

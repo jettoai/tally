@@ -14,10 +14,17 @@ extension UsageStore {
         guard !BuildVariant.isUnshipped, !DemoUsage.isActive,
               !lastPublishedAccounts.isEmpty else { return }
         let (fleet, fleetPools) = fleetForSnapshot()
+        // Outside the gauge switch and for single-account providers too: this is the one number a
+        // reader draws a provider's remaining from, not a pool the panel shows.
+        let weighted = FleetMath.weighted(accounts: lastPublishedAccounts,
+                                          codexProMultiple: Self.codexProMultiple)
+            .mapValues { UsageSnapshot.Weighted(remainingPercent: $0.remainingPercent,
+                                                weightSource: $0.source.rawValue) }
         UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
                            statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
                            displayMode: SettingsStore.shared.displayMode.rawValue,
                            fleet: fleet, fleetPools: fleetPools,
+                           fleetWeighted: weighted.isEmpty ? nil : weighted,
                            // What the PANEL shows, for the surfaces that mirror it. The accounts
                            // themselves keep the order they are written in, because readers that
                            // resolve near-ties by taking the first candidate depend on it
@@ -64,6 +71,13 @@ extension UsageStore {
                                 flagshipOrder: ModelCatalog.claudeAliases)
     }
 
+    /// Codex Pro's multiple of Plus as the user set it (`defaults write ai.jetto.tally
+    /// codexProUsageMultiple -int 20`); nil when unset. `double(forKey:)` also reads a string "20".
+    static var codexProMultiple: Double? {
+        let value = UserDefaults.standard.double(forKey: PlanWeight.codexProMultipleKey)
+        return value > 0 ? value : nil
+    }
+
     /// `tally status`'s fleet line follows the SAME switch as the panel's gauge: published
     /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
     /// weekly window). Launch mode is deliberately irrelevant - one toggle, one meaning.
@@ -83,6 +97,10 @@ extension UsageStore {
                                            label: { $0.accountLabel }) {
             let focused = Self.focusedModel(providerID: summary.providerID,
                                             available: summary.modelPoolNames)
+            let weight = PlanWeight.weight(
+                providerID: summary.providerID,
+                planName: FleetMath.planName(of: summary, accounts: lastPublishedAccounts),
+                codexProMultiple: Self.codexProMultiple)
             func published(_ pool: FleetPool) -> UsageSnapshot.Fleet {
                 var dryAt: Date?
                 var sustainable = false
@@ -102,7 +120,8 @@ extension UsageStore {
                     capacity: Double(pool.members.count) * 100,
                     dryAt: dryAt, sustainable: sustainable,
                     poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil,
-                    plan: summary.planTier.map { $0.name ?? "unknown" })
+                    plan: summary.planTier.map { $0.name ?? "unknown" },
+                    capacityWeight: weight.value, weightSource: weight.source.rawValue)
             }
             // A provider split by plan has no single headline pool; older CLIs that read only
             // `fleet` then print no pool line for it instead of one plan's pool labelled as the

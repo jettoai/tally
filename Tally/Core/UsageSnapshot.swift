@@ -97,6 +97,11 @@ struct UsageSnapshot: Codable {
         /// for accounts whose plan could not be read); nil = the whole provider. Optional, so older
         /// CLIs decode fine (the snapshot schema only ever gains fields).
         var plan: String? = nil
+        /// One account of this pool's plan, in units of the vendor's lowest paid plan
+        /// (`PlanWeight`); nil from an app that predates the field.
+        var capacityWeight: Double? = nil
+        /// How `capacityWeight` was established: "detected", "config" or "assumed".
+        var weightSource: String? = nil
     }
     var fleet: [String: Fleet]?
     /// The panel's ordered pool list per provider (gauge focus applied app-side): every pool the
@@ -104,6 +109,15 @@ struct UsageSnapshot: Codable {
     /// panel instead of just the headline. Added in 0.17 (optional; `fleet` keeps publishing the
     /// single headline pool for older CLIs - the snapshot schema only ever gains fields).
     var fleetPools: [String: [Fleet]]?
+    /// Each provider's weekly remaining across all its plans, weighted by plan capacity
+    /// (`FleetMath.weighted`): the one number to draw a provider's remaining from. Published for
+    /// single-account providers too and whatever the gauge switch says; absent for a provider with
+    /// no fresh weekly reading, and from apps that predate it (the schema only ever gains fields).
+    struct Weighted: Codable {
+        var remainingPercent: Double
+        var weightSource: String
+    }
+    var fleetWeighted: [String: Weighted]?
     /// The account ids in the order the PANEL renders them, which is the user's own drag order
     /// (`SettingsStore.orderedAccountIDs`) and not the order `accounts` is written in.
     ///
@@ -126,6 +140,7 @@ struct UsageSnapshot: Codable {
     static func make(accounts: [AccountUsage], launchHomes: [String: String],
                      statuslineFullQuota: Bool = false, displayMode: String? = nil,
                      fleet: [String: Fleet]? = nil, fleetPools: [String: [Fleet]]? = nil,
+                     fleetWeighted: [String: Weighted]? = nil,
                      accountOrder: [String]? = nil, resetStates: [String: String] = [:],
                      now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
@@ -159,6 +174,7 @@ struct UsageSnapshot: Codable {
             displayMode: displayMode,
             fleet: fleet,
             fleetPools: fleetPools,
+            fleetWeighted: fleetWeighted,
             accountOrder: accountOrder
         )
     }

@@ -5,11 +5,13 @@ import Foundation
 /// and when does it get quota back". Pure math over the already-fetched usages; no I/O, so the
 /// test harness can compile it standalone.
 ///
-/// Percentages pool with equal weights: one account's full window is 100 units, so a five-account
-/// pool holds 500 units ("5 accounts' worth"). That is exact only when the accounts share a plan
-/// tier. Vendors do not publish how many times larger one tier is than another, so accounts on
-/// different NAMED plans are never summed: `summaries(byPlan: true)` gives each plan its own
-/// summary instead of guessing a weight.
+/// Percentages pool with equal weights inside a plan: one account's full window is 100 units, so a
+/// five-account pool holds 500 units ("5 accounts' worth"). Accounts on different NAMED plans still
+/// get separate pools (`summaries(byPlan: true)`). The one cross-plan number is
+/// `FleetMath.weighted`, which weights each account's WEEKLY remaining by its plan's multiple of the
+/// vendor's lowest paid plan (`PlanWeight`). Vendors publish those multiples for the 5-hour window
+/// only, so applying them to the weekly window is itself an assumption; the session and model
+/// windows are never weighted.
 struct FleetPool: Hashable {
     /// One account's contribution to the pool, in the accounts' display order - the segments of
     /// the combined bar.
@@ -274,5 +276,96 @@ enum FleetMath {
             .sorted { $0.at < $1.at }
         return FleetPool(kind: kind, label: entries[0].1.label,
                          modelName: entries[0].1.modelName, members: members, refills: refills)
+    }
+}
+
+/// One account's capacity relative to its vendor's lowest paid plan (Claude Pro = 1, ChatGPT
+/// Plus = 1), and how that multiple was established.
+enum PlanWeight {
+    enum Source: String, Hashable {
+        /// Read off the plan the provider itself reports.
+        case detected
+        /// The user set it (`codexProMultipleKey`), because the provider does not report it.
+        case config
+        /// Neither: a fallback no reading backs.
+        case assumed
+    }
+
+    /// App-domain UserDefaults key: Codex Pro's multiple of Plus, 5 or 20. The app-server answers
+    /// planType "pro" for both Pro tiers (checked live 2026-09-29 against `account/rateLimits/read`
+    /// and `account/read`), so only the user can say which one they pay for.
+    static let codexProMultipleKey = "codexProUsageMultiple"
+    /// Codex Pro when neither the provider nor the user says: the lower published tier.
+    static let assumedCodexProMultiple: Double = 5
+
+    static func weight(providerID: String, planName: String?,
+                       codexProMultiple: Double?) -> (value: Double, source: Source) {
+        // "Max 20x", "max_20x" and "MAX 20X" name the same tier.
+        let plan = (planName ?? "").lowercased().filter { !$0.isWhitespace && $0 != "_" }
+        switch (providerID, plan) {
+        case ("claude", "max20x"): return (20, .detected)
+        case ("claude", "max5x"): return (5, .detected)
+        case ("claude", "pro"): return (1, .detected)
+        // Business (formerly Team) carries the same Codex allowance as Plus.
+        case ("codex", "plus"), ("codex", "team"), ("codex", "business"): return (1, .detected)
+        case ("codex", "pro"):
+            if let multiple = codexProMultiple, multiple == 5 || multiple == 20 {
+                return (multiple, .config)
+            }
+            return (assumedCodexProMultiple, .assumed)
+        default:
+            return (1, .assumed)
+        }
+    }
+
+    /// A pooled figure is only as sure as its least sure member.
+    static func combined(_ sources: Set<Source>) -> Source {
+        sources.contains(.assumed) ? .assumed : sources.contains(.config) ? .config : .detected
+    }
+}
+
+/// One provider's weekly remaining across every plan it holds, weighted by plan capacity.
+struct FleetWeighted: Hashable {
+    /// 0...100, rounded to a whole percent.
+    var remainingPercent: Double
+    var source: PlanWeight.Source
+}
+
+extension FleetMath {
+    /// Per provider: sum(weight x weekly remaining) / sum(weight). An account without a weekly
+    /// reading, or whose reading is stale, stays out of both sums; a provider left with none is
+    /// absent. One account is enough, so a single-account provider reads its own remaining.
+    static func weighted(accounts: [AccountUsage],
+                         codexProMultiple: Double?) -> [String: FleetWeighted] {
+        typealias Sum = (weighted: Double, weights: Double, sources: Set<PlanWeight.Source>)
+        var sums: [String: Sum] = [:]
+        for account in accounts where !account.isStale {
+            guard let remaining = account.metrics
+                .first(where: { $0.kind == .weeklyAll })?.remainingPercent else { continue }
+            let weight = PlanWeight.weight(providerID: account.providerID,
+                                           planName: account.planName,
+                                           codexProMultiple: codexProMultiple)
+            var sum = sums[account.providerID] ?? (weighted: 0, weights: 0, sources: [])
+            sum.weighted += weight.value * remaining
+            sum.weights += weight.value
+            sum.sources.insert(weight.source)
+            sums[account.providerID] = sum
+        }
+        return sums.compactMapValues { sum in
+            guard sum.weights > 0 else { return nil }
+            return FleetWeighted(remainingPercent: (sum.weighted / sum.weights).rounded(),
+                                 source: PlanWeight.combined(sum.sources))
+        }
+    }
+
+    /// The plan a summary's pools cover: the split tier's name, or the plan every pooled account
+    /// of an unsplit provider shares. nil when they do not all name one plan, which weighs as an
+    /// unknown plan.
+    static func planName(of summary: FleetSummary, accounts: [AccountUsage]) -> String? {
+        if let tier = summary.planTier { return tier.name }
+        let plans = Set(accounts
+            .filter { $0.providerID == summary.providerID && !$0.metrics.isEmpty }
+            .map(\.planName))
+        return plans.count == 1 ? plans.first ?? nil : nil
     }
 }

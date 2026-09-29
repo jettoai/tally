@@ -14,9 +14,7 @@ import Foundation
 
 /// Mirror of the app's `UsageSnapshot` (kept dependency-free).
 struct Snapshot: Decodable {
-    /// Equatable so a value that CARRIES an account can be compared as a whole (the switch target
-    /// state, and the assertions about it). Every stored property is already Equatable, so this is
-    /// the synthesized member-by-member comparison and nothing more.
+    /// Equatable: the synthesized member-by-member comparison (switch target state, assertions).
     struct Account: Decodable, Equatable {
         var id: String
         var provider: String
@@ -73,17 +71,15 @@ struct Snapshot: Decodable {
     var version: Int
     var generatedAt: Date
     var accounts: [Account]
-    /// The account ids in the order the app's PANEL renders them (the user's own drag order).
-    /// Absent in snapshots from an older app, which reads as "no preference" and leaves every
-    /// surface on the order `accounts` arrives in.
+    /// Account ids in the panel's order (the user's drag order); absent from older apps = as-is.
     var accountOrder: [String]?
     /// User preference: the status line renders the full quota line even when wrapping a
     /// custom status line (absent in old snapshots → minimal signal).
     var statuslineFullQuota: Bool?
     /// The panel's used/remaining toggle ("used" | "remaining"); the status line follows it.
     var displayMode: String?
-    /// Per-provider fleet pool summary (present only while the app's fleet gauge is on and the
-    /// provider has 2+ accounts). Units: one account's full weekly window = 100.
+    /// Per-provider fleet pools (app's fleet gauge on, 2+ accounts). Units: one account's full
+    /// weekly window = 100.
     struct Fleet: Codable {
         var remaining: Double
         var capacity: Double
@@ -91,12 +87,16 @@ struct Snapshot: Decodable {
         var sustainable: Bool
         var poolName: String? // the model pool leading the gauge ("Fable"); nil = the weekly pool
         var plan: String? = nil // plan when split by plan ("Pro", "unknown"); nil = whole provider
+        var capacityWeight: Double? = nil // one account of `plan`, in lowest-paid-plan units
+        var weightSource: String? = nil // "detected" | "config" | "assumed"
     }
     var fleet: [String: Fleet]?
-    /// The panel's ordered pool list per provider (gauge focus applied app-side), leading pool
-    /// first - the status line renders every entry. Absent in snapshots from older apps; the
-    /// status line then falls back to the single headline pool in `fleet`.
+    /// The panel's ordered pool list per provider, leading pool first. Absent from older apps;
+    /// the status line then falls back to the single headline pool in `fleet`.
     var fleetPools: [String: [Fleet]]?
+    /// Plan-weighted weekly remaining per provider (app's FleetMath.weighted); absent if older.
+    struct Weighted: Codable { var remainingPercent: Double; var weightSource: String }
+    var fleetWeighted: [String: Weighted]?
 }
 
 let snapshotURL = FileManager.default.homeDirectoryForCurrentUser

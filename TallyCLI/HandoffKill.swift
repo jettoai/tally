@@ -186,8 +186,17 @@ let supervisorStartedAtEnvKey = "TALLY_SUPERVISOR_STARTED_AT"
 /// The distinction is the file head's - an attached process is part of the turn being ended, a
 /// detached one was detached so that it would outlive the turn - and a same-account relaunch (a
 /// self-update, a reload, a model fallback) leaves no account and asks for none of it to stop.
+///
+/// `otherSupervisors` IS THE EXCEPTION THE MARK CANNOT STATE. A session that starts another
+/// supervised session from its own Bash tool (`tmux new-session ... 'tally claude'`) hands that
+/// supervisor, and the tmux server hosting it, this supervisor's pid and generation, because a
+/// supervisor overwrites the mark only for the child it spawns. Both read as our own detached job,
+/// and ending them ends a whole other session (2026-09-29: two sessions killed in one millisecond
+/// by a move). So every live supervisor other than this one is left running, with its subtree and
+/// its ancestors: the tmux server above it carries the mark too, and signalling it takes every
+/// pane with it. A supervisor missing from that set (one that never registered) is not protected.
 func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess],
-                     sweepDetached: Bool = true,
+                     sweepDetached: Bool = true, otherSupervisors: Set<pid_t> = [],
                      environmentValue: (pid_t, String) -> String?) -> [HandoffProcess] {
     let descendants = childTreeDescendants(of: child, in: table, excluding: [supervisor])
     // The tree on every handoff, the detached jobs only on a move. Nothing is read out of any
@@ -196,7 +205,15 @@ func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess]
     guard let supervisorStart = table.first(where: { $0.pid == supervisor })?.startedAt else {
         return descendants
     }
-    let accounted = Set(descendants.map(\.pid) + [supervisor, child])
+    let parentOf = Dictionary(table.map { ($0.pid, $0.parent) }, uniquingKeysWith: { first, _ in first })
+    var protected: Set<pid_t> = []
+    for other in otherSupervisors where other > 1 && other != supervisor && parentOf[other] != nil {
+        protected.insert(other)
+        protected.formUnion(childTreeDescendants(of: other, in: table, excluding: [supervisor]).map(\.pid))
+        var up = parentOf[other]
+        while let pid = up, pid > 1, protected.insert(pid).inserted { up = parentOf[pid] }
+    }
+    let accounted = Set(descendants.map(\.pid) + [supervisor, child]).union(protected)
     let mark = String(supervisor)
     let generation = String(supervisorStart)
     // The cheap tests first and the reading of the machine last, in one pass: the guard is walked
@@ -305,9 +322,14 @@ func endChildTree(_ child: inout ChildReaper, supervisor: pid_t = getpid(),
     // find them (this file's head states the whole reason). The tree plus, on a move, whatever
     // detached from it earlier in the turn, which only the mark on the process itself can still
     // name.
+    // Every registered supervisor, live or not: a stale entry only protects a pid that is no longer
+    // a supervisor, which is the smaller list. A registry that cannot be listed at all sweeps
+    // nothing detached, for the same reason.
+    let registry = try? FileManager.default.contentsOfDirectory(atPath: supervisorStateDir.path)
     let descendants = handoffKillList(
         child: child.pid, supervisor: supervisor, in: handoffProcessTable(),
-        sweepDetached: sweepDetached,
+        sweepDetached: sweepDetached && registry != nil,
+        otherSupervisors: Set((registry ?? []).compactMap { pid_t($0) }),
         environmentValue: { processEnvironmentValue(ofProcess: Int($0), key: $1) })
     kill(child.pid, SIGTERM)   // let claude run its SessionEnd cleanup
     var deadline = Date().addingTimeInterval(grace)

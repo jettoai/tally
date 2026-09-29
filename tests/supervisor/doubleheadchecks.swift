@@ -314,6 +314,39 @@ func runDoubleHeadChecks() {
     check("and the handoff asks for the detached sweep only when the account moves",
           handoffLoop.contains("endChildTree(&child, sweepDetached: !sameAccount)"))
 
+    // ANOTHER SESSION STARTED FROM THIS ONE'S BASH TOOL, replayed from 2026-09-29: supervisor
+    // 31350 ran `tmux new-session -d 'tally claude'`, so the tmux server and the supervisor it
+    // hosts both inherited 31350's pid and generation, and a move ended that whole session. Only
+    // the real orphan may be on the list; the other supervisor, its tree and the tmux server above
+    // it (whose TERM would take every pane) are not ours.
+    let nestedTable = [proc(31350, under: 1, startedAt: 1_000),  // S, the session moving
+                       proc(100, under: 31350, startedAt: 1_100), // its child claude
+                       proc(500, under: 1, startedAt: 1_200),     // T, tmux server, marked S
+                       proc(501, under: 500, startedAt: 1_210),   // Z, the pane's zsh, marked S
+                       proc(502, under: 501, startedAt: 1_220),   // O, the other supervisor, marked S
+                       proc(503, under: 502, startedAt: 1_230),   // C, O's claude, marked O
+                       proc(600, under: 1, startedAt: 1_300)]     // X, S's own nohupped job
+    let nestedMarks: [pid_t: String] = [500: "31350", 501: "31350", 502: "31350", 503: "502",
+                                        600: "31350"]
+    let nestedGenerations: [pid_t: String] = [500: "1000", 501: "1000", 502: "1000", 503: "1220",
+                                              600: "1000"]
+    func nestedMark(_ pid: pid_t, _ key: String) -> String? {
+        key == supervisorPIDEnvKey ? nestedMarks[pid] : nestedGenerations[pid]
+    }
+    check("a move leaves another live supervisor, its tree and its tmux server running",
+          Set(handoffKillList(child: 100, supervisor: 31350, in: nestedTable,
+                              otherSupervisors: [31350, 502],
+                              environmentValue: nestedMark).map(\.pid)) == [600])
+    // The blind spot, stated: a supervisor the registry does not name is read by its mark alone.
+    check("…which rests on the registry: an unregistered one still reads as our own job",
+          Set(handoffKillList(child: 100, supervisor: 31350, in: nestedTable,
+                              environmentValue: nestedMark).map(\.pid)) == [500, 501, 502, 600])
+    let handoffKillSource = (try? String(contentsOfFile: "TallyCLI/HandoffKill.swift",
+                                         encoding: .utf8)) ?? ""
+    check("and the handoff hands the registry over, sweeping nothing detached without it",
+          handoffKillSource.contains("sweepDetached: sweepDetached && registry != nil")
+              && handoffKillSource.contains("otherSupervisors: Set((registry ?? []).compactMap"))
+
     // The identity check that stands between a two-second-old snapshot and a stranger's process.
     let recorded = proc(4242, under: 100, startedAt: 111)
     check("a pid the machine no longer answers for is not signalled",

@@ -5,9 +5,14 @@ extension AccountListRowView {
     /// A renewal in progress takes the meters' place: beside the name it had no room at list width.
     /// Below the identity in priority, so the account name is never the part that truncates.
     var renewingTail: some View {
-        HStack(spacing: 3) { ProgressView().controlSize(.mini); Text(L("Browser sign-in…")) }
-            .foregroundStyle(.secondary).layoutPriority(-1).tallyTooltip(
-                facts.markOwner, detail: L("Finish the sign-in in your browser; Tally will say when it lands."))
+        HStack(spacing: 3) {
+            ProgressView().controlSize(.mini)
+            Text(L("Browser sign-in…"))
+        }
+        .foregroundStyle(.secondary)
+        .layoutPriority(-1)
+        .tallyTooltip(facts.markOwner,
+                      detail: L("Finish the sign-in in your browser; Tally will say when it lands."))
     }
 
     /// An account that has never loaded: the reason, then the retry, in place of the meters it has

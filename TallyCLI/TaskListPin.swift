@@ -13,7 +13,6 @@ import Foundation
 // A session still under a supervisor from before this build changes list once, at the upgrade:
 // which list its child was writing is another process's state, and it is not inferred here.
 
-let taskListEnvKey = "CLAUDE_CODE_TASK_LIST_ID"
 let taskListPublishedSuffix = ".tasklist"
 
 /// The list a session writes: the id handed to every child, and the one real directory behind it.
@@ -52,8 +51,7 @@ func realTaskListPath(_ path: String) -> String {
 /// session inherits that session's id, and writing into it would merge two sessions' lists.
 func initialTaskListPin(home: String, base: [String: String],
                         fresh: () -> String = { freshTaskListID() }) -> TaskListPin {
-    let nested = base["TALLY_SUPERVISOR_PID"].map { !$0.isEmpty } ?? false
-    if !nested, let own = base[taskListEnvKey], isTaskListID(own) {
+    if !taskListIDIsInherited(base), let own = base[taskListEnvKey], isTaskListID(own) {
         return TaskListPin(id: own, dir: realTaskListPath(taskListDir(home: home, id: own)))
     }
     let id = fresh()
@@ -85,7 +83,16 @@ func placeTaskList(_ pin: TaskListPin, inHome home: String,
         pin = TaskListPin(id: pin.id, dir: taskListDir(home: home, id: pin.id))
         rebased = true
     }
+    // A link left here by an earlier move points into the removed home: clear it so the new list
+    // is a real directory.
+    if rebased, isSymlink(pin.dir), !fm.fileExists(atPath: pin.dir) {
+        try? fm.removeItem(atPath: pin.dir)
+    }
     try? fm.createDirectory(atPath: pin.dir, withIntermediateDirectories: true)
+    var isDir: ObjCBool = false
+    if rebased, !(fm.fileExists(atPath: pin.dir, isDirectory: &isDir) && isDir.boolValue) {
+        return .failed
+    }
     let target = taskListDir(home: home, id: pin.id)
     if realTaskListPath(target) == realTaskListPath(pin.dir) {
         return rebased ? .rebased(pin) : (isSymlink(target) ? .alreadyLinked : .inPlace)

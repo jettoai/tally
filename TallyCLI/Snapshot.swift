@@ -261,6 +261,7 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
     for (key, value) in resumePromptSuppression(ProcessInfo.processInfo.environment) {
         setenv(key, value, 1)
     }
+    for key in unsupervisedLaunchUnsets(ProcessInfo.processInfo.environment) { unsetenv(key) }
     let argv = [cli] + args
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)

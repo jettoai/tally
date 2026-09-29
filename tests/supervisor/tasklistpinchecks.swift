@@ -32,6 +32,14 @@ func runTaskListPinChecks() {
                                            taskListEnvKey: "session-outer000"],
                                     fresh: { "session-new00000" }).id == "session-new00000")
 
+    // T2b
+    check("an unsupervised launch from inside a supervised session drops the outer list",
+          unsupervisedLaunchUnsets(["TALLY_SUPERVISOR_PID": "999",
+                                    taskListEnvKey: "session-outer000"]) == [taskListEnvKey]
+              && unsupervisedLaunchUnsets([taskListEnvKey: "shared_1"]).isEmpty
+              && ((try? String(contentsOfFile: "TallyCLI/Snapshot.swift", encoding: .utf8)) ?? "")
+                  .contains("for key in unsupervisedLaunchUnsets(ProcessInfo.processInfo.environment) { unsetenv(key) }"))
+
     // T3
     check("a user-exported list is honoured when nothing supervises the parent",
           initialTaskListPin(home: "/tmp/A", base: [taskListEnvKey: "shared_1"],
@@ -89,6 +97,18 @@ func runTaskListPinChecks() {
     check("a list whose home is gone is rebuilt where the session now runs",
           rebuilt == .rebased(expected)
               && fm.fileExists(atPath: expected.dir, isDirectory: &isDir) && isDir.boolValue)
+    // T8b: B's list was a link into A (an earlier move), and A is gone.
+    let base8c = scratch()
+    let homeE = base8c + "/homeE"
+    let linkedE = taskListDir(home: homeE, id: orphan.id)
+    try! fm.createDirectory(atPath: homeE + "/tasks", withIntermediateDirectories: true)
+    try! fm.createSymbolicLink(atPath: linkedE, withDestinationPath: orphan.dir)
+    let relisted = placeTaskList(orphan, inHome: homeE)
+    let wrote = (try? "{}".write(toFile: linkedE + "/1.json", atomically: true, encoding: .utf8)) != nil
+    isDir = false
+    check("a dangling link into a removed home is replaced by a real list",
+          relisted == .rebased(TaskListPin(id: orphan.id, dir: linkedE))
+              && fm.fileExists(atPath: linkedE, isDirectory: &isDir) && isDir.boolValue && wrote)
     // A home that exists but has never held a list is not a removed home.
     let base8b = scratch()
     let freshPin = initialTaskListPin(home: base8b, base: [:], fresh: { "session-t8b00000" })

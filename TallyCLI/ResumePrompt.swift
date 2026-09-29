@@ -50,3 +50,20 @@ func resumePromptSuppression(_ environment: [String: String]) -> [String: String
     guard environment[resumeTokenThresholdEnvKey] == nil else { return [:] }
     return [resumeTokenThresholdEnvKey: resumePromptDisabledThreshold]
 }
+
+// MARK: - The task list an unsupervised launch must not inherit (TaskListPin.swift)
+
+let taskListEnvKey = "CLAUDE_CODE_TASK_LIST_ID"
+
+/// Whether a task list id in `environment` was inherited from an outer supervised session rather
+/// than exported by the user: a supervised child carries `TALLY_SUPERVISOR_PID` and its session's
+/// list id, and everything it starts inherits both (TaskListPin.swift).
+func taskListIDIsInherited(_ environment: [String: String]) -> Bool {
+    environment["TALLY_SUPERVISOR_PID"].map { !$0.isEmpty } ?? false
+}
+
+/// Variables an unsupervised launch (`exec`) removes before replacing this process. An inherited
+/// task list id would make the new, independent session read and write the outer session's list.
+func unsupervisedLaunchUnsets(_ environment: [String: String]) -> [String] {
+    taskListIDIsInherited(environment) && environment[taskListEnvKey] != nil ? [taskListEnvKey] : []
+}

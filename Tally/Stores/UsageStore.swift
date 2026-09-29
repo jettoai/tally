@@ -286,7 +286,8 @@ final class UsageStore {
         var allDiscovered: [ProviderAccount] = []
         var launchHomes: [String: String] = [:]   // account id → CLI config home, for the snapshot
         for provider in providers {
-            let found = provider.discoverAccounts()
+            // Off the main thread: the home listing and Keychain probes hung the app (TALLY-2C).
+            let found = await Task.detached(priority: .utility) { provider.discoverAccounts() }.value
             allDiscovered.append(contentsOf: found)
             guard enabled.contains(provider.id) else { continue }
             // Disabled accounts are discovered (Settings shows them) but never polled - and never

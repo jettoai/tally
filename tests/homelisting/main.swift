@@ -79,6 +79,17 @@ check("discovery lists and probes off the main thread, and a newer adopted set w
           && watcherUse.contains("let found = await Task.detached(priority: .utility) {")
           && watcherUse.contains("guard epoch == self.discoveryEpoch else { return false }")
           && watcherUse.contains("discoveryEpoch += 1"))
+// The periodic refresh does the same listing and probes; on the main thread they hung the app for
+// 2000 ms (Sentry TALLY-1F, TALLY-2C). Scoped to refresh's discovery loop, up to the fetch round.
+let refreshLoop: Substring = {
+    guard let start = watcherUse.range(of: "func refresh(userInitiated"),
+          let end = watcherUse.range(of: "ProbeCadence.fetchRound", range: start.upperBound..<watcherUse.endIndex)
+    else { return "" }
+    return watcherUse[start.lowerBound..<end.lowerBound]
+}()
+check("refresh discovers accounts off the main thread",
+      refreshLoop.contains("let found = await Task.detached(priority: .utility) { provider.discoverAccounts() }.value")
+          && refreshLoop.components(separatedBy: "discoverAccounts()").count == 2)
 
 for name in protected { chmod(home.appendingPathComponent(name).path, 0o755) }
 try? fm.removeItem(at: home)

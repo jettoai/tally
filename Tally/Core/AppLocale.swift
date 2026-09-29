@@ -46,8 +46,23 @@ enum AppLocale {
 
     /// The bundle to resolve translations from, matching the effective language by progressively
     /// stripping subtags ("zh-Hant-TW" → "zh-Hant" → "zh"), falling back to the main bundle.
+    ///
+    /// The identifier is re-read every call so a language switch lands at once, but the lookup is
+    /// cached per identifier: every `L()` used to walk the filesystem, and a popover render calls it
+    /// dozens of times on the main thread (Sentry app hangs TALLY-Y/1Q/31/1Z, 2026-09-29).
     static var bundle: Bundle {
         let identifier = override ?? Locale.preferredLanguages.first ?? "en"
+        bundleLock.lock(); defer { bundleLock.unlock() }
+        if let cached = cachedBundle, cached.identifier == identifier { return cached.bundle }
+        let resolved = resolveBundle(identifier)
+        cachedBundle = (identifier, resolved)
+        return resolved
+    }
+
+    private static let bundleLock = NSLock()
+    nonisolated(unsafe) private static var cachedBundle: (identifier: String, bundle: Bundle)?
+
+    private static func resolveBundle(_ identifier: String) -> Bundle {
         var components = identifier.split(separator: "-")
         while !components.isEmpty {
             let candidate = components.joined(separator: "-")

@@ -281,6 +281,20 @@ func runLanguageChecks() {
               print("   stale allowances: \(stale.keys.joined(separator: ", "))")
               return false
           }())
+    // AppLocale.bundle resolves an lproj once per language, not on every L() (main-thread app
+    // hangs, 2026-09-29). This harness ships no lproj, so the cache is asserted in source; the
+    // flip still runs to show a new identifier is honoured rather than served the stale entry.
+    let locale = (try? String(contentsOfFile: "Tally/Core/AppLocale.swift", encoding: .utf8)) ?? ""
+    let saved = UserDefaults.standard.string(forKey: AppLocale.overrideKey)
+    UserDefaults.standard.set("en", forKey: AppLocale.overrideKey)
+    let first = AppLocale.bundle, again = AppLocale.bundle
+    UserDefaults.standard.set("ja", forKey: AppLocale.overrideKey)
+    _ = AppLocale.bundle
+    let cacheKey = locale.contains("cached.identifier == identifier { return cached.bundle }")
+    if let saved { UserDefaults.standard.set(saved, forKey: AppLocale.overrideKey) }
+    else { UserDefaults.standard.removeObject(forKey: AppLocale.overrideKey) }
+    check("the locale bundle is looked up once per language and reused until the language changes",
+          first === again && cacheKey)
 }
 
 /// THE SUITE'S OWN FOOTPRINT, asserted last because it is about everything above it: a test that

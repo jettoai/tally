@@ -80,7 +80,7 @@ let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, superv
                                transcriptIdentitySuffix, sessionStateSuffix, userNoticeSuffix,
                                sessionAgentsSuffix, sessionAgentsLockSuffix, sessionTurnEndSuffix,
                                quotaKnockNoticeSuffix, SessionMonitoring.suffix, ".codex-binding", ".codex-activity",
-                               keyboardTraceSuffix]
+                               keyboardTraceSuffix, ".tasklist"]
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }

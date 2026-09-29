@@ -96,6 +96,11 @@ let resupervisePendingCapFlag = "--pending-cap"
 /// exactly the behaviour those builds had.
 let resuperviseLastConversationFlag = "--last-conversation"
 
+/// The session's task list (TaskListPin.swift): the id every child gets and the directory behind
+/// it. Absent (every build before it) means the new image starts a list of its own.
+let resuperviseTaskListFlag = "--task-list"
+let resuperviseTaskListDirFlag = "--task-list-dir"
+
 /// The flag carrying the model and effort a `tally model` pinned this session to (SessionModel.swift).
 ///
 /// ONE flag for the pair, not one per axis, and that is a decision about this family rather than
@@ -301,7 +306,8 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
                     recoveries: [Date] = [], sessionPin: String? = nil,
                     pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                     sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
-                    capResume: CapResumeState? = nil, args: [String]) -> [String] {
+                    capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
+                    args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow ? "--follow" : "--no-follow"]
     if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
@@ -323,6 +329,9 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
     if let capResume, let encoded = encodeCapResume(capResume) {
         argv += [resuperviseCapResumeFlag, encoded]
     }
+    if let taskList, isTaskListID(taskList.id), taskList.dir.hasPrefix("/") {
+        argv += [resuperviseTaskListFlag, taskList.id, resuperviseTaskListDirFlag, taskList.dir]
+    }
     return argv + ["--"] + args
 }
 
@@ -341,7 +350,14 @@ struct ResuperviseArgs {
     var sessionModel: SessionModelPin?
     var lastConversation: String?
     var capResume: CapResumeState?
+    var taskListID: String?
+    var taskListDir: String?
     var childArgs: [String] = []
+
+    var taskList: TaskListPin? {
+        guard let taskListID, let taskListDir else { return nil }
+        return TaskListPin(id: taskListID, dir: taskListDir)
+    }
 }
 
 /// Parse the exec contract's flags. Pure, and round-trip tested against `selfUpdateArgv`: the two
@@ -387,6 +403,12 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
         // is the behaviour of every build that never wrote the flag.
         case resuperviseLastConversationFlag:
             parsed.lastConversation = isTranscriptSessionID(value()) ? value() : nil
+            index += 2
+        case resuperviseTaskListFlag:
+            parsed.taskListID = isTaskListID(value()) ? value() : nil
+            index += 2
+        case resuperviseTaskListDirFlag:
+            parsed.taskListDir = value().hasPrefix("/") ? value() : nil
             index += 2
         case "--follow": parsed.follow = true; index += 1
         case "--no-follow": parsed.follow = false; index += 1

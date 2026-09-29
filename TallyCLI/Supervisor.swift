@@ -36,7 +36,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    pendingCap: PendingCapRecovery? = nil,
                    sessionModel: SessionModelPin? = nil,
                    lastConversation: String? = nil,
-                   capResume carriedResume: CapResumeState? = nil) -> Never {
+                   capResume carriedResume: CapResumeState? = nil,
+                   taskList carriedTaskList: TaskListPin? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -226,14 +227,36 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// Whether this session is owed the line that wakes it after a restart killed its background
     /// work. Per session, since it is raised and spent against the child after a handoff.
     var restartWake = RestartWakeState()
+    /// The list every child of this session writes (TaskListPin.swift). Per session and decided
+    /// once: carried across a self-update, otherwise new (or the one the user exported).
+    var taskList: TaskListPin
+    if let carriedTaskList {
+        taskList = carriedTaskList
+        appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList, source: "carried"),
+                          to: handoffLog)
+    } else {
+        taskList = initialTaskListPin(home: account.launchHome!,
+                                      base: ProcessInfo.processInfo.environment)
+        appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList,
+                                       source: resumed ? "unpinned-predecessor" : "fresh"),
+                          to: handoffLog)
+    }
 
     while true {
         let launchedAt = Date()
         // What the child is launched with: the account's config home and the markers every Tally
         // surface reads back out of it (SupervisorRuntime.swift).
+        // Make this pass's home reach the session's one task list before the child reads it.
+        let placement = placeTaskList(taskList, inHome: account.launchHome!)
+        if case .rebased(let moved) = placement { taskList = moved }
+        if placement != .inPlace && placement != .alreadyLinked {
+            appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList, source: "place",
+                                           placement: placement), to: handoffLog)
+        }
         let environment = supervisedChildEnvironment(
             provider: provider, home: account.launchHome!, supervisorVersion: supervisorVersion,
-            supervisorPID: supervisorPID, supervisorStartedAt: supervisorStartedAt)
+            supervisorPID: supervisorPID, supervisorStartedAt: supervisorStartedAt,
+            taskListID: provider.id == "claude" ? taskList.id : nil)
         // A relaunch inherits a terminal whose reader was just killed, and everything queued on it
         // since - the answer to a query the dead child never collected, a keystroke typed into the
         // gap - would arrive as the first thing the new child reads and land in its prompt box
@@ -322,6 +345,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // (SwitchRequest.swift). Written beside the pid rather than derived from it so a handoff
         // names the account this child is really running on.
         writeSupervisorAccount(account.id, pid: supervisorPID)
+        publishTaskListPin(taskList, pid: supervisorPID)
 
         // What became of this child, remembered because a reaped pid cannot be waited on twice
         // and three places here ask (ChildReaper.swift).
@@ -1278,7 +1302,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       pendingCap: carriedCap,
                                       sessionModel: sessionModelState.pin,
                                       lastConversation: lastConversation.published,
-                                      capResume: capResume,
+                                      capResume: capResume, taskList: taskList,
                                       args: launchArgs)
                 return .childReplaced
             }

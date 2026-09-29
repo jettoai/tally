@@ -70,6 +70,7 @@ func spawnChild(_ argv: [String], environment: [String: String],
 /// (Snapshot.swift explains why).
 func supervisedChildEnvironment(provider: Provider, home: String, supervisorVersion: String?,
                                 supervisorPID: String, supervisorStartedAt: String?,
+                                taskListID: String? = nil,
                                 base: [String: String] = ProcessInfo.processInfo.environment)
     -> [String: String] {
     var environment = base
@@ -85,6 +86,10 @@ func supervisedChildEnvironment(provider: Provider, home: String, supervisorVers
     // way the pair can end up naming two different supervisors. That pairing is the whole identity
     // the sweep reads (HandoffKill.swift), and a stale one there costs it its own jobs.
     environment["TALLY_SUPERVISOR_STARTED_AT"] = supervisorStartedAt
+    // The session's task list, assigned from the optional like the identity fields above: nil
+    // clears an id inherited from an OUTER supervised session, which would otherwise make a nested
+    // session write into that session's list (TaskListPin.swift).
+    environment[taskListEnvKey] = taskListID
     // No spawn from here stops at Claude Code's "resume the whole conversation?" prompt: a relaunch
     // resumes by id with nobody at the keyboard, and a first launch was asked for by somebody who
     // typed the command (ResumePrompt.swift carries the reversal and the way back to the prompt).

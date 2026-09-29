@@ -407,6 +407,7 @@ runWaitTrackerChecks()
 runWaitAnswerChecks()
 runWaitSpoolChecks()
 runCoalescingGateChecks()
+runTaskListPinChecks()
 // Every notification opens with the event's clock time (Tally/Core/SystemAlert.swift).
 let alertAt = Date(timeIntervalSince1970: 23 * 3_600 + 59 * 60)
 check("an alert body opens with the event's clock time",

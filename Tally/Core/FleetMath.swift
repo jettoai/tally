@@ -320,7 +320,9 @@ enum PlanWeight {
 
     /// A pooled figure is only as sure as its least sure member.
     static func combined(_ sources: Set<Source>) -> Source {
-        sources.contains(.assumed) ? .assumed : sources.contains(.config) ? .config : .detected
+        if sources.contains(.assumed) { return .assumed }
+        if sources.contains(.config) { return .config }
+        return .detected
     }
 }
 

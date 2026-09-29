@@ -282,8 +282,8 @@ func runLanguageChecks() {
               return false
           }())
     // AppLocale.bundle resolves an lproj once per language, not on every L() (main-thread app
-    // hangs, 2026-09-29). This harness ships no lproj, so the cache is asserted in source; the
-    // flip still runs to show a new identifier is honoured rather than served the stale entry.
+    // hangs, 2026-09-29). This harness ships no lproj, so every lookup lands on the main bundle and
+    // the cache is asserted in source; the flip only exercises the replacement path under the lock.
     let locale = (try? String(contentsOfFile: "Tally/Core/AppLocale.swift", encoding: .utf8)) ?? ""
     let saved = UserDefaults.standard.string(forKey: AppLocale.overrideKey)
     UserDefaults.standard.set("en", forKey: AppLocale.overrideKey)

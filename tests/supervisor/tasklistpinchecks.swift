@@ -136,4 +136,12 @@ func runTaskListPinChecks() {
           (try? String(contentsOf: stateDir.appendingPathComponent("4242.tasklist"),
                        encoding: .utf8)) == "\(pin.id)\n\(realTaskListPath(inA))\n"
               && supervisorStatePid(ofFile: "4242.tasklist") == 4242)
+
+    // handoff.log record: one stamped line per event, like every other record in that file.
+    let logLine = taskListLine(pid: "54630", pin: pin, source: "unpinned-predecessor",
+                               now: Date(timeIntervalSince1970: 0))
+    check("the tasklist record is its own stamped line",
+          logLine.hasPrefix("1970-01-01T00:00:00Z tasklist pid=54630 ")
+              && logLine.contains(" source=unpinned-predecessor")
+              && logLine.hasSuffix("\n") && logLine.filter { $0 == "\n" }.count == 1)
 }

@@ -135,8 +135,10 @@ func publishTaskListPin(_ pin: TaskListPin, pid: String, dir: URL = supervisorSt
 }
 
 func taskListLine(pid: String, pin: TaskListPin, source: String,
-                  placement: TaskListPlacement? = nil) -> String {
-    var line = "tasklist pid=\(pid) id=\(pin.id) dir=\(pin.dir) source=\(source)"
+                  placement: TaskListPlacement? = nil, now: Date = Date()) -> String {
+    // appendHandoffLine adds no newline: stamp and terminate here like every other record.
+    var line = "\(ISO8601DateFormatter().string(from: now)) tasklist pid=\(pid) id=\(pin.id) "
+        + "dir=\(pin.dir) source=\(source)"
     if let placement { line += " placement=\(placement)" }
-    return line
+    return line + "\n"
 }

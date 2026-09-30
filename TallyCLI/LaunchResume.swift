@@ -190,27 +190,30 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
                     live: Set<String>,
                     cwd: String = FileManager.default.currentDirectoryPath,
                     recordDir: URL = lastConversationDir)
-    -> (args: [String], note: String?) {
+    -> (args: [String], note: String?, cleared: String?) {
     let dir = claudeProjectsDir(home: home)
         .appendingPathComponent(projectSlug(forCwd: cwd))
     if let target = handTypedTarget(args, projectDir: dir, cwd: cwd, recordDir: recordDir),
        live.contains(target) {
         return (removingHandTypedSession(args),
-                "that conversation is running in another window - starting a new one")
+                "that conversation is running in another window - starting a new one", nil)
     }
     guard policy.startMode == "continue", !wantsNew,
           !optionsOnly(args).contains(where: { sessionFlags.contains($0) })
-    else { return (args, nil) }
-    switch conversationStart(recorded: readLastConversation(cwd: cwd, dir: recordDir),
-                             among: conversationCandidates(in: dir), live: live) {
+    else { return (args, nil, nil) }
+    let recorded = readLastConversation(cwd: cwd, dir: recordDir)
+    switch conversationStart(recorded: recorded, among: conversationCandidates(in: dir),
+                             live: live) {
     case .resume(let id):
-        return (injectingOptions(args, ["--resume", id]), nil)
+        return (injectingOptions(args, ["--resume", id]), nil, nil)
     case .none:
-        return (args, "no conversation to pick up in this directory - starting fresh")
+        return (args, "no conversation to pick up in this directory - starting fresh", nil)
     case .unstarted:
-        return (args, "the last conversation here was cleared and never used - starting fresh")
+        // Named back so the supervisor can keep the task list that conversation was given.
+        return (args, "the last conversation here was cleared and never used - starting fresh",
+                recorded)
     case .liveElsewhere:
-        return (args, "the last conversation here is running in another window - starting fresh")
+        return (args, "the last conversation here is running in another window - starting fresh", nil)
     }
 }
 

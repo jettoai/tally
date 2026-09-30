@@ -144,4 +144,65 @@ func runTaskListPinChecks() {
           logLine.hasPrefix("1970-01-01T00:00:00Z tasklist pid=54630 ")
               && logLine.contains(" source=unpinned-predecessor")
               && logLine.hasSuffix("\n") && logLine.filter { $0 == "\n" }.count == 1)
+
+    // A supervisor that died takes `<spid>.tasklist` with it; the conversation record outlives it.
+    let records = URL(fileURLWithPath: scratch()), states = URL(fileURLWithPath: scratch())
+    let conv = "0e2d823d-1111-4222-8333-444455556666"
+    let other = "aa544868-154c-47a0-9d3a-e0cf25447e31"
+    // C1
+    recordConversationTaskList(pin, conversation: conv, dir: records)
+    check("a resumed conversation takes back the list it was recorded with",
+          conversationTaskListPin(conv, selfPID: "999999", recordDir: records, stateDir: states)
+              == TaskListPin(id: pin.id, dir: realTaskListPath(inA)))
+    // C2: no record, no record directory, and a list directory that is gone.
+    let gone = TaskListPin(id: "session-c2000000", dir: scratch() + "/removed")
+    recordConversationTaskList(gone, conversation: other, dir: records)
+    check("no record, no record directory, or a removed list reads as no pin",
+          conversationTaskListPin(nil, selfPID: "999999", recordDir: records, stateDir: states) == nil
+              && conversationTaskListPin("11111111-2222-4333-8444-555555555555", selfPID: "999999",
+                                         recordDir: records, stateDir: states) == nil
+              && conversationTaskListPin(conv, selfPID: "999999",
+                                         recordDir: records.appendingPathComponent("absent"),
+                                         stateDir: states) == nil
+              && conversationTaskListPin(other, selfPID: "999999", recordDir: records,
+                                         stateDir: states) == nil)
+    // C3: this test process stands in for a live supervisor publishing the same list.
+    publishTaskListPin(pin, pid: String(getpid()), dir: states)
+    check("a list another live supervisor holds is not taken",
+          conversationTaskListPin(conv, selfPID: "999999", recordDir: records, stateDir: states) == nil
+              && conversationTaskListPin(conv, selfPID: String(getpid()), recordDir: records,
+                                         stateDir: states) != nil)
+    try? fm.removeItem(at: states.appendingPathComponent("\(getpid()).tasklist"))
+    // C4: the recorder follows a `/clear` onto the new conversation, same list.
+    let followRecords = URL(fileURLWithPath: scratch())
+    var recorder = ConversationTaskListRecorder()
+    recorder.sync(nil, pin: pin, dir: followRecords)
+    recorder.sync(conv, pin: pin, dir: followRecords)
+    recorder.sync(other, pin: pin, dir: followRecords)
+    check("a changed conversation id is recorded with the same list",
+          recordedConversationTaskList(conv, dir: followRecords) != nil
+              && recordedConversationTaskList(conv, dir: followRecords)
+                  == recordedConversationTaskList(other, dir: followRecords))
+    // C5: the start mode names a cleared, unused conversation back (launchchecks.swift), and the
+    // supervisor looks it up; a fork writes a new conversation and never does.
+    let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
+                                        encoding: .utf8)) ?? ""
+    check("a cleared, never-used predecessor is looked up, a fork never is",
+          supervisorSource.contains(
+              "let resumedConversation = optionsOnly(launchArgs).contains(\"--fork-session\") ? nil")
+              && supervisorSource.contains(
+                  ": (flagValue(launchArgs, \"--resume\") ?? flagValue(launchArgs, \"-r\") ?? clearedConversation)")
+              && supervisorSource.contains(
+                  "let recorded = conversationTaskListPin(resumedConversation, selfPID: supervisorPID)"))
+    // C6
+    let broken = URL(fileURLWithPath: scratch())
+    let brokenForms = ["\(pin.id)\n", "a/b\n\(inA)\n", "\(pin.id)\nrelative/dir\n",
+                       "\(pin.id)\n\(inA)\nextra\n", ""]
+    let brokenReads = brokenForms.map { body -> TaskListPin? in
+        try? body.write(to: broken.appendingPathComponent(conv), atomically: true, encoding: .utf8)
+        return conversationTaskListPin(conv, selfPID: "999999", recordDir: broken, stateDir: states)
+    }
+    check("a malformed record reads as no pin",
+          brokenReads.allSatisfy { $0 == nil }
+              && recordedConversationTaskList("../\(conv)", dir: records) == nil)
 }

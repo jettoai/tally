@@ -37,7 +37,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    sessionModel: SessionModelPin? = nil,
                    lastConversation: String? = nil,
                    capResume carriedResume: CapResumeState? = nil,
-                   taskList carriedTaskList: TaskListPin? = nil) -> Never {
+                   taskList carriedTaskList: TaskListPin? = nil,
+                   clearedConversation: String? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -97,6 +98,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// supervisor this process replaced in a self-update, so an upgrade does not re-announce an
     /// unchanged conversation over a sibling session's newer one.
     var lastConversation = LastConversationWriter(current: lastConversation)
+    var taskListRecord = ConversationTaskListRecorder()
     /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
@@ -228,11 +230,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// work. Per session, since it is raised and spent against the child after a handoff.
     var restartWake = RestartWakeState()
     /// The list every child of this session writes (TaskListPin.swift). Per session and decided
-    /// once: carried across a self-update, otherwise new (or the one the user exported).
+    /// once: carried across a self-update, else the one the user exported, else the one recorded
+    /// for the conversation being resumed (`clearedConversation`: the start mode found it cleared
+    /// and unused), otherwise new. A fork writes a new conversation, so it never takes a record.
     var taskList: TaskListPin
+    let resumedConversation = optionsOnly(launchArgs).contains("--fork-session") ? nil
+        : (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r") ?? clearedConversation)
     if let carriedTaskList {
         taskList = carriedTaskList
         appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList, source: "carried"),
+                          to: handoffLog)
+    } else if exportedTaskListPin(home: account.launchHome!,
+                                  base: ProcessInfo.processInfo.environment) == nil,
+              let recorded = conversationTaskListPin(resumedConversation, selfPID: supervisorPID) {
+        taskList = recorded
+        appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList, source: "conversation"),
                           to: handoffLog)
     } else {
         taskList = initialTaskListPin(home: account.launchHome!,
@@ -940,6 +952,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Fed from the same value on the same tick rather than from a reading of its own, so the
             // record and the publish above cannot come to name different conversations.
             lastConversation.sync(watcher.transcriptSessionID, cwd: cwd)
+            // Which list this conversation writes, for a supervisor that resumes it after this one
+            // is gone (TaskListPin.swift).
+            taskListRecord.sync(watcher.transcriptSessionID, pin: taskList)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,

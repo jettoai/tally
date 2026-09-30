@@ -99,6 +99,9 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // out of a pointer private to whichever account was picked - which walked the conversation
     // backwards a launch at a time (LaunchResume.swift). The live set is read HERE, once, so the
     // decision is made against the sessions running in this directory at this instant.
+    /// The cleared, never-used conversation the start mode declined to resume, for the supervisor
+    /// to find its task list by (TaskListPin.swift).
+    var clearedConversation: String? = nil
     func startModeArgs(_ args: [String], home: String) -> [String] {
         if provider.id == "codex" {
             return applyCodexStartMode(args, policy: policy, wantsNew: wantsNew, home: home,
@@ -109,8 +112,10 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         // chdir a worktree launch performs has already happened by here (above), and a decision made
         // about one directory must not be filtered by the sessions running in another.
         let here = FileManager.default.currentDirectoryPath
-        let (next, note) = applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home,
-                                          live: liveConversations(in: here), cwd: here)
+        let (next, note, cleared) = applyStartMode(args, policy: policy, wantsNew: wantsNew,
+                                                   home: home, live: liveConversations(in: here),
+                                                   cwd: here)
+        clearedConversation = cleared
         if let note { warn(note) }
         return next
     }
@@ -209,7 +214,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             // switch), so the supervisor stays resident; it won't cap-handoff while pinned.
             // A CLI --account pin remains a plain exec - that flag opts out of supervision.
             if provider.id == "claude", wantsHandoff {
-                runSupervised(provider, account: match, args: args, follow: allowFollow)
+                runSupervised(provider, account: match, args: args, follow: allowFollow,
+                              clearedConversation: clearedConversation)
             }
             if wantsCodexMonitoring { runCodexSupervised(provider, account: match, args: args) }
             launchProvider(provider, args: args, home: match.launchHome!,
@@ -265,7 +271,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
     // `--account` pin or `--no-handoff` opts out. Codex interactive sessions monitor only.
     if provider.id == "claude", wantsHandoff {
-        runSupervised(provider, account: account, args: args, follow: allowFollow)
+        runSupervised(provider, account: account, args: args, follow: allowFollow,
+                      clearedConversation: clearedConversation)
     }
     if wantsCodexMonitoring { runCodexSupervised(provider, account: account, args: args) }
     launchProvider(provider, args: args, home: account.launchHome!,

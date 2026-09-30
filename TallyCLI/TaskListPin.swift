@@ -51,11 +51,16 @@ func realTaskListPath(_ path: String) -> String {
 /// session inherits that session's id, and writing into it would merge two sessions' lists.
 func initialTaskListPin(home: String, base: [String: String],
                         fresh: () -> String = { freshTaskListID() }) -> TaskListPin {
-    if !taskListIDIsInherited(base), let own = base[taskListEnvKey], isTaskListID(own) {
-        return TaskListPin(id: own, dir: realTaskListPath(taskListDir(home: home, id: own)))
-    }
+    if let own = exportedTaskListPin(home: home, base: base) { return own }
     let id = fresh()
     return TaskListPin(id: id, dir: taskListDir(home: home, id: id))
+}
+
+func exportedTaskListPin(home: String, base: [String: String]) -> TaskListPin? {
+    guard !taskListIDIsInherited(base), let own = base[taskListEnvKey], isTaskListID(own) else {
+        return nil
+    }
+    return TaskListPin(id: own, dir: realTaskListPath(taskListDir(home: home, id: own)))
 }
 
 // MARK: - Making the pinned list reachable from the home a child is about to run in
@@ -141,4 +146,80 @@ func taskListLine(pid: String, pin: TaskListPin, source: String,
         + "dir=\(pin.dir) source=\(source)"
     if let placement { line += " placement=\(placement)" }
     return line + "\n"
+}
+
+// MARK: - Finding the list again after the supervisor itself is gone
+
+// `<spid>.tasklist` dies with its supervisor (the sweep), so a reboot, a closed terminal or a crash
+// used to hand the resumed conversation a new, empty list. The pin is also kept per CONVERSATION,
+// outside the swept directory, and a new supervisor resuming that conversation takes it back.
+// Wrong list is worse than a new one (a board retires the old list's open cards once a new one
+// is written to), so anything uncertain below reads as no record.
+
+let taskListByConversationDir = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/tasklist-by-conversation")
+
+/// Same two lines as the published pin: id, then the real directory.
+func recordConversationTaskList(_ pin: TaskListPin, conversation: String,
+                                dir: URL = taskListByConversationDir) {
+    guard isTranscriptSessionID(conversation), isTaskListID(pin.id) else { return }
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try? "\(pin.id)\n\(realTaskListPath(pin.dir))\n"
+        .write(to: dir.appendingPathComponent(conversation), atomically: true, encoding: .utf8)
+}
+
+/// The recorded pin, or nil when there is none, it is malformed, or its directory is gone.
+func recordedConversationTaskList(_ conversation: String,
+                                  dir: URL = taskListByConversationDir) -> TaskListPin? {
+    guard isTranscriptSessionID(conversation),
+          let raw = try? String(contentsOf: dir.appendingPathComponent(conversation),
+                                encoding: .utf8) else { return nil }
+    let lines = raw.components(separatedBy: "\n")
+    guard lines.count == 3, lines[2].isEmpty, isTaskListID(lines[0]),
+          lines[1].hasPrefix("/") else { return nil }
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: lines[1], isDirectory: &isDir),
+          isDir.boolValue else { return nil }
+    return TaskListPin(id: lines[0], dir: realTaskListPath(lines[1]))
+}
+
+/// Whether another live supervisor publishes `dir` as its list: taking it would merge two
+/// sessions into one list.
+func taskListHeldElsewhere(_ dir: String, selfPID: String,
+                           stateDir: URL = supervisorStateDir) -> Bool {
+    let target = realTaskListPath(dir)
+    let files = (try? FileManager.default.contentsOfDirectory(atPath: stateDir.path)) ?? []
+    return files.contains { name in
+        guard name.hasSuffix(taskListPublishedSuffix), let pid = supervisorStatePid(ofFile: name),
+              String(pid) != selfPID, supervisorAlive(pid),
+              let raw = try? String(contentsOf: stateDir.appendingPathComponent(name),
+                                    encoding: .utf8) else { return false }
+        let lines = raw.components(separatedBy: "\n")
+        return lines.count > 1 && realTaskListPath(lines[1]) == target
+    }
+}
+
+/// The recorded list for the conversation a new supervisor resumes, unless another live session
+/// holds it.
+func conversationTaskListPin(_ conversation: String?, selfPID: String,
+                             recordDir: URL = taskListByConversationDir,
+                             stateDir: URL = supervisorStateDir) -> TaskListPin? {
+    guard let conversation, let pin = recordedConversationTaskList(conversation, dir: recordDir),
+          !taskListHeldElsewhere(pin.dir, selfPID: selfPID, stateDir: stateDir) else { return nil }
+    return pin
+}
+
+/// Keeps the record in step with the conversation the supervisor watches (first binding, `/clear`,
+/// fork, a rebased list). No memory rides a self-update on purpose: the new image writes on its
+/// first tick, so a session upgraded from a build without records has one before the next reboot.
+struct ConversationTaskListRecorder {
+    private var written: (String, TaskListPin)?
+
+    mutating func sync(_ conversation: String?, pin: TaskListPin,
+                       dir: URL = taskListByConversationDir) {
+        guard let conversation else { return }
+        if let written, written.0 == conversation, written.1 == pin { return }
+        written = (conversation, pin)
+        recordConversationTaskList(pin, conversation: conversation, dir: dir)
+    }
 }

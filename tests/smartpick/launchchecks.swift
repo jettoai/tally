@@ -40,7 +40,8 @@ func runLaunchChecks() {
           to: sessionDir.appendingPathComponent("abc.jsonl"))
 
     func startMode(_ args: [String], home: URL, policy: LaunchPolicy = continuePolicy,
-                   wantsNew: Bool = false, live: Set<String> = []) -> (args: [String], note: String?) {
+                   wantsNew: Bool = false, live: Set<String> = [])
+        -> (args: [String], note: String?, cleared: String?) {
         applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home.path, live: live,
                        cwd: workingDir.path, recordDir: records)
     }
@@ -143,6 +144,8 @@ func runLaunchChecks() {
     check("a recorded conversation with no turn starts fresh", cleared.args.isEmpty)
     check("…and says which one it means",
           cleared.note == "the last conversation here was cleared and never used - starting fresh")
+    check("…and names it for the supervisor to find its task list by",
+          cleared.cleared == "cleared" && used.cleared == nil)
     // A record naming a conversation that is GONE is a miss rather than an answer: the directory
     // still has the truth, and refusing to look would strand the launch.
     writeLastConversation("deleted-one", cwd: workingDir.path, dir: records)

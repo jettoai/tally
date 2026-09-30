@@ -114,12 +114,14 @@ func runSessionInputChecks() {
     // has left must not be typed at the next ready moment, which may be a prompt nobody has read.
     var brief = request("y")
     brief.life = 6
-    if case .refuse(.refusedExpired, _) = decide(brief, state: .working, at: 7) {
-        check("a --no-queue line past its life is refused while held, not waited on", true)
-    } else { check("a --no-queue line past its life is refused while held, not waited on", false) }
-    if case .refuse(.refusedExpired, let why) = decide(brief, state: .idle, at: 7) {
-        check("…and refused, not typed, when the session is ready only after it", why.contains("--no-queue"))
-    } else { check("…and refused, not typed, when the session is ready only after it", false) }
+    check("a --no-queue line past its life is refused while held, not waited on",
+          decide(brief, state: .working, at: 7)
+              == .refuse(.refusedExpired, "it was still inside a turn of its own when its 6s ran "
+                         + "out (--no-queue: never held for later)"))
+    check("…and refused, not typed, when the session is ready only after it",
+          decide(brief, state: .idle, at: 7)
+              == .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
+                         + "its 6s life had run out (--no-queue: never held for later)"))
     check("…while inside its life it is typed as any other", decide(brief, state: .idle, at: 5) == .inject(brief))
     check("a line with no life of its own is still held at the same age", decide(request("y"), state: .working, at: 7) == .wait(.turn))
     check("a --no-queue request round-trips its life",

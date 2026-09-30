@@ -564,6 +564,70 @@ if let r = reading(stale) {
     check("…not twice as fresh cycles (1.45)", !near(r.demandPerWeek, 1.45))
 } else { check("stale reading exists", false) }
 
+// 13i. A STALE SNAPSHOT OF A CYCLE THIS HISTORY NEVER WATCHED. The history opens mid-cycle A and
+//      the provider serves one reading from an earlier week; cycles only move forward, so it is
+//      skipped rather than taken as a new cycle that shuts A out until the next rollover (100
+//      points, not the 50 seen before the snapshot).
+let unseenStale = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(10), reset: resetA),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(9), reset: now.addingTimeInterval(-4 * 86_400)),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(6), reset: resetA),
+    s("a1", "weeklyAll", used: 80, at: daysAgo(4), reset: resetA),
+    s("a1", "weeklyAll", used: 100, at: daysAgo(2), reset: resetA),
+]
+if let r = reading(unseenStale) {
+    check("an unseen earlier cycle's snapshot does not shut the current one out (0.50)",
+          near(r.demandPerWeek, 0.50))
+    check("…not only what came before the snapshot (0.25)", !near(r.demandPerWeek, 0.25))
+} else { check("unseenStale reading exists", false) }
+
+// 13k. BUT AN EARLIER RESET TIME THAT HOLDS IS A NEW CYCLE. claude4 2026-09-28 sat at 46% against
+//      one reset time, then read 0% against an earlier one and kept it while climbing again; two
+//      readings in a row agreeing on the earlier time confirm the rollover (46 + 70 here).
+let earlierReset = resetA.addingTimeInterval(-2 * 86_400)
+let backwardRollover = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 46, at: daysAgo(10), reset: resetA),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(9), reset: earlierReset),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(8.9), reset: earlierReset.addingTimeInterval(-60)),
+    s("a1", "weeklyAll", used: 1, at: daysAgo(8), reset: earlierReset),
+    s("a1", "weeklyAll", used: 40, at: daysAgo(5), reset: earlierReset),
+    s("a1", "weeklyAll", used: 70, at: daysAgo(2), reset: earlierReset),
+]
+if let r = reading(backwardRollover) {
+    check("an earlier reset time that holds is a new cycle (0.58)", near(r.demandPerWeek, 0.58))
+    check("…not skipped as a stale snapshot (0.23)", !near(r.demandPerWeek, 0.23))
+} else { check("backwardRollover reading exists", false) }
+
+// 13l. A HELD SNAPSHOT THAT CARRIES USAGE IS NOT BILLED EITHER. A 0 to 50, one reading of an
+//      unseen earlier week at 42, then A again 55 to 70: the held 42 is dropped when A comes back.
+let heldWithUsage = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(10), reset: resetA),
+    s("a1", "weeklyAll", used: 42, at: daysAgo(9), reset: now.addingTimeInterval(-4 * 86_400)),
+    s("a1", "weeklyAll", used: 55, at: daysAgo(6), reset: resetA),
+    s("a1", "weeklyAll", used: 70, at: daysAgo(2), reset: resetA),
+]
+if let r = reading(heldWithUsage) {
+    check("a dropped held snapshot bills nothing of its own (0.35)", near(r.demandPerWeek, 0.35))
+    check("…not its 42 as a fresh cycle (0.46)", !near(r.demandPerWeek, 0.46))
+} else { check("heldWithUsage reading exists", false) }
+
+// 13j. A RESTART CREDITS THE GROWTH BETWEEN ITS TWO LOW READINGS. 100, then 0 and 20 with the reset
+//      time kept, then 60: the restart bills 20 and the climb after it 40 (100 + 20 + 40).
+let restartGrowth = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("a1", "weeklyAll", used: 100, at: daysAgo(10)),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(9), reset: resetA.addingTimeInterval(60)),
+    s("a1", "weeklyAll", used: 20, at: daysAgo(8.9)),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(5)),
+]
+if let r = reading(restartGrowth) {
+    check("growth between a restart's two low readings is credited (0.80)",
+          near(r.demandPerWeek, 0.80))
+} else { check("restartGrowth reading exists", false) }
+
 // MARK: - 14. The fleet as it is now, not as the history remembers it
 
 // Two accounts spent 90 points each over two weeks: 0.9 account-weeks of demand between them.

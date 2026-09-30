@@ -114,9 +114,12 @@ extension UsageAdvisor {
     ///   every point spent until the old reset. Two readings in a row `restartDrop` under the high,
     ///   the second carrying a reset time, restart the high at the low reading; only the growth
     ///   between those two is credited.
-    /// - A SNAPSHOT OF A CYCLE ALREADY LEFT IS NEITHER A ROLLOVER NOR A READING. A provider that
-    ///   briefly serves last week's figures and then goes back would otherwise be billed twice as
-    ///   two fresh cycles.
+    /// - A RESET TIME THAT JUMPS BACK IS HELD, NEITHER A ROLLOVER NOR A READING YET. A provider
+    ///   that briefly serves an earlier week's figures and then goes back must not be billed as a
+    ///   fresh cycle (twice, or shutting the current week out until the next rollover), but a
+    ///   reset that really moved earlier and stays there is a new cycle. So the reading waits: the
+    ///   next one agreeing on the earlier time confirms the rollover from the held reading, and
+    ///   anything else drops it. A reset that jumps forward rolls over at once.
     ///
     /// `since` is the display window: the walk always sees the whole history (so the sample just
     /// before the window is a baseline rather than a loss) and credits only what lands at or after
@@ -129,23 +132,36 @@ extension UsageAdvisor {
             var cycle: Date?          // the reset instant anchoring the cycle being watched
             var watermark = 0.0       // the highest `used` seen inside it
             var previous: Sample?
-            var left: [Date] = []     // anchors of cycles this series has already rolled out of
+            var held: Sample?         // a reading whose reset jumped back, awaiting confirmation
             for sample in sorted {
-                guard let prior = previous else {
+                guard var prior = previous else {
                     cycle = sample.resetAt
                     watermark = sample.used
                     previous = sample
                     continue
                 }
+                if let waiting = held {
+                    held = nil
+                    if let reported = sample.resetAt, let earlier = waiting.resetAt,
+                       abs(reported.timeIntervalSince(earlier)) <= resetTolerance {
+                        // Confirmed: the held reading opens the new cycle (all burn, unwatched span,
+                        // as any rollover) and this one grows from it like any same-cycle reading.
+                        cycle = earlier
+                        watermark = waiting.used
+                        if waiting.ts >= since { total += waiting.used }
+                        prior = waiting
+                    }
+                }
                 if let reported = sample.resetAt, let anchor = cycle,
                    abs(reported.timeIntervalSince(anchor)) > resetTolerance {
-                    // A stale snapshot of a cycle already left is skipped outright, and does not
-                    // become the next sample's `prior` either: codex 2026-09-09 17:11 served last
-                    // week's 42% and went back at 17:40, and billing both hops invented 241 points.
-                    if left.contains(where: { abs(reported.timeIntervalSince($0)) <= resetTolerance }) {
+                    // A reset earlier than the anchor is held, and not the next sample's `prior`
+                    // either. codex 2026-09-09 17:11 served last week's 42% and went back at 17:40,
+                    // and billing both hops invented 241 points; claude4 2026-09-28 moved its reset
+                    // earlier for good, and skipping it dropped the whole new cycle.
+                    if reported < anchor {
+                        held = sample
                         continue
                     }
-                    left.append(anchor)
                     cycle = reported
                     watermark = sample.used
                     previous = sample

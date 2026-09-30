@@ -111,9 +111,11 @@ extension IntegrationsStore {
         lastError = nil
         let targets = Self.sharedHarnessTargets()
         var failures: [String] = []
+        let homes = Self.discoveredHomes()
         for target in targets {
-            let report = shareExistingHarness(providerID: target.providerID,
-                                              mainHome: target.main, target: target.home)
+            let report = shareExistingHarness(
+                providerID: target.providerID, mainHome: target.main, target: target.home,
+                accountHomes: homes.filter { $0.providerID == target.providerID }.map(\.home))
             failures += report.failed.map { "\(target.home.lastPathComponent)/\($0)" }
         }
         // Provenance, as for every other component: what this app touched outside its bundle. The

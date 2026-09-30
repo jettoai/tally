@@ -17,15 +17,19 @@ import Foundation
 /// conversation record, and `inboxes`, the messages one session drops for the next - one
 /// setup maintained once, and cross-account resume/handoff continues the same history with
 /// no copying. An allowlist on purpose: identity (credentials, .claude.json / auth.json)
-/// and runtime state (tasks, caches, sqlite stores - concurrent writers would fight over
-/// them) must stay per-account, and new runtime directories the CLIs grow later must
-/// default to independent, not shared. `inboxes` sits on the shared side of that line
-/// because it is a directory of files rather than a store two accounts lock, and a message
-/// dropped while on one account has to be there when the next session lands on another.
+/// and runtime state (caches, sqlite stores - concurrent writers would fight over them)
+/// must stay per-account, and new runtime directories the CLIs grow later must default to
+/// independent, not shared. `inboxes` sits on the shared side of that line because it is a
+/// directory of files rather than a store two accounts lock, and a message dropped while on
+/// one account has to be there when the next session lands on another. `tasks` sits there
+/// for the same reason: it holds one list per session under a name no other session picks
+/// (`session-<8 hex>`, or the id a supervisor pins), so accounts never collide in it, and
+/// only a shared one keeps a session's list in one place across an account switch or a
+/// restart.
 let sharedHarnessItems = [
     "CLAUDE.md", "settings.json", "settings.local.json",
     "agents", "skills", "hooks", "commands", "plugins",
-    "memory", "projects", inboxesItem,
+    "memory", "projects", inboxesItem, "tasks",
 ]
 
 /// The messages sessions drop for each other. Named rather than spelled twice: the rule below has

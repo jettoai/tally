@@ -237,6 +237,9 @@ func runShareExistingChecks(root: URL) {
     for n in 0 ..< bulk {
         write("t\(n)", race.appendingPathComponent("projects/bulk/f\(n).jsonl"))
     }
+    // The main account already has this project, so the merge walks it file by file: a directory
+    // the main account lacks is moved in one rename, which leaves no window to write into.
+    write("main's own", raceMain.appendingPathComponent("projects/bulk/main.jsonl"))
     var wroteAt: Date?
     let writer = Thread {
         // The first file to land in the main account proves the walk has started, and therefore
@@ -245,7 +248,7 @@ func runShareExistingChecks(root: URL) {
         // nothing fails this check rather than hanging the suite.
         let watch = raceMain.appendingPathComponent("projects/bulk")
         let deadline = Date().addingTimeInterval(20)
-        while ((try? fm.contentsOfDirectory(atPath: watch.path))?.count ?? 0) < 1,
+        while ((try? fm.contentsOfDirectory(atPath: watch.path))?.count ?? 0) < 2,
               Date() < deadline { usleep(200) }
         write("a transcript written while the share was running",
               race.appendingPathComponent("projects/late.jsonl"))
@@ -402,12 +405,57 @@ func runShareExistingChecks(root: URL) {
           freshReport.linked.contains(inboxesItem)
               && fm.fileExists(atPath: freshMain.appendingPathComponent(inboxesItem).path))
 
+    // MARK: - Task lists with the shortcuts a supervisor leaves between accounts
+
+    // A supervisor that moves a session to another account links `<home>/tasks/<id>` there to the
+    // list's real directory (TaskListPin.swift). The account holding a shortcut is shared FIRST and
+    // the owner after it, which is the order that used to leave a link to itself in the main account
+    // and the real list only in a backup.
+    let tMain = home("tasks-main"), tA = home("tasks-a"), tB = home("tasks-b")
+    write("main", tMain.appendingPathComponent("tasks/session-m/1.json"))
+    write("x", tB.appendingPathComponent("tasks/session-x/1.json"))
+    write("b", tB.appendingPathComponent("tasks/session-b/1.json"))
+    write("a", tA.appendingPathComponent("tasks/session-a/1.json"))
+    func shortcut(_ at: URL, _ to: URL) { try? fm.createSymbolicLink(at: at, withDestinationURL: to) }
+    shortcut(tA.appendingPathComponent("tasks/session-x"), tB.appendingPathComponent("tasks/session-x"))
+    shortcut(tMain.appendingPathComponent("tasks/session-b"), tB.appendingPathComponent("tasks/session-b"))
+    shortcut(tA.appendingPathComponent("tasks/session-gone"),
+             root.appendingPathComponent("removed-home/tasks/session-gone"))
+    let fleet = [tMain, tA, tB]
+    let taskA = shareExistingHarness(providerID: "claude", mainHome: tMain, target: tA,
+                                     items: ["tasks"], accountHomes: fleet, now: day)
+    let taskB = shareExistingHarness(providerID: "claude", mainHome: tMain, target: tB,
+                                     items: ["tasks"], accountHomes: fleet, now: day)
+    let lists = ["session-m", "session-x", "session-b", "session-a"]
+    let expected = ["main", "x", "b", "a"]
+    check("every list is a real directory in the main account after both shares",
+          lists.allSatisfy {
+              (try? fm.attributesOfItem(atPath: tMain.appendingPathComponent("tasks/\($0)").path))?[
+                  .type] as? FileAttributeType == .typeDirectory
+          })
+    check("…readable from the main account and from both accounts",
+          [tMain, tA, tB].allSatisfy { home in
+              zip(lists, expected).allSatisfy {
+                  read(home.appendingPathComponent("tasks/\($0)/1.json")) == $1
+              }
+          })
+    check("…with no shortcut carried into the main account, dangling or not",
+          ((try? fm.contentsOfDirectory(atPath: tMain.appendingPathComponent("tasks").path)) ?? [])
+              .sorted() == lists.sorted())
+    check("…and nothing kept aside, so no list lives only in a backup",
+          taskA.backups.isEmpty && taskB.backups.isEmpty
+              && taskA.results == [ShareExistingResult(item: "tasks",
+                                                       outcome: .merged(moved: 1, kept: 0, backup: nil))]
+              && taskB.results == [ShareExistingResult(item: "tasks",
+                                                       outcome: .merged(moved: 2, kept: 0, backup: nil))])
+
     // MARK: - Which items are merged, and which are documents
 
     check("the merged set is the accumulating directories and only those",
           mergeableHarnessItems.contains("projects") && mergeableHarnessItems.contains("memory")
               && mergeableHarnessItems.contains(inboxesItem)
               && mergeableHarnessItems.contains("sessions")
+              && mergeableHarnessItems.contains("tasks") && sharedHarnessItems.contains("tasks")
               && !mergeableHarnessItems.contains("skills")
               && !mergeableHarnessItems.contains("settings.json"))
 

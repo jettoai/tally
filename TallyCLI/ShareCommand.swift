@@ -107,13 +107,17 @@ func runShare(args: [String]) -> Int32 {
 
     var failed = 0
     var conversationsShared = false
+    // Every home of this provider, not only the targets: a shortcut into any of them is Tally's own.
+    let accountHomes = (snapshot?.accounts ?? []).filter { $0.provider == provider.id }
+        .compactMap(\.launchHome).map { URL(fileURLWithPath: $0) }
     for account in targets {
         // Both ways of building that list require a launch home (the matcher does not resolve an
         // account without one, and the `--all` filter asks for it), so this unwrap has no case of
         // its own to report: it is the compiler's question rather than the user's.
         guard let launchHome = account.launchHome else { continue }
         let report = shareExistingHarness(providerID: provider.id, mainHome: mainHome,
-                                          target: URL(fileURLWithPath: launchHome))
+                                          target: URL(fileURLWithPath: launchHome),
+                                          accountHomes: accountHomes)
         for line in shareReportLines(account: account.label, home: launchHome, report: report) {
             print(line)
         }

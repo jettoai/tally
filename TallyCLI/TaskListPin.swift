@@ -214,10 +214,17 @@ func conversationTaskListPin(_ conversation: String?, selfPID: String,
 /// first tick, so a session upgraded from a build without records has one before the next reboot.
 struct ConversationTaskListRecorder {
     private var written: (String, TaskListPin)?
+    /// The conversation a `--fork-session` launch forked from: until the fork has a transcript of
+    /// its own the watcher reports the parent's, and recording it would hand the parent this list.
+    let forkedFrom: String?
+
+    init(forkedFrom: String? = nil) {
+        self.forkedFrom = forkedFrom
+    }
 
     mutating func sync(_ conversation: String?, pin: TaskListPin,
                        dir: URL = taskListByConversationDir) {
-        guard let conversation else { return }
+        guard let conversation, conversation != forkedFrom else { return }
         if let written, written.0 == conversation, written.1 == pin { return }
         written = (conversation, pin)
         recordConversationTaskList(pin, conversation: conversation, dir: dir)

@@ -98,7 +98,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// supervisor this process replaced in a self-update, so an upgrade does not re-announce an
     /// unchanged conversation over a sibling session's newer one.
     var lastConversation = LastConversationWriter(current: lastConversation)
-    var taskListRecord = ConversationTaskListRecorder()
+    var taskListRecord = ConversationTaskListRecorder(
+        forkedFrom: optionsOnly(launchArgs).contains("--fork-session")
+            ? (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) : nil)
     /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).

@@ -183,6 +183,16 @@ func runTaskListPinChecks() {
           recordedConversationTaskList(conv, dir: followRecords) != nil
               && recordedConversationTaskList(conv, dir: followRecords)
                   == recordedConversationTaskList(other, dir: followRecords))
+    // C4b: a fork's watcher reports the parent's id first; the parent's record must not change.
+    let forkRecords = URL(fileURLWithPath: scratch())
+    let forkPin = TaskListPin(id: "session-f0000000", dir: scratch())
+    recordConversationTaskList(pin, conversation: conv, dir: forkRecords)
+    var forkRecorder = ConversationTaskListRecorder(forkedFrom: conv)
+    forkRecorder.sync(conv, pin: forkPin, dir: forkRecords)
+    forkRecorder.sync(other, pin: forkPin, dir: forkRecords)
+    check("a fork never records its list under the conversation it forked from",
+          recordedConversationTaskList(conv, dir: forkRecords)?.id == pin.id
+              && recordedConversationTaskList(other, dir: forkRecords)?.id == forkPin.id)
     // C5: the start mode names a cleared, unused conversation back (launchchecks.swift), and the
     // supervisor looks it up; a fork writes a new conversation and never does.
     let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",

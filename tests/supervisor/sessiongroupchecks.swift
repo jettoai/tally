@@ -426,12 +426,12 @@ func runSessionGroupChecks() {
 
     // AT MOST ONE REWRITE A MINUTE, AND NOTHING SAID IN BETWEEN IS LOST (`WriteThrottle`): memory
     // already holds a throttled claim, so no later tick would produce it again.
+    let t0 = Date(timeIntervalSince1970: 1_786_571_200)
     let throttledFile = SessionProcessGroups.fileURL(home: home.appendingPathComponent("throttled"))
     var writes = SessionProcessGroups.WriteThrottle()
     let firstClaim = Array(ledger.prefix(1)), secondClaim = Array(ledger.dropFirst().prefix(1))
     func flush(_ claims: [SessionProcessGroup], after seconds: TimeInterval) -> Bool {
-        guard let due = writes.take(claims, retiring: [],
-                                    at: Date(timeIntervalSince1970: 1_786_571_200 + seconds))
+        guard let due = writes.take(claims, retiring: [], at: t0.addingTimeInterval(seconds))
         else { return false }
         _ = SessionProcessGroups.record(due.claims, sessions: sessions, in: throttledFile)
         return true
@@ -446,13 +446,11 @@ func runSessionGroupChecks() {
           flush([], after: 61) && !writes.owed
               && SessionProcessGroups.load(from: throttledFile) == firstClaim + secondClaim)
     check("…as it carries a group retired while it waited",
-          writes.take([], retiring: [7], at: Date(timeIntervalSince1970: 1_786_571_200 + 90)) == nil
-              && writes.take([], retiring: [],
-                             at: Date(timeIntervalSince1970: 1_786_571_200 + 122))?.retired == [7])
+          writes.take([], retiring: [7], at: t0.addingTimeInterval(90)) == nil
+              && writes.take([], retiring: [], at: t0.addingTimeInterval(122))?.retired == [7])
 
     // MARK: the CPU credit one of ours leaves behind (ProcessCPUCarry)
 
-    let t0 = Date(timeIntervalSince1970: 1_786_571_200)
     // Two processes: 10 is Tally's own (a hook), 20 is the session's Claude Code. The hook has
     // burned two seconds and is about to end.
     let before = ProcessResourceSample(times: [10: 2, 20: 1], childTimes: [10: 0, 20: 0],

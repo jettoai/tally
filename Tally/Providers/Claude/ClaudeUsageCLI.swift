@@ -21,7 +21,10 @@ enum ClaudeUsageCLI {
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` is not documented (found in the 2.1.283 binary, where the CLI
     /// uses it for agent-team teammates), so every isolated read has the old read behind it.
     /// The CLI writes `.claude.json` here (it carries `oauthAccount`: email and organisation, no
-    /// token), which is why the directory is private to the user and never read by Tally.
+    /// token), which is why the directory is private to the user. Tally does not read the file. Its
+    /// only write is a manual refresh removing `cachedUsageUtilization` (Claude Code 2.1.285 answers a
+    /// `/usage` asked within 60 seconds from that snapshot), so the manual read really asks the
+    /// endpoint. If the key is renamed, the refresh falls back to the snapshot; nothing breaks.
     static let probeHomeRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/probe-home", isDirectory: true)
 
@@ -32,7 +35,7 @@ enum ClaudeUsageCLI {
     /// UNSET on the old read (the CLI namespaces its Keychain item by the exact env value; explicitly
     /// passing the default path makes it look up a hashed item that doesn't exist - "Not logged in").
     /// On the isolated read the same rule is expressed as `CLAUDE_SECURESTORAGE_CONFIG_DIR=""`.
-    static func fetchUsageText(configDir: String?, executable: String? = nil,
+    static func fetchUsageText(configDir: String?, userInitiated: Bool = false, executable: String? = nil,
                                probeHomeRoot: URL = probeHomeRoot,
                                now: Date = Date()) async -> String? {
         guard let binary = executable ?? CLIRunner.resolve("claude") else { return nil }
@@ -42,6 +45,7 @@ enum ClaudeUsageCLI {
               let home = prepareProbeHome(root: probeHomeRoot, name: probeHomeName(configDir: configDir))
         else { return await legacyRead(binary: binary, configDir: configDir) }
 
+        if userInitiated { dropUsageSnapshot(home: home) }
         let isolated = await read(binary: binary, environment: [
             "CLAUDE_CONFIG_DIR": home.path,
             "CLAUDE_SECURESTORAGE_CONFIG_DIR": configDir ?? "",
@@ -56,6 +60,20 @@ enum ClaudeUsageCLI {
             await routes.apply(memoryUpdate(reason: reason, legacy: legacy), key: key, now: now)
             return legacy
         }
+    }
+
+    /// Removes the CLI's cached `/usage` snapshot from the probe home's `.claude.json`. Any read,
+    /// parse or shape problem leaves the file exactly as it was.
+    static func dropUsageSnapshot(home: URL) {
+        let file = home.appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: file),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              object.removeValue(forKey: "cachedUsageUtilization") != nil,
+              let updated = try? JSONSerialization.data(withJSONObject: object)
+        else { return }
+        let mode = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.posixPermissions]
+        guard (try? updated.write(to: file, options: .atomic)) != nil else { return }
+        if let mode { try? FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: file.path) }
     }
 
     // MARK: - The two reads

@@ -36,7 +36,7 @@ struct ClaudeProvider: UsageProvider {
         let configDir = (home == defaultHome) ? nil : home
 
         let authMark = await LoginStatusStore.shared.beginUsageAuthentication()
-        guard let text = await ClaudeUsageCLI.fetchUsageText(configDir: configDir) else {
+        guard let text = await ClaudeUsageCLI.fetchUsageText(configDir: configDir, userInitiated: userInitiated) else {
             return failed(L("Claude CLI read failed"))
         }
         if ClaudeUsageCLI.authenticationRejected(text) {

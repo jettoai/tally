@@ -249,6 +249,45 @@ try FileManager.default.createSymbolicLink(at: linkRoot, withDestinationURL: pro
 _ = await ClaudeUsageCLI.fetchUsageText(configDir: t9b, executable: stub.path, probeHomeRoot: linkRoot)
 expect(runs() == ["\(t9b)|<unset>"], "a symlinked root sends the read down the old path")
 
+// T10 to T13: a manual refresh drops the CLI's 60-second `/usage` snapshot from the probe home.
+let snapshotJSON = #"{"cachedUsageUtilization":{"fetchedAtMs":1,"utilization":{}},"oauthAccount":{"emailAddress":"a@b.c"},"other":7}"#
+func plantSnapshot(_ name: String, _ contents: String?) throws -> URL {
+    let home = probeRoot.appendingPathComponent(name)
+    try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+    let file = home.appendingPathComponent(".claude.json")
+    if let contents {
+        try Data(contents.utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+    return file
+}
+try routedStub(isolated: threeWindows, legacy: notLoggedIn)
+let t10 = dir.appendingPathComponent(".claudeT10").path
+let t10File = try plantSnapshot("claudeT10", snapshotJSON)
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: t10, userInitiated: true, executable: stub.path, probeHomeRoot: probeRoot)
+let t10Object = (try? JSONSerialization.jsonObject(with: Data(contentsOf: t10File))) as? [String: Any]
+expect(t10Object != nil && t10Object?["cachedUsageUtilization"] == nil, "a manual refresh removes the usage snapshot")
+expect(t10Object?["other"] as? Int == 7 && (t10Object?["oauthAccount"] as? [String: Any])?["emailAddress"] as? String == "a@b.c",
+       "the other keys survive the snapshot removal")
+let t10Mode = (try? FileManager.default.attributesOfItem(atPath: t10File.path))?[.posixPermissions] as? NSNumber
+expect(t10Mode?.intValue == 0o600, "the rewritten .claude.json stays 0600")
+
+let t11 = dir.appendingPathComponent(".claudeT11").path
+let t11File = try plantSnapshot("claudeT11", snapshotJSON)
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: t11, executable: stub.path, probeHomeRoot: probeRoot)
+expect((try? Data(contentsOf: t11File)) == Data(snapshotJSON.utf8), "an ordinary tick leaves the snapshot alone")
+
+let t12 = dir.appendingPathComponent(".claudeT12").path
+let t12File = try plantSnapshot("claudeT12", nil)
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: t12, userInitiated: true, executable: stub.path, probeHomeRoot: probeRoot)
+expect(!FileManager.default.fileExists(atPath: t12File.path), "a missing .claude.json is not created")
+
+let t13 = dir.appendingPathComponent(".claudeT13").path
+let t13File = try plantSnapshot("claudeT13", "{not json")
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: t13, userInitiated: true, executable: stub.path, probeHomeRoot: probeRoot)
+expect((try? Data(contentsOf: t13File)) == Data("{not json".utf8), "an unparseable .claude.json is left untouched")
+
 unsetenv("CLAUDE_SECURESTORAGE_CONFIG_DIR")
 
 // Pure verdicts, no process.

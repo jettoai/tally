@@ -109,6 +109,14 @@ extension UsageAdvisor {
     ///   record begins, and the tail between the previous week's last observation and its reset
     ///   cannot be reconstructed from a change-only log. Undercounting there is the honest answer;
     ///   assuming it ran to 100% is not.
+    /// - A COUNTER CAN RESTART WITHOUT ITS RESET TIME MOVING. Claude's redeemed reset and the
+    ///   provider-wide ones keep the weekly reset time, so the high would sit at 100 and swallow
+    ///   every point spent until the old reset. Two readings in a row `restartDrop` under the high,
+    ///   the second carrying a reset time, restart the high at the low reading; only the growth
+    ///   between those two is credited.
+    /// - A SNAPSHOT OF A CYCLE ALREADY LEFT IS NEITHER A ROLLOVER NOR A READING. A provider that
+    ///   briefly serves last week's figures and then goes back would otherwise be billed twice as
+    ///   two fresh cycles.
     ///
     /// `since` is the display window: the walk always sees the whole history (so the sample just
     /// before the window is a baseline rather than a loss) and credits only what lands at or after
@@ -121,25 +129,52 @@ extension UsageAdvisor {
             var cycle: Date?          // the reset instant anchoring the cycle being watched
             var watermark = 0.0       // the highest `used` seen inside it
             var previous: Sample?
+            var left: [Date] = []     // anchors of cycles this series has already rolled out of
             for sample in sorted {
-                defer { previous = sample }
                 guard let prior = previous else {
                     cycle = sample.resetAt
                     watermark = sample.used
+                    previous = sample
                     continue
                 }
                 if let reported = sample.resetAt, let anchor = cycle,
                    abs(reported.timeIntervalSince(anchor)) > resetTolerance {
+                    // A stale snapshot of a cycle already left is skipped outright, and does not
+                    // become the next sample's `prior` either: codex 2026-09-09 17:11 served last
+                    // week's 42% and went back at 17:40, and billing both hops invented 241 points.
+                    if left.contains(where: { abs(reported.timeIntervalSince($0)) <= resetTolerance }) {
+                        continue
+                    }
+                    left.append(anchor)
                     cycle = reported
                     watermark = sample.used
+                    previous = sample
                     // Spent inside the new cycle, but over a span this history did not watch (the
                     // rollover happened between two samples), so it is burn without active time.
                     if sample.ts >= since { total += sample.used }
                     continue
                 }
+                previous = sample
                 // Same cycle: follow the reported time so a minute-per-poll drift never accumulates
                 // into a false rollover.
                 if sample.resetAt != nil { cycle = sample.resetAt }
+                // A counter that restarted without its reset time moving (claude2 2026-09-24: 0 to
+                // 100 after a redeemed reset, billed as 0). Two low readings in a row, the second
+                // carrying a reset time, so a one-poll 0% blip (nil reset) and a dip-and-recover
+                // (13c) never qualify. Only the growth between the two is credited: whatever was
+                // spent before the first low reading is the honest undercount, and a rescale
+                // (76 to 53) must not be billed again.
+                if sample.resetAt != nil,
+                   sample.used <= watermark - restartDrop, prior.used <= watermark - restartDrop {
+                    let step = max(0, sample.used - prior.used)
+                    watermark = sample.used
+                    if sample.ts >= since, step > 0 {
+                        total += step
+                        activeBurn += step
+                        activeSeconds += min(maxGap, sample.ts.timeIntervalSince(prior.ts))
+                    }
+                    continue
+                }
                 guard sample.used > watermark else { continue }
                 let step = sample.used - watermark
                 watermark = sample.used

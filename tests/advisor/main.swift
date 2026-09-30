@@ -503,6 +503,67 @@ if let r = reading([s("a1", "weeklyAll", used: 40, at: daysAgo(14)),
           near(r.demandPerWeek, 0.15))
 }
 
+// 13f. A REDEEMED RESET KEEPS THE RESET TIME. Claude's redeemed and provider-wide resets drop the
+//      counter to 0 while the weekly reset stays put (a minute's wobble at most), so the high
+//      sat at 100 and the whole second window of work (0 to 100) was billed as nothing.
+let redeemed = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("a1", "weeklyAll", used: 100, at: daysAgo(10)),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(9), reset: resetA.addingTimeInterval(60)),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(8.9)),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(5)),
+    s("a1", "weeklyAll", used: 100, at: daysAgo(2)),
+]
+if let r = reading(redeemed) {
+    check("work after a redeemed reset counts (1.00)", near(r.demandPerWeek, 1.0))
+    check("…not swallowed by the old high (0.50)", !near(r.demandPerWeek, 0.5))
+    check("…and the 7-day window sees it too (1.00)",
+          near(r.windowDemands[2].demandPerWeek ?? -1, 1.0))
+} else { check("redeemed reading exists", false) }
+
+// 13g. BUT ONE LOW READING IS NOT A RESTART. A single 0% that carries the reset time and bounces
+//      straight back, and two 0% blips with no reset time at all, are the same purchase (13c).
+let oneLow = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(10)),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(9)),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(8.9)),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(2)),
+]
+if let r = reading(oneLow) {
+    check("a single low reading that bounces back is not a restart (0.30)",
+          near(r.demandPerWeek, 0.30))
+} else { check("oneLow reading exists", false) }
+let nilBlips = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(10)),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(9), reset: nil),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(8.95), reset: nil),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(8.9)),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(2)),
+]
+if let r = reading(nilBlips) {
+    check("two 0% blips without a reset time are not a restart (0.30)",
+          near(r.demandPerWeek, 0.30))
+} else { check("nilBlips reading exists", false) }
+
+// 13h. A STALE SNAPSHOT OF A CYCLE ALREADY LEFT. Codex 2026-09-09 served last week's figures for
+//      half an hour and went back; billing the hop out and the hop back as two fresh cycles
+//      invented 241 points on the real history (90 + 50 here).
+let stale = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 90, at: daysAgo(12), reset: resetA),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(11), reset: resetB),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(6), reset: resetB),
+    s("a1", "weeklyAll", used: 90, at: daysAgo(5.5), reset: resetA),
+    s("a1", "weeklyAll", used: 50, at: daysAgo(5.4), reset: resetB),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(2), reset: resetB),
+]
+if let r = reading(stale) {
+    check("a stale snapshot of a left cycle is not billed (0.75)", near(r.demandPerWeek, 0.75))
+    check("…not twice as fresh cycles (1.45)", !near(r.demandPerWeek, 1.45))
+} else { check("stale reading exists", false) }
+
 // MARK: - 14. The fleet as it is now, not as the history remembers it
 
 // Two accounts spent 90 points each over two weeks: 0.9 account-weeks of demand between them.

@@ -16,6 +16,9 @@ final class UsageHistory: @unchecked Sendable {
 
     /// One recorded observation. `used` is the percent used at `ts`; `resetAt` segments the series
     /// (a window whose resetAt changed has rolled over, so deltas across it are not consumption).
+    /// A counter can also restart WITHOUT its resetAt moving (Claude's redeemed and provider-wide
+    /// resets), and a provider can briefly serve a snapshot of a cycle already left; the advisor's
+    /// burn walk (`UsageAdvisor.consumption`) handles both.
     struct Sample: Codable, Sendable {
         var ts: Date
         var account: String

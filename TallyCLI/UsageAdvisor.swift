@@ -35,6 +35,10 @@ enum UsageAdvisor {
     /// claim uses for the same reason (`rebalanceCycleTolerance`, TallyCLI/Rebalance.swift); they
     /// are one tolerance over one wobble and should move together.
     static let resetTolerance: TimeInterval = 5 * 60
+    /// Points a same-cycle reading must sit under the cycle's high, on two readings in a row, before
+    /// the counter counts as restarted (a redeemed or provider-wide reset that kept the reset time).
+    /// Rounding dips are at most 1 point on this machine's history (2,194 of 2,265 same-cycle drops).
+    static let restartDrop: Double = 10
     /// Recommend another account once weekly demand reaches this fraction of pooled capacity...
     static let demandTriggerRatio: Double = 0.9
     /// ...or once the fleet sits starved more than this many hours in a week.

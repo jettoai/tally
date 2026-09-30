@@ -57,6 +57,10 @@ func runSessionSendChecks() {
     // absence of an argument is what means it now.
     check("no text at all presses Return and types nothing",
           sessionSendIntent([]) == SessionSendIntent(text: "", session: nil))
+    check("--no-queue is a flag, not text",
+          sessionSendIntent(["y", "--no-queue", "--session", "9"])
+              == SessionSendIntent(text: "y", session: "9", noQueue: true))
+    check("…given twice it is a usage error", sessionSendIntent(["--no-queue", "--no-queue"]) == nil)
     check("…and it can be aimed at another session too",
           sessionSendIntent(["--session", "412"]) == SessionSendIntent(text: "", session: "412"))
     // THE FLAG THAT USED TO SAY "AND SEND IT" IS NOT A FLAG ANY MORE, so it is content or an error
@@ -724,7 +728,8 @@ func runSessionSendChecks() {
     // failure - a caller told "nobody answered" about a line that is pending and healthy is the
     // defect this whole rework removed from the supervisor's side.
     check("every caller makes the same short wait, and nobody waits on the long number",
-          command.contains("let wait = sessionInputGraceSeconds")
+          command.contains("let life = sessionInputGraceSeconds")
+              && command.contains("let wait = intent.noQueue ? life + sessionInputNoQueueGrace : life")
               && command.contains("timeout: wait,")
               && !command.contains("timeout: sessionInputWaitSeconds"))
     // AND THE SAME NUMBER IS STAMPED ON THE REQUEST, which is what stops the receipt of a send
@@ -765,7 +770,14 @@ func runSessionSendChecks() {
         check("every refusal is decided before the request is written, so none of them waits",
               before.components(separatedBy: "return 3").count == 10
                   && before.contains("return 2")
-                  && !after.contains("return 3")
+                  // the one `return 3` below it is the --no-queue line that was taken but never
+                  // answered, and that caller was never told its line was queued
+                  && after.components(separatedBy: "return 3").count == 2
+                  && after.range(of: "case .timedOut where intent.noQueue:").map { branch in
+                      after[branch.upperBound...].range(of: "    case .timedOut:\n")
+                          .map { after[branch.upperBound ..< $0.lowerBound].contains("return 3") }
+                          ?? false
+                  } ?? false
                   // and the one non-zero ending left below it is the session that has exited
                   && after.components(separatedBy: "return 4").count == 2)
         check("…and the four the addressing owns are refusals rather than guesses",

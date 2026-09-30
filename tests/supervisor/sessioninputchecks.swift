@@ -108,6 +108,34 @@ func runSessionInputChecks() {
                              now: t0.addingTimeInterval(offset))
     }
     check("nothing pending, nothing to do", decide(nil) == .ignore)
+
+    // `--no-queue`: a line with its own short life is refused once that life is over, whether or not
+    // the session could take it now. The second check is the one that matters: a line whose caller
+    // has left must not be typed at the next ready moment, which may be a prompt nobody has read.
+    var brief = request("y")
+    brief.life = 6
+    if case .refuse(.refusedExpired, _) = decide(brief, state: .working, at: 7) {
+        check("a --no-queue line past its life is refused while held, not waited on", true)
+    } else { check("a --no-queue line past its life is refused while held, not waited on", false) }
+    if case .refuse(.refusedExpired, let why) = decide(brief, state: .idle, at: 7) {
+        check("…and refused, not typed, when the session is ready only after it", why.contains("--no-queue"))
+    } else { check("…and refused, not typed, when the session is ready only after it", false) }
+    check("…while inside its life it is typed as any other", decide(brief, state: .idle, at: 5) == .inject(brief))
+    check("a line with no life of its own is still held at the same age", decide(request("y"), state: .working, at: 7) == .wait(.turn))
+    check("a --no-queue request round-trips its life",
+          sessionInputData(brief).flatMap { parseSessionInput($0) as SessionInputRequest? } == brief)
+    check("…and one written before the field existed decodes with no life of its own",
+          (parseSessionInput(Data("{\"epoch\":1,\"text\":\"hi\"}".utf8)) as SessionInputRequest?)?.life == nil)
+    // The command's own withdrawal: only the request it wrote, never one somebody else's epoch owns.
+    try? writeSessionInputRequest(brief, sessionKey: "77", dir: dir)
+    check("a --no-queue caller does not withdraw a request it did not write",
+          !sessionInputWithdraw(sessionKey: "77", epoch: brief.epoch + 1, dir: dir)
+              && readSessionInputRequest(sessionKey: "77", dir: dir) == brief)
+    check("…and withdraws its own, leaving nothing for a later tick",
+          sessionInputWithdraw(sessionKey: "77", epoch: brief.epoch, dir: dir)
+              && readSessionInputRequest(sessionKey: "77", dir: dir) == nil)
+    check("…and a request already taken is not reported withdrawn",
+          !sessionInputWithdraw(sessionKey: "77", epoch: brief.epoch, dir: dir))
     check("a request this supervisor already served is not served again",
           decide(request("hi"), served: epoch(0)) == .ignore
               && decide(request("hi"), served: epoch(1)) == .ignore)

@@ -113,6 +113,17 @@ struct SessionInputRequest: Codable, Equatable {
     /// this field reads the request as a plain send and types `/clear`, which is exactly what the
     /// same request meant before this existed. Nothing depends on both ends being the same build.
     var intent: String?
+    /// HOW LONG THIS LINE MAY WAIT TO BE TYPED, in seconds from `epoch`, and nil for the ordinary
+    /// `sessionInputQueuedLife`. Written only by `tally session send --no-queue`, whose caller is
+    /// answering something it can see right now (a permission prompt on a board): a line that
+    /// misses that moment must not be typed at the next one, which may be a prompt nobody has
+    /// read. So the supervisor refuses it once this runs out instead of holding it for a quarter
+    /// of an hour.
+    ///
+    /// ADDITIVE LIKE ITS NEIGHBOURS: a supervisor that predates it ignores the key and holds the
+    /// line for the full life, which is why the command also withdraws the file itself when its
+    /// wait ends unanswered (`sessionInputWithdraw`).
+    var life: Int?
 }
 
 /// What became of one request, in the vocabulary both ends share.

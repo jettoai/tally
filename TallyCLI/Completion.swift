@@ -405,7 +405,8 @@ _tally() {
         (type|send)
           _arguments ":provider:_tally_providers" \
             "--project[the session to send into, by launch directory or project name]:project:" \
-            "--session[the session to send into, by pid]:pid:"
+            "--session[the session to send into, by pid]:pid:" \
+            "--no-queue[withdraw the line if it is not typed at once]"
           ;;
         # The native sibling, addressed the same three ways. --file and the explicit address flags
         # are offered; the message itself, the pid and the project stay blank for the reasons the

@@ -53,6 +53,35 @@ let sessionInputWaitSeconds: TimeInterval = 150
 /// window and is reported exactly as any other.
 let sessionInputGraceSeconds: TimeInterval = 6
 
+/// How much longer than its line's life a `--no-queue` caller stays, so the supervisor's last word on
+/// that line is read rather than guessed at. The latest that word can come is one 2s tick after the
+/// life ends (the tick that refuses it), or, for a line injected on the last tick inside the life, the
+/// injection's own worst case of about 1.1s (SessionInput.swift) before its receipt is written; plus
+/// one `sessionInputPollInterval` to read it. 2 + 1.1 + 0.25 rounds up to 4.
+let sessionInputNoQueueGrace: TimeInterval = 4
+
+/// What a withdrawn `--no-queue` line exits on: its own code, because it is neither a refusal read
+/// from the supervisor (3) nor a session that has gone (4).
+let sessionInputWithdrawnExitCode: Int32 = 5
+
+/// Take back an unanswered request, but only the one this caller wrote: true when the file on disk
+/// still carried `epoch` and has been removed. A different epoch, or no file, is left alone and
+/// answers false - the supervisor has already taken the line, and removing somebody else's would
+/// lose it.
+func sessionInputWithdraw(sessionKey: String, epoch: Int, dir: URL = sessionInputDir) -> Bool {
+    guard readSessionInputRequest(sessionKey: sessionKey, dir: dir)?.epoch == epoch else {
+        return false
+    }
+    clearSessionInputRequest(sessionKey: sessionKey, dir: dir)
+    return true
+}
+
+/// What a caller is told when its `--no-queue` line was withdrawn.
+func sessionInputWithdrawnMessage(sessionKey: String, waited: TimeInterval) -> String {
+    "not delivered to session \(sessionKey) within \(Int(waited))s; withdrawn (--no-queue), so "
+        + "nothing will be typed later"
+}
+
 /// How often to look for it. A quarter second is well inside the 2s tick that writes it, so the
 /// answer is read within one interval of being published.
 let sessionInputPollInterval: TimeInterval = 0.25

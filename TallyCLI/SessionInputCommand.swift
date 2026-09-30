@@ -38,6 +38,9 @@ struct SessionSendIntent: Equatable {
     var project: String?
     /// Which provider's session in that directory, when it holds more than one kind.
     var provider: String?
+    /// `--no-queue`: a line that is not typed within the wait is withdrawn rather than queued
+    /// (`SessionInputRequest.life` says why a caller wants that).
+    var noQueue: Bool = false
 }
 
 /// What one command line asks for, or nil when it asks for something this command cannot act on.
@@ -56,9 +59,17 @@ struct SessionSendIntent: Equatable {
 /// the address flags around it are `sessionAddressGrammar` (SessionProjectAddress.swift), shared
 /// with the verb that messages the session these words name (MessageVerb.swift).
 func sessionSendIntent(_ args: [String]) -> SessionSendIntent? {
-    guard let parsed = sessionAddressGrammar(args) else { return nil }
+    var noQueue = false
+    let parsed = sessionAddressGrammar(args) { word, _, _ in
+        guard word == "--no-queue" else { return nil }
+        guard !noQueue else { return false }
+        noQueue = true
+        return true
+    }
+    guard let parsed else { return nil }
     return SessionSendIntent(text: parsed.word ?? "", session: parsed.address.session,
-                             project: parsed.address.project, provider: parsed.address.provider)
+                             project: parsed.address.project, provider: parsed.address.provider,
+                             noQueue: noQueue)
 }
 
 /// Why this cannot be asked for, or nil when it can. Pure, and asked BEFORE anything is written, so
@@ -295,10 +306,14 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     // ASKED BEFORE THE REQUEST IS WRITTEN, because the request carries the answer: how long this
     // caller will be there decides how long its receipt is anybody's to collect
     // (`SessionInputRequest.waitSeconds`).
-    let wait = sessionInputGraceSeconds
+    // `--no-queue` stays past the line's life by `sessionInputNoQueueGrace`, so the supervisor's
+    // refusal (or a receipt for a line typed at the last moment) is read rather than guessed at.
+    let life = sessionInputGraceSeconds
+    let wait = intent.noQueue ? life + sessionInputNoQueueGrace : life
     let request = SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
                                       text: intent.text, waitSeconds: Int(wait),
-                                      intent: requestIntent)
+                                      intent: requestIntent,
+                                      life: intent.noQueue ? Int(life) : nil)
     do {
         try writeSessionInputRequest(request, sessionKey: sessionKey)
     } catch {
@@ -322,6 +337,18 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     case .abandoned(let why):
         warn(why)
         return 4
+    case .timedOut where intent.noQueue:
+        // NOT QUEUED, BY REQUEST. Withdrawn here as well as refused there, because a supervisor
+        // from before `life` existed would still hold the line for the full quarter hour.
+        if sessionInputWithdraw(sessionKey: sessionKey, epoch: request.epoch) {
+            warn(sessionInputWithdrawnMessage(sessionKey: sessionKey, waited: wait))
+            return sessionInputWithdrawnExitCode
+        }
+        // Gone from disk with no answer read: the supervisor took it and has not said what became
+        // of it, so this is unconfirmed rather than withdrawn.
+        warn("unconfirmed: the line for session \(sessionKey) was taken by its supervisor but no "
+            + "answer arrived within \(Int(wait))s; read ~/.tally/logs/input.log before retrying")
+        return 3
     case .timedOut:
         // THE ORDINARY ENDING RATHER THAN A FAILURE, and the one thing that changed here on
         // 2026-08-18. The line is queued, the session's own turn is what it is waiting for, and
@@ -344,7 +371,7 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
 }
 
 let sessionSendUsage = """
-usage: tally session send [<text>] [--session <pid> | --project <dir-or-name> [--provider claude|codex]]
+usage: tally session send [<text>] [--session <pid> | --project <dir-or-name> [--provider claude|codex]] [--no-queue]
 
 Types <text> into a supervised session's own terminal and presses Return. Claude supports slash
 commands and permission answers. With no text, Claude presses Return alone to answer the default
@@ -398,6 +425,10 @@ for delivery: a line behind a turn is doing what it was asked to, and a caller i
 that stayed would hold open the very turn it is waiting for. What became of it is recorded in
 ~/.tally/logs/input.log, including how many running subagents a `/clear` ended when it landed.
 
+--no-queue is for a line meant for THIS moment, such as an answer to a prompt somebody is looking at:
+if it is not typed within \(Int(sessionInputGraceSeconds))s it is withdrawn rather than queued, so it
+can never land on a later prompt nobody has read. It exits \(sessionInputWithdrawnExitCode) when withdrawn.
+
 For a hand-over clear, use `tally session clear`: same queueing, and it may reopen the session on a
 healthier account instead of typing (nothing here decides anything about accounts).
 
@@ -405,7 +436,7 @@ One send at a time per session: a second one while the first is still queued is 
 replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, for short direct input.
 
 Exit codes: 0 confirmed or queued; 3 refused or unconfirmed (inspect the printed reason before
-retrying); 4 that session has exited; 1 something went wrong.
+retrying); 4 that session has exited; 5 withdrawn untyped (--no-queue); 1 something went wrong.
 """
 
 /// What a missing or unknown verb is told: the first line of each verb's own text rather than a

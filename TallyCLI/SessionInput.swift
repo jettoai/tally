@@ -295,17 +295,22 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
     }
     let hold = sessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
                                 keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned)
-    guard !sessionInputExpired(epoch: request.epoch, now: now) else {
+    // A `--no-queue` line carries its own, short life (`SessionInputRequest.life`), and past it
+    // this refuses even a session that is ready now: its caller has left, and the moment it was
+    // aimed at has gone with it.
+    let life = request.life.map(TimeInterval.init) ?? sessionInputQueuedLife
+    guard !sessionInputExpired(epoch: request.epoch, now: now, ttl: life) else {
         // WHAT STOOD AT THE END, named rather than summarised as the state word. A session that
         // never reported anything gets its own outcome, because that hold is the one that would
         // never have lifted by waiting; every other refusal is the clock running out on a hold
         // that might have.
+        let noQueue = request.life == nil ? "" : " (--no-queue: never held for later)"
         guard let hold else {
             return .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
-                + "its \(Int(sessionInputQueuedLife))s life had run out")
+                + "its \(Int(life))s life had run out\(noQueue)")
         }
         return .refuse(hold == .notReporting ? .refusedNotReporting : .refusedExpired,
-                       hold.sentence(ttl: sessionInputQueuedLife))
+                       hold.sentence(ttl: life) + noQueue)
     }
     guard let hold else { return .inject(request) }
     return .wait(hold)

@@ -92,7 +92,7 @@ final class UsageStore {
                 // Hanging with ten sessions writing through these homes).
                 let (providers, epoch) = (self.providers, self.discoveryEpoch)
                 let found = await Task.detached(priority: .utility) {
-                    providers.flatMap { $0.discoverAccounts() }
+                    KnownAccountsStore.discoverClearingMarkers(providers)
                 }.value
                 guard epoch == self.discoveryEpoch else { return false }  // a newer adopt wins
                 // A signed-out account is not discoverable - that is what being signed out means
@@ -142,7 +142,7 @@ final class UsageStore {
     func discoveredAccountsNow() -> [ProviderAccount] {
         guard discoveredAccounts.isEmpty else { return discoveredAccounts }
         return KnownAccountsStore.shared
-            .reconcile(discovered: providers.flatMap { $0.discoverAccounts() }).all
+            .reconcile(discovered: KnownAccountsStore.discoverClearingMarkers(providers)).all
     }
 
     /// …and the same pass ADOPTED, for a surface that opens before the first refresh has produced
@@ -287,7 +287,9 @@ final class UsageStore {
         var launchHomes: [String: String] = [:]   // account id → CLI config home, for the snapshot
         for provider in providers {
             // Off the main thread: the home listing and Keychain probes hung the app (TALLY-2C).
-            let found = await Task.detached(priority: .utility) { provider.discoverAccounts() }.value
+            let found = await Task.detached(priority: .utility) {
+                KnownAccountsStore.discoverClearingMarkers([provider])
+            }.value
             allDiscovered.append(contentsOf: found)
             guard enabled.contains(provider.id) else { continue }
             // Disabled accounts are discovered (Settings shows them) but never polled - and never

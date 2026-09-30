@@ -75,8 +75,8 @@ check("the account watcher streams over accountWatchRoots, the home only as a sh
 // The watcher's discovery lists and probes off the main thread (2026-09-26, App Hanging), and an
 // adopt that landed while it was reading wins over its older answer.
 check("discovery lists and probes off the main thread, and a newer adopted set wins",
-      watcherUse.contains("providers.flatMap { $0.discoverAccounts() }")
-          && watcherUse.contains("let found = await Task.detached(priority: .utility) {")
+      watcherUse.contains("let found = await Task.detached(priority: .utility) {\n"
+            + "                    KnownAccountsStore.discoverClearingMarkers(providers)")
           && watcherUse.contains("guard epoch == self.discoveryEpoch else { return false }")
           && watcherUse.contains("discoveryEpoch += 1"))
 // The periodic refresh does the same listing and probes; on the main thread they hung the app for
@@ -88,8 +88,11 @@ let refreshLoop: Substring = {
     return watcherUse[start.lowerBound..<end.lowerBound]
 }()
 check("refresh discovers accounts off the main thread",
-      refreshLoop.contains("let found = await Task.detached(priority: .utility) { provider.discoverAccounts() }.value")
-          && refreshLoop.components(separatedBy: "discoverAccounts()").count == 2)
+      refreshLoop.contains("let found = await Task.detached(priority: .utility) {\n"
+            + "                KnownAccountsStore.discoverClearingMarkers([provider])\n"
+            + "            }.value")
+          && refreshLoop.components(separatedBy: "discoverClearingMarkers(").count == 2
+          && !refreshLoop.contains("discoverAccounts()"))
 
 for name in protected { chmod(home.appendingPathComponent(name).path, 0o755) }
 try? fm.removeItem(at: home)

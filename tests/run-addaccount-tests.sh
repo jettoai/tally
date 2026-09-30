@@ -17,5 +17,6 @@ swiftc -o "$out" tests/addaccount/main.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift \
   Tally/Core/RenewLoginCommand.swift Tally/Core/RenewLoginRunner.swift \
-  Tally/Core/AccountDirWatcher.swift Tally/Core/CoalescingGate.swift Tally/Providers/ProviderModels.swift
+  Tally/Core/AccountDirWatcher.swift Tally/Core/CoalescingGate.swift Tally/Providers/ProviderModels.swift \
+  Tally/Stores/KnownAccountsStore.swift Tally/Core/KnownAccounts.swift Tally/Core/BuildVariant.swift
 "$out"

@@ -40,9 +40,10 @@ final class ResetHintNotifier {
         // The automatic redeem answers a Codex account whose weekly window is empty BEFORE the
         // reminder speaks, so the reminder never asks the user to press what Tally is pressing.
         let claimed = CodexAutoRedeemStore.shared.evaluate(accounts: accounts)
-        let (next, hint) = ResetHintLogic.advance(state: loadState(), accounts: accounts,
-                                                  now: Date())
-        saveState(next)
+        let current = loadState()
+        let (next, hint) = ResetHintLogic.advance(state: current, accounts: accounts, now: Date())
+        // Unchanged is the common round, and a set is a synchronous wait on cfprefsd (TALLY-2Q).
+        if next != current { saveState(next) }
         guard let hint,
               !CodexAutoRedeemLogic.silencesDrainedHint(isDrained: hint.reason == .drained,
                                                          accountID: hint.accountID,

@@ -21,10 +21,12 @@ final class DryPoolNotifier {
                   windowName: String) {
         guard accountCount >= 2 else { return }
         requestAuthorizationIfNeeded()
+        let current = loadState()
         let (next, notification) = DryPoolLogic.advance(
-            state: loadState(), remaining: remaining, capacity: capacity,
+            state: current, remaining: remaining, capacity: capacity,
             accountCount: accountCount, resetAt: resetAt)
-        saveState(next)
+        // Unchanged is the common round, and a set is a synchronous wait on cfprefsd (TALLY-3C).
+        if next != current { saveState(next) }
         if let notification {
             post(notification, remaining: remaining, capacity: capacity, resetAt: resetAt,
                  windowName: windowName)

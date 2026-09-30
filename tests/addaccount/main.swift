@@ -154,6 +154,48 @@ expect(await watcherSees("watch-restart", restart: true),
 expect(!(await watcherSees("watch-stopped", restart: false)),
        "a stop while the start is in flight leaves nothing watching")
 
+// THE MARKER SWEEP RUNS OFF THE MAIN THREAD (Sentry TALLY-38): discovery's callers clear the
+// pending-add markers (and write the onboarding note) beside the listing, not in the reconcile.
+let sweep = tmp.appendingPathComponent("sweep")
+let pendingHome = sweep.appendingPathComponent(".claude7")
+let settledHome = sweep.appendingPathComponent(".claude8")
+for dir in [pendingHome, settledHome] { try! fm.createDirectory(at: dir, withIntermediateDirectories: true) }
+let marker = pendingHome.appendingPathComponent(addAccountPendingMarker)
+try! "".write(to: marker, atomically: true, encoding: .utf8)
+func claudeAccount(_ home: URL) -> ProviderAccount {
+    ProviderAccount(id: "claude:\(home.lastPathComponent)", providerID: "claude",
+                    label: home.lastPathComponent, locator: [:], launchHome: home.path)
+}
+let (pendingAccount, settledAccount) = (claudeAccount(pendingHome), claudeAccount(settledHome))
+expect(KnownAccountsStore.clearPendingMarkers([pendingAccount, settledAccount], unshipped: true).isEmpty
+        && fm.fileExists(atPath: marker.path),
+       "an unshipped build's sweep leaves every marker where it is")
+let onboarded = { (home: URL) in
+    (try? String(contentsOf: home.appendingPathComponent(".claude.json"), encoding: .utf8))?
+        .contains("hasCompletedOnboarding") == true
+}
+let swept = await Task.detached {
+    KnownAccountsStore.clearPendingMarkers([pendingAccount, settledAccount], unshipped: false)
+}.value
+expect(swept.map(\.id) == [pendingAccount.id] && !fm.fileExists(atPath: marker.path),
+       "the sweep answers with exactly the accounts whose marker it removed, off the main actor")
+expect(onboarded(pendingHome) && !onboarded(settledHome),
+       "…and writes the onboarding note for that account only, in the same pass")
+expect(KnownAccountsStore.clearPendingMarkers([pendingAccount, settledAccount], unshipped: false).isEmpty,
+       "…and a second sweep has nothing left to report")
+let knownStoreSource = (try? String(contentsOfFile: "Tally/Stores/KnownAccountsStore.swift", encoding: .utf8)) ?? ""
+let usageStoreSource = (try? String(contentsOfFile: "Tally/Stores/UsageStore.swift", encoding: .utf8)) ?? ""
+expect(knownStoreSource.contains("nonisolated static func clearPendingMarkers(")
+        && knownStoreSource.contains("nonisolated static func discoverClearingMarkers(")
+        && usageStoreSource.components(separatedBy: "KnownAccountsStore.discoverClearingMarkers(").count == 4
+        && usageStoreSource.contains("Task.detached(priority: .utility) {\n"
+            + "                    KnownAccountsStore.discoverClearingMarkers(providers)")
+        && usageStoreSource.contains("Task.detached(priority: .utility) {\n"
+            + "                KnownAccountsStore.discoverClearingMarkers([provider])")
+        && usageStoreSource.contains(".reconcile(discovered: KnownAccountsStore.discoverClearingMarkers(providers))")
+        && !knownStoreSource.contains("cleared:"),
+       "all three discovery paths sweep before they reconcile, two of them inside the detached pass")
+
 try? fm.removeItem(at: tmp)
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

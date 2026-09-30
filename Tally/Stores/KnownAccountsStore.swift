@@ -26,38 +26,11 @@ final class KnownAccountsStore {
     /// and "Renew login" act on it.
     ///
     /// Cheap enough for the watcher's path: one directory check per remembered account that is not
-    /// currently discoverable, and a write only when the answer actually changed.
+    /// currently discoverable, and a write only when the answer actually changed. The pending-add
+    /// markers and the onboarding note are not handled here: both are filesystem work, done by
+    /// `clearPendingMarkers` off the main thread (Sentry TALLY-38, main thread in `lstat`/`unlink`).
     func reconcile(discovered: [ProviderAccount])
         -> (all: [ProviderAccount], dormant: [ProviderAccount]) {
-        // Discovery is credential-shaped, so every account in here is one Tally can SEE signed in -
-        // which is exactly the moment the home stops being an unfinished "Add account" attempt.
-        // Clearing the marker here rather than in the add flow covers the surface that cannot do it
-        // itself: `tally add` execs the provider's login over its own process and never comes back.
-        // A marker left behind would make this home look reusable again the day its login expires,
-        // which is the bug the slot rule exists to close (Tally/Core/AddAccount.swift).
-        //
-        // A build nobody installed does none of it. Both calls below leave the app's own state and
-        // write into the USER's: the marker is a file in a provider config home, and the onboarding
-        // note is a key inside their `~/.claude.json`. This runs before anything else in a refresh
-        // round, so gating further down the round would have let a locally built Release edit the
-        // installed app's config homes on every poll while looking gated (`isUnshipped`, codex review
-        // of e7fe1a0). Gated HERE rather than at the caller because three paths reach this method -
-        // the refresh, the account watcher, and the launch-time `discoveredAccountsNow` - and a gate
-        // per caller is three chances to forget the fourth.
-        for account in discovered where !BuildVariant.isUnshipped {
-            guard let home = account.launchableHome else { continue }
-            // A marker that was still there is Tally's own note that it CREATED this home, and
-            // clearing it now is this round saying the login has landed. That pair of facts is the
-            // one moment the first-run wizard's note has to be put in (ClaudeOnboarding.swift):
-            // the add flow writes it too, but not every login comes back through the add flow -
-            // one handed to a Terminal window finishes where Tally cannot watch, and unless the
-            // user then says so in the sheet, this is the only surface that ever hears about it.
-            // Asking the clear rather than the directory is also what keeps the write off every
-            // home that was not pending, and off this one on every subsequent round.
-            if clearAddAccountPendingMarker(in: URL(fileURLWithPath: home)) {
-                markClaudeOnboardingComplete(providerID: account.providerID, home: home)
-            }
-        }
         let (next, dormant) = KnownAccountLogic.advance(
             remembered: remembered,
             discovered: discovered.compactMap(KnownAccount.init),
@@ -68,6 +41,55 @@ final class KnownAccountsStore {
         }
         let revived = dormant.map(ProviderAccount.init(dormant:))
         return (discovered + revived, revived)
+    }
+
+    /// Take the pending-add marker out of every discovered home that still has one, answering with
+    /// the accounts whose marker was actually removed. Nonisolated so the callers can run it beside
+    /// the discovery it follows, off the main thread.
+    ///
+    /// Discovery is credential-shaped, so every account in here is one Tally can SEE signed in -
+    /// which is exactly the moment the home stops being an unfinished "Add account" attempt.
+    /// Clearing the marker here rather than in the add flow covers the surface that cannot do it
+    /// itself: `tally add` execs the provider's login over its own process and never comes back.
+    /// A marker left behind would make this home look reusable again the day its login expires,
+    /// which is the bug the slot rule exists to close (Tally/Core/AddAccount.swift).
+    ///
+    /// A marker that was still there is Tally's own note that it CREATED this home, and clearing it
+    /// is the login landing. That pair of facts is the one moment the first-run wizard's note has
+    /// to be put in (ClaudeOnboarding.swift): the add flow writes it too, but not every login comes
+    /// back through the add flow - one handed to a Terminal window finishes where Tally cannot
+    /// watch, and unless the user then says so in the sheet, this is the only surface that ever
+    /// hears about it. Asking the clear rather than the directory is also what keeps the write off
+    /// every home that was not pending, and off this one on every later round. The note is written
+    /// right here, beside the clear, so no caller can drop it between the two (a watcher pass that
+    /// loses to a newer adopt would otherwise have spent the marker and skipped the note).
+    ///
+    /// A build nobody installed does none of it. The marker is a file in a provider config home and
+    /// the onboarding note is a key inside the user's `~/.claude.json`, and this runs before
+    /// anything else in a refresh round, so gating further down the round would have let a locally
+    /// built Release edit the installed app's config homes on every poll while looking gated
+    /// (`isUnshipped`, codex review of e7fe1a0). Gated HERE rather than at the caller because three
+    /// paths reach it - the refresh, the account watcher, and the launch-time
+    /// `discoveredAccountsNow` - and a gate per caller is three chances to forget the fourth.
+    /// `unshipped` exists for the test harness, whose bare binary always reads as unshipped.
+    @discardableResult
+    nonisolated static func clearPendingMarkers(_ discovered: [ProviderAccount],
+                                                unshipped: Bool = BuildVariant.isUnshipped)
+        -> [ProviderAccount] {
+        discovered.filter { account in
+            guard !unshipped, let home = account.launchableHome,
+                  clearAddAccountPendingMarker(in: URL(fileURLWithPath: home)) else { return false }
+            markClaudeOnboardingComplete(providerID: account.providerID, home: home)
+            return true
+        }
+    }
+
+    /// Discovery and the sweep that follows it, as one pass for the callers' detached tasks.
+    nonisolated static func discoverClearingMarkers(_ providers: [any UsageProvider])
+        -> [ProviderAccount] {
+        let found = providers.flatMap { $0.discoverAccounts() }
+        clearPendingMarkers(found)
+        return found
     }
 
     /// Drop one account from the memory outright - the user REMOVED it (its config home went to the

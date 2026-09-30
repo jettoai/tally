@@ -172,5 +172,12 @@ do {
     expect(known == .dry, "and learning the reset time is a cycle we have not alerted on")
 }
 
+// An unchanged round writes nothing: every UserDefaults set waits on cfprefsd over a synchronous
+// XPC, on the main thread (Sentry TALLY-3C, TALLY-2Q).
+let notifierSource = (try? String(contentsOfFile: "Tally/Core/DryPoolNotifier.swift", encoding: .utf8)) ?? ""
+expect(notifierSource.contains("if next != current { saveState(next) }")
+        && !notifierSource.contains("        saveState(next)\n"),
+       "the notifier saves its dedup state only when the round changed it")
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all dry-notify tests passed")

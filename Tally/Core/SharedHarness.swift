@@ -29,12 +29,15 @@ import Foundation
 let sharedHarnessItems = [
     "CLAUDE.md", "settings.json", "settings.local.json",
     "agents", "skills", "hooks", "commands", "plugins",
-    "memory", "projects", inboxesItem, "tasks",
+    "memory", "projects", inboxesItem, taskListsItem,
 ]
 
 /// The messages sessions drop for each other. Named rather than spelled twice: the rule below has
 /// to be about the same directory this list shares, and two literals is how those drift apart.
 let inboxesItem = "inboxes"
+
+/// The per-session task lists (TaskListPin.swift), named for the same reason.
+let taskListsItem = "tasks"
 
 /// Makes sure the main account HAS an inbox directory before a share links it.
 ///

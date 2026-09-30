@@ -356,8 +356,6 @@ private func plainFileCount(_ dir: URL) -> Int? {
     return count
 }
 
-let taskListsItem = "tasks"
-
 /// Whether a first-level `tasks` link is dangling or already arrives inside the main account's
 /// `tasks` (its list's owner has been shared, or it pointed at the main account all along).
 private func isRedundantTaskShortcut(_ link: URL, _ mainTaskLists: URL) -> Bool {

@@ -77,12 +77,15 @@ do {
     expect(state.accounts["a"]?.firedDrained == true, "the drained flag is set after firing")
 }
 
-// 3. The drained line is 5% remaining, the same line the flagship pool alert calls nearly dry.
+// 3. The drained line is 0% remaining: "out of quota" is never said while any quota is left
+//    (2026-09-30: 5% and 2% left read as "out of quota").
 do {
-    let (_, at) = hint([account("a", remaining: 5)])
-    expect(at?.reason == .drained, "5% remaining is drained")
-    let (_, above) = hint([account("a", remaining: 6)])
-    expect(above == nil, "6% remaining is not drained (and no credit is expiring)")
+    let (_, at) = hint([account("a", remaining: 0)])
+    expect(at?.reason == .drained, "0% remaining is drained")
+    for left in [5.0, 2.0, 0.5] {
+        let (_, above) = hint([account("a", remaining: left)])
+        expect(above == nil, "\(left)% remaining is not drained (and no credit is expiring)")
+    }
 }
 
 // 4. The expiring case fires well above the drained line, because an expiring credit is nearly
@@ -210,9 +213,9 @@ do {
 do {
     let (state, note) = hint([account("a", remaining: 0, metrics: [
         metric("session", kind: .session, remaining: 80, resetsAt: cycle2),
-        metric("weekly_all", remaining: 1, resetsAt: cycle1)])])
+        metric("weekly_all", remaining: 0, resetsAt: cycle1)])])
     expect(note?.reason == .drained, "the emptiest window decides")
-    expect(note?.bindingRemainingPercent == 1, "the hint reports the binding window")
+    expect(note?.bindingRemainingPercent == 0, "the hint reports the binding window")
     expect(state.accounts["a"]?.cycleKey == DryPoolLogic.resetKey(cycle1),
            "the cycle is keyed on the binding window's reset")
 }

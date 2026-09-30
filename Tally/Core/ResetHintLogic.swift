@@ -110,9 +110,10 @@ struct ResetHintState: Codable, Equatable {
 /// The feature exists because the user has to REMEMBER to look at a banked credit; it never acts on
 /// one. Everything smart here goes into WHEN to speak and WHICH account to name.
 enum ResetHintLogic {
-    /// Drained: at or below 5% of the binding window left. The same line `DryPoolLogic.lowFraction`
-    /// calls nearly dry, so "drained" means one thing across both alerts.
-    static let drainedRemainingPercent = 5.0
+    /// Drained: nothing left in the binding window. "Out of quota" is only said when it is true;
+    /// a nearly dry window is the pool alert's job (`DryPoolLogic.lowFraction`), and a Codex
+    /// weekly window that reaches zero is where the automatic redeem acts.
+    static let drainedRemainingPercent = 0.0
     /// The value line: at or below this much left, spending a credit recovers most of a window.
     /// Above it, whether spending now is right depends on the expiry, and the wording says which.
     /// It doubles as the drained re-arm line: an account back above it has recovered.

@@ -129,7 +129,7 @@ func runExpiryChecks() {
 
     // M21. Several accounts in one round: one hint, the emptiest first; on a tie the later stage.
     do {
-        let pair = [account("a", remaining: 5, expiry: far), account("b", remaining: 60, expiry: h40)]
+        let pair = [account("a", remaining: 0, expiry: far), account("b", remaining: 60, expiry: h40)]
         let (s1, first) = hint(pair)
         let (_, second) = hint(pair, state: s1)
         expect(first?.accountID == "a" && second?.accountID == "b", "M21 emptiest first, other next")

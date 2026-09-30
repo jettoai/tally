@@ -213,7 +213,7 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
         return (injectingOptions(removingHandTypedSession(args), ["--resume", id]), nil, nil)
     }
     guard policy.startMode == "continue", !wantsNew,
-          !optionsOnly(args).contains(where: { sessionFlags.contains($0) })
+          !options.contains(where: { sessionFlags.contains($0) })
     else { return (args, nil, nil) }
     let recorded = readLastConversation(cwd: cwd, dir: recordDir)
     switch conversationStart(recorded: recorded, among: conversationCandidates(in: dir),

@@ -164,21 +164,16 @@ extension UsageAdvisor {
                 // (13c) never qualify. Only the growth between the two is credited: whatever was
                 // spent before the first low reading is the honest undercount, and a rescale
                 // (76 to 53) must not be billed again.
+                let step: Double
                 if sample.resetAt != nil,
                    sample.used <= watermark - restartDrop, prior.used <= watermark - restartDrop {
-                    let step = max(0, sample.used - prior.used)
-                    watermark = sample.used
-                    if sample.ts >= since, step > 0 {
-                        total += step
-                        activeBurn += step
-                        activeSeconds += min(maxGap, sample.ts.timeIntervalSince(prior.ts))
-                    }
-                    continue
+                    step = max(0, sample.used - prior.used)
+                } else {
+                    guard sample.used > watermark else { continue }
+                    step = sample.used - watermark
                 }
-                guard sample.used > watermark else { continue }
-                let step = sample.used - watermark
                 watermark = sample.used
-                guard sample.ts >= since else { continue }
+                guard sample.ts >= since, step > 0 else { continue }
                 total += step
                 activeBurn += step
                 // Gap-capped so an idle stretch between two spending samples doesn't dilute the

@@ -27,6 +27,10 @@ let quotaKnockDeliveredOutcome = "quota-knock-delivered"
 /// The audit word a delivered Chrome-gap sentence leaves in the input log (ChromeReach.swift).
 let chromeGapDeliveredOutcome = "chrome-gap-delivered"
 
+/// The audit word a filed host-health sentence leaves when the hook finds the alarm gone or stale
+/// by the time it runs, and so delivers nothing (`HostHealthKnockLogic.current`).
+let hostHealthDroppedOutcome = "host-health-dropped"
+
 /// `tally hook-knock <event>` - one of the two hooks a filed knock is delivered through.
 ///
 /// A SESSION THIS TOOL DID NOT LAUNCH IS NOT OURS TO SPEAK INTO: without the supervisor marker in
@@ -46,6 +50,9 @@ func runHookKnock(args: [String],
                   log: URL = sessionInputLog,
                   now: Date = Date(),
                   chrome: ChromeGapDeps = .live,
+                  hostHealth: () -> HostHealthReport? = {
+                      decodeHostHealthReport(try? Data(contentsOf: hostHealthReportFile))
+                  },
                   emit: (String) -> Void = { print($0) }) -> Int32 {
     guard let supervisor = environment["TALLY_SUPERVISOR_PID"],
           let pid = pid_t(supervisor), alive(pid) else { return 0 }
@@ -96,13 +103,23 @@ func runHookKnock(args: [String],
                                                    text: message, now: now), to: log)
     }
     if !failure, let notice = claimQuotaKnockNotice(pid: supervisor, dir: dir) {
-        contexts.append(notice.message)
+        // A HOST-HEALTH SENTENCE IS RE-READ AT DELIVERY: it can sit filed for hours, and the figures
+        // it carried at filing time are history by then (B-537). The report as it stands now decides
+        // whether it is said at all and supplies its numbers; a quota sentence passes untouched.
+        var message: String? = notice.message
+        if notice.message.hasPrefix("[host-health]") {
+            message = HostHealthKnockLogic.current(hostHealth(), now: now)
+                .map { hostHealthKnockSentence($0, bytes: sessionInputMaxBytes) }
+        }
+        if let message { contexts.append(message) }
         // ON THE SAME CHANNEL THE TYPED KNOCK IS RECORDED ON, and for the same reason: the question
         // that log answers is "what reached my conversation, and when", and a sentence nobody asked
         // for is exactly the entry a reader needs to be able to tell from one they did.
         appendSessionInputLine(sessionInputLogLine(pid: supervisor,
-                                                   outcome: quotaKnockDeliveredOutcome,
-                                                   text: notice.message, now: now), to: log)
+                                                   outcome: message == nil ? hostHealthDroppedOutcome
+                                                       : quotaKnockDeliveredOutcome,
+                                                   text: message ?? notice.message, now: now),
+                               to: log)
     }
     // ONE DOCUMENT WHATEVER WAS CLAIMED: stdout carries exactly one hook JSON or nothing.
     guard !contexts.isEmpty else { return 0 }

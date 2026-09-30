@@ -32,7 +32,8 @@ swiftc -o "$out" tests/chromegap/main.swift \
   TallyCLI/DriftMonitor.swift \
   TallyCLI/FollowAdoption.swift \
   TallyCLI/GitRepoRoot.swift \
-  TallyCLI/HookKnock.swift \
+  TallyCLI/HookKnock.swift TallyCLI/HostHealthKnockLogic.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/KeystrokeText.swift \
   TallyCLI/KeyboardIdle.swift \
   TallyCLI/LaunchFlags.swift \
   TallyCLI/LimitResetSignals.swift \

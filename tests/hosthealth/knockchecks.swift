@@ -228,6 +228,59 @@ func runKnockChecks() {
                "…and the rewrite that follows says it, off the alarm it was raised at")
     }
 
+    // MARK: - 7b. What a filed sentence may say when the hook finally delivers it (B-537)
+
+    // Filed at load 273, claimed long after the machine recovered: the report as it stands at
+    // delivery decides, not the one the filing was made off.
+    do {
+        let calmNow = HostHealthReport(sampledAt: at(200), load1: 12.05, cores: 16,
+                                       freeBytes: 34 * gigabyte, state: .normal, since: at(65),
+                                       lastAlarm: alarmedReport(at: at(0)).lastAlarm)
+        expect(HostHealthKnockLogic.current(calmNow, now: at(200)) == nil,
+               "a filed alarm the machine has since cleared is not delivered")
+        expect(HostHealthKnockLogic.current(nil, now: at(200)) == nil,
+               "…nor one whose report has gone")
+        expect(HostHealthKnockLogic.current(alarmedReport(at: at(0)),
+                                            now: at(0) + HostHealthLogic.staleAfter + 1) == nil,
+               "…nor one whose report nobody has rewritten past the staleness line")
+        var still = alarmedReport(at: at(30), alarmedAt: at(0))
+        still.load1 = 61.4
+        still.freeBytes = 7 * gigabyte
+        let said = HostHealthKnockLogic.current(still, now: at(31))
+        expect(said?.load1 == 61.4 && said?.freeBytes == 7 * gigabyte,
+               "an alarm still standing is delivered with the figures read now, not at filing")
+        expect(said?.at == at(0) && said?.top == sampleTop,
+               "…keeping the filed alarm's instant and top list")
+        expect(said.map { hostHealthKnockSentence($0, bytes: 200) }?.hasPrefix("[host-health] load=61 free=7.0GB")
+                   == true,
+               "…so the sentence carries the current load")
+    }
+
+    // MARK: - 7c. The load reading agrees with the kernel's own (reconciliation, real machine)
+
+    // `HostHealthReaders.loadAverage()` is `getloadavg(3)`; this suite compiles only the pure halves,
+    // so the same call is made here directly and set against `sysctl -n vm.loadavg`, back to back.
+    do {
+        var samples = [Double](repeating: 0, count: 3)
+        let got = getloadavg(&samples, 3) == 3 ? samples[0] : nil
+        let sysctl = Process()
+        sysctl.executableURL = URL(fileURLWithPath: "/usr/sbin/sysctl")
+        sysctl.arguments = ["-n", "vm.loadavg"]
+        let pipe = Pipe()
+        sysctl.standardOutput = pipe
+        try? sysctl.run()
+        sysctl.waitUntilExit()
+        let text = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let kernel = text.split(whereSeparator: { $0 == " " || $0 == "{" || $0 == "\n" })
+            .compactMap { Double($0) }.first
+        if let got, let kernel {
+            let spread = abs(got - kernel) / max(kernel, 1)
+            expect(spread <= 0.2, "getloadavg (\(got)) and sysctl vm.loadavg (\(kernel)) agree within 20%")
+        } else {
+            expect(false, "getloadavg and sysctl vm.loadavg both answer a load")
+        }
+    }
+
     // MARK: - 8. The promises a pure harness cannot drive
 
     func source(_ path: String) -> String {

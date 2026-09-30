@@ -35,7 +35,8 @@ func runKnockHookChecks() {
     func run(event: String = "PostToolUse", registered: String? = nil,
              environment: [String: String] = ["TALLY_SUPERVISOR_PID": supervisorPID],
              alive: Bool = true, session: String? = nil, watching: String? = conversation,
-             payload: [String: Any]? = nil) -> (code: Int32, out: [String]) {
+             payload: [String: Any]? = nil,
+             hostHealth: HostHealthReport? = nil) -> (code: Int32, out: [String]) {
         var printed: [String] = []
         let body = payload ?? ["hook_event_name": event,
                                "session_id": session ?? conversation]
@@ -43,7 +44,8 @@ func runKnockHookChecks() {
                                 input: { (try? JSONSerialization.data(withJSONObject: body))
                                     ?? Data() },
                                 dir: state, alive: { _ in alive }, watching: { _ in watching },
-                                log: log, now: t0, emit: { printed.append($0) })
+                                log: log, now: t0, hostHealth: { hostHealth },
+                                emit: { printed.append($0) })
         return (code, printed)
     }
     func file(_ message: String = sentence) {
@@ -184,6 +186,32 @@ func runKnockHookChecks() {
     } else {
         check("the claim was found in the notice source", false)
     }
+
+    // MARK: - A host-health sentence is re-read at delivery (B-537)
+
+    // Filed while the machine was in trouble, claimed after it recovered: nothing reaches the model,
+    // and the log says it was dropped rather than delivered.
+    let filedAlarm = HostHealthAlarm(at: t0.addingTimeInterval(-3600), load1: 181,
+                                     freeBytes: 34 * 1_073_741_824, top: [])
+    let recovered = HostHealthReport(sampledAt: t0.addingTimeInterval(-30), load1: 12.05, cores: 16,
+                                     freeBytes: 40 * 1_073_741_824, state: .normal,
+                                     since: t0.addingTimeInterval(-600), lastAlarm: filedAlarm)
+    file("[host-health] load=181 free=34GB")
+    let dropped = run(hostHealth: recovered)
+    check("a host-health sentence whose alarm has cleared is not handed to the model",
+          dropped.out.isEmpty && dropped.code == 0 && !stillFiled())
+    check("…and the log records it as dropped",
+          ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+              .contains("pid=\(supervisorPID) input=host-health-dropped "))
+    var standing = recovered
+    standing.state = .alarmed
+    standing.load1 = 64
+    file("[host-health] load=181 free=34GB")
+    check("…while one still standing is delivered with the load read now",
+          context(run(hostHealth: standing).out)?.hasPrefix("[host-health] load=64 ") == true)
+    file("[host-health] load=181 free=34GB")
+    check("…and none is delivered when the report cannot be read at all",
+          run(hostHealth: nil).out.isEmpty && !stillFiled())
 
     // MARK: - What goes on stdout
 

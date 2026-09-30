@@ -69,4 +69,21 @@ enum HostHealthKnockLogic {
         }
         return alarm
     }
+
+    /// What a FILED host-health sentence may say at the moment a hook finally delivers it, and nil
+    /// when it may say nothing.
+    ///
+    /// A filed sentence waits for the session's next hook, which can be hours after the filing
+    /// (B-537: filed at load 181, delivered 3h16m later while the machine sat at 12). So the hook
+    /// re-reads the report and re-asks the same questions `observe` asks: still alarmed, an alarm on
+    /// record, and a sample no older than `HostHealthLogic.staleAfter`. The figures come from the
+    /// report as it stands now; the alarm's instant and top list stay the filed alarm's.
+    static func current(_ report: HostHealthReport?, now: Date) -> HostHealthAlarm? {
+        guard let report, report.state == .alarmed, var alarm = report.lastAlarm,
+              now.timeIntervalSince(report.sampledAt) <= HostHealthLogic.staleAfter
+        else { return nil }
+        alarm.load1 = report.load1
+        alarm.freeBytes = report.freeBytes
+        return alarm
+    }
 }

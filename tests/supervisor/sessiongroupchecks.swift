@@ -424,6 +424,32 @@ func runSessionGroupChecks() {
     check("…swept of the sessions that have gone, in the same pass",
           SessionProcessGroups.record([], sessions: ["100": birth(100) + 1], in: file).isEmpty)
 
+    // AT MOST ONE REWRITE A MINUTE, AND NOTHING SAID IN BETWEEN IS LOST (`WriteThrottle`): memory
+    // already holds a throttled claim, so no later tick would produce it again.
+    let throttledFile = SessionProcessGroups.fileURL(home: home.appendingPathComponent("throttled"))
+    var writes = SessionProcessGroups.WriteThrottle()
+    let firstClaim = Array(ledger.prefix(1)), secondClaim = Array(ledger.dropFirst().prefix(1))
+    func flush(_ claims: [SessionProcessGroup], after seconds: TimeInterval) -> Bool {
+        guard let due = writes.take(claims, retiring: [],
+                                    at: Date(timeIntervalSince1970: 1_786_571_200 + seconds))
+        else { return false }
+        _ = SessionProcessGroups.record(due.claims, sessions: sessions, in: throttledFile)
+        return true
+    }
+    check("the first tick with a claim writes it",
+          secondClaim.count == 1 && flush(firstClaim, after: 0)
+              && SessionProcessGroups.load(from: throttledFile) == firstClaim)
+    check("…a second claim inside the minute does not rewrite the file",
+          !flush(secondClaim, after: 30) && writes.owed
+              && SessionProcessGroups.load(from: throttledFile) == firstClaim)
+    check("…and the next allowed write carries the claim that waited",
+          flush([], after: 61) && !writes.owed
+              && SessionProcessGroups.load(from: throttledFile) == firstClaim + secondClaim)
+    check("…as it carries a group retired while it waited",
+          writes.take([], retiring: [7], at: Date(timeIntervalSince1970: 1_786_571_200 + 90)) == nil
+              && writes.take([], retiring: [],
+                             at: Date(timeIntervalSince1970: 1_786_571_200 + 122))?.retired == [7])
+
     // MARK: the CPU credit one of ours leaves behind (ProcessCPUCarry)
 
     let t0 = Date(timeIntervalSince1970: 1_786_571_200)

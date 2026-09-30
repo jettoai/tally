@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 
+private let groupWriteInterval: TimeInterval = 60
+
 /// WHAT THE GROUP LEDGER ASKS OF THE MACHINE: the file it is kept in, and whether a group it still
 /// claims has a member left.
 ///
@@ -86,9 +88,41 @@ extension SessionProcessGroups {
         return result
     }
 
+    /// At most one rewrite of the file per `groupWriteInterval`, with what the ticks in between
+    /// had to say carried over to the next write that is allowed.
+    ///
+    /// THE FILE IS ONLY A RESTART'S MEMORY: every tick decides from the ledger held in memory, so
+    /// a rewrite per two-second tick bought nothing but disk writes, and on a busy night that was
+    /// 86KB/s against macOS's 25KB/s limit (resource report, 2026-09-30).
+    ///
+    /// THE CLAIMS ARE CARRIED, NOT RE-ASKED: once memory holds a claim, `claims` answers nil for
+    /// it on every later tick, so a claim not kept here would never reach the file. The same for
+    /// a group retired on absence: its count leaves `absences` with its claims, so the write that
+    /// finally happens is told it expired rather than finding a count of zero and keeping it.
+    /// What the last interval said is lost if the app ends before its write (blind spot).
+    struct WriteThrottle {
+        private var pending: [SessionProcessGroup] = []
+        private var retired: Set<pid_t> = []
+        private var lastWrite: Date?
+        /// Whether a tick had something to write that has not been written yet.
+        private(set) var owed = false
+
+        /// Take one tick's claims and retirements. Returns everything owed when a write is allowed
+        /// now, nil when it has to wait.
+        mutating func take(_ claims: [SessionProcessGroup], retiring: Set<pid_t>,
+                           at now: Date) -> (claims: [SessionProcessGroup], retired: Set<pid_t>)? {
+            pending += claims
+            retired.formUnion(retiring)
+            owed = true
+            if let lastWrite, now.timeIntervalSince(lastWrite) < groupWriteInterval { return nil }
+            defer { pending = []; retired = []; owed = false; lastWrite = now }
+            return (pending, retired)
+        }
+    }
+
     private static func write(_ entries: [SessionProcessGroup], to url: URL) {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(Document(version: 1, entries: entries)) else { return }
         try? data.write(to: url, options: .atomic)
     }

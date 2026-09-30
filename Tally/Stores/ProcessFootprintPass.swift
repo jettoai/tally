@@ -349,18 +349,29 @@ extension ProcessFootprintStore {
             // ...and a third thing to say: a group whose last member has now been gone long enough
             // to retire its claims. Without it the retirement would wait for whichever session next
             // happened to start a command.
-            if claims.isEmpty && !stale && !absences.expired {
+            // A write held back by the throttle is something to say as well, until it lands.
+            if claims.isEmpty && !stale && !absences.expired && !groupWrites.owed {
                 groupLedger = ledger
             } else {
-                // WRITTEN OFF THE MAIN THREAD: a lock, a read and an atomic rewrite held the menu bar
-                // on a loaded machine (Sentry TALLY-S, 2026-09-26). Still one writer at a time: this
-                // pass awaits the write, and passes run one at a time (`sampleGate`).
                 let absent = absences.ticks
-                let written = await Task.detached(priority: .utility) {
-                    SessionProcessGroups.record(claims, sessions: sessions, liveGroups: liveGroups,
-                                                absentFor: { absent[$0] ?? 0 })
-                }.value
-                groupLedger = SessionProcessGroups.Index(written)
+                let retiring = Set(absent.filter { $0.value >= SessionProcessGroups.groupGrace }.keys)
+                if let due = groupWrites.take(claims, retiring: retiring, at: now) {
+                    // WRITTEN OFF THE MAIN THREAD: a lock, a read and an atomic rewrite held the menu
+                    // bar on a loaded machine (Sentry TALLY-S, 2026-09-26). Still one writer at a
+                    // time: this pass awaits the write, and passes run one at a time (`sampleGate`).
+                    let written = await Task.detached(priority: .utility) {
+                        SessionProcessGroups.record(
+                            due.claims, sessions: sessions, liveGroups: liveGroups,
+                            absentFor: { due.retired.contains($0)
+                                ? SessionProcessGroups.groupGrace : absent[$0] ?? 0 })
+                    }.value
+                    groupLedger = SessionProcessGroups.Index(written)
+                } else {
+                    // Memory moves on this tick; the file catches up on the next allowed write.
+                    groupLedger = SessionProcessGroups.Index(SessionProcessGroups.swept(
+                        ledger.entries + claims, sessions: sessions, liveGroups: liveGroups,
+                        absentFor: { absent[$0] ?? 0 }))
+                }
             }
         }
         // A pid is handed out again once its session has gone, so a series left behind would be

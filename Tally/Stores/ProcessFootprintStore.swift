@@ -127,6 +127,9 @@ final class ProcessFootprintStore {
     /// (`SessionProcessGroups.absences`). A group seen again resets, and a tick that walked nothing
     /// leaves it alone, since silence is not absence.
     @ObservationIgnored var groupAbsentTicks: [pid_t: Int] = [:]
+    /// What the ledger has to say that is still waiting for its turn at the file
+    /// (`SessionProcessGroups.WriteThrottle`).
+    @ObservationIgnored var groupWrites = SessionProcessGroups.WriteThrottle()
     /// EVERYTHING THE PROJECT ROLLUP NEEDS TO REMEMBER, which is its own object next door
     /// (`ProjectLoadAccounting`): the strays' previous readings, what their pairs could not settle,
     /// and each session directory as the machine spells it. Held apart from the readings above

@@ -176,11 +176,14 @@ func conversationStart(recorded: String?, among candidates: [ConversationCandida
 /// are shared across those homes, and picking accounts by headroom therefore walked the conversation
 /// backwards one launch at a time.
 ///
-/// A hand-typed flag is left exactly as typed, with ONE exception: when the conversation it names is
-/// being written by another live session here. Taking it puts two writers on one transcript, the
-/// thing `live` is refused for below, so the flag is dropped and the launch opens a new conversation
-/// with a line saying why (owner ruling, 2026-09-26). A target that cannot be resolved is passed as
-/// typed: the miss leans toward what the user asked for.
+/// A hand-typed `--continue` / `-c` that Tally can resolve is REPLACED by `--resume <id>` for that
+/// conversation (with `--fork-session`, the fork's parent): the CLI would answer it from the same
+/// account-private pointer, and naming the id also lets the supervisor find that conversation's task
+/// list. Any other hand-typed flag is left as typed, with ONE exception: when the conversation it
+/// names is being written by another live session here. Taking it puts two writers on one
+/// transcript, the thing `live` is refused for below, so the flag is dropped and the launch opens a
+/// new conversation with a line saying why (owner ruling, 2026-09-26). A target that cannot be
+/// resolved is passed as typed: the miss leans toward what the user asked for.
 ///
 /// `live` is passed in rather than read here, and it is the one input this cannot fetch for itself:
 /// finding it means reading the supervisors' state directory, which belongs to the caller's world
@@ -197,6 +200,17 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
        live.contains(target) {
         return (removingHandTypedSession(args),
                 "that conversation is running in another window - starting a new one", nil)
+    }
+    let options = optionsOnly(args)
+    if options.contains(where: { $0 == "--continue" || $0 == "-c" }),
+       !options.contains(where: { ["-p", "--print", "--resume", "-r"].contains($0) }) {
+        // A fork writes a new file, so a conversation another session is writing is still its parent.
+        let forking = options.contains("--fork-session")
+        guard case .resume(let id) = conversationStart(
+            recorded: readLastConversation(cwd: cwd, dir: recordDir),
+            among: conversationCandidates(in: dir), live: forking ? [] : live)
+        else { return (args, nil, nil) }
+        return (injectingOptions(removingHandTypedSession(args), ["--resume", id]), nil, nil)
     }
     guard policy.startMode == "continue", !wantsNew,
           !optionsOnly(args).contains(where: { sessionFlags.contains($0) })

@@ -61,17 +61,36 @@ func runLaunchChecks() {
     check("a live conversation is not resumed",
           startMode([], home: withSession, live: ["abc"]).args.isEmpty)
 
-    // A hand-typed flag is the user's own choice: never removed, never doubled, and never explained
-    // away with our note (they get the CLI's own behaviour, whatever it is).
+    // A hand-typed --continue / -c is answered by Tally, not by the CLI's account-private pointer:
+    // it becomes `--resume <id>`, which is also the id the supervisor finds the task list by. Where
+    // nothing resolves it passes as typed, without our note.
     let typed = startMode(["--continue"], home: withoutSession)
     check("a hand-typed --continue survives in a fresh directory", typed.args == ["--continue"])
-    check("and is not commented on", typed.note == nil)
-    check("a hand-typed --continue is never rewritten into a resume",
-          startMode(["--continue"], home: withSession).args == ["--continue"])
+    check("and is not commented on", typed.note == nil && typed.cleared == nil)
+    let rewritten = startMode(["--continue"], home: withSession)
+    check("a hand-typed --continue is rewritten into a resume by id",
+          rewritten.args == ["--resume", "abc"] && rewritten.note == nil)
+    check("a hand-typed -c is rewritten the same way, never doubled",
+          startMode(["-c"], home: withSession).args == ["--resume", "abc"])
+    check("the rewrite does not depend on the start mode",
+          startMode(["--continue", "--verbose"], home: withSession, policy: LaunchPolicy()).args
+          == ["--verbose", "--resume", "abc"])
+    check("a forked --continue resumes the parent by id and keeps the fork",
+          startMode(["--continue", "--fork-session"], home: withSession).args
+          == ["--fork-session", "--resume", "abc"])
+    check("a fork takes a conversation another session is writing, it writes a new file",
+          startMode(["--continue", "--fork-session"], home: withSession, live: ["abc"]).args
+          == ["--fork-session", "--resume", "abc"])
+    check("--continue next to a hand-typed --resume is left alone",
+          startMode(["--continue", "--resume", "xyz"], home: withSession).args
+          == ["--continue", "--resume", "xyz"])
+    check("a print run's --continue is left alone",
+          startMode(["-p", "--continue"], home: withSession).args == ["-p", "--continue"])
+    check("--continue in the prompt is not rewritten",
+          startMode(["--", "--continue"], home: withSession, policy: LaunchPolicy()).args
+          == ["--", "--continue"])
     check("a hand-typed --resume is left alone",
           startMode(["--resume", "xyz"], home: withoutSession).args == ["--resume", "xyz"])
-    check("a hand-typed -c is not doubled",
-          startMode(["-c"], home: withSession).args == ["-c"])
     check("--print is not a session to continue",
           startMode(["-p", "hi"], home: withSession).args == ["-p", "hi"])
     // ...EXCEPT onto a conversation another live session is writing: two writers on one transcript

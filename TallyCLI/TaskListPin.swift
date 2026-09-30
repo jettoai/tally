@@ -199,6 +199,14 @@ func taskListHeldElsewhere(_ dir: String, selfPID: String,
     }
 }
 
+/// The conversation whose recorded list a launch takes: the one `--resume` / `-r` names, else the
+/// cleared, never-used one the start mode declined to resume. A fork writes a new conversation, so
+/// it never takes a record.
+func resumedConversation(launchArgs: [String], cleared: String?) -> String? {
+    if optionsOnly(launchArgs).contains("--fork-session") { return nil }
+    return flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r") ?? cleared
+}
+
 /// The recorded list for the conversation a new supervisor resumes, unless another live session
 /// holds it.
 func conversationTaskListPin(_ conversation: String?, selfPID: String,

@@ -195,15 +195,20 @@ func runTaskListPinChecks() {
               && recordedConversationTaskList(other, dir: forkRecords)?.id == forkPin.id)
     // C5: the start mode names a cleared, unused conversation back (launchchecks.swift), and the
     // supervisor looks it up; a fork writes a new conversation and never does.
+    check("the resumed conversation's list is looked up, a fork's never is",
+          resumedConversation(launchArgs: ["--resume", "x1"], cleared: nil) == "x1"
+              && resumedConversation(launchArgs: ["-r", "x1"], cleared: "y1") == "x1"
+              && resumedConversation(launchArgs: ["--resume", "x1", "--fork-session"],
+                                     cleared: nil) == nil
+              && resumedConversation(launchArgs: [], cleared: "y1") == "y1"
+              && resumedConversation(launchArgs: ["--", "--resume", "x1"], cleared: nil) == nil)
     let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
                                         encoding: .utf8)) ?? ""
-    check("a cleared, never-used predecessor is looked up, a fork never is",
+    check("the supervisor takes its list from that conversation",
           supervisorSource.contains(
-              "let resumedConversation = optionsOnly(launchArgs).contains(\"--fork-session\") ? nil")
+              "let resumedID = resumedConversation(launchArgs: launchArgs, cleared: clearedConversation)")
               && supervisorSource.contains(
-                  ": (flagValue(launchArgs, \"--resume\") ?? flagValue(launchArgs, \"-r\") ?? clearedConversation)")
-              && supervisorSource.contains(
-                  "let recorded = conversationTaskListPin(resumedConversation, selfPID: supervisorPID)"))
+                  "let recorded = conversationTaskListPin(resumedID, selfPID: supervisorPID)"))
     // C6
     let broken = URL(fileURLWithPath: scratch())
     let brokenForms = ["\(pin.id)\n", "a/b\n\(inA)\n", "\(pin.id)\nrelative/dir\n",

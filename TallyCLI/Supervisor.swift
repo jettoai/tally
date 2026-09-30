@@ -236,15 +236,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// for the conversation being resumed (`clearedConversation`: the start mode found it cleared
     /// and unused), otherwise new. A fork writes a new conversation, so it never takes a record.
     var taskList: TaskListPin
-    let resumedConversation = optionsOnly(launchArgs).contains("--fork-session") ? nil
-        : (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r") ?? clearedConversation)
+    let resumedID = resumedConversation(launchArgs: launchArgs, cleared: clearedConversation)
     if let carriedTaskList {
         taskList = carriedTaskList
         appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList, source: "carried"),
                           to: handoffLog)
     } else if exportedTaskListPin(home: account.launchHome!,
                                   base: ProcessInfo.processInfo.environment) == nil,
-              let recorded = conversationTaskListPin(resumedConversation, selfPID: supervisorPID) {
+              let recorded = conversationTaskListPin(resumedID, selfPID: supervisorPID) {
         taskList = recorded
         appendHandoffLine(taskListLine(pid: supervisorPID, pin: taskList, source: "conversation"),
                           to: handoffLog)

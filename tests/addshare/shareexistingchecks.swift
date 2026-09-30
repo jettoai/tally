@@ -408,46 +408,76 @@ func runShareExistingChecks(root: URL) {
     // MARK: - Task lists with the shortcuts a supervisor leaves between accounts
 
     // A supervisor that moves a session to another account links `<home>/tasks/<id>` there to the
-    // list's real directory (TaskListPin.swift). The account holding a shortcut is shared FIRST and
-    // the owner after it, which is the order that used to leave a link to itself in the main account
-    // and the real list only in a backup.
-    let tMain = home("tasks-main"), tA = home("tasks-a"), tB = home("tasks-b")
+    // list's real directory (TaskListPin.swift). A holds one into B, and A is shared while B is not:
+    // A has to keep reading that list through the main account. B shared after it used to leave a
+    // link to itself in the main account and the real list only in a backup.
+    let tMain = home("tasks-main"), tA = home("tasks-a"), tB = home("tasks-b"), tC = home("tasks-c")
     write("main", tMain.appendingPathComponent("tasks/session-m/1.json"))
     write("x", tB.appendingPathComponent("tasks/session-x/1.json"))
     write("b", tB.appendingPathComponent("tasks/session-b/1.json"))
     write("a", tA.appendingPathComponent("tasks/session-a/1.json"))
-    func shortcut(_ at: URL, _ to: URL) { try? fm.createSymbolicLink(at: at, withDestinationURL: to) }
-    shortcut(tA.appendingPathComponent("tasks/session-x"), tB.appendingPathComponent("tasks/session-x"))
-    shortcut(tMain.appendingPathComponent("tasks/session-b"), tB.appendingPathComponent("tasks/session-b"))
-    shortcut(tA.appendingPathComponent("tasks/session-gone"),
+    func shortcut(_ at: URL, _ to: URL) {
+        try? fm.createDirectory(at: at.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(at: at, withDestinationURL: to)
+    }
+    func taskList(_ home: URL, _ id: String) -> URL { home.appendingPathComponent("tasks/\(id)") }
+    shortcut(taskList(tA, "session-x"), taskList(tB, "session-x"))
+    shortcut(taskList(tMain, "session-b"), taskList(tB, "session-b"))
+    shortcut(taskList(tA, "session-gone"),
              root.appendingPathComponent("removed-home/tasks/session-gone"))
-    let fleet = [tMain, tA, tB]
+    shortcut(taskList(tC, "session-b"), taskList(tB, "session-b"))
     let taskA = shareExistingHarness(providerID: "claude", mainHome: tMain, target: tA,
-                                     items: ["tasks"], accountHomes: fleet, now: day)
+                                     items: ["tasks"], now: day)
+    check("with only A shared, A and the main account still read B's list through the shortcut",
+          read(taskList(tA, "session-x").appendingPathComponent("1.json")) == "x"
+              && read(taskList(tMain, "session-x").appendingPathComponent("1.json")) == "x"
+              && read(taskList(tA, "session-a").appendingPathComponent("1.json")) == "a"
+              && taskA.results == [ShareExistingResult(
+                  item: "tasks", outcome: .merged(moved: 2, kept: 0, backup: nil))])
+    check("…while a dangling shortcut is not carried into the main account",
+          (try? fm.attributesOfItem(atPath: taskList(tMain, "session-gone").path)) == nil)
     let taskB = shareExistingHarness(providerID: "claude", mainHome: tMain, target: tB,
-                                     items: ["tasks"], accountHomes: fleet, now: day)
+                                     items: ["tasks"], now: day)
+    // C's shortcut now arrives in the main account through B's shared `tasks`: moved in, it would
+    // sit on the list it names.
+    let taskC = shareExistingHarness(providerID: "claude", mainHome: tMain, target: tC,
+                                     items: ["tasks"], now: day)
     let lists = ["session-m", "session-x", "session-b", "session-a"]
     let expected = ["main", "x", "b", "a"]
-    check("every list is a real directory in the main account after both shares",
+    check("once the owner is shared, every list is a real directory in the main account",
           lists.allSatisfy {
-              (try? fm.attributesOfItem(atPath: tMain.appendingPathComponent("tasks/\($0)").path))?[
-                  .type] as? FileAttributeType == .typeDirectory
-          })
-    check("…readable from the main account and from both accounts",
-          [tMain, tA, tB].allSatisfy { home in
+              (try? fm.attributesOfItem(atPath: taskList(tMain, $0).path))?[.type]
+                  as? FileAttributeType == .typeDirectory
+          }
+              && ((try? fm.contentsOfDirectory(atPath: tMain.appendingPathComponent("tasks").path))
+                  ?? []).sorted() == lists.sorted())
+    check("…readable from the main account and from every account",
+          [tMain, tA, tB, tC].allSatisfy { home in
               zip(lists, expected).allSatisfy {
-                  read(home.appendingPathComponent("tasks/\($0)/1.json")) == $1
+                  read(taskList(home, $0).appendingPathComponent("1.json")) == $1
               }
           })
-    check("…with no shortcut carried into the main account, dangling or not",
-          ((try? fm.contentsOfDirectory(atPath: tMain.appendingPathComponent("tasks").path)) ?? [])
-              .sorted() == lists.sorted())
     check("…and nothing kept aside, so no list lives only in a backup",
-          taskA.backups.isEmpty && taskB.backups.isEmpty
-              && taskA.results == [ShareExistingResult(item: "tasks",
-                                                       outcome: .merged(moved: 1, kept: 0, backup: nil))]
-              && taskB.results == [ShareExistingResult(item: "tasks",
-                                                       outcome: .merged(moved: 2, kept: 0, backup: nil))])
+          taskA.backups.isEmpty && taskB.backups.isEmpty && taskC.backups.isEmpty
+              && taskB.results == [ShareExistingResult(
+                  item: "tasks", outcome: .merged(moved: 2, kept: 0, backup: nil))]
+              && taskC.results == [ShareExistingResult(
+                  item: "tasks", outcome: .merged(moved: 0, kept: 0, backup: nil))])
+
+    // A link somebody made inside another merged item is theirs, not a task-list shortcut: it is
+    // moved like any file (or kept aside), never removed.
+    let userLinkMain = home("userlink-main"), userLinkTarget = home("userlink-target")
+    write("original", userLinkMain.appendingPathComponent("memory/original.md"))
+    shortcut(userLinkTarget.appendingPathComponent("memory/alias.md"),
+             userLinkMain.appendingPathComponent("memory/original.md"))
+    _ = shareExistingHarness(providerID: "claude", mainHome: userLinkMain, target: userLinkTarget,
+                             items: ["memory"], now: day)
+    check("a link of the user's own in memory survives the share",
+          [userLinkMain.appendingPathComponent("memory/alias.md"),
+           userLinkTarget.appendingPathComponent("memory.local-\(stamp)/alias.md")].contains {
+              (try? fm.destinationOfSymbolicLink(atPath: $0.path))
+                  == userLinkMain.appendingPathComponent("memory/original.md").path
+          })
 
     // MARK: - Which items are merged, and which are documents
 

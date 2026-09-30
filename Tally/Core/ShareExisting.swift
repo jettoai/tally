@@ -43,7 +43,7 @@ import Foundation
 /// MEMORY.md), which is exactly why a name present on both sides is never merged and never
 /// overwritten. What moves across is only what the main account does not already have.
 let mergeableHarnessItems: Set<String> = [
-    "projects", "memory", inboxesItem, "tasks", "sessions", "archived_sessions",
+    "projects", "memory", inboxesItem, taskListsItem, "sessions", "archived_sessions",
 ]
 
 /// What sharing ONE item did. Every case is an outcome rather than an intention (`AddedAccountHome`
@@ -117,14 +117,9 @@ struct ShareExistingReport: Equatable {
 ///
 /// Idempotent by construction: an item that already resolves to the main account is left alone, so
 /// running this twice does the work once and the second run reports nothing to do.
-///
-/// `accountHomes` is every home of this provider the caller can see (the main one is added here).
-/// A link inside a merged directory that leads into one of those homes' same item is a shortcut
-/// Tally left between accounts (a supervisor's task-list link, TaskListPin.swift), not data.
 @discardableResult
 func shareExistingHarness(providerID: String, mainHome: URL, target: URL,
-                          items: [String]? = nil, accountHomes: [URL] = [],
-                          now: Date = Date()) -> ShareExistingReport {
+                          items: [String]? = nil, now: Date = Date()) -> ShareExistingReport {
     var report = ShareExistingReport()
     // Nothing is shared FROM a home that is not on disk. It has no items to link, and no identity to
     // compare the target against either - so going on would leave the comparison below with no way
@@ -162,10 +157,8 @@ func shareExistingHarness(providerID: String, mainHome: URL, target: URL,
         // What the main account does not have is not shared, exactly as `linkSharedHarness` has it:
         // creating `projects` or `memory` on the provider CLI's behalf changes what it finds.
         guard FileManager.default.fileExists(atPath: source.path) else { continue }
-        let shortcutRoots = ([mainHome] + accountHomes).map { $0.appendingPathComponent(item) }
         report.results.append(ShareExistingResult(
-            item: item, outcome: shareExistingItem(item, source: source, dest: dest,
-                                                   shortcutRoots: shortcutRoots, now: now)))
+            item: item, outcome: shareExistingItem(item, source: source, dest: dest, now: now)))
     }
     report.sharesConversations = sharesConversations(providerID: providerID,
                                                      source: mainHome, target: target)
@@ -174,7 +167,7 @@ func shareExistingHarness(providerID: String, mainHome: URL, target: URL,
 
 /// One item of one home: the whole decision, from what is standing there to the link that replaces
 /// it.
-private func shareExistingItem(_ item: String, source: URL, dest: URL, shortcutRoots: [URL],
+private func shareExistingItem(_ item: String, source: URL, dest: URL,
                                now: Date) -> ShareExistingOutcome {
     let fm = FileManager.default
     /// The last act of every path that gets that far, so a link failure is reported the same way
@@ -203,7 +196,8 @@ private func shareExistingItem(_ item: String, source: URL, dest: URL, shortcutR
 
     var mergeCounts: (moved: Int, kept: Int)?
     if type == .typeDirectory, mergeableHarnessItems.contains(item) {
-        let counts = mergeHarnessDirectory(from: dest, into: source, shortcutRoots: shortcutRoots)
+        let counts = mergeHarnessDirectory(from: dest, into: source,
+                                           mainTaskLists: item == taskListsItem ? source : nil)
         mergeCounts = counts
         // Everything moved across, so what is left should be the empty shape of the directory tree,
         // and removing that shape is the one deletion in here. It is made INCAPABLE of deleting a
@@ -279,15 +273,17 @@ func harnessBackupName(_ item: String, on date: Date, calendar: Calendar = .curr
 /// accounts that have both been used in the same project have a `projects/<that project>` each, and
 /// moving the directory as a whole would be a collision at the first level with hundreds of
 /// transcripts behind it that collide with nothing.
+/// `mainTaskLists` is the main account's `tasks`, given only for that item: its first level is where
+/// a supervisor leaves shortcuts between accounts (TaskListPin.swift).
 private func mergeHarnessDirectory(from dir: URL, into main: URL,
-                                   shortcutRoots: [URL]) -> (moved: Int, kept: Int) {
+                                   mainTaskLists: URL?) -> (moved: Int, kept: Int) {
     var moved = 0, kept = 0
-    mergeHarnessEntries(from: dir, into: main, shortcutRoots: shortcutRoots,
+    mergeHarnessEntries(from: dir, into: main, mainTaskLists: mainTaskLists,
                         moved: &moved, kept: &kept)
     return (moved, kept)
 }
 
-private func mergeHarnessEntries(from dir: URL, into main: URL, shortcutRoots: [URL],
+private func mergeHarnessEntries(from dir: URL, into main: URL, mainTaskLists: URL?,
                                  moved: inout Int, kept: inout Int) {
     let fm = FileManager.default
     for name in ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted() {
@@ -296,12 +292,14 @@ private func mergeHarnessEntries(from dir: URL, into main: URL, shortcutRoots: [
         // lstat again: a symlink to a directory is moved as the one thing it is, rather than
         // descended into and taken apart.
         let type = (try? fm.attributesOfItem(atPath: source.path))?[.type] as? FileAttributeType
-        // A shortcut to another account's copy of this item holds no data: the real directory is
-        // merged on its owner's turn, or is gone with its owner. Moved into the main account it
-        // would sit where that real directory has to land, and the owner's merge would then walk
-        // through it back into itself, keep every file, and leave a link to itself behind. So it
-        // is dropped (only the link; unlink(2) cannot remove what it points at).
-        if type == .typeSymbolicLink, isAccountShortcut(source, roots: shortcutRoots) {
+        // A task-list shortcut whose list is already in the main account (or whose owner is gone,
+        // so it holds nothing) is dropped: moved in, it would sit on its own list, and the main
+        // account would hold a link to itself. Only the link; unlink(2) cannot remove its target.
+        // A shortcut into an account not shared yet is moved in like anything else, so this
+        // account keeps reading its list through the main one; the owner's share then replaces it
+        // with the real directory (below).
+        if type == .typeSymbolicLink, let mainTaskLists,
+           isRedundantTaskShortcut(source, mainTaskLists) {
             if unlink(source.path) != 0 { kept += 1 }
             continue
         }
@@ -324,7 +322,7 @@ private func mergeHarnessEntries(from dir: URL, into main: URL, shortcutRoots: [
                     continue
                 }
             }
-            mergeHarnessEntries(from: source, into: destination, shortcutRoots: shortcutRoots,
+            mergeHarnessEntries(from: source, into: destination, mainTaskLists: nil,
                                 moved: &moved, kept: &kept)
             continue
         }
@@ -358,26 +356,14 @@ private func plainFileCount(_ dir: URL) -> Int? {
     return count
 }
 
-/// Whether `link` leads inside one of `roots` (an account home's copy of the item being merged).
-/// Asked of the link's text and of the resolved path, so one reached through an owner whose item
-/// is already shared counts too. A dangling link into a directory of the item's name counts as
-/// well: its owner was removed, so no list of homes names it any more, and it holds nothing.
-private func isAccountShortcut(_ link: URL, roots: [URL]) -> Bool {
-    guard let text = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) else {
-        return false
-    }
-    let target = URL(fileURLWithPath: text, relativeTo: link.deletingLastPathComponent())
-    if let item = roots.first?.lastPathComponent,
-       !FileManager.default.fileExists(atPath: target.path),
-       target.standardizedFileURL.pathComponents.dropLast().contains(item) {
-        return true
-    }
-    let spellings = [target.standardizedFileURL.path, target.resolvingSymlinksInPath().path]
-    return roots.contains { root in
-        [root.standardizedFileURL.path, root.resolvingSymlinksInPath().path].contains { prefix in
-            spellings.contains { $0.hasPrefix(prefix + "/") }
-        }
-    }
+let taskListsItem = "tasks"
+
+/// Whether a first-level `tasks` link is dangling or already arrives inside the main account's
+/// `tasks` (its list's owner has been shared, or it pointed at the main account all along).
+private func isRedundantTaskShortcut(_ link: URL, _ mainTaskLists: URL) -> Bool {
+    guard FileManager.default.fileExists(atPath: link.path) else { return true }
+    return link.resolvingSymlinksInPath().path
+        .hasPrefix(mainTaskLists.resolvingSymlinksInPath().path + "/")
 }
 
 // MARK: - Reading the state back

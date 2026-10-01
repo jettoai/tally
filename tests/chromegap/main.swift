@@ -438,6 +438,7 @@ check("B6 a foreign file with the infix maps to nothing", supervisorStatePid(ofF
 
 runRoutingChecks()
 runPreflightChecks()
+runRunnerChecks()
 
 try? FileManager.default.removeItem(at: root)
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

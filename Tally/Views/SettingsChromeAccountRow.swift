@@ -26,7 +26,7 @@ struct SettingsChromeAccountRow: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Claude in Chrome account")).font(.subheadline)
-                Text(L("The account the Claude in Chrome extension is signed in to. A session on another account that cannot reach Chrome is told which session to hand the browser step to, or how to move there."))
+                Text(L("The account the Claude in Chrome extension is signed in to. A session on another account hands its browser steps to a one-off run on this account and keeps its own."))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

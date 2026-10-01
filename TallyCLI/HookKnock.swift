@@ -90,12 +90,11 @@ func runHookKnock(args: [String],
         isTranscriptSessionID($0) ? $0 : nil
     }
     if let session, let watched = watching(supervisor), watched != session { return 0 }
-    let context = ChromeCallContext(payload: payload)
     // BEFORE THE CALL: a permission decision or nothing, and never a quota knock (ChromePreflight.swift).
     if preflight {
         guard let tool = payload?["tool_name"] as? String, tool.hasPrefix(chromeToolPrefix),
-              let reason = chromePreflightReason(tool: tool, supervisor: supervisor, context: context,
-                                                 stateDir: dir, now: now, deps: chrome)
+              let reason = chromePreflightReason(tool: tool, supervisor: supervisor,
+                                                 stateDir: dir, deps: chrome)
         else { return 0 }
         appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromePreflightDeniedOutcome,
                                                    text: reason, now: now), to: log)
@@ -112,7 +111,7 @@ func runHookKnock(args: [String],
            outcome: failure ? chromeFailureOutcome(tool: tool, error: payload?["error"] as? String)
                : chromeReachOutcome(tool: tool, response: payload?["tool_response"]),
            supervisor: supervisor,
-           stateDir: dir, now: now, context: context, deps: chrome) {
+           stateDir: dir, now: now, deps: chrome) {
         contexts.append(message)
         appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromeGapDeliveredOutcome,
                                                    text: message, now: now), to: log)

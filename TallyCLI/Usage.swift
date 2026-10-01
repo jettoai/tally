@@ -84,6 +84,11 @@ usage:
                             terminal, it shows what is running and offers a menu. Inside Claude
                             Code, `/tally opus xhigh` does the same without waking a model
                             (installed with the Claude Code skill integration)
+  tally chrome run <task> | --file <task file>
+                            run one Claude in Chrome step on the account set in Settings as
+                            Claude in Chrome's, in a one-off background Claude Code run; the
+                            session asking keeps its own account. Prints the path of a result
+                            file with the run's answer and any screenshot paths
   tally message <claude|codex> [<text> | --file <absolute-file>]
                               [--project <dir-or-name> | --session <pid>] [--dry-run]
                             hand one message to a session's own native transport: it appears in that

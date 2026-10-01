@@ -446,6 +446,10 @@ case "type", "send":
     exit(runSend(args: Array(arguments.dropFirst())))
 case "message":
     exit(runMessage(args: Array(arguments.dropFirst())))
+// One Claude in Chrome step on the account the extension is signed in to, for a session that
+// stays on its own (ChromeRun.swift).
+case "chrome":
+    exit(runChrome(args: Array(arguments.dropFirst())))
 case "harness":
     exit(runHarness(args: Array(arguments.dropFirst())))
 case "inbox":

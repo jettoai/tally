@@ -25,11 +25,6 @@ import Foundation
 //      the agent to run `tally account`, which passes 1 and 2. The newest person input before that
 //      tool call being a `/tally*` command record is what tells the two apart.
 //
-// A FOURTH WRITER, `chromeHook` (ChromePreflight.swift): Tally's own Claude in Chrome hook moving
-// the session onto the account the extension is signed in to. It writes only from inside a
-// main-chain tool call and never answers a person's `/tally`, so facts 2 and 3 hold by
-// construction and the tail is not read for it; the "nobody spoke since" gate still applies.
-//
 // THE KNOWN OVER-REACH, stated rather than defended against: a person who asks the agent in their
 // own words to move the session also passes all three. The line then costs one turn at most, and a
 // prompt of theirs in the relaunched child drops it (`CapResumeDrop.userTurn`).
@@ -46,16 +41,6 @@ func switchResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
     let line = "\(capResumeMarker) this session moved from \(quotaKnockName(from)) to "
         + "\(quotaKnockName(to)) because it ran `tally account` itself. "
         + "Carry on with the work that was in progress before the move."
-    return keystrokeClipped(line, bytes: limit)
-}
-
-/// The line typed into a session Tally's Chrome hook has just moved onto the account Claude in
-/// Chrome is signed in to. Short enough to fit `sessionInputMaxBytes` with ordinary labels.
-func chromeSwitchResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
-                               limit: Int = sessionInputMaxBytes) -> String {
-    let line = "\(capResumeMarker) this session moved from \(quotaKnockName(from)) to "
-        + "\(quotaKnockName(to)), the account Claude in Chrome is signed in to. "
-        + "Carry on from before the move, starting with the Chrome step."
     return keystrokeClipped(line, bytes: limit)
 }
 
@@ -123,18 +108,11 @@ func armSwitchResume(_ state: inout CapResumeState, pid: String, log: URL = sess
                      served: PendingSwitchConsumption?, tail: () -> String?,
                      conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
                      userTurnAt: Date?, caughtUp: Bool) {
-    guard reason == "switch", let served,
-          served.origin == .session || served.origin == .chromeHook else { return }
+    guard reason == "switch", let served, served.origin == .session else { return }
     let requestedAt = Date(timeIntervalSince1970: Double(served.epoch) / 1000)
-    guard userTurnAt.map({ $0 <= requestedAt }) ?? true else { return }
-    // The Chrome hook writes only from inside a main-chain tool call and never answers a person's
-    // `/tally`, so facts 2 and 3 hold by construction and the tail is not read for it.
-    if served.origin == .session {
-        guard let text = tail(), switchIssuedInsideTurn(requestedAt: requestedAt, tail: text)
-        else { return }
-    }
-    let line = served.origin == .chromeHook ? chromeSwitchResumeMessage(from: from, to: to)
-        : switchResumeMessage(from: from, to: to)
+    guard userTurnAt.map({ $0 <= requestedAt }) ?? true,
+          let text = tail(), switchIssuedInsideTurn(requestedAt: requestedAt, tail: text) else { return }
+    let line = switchResumeMessage(from: from, to: to)
     let before = state.offer
     state.armSwitch(at: requestedAt, fresh: fresh, conversation: conversation, line: line,
                     userTurnAt: userTurnAt, caughtUp: caughtUp)

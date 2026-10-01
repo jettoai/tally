@@ -16257,31 +16257,31 @@
         }
       }
     },
-    "The account the Claude in Chrome extension is signed in to. A session on another account that cannot reach Chrome is told which session to hand the browser step to, or how to move there.": {
+    "The account the Claude in Chrome extension is signed in to. A session on another account hands its browser steps to a one-off run on this account and keeps its own.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude in Chrome 擴充功能登入的帳號。其他帳號上的工作階段連不到 Chrome 時，會被告知該把瀏覽器步驟交給哪個工作階段，或如何切換過去。"
+            "value": "Claude in Chrome 擴充功能登入的帳號。其他帳號上的工作階段會把瀏覽器步驟交給這個帳號的一次性代跑，自己的帳號不變。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude in Chrome 扩展程序登录的账号。其他账号上的会话连不到 Chrome 时，会被告知该把浏览器步骤交给哪个会话，或如何切换过去。"
+            "value": "Claude in Chrome 扩展程序登录的账号。其他账号上的会话会把浏览器步骤交给这个账号的一次性代跑，自己的账号不变。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude in Chrome 拡張機能がサインインしているアカウントです。別のアカウントのセッションが Chrome に接続できない場合、ブラウザの手順をどのセッションに渡すか、またはどう移動するかが案内されます。"
+            "value": "Claude in Chrome 拡張機能がサインインしているアカウントです。別のアカウントのセッションは、ブラウザの手順をこのアカウントでの一回限りの実行に任せ、自分のアカウントはそのまま使い続けます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude in Chrome 확장 프로그램에 로그인된 계정입니다. 다른 계정의 세션이 Chrome에 연결하지 못하면 브라우저 단계를 어느 세션에 넘길지, 또는 어떻게 옮길지 안내합니다."
+            "value": "Claude in Chrome 확장 프로그램에 로그인된 계정입니다. 다른 계정의 세션은 브라우저 단계를 이 계정의 일회성 실행에 맡기고 자신의 계정은 그대로 유지합니다."
           }
         }
       }

@@ -13,8 +13,12 @@ import Foundation
 //   - it is not, or that cannot be read, or the move is refused: it denies once per child
 //     generation with the hand-off sentence, then lets calls through.
 //
-// WHICH WAY EACH UNKNOWN FALLS. A move ends every subagent, so a witness that cannot be read
-// answers "there are subagents" and the session is NOT moved (`chromeAgentsIdle`). No setting, or
+// WHICH WAY EACH UNKNOWN FALLS. A move ends every subagent and every background job, so a witness
+// that cannot be read answers "there is work in flight" and the session is NOT moved
+// (`chromeAgentsIdle`): a roster file that exists but will not decode, a subagents directory that
+// exists but cannot be listed, a transcript tail with no person input in it or an assistant line
+// after that input that will not parse. Only a roster file that does not exist at all reads as "no
+// subagent edge this generation". No setting, or
 // one naming an account the snapshot does not know, answers "allow": exactly the 69ead54 behaviour.
 // A queued move that has not happened within `chromeMoveDenyWindow` stops being denied, so a stuck
 // supervisor never turns into a session that can never call Chrome. `PreToolUse` never claims a
@@ -58,12 +62,41 @@ let chromeMoveDenyWindow: TimeInterval = 600
 /// The audit word a denied Chrome call leaves in the input log.
 let chromePreflightDeniedOutcome = "chrome-preflight-denied"
 
+/// Whether this turn, from the newest person input to the end of `tail`, started background work: a
+/// tool call with `run_in_background: true` (Bash, PowerShell, Agent, Task) or any Monitor. The
+/// roster counts background work only at `Stop`, so it cannot see a job started in the turn that is
+/// running now. nil when the turn's start is not in the tail, or an assistant line after it will not
+/// parse: the question cannot be answered.
+func chromeBackgroundStartedThisTurn(tail: String) -> Bool? {
+    var sawPerson = false, started = false, unreadable = false
+    for line in tail.split(separator: "\n") where !line.contains("\"isSidechain\":true") {
+        if !line.contains("\"tool_result\""), lineIsPersonInput(line) {
+            (sawPerson, started, unreadable) = (true, false, false)
+            continue
+        }
+        guard sawPerson, line.contains("\"type\":\"assistant\"") else { continue }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        else { unreadable = true; continue }
+        let blocks = ((object["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
+        for block in blocks where block["type"] as? String == "tool_use" {
+            if block["name"] as? String == "Monitor"
+                || (block["input"] as? [String: Any])?["run_in_background"] as? Bool == true {
+                started = true
+            }
+        }
+    }
+    return sawPerson && !unreadable ? started : nil
+}
+
 /// Whether this session is positively free of subagents and background work. Pure. Every witness
-/// that is missing answers false, which leaves the session where it is.
+/// that is missing or unreadable answers false, which leaves the session where it is.
 func chromeAgentsIdle(fromSubagent: Bool, childStartedAt: Date?, agentHookRegistered: Bool,
                       claudeReportsAgents: Bool, record: SessionAgentsRecord?,
-                      newestSubagentWrite: Date?, now: Date) -> Bool {
-    guard !fromSubagent, let start = childStartedAt, agentHookRegistered, claudeReportsAgents
+                      rosterUnreadable: Bool, newestSubagentWrite: Date?,
+                      subagentsUnreadable: Bool, backgroundThisTurn: Bool?,
+                      now: Date) -> Bool {
+    guard !fromSubagent, let start = childStartedAt, agentHookRegistered, claudeReportsAgents,
+          !rosterUnreadable, !subagentsUnreadable, backgroundThisTurn == false
     else { return false }
     if let write = newestSubagentWrite, write > start,
        now.timeIntervalSince(write) <= subagentIdleSeconds { return false }
@@ -73,22 +106,32 @@ func chromeAgentsIdle(fromSubagent: Bool, childStartedAt: Date?, agentHookRegist
 }
 
 /// The same, with the live witnesses. A payload with no transcript path cannot be walked, and so
-/// answers false.
+/// answers false. The tail is read with the bound the self-switch turn test uses.
 func chromeAgentsIdleLive(supervisor: String, context: ChromeCallContext,
                           environment: [String: String] = ProcessInfo.processInfo.environment,
-                          now: Date = Date()) -> Bool {
-    guard let transcript = context.transcriptPath else { return false }
-    let start = readSupervisorChild(pid: supervisor).flatMap { processIdentity(pid_t($0)) }
+                          dir: URL = supervisorStateDir, now: Date = Date()) -> Bool {
+    guard let transcriptPath = context.transcriptPath else { return false }
+    let transcript = URL(fileURLWithPath: transcriptPath)
+    let start = readSupervisorChild(pid: supervisor, dir: dir).flatMap { processIdentity(pid_t($0)) }
         .map { Date(timeIntervalSince1970: Double($0.startedAt) / 1_000_000) }
     let home = environment["CLAUDE_CONFIG_DIR"] ?? defaultHome(providers[0])
+    let record = readSessionAgents(pid: supervisor, dir: dir)
+    let manager = FileManager.default
+    let subagents = transcript.deletingPathExtension().appendingPathComponent("subagents")
+    var isDirectory: ObjCBool = false
+    let subagentsUnreadable = manager.fileExists(atPath: subagents.path, isDirectory: &isDirectory)
+        && isDirectory.boolValue && (try? manager.contentsOfDirectory(atPath: subagents.path)) == nil
     return chromeAgentsIdle(
         fromSubagent: context.fromSubagent, childStartedAt: start,
         agentHookRegistered: agentRosterHookRegistered(home: home),
         claudeReportsAgents: claudeCodeReportsAgents(executablePath: environment["CLAUDE_CODE_EXECPATH"]),
-        record: readSessionAgents(pid: supervisor),
-        newestSubagentWrite: start.flatMap {
-            subagentTreeNewestWrite(transcript: URL(fileURLWithPath: transcript), since: $0)
-        },
+        record: record,
+        rosterUnreadable: record == nil
+            && manager.fileExists(atPath: sessionAgentsFile(pid: supervisor, dir: dir).path),
+        newestSubagentWrite: start.flatMap { subagentTreeNewestWrite(transcript: transcript, since: $0) },
+        subagentsUnreadable: subagentsUnreadable,
+        backgroundThisTurn: transcriptTail(of: transcript, bytes: selfSwitchTailBytes)
+            .flatMap(chromeBackgroundStartedThisTurn),
         now: now)
 }
 

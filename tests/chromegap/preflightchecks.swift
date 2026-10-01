@@ -220,9 +220,12 @@ func runPreflightChecks() {
     do {
         let start = t0.addingTimeInterval(-3600)
         func idle(fromSubagent: Bool = false, child: Date? = start, hook: Bool = true, version: Bool = true,
-                  record: SessionAgentsRecord? = nil, write: Date? = nil) -> Bool {
+                  record: SessionAgentsRecord? = nil, rosterBad: Bool = false, write: Date? = nil,
+                  treeBad: Bool = false, background: Bool? = false) -> Bool {
             chromeAgentsIdle(fromSubagent: fromSubagent, childStartedAt: child, agentHookRegistered: hook,
-                             claudeReportsAgents: version, record: record, newestSubagentWrite: write, now: t0)
+                             claudeReportsAgents: version, record: record, rosterUnreadable: rosterBad,
+                             newestSubagentWrite: write, subagentsUnreadable: treeBad,
+                             backgroundThisTurn: background, now: t0)
         }
         let current = t0.addingTimeInterval(-60)
         let rows: [(String, Bool, Bool)] = [
@@ -240,6 +243,10 @@ func runPreflightChecks() {
              idle(record: SessionAgentsRecord(live: ["ghost"], trusted: true, updatedAt: start.addingTimeInterval(-5))), true),
             ("a current empty roster",
              idle(record: SessionAgentsRecord(live: [], trusted: true, updatedAt: current, background: 0)), true),
+            ("background work started this turn", idle(background: true), false),
+            ("a turn whose background starts cannot be read", idle(background: nil), false),
+            ("a roster file that will not decode", idle(rosterBad: true), false),
+            ("a subagents directory that cannot be listed", idle(treeBad: true), false),
         ]
         for (name, got, want) in rows { check("P-T15 \(name) reads \(want ? "idle" : "busy")", got == want) }
         check("P-T15 the live reader with no transcript path reads busy",
@@ -271,4 +278,6 @@ func runPreflightChecks() {
         check("P-T21 a label with a quote and a backslash survives the deny document",
               Decision([chromePreflightHookOutput(reason: reason)]).reason == reason)
     }
+
+    runBackgroundTurnChecks()
 }

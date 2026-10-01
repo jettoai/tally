@@ -21,7 +21,12 @@ import Foundation
 final class HostHealthMonitor {
     static let shared = HostHealthMonitor()
 
-    private var tracker = HostHealthTracker()
+    private var tracker = HostHealthTracker() {
+        didSet {
+            let alarmed = tracker.state == .alarmed
+            HostAlarmMirror.isAlarmed.withLock { $0 = alarmed }
+        }
+    }
     /// When the last sample was taken, which is the whole of the throttle. Nil before the first,
     /// so the first tick after launch samples at once rather than a minute later.
     private var lastSampledAt: Date?

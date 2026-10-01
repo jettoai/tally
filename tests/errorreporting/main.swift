@@ -51,5 +51,28 @@ check(thread.stacktrace?.frames.first?.package == "~/Downloads/Tally.app/Content
 check(exception.stacktrace?.frames.first?.package == "~/Downloads/Tally.app/Contents/MacOS/Tally",
       "exception frame package folded")
 
+// App Hang context (Sentry TALLY-6): dropped only when the display sleeps on an alarmed host,
+// tagged otherwise; anything that is not an App Hang passes untouched.
+func hang() -> Event {
+    let e = Event(level: .error)
+    let x = Exception(value: "App hanging for at least 2000 ms.", type: "App Hanging")
+    x.mechanism = Mechanism(type: "AppHang")
+    e.exceptions = [x]
+    return e
+}
+check(ErrorReporting.contextualizeHang(hang(), displayAsleep: true, hostAlarmed: true) == nil,
+      "hang with display asleep on an alarmed host is dropped")
+for (asleep, alarmed) in [(true, false), (false, true), (false, false)] {
+    let tags = ErrorReporting.contextualizeHang(hang(), displayAsleep: asleep, hostAlarmed: alarmed)?.tags
+    check(tags?["display_asleep"] == String(asleep) && tags?["host_alarmed"] == String(alarmed),
+          "hang kept and tagged (asleep \(asleep), alarmed \(alarmed))")
+}
+let crash = Event(level: .fatal)
+let crashException = Exception(value: "boom", type: "EXC_BAD_ACCESS")
+crashException.mechanism = Mechanism(type: "mach")
+crash.exceptions = [crashException]
+let passed = ErrorReporting.contextualizeHang(crash, displayAsleep: true, hostAlarmed: true)
+check(passed === crash && passed?.tags == nil, "non-hang event passes untouched while asleep and alarmed")
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

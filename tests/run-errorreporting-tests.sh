@@ -17,5 +17,5 @@ done
 [ -n "$framework" ] || { echo "no sentry-cocoa $version framework found: build the Tally scheme first" >&2; exit 1; }
 out=$(mktemp -d)/run
 swiftc -o "$out" -F "$(dirname "$framework")" -framework Sentry -lc++ -lz \
-    tests/errorreporting/main.swift Tally/Core/ErrorReporting.swift
+    tests/errorreporting/main.swift Tally/Core/ErrorReporting.swift Tally/Core/HostAlarmMirror.swift
 "$out"

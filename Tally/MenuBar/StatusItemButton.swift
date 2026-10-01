@@ -33,21 +33,25 @@ extension StatusItemController {
         guard let button = statusItem?.button else { return }
         let segments = UsageStore.shared.menuBarSegments
         let blocked = SessionRosterStore.shared.blockedCount
-        button.attributedTitle = blocked > 0 ? Self.blockedDot : NSAttributedString(string: "")
         // What the dot MEANS, for the hover and for VoiceOver: a coloured circle with no words is
         // exactly the kind of mark a person has to be told the meaning of once.
         let waiting = blocked > 0
             ? String(format: L("%d session is waiting on you"), blocked)
             : nil
+        // Hover / VoiceOver carry the full per-account identity the compact strip can't.
+        let tooltip = segments.isEmpty
+            ? waiting
+            : [waiting, UsageStore.shared.menuBarTooltip].compactMap { $0 }.joined(separator: "\n")
+        let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip)
+        guard StatusItemFace.shouldApply(face, last: lastAppliedFace) else { return }
+        lastAppliedFace = face
+        button.attributedTitle = blocked > 0 ? Self.blockedDot : NSAttributedString(string: "")
         if segments.isEmpty {
             // No visible accounts - fall back to the app glyph.
             button.image = Self.symbolImage()
             button.toolTip = waiting
         } else {
             // The whole strip is rendered as one template image (brand marks + stacked numbers).
-            // Hover / VoiceOver carry the full per-account identity the compact strip can't.
-            let tooltip = [waiting, UsageStore.shared.menuBarTooltip]
-                .compactMap { $0 }.joined(separator: "\n")
             button.image = MenuBarStripRenderer.stripImage(segments)
             button.image?.accessibilityDescription = tooltip
             button.toolTip = tooltip

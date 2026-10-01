@@ -3,7 +3,7 @@ import Foundation
 /// One readout in the menu-bar strip: a provider's brand mark, the windows stacked under it, and
 /// the corner digit that tells identical marks apart. WHAT a segment stands for is the user's
 /// layout choice (`MenuBarLayout`) - one account, or one provider's whole pool.
-struct MenuBarSegment: Sendable {
+struct MenuBarSegment: Sendable, Equatable {
     var providerID: String
     /// The stacked window percents, session (5h) on top and the focused weekly below; `["!"]` for
     /// an error and `["—"]` when there is nothing to read.
@@ -328,4 +328,17 @@ enum MenuBarSegments {
     private static func percent(used: Double, remaining: Double, mode: DisplayMode) -> String {
         "\(Int((mode == .used ? used : remaining).rounded()))%"
     }
+}
+
+/// Everything the status item button shows, compared against the last one applied so an unchanged
+/// face never touches the button (Sentry TALLY-6: every assignment redraws the item's replicants on
+/// each display, and the roster fires on row changes the button does not read). An empty `segments`
+/// is the fallback glyph.
+struct StatusItemFace: Equatable {
+    var segments: [MenuBarSegment]
+    var blocked: Int
+    var tooltip: String?
+
+    /// The first face is always applied; after that only a different one is.
+    static func shouldApply(_ face: StatusItemFace, last: StatusItemFace?) -> Bool { face != last }
 }

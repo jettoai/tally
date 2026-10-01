@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Sentry
 
@@ -38,7 +39,12 @@ enum ErrorReporting {
             options.enableAppHangTracking = true
             options.enableCaptureFailedRequests = false
             options.maxBreadcrumbs = 0
-            options.beforeSend = { event in scrub(event) }
+            options.beforeSend = { event in
+                contextualizeHang(event,
+                                  displayAsleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0,
+                                  hostAlarmed: HostAlarmMirror.isAlarmed.withLock { $0 })
+                    .map { scrub($0) }
+            }
         }
     }
 
@@ -55,6 +61,21 @@ enum ErrorReporting {
         guard UserDefaults.standard.bool(forKey: testEventFlag), SentrySDK.isEnabled else { return }
         SentrySDK.capture(message: "tally sentry probe \(ISO8601DateFormatter().string(from: Date()))")
         DispatchQueue.global(qos: .utility).async { SentrySDK.flush(timeout: 5) }
+    }
+
+    /// App Hang events (mechanism type "AppHang", sentry-cocoa 9.29.1 SentryHangTrackingIntegration)
+    /// raised while the display sleeps on an overloaded host are dropped: nobody was waiting on the
+    /// app, and the machine was starving every process (Sentry TALLY-6, 64 such events in 40
+    /// minutes). Every other hang carries both readings as tags. Non-hang events pass untouched.
+    static func contextualizeHang(_ event: Event, displayAsleep: Bool, hostAlarmed: Bool) -> Event? {
+        guard event.exceptions?.contains(where: { $0.mechanism?.type == "AppHang" }) == true
+        else { return event }
+        if displayAsleep && hostAlarmed { return nil }
+        var tags = event.tags ?? [:]
+        tags["display_asleep"] = String(displayAsleep)
+        tags["host_alarmed"] = String(hostAlarmed)
+        event.tags = tags
+        return event
     }
 
     /// Folds the home directory to `~` in every field a path lands in. The crash converter writes

@@ -20,6 +20,8 @@ final class StatusItemController: NSObject {
     static private(set) weak var shared: StatusItemController?
 
     var statusItem: NSStatusItem?
+    /// What `updateButton` last put on the button; nil until the first apply.
+    var lastAppliedFace: StatusItemFace?
     let popover = NSPopover()
     private var popoverHost: NSHostingController<PopoverRootView>?
     /// The popover's own Usage / Tokens selection, kept here so the pin hand-off can read it.

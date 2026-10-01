@@ -39,6 +39,12 @@ let chromeGapHookEvent = "PostToolUseFailure"
 /// failure spawns a process for it.
 let chromeGapHookMatcher = "mcp__claude-in-chrome__.*"
 
+/// The event a Claude in Chrome call arrives on BEFORE it is sent. Registered under the same
+/// matcher as `chromeGapHookEvent`, and like it, it carries no quota knock: the supervisor's all-of
+/// question about the knock channel is unchanged by it. Its answer is a permission decision, so a
+/// session on an account the extension is not signed in to never sends the call that would fail.
+let chromePreflightHookEvent = "PreToolUse"
+
 /// The program a registration names. The public path, like the hooks beside it, because that is the
 /// one that survives the app bundle moving - and a constant rather than a literal in the command
 /// below, because the supervisor has to be able to ask whether the thing at it can actually run

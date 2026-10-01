@@ -39,7 +39,8 @@ let switchAutoRequest = "--auto"
 ///
 /// It exists for ONE reader: the resume a supervisor offers after a move (SelfSwitchResume.swift),
 /// which may only follow a move the conversation asked for ITSELF. Nothing else reads it, and every
-/// value but `session` means "a person chose this" or "cannot say", which is the silent answer.
+/// value but `session` and `chromeHook` means "a person chose this" or "cannot say", which is the
+/// silent answer.
 enum SwitchOrigin: String, Equatable {
     /// `tally account` run by a process whose own environment names this session
     /// (`TALLY_SUPERVISOR_PID`, adopted by the lookup): the agent's tool call is the main path.
@@ -50,6 +51,9 @@ enum SwitchOrigin: String, Equatable {
     case promptHook = "prompt-hook"
     /// The native picker: a person choosing a row on a panel.
     case picker
+    /// Tally's own Claude in Chrome hook, moving a session onto the account the extension is signed
+    /// in to (ChromePreflight.swift). Written only from a main-chain tool call, never a subagent's.
+    case chromeHook = "chrome-hook"
 }
 
 /// What a request records about its writer. `session` survives only when the marker in this

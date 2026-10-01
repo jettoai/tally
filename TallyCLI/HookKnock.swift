@@ -1,7 +1,8 @@
 import Foundation
 
 // The `tally hook-knock <event>` subcommand: Claude Code's `UserPromptSubmit` and `PostToolUse`
-// hooks, registered by the app's Integrations pane. It delivers the one sentence this session's
+// hooks, registered by the app's Integrations pane, plus the two Claude in Chrome events
+// (`PostToolUseFailure` after a call, `PreToolUse` before one, ChromePreflight.swift). It delivers the one sentence this session's
 // supervisor has filed for it (QuotaKnockNotice.swift holds the record and every rule about the
 // file; this is the plumbing around them).
 //
@@ -71,11 +72,13 @@ func runHookKnock(args: [String],
     //
     // `PostToolUseFailure` IS THE ONE EXCEPTION, and only the Chrome branch runs on it: a Claude in
     // Chrome call whose result is an error arrives there and never on `PostToolUse`. It claims no
-    // quota knock, so the knock channel's events are unchanged (`chromeGapHookEvent`).
-    let failure = payload?["hook_event_name"] as? String == chromeGapHookEvent
-    guard let event = failure ? chromeGapHookEvent
-            : quotaKnockHookEvent(registered: args.first,
-                                  payload: payload?["hook_event_name"] as? String)
+    // quota knock, so the knock channel's events are unchanged (`chromeGapHookEvent`). `PreToolUse`
+    // is the same kind of exception, before a Chrome call rather than after a failed one.
+    let named = payload?["hook_event_name"] as? String
+    let failure = named == chromeGapHookEvent
+    let preflight = named == chromePreflightHookEvent
+    guard let event = failure ? chromeGapHookEvent : preflight ? chromePreflightHookEvent
+            : quotaKnockHookEvent(registered: args.first, payload: named)
     else { return 0 }
     // WHOSE EVENT IS THIS. The marker above is inherited by every descendant of a supervised
     // session, a `claude` launched from inside one included, so a nested session would otherwise
@@ -87,6 +90,18 @@ func runHookKnock(args: [String],
         isTranscriptSessionID($0) ? $0 : nil
     }
     if let session, let watched = watching(supervisor), watched != session { return 0 }
+    let context = ChromeCallContext(payload: payload)
+    // BEFORE THE CALL: a permission decision or nothing, and never a quota knock (ChromePreflight.swift).
+    if preflight {
+        guard let tool = payload?["tool_name"] as? String, tool.hasPrefix(chromeToolPrefix),
+              let reason = chromePreflightReason(tool: tool, supervisor: supervisor, context: context,
+                                                 stateDir: dir, now: now, deps: chrome)
+        else { return 0 }
+        appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromePreflightDeniedOutcome,
+                                                   text: reason, now: now), to: log)
+        emit(chromePreflightHookOutput(reason: reason))
+        return 0
+    }
     // A CLAUDE IN CHROME CALL THAT CAME BACK "NOT CONNECTED" (ChromeReach.swift). Every other tool
     // pays one `hasPrefix` here and nothing more.
     var contexts: [String] = []
@@ -97,7 +112,7 @@ func runHookKnock(args: [String],
            outcome: failure ? chromeFailureOutcome(tool: tool, error: payload?["error"] as? String)
                : chromeReachOutcome(tool: tool, response: payload?["tool_response"]),
            supervisor: supervisor,
-           stateDir: dir, now: now, deps: chrome) {
+           stateDir: dir, now: now, context: context, deps: chrome) {
         contexts.append(message)
         appendSessionInputLine(sessionInputLogLine(pid: supervisor, outcome: chromeGapDeliveredOutcome,
                                                    text: message, now: now), to: log)

@@ -34,6 +34,9 @@ let keyboardTraceSuffix = ".keyboard-trace"
 /// Declared here for the same reason as the suffix above.
 let chromeGapNoticeInfix = ".chromegap."
 
+/// The per-child Chrome hand-off claim before the call (ChromePreflight.swift), named the same way.
+let chromePreflightNoticeInfix = ".chromepre."
+
 /// One thing the supervisor is waiting to do.
 struct PendingNotice: Equatable, Codable {
     /// What the status line shows. Short: it shares a line with the quota meters.
@@ -85,6 +88,9 @@ let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, superv
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }
     if let infix = name.range(of: chromeGapNoticeInfix) { return pid_t(name[..<infix.lowerBound]) }
+    if let infix = name.range(of: chromePreflightNoticeInfix) {
+        return pid_t(name[..<infix.lowerBound])
+    }
     guard let suffix = supervisorStateSuffixes.first(where: { name.hasSuffix($0) }) else {
         return nil
     }

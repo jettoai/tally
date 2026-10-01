@@ -259,6 +259,55 @@ func runKnockHookChecks(tmp: URL) throws {
     check("F8 …and never from a build nobody installed",
           knockSource.contains("func autoUpdateKnockHooks() {\n        guard !BuildVariant.isUnshipped"))
 
+    // F9 (B-558): THE CHROME CALL BEFORE IT IS SENT is a fourth registration of the same row, under
+    // the same matcher, and an install with only the first three is brought up to date at launch.
+    check("F9 the row registers PreToolUse under the Chrome matcher",
+          IntegrationsStore.knockHookEvents.contains(chromePreflightHookEvent)
+              && chromePreflightHookEvent == "PreToolUse"
+              && IntegrationsStore.knockHookMatcher(chromePreflightHookEvent) == "mcp__claude-in-chrome__.*")
+    let threeEvent = tmp.appendingPathComponent("knock-upkeep-three.json")
+    try JSONSerialization.data(withJSONObject: ["hooks": Dictionary(uniqueKeysWithValues:
+        (quotaKnockHookEvents + [chromeGapHookEvent]).map { event -> (String, Any) in
+            var entry: [String: Any] = ["hooks": [["type": "command",
+                                                   "command": IntegrationsStore.knockHookCommand(event)]]]
+            if event == chromeGapHookEvent { entry["matcher"] = chromeGapHookMatcher }
+            return (event, [entry])
+        })]).write(to: threeEvent)
+    check("F9 a three-event install is picked by the launch upkeep",
+          IntegrationsStore.knockHookFilesNeedingUpdate([threeEvent]) == [threeEvent])
+    _ = IntegrationsStore.autoUpdateKnockHooks(in: [threeEvent])
+    check("F9 …and comes out current, PreToolUse under the Chrome matcher",
+          IntegrationsStore.settingsCarryCurrentKnockHooks(threeEvent)
+              && (((try? JSONSerialization.jsonObject(with: Data(contentsOf: threeEvent))) as? [String: Any])
+                  .flatMap { ($0["hooks"] as? [String: Any])?["PreToolUse"] as? [[String: Any]] } ?? [])
+                  .contains { $0["matcher"] as? String == chromeGapHookMatcher })
+
+    // F10: COEXISTENCE with the Artifact PreToolUse hook in one settings.json, all four directions.
+    let artifactCommand = "/usr/local/bin/tally hook-artifact"
+    let artifactEntry = IntegrationsStore.artifactHookEntry(command: artifactCommand)
+    func preToolUse() -> [[String: Any]] { entries(chromePreflightHookEvent) }
+    func artifactEntries() -> [[String: Any]] {
+        preToolUse().filter { NSDictionary(dictionary: $0).isEqual(to: artifactEntry) }
+    }
+    try write(["hooks": ["PreToolUse": [artifactEntry]]])
+    try IntegrationsStore.upsertKnockHooks(in: settings)
+    check("F10 installing the knock row keeps the Artifact entry as it was",
+          artifactEntries().count == 1 && preToolUse().count == 2)
+    try IntegrationsStore.removeKnockHooks(in: settings)
+    check("F10 removing the knock row keeps the Artifact entry as it was",
+          artifactEntries().count == 1 && preToolUse().count == 1)
+    try IntegrationsStore.upsertKnockHooks(in: settings)
+    let knockPre = preToolUse().filter { !NSDictionary(dictionary: $0).isEqual(to: artifactEntry) }
+    _ = try IntegrationsStore.editSettings(settings) { IntegrationsStore.settingsWithoutArtifactHook($0) }
+    check("F10 removing the Artifact hook keeps the knock PreToolUse entry as it was",
+          preToolUse().count == 1 && NSDictionary(dictionary: preToolUse()[0]).isEqual(to: knockPre[0]))
+    _ = try IntegrationsStore.editSettings(settings) {
+        IntegrationsStore.settingsRegisteringArtifactHook($0, command: artifactCommand)
+    }
+    check("F10 installing the Artifact hook keeps the knock PreToolUse entry as it was",
+          preToolUse().count == 2 && IntegrationsStore.settingsCarryCurrentKnockHooks(settings))
+    try IntegrationsStore.removeKnockHooks(in: settings)
+
     // The manifest key is written by the install and read by the removal as provenance, so a second
     // spelling would mean the removal looked up an entry nothing had ever written. Its own key, not
     // the subagent hooks', or one Remove press would take the other feature out with it.

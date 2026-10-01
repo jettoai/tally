@@ -217,6 +217,33 @@ func runSelfSwitchResumeChecks() {
           switchResumeMessage(from: verbose, to: verbose).utf8.count <= sessionInputMaxBytes)
     check("the sentence carries no em dash", !sentence.contains("\u{2014}"))
 
+    // MARK: - T10. A move Tally's Chrome hook made (B-558)
+
+    let chromeSentence = chromeSwitchResumeMessage(from: from, to: to)
+    var chromeArm = CapResumeState()
+    arm(&chromeArm, served: served(.chromeHook), tail: nil)
+    check("a Chrome hook move arms without reading the tail, carrying the Chrome line",
+          chromeArm.offer?.line == chromeSentence && chromeArm.offer?.at == requestedAt)
+    var chromeLate = CapResumeState()
+    check("…but not when a person spoke after the request",
+          !arm(&chromeLate, served: served(.chromeHook), tail: nil,
+               userTurnAt: requestedAt.addingTimeInterval(1)))
+    var sessionNoTail = CapResumeState()
+    check("…while a session move with no tail still does not arm",
+          !arm(&sessionNoTail, served: served(.session), tail: nil))
+    check("the Chrome line carries the marker, both accounts and the Chrome step, and no em dash",
+          chromeSentence.hasPrefix(capResumeMarker) && chromeSentence.contains("Claude 5")
+              && chromeSentence.contains("Claude 3") && chromeSentence.contains("starting with the Chrome step")
+              && !chromeSentence.contains("\u{2014}")
+              && chromeSentence.utf8.count < sessionInputMaxBytes)
+    check("a request whose fourth line is chrome-hook reads back as the Chrome hook's",
+          parseSwitchRequest("1790000000000\nclaude:.claude2\n\nchrome-hook\n")?.origin == .chromeHook)
+    let roundTrip = dir.appendingPathComponent("chrome-roundtrip")
+    try? writeSwitchRequest(accountID: "claude:.claude2", sessionKey: "4242", origin: .chromeHook,
+                            dir: roundTrip)
+    check("…and survives a write and read", readSwitchRequest(sessionKey: "4242", dir: roundTrip)?.origin
+              == .chromeHook)
+
     // MARK: - T8. Across a self-update
 
     check("a switch arm rides the self-update exec intact",

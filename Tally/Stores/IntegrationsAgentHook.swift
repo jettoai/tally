@@ -32,7 +32,7 @@ extension IntegrationsStore {
     /// `/opt/bin/my-hook-agents Stop` would contain this string, and treating it as ours would
     /// silently replace their hook and delete it on uninstall.
     nonisolated static func agentHookMarker(_ event: String) -> String {
-        " hook-agents \(event)"
+        agentRosterHookMarker(event)
     }
 
     private static func isOurAgentHook(_ hook: [String: Any], event: String) -> Bool {

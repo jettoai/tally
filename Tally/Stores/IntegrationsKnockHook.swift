@@ -61,9 +61,9 @@ extension IntegrationsStore {
     /// gave theirs one: putting ours into their entry would put their hook under our filter, in a
     /// file we are only supposed to be adding one line to.
     ///
-    /// The third event, `chromeGapHookEvent`, is the exception and carries a matcher: that entry
-    /// exists for Claude in Chrome alone (it carries no quota knock), so no other tool's failure
-    /// needs to spawn a process for it.
+    /// `chromeGapHookEvent` and `chromePreflightHookEvent` are the exceptions and carry a matcher:
+    /// those entries exist for Claude in Chrome alone (they carry no quota knock), so no other
+    /// tool's call or failure needs to spawn a process for them.
     static func knockHookEntry(command: String, matcher: String? = nil) -> [String: Any] {
         var entry: [String: Any] = ["hooks": [["type": "command", "command": command]]]
         if let matcher { entry["matcher"] = matcher }
@@ -71,11 +71,12 @@ extension IntegrationsStore {
     }
 
     /// Every event this row registers: the knock channel's two, which the supervisor's all-of
-    /// question reads (`quotaKnockHookRegistered`), plus the Chrome-gap failure event.
-    nonisolated static let knockHookEvents = quotaKnockHookEvents + [chromeGapHookEvent]
+    /// question reads (`quotaKnockHookRegistered`), plus the two Chrome events.
+    nonisolated static let knockHookEvents = quotaKnockHookEvents
+        + [chromeGapHookEvent, chromePreflightHookEvent]
 
     nonisolated static func knockHookMatcher(_ event: String) -> String? {
-        event == chromeGapHookEvent ? chromeGapHookMatcher : nil
+        [chromeGapHookEvent, chromePreflightHookEvent].contains(event) ? chromeGapHookMatcher : nil
     }
 
     /// Whether an entry of ours is the CURRENT registration. An install pointing at an older command
@@ -265,7 +266,7 @@ extension IntegrationsStore {
     }
 
     /// Every entry under each of our two events, read once. One parse per file rather than one per
-    /// event, since both predicates above ask about both.
+    /// event, since both predicates above ask about every event.
     private static func knockHookEntries(_ file: URL) -> [String: [[String: Any]]] {
         guard let data = try? Data(contentsOf: file),
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],

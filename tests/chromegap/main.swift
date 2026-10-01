@@ -437,6 +437,7 @@ check("B6 a claim file maps back to its supervisor", supervisorStatePid(ofFile: 
 check("B6 a foreign file with the infix maps to nothing", supervisorStatePid(ofFile: "x.chromegap.1") == nil)
 
 runRoutingChecks()
+runPreflightChecks()
 
 try? FileManager.default.removeItem(at: root)
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

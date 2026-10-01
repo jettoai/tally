@@ -261,6 +261,26 @@ func claudeCodeReportsAgents(executablePath: String?) -> Bool {
     return true
 }
 
+/// The provenance marker of the app's roster hook for one event, spelled once for both targets: the
+/// app writes it (IntegrationsAgentHook.swift) and a CLI that must know whether the roster can be
+/// believed reads it back.
+func agentRosterHookMarker(_ event: String) -> String { " hook-agents \(event)" }
+
+/// Whether a config home registers the roster's two edges. Every way of not knowing reads false.
+func agentRosterHookRegistered(home: String) -> Bool {
+    let file = URL(fileURLWithPath: home).appendingPathComponent("settings.json")
+    guard let data = try? Data(contentsOf: file),
+          let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let hooks = settings["hooks"] as? [String: Any] else { return false }
+    return ["SubagentStart", "SubagentStop"].allSatisfy { event in
+        ((hooks[event] as? [[String: Any]]) ?? []).contains { entry in
+            (entry["hooks"] as? [[String: Any]] ?? []).contains {
+                ($0["command"] as? String)?.hasSuffix(agentRosterHookMarker(event)) == true
+            }
+        }
+    }
+}
+
 // MARK: - The file
 
 /// The file a supervisor's agent roster lives in.

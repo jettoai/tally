@@ -12,6 +12,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift \
+  tests/chromegap/preflightchecks.swift TallyCLI/ChromePreflight.swift TallyCLI/SwitchCommand.swift \
+  TallyCLI/ModelMenu.swift \
+  TallyCLI/MCPAccountOffer.swift TallyCLI/MCPPickOffer.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift TallyCLI/PickRows.swift TallyCLI/TallyPrompt.swift \
+  Tally/Core/PromptHookInput.swift TallyCLI/MCPPicker.swift \
+  TallyCLI/PromptHookBackstop.swift \
+  TallyCLI/SwitchHook.swift TallyCLI/WorktreeMenu.swift \
+  TallyCLI/SwitchMenu.swift \
+   \
+   \
+   \
+   \
+   \
+   \
+   \
+   \
   Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift \
   Tally/Core/ChromeSettingSignal.swift \

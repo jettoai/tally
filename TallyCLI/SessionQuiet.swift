@@ -231,23 +231,29 @@ extension TranscriptWatcher {
     /// and the workflow journal, and a write to any of them is this session waiting on a subagent.
     func newestSubagentWrite() -> Date? {
         guard let file else { return nil }
-        let dir = file.deletingPathExtension().appendingPathComponent("subagents")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return nil }
-        let keys: [URLResourceKey] = [.contentModificationDateKey]
-        // Safe against the cached-mtime trap above for the same reason: every poll walks the
-        // directory afresh, so these URLs (and their prefetched values) are built from scratch and
-        // never held across polls.
-        guard let walk = FileManager.default.enumerator(
-            at: dir, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
-        else { return nil }
-        var newest: Date?
-        for case let entry as URL in walk {
-            guard let modified = (try? entry.resourceValues(forKeys: Set(keys)))?
-                .contentModificationDate, modified > since else { continue }
-            if modified > newest ?? .distantPast { newest = modified }
-        }
-        return newest
+        return subagentTreeNewestWrite(transcript: file, since: since)
     }
+}
+
+/// The walk behind `newestSubagentWrite`, at file scope so a hook can ask it of the transcript
+/// path its payload names: the newest write under `<transcript stem>/subagents/` after `since`.
+func subagentTreeNewestWrite(transcript file: URL, since: Date) -> Date? {
+    let dir = file.deletingPathExtension().appendingPathComponent("subagents")
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory),
+          isDirectory.boolValue else { return nil }
+    let keys: [URLResourceKey] = [.contentModificationDateKey]
+    // Safe against the cached-mtime trap above for the same reason: every poll walks the
+    // directory afresh, so these URLs (and their prefetched values) are built from scratch and
+    // never held across polls.
+    guard let walk = FileManager.default.enumerator(
+        at: dir, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
+    else { return nil }
+    var newest: Date?
+    for case let entry as URL in walk {
+        guard let modified = (try? entry.resourceValues(forKeys: Set(keys)))?
+            .contentModificationDate, modified > since else { continue }
+        if modified > newest ?? .distantPast { newest = modified }
+    }
+    return newest
 }

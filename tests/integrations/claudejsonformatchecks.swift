@@ -81,6 +81,17 @@ func runClaudeJSONFormatChecks(tmp: URL) throws {
             ],
             "matcher": "mcp__claude-in-chrome__.*"
           }
+        ],
+        "PreToolUse": [
+          {
+            "hooks": [
+              {
+                "command": "/usr/local/bin/tally hook-knock PreToolUse",
+                "type": "command"
+              }
+            ],
+            "matcher": "mcp__claude-in-chrome__.*"
+          }
         ]
     """#
     let tail = "    ]\n  },\n  \"cleanupPeriodDays\""
@@ -88,7 +99,7 @@ func runClaudeJSONFormatChecks(tmp: URL) throws {
                                            with: "    ],\n\(added)\n  },\n  \"cleanupPeriodDays\"")
     check("format: the fixture's tail is where the new event lands", f1.components(separatedBy: tail).count == 2)
 
-    // T1/T2: launch upkeep over a file carrying the older install adds its one entry and nothing else.
+    // T1/T2: launch upkeep over a file carrying the older install adds its entries and nothing else.
     try f1.write(to: file, atomically: true, encoding: .utf8)
     check("format: the fixture is one launch upkeep would bring up to date",
           IntegrationsStore.knockHookFilesNeedingUpdate([file]) == [file])
@@ -97,9 +108,10 @@ func runClaudeJSONFormatChecks(tmp: URL) throws {
     let upgraded = read()
     check("format: upkeep changes only the added entry and the comma before it", upgraded == expected)
     let diff = lineDiff(f1, upgraded)
-    // A minimal diff is 11/0 (the new block's closing `]` pairs with the old one); git shows 12/1.
-    check("format: upkeep diff is the 11 new lines and at most the one comma line (got \(diff.added)/\(diff.removed))",
-          diff.added - diff.removed == 11 && diff.removed <= 1)
+    // Two events are added (the Chrome failure and preflight hooks), 11 lines each; a minimal diff
+    // is 22/0 (the new block's closing `]` pairs with the old one); git shows 23/1.
+    check("format: upkeep diff is the 22 new lines and at most the one comma line (got \(diff.added)/\(diff.removed))",
+          diff.added - diff.removed == 22 && diff.removed <= 1)
     check("format: no escaped slashes, no space before colons, final newline kept",
           !upgraded.contains(#"\/"#) && !upgraded.contains("\" : ") && upgraded.hasSuffix("}\n"))
 

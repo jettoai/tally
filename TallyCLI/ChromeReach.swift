@@ -14,8 +14,10 @@ import Foundation
 //
 // Where the step goes next is decided by the user's setting alone (`chromeAccountSetting`, the
 // Settings row "Claude in Chrome account"): with none set the sentence above is all a session gets;
-// with one set, a session on another account is pointed at a live session on that one, or told how
-// to move there, and the ledger still only chooses the wording of the sentence above.
+// with one set, a session on another account is moved there itself whenever it is positively free
+// of subagents (ChromePreflight.swift, which also answers before the call is sent); pointing it at a
+// live session on that account, or telling it how to move, is the fallback. The ledger still only
+// chooses the wording of the sentence above.
 
 let chromeToolPrefix = "mcp__claude-in-chrome__"
 
@@ -233,12 +235,13 @@ let chromeRelayListLimit = 5
 /// The hand-off sentence: which sessions run on the account set for Chrome, and the exact command
 /// that sends one of them the Chrome step, with the address to send the result back to.
 func chromeRelayMessage(accountLabel: String, settingLabel: String,
-                        sessions: [ChromeRelaySession], selfSupervisor: String) -> String {
+                        sessions: [ChromeRelaySession], selfSupervisor: String,
+                        opening: String? = nil) -> String {
     let listed = sessions.prefix(chromeRelayListLimit).map { session in
         session.project.map { "\(session.supervisorPid) (\($0))" } ?? session.supervisorPid
     }.joined(separator: ", ")
     let task = "/tmp/tally-chrome-task-\(selfSupervisor).md"
-    return "Tally: Claude in Chrome reported not connected on account \"\(accountLabel)\"."
+    return (opening ?? chromeGapOpening(accountLabel: accountLabel))
         + " The user set \"\(settingLabel)\" in Tally as the account Claude in Chrome is signed in"
         + " to, and these sessions run on it: \(listed)."
         + " Hand the Chrome step to one of them: write it to \(task) as a self-contained task (what"
@@ -249,14 +252,20 @@ func chromeRelayMessage(accountLabel: String, settingLabel: String,
 
 /// The move sentence, for when nothing runs on the account set for Chrome. `tally account <dir>` in a
 /// session moves it there at the end of the turn and continues the conversation (SwitchCommand.swift).
-func chromeMoveMessage(accountLabel: String, settingLabel: String, settingID: String) -> String {
+func chromeMoveMessage(accountLabel: String, settingLabel: String, settingID: String,
+                       opening: String? = nil) -> String {
     let dir = settingID.hasPrefix("claude:") ? String(settingID.dropFirst("claude:".count)) : settingID
-    return "Tally: Claude in Chrome reported not connected on account \"\(accountLabel)\"."
+    return (opening ?? chromeGapOpening(accountLabel: accountLabel))
         + " The user set \"\(settingLabel)\" in Tally as the account Claude in Chrome is signed in"
         + " to, and no session runs on it now. To use Chrome from this conversation, run"
         + " `tally account \(dir)`: the session moves to \"\(settingLabel)\" at the end of this turn"
         + " and continues there, so retry the Chrome step after that."
         + " `tally account --auto` hands it back to automatic account selection later."
+}
+
+/// The first sentence of the hand-off and move sentences after a failed call.
+func chromeGapOpening(accountLabel: String) -> String {
+    "Tally: Claude in Chrome reported not connected on account \"\(accountLabel)\"."
 }
 
 /// Appended to the existing sentence on the `.settingItself` route.
@@ -280,6 +289,13 @@ struct ChromeGapDeps {
     var relays: (String, String) -> [ChromeRelaySession] = { _, _ in [] }
     /// Tell the app the account set for Chrome is itself not connected.
     var signalSettingGap: (String, Date) -> Void = { _, _ in }
+    /// Whether this session is positively free of subagents and background work. nil: never move.
+    var agentsIdle: ((String, ChromeCallContext) -> Bool)? = nil
+    /// Queue a move of this supervisor's session (second) to the account set for Chrome (first).
+    /// nil: never move.
+    var queueMove: ((String, String) -> ChromeMoveQueue)? = nil
+    /// This supervisor's pending switch request, if any.
+    var pendingSwitch: (String) -> SwitchRequest? = { _ in nil }
 
     static var live: ChromeGapDeps {
         ChromeGapDeps(account: { readSupervisorAccount(pid: $0) },
@@ -293,7 +309,10 @@ struct ChromeGapDeps {
                       relays: { account, me in liveChromeRelaySessions(account: account, excluding: me) },
                       signalSettingGap: { account, now in
                           writeChromeSettingGapSignal(ChromeSettingGapSignal(account: account, at: now))
-                      })
+                      },
+                      agentsIdle: { chromeAgentsIdleLive(supervisor: $0, context: $1) },
+                      queueMove: { chromeQueueMoveLive(setting: $0, supervisor: $1) },
+                      pendingSwitch: { readSwitchRequest(sessionKey: $0) })
     }
 }
 
@@ -302,6 +321,7 @@ struct ChromeGapDeps {
 /// generation's notice.
 func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
                      supervisor: String, stateDir: URL, now: Date,
+                     context: ChromeCallContext = ChromeCallContext(),
                      deps: ChromeGapDeps) -> String? {
     guard tool.hasPrefix(chromeToolPrefix), let account = deps.account(supervisor) else { return nil }
     let ledger = recordChromeReach(outcome, account: account, now: now, file: deps.ledgerFile)
@@ -324,10 +344,19 @@ func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
         deps.signalSettingGap(setting, now)
         return explained() + chromeSettingItselfSuffix
     case .relay(let setting, let sessions):
-        return chromeRelayMessage(accountLabel: label, settingLabel: labels[setting] ?? setting,
+        let move = chromeSelfMove(setting: setting, supervisor: supervisor, context: context,
+                                  now: now, pre: false, deps: deps)
+        let settingLabel = labels[setting] ?? setting
+        if move == .queued { return chromeMovedMessage(accountLabel: label, settingLabel: settingLabel) }
+        return chromeRelayMessage(accountLabel: label, settingLabel: settingLabel,
                                   sessions: sessions, selfSupervisor: supervisor)
+            + (move == .withheld ? chromeAgentsSuffix : "")
     case .move(let setting):
-        return chromeMoveMessage(accountLabel: label, settingLabel: labels[setting] ?? setting,
-                                 settingID: setting)
+        let move = chromeSelfMove(setting: setting, supervisor: supervisor, context: context,
+                                  now: now, pre: false, deps: deps)
+        let settingLabel = labels[setting] ?? setting
+        if move == .queued { return chromeMovedMessage(accountLabel: label, settingLabel: settingLabel) }
+        return chromeMoveMessage(accountLabel: label, settingLabel: settingLabel, settingID: setting)
+            + (move == .withheld ? chromeAgentsSuffix : "")
     }
 }

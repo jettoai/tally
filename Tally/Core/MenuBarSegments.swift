@@ -338,7 +338,4 @@ struct StatusItemFace: Equatable {
     var segments: [MenuBarSegment]
     var blocked: Int
     var tooltip: String?
-
-    /// The first face is always applied; after that only a different one is.
-    static func shouldApply(_ face: StatusItemFace, last: StatusItemFace?) -> Bool { face != last }
 }

@@ -43,18 +43,17 @@ extension StatusItemController {
             ? waiting
             : [waiting, UsageStore.shared.menuBarTooltip].compactMap { $0 }.joined(separator: "\n")
         let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip)
-        guard StatusItemFace.shouldApply(face, last: lastAppliedFace) else { return }
+        guard face != lastAppliedFace else { return }
         lastAppliedFace = face
         button.attributedTitle = blocked > 0 ? Self.blockedDot : NSAttributedString(string: "")
+        button.toolTip = tooltip
         if segments.isEmpty {
             // No visible accounts - fall back to the app glyph.
             button.image = Self.symbolImage()
-            button.toolTip = waiting
         } else {
             // The whole strip is rendered as one template image (brand marks + stacked numbers).
             button.image = MenuBarStripRenderer.stripImage(segments)
             button.image?.accessibilityDescription = tooltip
-            button.toolTip = tooltip
             // README screenshot hook: demo mode + -TallyStripSnapshot <path> writes the strip
             // as a standalone PNG (idempotent - demo data never changes between refreshes).
             if DemoUsage.isActive,

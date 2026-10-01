@@ -8,8 +8,8 @@ import Foundation
 // than a config-home string. Everything that decides anything (which key names this home, that only
 // the marked account carries a reserve, what the bounds are, which of two marked homes wins) is
 // asked of `AccountRoles` and never re-spelled here. These are two processes speaking through a
-// document the user owns, so a second spelling fails silently in both directions - quota held back on an account whose
-// Settings row shows none, or a water line the launcher walks straight through.
+// document the user owns, so a second spelling fails silently in both directions - quota held back
+// on an account whose Settings row shows none, or a water line the launcher walks straight through.
 //
 // WHAT THE RESERVE IS FOR, in one paragraph, because this is the file every pick imports. Tally
 // hands sessions out across a fleet on its own initiative - it picks the launch account, moves a
@@ -75,11 +75,11 @@ struct AccountReserves: Equatable {
 
 /// The `accounts` block of `~/.tally/state.json`, written by the app's `LaunchPolicyStore`.
 ///
-/// A READER OF ITS OWN: this is a top-level block
-/// rather than one of a provider's launch policies, and a decoder that knows only the key it needs
-/// cannot be broken by a `launch` block from a version this binary predates. Every way of not having
-/// an answer - no file, bytes that will not parse, the key absent - is the same answer, an empty
-/// block, which is the behaviour every account had before the feature existed.
+/// A READER OF ITS OWN: this is a top-level block rather than one of a provider's launch policies,
+/// and a decoder that knows only the key it needs cannot be broken by a `launch` block from a
+/// version this binary predates. Every way of not having an answer - no file, bytes that will not
+/// parse, the key absent - is the same answer, an empty block, which is the behaviour every account
+/// had before the feature existed.
 ///
 /// `version` is deliberately not read: the schema only ever gains keys, so a file this binary is too
 /// old for still yields the keys it does understand, and one it is too new for is not a reason to

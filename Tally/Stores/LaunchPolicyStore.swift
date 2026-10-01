@@ -86,10 +86,10 @@ final class LaunchPolicyStore {
         /// Per-account settings, keyed by config home: which account the person browses on, and how
         /// much of its quota Tally's own choices must leave them (Tally/Core/AccountReserve.swift).
         ///
-        /// TOP LEVEL and keyed by HOME for two reasons: it is not a
-        /// launch decision, and the thing it names is a directory rather than an account id. Added
-        /// under the same only-ever-gains-keys rule, and omitted entirely while it holds nothing, so
-        /// a machine that never marked an account writes the document it always wrote.
+        /// TOP LEVEL and keyed by HOME for two reasons: it is not a launch decision, and the thing
+        /// it names is a directory rather than an account id. Added under the same
+        /// only-ever-gains-keys rule, and omitted entirely while it holds nothing, so a machine
+        /// that never marked an account writes the document it always wrote.
         var accounts: [String: AccountRoleSetting]?
         /// The account id Claude in Chrome is signed in to (TallyCLI/ChromeReach.swift routes by it).
         var chromeAccount: String?

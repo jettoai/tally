@@ -137,8 +137,8 @@ enum AccountRoles {
     /// ASKED OF THE WINNER ABOVE rather than of this home's own entry, so the three questions over
     /// this block cannot answer a hand-edited document differently from one another: reading each
     /// entry on its own, a file carrying two markings had both rows in Settings badged Personal,
-    /// and both accounts holding quota back. There is ONE marked account by construction, so there is one
-    /// here too, and a stray second marking is the leftover the doc above says it is.
+    /// and both accounts holding quota back. There is ONE marked account by construction, so there
+    /// is one here too, and a stray second marking is the leftover the doc above says it is.
     static func isPersonal(_ accounts: [String: AccountRoleSetting], home: String?) -> Bool {
         guard let key = key(accounts, home: home), let marked = personalHome(accounts)
         else { return false }
@@ -209,10 +209,10 @@ enum AccountRoles {
 
     /// The block after a config home has been removed from the machine.
     ///
-    /// KEYED BY A DIRECTORY, so the id-shaped
-    /// forgetting cannot reach it (`LaunchPolicyStore.forget` states what that costs). Left standing,
-    /// the entry marks a folder in the Trash as the account the user browses on - and a later
-    /// `~/.claudeN` created in the same slot inherits a role and a reserve nobody chose for it.
+    /// KEYED BY A DIRECTORY, so the id-shaped forgetting cannot reach it
+    /// (`LaunchPolicyStore.forget` states what that costs). Left standing, the entry marks a folder
+    /// in the Trash as the account the user browses on - and a later `~/.claudeN` created in the
+    /// same slot inherits a role and a reserve nobody chose for it.
     static func removingHome(_ accounts: [String: AccountRoleSetting], home: String)
         -> [String: AccountRoleSetting] {
         guard let key = key(accounts, home: home) else { return accounts }
@@ -223,11 +223,7 @@ enum AccountRoles {
 
     /// Which stored key names this home.
     ///
-    /// Through `normalizedConfigHome` on BOTH sides: this key is written from the app's own discovery and
-    /// looked up against whatever a caller happens to hold, which on this machine is frequently the
-    /// same directory reached through a symlink or carrying a trailing slash. Text rather than a
-    /// filesystem identity read, because the removal above asks this about a directory that has
-    /// already gone to the Trash.
+    /// Through `normalizedConfigHome` on BOTH sides, for the reasons its own doc gives.
     ///
     /// Sorted for the reason `personalHome` is: one answer per document, not per iteration.
     static func key(_ accounts: [String: AccountRoleSetting], home: String?) -> String? {

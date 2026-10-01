@@ -448,9 +448,9 @@ func runAccountRowChecks() {
           AccountRoles.settingPersonal(reserved, home: "   ").isEmpty)
 
     // THE ACCOUNT BEING REMOVED OUT FROM UNDER THE MARKING. Keyed by a directory, so the id-shaped
-    // forgetting cannot reach it: left standing,
-    // the entry marks a folder in the Trash as the account this machine browses on, and hands the role
-    // plus a number nobody chose to the next `~/.claudeN` created in that slot.
+    // forgetting cannot reach it: left standing, the entry marks a folder in the Trash as the
+    // account this machine browses on, and hands the role plus a number nobody chose to the next
+    // `~/.claudeN` created in that slot.
     check("removing the marked account clears it",
           AccountRoles.removingHome(reserved, home: homeA).isEmpty)
     check("…recognised through the same normalization the CLI compares homes with",
@@ -476,10 +476,10 @@ func runAccountRowChecks() {
                            homeA: AccountRoleSetting(role: AccountRoles.personal, reserve: nil)]
     check("a hand-edited document with two markings answers one of them, always the same one",
           (0 ..< 20).allSatisfy { _ in AccountRoles.personalHome(twoRoles) == homeA })
-    // AND EVERY QUESTION OVER THE BLOCK ANSWERS WITH THAT ONE. Read entry by entry, the same document
-    // badged both rows Personal in Settings, and held quota back on both accounts: surfaces disagreeing about
-    // which account this machine is browsed on. There is one marked account by construction, so there
-    // is one here.
+    // AND EVERY QUESTION OVER THE BLOCK ANSWERS WITH THAT ONE. Read entry by entry, the same
+    // document badged both rows Personal in Settings, and held quota back on both accounts:
+    // surfaces disagreeing about which account this machine is browsed on. There is one marked
+    // account by construction, so there is one here.
     check("…and it is the one the marking question answers with",
           AccountRoles.isPersonal(twoRoles, home: homeA)
               && !AccountRoles.isPersonal(twoRoles, home: homeB))
@@ -714,16 +714,15 @@ func runAccountRowChecks() {
     check("marking an account no longer writes the retired Artifact setting",
           !memberBody(policySource, from: "func setPersonalAccount").contains("artifactAccount"))
 
-    // THE DOCUMENT ITSELF IS THE CONTRACT, and it is written by one process and read by another: the app
-    // publishes `~/.tally/state.json` and the `tally` supervisor steers real launches by it. THE TWO
-    // HALVES ARE NO LONGER MIRRORED IN TEXT - they compile the ONE file that holds the rules
-    // (Tally/Core/AccountReserve.swift, listed under both targets in project.yml), like the other
-    // shared contracts there. A rule spelled once per
-    // target is a rule that can come to mean two things, and this one decides quota: read literally, a
-    // second spelling is a water line the launcher walks straight through, or quota held back on an
-    // account whose Settings row shows none. That drift was real for a day and is what this convergence
-    // closed (2026-08-20: the CLI read a reserve off an unmarked account, the app read the same entry as
-    // zero).
+    // THE DOCUMENT ITSELF IS THE CONTRACT, and it is written by one process and read by another:
+    // the app publishes `~/.tally/state.json` and the `tally` supervisor steers real launches by
+    // it. THE TWO HALVES ARE NO LONGER MIRRORED IN TEXT - they compile the ONE file that holds the
+    // rules (Tally/Core/AccountReserve.swift, listed under both targets in project.yml), like the
+    // other shared contracts there. A rule spelled once per target is a rule that can come to mean
+    // two things, and this one decides quota: read literally, a second spelling is a water line the
+    // launcher walks straight through, or quota held back on an account whose Settings row shows
+    // none. That drift was real for a day and is what this convergence closed (2026-08-20: the CLI
+    // read a reserve off an unmarked account, the app read the same entry as zero).
     //
     // So what is checked here is that the CLI reader DELEGATES rather than re-spells. Both files are
     // asserted readable first: an empty string satisfies nothing below, but it would satisfy a

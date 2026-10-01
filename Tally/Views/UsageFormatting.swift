@@ -80,20 +80,24 @@ enum UsageFormat {
     /// Bare "07/18 21:36" (local time) - for labels that carry their own verb (the fleet refill).
     static func absoluteBody(_ date: Date) -> String { resetFormatter.string(from: date) }
 
-    // Now as MM/dd HH:mm, the same format as the absolute reset times so it reads as their anchor.
-    private static let nowFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "MM/dd HH:mm"
-        return f
-    }()
+    /// The hover form of a reset: how long, then when. "resets in 1d 4h · 10/03 17:59". The
+    /// countdown is what every reset label shows; the hover adds the clock beside it.
+    static func resetHover(_ date: Date?, now: Date = Date()) -> String? {
+        guard let date, let countdown = resetCountdown(date, now: now) else { return nil }
+        return countdown + " · " + absoluteBody(date)
+    }
 
-    /// "07/16 20:45" - the current date and time, an anchor for reading the absolute reset times.
-    static func nowShort(_ now: Date = Date()) -> String { nowFormatter.string(from: now) }
+    /// The parenthesised clock a notification or dialog puts after a countdown, in the app's
+    /// language: time alone when the instant is today, date and time otherwise. A banner is read
+    /// hours later, so the countdown ages while this stays true.
+    static func noticeClock(_ date: Date, now: Date = Date()) -> String {
+        Calendar.current.isDate(date, inSameDayAs: now)
+            ? AppLocale.shortTime(date) : AppLocale.shortDateTime(date)
+    }
 
-    /// The reset label under the user's chosen style.
-    static func resetText(_ date: Date?, style: ResetDisplay, now: Date = Date()) -> String? {
-        style == .relative ? resetCountdown(date, now: now) : resetAbsolute(date)
+    /// "2h 13m (8:00 AM)": the countdown a notification or dialog leads with, then its clock.
+    static func noticeCountdown(_ date: Date, now: Date = Date()) -> (countdown: String, clock: String) {
+        (durationBody(max(60, date.timeIntervalSince(now))), noticeClock(date, now: now))
     }
 
     /// The widest strings the countdown can realistically show, for reserving layout width

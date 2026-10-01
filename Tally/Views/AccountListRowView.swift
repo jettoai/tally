@@ -8,9 +8,8 @@ import SwiftUI
 ///
 /// It hides words, never facts. Every window a card shows is here (the same `showAllModels` filter
 /// decides), every state a card can be in has a mark here, and the words the card spells out (the
-/// window's name, its reset, what the pin does) move into hover tooltips rather than disappearing.
-/// What it does drop is the card's own spacing and its per-window reset line, because those are the
-/// height.
+/// window's name, the reset's exact time, what the pin does) move into hover tooltips; how long
+/// until each window resets stays on screen, as a countdown under its figure (B-650).
 struct AccountListRowView: View {
     let usage: AccountUsage
     @Bindable var settings: SettingsStore
@@ -292,29 +291,44 @@ struct AccountListRowView: View {
         let action = facts.isDormant
             ? L("Signed out: renew the login to spend a banked reset.")
             : L("Use a reset")
-        return [action, facts.resetExpiryNote()].compactMap { $0 }.joined(separator: " · ")
+        return [action, facts.resetExpiryNote(), facts.resetExpiryClock()]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// One window this account reports, as a track plus a figure, in the card's order; the window's
-    /// NAME and its reset live in the cluster's tooltip, because spelling both out per window is
-    /// what makes the card as tall as it is.
+    /// One window this account reports, as a track plus a figure over its reset countdown, in the
+    /// card's order; the window's NAME and the reset's exact time live in the cluster's tooltip.
     private func meterCluster(_ metric: UsageMetric) -> some View {
         let passed = usage.resetPassed(metric)
         let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
-        return HStack(spacing: 4) {
-            bar(metric, resetPassed: passed)
-            Text(figure)
-                .font(.caption.monospacedDigit())
-                // The figure carries the warning here, unlike on a card. A track this short is too small
-                // for its colour alone to be the alarm, and the row has no space for the card's
-                // "Limit reached" line. Not while a redeemed reset settles, though: the number is
-                // seconds from being replaced, so that is a wait rather than a warning.
-                .foregroundStyle(figureColor(metric, resetPassed: passed))
-                .frame(width: Self.valueWidth, alignment: .trailing)
+        return VStack(alignment: .trailing, spacing: 1) {
+            HStack(spacing: 4) {
+                bar(metric, resetPassed: passed)
+                Text(figure)
+                    .font(.caption.monospacedDigit())
+                    // The figure carries the warning here, unlike on a card. A track this short is too small
+                    // for its colour alone to be the alarm, and the row has no space for the card's
+                    // "Limit reached" line. Not while a redeemed reset settles, though: the number is
+                    // seconds from being replaced, so that is a wait rather than a warning.
+                    .foregroundStyle(figureColor(metric, resetPassed: passed))
+                    .frame(width: Self.valueWidth, alignment: .trailing)
+            }
+            // Blank rather than absent with no reset, so every cluster keeps one height.
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                Text(resetCaption(metric, resetPassed: passed, now: context.date) ?? " ")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
         }
         .tallyTooltip(meterHelp(metric))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(L(metric.label)), \(figure)")
+    }
+
+    /// The bare countdown under a cluster ("2h 13m"); "resets in" is the hover's, the cluster is
+    /// too narrow for it. Nothing once the reset has passed or with no reset instant.
+    private func resetCaption(_ metric: UsageMetric, resetPassed: Bool, now: Date) -> String? {
+        guard !resetPassed, let at = metric.resetsAt else { return nil }
+        return UsageFormat.durationBody(max(60, at.timeIntervalSince(now)))
     }
 
     private func figureColor(_ metric: UsageMetric, resetPassed: Bool) -> Color {
@@ -354,13 +368,13 @@ struct AccountListRowView: View {
             ? facts.reservePercent : 0
     }
 
-    /// The window's name and its own reset, in the same words the card prints under the bar and in
-    /// the user's chosen reset style, so hovering a row answers exactly what reading a card does.
+    /// The window's name and its own reset, countdown and exact time both, the words the card's
+    /// own reset hover gives, so hovering a row answers exactly what reading a card does.
     private func meterHelp(_ metric: UsageMetric) -> String {
         let name = L(metric.label)
         var text = name
         if let reset = usage.resetPassed(metric) ? L("Reset passed, awaiting refresh")
-            : UsageFormat.resetText(metric.resetsAt, style: settings.resetDisplay) {
+            : UsageFormat.resetHover(metric.resetsAt) {
             text += " · \(reset)"
         }
         // What the hatching at the end of the track is. The card can afford to let the mark speak

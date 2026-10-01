@@ -46,11 +46,13 @@ enum RedeemAction {
         let timing = ResetHintLogic.redeemTiming(usage, now: now)
         switch timing {
         case .waitForRefill(let refill):
-            parts.append(String(format: L("This account still has plenty of quota left, and its counters refill on their own at %@. Waiting until just before then would recover more."),
-                                AppLocale.shortDateTime(refill)))
+            let when = UsageFormat.noticeCountdown(refill, now: now)
+            parts.append(String(format: L("This account still has plenty of quota left, and its counters refill on their own in %1$@ (%2$@). Waiting until just before then would recover more."),
+                                when.countdown, when.clock))
         case .useOrLose(let expiry):
-            parts.append(String(format: L("This reset expires %@; unused it is lost."),
-                                AppLocale.shortDateTime(expiry)))
+            let when = UsageFormat.noticeCountdown(expiry, now: now)
+            parts.append(String(format: L("This reset expires in %1$@ (%2$@); unused it is lost."),
+                                when.countdown, when.clock))
         case .worthIt, .expiryUnknown:
             break
         }
@@ -58,8 +60,9 @@ enum RedeemAction {
         if case .useOrLose = timing {
             // The advice already named the date.
         } else if let expiry = usage.resetCreditsNextExpiry {
-            parts.append(L("Nearest banked reset expires") + " "
-                         + AppLocale.shortDateTime(expiry) + ".")
+            let when = UsageFormat.noticeCountdown(expiry, now: now)
+            parts.append(String(format: L("Nearest banked reset expires in %1$@ (%2$@)."),
+                                when.countdown, when.clock))
         }
         if usage.resetCreditsExpiryUnknown {
             parts.append(L("Tally can't see when this reset expires."))

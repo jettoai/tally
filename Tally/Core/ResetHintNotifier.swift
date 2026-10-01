@@ -152,6 +152,11 @@ final class ResetHintNotifier {
         case .drained:
             title = String(format: L("%@ is out of quota"), hint.accountLabel)
             body = L("A banked reset can clear its counters now.")
+                + (hint.bindingResetsAt.map { at in
+                    let when = UsageFormat.noticeCountdown(at)
+                    return " " + String(format: L("Back on its own in %1$@ (%2$@)."),
+                                        when.countdown, when.clock)
+                } ?? "")
         case .expiryEarly, .expiryPreReset, .expiryFinal:
             title = String(format: L(hint.reason == .expiryFinal
                                      ? "%@ has a banked reset expiring within hours"
@@ -169,19 +174,24 @@ final class ResetHintNotifier {
     /// The body says what spending now is worth (`ResetHintLogic.value`), never "no waste" when
     /// plenty is left: whether to wait depends on the refill, and the sentence says which.
     private static func expiryBody(_ hint: ResetHint) -> String {
-        let expires = hint.creditExpiresAt.map(AppLocale.shortDateTime) ?? L("soon")
+        let expires = hint.creditExpiresAt.map { at in
+            let when = UsageFormat.noticeCountdown(at)
+            return String(format: L("Expires in %1$@ (%2$@)."), when.countdown, when.clock)
+        } ?? L("Expires soon.")
         let used = "\(Int((100 - hint.bindingRemainingPercent).rounded()))%"
+        let advice: String
         switch ResetHintLogic.value(remaining: hint.bindingRemainingPercent,
                                     expiresAt: hint.creditExpiresAt,
                                     bindingResetsAt: hint.bindingResetsAt) {
         case .recovers:
-            return String(format: L("Expires %@. Redeeming now recovers %@."), expires, used)
+            advice = String(format: L("Redeeming now recovers %@."), used)
         case .refillsFirst(let refill):
-            return String(format: L("Expires %@. Best used before %@; after that the counters refill on their own."),
-                          expires, AppLocale.shortDateTime(refill))
+            let when = UsageFormat.noticeCountdown(refill)
+            advice = String(format: L("Best used within %1$@ (before %2$@); after that the counters refill on their own."),
+                            when.countdown, when.clock)
         case .lostUnused:
-            return String(format: L("Expires %@. Unused, it is lost; redeeming now recovers %@."),
-                          expires, used)
+            advice = String(format: L("Unused, it is lost; redeeming now recovers %@."), used)
         }
+        return expires + " " + advice
     }
 }

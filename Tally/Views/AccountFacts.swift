@@ -143,18 +143,22 @@ struct AccountFacts {
     /// cannot come to offer different things (`RedeemAction.Offer` states what the two are).
     var resetOffer: RedeemAction.Offer { RedeemAction.offer(for: usage) }
 
-    /// The expiry beside a Codex banked-reset count: "until <date>", "expires in 2d" inside a week,
-    /// and "expiry unknown" for any credit nobody dated (never read as "no expiry").
+    /// The expiry beside a Codex banked-reset count: "expires in 12d 1h", and "expiry unknown" for
+    /// any credit nobody dated (never read as "no expiry"). The exact time is the hover's
+    /// (`resetExpiryClock`).
     func resetExpiryNote(now: Date = Date()) -> String? {
         var parts: [String] = []
         if let expiry = usage.resetCreditsNextExpiry {
             let left = expiry.timeIntervalSince(now)
-            parts.append(ResetExpiryUrgency.of(expiry, now: now) == .distant
-                ? String(format: L("until %@"), UsageFormat.absoluteBody(expiry))
-                : String(format: L("expires in %@"), UsageFormat.durationBody(max(60, left))))
+            parts.append(String(format: L("expires in %@"), UsageFormat.durationBody(max(60, left))))
         }
         if usage.resetCreditsExpiryUnknown { parts.append(L("expiry unknown")) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The soonest expiry's exact time for the redeem hover, "until 10/14 08:06".
+    func resetExpiryClock() -> String? {
+        usage.resetCreditsNextExpiry.map { String(format: L("until %@"), UsageFormat.absoluteBody($0)) }
     }
 
     /// Warning colour inside 48 hours of the soonest expiry, critical inside 6.

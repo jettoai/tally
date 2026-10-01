@@ -260,11 +260,6 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(groupByProvider, forKey: "groupByProvider") }
     }
 
-    /// Reset instants as countdown vs exact time - toggled by clicking any reset label.
-    var resetDisplay: ResetDisplay {
-        didSet { UserDefaults.standard.set(resetDisplay.rawValue, forKey: "resetDisplay") }
-    }
-
     /// Which window the fleet gauge and the menu-bar numbers lead with (see GaugeFocus).
     var gaugeFocus: GaugeFocus {
         didSet {
@@ -341,7 +336,6 @@ final class SettingsStore {
                                                       max: SettingsStore.maxSessionsColumns)
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         groupByProvider = defaults.object(forKey: "groupByProvider") as? Bool ?? true
-        resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
         gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all
     }
 

@@ -48,13 +48,3 @@ enum PanelDensity: String, Sendable, CaseIterable {
     case cards
     case list
 }
-
-/// Whether reset instants read as a countdown ("resets in 2d 4h") or an exact time ("resets at
-/// 7/18, 21:36"). Global, toggled by clicking any reset label (the exact time
-/// is one click away, no settings entry needed). Persisted in `SettingsStore`.
-enum ResetDisplay: String, Sendable {
-    case relative
-    case absolute
-
-    var toggled: ResetDisplay { self == .relative ? .absolute : .relative }
-}

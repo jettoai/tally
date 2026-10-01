@@ -281,9 +281,10 @@ struct AccountCardView: View {
             // to be followed by nothing at all. The count stays visible, greyed like every
             // other dormant affordance, because the credits are still banked.
             .disabled(redeemBusy || facts.isDormant)
-            .tallyTooltipAroundControl(facts.isDormant
+            .tallyTooltipAroundControl([facts.isDormant
                   ? L("Signed out: renew the login to spend a banked reset.")
-                  : L("Use a reset"))
+                  : L("Use a reset"), facts.resetExpiryClock()]
+                .compactMap { $0 }.joined(separator: " · "))
         }
         codexResetStatusRow
         if let redeemOutcome {

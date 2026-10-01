@@ -341,7 +341,7 @@ extension PopoverRootView {
         lines.append(contentsOf: ladderLines(reading))
         lines.append(L("Click the figures to change the window."))
         for refill in upcomingRefills(reading.provider, now: now) {
-            lines.append(refillText(refill, style: settings.resetDisplay, now: now)
+            lines.append(refillText(refill, now: now) + " · " + UsageFormat.absoluteBody(refill.at)
                          + " (+\(Int(refill.gain.rounded()))%)")
         }
         return lines.joined(separator: "\n")

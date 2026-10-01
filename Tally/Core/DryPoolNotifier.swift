@@ -66,7 +66,6 @@ final class DryPoolNotifier {
 
     private func post(_ notification: DryNotification, remaining: Double, capacity: Double,
                       resetAt: Date?, windowName: String) {
-        let reset = shortDate(resetAt)
         let remainingText = Self.figure(remaining)
         let capacityText = Self.figure(capacity)
         let title: String
@@ -74,11 +73,22 @@ final class DryPoolNotifier {
         switch notification {
         case .low:
             title = String(format: L("%@ pool nearly dry"), windowName)
-            body = String(format: L("%1$@ of %2$@ left, resets %3$@"),
-                          remainingText, capacityText, reset)
+            if let resetAt {
+                let when = UsageFormat.noticeCountdown(resetAt)
+                body = String(format: L("%1$@ of %2$@ left, resets in %3$@ (%4$@)"),
+                              remainingText, capacityText, when.countdown, when.clock)
+            } else {
+                body = String(format: L("%1$@ of %2$@ left, resets soon"), remainingText, capacityText)
+            }
         case .dry:
             title = String(format: L("%@ pool is dry across accounts"), windowName)
-            body = String(format: L("0 of %1$@ left until %2$@"), capacityText, reset)
+            if let resetAt {
+                let when = UsageFormat.noticeCountdown(resetAt)
+                body = String(format: L("0 of %1$@ left, back in %2$@ (%3$@)"),
+                              capacityText, when.countdown, when.clock)
+            } else {
+                body = String(format: L("0 of %@ left, back soon"), capacityText)
+            }
         }
         // No category: the pool alert is news, with nothing to press. The delivery result is not
         // consulted because this alert re-arms on its own, as soon as the pool recovers above the
@@ -89,11 +99,5 @@ final class DryPoolNotifier {
     /// Pool figures are whole "accounts' worth" units; show them as rounded integers.
     private static func figure(_ value: Double) -> String {
         String(Int(value.rounded()))
-    }
-
-    private func shortDate(_ date: Date?) -> String {
-        guard let date else { return L("soon") }
-        return date.formatted(.dateTime.month(.abbreviated).day().hour().minute()
-            .locale(AppLocale.current))
     }
 }

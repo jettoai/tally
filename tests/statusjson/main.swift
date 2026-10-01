@@ -484,16 +484,16 @@ check("reset fields round-trip into status json",
               == "2026-10-05T12:20:35Z")
 check("unknown reset state is published, not dropped",
       account(resetJSON, "claude:c")["resetState"] as? String == "unknown")
-let suffix = Dictionary(uniqueKeysWithValues: resetFixture.accounts.map {
-    ($0.id, resetStatusSuffix($0)) })
-check("status text: available prints banked count, expiry and unknown expiry",
-      suffix["codex:a"]?.hasPrefix(" · 1 reset banked, expires 2026-10-05") == true
+let suffix = Dictionary(uniqueKeysWithValues: resetFixture.accounts.map { // now = expiry - 2d3h
+    ($0.id, resetStatusSuffix($0, now: Date(timeIntervalSince1970: 1_791_202_835 - 183_600))) })
+check("status text: available prints banked count, expiry countdown then clock, and unknown expiry",
+      suffix["codex:a"]?.hasPrefix(" · 1 reset banked, expires in 2d3h (2026-10-0") == true
           && suffix["codex:a"]?.hasSuffix(", expiry unknown") == true)
 check("status text: zero banked prints no resets banked", suffix["codex:b"] == " · no resets banked")
 check("status text: unknown prints resets unknown", suffix["claude:c"] == " · resets unknown")
 check("status text: not supported prints nothing", suffix["claude:d"] == "")
 check("status text: an old snapshot keeps the banked count",
-      snapshot.accounts.first { $0.id == "codex:.codex" }.map(resetStatusSuffix)
+      snapshot.accounts.first { $0.id == "codex:.codex" }.map { resetStatusSuffix($0) }
           == " · 3 resets banked")
 resetPassedStatusChecks(); capWeightStatusChecks()
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

@@ -85,8 +85,7 @@ struct MetricRowView: View {
 
     /// A tiny line under every window's bar: a critical warning on the left, ITS OWN reset on the
     /// right - per-row so a reset can never be misread as belonging to a neighbouring window.
-    /// Clicking the reset flips every reset label between countdown and exact time (the exact time is
-    /// one click away instead of a settings entry); hover previews the other format.
+    /// The reset reads as a countdown; hovering it adds the exact time.
     @ViewBuilder
     private var contextLine: some View {
         if resetPassed || metric.severity == .critical || metric.resetsAt != nil || sessionNotStarted {
@@ -131,18 +130,12 @@ struct MetricRowView: View {
     }
 
     private func resetLabel(_ resetsAt: Date) -> some View {
-        let style = SettingsStore.shared.resetDisplay
-        return TimelineView(.periodic(from: .now, by: 60)) { context in
-            Button {
-                SettingsStore.shared.resetDisplay = style.toggled
-            } label: {
-                Text(UsageFormat.resetText(resetsAt, style: style, now: context.date) ?? "")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .buttonStyle(.plain)
-            .tallyTooltip(UsageFormat.resetText(resetsAt, style: style.toggled, now: context.date) ?? "")
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            Text(UsageFormat.resetCountdown(resetsAt, now: context.date) ?? "")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .tallyTooltip(UsageFormat.resetHover(resetsAt, now: context.date) ?? "")
         }
     }
 }

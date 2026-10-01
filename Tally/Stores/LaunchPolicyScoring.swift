@@ -148,7 +148,7 @@ extension LaunchPolicyStore {
     }
 
     /// Badge-facing reason for the smart pick, mirroring the CLI's `pickReason`:
-    /// the binding window and its reset, e.g. "weekly 94% · resets 4d".
+    /// the binding window and its reset, e.g. "weekly 94% · resets in 4d 2h".
     ///
     /// RESERVE-BLIND, and it takes no reserve to be so, exactly as `pickReason` is: this is a
     /// sentence for a person, and "weekly 94%" has to mean the same thing here, on the card's own
@@ -160,10 +160,8 @@ extension LaunchPolicyStore {
             .min(by: { $0.rate < $1.rate }) else { return nil }
         var text = "\(binding.name) \(Int(binding.remaining.rounded()))%"
         if let resetsAt = binding.resetsAt {
-            let minutes = max(Int((resetsAt.timeIntervalSince(now) / 60).rounded()), 0)
-            let eta = minutes < 60 ? "\(minutes)m"
-                : minutes < 48 * 60 ? "\(minutes / 60)h" : "\(minutes / (24 * 60))d"
-            text += " · resets \(eta)"
+            let body = UsageFormat.durationBody(max(60, resetsAt.timeIntervalSince(now)))
+            text += " · " + String(localized: "resets in \(body)", bundle: AppLocale.bundle)
         }
         return text
     }}

@@ -4583,35 +4583,6 @@
         }
       }
     },
-    "Nearest banked reset expires": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近一枚存量的到期時間："
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近一枚存量的到期时间："
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最も近いリセットの有効期限："
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가장 가까운 리셋의 만료 시각:"
-          }
-        }
-      }
-    },
     "Reset redeemed": {
       "extractionState": "manual",
       "localizations": {
@@ -5038,35 +5009,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "下次回充 %1$@ %2$@"
-          }
-        }
-      }
-    },
-    "refill %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回充 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回充 %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "補充 %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "충전 %@"
           }
         }
       }
@@ -6695,35 +6637,6 @@
         }
       }
     },
-    "%1$@ of %2$@ left, resets %3$@": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "剩餘 %1$@／%2$@，%3$@ 重置"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "剩余 %1$@／%2$@，%3$@ 重置"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "残り %1$@／%2$@、%3$@ にリセット"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%2$@ 중 %1$@ 남음, %3$@ 초기화"
-          }
-        }
-      }
-    },
     "%@ pool is dry across accounts": {
       "extractionState": "manual",
       "localizations": {
@@ -6749,64 +6662,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 풀이 모든 계정에서 소진됨"
-          }
-        }
-      }
-    },
-    "0 of %1$@ left until %2$@": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "0／%1$@，須待 %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "0／%1$@，须待 %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 中 0、%2$@ まで枯渇"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 중 0 남음, %2$@ 까지"
-          }
-        }
-      }
-    },
-    "soon": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "即將"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "即将"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まもなく"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "곧"
           }
         }
       }
@@ -15068,151 +14923,6 @@
         }
       }
     },
-    "Expires %@. Redeeming now recovers %@.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。現在兌換可恢復 %@。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。现在兑换可恢复 %@。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に期限切れ。今使うと %@ 回復します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 만료. 지금 사용하면 %@ 회복됩니다."
-          }
-        }
-      }
-    },
-    "Expires %@. Best used before %@; after that the counters refill on their own.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。最好在 %@ 之前使用；之後用量會自己回滿。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。最好在 %@ 之前使用；之后用量会自己回满。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に期限切れ。%@ より前に使うのが得策です。その後は使用量が自然に回復します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 만료. %@ 전에 쓰는 것이 좋습니다. 그 후에는 사용량이 저절로 회복됩니다."
-          }
-        }
-      }
-    },
-    "Expires %@. Unused, it is lost; redeeming now recovers %@.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。不用就會作廢；現在兌換可恢復 %@。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 到期。不用就会作废；现在兑换可恢复 %@。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ に期限切れ。使わなければ失われます。今使うと %@ 回復します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 만료. 쓰지 않으면 사라집니다. 지금 사용하면 %@ 회복됩니다."
-          }
-        }
-      }
-    },
-    "This account still has plenty of quota left, and its counters refill on their own at %@. Waiting until just before then would recover more.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此帳號還有很多額度，用量會在 %@ 自己回滿。等到那之前再兌換可以恢復更多。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此账号还有很多额度，用量会在 %@ 自己回满。等到那之前再兑换可以恢复更多。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアカウントにはまだ十分な枠があり、%@ に使用量が自然に回復します。その直前まで待つほうが多く回復できます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 계정은 아직 한도가 넉넉하며 %@에 사용량이 저절로 회복됩니다. 그 직전까지 기다리면 더 많이 회복할 수 있습니다."
-          }
-        }
-      }
-    },
-    "This reset expires %@; unused it is lost.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這個重置 %@ 到期；不用就會作廢。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个重置 %@ 到期；不用就会作废。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このリセットは %@ に期限切れになり、使わなければ失われます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 리셋은 %@에 만료되며 쓰지 않으면 사라집니다."
-          }
-        }
-      }
-    },
     "Tally can't see when this reset expires.": {
       "extractionState": "manual",
       "localizations": {
@@ -16224,6 +15934,383 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude in Chrome 계정으로 설정한 %@의 세션이 확장 프로그램에 연결하지 못했습니다. 확장 프로그램에 로그인된 계정을 확인하고 설정을 업데이트하세요."
+          }
+        }
+      }
+    },
+    "%1$@ of %2$@ left, resets in %3$@ (%4$@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩餘 %1$@／%2$@，%3$@ 後重置（%4$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩余 %1$@／%2$@，%3$@ 后重置（%4$@）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り %1$@／%2$@、%3$@ 後にリセット（%4$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 중 %1$@ 남음, %3$@ 후 초기화 (%4$@)"
+          }
+        }
+      }
+    },
+    "%1$@ of %2$@ left, resets soon": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩餘 %1$@／%2$@，即將重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩余 %1$@／%2$@，即将重置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り %1$@／%2$@、まもなくリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 중 %1$@ 남음, 곧 초기화"
+          }
+        }
+      }
+    },
+    "0 of %1$@ left, back in %2$@ (%3$@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0／%1$@，%2$@ 後恢復（%3$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0／%1$@，%2$@ 后恢复（%3$@）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 中 0、%2$@ 後に回復（%3$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 중 0 남음, %2$@ 후 회복 (%3$@)"
+          }
+        }
+      }
+    },
+    "0 of %@ left, back soon": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0／%@，即將恢復"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0／%@，即将恢复"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中 0、まもなく回復"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 중 0 남음, 곧 회복"
+          }
+        }
+      }
+    },
+    "Back on its own in %1$@ (%2$@).": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 後會自己回滿（%2$@）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 后会自己回满（%2$@）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 後に自然に回復します（%2$@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 후 저절로 회복됩니다 (%2$@)."
+          }
+        }
+      }
+    },
+    "Expires in %1$@ (%2$@).": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 後到期（%2$@）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 后到期（%2$@）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 後に期限切れ（%2$@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 후 만료 (%2$@)."
+          }
+        }
+      }
+    },
+    "Expires soon.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即將到期。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将到期。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まもなく期限切れ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "곧 만료."
+          }
+        }
+      }
+    },
+    "Redeeming now recovers %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在兌換可恢復 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在兑换可恢复 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今使うと %@ 回復します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 사용하면 %@ 회복됩니다."
+          }
+        }
+      }
+    },
+    "Best used within %1$@ (before %2$@); after that the counters refill on their own.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最好在 %1$@ 內使用（%2$@ 之前）；之後用量會自己回滿。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最好在 %1$@ 内使用（%2$@ 之前）；之后用量会自己回满。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 以内（%2$@ より前）に使うのが得策です。その後は使用量が自然に回復します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 안에 (%2$@ 전에) 쓰는 것이 좋습니다. 그 후에는 사용량이 저절로 회복됩니다."
+          }
+        }
+      }
+    },
+    "Unused, it is lost; redeeming now recovers %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不用就會作廢；現在兌換可恢復 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不用就会作废；现在兑换可恢复 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使わなければ失われます。今使うと %@ 回復します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쓰지 않으면 사라집니다. 지금 사용하면 %@ 회복됩니다."
+          }
+        }
+      }
+    },
+    "This account still has plenty of quota left, and its counters refill on their own in %1$@ (%2$@). Waiting until just before then would recover more.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號還有很多額度，用量會在 %1$@ 後自己回滿（%2$@）。等到那之前再兌換可以恢復更多。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账号还有很多额度，用量会在 %1$@ 后自己回满（%2$@）。等到那之前再兑换可以恢复更多。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントにはまだ十分な枠があり、%1$@ 後（%2$@）に使用量が自然に回復します。その直前まで待つほうが多く回復できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 아직 한도가 넉넉하며 %1$@ 후 (%2$@) 사용량이 저절로 회복됩니다. 그 직전까지 기다리면 더 많이 회복할 수 있습니다."
+          }
+        }
+      }
+    },
+    "This reset expires in %1$@ (%2$@); unused it is lost.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個重置 %1$@ 後到期（%2$@）；不用就會作廢。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个重置 %1$@ 后到期（%2$@）；不用就会作废。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリセットは %1$@ 後（%2$@）に期限切れになり、使わなければ失われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 리셋은 %1$@ 후 (%2$@) 만료되며 쓰지 않으면 사라집니다."
+          }
+        }
+      }
+    },
+    "Nearest banked reset expires in %1$@ (%2$@).": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近一枚存量 %1$@ 後到期（%2$@）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近一枚存量 %1$@ 后到期（%2$@）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最も近いリセットは %1$@ 後（%2$@）に期限切れになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 가까운 리셋은 %1$@ 후 (%2$@) 만료됩니다."
           }
         }
       }

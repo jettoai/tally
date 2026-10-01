@@ -365,43 +365,30 @@ extension PopoverRootView {
     }
 
     /// "next refill Claude in 4d 6h" - refill wording, not "resets", so it can't be confused
-    /// with the per-window reset labels on the cards. Click toggles to the exact time.
+    /// with the per-window reset labels on the cards. The exact time is in the hover.
     private func refillLabel(_ refill: FleetPool.Refill, compact: Bool = false) -> some View {
-        let style = settings.resetDisplay
-        return TimelineView(.periodic(from: .now, by: 60)) { context in
-            Button {
-                settings.resetDisplay = style.toggled
-            } label: {
-                Text(refillText(refill, style: style, now: context.date, compact: compact))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .buttonStyle(.plain)
-            // Both readings, always, and never the compact form: a truncated clock is exactly when
-            // a reader reaches for the tooltip, so it has to answer with the whole thing (which
-            // account, the date and time, and how long that is from now) rather than the same
-            // sentence in the other format.
-            .tallyTooltip(refillText(refill, style: .absolute, now: context.date)
-                + " · " + refillText(refill, style: .relative, now: context.date))
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            Text(refillText(refill, now: context.date, compact: compact))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                // Both readings, always, and never the compact form: a truncated line is exactly
+                // when a reader reaches for the tooltip, so it has to answer with the whole thing
+                // (which account, the date and time, and how long that is from now).
+                .tallyTooltip(String(localized: "next refill \(refill.accountLabel) at \(UsageFormat.absoluteBody(refill.at))",
+                                     bundle: AppLocale.bundle)
+                    + " · " + refillText(refill, now: context.date))
         }
     }
 
     /// Internal: the advisor tooltip lists the same refills in the same words, so the two surfaces
     /// can never phrase one schedule two ways.
-    func refillText(_ refill: FleetPool.Refill, style: ResetDisplay, now: Date,
-                    compact: Bool = false) -> String {
+    func refillText(_ refill: FleetPool.Refill, now: Date, compact: Bool = false) -> String {
         let account = refill.accountLabel
-        if style == .relative {
-            let body = UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(now)))
-            return compact
-                ? String(localized: "refill in \(body)", bundle: AppLocale.bundle)
-                : String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)
-        }
-        let clock = UsageFormat.absoluteBody(refill.at)
+        let body = UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(now)))
         return compact
-            ? String(localized: "refill \(clock)", bundle: AppLocale.bundle)
-            : String(localized: "next refill \(account) at \(clock)", bundle: AppLocale.bundle)
+            ? String(localized: "refill in \(body)", bundle: AppLocale.bundle)
+            : String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)
     }
 
     /// One continuous fill anchored like every meter (used grows left, remaining hugs right),
@@ -437,10 +424,7 @@ extension PopoverRootView {
     /// The value column of the hover's refill line. Digits only: which account it belongs to is
     /// already the label beside it, so the strip's whole sentence would say the name twice.
     private func refillBody(_ value: FleetTooltip.RefillValue) -> String {
-        switch value {
-        case .countdown(let seconds): return UsageFormat.durationBody(seconds)
-        case .clock(let at): return UsageFormat.absoluteBody(at)
-        }
+        UsageFormat.durationBody(value.countdown) + " · " + UsageFormat.absoluteBody(value.clock)
     }
 
     private func fleetTooltipBlocks(_ summaries: [FleetSummary]) -> [TallyTooltipBlock] {
@@ -476,13 +460,10 @@ extension PopoverRootView {
                     severity: tightest.severity))
             }
             if let refill = model.nextRefill {
-                // Countdown or clock, whichever the panel is currently speaking in: this is the
-                // same global preference the strip's own refill label and every reset label on the
-                // cards follow, so one hover cannot answer in the other format.
+                // Countdown and clock both, as every reset hover in the panel answers.
                 rows.append(TallyTooltipRow(
                     L("Next refill") + " · " + refill.accountLabel,
-                    refillBody(FleetTooltip.refillValue(refill, style: settings.resetDisplay,
-                                                        now: Date()))))
+                    refillBody(FleetTooltip.refillValue(refill, now: Date()))))
             }
             return TallyTooltipBlock(
                 title: ProviderCatalog.displayName(for: summary.providerID)

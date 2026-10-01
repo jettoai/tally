@@ -41,6 +41,9 @@ struct SessionAgentsRecord: Codable, Equatable, Sendable {
     /// as the last turn end's roll call counted it. nil until a `Stop` carrying the list is seen.
     /// Only a COUNT: nothing reads which ones, and counting spares us naming a type we cannot see.
     var background: Int? = nil
+    /// When that roll call was taken: the newest `Stop` that carried the list. nil until one is seen.
+    /// A background start in the transcript after this moment is work the count above cannot see.
+    var backgroundCountedAt: Date? = nil
 
     /// What a card may draw: the number working, or nothing at all when the count cannot be
     /// believed. FAIL-CLOSED, and that is the whole design of the field above: an edge-counted
@@ -163,11 +166,12 @@ func advanceAgentRoster(_ record: SessionAgentsRecord?, event: AgentRosterEvent,
     }
     // Background work is counted off the TURN END's list only: a subagent's own stop may carry a
     // list scoped to that subagent, and the session-wide count is what an idle restart would kill.
-    let background = event.kind == .boundary && event.carriedCensus
-        ? event.otherTasks : record?.background
+    let rollCall = event.kind == .boundary && event.carriedCensus
     return SessionAgentsRecord(live: live.sorted(),
                                trusted: (record?.trusted ?? false) || event.carriedCensus || declared,
-                               updatedAt: now, background: background)
+                               updatedAt: now,
+                               background: rollCall ? event.otherTasks : record?.background,
+                               backgroundCountedAt: rollCall ? now : record?.backgroundCountedAt)
 }
 
 // MARK: - Whose roster this is, and what it claims
@@ -266,13 +270,14 @@ func claudeCodeReportsAgents(executablePath: String?) -> Bool {
 /// believed reads it back.
 func agentRosterHookMarker(_ event: String) -> String { " hook-agents \(event)" }
 
-/// Whether a config home registers the roster's two edges. Every way of not knowing reads false.
+/// Whether a config home registers the roster's two edges and the turn end's roll call. Every way of
+/// not knowing reads false.
 func agentRosterHookRegistered(home: String) -> Bool {
     let file = URL(fileURLWithPath: home).appendingPathComponent("settings.json")
     guard let data = try? Data(contentsOf: file),
           let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
           let hooks = settings["hooks"] as? [String: Any] else { return false }
-    return ["SubagentStart", "SubagentStop"].allSatisfy { event in
+    return AgentRosterEvent.events.allSatisfy { event in
         ((hooks[event] as? [[String: Any]]) ?? []).contains { entry in
             (entry["hooks"] as? [[String: Any]] ?? []).contains {
                 ($0["command"] as? String)?.hasSuffix(agentRosterHookMarker(event)) == true

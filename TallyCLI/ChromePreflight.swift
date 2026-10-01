@@ -15,10 +15,10 @@ import Foundation
 //
 // WHICH WAY EACH UNKNOWN FALLS. A move ends every subagent and every background job, so a witness
 // that cannot be read answers "there is work in flight" and the session is NOT moved
-// (`chromeAgentsIdle`): a roster file that exists but will not decode, a subagents directory that
-// exists but cannot be listed, a transcript tail with no person input in it or an assistant line
-// after that input that will not parse. Only a roster file that does not exist at all reads as "no
-// subagent edge this generation". No setting, or
+// (`chromeAgentsIdle`): a roster that will not decode, or a roll call this generation with a count
+// that is not zero; a subagents directory that exists but cannot be listed; a transcript tail that
+// reaches back neither to the boundary (that roll call, else the child's start) nor to the top of the
+// file, or an assistant line after it that will not parse. No setting, or
 // one naming an account the snapshot does not know, answers "allow": exactly the 69ead54 behaviour.
 // A queued move that has not happened within `chromeMoveDenyWindow` stops being denied, so a stuck
 // supervisor never turns into a session that can never call Chrome. `PreToolUse` never claims a
@@ -62,21 +62,24 @@ let chromeMoveDenyWindow: TimeInterval = 600
 /// The audit word a denied Chrome call leaves in the input log.
 let chromePreflightDeniedOutcome = "chrome-preflight-denied"
 
-/// Whether this turn, from the newest person input to the end of `tail`, started background work: a
-/// tool call with `run_in_background: true` (Bash, PowerShell, Agent, Task) or any Monitor. The
-/// roster counts background work only at `Stop`, so it cannot see a job started in the turn that is
-/// running now. nil when the turn's start is not in the tail, or an assistant line after it will not
-/// parse: the question cannot be answered.
-func chromeBackgroundStartedThisTurn(tail: String) -> Bool? {
-    var sawPerson = false, started = false, unreadable = false
+/// Whether background work was started after `countedSince`: a tool call with
+/// `run_in_background: true` (Bash, PowerShell, Agent, Task) or any Monitor, on a main-chain
+/// assistant line stamped later than that moment. The boundary is the later of this child's start
+/// and the roster's last roll call in this generation (`chromeBackgroundBoundary`): the roll call
+/// counts what was running at `Stop`, and work from an earlier child died with it. A person's input
+/// is NOT a boundary: a queued message or a turn interrupted before its `Stop` leaves the start
+/// uncounted, so the evidence stands until a roll call covers it. nil when there is no boundary, when
+/// the tail neither starts at the top of the file (`fromFileStart`) nor reaches back to the boundary,
+/// or when an assistant line after it will not parse or carries no stamp.
+func chromeBackgroundStartedThisTurn(tail: String, countedSince: Date?, fromFileStart: Bool = false) -> Bool? {
+    guard let countedSince else { return nil }
+    var reachesBack = fromFileStart, started = false
     for line in tail.split(separator: "\n") where !line.contains("\"isSidechain\":true") {
-        if !line.contains("\"tool_result\""), lineIsPersonInput(line) {
-            (sawPerson, started, unreadable) = (true, false, false)
-            continue
-        }
-        guard sawPerson, line.contains("\"type\":\"assistant\"") else { continue }
-        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
-        else { unreadable = true; continue }
+        let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        let stamp = (object?["timestamp"] as? String).flatMap(transcriptParseISO)
+        if let stamp, stamp <= countedSince { reachesBack = true; continue }
+        guard line.contains("\"type\":\"assistant\"") else { continue }
+        guard let object, stamp != nil else { return nil }
         let blocks = ((object["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
         for block in blocks where block["type"] as? String == "tool_use" {
             if block["name"] as? String == "Monitor"
@@ -85,11 +88,22 @@ func chromeBackgroundStartedThisTurn(tail: String) -> Bool? {
             }
         }
     }
-    return sawPerson && !unreadable ? started : nil
+    return reachesBack ? started : nil
+}
+
+/// The moment after which the transcript must show no background start: this child's start, or the
+/// roster's roll call when one was taken in this generation (the roster file keeps whole seconds, so
+/// that moment rounds down, which only widens the window).
+func chromeBackgroundBoundary(record: SessionAgentsRecord?, childStartedAt: Date) -> Date {
+    guard let counted = record?.backgroundCountedAt, counted >= childStartedAt else { return childStartedAt }
+    return counted
 }
 
 /// Whether this session is positively free of subagents and background work. Pure. Every witness
-/// that is missing or unreadable answers false, which leaves the session where it is.
+/// that is missing or unreadable answers false, which leaves the session where it is. No roster, or
+/// one from an earlier generation, means no subagent edge this generation; background work is then
+/// the transcript's to answer (`backgroundThisTurn`, measured from the child's start). A roll call
+/// taken in this generation must count zero (nil is not zero).
 func chromeAgentsIdle(fromSubagent: Bool, childStartedAt: Date?, agentHookRegistered: Bool,
                       claudeReportsAgents: Bool, record: SessionAgentsRecord?,
                       rosterUnreadable: Bool, newestSubagentWrite: Date?,
@@ -100,9 +114,9 @@ func chromeAgentsIdle(fromSubagent: Bool, childStartedAt: Date?, agentHookRegist
     else { return false }
     if let write = newestSubagentWrite, write > start,
        now.timeIntervalSince(write) <= subagentIdleSeconds { return false }
-    // A roster from an earlier generation means this child has had no SubagentStart edge at all.
     guard let record, record.updatedAt >= start else { return true }
-    return record.live.isEmpty && (record.background ?? 0) == 0
+    if let counted = record.backgroundCountedAt, counted >= start, record.background != 0 { return false }
+    return record.live.isEmpty
 }
 
 /// The same, with the live witnesses. A payload with no transcript path cannot be walked, and so
@@ -130,9 +144,18 @@ func chromeAgentsIdleLive(supervisor: String, context: ChromeCallContext,
             && manager.fileExists(atPath: sessionAgentsFile(pid: supervisor, dir: dir).path),
         newestSubagentWrite: start.flatMap { subagentTreeNewestWrite(transcript: transcript, since: $0) },
         subagentsUnreadable: subagentsUnreadable,
-        backgroundThisTurn: transcriptTail(of: transcript, bytes: selfSwitchTailBytes)
-            .flatMap(chromeBackgroundStartedThisTurn),
+        backgroundThisTurn: backgroundSince(transcript: transcript,
+                                            boundary: start.map { chromeBackgroundBoundary(record: record, childStartedAt: $0) }),
         now: now)
+}
+
+/// `chromeBackgroundStartedThisTurn` over the transcript's tail. The size is read AFTER the tail: the
+/// file only grows, so a size within the bound then means the tail was read from the top.
+private func backgroundSince(transcript: URL, boundary: Date?) -> Bool? {
+    guard let tail = transcriptTail(of: transcript, bytes: selfSwitchTailBytes) else { return nil }
+    let size = (try? FileManager.default.attributesOfItem(atPath: transcript.path))?[.size] as? Int
+    return chromeBackgroundStartedThisTurn(tail: tail, countedSince: boundary,
+                                           fromFileStart: size.map { $0 <= selfSwitchTailBytes } ?? false)
 }
 
 /// Queue the move through the same path `tally account` takes. Prints nothing: a hook's stdout

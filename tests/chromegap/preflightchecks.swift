@@ -219,15 +219,25 @@ func runPreflightChecks() {
     // P-T15: the subagent witness, each missing reading answering "busy".
     do {
         let start = t0.addingTimeInterval(-3600)
+        let current = t0.addingTimeInterval(-60)
+        let quiet = SessionAgentsRecord(live: [], trusted: true, updatedAt: current, background: 0,
+                                        backgroundCountedAt: current)
         func idle(fromSubagent: Bool = false, child: Date? = start, hook: Bool = true, version: Bool = true,
-                  record: SessionAgentsRecord? = nil, rosterBad: Bool = false, write: Date? = nil,
+                  record: SessionAgentsRecord? = quiet, rosterBad: Bool = false, write: Date? = nil,
                   treeBad: Bool = false, background: Bool? = false) -> Bool {
             chromeAgentsIdle(fromSubagent: fromSubagent, childStartedAt: child, agentHookRegistered: hook,
                              claudeReportsAgents: version, record: record, rosterUnreadable: rosterBad,
                              newestSubagentWrite: write, subagentsUnreadable: treeBad,
                              backgroundThisTurn: background, now: t0)
         }
-        let current = t0.addingTimeInterval(-60)
+        var noCall = quiet
+        noCall.backgroundCountedAt = nil
+        noCall.background = nil
+        var uncounted = quiet
+        uncounted.background = nil
+        var oldCall = quiet
+        oldCall.backgroundCountedAt = start.addingTimeInterval(-5)
+        oldCall.background = 3
         let rows: [(String, Bool, Bool)] = [
             ("a call from a subagent", idle(fromSubagent: true), false),
             ("no child start time", idle(child: nil), false),
@@ -236,18 +246,34 @@ func runPreflightChecks() {
             ("a subagent write 30s ago", idle(write: t0.addingTimeInterval(-30)), false),
             ("a subagent write from before this child", idle(write: start.addingTimeInterval(-10)), true),
             ("a current roster with a live agent",
-             idle(record: SessionAgentsRecord(live: ["a1"], trusted: true, updatedAt: current)), false),
+             idle(record: SessionAgentsRecord(live: ["a1"], trusted: true, updatedAt: current, background: 0,
+                                              backgroundCountedAt: current)), false),
             ("a current roster with background work",
-             idle(record: SessionAgentsRecord(live: [], trusted: true, updatedAt: current, background: 1)), false),
-            ("an earlier generation's roster",
-             idle(record: SessionAgentsRecord(live: ["ghost"], trusted: true, updatedAt: start.addingTimeInterval(-5))), true),
-            ("a current empty roster",
-             idle(record: SessionAgentsRecord(live: [], trusted: true, updatedAt: current, background: 0)), true),
+             idle(record: SessionAgentsRecord(live: [], trusted: true, updatedAt: current, background: 1,
+                                              backgroundCountedAt: current)), false),
+            ("an earlier generation's roster, transcript quiet since the child started",
+             idle(record: SessionAgentsRecord(live: ["ghost"], trusted: true, updatedAt: start.addingTimeInterval(-5),
+                                              background: 2, backgroundCountedAt: start.addingTimeInterval(-5))),
+             true),
+            ("a roll call from an earlier child (its count died with it)", idle(record: oldCall), true),
+            ("a current empty roster with a roll call", idle(), true),
+            ("no roster at all, transcript quiet since the child started", idle(record: nil), true),
+            ("no roster at all, background started since the child started",
+             idle(record: nil, background: true), false),
+            ("a roll call this generation with no background count", idle(record: uncounted), false),
+            ("a current roster with no roll call yet, transcript quiet", idle(record: noCall), true),
             ("background work started this turn", idle(background: true), false),
             ("a turn whose background starts cannot be read", idle(background: nil), false),
             ("a roster file that will not decode", idle(rosterBad: true), false),
             ("a subagents directory that cannot be listed", idle(treeBad: true), false),
         ]
+        let child = t0.addingTimeInterval(-100)
+        check("P-T15 the boundary is the child's start with no roll call",
+              chromeBackgroundBoundary(record: nil, childStartedAt: child) == child)
+        check("P-T15 the boundary is the child's start when the roll call predates it",
+              chromeBackgroundBoundary(record: oldCall, childStartedAt: child) == child)
+        check("P-T15 the boundary is this generation's roll call",
+              chromeBackgroundBoundary(record: quiet, childStartedAt: child) == current)
         for (name, got, want) in rows { check("P-T15 \(name) reads \(want ? "idle" : "busy")", got == want) }
         check("P-T15 the live reader with no transcript path reads busy",
               !chromeAgentsIdleLive(supervisor: "999999", context: ChromeCallContext()))

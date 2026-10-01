@@ -13,19 +13,20 @@ final class ChromeSettingNotifier {
 
     func evaluate(accounts: [AccountUsage]) {
         let setting = LaunchPolicyStore.shared.chromeAccount
+        let defaults = UserDefaults.standard
         // A new choice, first seen on this pass, re-arms the notification and ignores any signal
         // written before it. Kept here rather than in the store so the store stays free of the app.
-        if UserDefaults.standard.string(forKey: seenKey) != setting {
-            UserDefaults.standard.set(setting, forKey: seenKey)
-            UserDefaults.standard.set(Date(), forKey: setAtKey)
-            UserDefaults.standard.set(false, forKey: notifiedKey)
+        if defaults.string(forKey: seenKey) != setting {
+            defaults.set(setting, forKey: seenKey)
+            defaults.set(Date(), forKey: setAtKey)
+            defaults.set(false, forKey: notifiedKey)
         }
         guard chromeSettingGapShouldNotify(
-            setting: setting, setAt: UserDefaults.standard.object(forKey: setAtKey) as? Date,
+            setting: setting, setAt: defaults.object(forKey: setAtKey) as? Date,
             signal: readChromeSettingGapSignal(),
-            notified: UserDefaults.standard.bool(forKey: notifiedKey)),
+            notified: defaults.bool(forKey: notifiedKey)),
             let setting else { return }
-        UserDefaults.standard.set(true, forKey: notifiedKey)
+        defaults.set(true, forKey: notifiedKey)
         let name = accounts.first { $0.id == setting }?.accountLabel ?? setting
         Task {
             _ = await SystemAlert.post(

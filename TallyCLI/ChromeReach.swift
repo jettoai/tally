@@ -183,7 +183,7 @@ struct ChromeRelaySession: Equatable {
     let project: String?
 }
 
-enum ChromeGapRoute: Equatable {
+enum ChromeGapRoute {
     /// No usable setting: today's sentence, worded by the ledger.
     case explain
     /// This session already runs on the account set for Chrome, and it is not connected.
@@ -312,15 +312,17 @@ func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
     let label = labels[account] ?? account
     let route = chromeGapRoute(account: account, setting: deps.chromeAccount(),
                                known: Set(labels.keys), relays: { deps.relays($0, supervisor) })
+    func explained() -> String {
+        chromeGapMessage(accountLabel: label,
+                         reachedBefore: chromeReachable(ledger, account: account),
+                         reachableLabels: chromeReachableAccounts(ledger).map { labels[$0] ?? $0 }.sorted())
+    }
     switch route {
-    case .explain, .settingItself:
-        let reachable = chromeReachableAccounts(ledger).map { labels[$0] ?? $0 }.sorted()
-        let text = chromeGapMessage(accountLabel: label,
-                                    reachedBefore: chromeReachable(ledger, account: account),
-                                    reachableLabels: reachable)
-        guard case .settingItself(let setting) = route else { return text }
+    case .explain:
+        return explained()
+    case .settingItself(let setting):
         deps.signalSettingGap(setting, now)
-        return text + chromeSettingItselfSuffix
+        return explained() + chromeSettingItselfSuffix
     case .relay(let setting, let sessions):
         return chromeRelayMessage(accountLabel: label, settingLabel: labels[setting] ?? setting,
                                   sessions: sessions, selfSupervisor: supervisor)

@@ -11,6 +11,11 @@ import Foundation
 //
 // The ledger only chooses the wording. It proves an account reached Chrome once, not that the
 // extension is signed in to it now, so it never silences a notice.
+//
+// Where the step goes next is decided by the user's setting alone (`chromeAccountSetting`, the
+// Settings row "Claude in Chrome account"): with none set the sentence above is all a session gets;
+// with one set, a session on another account is pointed at a live session on that one, or told how
+// to move there, and the ledger still only chooses the wording of the sentence above.
 
 let chromeToolPrefix = "mcp__claude-in-chrome__"
 
@@ -159,6 +164,105 @@ func chromeGapMessage(accountLabel: String, reachedBefore: Bool,
         + " this session. Accounts observed connecting previously: \(observed)."
 }
 
+/// The account the user set as the one Claude in Chrome is signed in to, or nil when none is set.
+/// Mirror of the app's `LaunchPolicyStore.StateFile.chromeAccount`; the schema only gains keys.
+/// ONLY THIS decides routing. The chrome-reach ledger never does (it proves an account reached
+/// Chrome once, not which account the extension is signed in to now).
+func chromeAccountSetting(_ url: URL = stateURL) -> String? {
+    struct StateFile: Decodable { var chromeAccount: String? }
+    guard let data = try? Data(contentsOf: url),
+          let file = try? JSONDecoder().decode(StateFile.self, from: data),
+          let chosen = file.chromeAccount?.trimmingCharacters(in: .whitespaces),
+          chosen.hasPrefix("claude:") else { return nil }
+    return chosen
+}
+
+/// A live Claude session on the account set for Chrome: what a hand-off needs to address it.
+struct ChromeRelaySession: Equatable {
+    let supervisorPid: String
+    let project: String?
+}
+
+enum ChromeGapRoute: Equatable {
+    /// No usable setting: today's sentence, worded by the ledger.
+    case explain
+    /// This session already runs on the account set for Chrome, and it is not connected.
+    case settingItself(String)
+    /// Another session runs on the account set for Chrome: hand the step to it.
+    case relay(String, [ChromeRelaySession])
+    /// Nothing runs on that account: move this session there.
+    case move(String)
+}
+
+/// Pure. `known` is the snapshot's account ids; a setting naming an account the snapshot does not
+/// know (removed, or a stale file) is read as no setting at all.
+func chromeGapRoute(account: String, setting: String?, known: Set<String>,
+                    relays: (String) -> [ChromeRelaySession]) -> ChromeGapRoute {
+    guard let setting, known.contains(setting) else { return .explain }
+    if setting == account { return .settingItself(setting) }
+    let live = relays(setting)
+    return live.isEmpty ? .move(setting) : .relay(setting, live)
+}
+
+/// The live Claude sessions on `account`, in the order given, excluding this supervisor (`me`), any
+/// Codex session and any supervisor whose child is gone. Pure over the readers it is handed.
+func chromeRelaySessions(account: String, excluding me: String, pids: [String],
+                         isCodex: (String) -> Bool, accountOf: (String) -> String?,
+                         hasChild: (String) -> Bool, cwd: (String) -> String?) -> [ChromeRelaySession] {
+    pids.compactMap { pid in
+        guard pid != me, !isCodex(pid), accountOf(pid) == account, hasChild(pid) else { return nil }
+        return ChromeRelaySession(supervisorPid: pid,
+                                  project: cwd(pid).map { URL(fileURLWithPath: $0).lastPathComponent })
+    }
+}
+
+/// The same, read from the files each supervisor publishes, oldest pid first. No git and no
+/// transcript: this runs inside a hook.
+func liveChromeRelaySessions(account: String, excluding me: String,
+                             dir: URL = supervisorStateDir) -> [ChromeRelaySession] {
+    chromeRelaySessions(account: account, excluding: me,
+                        pids: liveSupervisorPids(dir: dir).sorted().map(String.init),
+                        isCodex: { SessionMonitoring.isMarked(pid: $0, dir: dir) },
+                        accountOf: { readSupervisorAccount(pid: $0, dir: dir) },
+                        hasChild: { readSupervisorChild(pid: $0, dir: dir) != nil },
+                        cwd: { readSupervisorCwd(pid: $0, dir: dir) })
+}
+
+let chromeRelayListLimit = 5
+
+/// The hand-off sentence: which sessions run on the account set for Chrome, and the exact command
+/// that sends one of them the Chrome step, with the address to send the result back to.
+func chromeRelayMessage(accountLabel: String, settingLabel: String,
+                        sessions: [ChromeRelaySession], selfSupervisor: String) -> String {
+    let listed = sessions.prefix(chromeRelayListLimit).map { session in
+        session.project.map { "\(session.supervisorPid) (\($0))" } ?? session.supervisorPid
+    }.joined(separator: ", ")
+    let task = "/tmp/tally-chrome-task-\(selfSupervisor).md"
+    return "Tally: Claude in Chrome reported not connected on account \"\(accountLabel)\"."
+        + " The user set \"\(settingLabel)\" in Tally as the account Claude in Chrome is signed in"
+        + " to, and these sessions run on it: \(listed)."
+        + " Hand the Chrome step to one of them: write it to \(task) as a self-contained task (what"
+        + " to open, what to do, what to report), and in it ask the other session to send the result"
+        + " back with `tally message claude --session \(selfSupervisor) --file <its result file>`."
+        + " Then run: tally message claude --session \(sessions[0].supervisorPid) --file \(task)"
+}
+
+/// The move sentence, for when nothing runs on the account set for Chrome. `tally account <dir>` in a
+/// session moves it there at the end of the turn and continues the conversation (SwitchCommand.swift).
+func chromeMoveMessage(accountLabel: String, settingLabel: String, settingID: String) -> String {
+    let dir = settingID.hasPrefix("claude:") ? String(settingID.dropFirst("claude:".count)) : settingID
+    return "Tally: Claude in Chrome reported not connected on account \"\(accountLabel)\"."
+        + " The user set \"\(settingLabel)\" in Tally as the account Claude in Chrome is signed in"
+        + " to, and no session runs on it now. To use Chrome from this conversation, run"
+        + " `tally account \(dir)`: the session moves to \"\(settingLabel)\" at the end of this turn"
+        + " and continues there, so retry the Chrome step after that."
+        + " `tally account --auto` hands it back to automatic account selection later."
+}
+
+/// Appended to the existing sentence on the `.settingItself` route.
+let chromeSettingItselfSuffix = " This is the account the user set in Tally as the one Claude in"
+    + " Chrome is signed in to; Tally has asked the user to check that setting."
+
 /// What the Chrome branch of `tally hook-knock` reads from outside, injectable so the suite never
 /// touches a real `~/.tally`, supervisor or snapshot.
 struct ChromeGapDeps {
@@ -169,6 +273,13 @@ struct ChromeGapDeps {
     /// Account id -> display label. Read only on the notice path.
     var labels: () -> [String: String]
     var ledgerFile: URL
+    /// The account set as Claude in Chrome's (state.json), or nil. Read only on the notice path.
+    var chromeAccount: () -> String? = { nil }
+    /// Live Claude sessions on one account (first argument), excluding this supervisor (second).
+    /// Read only when a setting names another account.
+    var relays: (String, String) -> [ChromeRelaySession] = { _, _ in [] }
+    /// Tell the app the account set for Chrome is itself not connected.
+    var signalSettingGap: (String, Date) -> Void = { _, _ in }
 
     static var live: ChromeGapDeps {
         ChromeGapDeps(account: { readSupervisorAccount(pid: $0) },
@@ -177,7 +288,12 @@ struct ChromeGapDeps {
                           Dictionary((loadSnapshot().0?.accounts ?? []).map { ($0.id, $0.label) },
                                      uniquingKeysWith: { first, _ in first })
                       },
-                      ledgerFile: chromeReachLedgerFile)
+                      ledgerFile: chromeReachLedgerFile,
+                      chromeAccount: { chromeAccountSetting() },
+                      relays: { account, me in liveChromeRelaySessions(account: account, excluding: me) },
+                      signalSettingGap: { account, now in
+                          writeChromeSettingGapSignal(ChromeSettingGapSignal(account: account, at: now))
+                      })
     }
 }
 
@@ -194,8 +310,22 @@ func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
     else { return nil }
     let labels = deps.labels()
     let label = labels[account] ?? account
-    let reachable = chromeReachableAccounts(ledger).map { labels[$0] ?? $0 }.sorted()
-    return chromeGapMessage(accountLabel: label,
-                            reachedBefore: chromeReachable(ledger, account: account),
-                            reachableLabels: reachable)
+    let route = chromeGapRoute(account: account, setting: deps.chromeAccount(),
+                               known: Set(labels.keys), relays: { deps.relays($0, supervisor) })
+    switch route {
+    case .explain, .settingItself:
+        let reachable = chromeReachableAccounts(ledger).map { labels[$0] ?? $0 }.sorted()
+        let text = chromeGapMessage(accountLabel: label,
+                                    reachedBefore: chromeReachable(ledger, account: account),
+                                    reachableLabels: reachable)
+        guard case .settingItself(let setting) = route else { return text }
+        deps.signalSettingGap(setting, now)
+        return text + chromeSettingItselfSuffix
+    case .relay(let setting, let sessions):
+        return chromeRelayMessage(accountLabel: label, settingLabel: labels[setting] ?? setting,
+                                  sessions: sessions, selfSupervisor: supervisor)
+    case .move(let setting):
+        return chromeMoveMessage(accountLabel: label, settingLabel: labels[setting] ?? setting,
+                                 settingID: setting)
+    }
 }

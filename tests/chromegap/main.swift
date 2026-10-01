@@ -436,6 +436,8 @@ do {
 check("B6 a claim file maps back to its supervisor", supervisorStatePid(ofFile: "77123.chromegap.101") == 77123)
 check("B6 a foreign file with the infix maps to nothing", supervisorStatePid(ofFile: "x.chromegap.1") == nil)
 
+runRoutingChecks()
+
 try? FileManager.default.removeItem(at: root)
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all chromegap checks passed")

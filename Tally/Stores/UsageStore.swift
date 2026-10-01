@@ -382,10 +382,10 @@ final class UsageStore {
             // Alert when the claude flagship fleet pool crosses the low/dry tripwire. Installed
             // app only: a build nobody installed never owns the shared surfaces, so it never alerts.
             notifyFlagshipDryness(accounts: labeled)
-            // And when a banked reset is worth spending: the user has to REMEMBER to look at a
-            // credit otherwise. Same rule as every other surface here - it names the account, it
-            // never redeems.
+            // And when a banked reset is worth spending: the user has to REMEMBER to look at a credit
+            // otherwise. Same rule as every other surface here - it names the account, it never redeems.
             ResetHintNotifier.shared.evaluate(accounts: labeled)
+            ChromeSettingNotifier.shared.evaluate(accounts: labeled)
         }
         // And the morning schedule, which reads this round's windows to decide whether any account
         // still needs its 5-hour window opened (EarlyStartStore says why the decision rides the

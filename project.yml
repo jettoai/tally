@@ -53,6 +53,9 @@ targets:
     sources:
       - TallyCLI
       - path: Tally/Core/SessionMonitoring.swift
+      # The one file the Chrome-gap hook and the app share: the signal the app turns into a
+      # notification when the account set for Claude in Chrome is itself not connected.
+      - path: Tally/Core/ChromeSettingSignal.swift
       - path: Tally/Core/CodexSessionHooks.swift
       - path: Tally/Core/Harness
       # `tally add` has to tell a logged-in config home from a free slot, and a Claude Code login

@@ -95,6 +95,8 @@ final class LaunchPolicyStore {
         /// under the same only-ever-gains-keys rule, and omitted entirely while it holds nothing, so
         /// a machine that never marked an account writes the document it always wrote.
         var accounts: [String: AccountRoleSetting]?
+        /// The account id Claude in Chrome is signed in to (TallyCLI/ChromeReach.swift routes by it).
+        var chromeAccount: String?
     }
 
     private(set) var policies: [String: ProviderPolicy]
@@ -120,6 +122,7 @@ final class LaunchPolicyStore {
     /// the user browses claude.ai on, and the slice of its quota Tally's own choices must leave
     /// standing. Empty on a machine where nobody has marked one, which is most of them.
     private(set) var accountSettings: [String: AccountRoleSetting] { didSet { roleAnswers = [:] } }
+    private(set) var chromeAccount: String?
     /// Per home, the two role answers for the current `accountSettings`. Both are read from SwiftUI
     /// bodies on every render, and the normalization under them resolves symlinks on disk once per
     /// stored key (`artifactAccountHome`; Sentry TALLY-T, 2026-09-26), so each home pays that once
@@ -132,6 +135,7 @@ final class LaunchPolicyStore {
             policies = file.launch
             artifactAccount = file.artifactAccount
             accountSettings = file.accounts ?? [:]
+            chromeAccount = file.chromeAccount
         } else {
             policies = [:]
             accountSettings = [:]
@@ -217,6 +221,12 @@ final class LaunchPolicyStore {
     /// over it and the guard started refusing publishes the user had just switched off.
     func setArtifactAccount(_ home: String?) {
         artifactAccount = home?.trimmingCharacters(in: .whitespaces) ?? ""
+        persist()
+    }
+
+    /// Never seeded by an install and never inferred: the CLI routes Chrome work by this alone.
+    func setChromeAccount(_ accountID: String?) {
+        chromeAccount = accountID.flatMap { $0.isEmpty ? nil : $0 }
         persist()
     }
 
@@ -324,6 +334,7 @@ final class LaunchPolicyStore {
         // account this machine browses on, hold quota back on nothing, and hand the role plus a
         // number nobody chose to the next `~/.claudeN` created in that slot.
         accountSettings = AccountRoles.removingHome(accountSettings, home: home)
+        if chromeAccount == accountID { chromeAccount = nil }
         for (providerID, policy) in policies where policy.pinnedAccountID == accountID {
             var updated = policy
             updated.pinnedAccountID = nil
@@ -335,21 +346,6 @@ final class LaunchPolicyStore {
         // one, and a clearing that only reached the disk when something else also changed is a
         // clearing that survives in memory and nowhere else.
         persist()
-    }
-
-    /// The Artifact publishing account after a config home has been removed: nil when that home IS
-    /// the chosen one, and the choice untouched otherwise.
-    ///
-    /// Compared through `artifactAccountHome`, the same normalization the CLI compares with, so a
-    /// choice stored with a trailing slash or through a symlink is still recognised as the home
-    /// being removed. Text rather than a filesystem identity read because by the time this is asked
-    /// the directory has already gone to the Trash (`artifactAccountHome` states it in full).
-    ///
-    /// Pure, so the rule is assertable without a state file to write into.
-    static func artifactAccountAfterRemoving(_ current: String?, home: String) -> String? {
-        guard let current, let removed = artifactAccountHome(home),
-              artifactAccountHome(current) == removed else { return current }
-        return nil
     }
 
     func isPinned(_ accountID: String, providerID: String) -> Bool {
@@ -371,7 +367,8 @@ final class LaunchPolicyStore {
         // previous build published.
         guard let data = try? encoder.encode(
             StateFile(launch: policies, artifactAccount: artifactAccount,
-                      accounts: accountSettings.isEmpty ? nil : accountSettings))
+                      accounts: accountSettings.isEmpty ? nil : accountSettings,
+                      chromeAccount: chromeAccount))
         else { return }
         try? FileManager.default.createDirectory(at: UsageSnapshot.directory,
                                                  withIntermediateDirectories: true)

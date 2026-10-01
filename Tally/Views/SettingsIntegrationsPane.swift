@@ -229,6 +229,7 @@ extension SettingsView {
             install: integrations.installArtifactHook,
             remove: integrations.removeArtifactHook)
         SettingsArtifactAccountRow(store: store, settings: settings)
+        SettingsChromeAccountRow(store: store, settings: settings)
         rowDivider
         integrationRow(
             title: L("Claude Code skill"),

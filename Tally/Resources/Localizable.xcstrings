@@ -16227,6 +16227,122 @@
           }
         }
       }
+    },
+    "Claude in Chrome account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome のアカウント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 계정"
+          }
+        }
+      }
+    },
+    "The account the Claude in Chrome extension is signed in to. A session on another account that cannot reach Chrome is told which session to hand the browser step to, or how to move there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 擴充功能登入的帳號。其他帳號上的工作階段連不到 Chrome 時，會被告知該把瀏覽器步驟交給哪個工作階段，或如何切換過去。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 扩展程序登录的账号。其他账号上的会话连不到 Chrome 时，会被告知该把浏览器步骤交给哪个会话，或如何切换过去。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 拡張機能がサインインしているアカウントです。別のアカウントのセッションが Chrome に接続できない場合、ブラウザの手順をどのセッションに渡すか、またはどう移動するかが案内されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 확장 프로그램에 로그인된 계정입니다. 다른 계정의 세션이 Chrome에 연결하지 못하면 브라우저 단계를 어느 세션에 넘길지, 또는 어떻게 옮길지 안내합니다."
+          }
+        }
+      }
+    },
+    "Claude in Chrome account may be wrong": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 帳號設定可能有誤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 账号设置可能有误"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome のアカウント設定が誤っている可能性があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 계정 설정이 잘못되었을 수 있습니다"
+          }
+        }
+      }
+    },
+    "A session on %@, the account set for Claude in Chrome, could not reach the extension. Check which account the extension is signed in to and update Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定為 Claude in Chrome 帳號的 %@ 上，有工作階段連不到擴充功能。請確認擴充功能登入的是哪個帳號，並更新設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为 Claude in Chrome 账号的 %@ 上，有会话连不到扩展程序。请确认扩展程序登录的是哪个账号，并更新设置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 用に設定した %@ のセッションが拡張機能に接続できませんでした。拡張機能がどのアカウントにサインインしているか確認し、設定を更新してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in Chrome 계정으로 설정한 %@의 세션이 확장 프로그램에 연결하지 못했습니다. 확장 프로그램에 로그인된 계정을 확인하고 설정을 업데이트하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

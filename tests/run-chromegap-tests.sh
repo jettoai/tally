@@ -11,9 +11,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/chromegap/main.swift \
+swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift \
   Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift \
+  Tally/Core/ChromeSettingSignal.swift \
   Tally/Core/LaunchAxisNames.swift \
   Tally/Core/LimitReset.swift \
   Tally/Core/PickContract.swift \

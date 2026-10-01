@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/logincheck/main.swift \
-  Tally/Core/LoginStatusCommand.swift Tally/Core/RenewLoginCommand.swift Tally/Core/CLIRunner.swift \
+  Tally/Core/LoginStatusCommand.swift Tally/Core/RenewLoginCommand.swift Tally/Core/CLIRunner.swift Tally/Core/ClaudeStableExecutable.swift \
   Tally/Core/LoginProbeGate.swift \
   Tally/Core/KnownAccounts.swift Tally/Providers/ProviderModels.swift \
   Tally/Core/AccountRowCarry.swift

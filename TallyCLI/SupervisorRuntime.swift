@@ -35,9 +35,15 @@ enum TickOutcome {
 /// spawn can forget, and per spawn rather than once per process because a session outlives PATH
 /// changes and the walk costs a handful of `stat`s once per child launch. `argv[0]` keeps the name
 /// the caller passed, which is what a shell leaves there and what `ps` shows.
+///
+/// The program is then mapped to Claude Code's app bundle when that is provably the current
+/// version (ClaudeStableExecutable.swift), so a supervised session keeps one macOS identity across
+/// Claude Code updates. `argv[0]` still keeps the caller's name.
 func spawnChild(_ argv: [String], environment: [String: String],
-                shimDirectory: URL = tallyShimDirectory) -> pid_t? {
-    let program = resolveProviderExecutable(argv[0], shimDirectory: shimDirectory)
+                shimDirectory: URL = tallyShimDirectory,
+                claudeInstall: ClaudeNativeInstall = .current) -> pid_t? {
+    let program = claudeStableExecutable(resolveProviderExecutable(argv[0], shimDirectory: shimDirectory),
+                                         install: claudeInstall)
     var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cArgs.append(nil)
     var cEnv: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }

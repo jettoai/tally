@@ -61,12 +61,14 @@ enum CLIRunner {
         environment: [String: String?] = [:],
         currentDirectory: URL? = nil,
         input: String? = nil,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
+        claudeInstall: ClaudeNativeInstall = .current
     ) async -> Output? {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: executable)
+                // Off the main actor: the mapping may re-link the bundle (ClaudeStableExecutable.swift).
+                process.executableURL = URL(fileURLWithPath: claudeStableExecutable(executable, install: claudeInstall))
                 process.arguments = arguments
                 var env = ProcessInfo.processInfo.environment
                 for (key, value) in environment {

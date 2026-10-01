@@ -129,6 +129,10 @@ targets:
       # both things this repo has already got wrong once. One copy, compiled by both targets, rather
       # than a command line spelled a second time inside a hook.
       - path: Tally/Core/RenewLoginCommand.swift
+      # Which program a claude launch actually execs: the installer's app bundle when it is proven
+      # to be the current version, so macOS permissions survive updates (B-565). The app spawns
+      # through the same rule (CLIRunner, RenewLoginRunner, EffortLevels).
+      - path: Tally/Core/ClaudeStableExecutable.swift
       # The Artifact publishing guard's shared vocabulary: the tool the app registers a PreToolUse
       # matcher for, the command it registers, and the environment variable that waives the whole
       # thing. Both targets compile the one copy for the reason above - the app writes these words

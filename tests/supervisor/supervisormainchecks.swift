@@ -430,6 +430,7 @@ func runSupervisorMainChecks() {
     runSessionInventoryChecks()
     runResumePromptChecks()
     runShimChecks()
+    runStableClaudeChecks()
     runFollowChecks()
     runSwitchChecks()
     runSwitchRequestChecks()

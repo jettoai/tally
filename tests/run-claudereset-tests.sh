@@ -5,6 +5,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/claudereset/main.swift \
-  Tally/Providers/Claude/ClaudeUsageCLI.swift Tally/Core/CLIRunner.swift \
+  Tally/Providers/Claude/ClaudeUsageCLI.swift Tally/Core/CLIRunner.swift Tally/Core/ClaudeStableExecutable.swift \
   Tally/Providers/ProviderModels.swift
 "$out"

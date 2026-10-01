@@ -24,7 +24,7 @@ swiftc -o "$out" tests/smartpick/main.swift tests/smartpick/launchchecks.swift \
   tests/smartpick/conversationchecks.swift tests/smartpick/reservechecks.swift \
   tests/smartpick/codexstartchecks.swift tests/smartpick/comfortchecks.swift \
   TallyCLI/CodexStartMode.swift \
-  TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
+  TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift \
   TallyCLI/OpenTurn.swift TallyCLI/TranscriptSignals.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \

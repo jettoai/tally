@@ -83,7 +83,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/dispatchlayoutchecks.swift tests/supervisor/unmanagedlaunchchecks.swift \
   tests/supervisor/keyboardchecks.swift tests/supervisor/keyboardfocuschecks.swift tests/supervisor/openturnchecks.swift \
   tests/supervisor/terminaldrainchecks.swift \
-  tests/supervisor/shimchecks.swift tests/supervisor/selfupdatefoldchecks.swift \
+  tests/supervisor/shimchecks.swift tests/supervisor/stableclaudechecks.swift tests/supervisor/selfupdatefoldchecks.swift \
   tests/supervisor/apprelaunchchecks.swift \
   tests/supervisor/rebalancechecks.swift tests/supervisor/rebalanceclaimchecks.swift \
   tests/supervisor/reservechecks.swift \
@@ -141,7 +141,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/backstopchecks.swift \
   tests/supervisor/codexmonitoringchecks.swift tests/supervisor/codexinputchecks.swift tests/supervisor/codexresumechecks.swift \
   Tally/Core/CodexSessionHooks.swift TallyCLI/CodexStartMode.swift TallyCLI/CodexInputRelay.swift TallyCLI/CodexSessionInput.swift TallyCLI/CodexSupervisor.swift TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift TallyCLI/CodexSessionHook.swift \
-  TallyCLI/Supervisor.swift TallyCLI/TaskListPin.swift TallyCLI/SupervisorTermination.swift TallyCLI/SupervisorRuntime.swift TallyCLI/CapRecovery.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
+  TallyCLI/Supervisor.swift TallyCLI/TaskListPin.swift TallyCLI/SupervisorTermination.swift TallyCLI/SupervisorRuntime.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CapRecovery.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/TranscriptLineBytes.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   Tally/Core/ArtifactHookContract.swift TallyCLI/Reload.swift \

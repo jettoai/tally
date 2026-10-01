@@ -59,7 +59,7 @@ enum RenewLoginRunner {
                                 handshakeIdleLimit: TimeInterval,
                                 overallLimit: TimeInterval) -> Outcome {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
+        process.executableURL = URL(fileURLWithPath: claudeStableExecutable(executable))
         process.arguments = plan.arguments
         var env = ProcessInfo.processInfo.environment
         for (key, value) in environment {

@@ -24,5 +24,5 @@ swiftc -o "$out" tests/earlystart/main.swift tests/earlystart/quiethourschecks.s
     Tally/Core/EarlyStartState.swift Tally/Core/EarlyStartQuietHours.swift \
     Tally/Core/EarlyStartCommand.swift Tally/Core/RenewLoginCommand.swift \
     Tally/Providers/ProviderModels.swift Tally/Stores/EarlyStartStore.swift \
-    Tally/Core/BuildVariant.swift Tally/Core/CLIRunner.swift Tally/Core/ProviderCLI.swift
+    Tally/Core/BuildVariant.swift Tally/Core/CLIRunner.swift Tally/Core/ClaudeStableExecutable.swift Tally/Core/ProviderCLI.swift
 "$out"

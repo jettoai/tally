@@ -149,8 +149,7 @@ struct AccountFacts {
     func resetExpiryNote(now: Date = Date()) -> String? {
         var parts: [String] = []
         if let expiry = usage.resetCreditsNextExpiry {
-            let left = expiry.timeIntervalSince(now)
-            parts.append(String(format: L("expires in %@"), UsageFormat.durationBody(max(60, left))))
+            parts.append(String(format: L("expires in %@"), UsageFormat.countdownBody(expiry, now: now)))
         }
         if usage.resetCreditsExpiryUnknown { parts.append(L("expiry unknown")) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

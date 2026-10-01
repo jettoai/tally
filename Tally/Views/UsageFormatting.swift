@@ -87,17 +87,18 @@ enum UsageFormat {
         return countdown + " · " + absoluteBody(date)
     }
 
-    /// The parenthesised clock a notification or dialog puts after a countdown, in the app's
-    /// language: time alone when the instant is today, date and time otherwise. A banner is read
-    /// hours later, so the countdown ages while this stays true.
-    static func noticeClock(_ date: Date, now: Date = Date()) -> String {
-        Calendar.current.isDate(date, inSameDayAs: now)
-            ? AppLocale.shortTime(date) : AppLocale.shortDateTime(date)
+    /// Bare "2h 13m" until an instant, floored at a minute, so a passed or imminent one reads "1m".
+    static func countdownBody(_ date: Date, now: Date = Date()) -> String {
+        durationBody(max(60, date.timeIntervalSince(now)))
     }
 
-    /// "2h 13m (8:00 AM)": the countdown a notification or dialog leads with, then its clock.
+    /// "2h 13m (8:00 AM)": the countdown a notification or dialog leads with, then its clock in the
+    /// app's language: time alone when the instant is today, date and time otherwise. A banner is
+    /// read hours later, so the countdown ages while the clock stays true.
     static func noticeCountdown(_ date: Date, now: Date = Date()) -> (countdown: String, clock: String) {
-        (durationBody(max(60, date.timeIntervalSince(now))), noticeClock(date, now: now))
+        let clock = Calendar.current.isDate(date, inSameDayAs: now)
+            ? AppLocale.shortTime(date) : AppLocale.shortDateTime(date)
+        return (countdownBody(date, now: now), clock)
     }
 
     /// The widest strings the countdown can realistically show, for reserving layout width

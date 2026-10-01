@@ -160,7 +160,7 @@ extension LaunchPolicyStore {
             .min(by: { $0.rate < $1.rate }) else { return nil }
         var text = "\(binding.name) \(Int(binding.remaining.rounded()))%"
         if let resetsAt = binding.resetsAt {
-            let body = UsageFormat.durationBody(max(60, resetsAt.timeIntervalSince(now)))
+            let body = UsageFormat.countdownBody(resetsAt, now: now)
             text += " · " + String(localized: "resets in \(body)", bundle: AppLocale.bundle)
         }
         return text

@@ -12,13 +12,6 @@ struct HeaderWidths: Equatable {
     var counter: CGFloat = 0
 }
 
-/// Whether the row has room for the refresh countdown. It is a heartbeat, and everything else is
-/// either identity (wordmark, update badge) or the surface's only controls (the switch, the
-/// refresh), so it is the one part that gives. There is no current-time clock beside it any more:
-/// reset times read as countdowns, so a bare date-time here was the one reading on screen that
-/// answered "when" rather than "how long" (B-650), and macOS shows the time already.
-enum HeaderClock { case full, hidden }
-
 /// The popover's header strip, split out of PopoverRootView for file size: the wordmark and its
 /// badges, the Usage / Tokens switch, the refresh countdown, and the refresh button.
 extension PopoverRootView {
@@ -149,7 +142,7 @@ extension PopoverRootView {
                 // TimelineView re-evaluates every second so the countdown ticks live (a plain
                 // render would freeze it at whatever it said on open). A heartbeat, so it dims - and
                 // is dropped when the row is tight.
-                if clockDetail == .full {
+                if showsCountdown {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         counterSlot(store.isRefreshing
                             ? L("refreshing…")
@@ -305,26 +298,27 @@ extension PopoverRootView {
     /// How much of the row the countdown cluster is occupying right now, which is what the trimming
     /// below has already decided. Read by the centring above so it measures the row as drawn.
     private var clockZoneWidth: CGFloat {
-        switch clockDetail {
-        case .full: return Self.clockLead + headerWidths.counter
-        case .hidden: return 0
-        }
+        showsCountdown ? Self.clockLead + headerWidths.counter : 0
     }
 
-    /// What fits beside the switch. A 380pt single column, an update badge and a language whose two
-    /// tab words are long (Japanese) together want more than the row has, and the countdown is the
-    /// only part that may give: unmeasured parts read 0, which trims it, because a countdown one
-    /// frame late beats a header wrapped onto two lines.
-    private var clockDetail: HeaderClock {
+    /// Whether the refresh countdown fits beside the switch. It is a heartbeat, and everything else
+    /// is either identity (wordmark, update badge) or the surface's only controls (the switch, the
+    /// refresh), so it is the one part that gives. There is no current-time clock beside it any
+    /// more: reset times read as countdowns, so a bare date-time here was the one reading on screen
+    /// that answered "when" rather than "how long" (B-650), and macOS shows the time already.
+    /// A 380pt single column, an update badge and a language whose two tab words are long
+    /// (Japanese) together want more than the row has: unmeasured parts read 0, which trims it,
+    /// because a countdown one frame late beats a header wrapped onto two lines.
+    private var showsCountdown: Bool {
         let parts = headerWidths
         guard parts.brand > 0, parts.picker > 0, parts.refresh > 0,
-              parts.counter > 0 else { return .hidden }
+              parts.counter > 0 else { return false }
         // What the row owes before the countdown: both end clusters (each measured with its own outer
         // padding), the switch, the gaps between the children, and the slack the switch's own
         // leading spacer never gives up (new with the centred switch, and the countdown is measured
         // against the row it is actually in).
         let rigid = parts.brand + parts.picker + parts.refresh + 3 * Self.gap + Self.gap
-        return rigid + Self.clockLead + Self.gap + parts.counter <= popoverWidth ? .full : .hidden
+        return rigid + Self.clockLead + Self.gap + parts.counter <= popoverWidth
     }
 
     /// An unrendered, unlaid-out copy of the countdown slot: a background is sized by its

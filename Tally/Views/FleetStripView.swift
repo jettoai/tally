@@ -385,7 +385,7 @@ extension PopoverRootView {
     /// can never phrase one schedule two ways.
     func refillText(_ refill: FleetPool.Refill, now: Date, compact: Bool = false) -> String {
         let account = refill.accountLabel
-        let body = UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(now)))
+        let body = UsageFormat.countdownBody(refill.at, now: now)
         return compact
             ? String(localized: "refill in \(body)", bundle: AppLocale.bundle)
             : String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)

@@ -19,6 +19,12 @@ private struct StableFixture {
 
 private enum BundleShape { case sameInode, oldInode, emptyMacOS, noMacOS, symlinkToLatest, directory, noInfoPlist }
 
+/// A stand-in program that writes "$0" into the file named by its first argument.
+private func writeFakeProgram(_ path: String) {
+    try! "#!/bin/bash\nprintf '%s' \"$0\" > \"$1\"\n".write(toFile: path, atomically: true, encoding: .utf8)
+    try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+}
+
 private func makeStableFixture(_ shape: BundleShape) -> StableFixture {
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("tally-stable-\(UUID().uuidString)")
@@ -26,10 +32,7 @@ private func makeStableFixture(_ shape: BundleShape) -> StableFixture {
         launcher: root.appendingPathComponent("bin/claude"), root: root))
     try! fm.createDirectory(at: root.appendingPathComponent("versions"), withIntermediateDirectories: true)
     try! fm.createDirectory(at: root.appendingPathComponent("bin"), withIntermediateDirectories: true)
-    for version in [fixture.old, fixture.latest] {
-        try! "#!/bin/bash\nprintf '%s' \"$0\" > \"$1\"\n".write(toFile: version, atomically: true, encoding: .utf8)
-        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: version)
-    }
+    for version in [fixture.old, fixture.latest] { writeFakeProgram(version) }
     try! fm.createSymbolicLink(atPath: fixture.launcher, withDestinationPath: fixture.latest)
     let contents = fixture.install.bundleContents
     try! fm.createDirectory(at: contents, withIntermediateDirectories: true)
@@ -164,10 +167,7 @@ func runStableClaudeChecks() {
         try! fm.createDirectory(at: outside, withIntermediateDirectories: true)
         let wrapper = outside.appendingPathComponent("claude").path
         let codex = outside.appendingPathComponent("codex").path
-        for path in [wrapper, codex] {
-            try! "#!/bin/bash\nprintf '%s' \"$0\" > \"$1\"\n".write(toFile: path, atomically: true, encoding: .utf8)
-            try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
-        }
+        for path in [wrapper, codex] { writeFakeProgram(path) }
         check("stable: a claude outside the install and codex pass through untouched",
               claudeStableExecutable(wrapper, install: f.install) == wrapper
               && claudeStableExecutable(codex, install: f.install) == codex && sameFile(f.bundle, f.old))
@@ -198,8 +198,7 @@ func runStableClaudeChecks() {
         check("stable: spawnChild execs claude through the bundle",
               spawnedPath(["claude"], path: bin, install: f.install, in: f.root) == f.bundle)
         let codex = f.root.appendingPathComponent("bin/codex").path
-        try! "#!/bin/bash\nprintf '%s' \"$0\" > \"$1\"\n".write(toFile: codex, atomically: true, encoding: .utf8)
-        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codex)
+        writeFakeProgram(codex)
         check("stable: spawnChild runs codex from its own path",
               spawnedPath([codex], path: bin, install: f.install, in: f.root) == codex)
     }
@@ -209,8 +208,7 @@ func runStableClaudeChecks() {
         check("stable: CLIRunner.run execs claude through the bundle",
               runnerPath(f.launcher, install: f.install, in: f.root) == f.bundle)
         let codex = f.root.appendingPathComponent("bin/codex").path
-        try! "#!/bin/bash\nprintf '%s' \"$0\" > \"$1\"\n".write(toFile: codex, atomically: true, encoding: .utf8)
-        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codex)
+        writeFakeProgram(codex)
         check("stable: CLIRunner.run runs codex from its own path",
               runnerPath(codex, install: f.install, in: f.root) == codex)
     }

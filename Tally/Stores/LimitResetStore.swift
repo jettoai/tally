@@ -67,26 +67,33 @@ final class LimitResetStore {
     /// filesystem-safe derivative of an id (`limitResetFile`) and cannot be turned back into one.
     /// A fleet is a handful of accounts, so this is a handful of small reads on the refresh cycle.
     func refresh() {
-        settings = readLimitResetSettings()
-        guard !DemoUsage.isActive else { return }
-        var found: [String: LimitResetRecord] = [:]
-        for account in UsageStore.shared.accounts {
-            if let record = readLimitReset(accountID: account.id) { found[account.id] = record }
-        }
-        records = found
-        // OFF THE MAIN THREAD: each `.claude.json` is 100-250 KB, and reading and parsing them all
-        // here froze the menu bar on a loaded machine (Sentry TALLY-1T). The newest request wins,
-        // so a slow read that lands after a newer one is dropped rather than overwriting it.
-        let homes = UsageStore.shared.discoveredAccounts.compactMap { account in
+        // OFF THE MAIN THREAD, all of it: each `.claude.json` is 100-250 KB and froze the menu bar
+        // on a loaded machine (Sentry TALLY-1T), and even the small record and settings reads did
+        // the same once the disk was busy enough (Sentry TALLY-40). The newest request wins, so a
+        // slow read that lands after a newer one is dropped rather than overwriting it.
+        let demo = DemoUsage.isActive
+        let ids = demo ? [] : UsageStore.shared.accounts.map(\.id)
+        let homes: [(String, String)] = demo ? [] : UsageStore.shared.discoveredAccounts.compactMap {
+            account in
             account.providerID == "claude" ? account.launchHome.map { (account.id, $0) } : nil
         }
         flagsGeneration += 1
         let generation = flagsGeneration
         Task { [weak self] in
-            let flags = await Task.detached { Self.readFlags(homes: homes) }.value
+            let read = await Task.detached {
+                var found: [String: LimitResetRecord] = [:]
+                for id in ids {
+                    if let record = readLimitReset(accountID: id) { found[id] = record }
+                }
+                return (settings: readLimitResetSettings(), records: found,
+                        flags: Self.readFlags(homes: homes))
+            }.value
             guard let self, self.flagsGeneration == generation else { return }
-            if self.flagsOff != flags.off { self.flagsOff = flags.off }
-            if self.pathOpen != flags.pathOpen { self.pathOpen = flags.pathOpen }
+            if self.settings != read.settings { self.settings = read.settings }
+            guard !demo else { return }
+            if self.records != read.records { self.records = read.records }
+            if self.flagsOff != read.flags.off { self.flagsOff = read.flags.off }
+            if self.pathOpen != read.flags.pathOpen { self.pathOpen = read.flags.pathOpen }
         }
     }
 
@@ -178,6 +185,8 @@ final class LimitResetStore {
         next.autoReset = on
         writeLimitResetSettings(next)
         settings = next
+        // A refresh already in flight read the old file; this one supersedes it (newest wins).
+        refresh()
     }
 
     // MARK: Spending
@@ -248,7 +257,8 @@ final class LimitResetStore {
         let deadline = Date().addingTimeInterval(limitResetAnswerWait)
         while Date() < deadline {
             try? await Task.sleep(for: .seconds(limitResetPollInterval))
-            guard let record = readLimitReset(accountID: accountID),
+            guard let record = await Task.detached(operation: { readLimitReset(accountID: accountID) })
+                    .value,
                   record.observedAt > newerThan else { continue }
             records[accountID] = record
             // WHICH SENTENCE THE SUPERVISOR SAW, not which state it folded to. The success line and

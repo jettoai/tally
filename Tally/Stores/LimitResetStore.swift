@@ -257,9 +257,8 @@ final class LimitResetStore {
         let deadline = Date().addingTimeInterval(limitResetAnswerWait)
         while Date() < deadline {
             try? await Task.sleep(for: .seconds(limitResetPollInterval))
-            guard let record = await Task.detached(operation: { readLimitReset(accountID: accountID) })
-                    .value,
-                  record.observedAt > newerThan else { continue }
+            let record = await Task.detached { readLimitReset(accountID: accountID) }.value
+            guard let record, record.observedAt > newerThan else { continue }
             records[accountID] = record
             // WHICH SENTENCE THE SUPERVISOR SAW, not which state it folded to. The success line and
             // the "already used" one BOTH fold to `used` and BOTH carry a date ("Session limit

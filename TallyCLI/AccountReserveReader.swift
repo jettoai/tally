@@ -7,9 +7,8 @@ import Foundation
 // read, and one lookup shaped for the thing the picks actually hold - a `Snapshot.Account` rather
 // than a config-home string. Everything that decides anything (which key names this home, that only
 // the marked account carries a reserve, what the bounds are, which of two marked homes wins) is
-// asked of `AccountRoles` and never re-spelled here. The Artifact guard's contract next door is the
-// same arrangement for the same reason: these are two processes speaking through a document the user
-// owns, so a second spelling fails silently in both directions - quota held back on an account whose
+// asked of `AccountRoles` and never re-spelled here. These are two processes speaking through a
+// document the user owns, so a second spelling fails silently in both directions - quota held back on an account whose
 // Settings row shows none, or a water line the launcher walks straight through.
 //
 // WHAT THE RESERVE IS FOR, in one paragraph, because this is the file every pick imports. Tally
@@ -72,15 +71,11 @@ struct AccountReserves: Equatable {
     func reserve(for account: Snapshot.Account) -> Double {
         Double(AccountRoles.reserve(settings, home: account.launchHome))
     }
-
-    /// The config home of the account marked personal, or nil while nobody holds the role - read by
-    /// the Artifact guard, which asks the same marking a different question (HookArtifact.swift).
-    var personalHome: String? { AccountRoles.personalHome(settings) }
 }
 
 /// The `accounts` block of `~/.tally/state.json`, written by the app's `LaunchPolicyStore`.
 ///
-/// A READER OF ITS OWN, on the same terms as `artifactAccountSetting`: this is a top-level block
+/// A READER OF ITS OWN: this is a top-level block
 /// rather than one of a provider's launch policies, and a decoder that knows only the key it needs
 /// cannot be broken by a `launch` block from a version this binary predates. Every way of not having
 /// an answer - no file, bytes that will not parse, the key absent - is the same answer, an empty

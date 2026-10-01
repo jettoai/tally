@@ -152,6 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // right for the first press and invisible for every one after it, so the new row follows the
         // presses already made and says so once (IntegrationsAutoFollow.swift).
         IntegrationsStore.shared.followNewIntegrations()
+        // And the one integration this version took away: the Artifact publishing guard's hook is
+        // removed from every settings.json older versions put it in (IntegrationsArtifactHook.swift).
+        // After the follow pass, so this launch still reads the old record as the authorization it was.
+        IntegrationsStore.shared.retireArtifactHook()
         // Volatile launch flag (argument domain): post one sample low-tier notification so the
         // permission prompt and the alert's look can be verified without waiting for a real
         // tripwire. No state is persisted, so a normal launch is unaffected.

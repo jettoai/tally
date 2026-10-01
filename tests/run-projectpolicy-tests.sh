@@ -24,7 +24,7 @@ swiftc -o "$out" tests/projectpolicy/main.swift tests/projectpolicy/shellsafetyc
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
-  Tally/Core/ArtifactHookContract.swift TallyCLI/AccountComfort.swift \
+  TallyCLI/AccountComfort.swift \
   TallyCLI/ResumePrompt.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift TallyCLI/UsageAdvisor.swift \
   TallyCLI/UsageAdvisorMath.swift \

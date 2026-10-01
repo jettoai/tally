@@ -8,9 +8,6 @@ Tally/Stores/EarlyStartStore.swift	EarlyStartStore.send	createDirectory	1
 Tally/Stores/IntegrationsAgentHook.swift	IntegrationsStore.agentHookEntries	readData	1
 Tally/Stores/IntegrationsAgentHook.swift	IntegrationsStore.settingsMayCarryAgentHooks	fileExists	1
 Tally/Stores/IntegrationsAgentHook.swift	IntegrationsStore.settingsMayCarryAgentHooks	readData	1
-Tally/Stores/IntegrationsArtifactHook.swift	IntegrationsStore.artifactHookEntries	readData	1
-Tally/Stores/IntegrationsArtifactHook.swift	IntegrationsStore.settingsMayCarryArtifactHook	fileExists	1
-Tally/Stores/IntegrationsArtifactHook.swift	IntegrationsStore.settingsMayCarryArtifactHook	readData	1
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.detectCLITool	fileExists	1
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.detectCLIToolPresence	fileExists	1
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.installCLITool	fileExists	1

@@ -1,298 +1,146 @@
 import Foundation
 
-// The hook that holds an Artifact publish going out under the wrong account
-// (IntegrationsArtifactHook.swift): the entry Tally adds to a user's settings.json so Claude Code can
-// ask this app, before the page exists, whether the link it is about to make will open for the
-// person who asked for it.
+// The Artifact publishing guard, RETIRED (Tally/Stores/IntegrationsArtifactHook.swift): what is left
+// is taking the `PreToolUse` registration older versions wrote back out of every settings.json.
 //
-// Everything asserted here is about the SURGERY rather than the feature: settings.json is the user's
-// own file, holding their whole harness, so what has to hold is that nothing but our own entry is
-// ever touched, on install, on re-install, and on the way back out. What the guard then DECIDES is
-// asserted in its own suite (tests/artifacthook), which compiles the CLI half.
-//
-// AND ONE THING NO OTHER ROW HERE HAS: a matcher. `PreToolUse` fires on every tool call a session
-// makes, so the matcher is what keeps a hook with an opinion about one tool from being run on all of
-// them, and it is spelled from the same constant the CLI checks the payload against.
+// Everything asserted here is about the SURGERY: settings.json is the user's own file, holding their
+// whole harness, so only our own line may go, a file without it is never written, and a file nobody
+// can parse is left alone and remembered for the next launch.
 @MainActor
-func runArtifactHookChecks(tmp: URL) throws {
-    let settings = tmp.appendingPathComponent("artifact-settings.json")
-    let event = artifactHookEvent
+func runArtifactHookRetirementChecks(tmp: URL) throws {
+    let dir = tmp.appendingPathComponent("artifact-retirement")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let event = "PreToolUse"
+    let ours: [String: Any] = ["type": "command", "command": "/usr/local/bin/tally hook-artifact"]
+    let ourEntry: [String: Any] = ["matcher": "Artifact", "hooks": [ours]]
+    let theirs: [String: Any] = ["type": "command", "command": "/opt/bin/watch-artifacts"]
+    let lookalike: [String: Any] = ["type": "command", "command": "/opt/bin/my-hook-artifact"]
+    let knockEntry: [String: Any] = ["hooks": [["type": "command",
+                                                "command": "/usr/local/bin/tally hook-knock PreToolUse"]]]
 
-    func document() -> [String: Any] {
-        (try? JSONSerialization.jsonObject(with: Data(contentsOf: settings))) as? [String: Any] ?? [:]
+    func document(_ file: URL) -> [String: Any] {
+        (try? JSONSerialization.jsonObject(with: Data(contentsOf: file))) as? [String: Any] ?? [:]
     }
-    func entries(_ event: String = artifactHookEvent) -> [[String: Any]] {
-        ((document()["hooks"] as? [String: Any])?[event] as? [[String: Any]]) ?? []
+    func entries(_ file: URL, _ name: String = event) -> [[String: Any]] {
+        ((document(file)["hooks"] as? [String: Any])?[name] as? [[String: Any]]) ?? []
     }
-    func commands(_ event: String = artifactHookEvent) -> [String] {
-        entries(event).flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+    func commands(_ file: URL, _ name: String = event) -> [String] {
+        entries(file, name).flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
             .compactMap { $0["command"] as? String }
     }
-    func write(_ object: [String: Any]) throws {
-        try JSONSerialization.data(withJSONObject: object).write(to: settings)
+    func write(_ object: [String: Any], to file: URL) throws {
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+    }
+    func mtime(_ file: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
     }
 
-    // THE SPELLINGS ARE THE CLI's, read out of the one contract both targets compile: this pane
-    // writes the command and the matcher, and the CLI answers to the subcommand and checks the tool
-    // name again out of the payload.
-    check("the row registers the subcommand the CLI answers to",
-          artifactHookCommand == "/usr/local/bin/tally hook-artifact"
-              && artifactHookCommand.hasSuffix(artifactHookMarker))
-    // The same public path the deliverability test asks about, which is what makes the auto-follow
-    // gate below true of THIS command rather than only of the quota knock's.
-    check("…through the public path that test asks whether anything can run at",
-          artifactHookCommand.hasPrefix(quotaKnockHookCLIPath + " "))
-    check("…on the event a permission decision may be given on", event == "PreToolUse")
+    // MARK: T1 - only our line goes
 
-    // MARK: one install, one entry, one matcher
-
-    try IntegrationsStore.upsertArtifactHook(in: settings)
-    check("one install registers exactly one hook",
-          commands() == [artifactHookCommand])
-    check("…under the Artifact matcher, so it does not run on every tool call in the session",
-          entries().allSatisfy { $0["matcher"] as? String == artifactHookToolName })
-    check("…named as the CLI names the tool it judges", artifactHookToolName == "Artifact")
-    check("detection sees it", IntegrationsStore.settingsCarryArtifactHook(settings)
-              && IntegrationsStore.settingsCarryCurrentArtifactHook(settings))
-    check("re-installing changes nothing",
-          try IntegrationsStore.editSettings(settings) {
-              IntegrationsStore.settingsRegisteringArtifactHook(
-                  $0, command: artifactHookCommand)
-          } == false)
-
-    // MARK: what a registration pointing somewhere else is
-
-    // An install from an older bundle, or from a build whose matcher spelling has moved: it IS
-    // installed (so the row still offers Remove, and a dev build does not report the release app's
-    // install as broken) and it is NOT current, which is what the launch sync repairs.
-    try write(["hooks": [event: [["matcher": "Artifact",
-                                 "hooks": [["type": "command",
-                                            "command": "/opt/homebrew/bin/tally hook-artifact"]]]]]])
-    check("an entry naming another path is installed but not current",
-          IntegrationsStore.settingsCarryArtifactHook(settings)
-              && !IntegrationsStore.settingsCarryCurrentArtifactHook(settings))
-    try IntegrationsStore.upsertArtifactHook(in: settings)
-    check("…and is upgraded IN PLACE rather than doubled",
-          commands() == [artifactHookCommand] && entries().count == 1)
-    // The same, one field over: ours, on the right command, under a matcher that no longer names the
-    // tool. A hook Claude Code runs on everything, or on nothing, depending which way it drifted.
-    try write(["hooks": [event: [["matcher": "Write",
-                                 "hooks": [["type": "command",
-                                            "command": artifactHookCommand]]]]]])
-    check("an entry of ours under the wrong matcher is not current either",
-          IntegrationsStore.settingsCarryArtifactHook(settings)
-              && !IntegrationsStore.settingsCarryCurrentArtifactHook(settings))
-    try IntegrationsStore.upsertArtifactHook(in: settings)
-    check("…and the install corrects the matcher",
-          entries().count == 1 && entries().first?["matcher"] as? String == artifactHookToolName)
-
-    // MARK: the user's own file
-
-    // Their hooks on the same event, one under a matcher of their own and one under ours. Both have
-    // to survive, and ours may not end up under either of their filters.
-    let theirs: [String: Any] = ["type": "command", "command": "/opt/bin/lint-my-writes"]
-    let sharing: [String: Any] = ["type": "command", "command": "/opt/bin/watch-artifacts"]
-    try write(["hooks": [event: [["matcher": "Write", "hooks": [theirs]],
-                                 ["matcher": artifactHookToolName,
-                                  "hooks": [sharing,
-                                            ["type": "command", "command": artifactHookCommand]]]],
-                         "PostToolUse": [["hooks": [["type": "command",
-                                                     "command": "/usr/local/bin/tally hook-knock PostToolUse"]]]]],
-               "statusLine": ["type": "command", "command": "/opt/bin/my-status-line"]])
-    try IntegrationsStore.upsertArtifactHook(in: settings)
-    check("a hook the user registered under their own matcher is untouched",
-          entries().contains { $0["matcher"] as? String == "Write"
-              && ($0["hooks"] as? [[String: Any]])?.count == 1 })
-    check("…and one sharing our matcher keeps its matcher and loses only our line",
-          entries().contains { entry in
-              entry["matcher"] as? String == artifactHookToolName
-                  && (entry["hooks"] as? [[String: Any]] ?? []).count == 1
-                  && (entry["hooks"] as? [[String: Any]] ?? [])
-                      .allSatisfy { $0["command"] as? String == "/opt/bin/watch-artifacts" }
-          })
-    check("…while ours stands in an entry of its own",
-          entries().contains { NSDictionary(dictionary: $0).isEqual(
-              to: IntegrationsStore.artifactHookEntry(
-                  command: artifactHookCommand)) })
-    check("another event's hooks are not this row's business",
-          commands("PostToolUse") == ["/usr/local/bin/tally hook-knock PostToolUse"])
-    check("…and neither is anything else in the document",
-          (document()["statusLine"] as? [String: Any])?["command"] as? String
+    let alone = dir.appendingPathComponent("alone.json")
+    let shared = dir.appendingPathComponent("shared.json")
+    let knockOnly = dir.appendingPathComponent("knock-only.json")
+    try write(["hooks": [event: [ourEntry],
+                         "PostToolUse": [["hooks": [["type": "command", "command": "/opt/bin/x"]]]]],
+               "statusLine": ["type": "command", "command": "/opt/bin/my-status-line"]], to: alone)
+    try write(["hooks": [event: [["matcher": "Artifact", "hooks": [theirs, ours, lookalike]],
+                                 knockEntry]]], to: shared)
+    try write(["hooks": [event: [knockEntry]]], to: knockOnly)
+    let knockBytes = try Data(contentsOf: knockOnly)
+    var pass = IntegrationsStore.removeArtifactHook(from: [alone, shared, knockOnly])
+    check("retirement: a pass over readable files finishes", pass.remembered == nil && pass.failure == nil)
+    check("retirement: an entry that was ours alone goes, with its emptied event",
+          entries(alone).isEmpty && commands(alone, "PostToolUse") == ["/opt/bin/x"])
+    check("…and nothing else in the document moves",
+          (document(alone)["statusLine"] as? [String: Any])?["command"] as? String
               == "/opt/bin/my-status-line")
+    check("retirement: a shared entry loses only our line and keeps its matcher",
+          entries(shared).contains { $0["matcher"] as? String == "Artifact" }
+              && commands(shared) == ["/opt/bin/watch-artifacts", "/opt/bin/my-hook-artifact",
+                                      "/usr/local/bin/tally hook-knock PreToolUse"])
+    check("retirement: a knock PreToolUse entry beside it is untouched",
+          entries(shared).contains { NSDictionary(dictionary: $0).isEqual(to: knockEntry) })
 
-    // DUPLICATES COLLAPSE. Our own writes make at most one, but this file is rewritten by things
-    // that know nothing about Tally, and Claude Code runs every copy: two of ours means the same
-    // publish judged twice, or a second binary that has moved.
-    let ourEntry = IntegrationsStore.artifactHookEntry(
-        command: artifactHookCommand)
-    try write(["hooks": [event: [ourEntry, ourEntry, ["matcher": "Write", "hooks": [theirs]]]]])
-    try IntegrationsStore.upsertArtifactHook(in: settings)
-    check("two copies of ours become one",
-          commands().filter { $0 == artifactHookCommand }.count == 1)
-    check("…and the user's entry beside them is still there", commands().count == 2)
+    // MARK: T2 - a file with nothing of ours is not written
 
-    // A DOCUMENT WE CANNOT READ IS NOT EDITED. Conservative in both directions: an unexpected shape
-    // anywhere on the path to our entry means no write at all.
-    check("a hooks block of the wrong shape is left alone",
-          IntegrationsStore.settingsRegisteringArtifactHook(["hooks": "surprise"],
-                                                            command: artifactHookCommand) == nil)
-    check("…and so is an event list of the wrong shape",
-          IntegrationsStore.settingsRegisteringArtifactHook(["hooks": [event: "surprise"]],
-                                                            command: artifactHookCommand) == nil)
-    check("a fresh document gains exactly our entry",
-          (IntegrationsStore.settingsRegisteringArtifactHook([:], command: artifactHookCommand)
-              .flatMap { ($0["hooks"] as? [String: Any])?[event] as? [[String: Any]] })
-              .map { $0.count == 1 } == true)
-
-    // MARK: the way back out
-
-    try write(["hooks": [event: [ourEntry, ["matcher": "Write", "hooks": [theirs]]],
-                         "PostToolUse": [["hooks": [["type": "command", "command": "/opt/bin/x"]]]]]])
-    try IntegrationsStore.removeArtifactHook(in: settings)
-    check("removal takes ours and leaves theirs", commands() == ["/opt/bin/lint-my-writes"])
-    check("…and leaves the other event alone", commands("PostToolUse") == ["/opt/bin/x"])
-    check("…and a file with nothing of ours reads as nothing of ours",
-          !IntegrationsStore.settingsMayCarryArtifactHook(settings))
-    try write(["hooks": [event: [ourEntry]]])
-    try IntegrationsStore.removeArtifactHook(in: settings)
-    check("removing the last one takes every empty container with it", document()["hooks"] == nil)
-    check("removing nothing is not a write",
-          try IntegrationsStore.editSettings(settings) {
+    check("retirement: a file with nothing of ours keeps its bytes",
+          (try? Data(contentsOf: knockOnly)) == knockBytes)
+    let before = mtime(knockOnly)
+    check("…and is not written at all",
+          try IntegrationsStore.editSettings(knockOnly) {
               IntegrationsStore.settingsWithoutArtifactHook($0)
-          } == false)
+          } == false && mtime(knockOnly) == before)
 
-    // PRESENT AND UNREADABLE IS NOT ABSENT: the removal pass remembers the files it threw on, and a
-    // row that read those as "nothing here" would drop to not installed and take the only press that
-    // can ever clear them off it.
-    try Data("{ not json".utf8).write(to: settings)
-    check("a settings.json nobody can parse still has something to answer for",
-          IntegrationsStore.settingsMayCarryArtifactHook(settings))
-    try Data().write(to: settings)
-    check("…while an empty one has not", !IntegrationsStore.settingsMayCarryArtifactHook(settings))
+    // MARK: T3 - one physical file behind two homes
 
-    // MARK: the word the row shows
+    let real = dir.appendingPathComponent("real.json")
+    let link = dir.appendingPathComponent("link.json")
+    try write(["hooks": [event: [ourEntry]]], to: real)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+    let population = IntegrationsStore.notificationHookSettingsFiles(discovered: [link],
+                                                                    remembered: [real.path])
+    check("retirement: a symlinked home and its target are one file to the pass", population.count == 1)
+    pass = IntegrationsStore.removeArtifactHook(from: population)
+    check("…the target loses our entry", pass.remembered == nil && commands(real).isEmpty)
+    check("…and the link is still a link",
+          (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil)
 
-    let carrying = tmp.appendingPathComponent("artifact-carrying.json")
-    let empty = tmp.appendingPathComponent("artifact-empty.json")
-    try JSONSerialization.data(withJSONObject: ["hooks": [event: [ourEntry]]]).write(to: carrying)
-    try JSONSerialization.data(withJSONObject: [:] as [String: Any]).write(to: empty)
-    check("a home with the current registration reads installed",
-          IntegrationsStore.detectArtifactHook(discovered: [carrying], remembered: []) == .installed)
-    check("one account out of two is not an install",
-          IntegrationsStore.detectArtifactHook(discovered: [carrying, empty], remembered: [])
-              == .broken(L("Not installed for every account")))
-    check("no homes at all is nothing to report",
-          IntegrationsStore.detectArtifactHook(discovered: [], remembered: []) == .notInstalled)
-    check("…as is a home that carries none of it",
-          IntegrationsStore.detectArtifactHook(discovered: [empty], remembered: []) == .notInstalled)
-    let stale = tmp.appendingPathComponent("artifact-stale.json")
-    try JSONSerialization.data(withJSONObject: ["hooks": [event: [
-        ["matcher": "Artifact", "hooks": [["type": "command",
-                                           "command": "/opt/homebrew/bin/tally hook-artifact"]]],
-    ]]]).write(to: stale)
-    check("an older registration is present and wrong rather than absent",
-          IntegrationsStore.detectArtifactHook(discovered: [stale], remembered: [])
-              == .broken(L("Older version installed")))
-    // A remembered path counts only while it still has something of ours on it: that list is where a
-    // logged-out account's settings.json is reached from, and a cleared one must not hold the row
-    // open forever.
-    check("a remembered path with nothing of ours no longer counts",
-          IntegrationsStore.artifactHookPopulation(discovered: [], remembered: [empty.path]).isEmpty)
-    check("…while one still carrying it does",
-          IntegrationsStore.artifactHookPopulation(discovered: [],
-                                                   remembered: [carrying.path]) == [carrying])
+    // MARK: T4 - unreadable is left alone and remembered, without stopping the pass
 
-    // MARK: the setting the hook reads
+    let broken = dir.appendingPathComponent("broken.json")
+    let healthy = dir.appendingPathComponent("healthy.json")
+    let brokenBytes = Data("{ not json".utf8)
+    try brokenBytes.write(to: broken)
+    try write(["hooks": [event: [ourEntry]]], to: healthy)
+    pass = IntegrationsStore.removeArtifactHook(from: [broken, healthy])
+    check("retirement: a file nobody can parse is left exactly as it was",
+          (try? Data(contentsOf: broken)) == brokenBytes)
+    check("…and stays on the retry list", pass.remembered == [broken.path] && pass.failure != nil)
+    check("…while the file after it is still cleared", commands(healthy).isEmpty)
 
-    // A ROW THAT SAYS INSTALLED AND DOES NOTHING is what an install without this would be: the CLI
-    // abstains when no account is named, because it is a convenience rather than a gate.
-    check("a fresh install names the first account, which is the main one",
-          IntegrationsStore.artifactAccountSeed(current: nil,
-                                                homes: ["/Users/x/.claude", "/Users/x/.claude2"],
-                                                personal: nil)
-              == "/Users/x/.claude")
-    check("…and never overwrites an answer the user has already given",
-          IntegrationsStore.artifactAccountSeed(current: "/Users/x/.claude3",
-                                                homes: ["/Users/x/.claude"], personal: nil) == nil)
-    // THE EMPTY STRING IS ONE OF THOSE ANSWERS, which is the whole of this defect: the row's "Not
-    // chosen" is how somebody turns the checking off without removing the hook, it used to be stored
-    // as nil, and nil is also what a machine that was never asked looks like - so every reinstall,
-    // every self-heal pass and every auto-follow install chose an account again over the top of it
-    // (codex review of 7113edc, F1). Kept apart in the document now
-    // (`LaunchPolicyStore.setArtifactAccount`), and this is the reader that has to respect it.
-    check("…including the empty string, which is how 'Not chosen' is stored",
-          IntegrationsStore.artifactAccountSeed(current: "", homes: ["/Users/x/.claude"],
-                                                personal: nil) == nil)
-    // AND THE GUESS IS ONLY REACHED WHEN THERE IS NOTHING BETTER. "Personal (web)" in the Accounts
-    // pane answers this very question - which account this machine's browser is signed into - so an
-    // install that guessed past it would be guessing with the answer in its hand.
-    check("a marked personal account is what a fresh install names",
-          IntegrationsStore.artifactAccountSeed(current: nil,
-                                                homes: ["/Users/x/.claude", "/Users/x/.claude2"],
-                                                personal: "/Users/x/.claude2")
-              == "/Users/x/.claude2")
-    check("…and it still does not overwrite an answer the user gave",
-          IntegrationsStore.artifactAccountSeed(current: "", homes: ["/Users/x/.claude"],
-                                                personal: "/Users/x/.claude2") == nil)
-    check("…while a blank marking is no marking at all",
-          IntegrationsStore.artifactAccountSeed(current: nil, homes: ["/Users/x/.claude"],
-                                                personal: "  ") == "/Users/x/.claude")
-    check("…and a machine with no launchable account is left alone",
-          IntegrationsStore.artifactAccountSeed(current: nil, homes: [], personal: nil) == nil)
+    // MARK: T5 - a second pass is a no-op
 
-    // MARK: the account being removed out from under that setting
+    let files = [alone, shared, knockOnly]
+    let stamps = files.map(mtime)
+    pass = IntegrationsStore.removeArtifactHook(from: files)
+    check("retirement: a second pass finishes with nothing to remember", pass.remembered == nil)
+    check("…and writes none of the files", files.map(mtime) == stamps)
 
-    // THE ONE SETTING HERE KEYED BY A DIRECTORY, so the id-shaped forgetting next to it cannot reach
-    // it. Left standing, it points the guard at a config home in the Trash: every publish on the
-    // machine refused, the way out naming a folder that is gone, and a later `~/.claudeN` in the
-    // same slot inheriting a choice nobody made for it (codex review of 7113edc).
-    typealias Policy = LaunchPolicyStore
-    check("removing the chosen account clears the choice",
-          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "/Users/x/.claude3") == nil)
-    check("…recognised through the same normalization the CLI compares with",
-          Policy.artifactAccountAfterRemoving("/Users/x/.claude3/", home: "/Users/x/.claude3") == nil
-              && Policy.artifactAccountAfterRemoving("/Users/x/.claude3",
-                                                     home: "/Users/x/.claude3/") == nil)
-    check("removing any other account leaves it exactly as it was",
-          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "/Users/x/.claude2")
-              == "/Users/x/.claude3")
-    check("…and a home that is a prefix of it is another account",
-          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "/Users/x/.claude")
-              == "/Users/x/.claude3")
-    check("a machine that never chose one has nothing to clear",
-          Policy.artifactAccountAfterRemoving(nil, home: "/Users/x/.claude3") == nil)
-    check("…and a home that normalizes to nothing clears nothing",
-          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "   ")
-              == "/Users/x/.claude3")
+    // MARK: T6, T7, T12 - the wiring, read rather than run
 
-    // THE CALL SITE, read rather than run: RemoveAccountAction draws an alert and cannot be compiled
-    // into this suite, and the whole rule above is worth nothing if the home never arrives. The
-    // parameter is required rather than defaulted for the same reason, so a caller that forgets it
-    // fails to build rather than failing silently.
     let sourceRoot = URL(fileURLWithPath: #filePath)   // tests/integrations/artifacthookchecks.swift
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     func source(_ name: String) -> String {
         (try? String(contentsOf: sourceRoot.appendingPathComponent(name), encoding: .utf8)) ?? ""
     }
-    let removal = source("Tally/Views/RemoveAccountAction.swift")
-    check("the removal source is readable from here at all", removal.contains("static func present"))
-    check("…and it hands the launch policy the home as well as the id",
-          removal.contains("LaunchPolicyStore.shared.forget(accountID: accountID, home: home)"))
-    let policySource = source("Tally/Stores/LaunchPolicyStore.swift")
-    check("…which the forgetting puts through the rule above",
-          policySource.contains(
-            "artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)"))
-    // THE TWO STATES ARE ONLY WORTH KEEPING APART IF THE SETTER REALLY KEEPS THEM APART, and the
-    // picker really folds them back into one row for the person: an empty string matching no tag
-    // draws a blank picker, which is a third state nobody has.
-    check("the setter stores an answer of 'none' rather than collapsing it to never-asked",
-          policySource.contains(
-            "artifactAccount = home?.trimmingCharacters(in: .whitespaces) ?? \"\""))
-    let artifactRow = source("Tally/Views/SettingsArtifactAccountRow.swift")
-    check("…and the row shows both of them as its own 'Not chosen' entry",
-          artifactRow.contains("get: { launch.artifactAccount.flatMap { $0.isEmpty ? nil : $0 } }"))
-    // …and the install really asks the marking before it guesses.
-    let installSource = source("Tally/Stores/IntegrationsArtifactHook.swift")
-    check("the install hands the seed the marked account",
-          installSource.contains("personal: LaunchPolicyStore.shared.personalAccountHome"))
+    func body(_ text: String, from marker: String) -> String {
+        guard let start = text.range(of: marker) else { return "" }
+        let rest = text[start.lowerBound...]
+        let end = rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex
+        return String(rest[..<end])
+    }
+    let retire = body(source("Tally/Stores/IntegrationsArtifactHook.swift"),
+                      from: "func retireArtifactHook()")
+    check("retirement: the pass never runs on a build nobody installed, nor on fixtures",
+          retire.contains("BuildVariant.isUnshipped") && retire.contains("DemoUsage.isActive"))
+    let delegate = source("Tally/App/AppDelegate.swift")
+    if let follow = delegate.range(of: "IntegrationsStore.shared.followNewIntegrations()"),
+       let retireCall = delegate.range(of: "IntegrationsStore.shared.retireArtifactHook()") {
+        check("retirement: launch runs it after the follow pass",
+              follow.upperBound <= retireCall.lowerBound)
+    } else {
+        check("retirement: launch runs it after the follow pass", false)
+    }
+    let dispatch = source("TallyCLI/HookDispatch.swift")
+    check("retirement: the CLI still answers the old subcommand, silently and successfully",
+          dispatch.contains("""
+            case "hook-artifact":
+                    _ = FileHandle.standardInput.readDataToEndOfFile()
+                    return 0
+            """) && !dispatch.contains("runHookArtifact"))
+    let policy = source("Tally/Stores/LaunchPolicyStore.swift")
+    check("retirement: state.json keeps the old key and writes it back untouched",
+          policy.contains("var artifactAccount: String?")
+              && policy.contains("artifactAccount: retiredArtifactAccount")
+              && !policy.contains("func setArtifactAccount"))
 }

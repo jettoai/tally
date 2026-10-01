@@ -19,7 +19,7 @@ extension SettingsAccountsView {
             // Tally's own callout, like every other hover on this row since 2026-08-24: the badge
             // sits on the account's name line, and one native box among the row's own chips is the
             // seam the owner spotted on the sign-in chip.
-            .tallyTooltip(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you."))
+            .tallyTooltip(L("The account you are signed into on claude.ai. Tally can keep part of its quota free for you."))
     }
 
     /// "Keep at least 30% of the week, the 5h window and the flagship one for web use", and the

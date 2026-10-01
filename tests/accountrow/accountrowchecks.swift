@@ -447,8 +447,8 @@ func runAccountRowChecks() {
     check("…and a home that normalizes to nothing is the same instruction as nil",
           AccountRoles.settingPersonal(reserved, home: "   ").isEmpty)
 
-    // THE ACCOUNT BEING REMOVED OUT FROM UNDER THE MARKING. Keyed by a directory, exactly like the
-    // Artifact publishing account beside it, so the id-shaped forgetting cannot reach it: left standing,
+    // THE ACCOUNT BEING REMOVED OUT FROM UNDER THE MARKING. Keyed by a directory, so the id-shaped
+    // forgetting cannot reach it: left standing,
     // the entry marks a folder in the Trash as the account this machine browses on, and hands the role
     // plus a number nobody chose to the next `~/.claudeN` created in that slot.
     check("removing the marked account clears it",
@@ -477,8 +477,7 @@ func runAccountRowChecks() {
     check("a hand-edited document with two markings answers one of them, always the same one",
           (0 ..< 20).allSatisfy { _ in AccountRoles.personalHome(twoRoles) == homeA })
     // AND EVERY QUESTION OVER THE BLOCK ANSWERS WITH THAT ONE. Read entry by entry, the same document
-    // badged both rows Personal in Settings, held quota back on both accounts, and left the Artifact
-    // guard - which asks `personalHome` - naming exactly one of them: three surfaces disagreeing about
+    // badged both rows Personal in Settings, and held quota back on both accounts: surfaces disagreeing about
     // which account this machine is browsed on. There is one marked account by construction, so there
     // is one here.
     check("…and it is the one the marking question answers with",
@@ -489,7 +488,7 @@ func runAccountRowChecks() {
     check("…and only that one holds any quota back",
           AccountRoles.reserve(twoReserved, home: homeA) == 30
               && AccountRoles.reserve(twoReserved, home: homeB) == 0)
-    check("…the same one the Artifact guard reads, on every one of these documents",
+    check("…the same one `personalHome` answers, on every one of these documents",
           AccountRoles.personalHome(twoReserved) == homeA)
     // AND THE STEPPER WRITES WHERE THE READER LOOKS. A write landing on the entry the reader has already
     // decided is the leftover is a control that appears to do nothing: the number goes into the file and
@@ -707,21 +706,19 @@ func runAccountRowChecks() {
     check("…so neither draws it from the account's number on every window it reports",
           !cardMeter.contains("ReserveMark(reserve: reserve)")
               && !listMeter.contains("ReserveMark(reserve: facts.reservePercent)"))
-    // The removal reaches this block as well as the Artifact setting beside it - the one other thing in
-    // that file keyed by a directory rather than by an account id.
+    // The removal reaches this block, the one thing in that file keyed by a directory rather than by an
+    // account id.
     check("removing an account puts this block through the rule above",
           policySource.contains("accountSettings = AccountRoles.removingHome(accountSettings, home: home)"))
-    // And the two things the marking answers stay in step: the CLI reads `artifactAccount` first, so a
-    // marking that did not write it would be a marking artifacts ignore.
-    check("marking an account also answers the Artifact row",
-          memberBody(policySource, from: "func setPersonalAccount")
-              .contains("artifactAccount = chosen"))
+    // The Artifact publishing guard is retired, so marking an account no longer writes its setting.
+    check("marking an account no longer writes the retired Artifact setting",
+          !memberBody(policySource, from: "func setPersonalAccount").contains("artifactAccount"))
 
     // THE DOCUMENT ITSELF IS THE CONTRACT, and it is written by one process and read by another: the app
     // publishes `~/.tally/state.json` and the `tally` supervisor steers real launches by it. THE TWO
     // HALVES ARE NO LONGER MIRRORED IN TEXT - they compile the ONE file that holds the rules
-    // (Tally/Core/AccountReserve.swift, listed under both targets in project.yml), which is the
-    // arrangement ArtifactHookContract.swift already has and for the same reason. A rule spelled once per
+    // (Tally/Core/AccountReserve.swift, listed under both targets in project.yml), like the other
+    // shared contracts there. A rule spelled once per
     // target is a rule that can come to mean two things, and this one decides quota: read literally, a
     // second spelling is a water line the launcher walks straight through, or quota held back on an
     // account whose Settings row shows none. That drift was real for a day and is what this convergence
@@ -738,14 +735,14 @@ func runAccountRowChecks() {
     check("the CLI's reader of that block is readable from here", !cliReader.isEmpty)
     check("…and decodes it into the shared entry type rather than one of its own",
           cliReader.contains("var accounts: [String: AccountRoleSetting]?"))
-    check("…and asks the shared rules for both answers it gives",
+    check("…and asks the shared rules for the answer it gives",
           cliReader.contains("AccountRoles.reserve(settings, home: account.launchHome)")
-              && cliReader.contains("AccountRoles.personalHome(settings)"))
+              && !cliReader.contains("personalHome"))
     // The negative half, which is the one that actually holds the line: no second role word, no second
     // clamp, no second normalization. Any of the three coming back is the drift returning.
     check("…and spells no rule of its own",
           !cliReader.contains("= \"personal\"") && !cliReader.contains("min(max(")
-              && !cliReader.contains("artifactAccountHome("))
+              && !cliReader.contains("normalizedConfigHome("))
     let generator = readSource("project.yml")
     check("the project definition is readable from here", !generator.isEmpty)
     // The app compiles it by living in `Tally/`; the CLI has to be told, so THAT is the line that can go
@@ -771,13 +768,14 @@ func runAccountRowChecks() {
                      + "when it picks or moves sessions by itself, because your browser draws on all "
                      + "three. The flagship window holds the same line rather than being emptied under "
                      + "it, and launching on it yourself always works.",
-                 "The account you are signed into on claude.ai. Tally publishes artifacts from it, and "
-                     + "can keep part of its quota free for you."] {
+                 "The account you are signed into on claude.ai. Tally can keep part of its quota free for you."] {
         let entry = catalogueStrings[word] as? [String: Any]
         let localizations = entry?["localizations"] as? [String: Any] ?? [:]
         check("\(word.prefix(30)) is translated into every language Tally ships",
               ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { localizations[$0] != nil })
     }
+    check("the retired Artifact strings are gone from the catalogue",
+          !catalogueStrings.keys.contains { $0.contains("rtifact") })
 
     print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
     exit(failed == 0 ? 0 : 1)

@@ -42,7 +42,6 @@ swiftc -o "$out" \
   TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift \
   TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
-  Tally/Core/ArtifactHookContract.swift \
   TallyCLI/ProviderExecutable.swift \
   TallyCLI/AccountComfort.swift \
   Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift \

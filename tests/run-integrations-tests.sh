@@ -51,9 +51,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Stores/IntegrationsNotificationHook.swift \
   Tally/Stores/IntegrationsAgentHook.swift \
   Tally/Stores/IntegrationsKnockHook.swift Tally/Stores/IntegrationsAutoFollow.swift \
-  Tally/Stores/IntegrationsArtifactHook.swift Tally/Core/ArtifactHookContract.swift \
+  Tally/Stores/IntegrationsArtifactHook.swift \
   Tally/Stores/LaunchPolicyStore.swift Tally/Stores/LaunchPolicyScoring.swift \
-  Tally/Stores/LaunchPolicyStoreArtifact.swift \
   Tally/Core/AccountReserve.swift Tally/Core/PersonalAccount.swift \
   TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \

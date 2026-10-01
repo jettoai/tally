@@ -67,7 +67,7 @@ struct AccountActionsMenu: View {
             Toggle(isOn: Binding(get: { isPersonal }, set: { _ in togglePersonal() })) {
                 Text(L("Personal account (web)"))
             }
-            .help(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you."))
+            .help(L("The account you are signed into on claude.ai. Tally can keep part of its quota free for you."))
             Divider()
         }
         if moveUp != nil || moveDown != nil {

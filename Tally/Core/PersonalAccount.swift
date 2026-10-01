@@ -109,9 +109,8 @@ enum PersonalAccount {
 
     /// Whether the marking can be offered at all.
     ///
-    /// CLAUDE ONLY, because both things hanging off the marking are: artifacts are a Claude Code
-    /// tool, and a Codex account has no browser session sharing its quota (the reserve's whole
-    /// premise). A row offering it for Codex would be a control that changes nothing.
+    /// CLAUDE ONLY, because the reserve's premise is: a Codex account has no browser session sharing
+    /// its quota. A row offering it for Codex would be a control that changes nothing.
     ///
     /// And it needs a home to store the marking under - which a demo fixture has, since `home` above
     /// names one, so a capture shows this row exactly as a real machine draws it.

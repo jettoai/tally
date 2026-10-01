@@ -217,7 +217,7 @@ func runStableClaudeChecks() {
         ((try? String(contentsOfFile: file, encoding: .utf8)) ?? "").components(separatedBy: "claudeStableExecutable(").count - 1
     }
     check("stable: deferred command text is never mapped onto the bundle",
-          occurrences("TallyCLI/HookArtifact.swift") == 0 && occurrences("Tally/Core/LoginTerminalFallback.swift") == 0)
+          occurrences("Tally/Core/LoginTerminalFallback.swift") == 0)
     check("stable: each immediate exec point maps exactly once",
           ["Tally/Core/RenewLoginRunner.swift", "Tally/Core/EffortLevels.swift", "TallyCLI/Snapshot.swift",
            "Tally/Core/CLIRunner.swift", "TallyCLI/SupervisorRuntime.swift"].allSatisfy { occurrences($0) == 1 })

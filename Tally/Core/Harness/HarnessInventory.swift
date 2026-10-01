@@ -11,6 +11,8 @@ enum HarnessInventory {
     // These existing integrations consume Claude session payloads. Recognize the
     // direct CLI forms written by their installers, including quoted app paths.
     // Classification does not authorize changing or removing the source entry.
+    // `artifact` stays while a retired registration can still be in a settings.json
+    // (Tally/Stores/IntegrationsArtifactHook.swift says until when), so it is never bridged as a user hook.
     static func isClaudeIntegration(_ command: String) -> Bool {
         let executable = #"(?:tally|[^\s\"']*/tally|\"[^\"]*/tally\"|'[^']*/tally')"#
         let verb = #"hook-(?:agents|knock|artifact|notify|tally|switch|model)"#

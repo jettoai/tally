@@ -38,10 +38,6 @@ import Foundation
 // `AccountRoles.carriesReserve` below is that rule, asked at the one place each burn-rate mirror
 // builds a window.
 //
-// TWO FACTS, ONE MARKING. The role also answers the question the Artifact guard asks (which account
-// this machine's browser is signed into - Tally/Core/ArtifactHookContract.swift), which is why the
-// app writes both when it is set: they are the same sentence about the same account.
-//
 // WHAT THIS FILE IS, exactly: the pure rules over the `accounts` block of ~/.tally/state.json, with
 // no store, no file and no SwiftUI behind them, so every one of them is assertable on its own
 // (tests/accountrow). `LaunchPolicyStore` owns the document; the CLI reads it back.
@@ -141,8 +137,7 @@ enum AccountRoles {
     /// ASKED OF THE WINNER ABOVE rather than of this home's own entry, so the three questions over
     /// this block cannot answer a hand-edited document differently from one another: reading each
     /// entry on its own, a file carrying two markings had both rows in Settings badged Personal,
-    /// both accounts holding quota back, and the Artifact guard - which asks `personalHome` -
-    /// naming exactly one of them. There is ONE marked account by construction, so there is one
+    /// and both accounts holding quota back. There is ONE marked account by construction, so there is one
     /// here too, and a stray second marking is the leftover the doc above says it is.
     static func isPersonal(_ accounts: [String: AccountRoleSetting], home: String?) -> Bool {
         guard let key = key(accounts, home: home), let marked = personalHome(accounts)
@@ -184,7 +179,7 @@ enum AccountRoles {
             updated[key] = cleared.isEmpty ? nil : cleared
         }
         // A home that normalizes to nothing names no account, so it is the same instruction as nil.
-        guard let home, artifactAccountHome(home) != nil else { return updated }
+        guard let home, normalizedConfigHome(home) != nil else { return updated }
         let target = key(updated, home: home) ?? home
         var entry = updated[target] ?? AccountRoleSetting()
         entry.role = personal
@@ -214,7 +209,7 @@ enum AccountRoles {
 
     /// The block after a config home has been removed from the machine.
     ///
-    /// KEYED BY A DIRECTORY, exactly like the Artifact publishing account beside it, so the id-shaped
+    /// KEYED BY A DIRECTORY, so the id-shaped
     /// forgetting cannot reach it (`LaunchPolicyStore.forget` states what that costs). Left standing,
     /// the entry marks a folder in the Trash as the account the user browses on - and a later
     /// `~/.claudeN` created in the same slot inherits a role and a reserve nobody chose for it.
@@ -228,8 +223,7 @@ enum AccountRoles {
 
     /// Which stored key names this home.
     ///
-    /// Through `artifactAccountHome` on BOTH sides - the same normalization the Artifact setting is
-    /// compared with, and for the same reason: this key is written from the app's own discovery and
+    /// Through `normalizedConfigHome` on BOTH sides: this key is written from the app's own discovery and
     /// looked up against whatever a caller happens to hold, which on this machine is frequently the
     /// same directory reached through a symlink or carrying a trailing slash. Text rather than a
     /// filesystem identity read, because the removal above asks this about a directory that has
@@ -237,7 +231,28 @@ enum AccountRoles {
     ///
     /// Sorted for the reason `personalHome` is: one answer per document, not per iteration.
     static func key(_ accounts: [String: AccountRoleSetting], home: String?) -> String? {
-        guard let target = artifactAccountHome(home) else { return nil }
-        return accounts.keys.sorted().first { artifactAccountHome($0) == target }
+        guard let target = normalizedConfigHome(home) else { return nil }
+        return accounts.keys.sorted().first { normalizedConfigHome($0) == target }
     }
+}
+
+/// One config home as an identity: tilde expanded, trailing slashes gone, symlinks resolved.
+///
+/// ALL THREE, because the two sides of every comparison over the `accounts` block are written by
+/// different hands: the key is a path this app wrote from its own discovery, and the caller holds
+/// whatever it was handed, which on this machine is frequently a home reached through a symlink or
+/// carrying a trailing slash.
+///
+/// TEXT RATHER THAN `pathsAreOne`, which asks the kernel which object a path arrives at: removing an
+/// account asks this about a directory that has already gone to the Trash, where an identity read
+/// would answer "cannot say".
+///
+/// Compiled by both targets with the rest of this file, so the app and the CLI cannot normalize a
+/// home two ways. nil for nothing to normalize.
+func normalizedConfigHome(_ path: String?) -> String? {
+    guard let path else { return nil }
+    var expanded = (path.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+    while expanded.count > 1, expanded.hasSuffix("/") { expanded.removeLast() }
+    guard !expanded.isEmpty else { return nil }
+    return URL(fileURLWithPath: expanded).resolvingSymlinksInPath().standardizedFileURL.path
 }

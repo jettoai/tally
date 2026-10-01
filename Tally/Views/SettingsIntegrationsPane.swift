@@ -105,7 +105,7 @@ extension SettingsView {
     }
 
     /// COLLAPSED RATHER THAN REMOVED - the rule `SettingsView.pane` states for the window's five
-    /// panes, one level in and for the same reason: a page here is holding work too. The artifact
+    /// panes, one level in and for the same reason: a page here is holding work too. The Chrome
     /// account picker answers for the person rather than for the app, and a row can be mid-install
     /// with its store still working; building only the selected page would throw both away on a
     /// glance at another page. A waiting page keeps its state and adds no height.
@@ -218,17 +218,10 @@ extension SettingsView {
                   isOn: $settings.statuslineFullQuota)
     }
 
-    /// What Claude Code is taught about this machine: which account may publish, and how to answer
-    /// quota questions on its own.
+    /// What Claude Code is taught about this machine: which account Claude in Chrome is signed in to,
+    /// and how to answer quota questions on its own.
     @ViewBuilder
     private func claudeCodeRows(_ integrations: IntegrationsStore) -> some View {
-        integrationRow(
-            title: L("Artifact publishing account"),
-            caption: L("Holds a Claude Code session back from publishing an artifact under an account other than the one you browse with, since a published page is private to the account that published it and opens as Page not found for everyone else. Installs one PreToolUse hook entry per Claude account, matched to the Artifact tool alone; anything already registered for that event keeps running, and only Tally's entry is removed."),
-            status: integrations.artifactHookStatus,
-            install: integrations.installArtifactHook,
-            remove: integrations.removeArtifactHook)
-        SettingsArtifactAccountRow(store: store, settings: settings)
         SettingsChromeAccountRow(store: store, settings: settings)
         rowDivider
         integrationRow(
@@ -303,8 +296,6 @@ extension SettingsView {
              integrations.removeAgentHooks),
             (integrations.knockHookStatus, integrations.installKnockHooks,
              integrations.removeKnockHooks),
-            (integrations.artifactHookStatus, integrations.installArtifactHook,
-             integrations.removeArtifactHook),
             (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
         ]
         let missing = entries.filter { $0.0 != .installed }

@@ -78,19 +78,15 @@ final class LaunchPolicyStore {
     private struct StateFile: Codable {
         var version = 1
         var launch: [String: ProviderPolicy]
-        /// The account artifacts are published from. TOP LEVEL rather than inside a provider's
-        /// policy, because it is not a launch decision: it says which Claude account the person at
-        /// this machine is signed into in their BROWSER, which is the one fact a session cannot see
-        /// and the one the Artifact guard compares against (Tally/Core/ArtifactHookContract.swift).
-        ///
-        /// Optional, and the schema only ever GAINS keys: `version` does not move, a supervisor
-        /// from an older build decodes this document exactly as it did before, and a state file
-        /// written before this key existed simply has no answer here.
+        /// RETIRED with the Artifact publishing guard: never read, never changed by this build, and
+        /// written back exactly as it was found. The schema only ever gains keys, so an older build
+        /// reading this file still finds the answer it wrote. Removed with
+        /// Tally/Stores/IntegrationsArtifactHook.swift (its header says when).
         var artifactAccount: String?
         /// Per-account settings, keyed by config home: which account the person browses on, and how
         /// much of its quota Tally's own choices must leave them (Tally/Core/AccountReserve.swift).
         ///
-        /// TOP LEVEL and keyed by HOME for the same two reasons the field above is: it is not a
+        /// TOP LEVEL and keyed by HOME for two reasons: it is not a
         /// launch decision, and the thing it names is a directory rather than an account id. Added
         /// under the same only-ever-gains-keys rule, and omitted entirely while it holds nothing, so
         /// a machine that never marked an account writes the document it always wrote.
@@ -101,22 +97,8 @@ final class LaunchPolicyStore {
 
     private(set) var policies: [String: ProviderPolicy]
 
-    /// The Claude config home artifacts are published from.
-    ///
-    /// THREE STATES IN ONE OPTIONAL, and the third is the one this used to lose:
-    ///
-    ///   - nil        - NOBODY HAS ANSWERED. The CLI abstains (the guard is a convenience rather
-    ///                  than a gate, so a machine that has never named an account is never told it
-    ///                  may not publish), and an install may seed it (`artifactAccountSeed`).
-    ///   - ""         - ANSWERED, AND THE ANSWER IS "NOT CHOSEN". The CLI abstains on it
-    ///                  (`artifactAccountHome("")` names no home), and an install no longer
-    ///                  re-guesses over it. Picking "Not chosen" in the row used to store nil, which
-    ///                  is why the next install, auto-follow pass or repair silently chose an
-    ///                  account again. NOT the same reading as the absent key any more: absent falls
-    ///                  back to the account marked personal, and this answer is one that fallback
-    ///                  may not overrule (TallyCLI/HookArtifact.swift, `artifactAccountSetting`).
-    ///   - a home     - the account the user named.
-    private(set) var artifactAccount: String?
+    /// The retired Artifact setting, carried from the file to the file (StateFile says why).
+    private var retiredArtifactAccount: String?
 
     /// Per-account settings, keyed by config home (Tally/Core/AccountReserve.swift): which account
     /// the user browses claude.ai on, and the slice of its quota Tally's own choices must leave
@@ -125,7 +107,7 @@ final class LaunchPolicyStore {
     private(set) var chromeAccount: String?
     /// Per home, the two role answers for the current `accountSettings`. Both are read from SwiftUI
     /// bodies on every render, and the normalization under them resolves symlinks on disk once per
-    /// stored key (`artifactAccountHome`; Sentry TALLY-T, 2026-09-26), so each home pays that once
+    /// stored key (`normalizedConfigHome`; Sentry TALLY-T, 2026-09-26), so each home pays that once
     /// per change of the settings rather than once per frame.
     @ObservationIgnored private var roleAnswers: [String: (personal: Bool, reserve: Int)] = [:]
 
@@ -133,7 +115,7 @@ final class LaunchPolicyStore {
         if let data = try? Data(contentsOf: Self.fileURL),
            let file = try? JSONDecoder().decode(StateFile.self, from: data) {
             policies = file.launch
-            artifactAccount = file.artifactAccount
+            retiredArtifactAccount = file.artifactAccount
             accountSettings = file.accounts ?? [:]
             chromeAccount = file.chromeAccount
         } else {
@@ -210,20 +192,6 @@ final class LaunchPolicyStore {
         persist()
     }
 
-    /// Name the account artifacts are published from - or say, in as many words, that none is
-    /// chosen.
-    ///
-    /// EMPTY IS STORED RATHER THAN COLLAPSED TO NIL, which is the opposite of `setLaunchDefault`'s
-    /// rule and deliberately so. Every caller of this is somebody ANSWERING: the row's picker, and
-    /// the install seeding a first answer. "Not chosen" is one of the answers that picker offers -
-    /// it is how a person turns the checking off without removing the hook - and stored as nil it
-    /// was indistinguishable from never having been asked, so the next install seeded an account
-    /// over it and the guard started refusing publishes the user had just switched off.
-    func setArtifactAccount(_ home: String?) {
-        artifactAccount = home?.trimmingCharacters(in: .whitespaces) ?? ""
-        persist()
-    }
-
     /// Never seeded by an install and never inferred: the CLI routes Chrome work by this alone.
     func setChromeAccount(_ accountID: String?) {
         chromeAccount = accountID.flatMap { $0.isEmpty ? nil : $0 }
@@ -251,21 +219,8 @@ final class LaunchPolicyStore {
     }
 
     /// Mark one account as the personal one (single select), or nil to unmark whichever holds it.
-    ///
-    /// AND THE ARTIFACT SETTING FOLLOWS IT, in that direction only. The two questions have one
-    /// answer - which account is this machine's browser signed into - so marking it here is also
-    /// answering the Integrations row, and leaving that row alone would mean marking an account as
-    /// personal and having artifacts keep publishing from another one.
-    ///
-    /// UNMARKING DOES NOT CLEAR IT, which is the asymmetry `removeArtifactHook` states about its own
-    /// press: the publishing account is a setting the user gave, the row that shows it is still
-    /// there, and a reserve going away is no reason to start refusing to say where artifacts come
-    /// from. Nor does choosing another account in that row move this marking: this one steers
-    /// launches, and quietly restyling somebody's launch policy from an Integrations picker would be
-    /// a surprise in the direction that costs quota.
     func setPersonalAccount(_ home: String?) {
         accountSettings = AccountRoles.settingPersonal(accountSettings, home: home)
-        if let chosen = AccountRoles.personalHome(accountSettings) { artifactAccount = chosen }
         persist()
     }
 
@@ -321,16 +276,8 @@ final class LaunchPolicyStore {
     /// with nothing pinned is a provider whose launches are steered by an id that resolves to
     /// nothing.
     func forget(accountID: String, home: String) {
-        // THE ARTIFACT ACCOUNT IS STORED AS A HOME, so the id above cannot reach it: it is the one
-        // setting here that names a directory rather than an account, and a removal that left it
-        // standing pointed the guard at a config home in the Trash. What that costs is not a stale
-        // string - it is every publish on the machine refused, with an instruction to move to a
-        // folder that is gone, and a later `~/.claude3` silently inheriting the choice (codex review
-        // of 7113edc). The CLI carries its own defence for the versions that do not do this
-        // (`artifactAccountStanding`); this is the one that keeps the file honest.
-        artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)
-        // …and its neighbour, keyed by that same directory and reachable no other way: the personal
-        // marking and the reserve under it. Left standing, they name a folder in the Trash as the
+        // THE PERSONAL MARKING IS KEYED BY A DIRECTORY, so the id above cannot reach it: the marking
+        // and the reserve under it. Left standing, they name a folder in the Trash as the
         // account this machine browses on, hold quota back on nothing, and hand the role plus a
         // number nobody chose to the next `~/.claudeN` created in that slot.
         accountSettings = AccountRoles.removingHome(accountSettings, home: home)
@@ -366,7 +313,7 @@ final class LaunchPolicyStore {
         // object: a machine where nobody has marked an account publishes exactly the document every
         // previous build published.
         guard let data = try? encoder.encode(
-            StateFile(launch: policies, artifactAccount: artifactAccount,
+            StateFile(launch: policies, artifactAccount: retiredArtifactAccount,
                       accounts: accountSettings.isEmpty ? nil : accountSettings,
                       chromeAccount: chromeAccount))
         else { return }

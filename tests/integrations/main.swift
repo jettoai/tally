@@ -55,7 +55,7 @@ try MainActor.assumeIsolated {
     try runKnockHookChecks(tmp: tmp)
     // The same files written in their own layout, not Foundation's (claudejsonformatchecks.swift).
     try runClaudeJSONFormatChecks(tmp: tmp)
-    try runArtifactHookChecks(tmp: tmp)
+    try runArtifactHookRetirementChecks(tmp: tmp)
     runSmartBadgeChecks()
     // And the one pass that installs one of those without anybody pressing anything: what a machine
     // has to have already said before a new hook may follow (autofollowchecks.swift).

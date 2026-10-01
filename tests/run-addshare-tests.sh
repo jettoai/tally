@@ -27,6 +27,6 @@ swiftc -o "$out" tests/addshare/main.swift tests/addshare/shareexistingchecks.sw
   TallyCLI/ShareCommand.swift \
   TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
-  Tally/Core/ArtifactHookContract.swift TallyCLI/AccountComfort.swift \
+  TallyCLI/AccountComfort.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/ProviderExecutable.swift
 "$out"

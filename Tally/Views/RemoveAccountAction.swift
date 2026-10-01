@@ -44,7 +44,7 @@ enum RemoveAccountAction {
         // settings. All of them are keyed by an id derived from the folder name, so a later
         // `~/.claude3` would inherit whatever is left here.
         // The home goes with the id because one of those settings is keyed by the DIRECTORY: the
-        // account artifacts are published from (`artifactAccountAfterRemoving`).
+        // personal-account marking and its reserve (`AccountRoles.removingHome`).
         LaunchPolicyStore.shared.forget(accountID: accountID, home: home)
         KnownAccountsStore.shared.forget(accountID: accountID)
         SettingsStore.shared.forgetAccount(accountID)

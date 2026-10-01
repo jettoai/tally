@@ -282,9 +282,11 @@ func runKnockHookChecks(tmp: URL) throws {
                   .flatMap { ($0["hooks"] as? [String: Any])?["PreToolUse"] as? [[String: Any]] } ?? [])
                   .contains { $0["matcher"] as? String == chromeGapHookMatcher })
 
-    // F10: COEXISTENCE with the Artifact PreToolUse hook in one settings.json, all four directions.
-    let artifactCommand = "/usr/local/bin/tally hook-artifact"
-    let artifactEntry = IntegrationsStore.artifactHookEntry(command: artifactCommand)
+    // F10: COEXISTENCE with the retired Artifact PreToolUse hook in one settings.json, until the
+    // launch pass has taken it out (IntegrationsArtifactHook.swift).
+    let artifactEntry: [String: Any] = ["matcher": "Artifact",
+                                        "hooks": [["type": "command",
+                                                   "command": "/usr/local/bin/tally hook-artifact"]]]
     func preToolUse() -> [[String: Any]] { entries(chromePreflightHookEvent) }
     func artifactEntries() -> [[String: Any]] {
         preToolUse().filter { NSDictionary(dictionary: $0).isEqual(to: artifactEntry) }
@@ -301,11 +303,6 @@ func runKnockHookChecks(tmp: URL) throws {
     _ = try IntegrationsStore.editSettings(settings) { IntegrationsStore.settingsWithoutArtifactHook($0) }
     check("F10 removing the Artifact hook keeps the knock PreToolUse entry as it was",
           preToolUse().count == 1 && NSDictionary(dictionary: preToolUse()[0]).isEqual(to: knockPre[0]))
-    _ = try IntegrationsStore.editSettings(settings) {
-        IntegrationsStore.settingsRegisteringArtifactHook($0, command: artifactCommand)
-    }
-    check("F10 installing the Artifact hook keeps the knock PreToolUse entry as it was",
-          preToolUse().count == 2 && IntegrationsStore.settingsCarryCurrentKnockHooks(settings))
     try IntegrationsStore.removeKnockHooks(in: settings)
 
     // The manifest key is written by the install and read by the removal as provenance, so a second

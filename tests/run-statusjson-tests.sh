@@ -9,7 +9,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/statusjson/main.swift tests/statusjson/resetpassedchecks.swift tests/statusjson/capweightchecks.swift TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift \
   TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
-  Tally/Core/ArtifactHookContract.swift TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift \
+  TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift \
   TallyCLI/ResumePrompt.swift \
     TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift TallyCLI/AccountComfort.swift
 "$out"

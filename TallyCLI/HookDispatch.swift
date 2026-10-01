@@ -18,11 +18,15 @@ func runHookSubcommand(_ word: String, _ rest: [String]) -> Int32? {
     // it is answering (HookKnock.swift).
     case "hook-knock":
         return runHookKnock(args: rest)
-    // internal: Claude Code's `PreToolUse` hook on the `Artifact` tool, which takes no argument because
-    // it answers for exactly one tool - the matcher it is registered under names it, and the payload
-    // names it again (HookArtifact.swift).
+    // RETIRED: the Artifact publishing guard. Older apps registered this on `PreToolUse` and the
+    // app now takes it back out at launch (Tally/Stores/IntegrationsArtifactHook.swift,
+    // `retireArtifactHook`). Until that pass has run on a machine, Claude Code still calls it on
+    // every Artifact publish, and a word this binary does not answer prints usage and fails, which
+    // Claude Code shows as a hook error. So it reads the payload it is handed and says nothing.
+    // Deleted with that file (its header says when).
     case "hook-artifact":
-        return runHookArtifact()
+        _ = FileHandle.standardInput.readDataToEndOfFile()
+        return 0
     // The two the merge replaced. Still answered, because a registration written by an older app is in
     // somebody's settings.json until the self-heal rewrites it, and a hook that runs a subcommand this
     // binary does not have prints usage and lets the expansion through - a model turn, for a command

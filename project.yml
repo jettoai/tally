@@ -123,24 +123,12 @@ targets:
       # channel: these are separate processes speaking through files, so a drifted field name
       # is a picker that opens and can never be answered.
       - path: Tally/Core/PickContract.swift
-      # What signing an account back in actually runs, which the Artifact guard's refusal has to be
-      # able to print: a signed-out publishing account cannot be reached with `tally account`, so the
-      # way out is a login, and the flag order and the unset-for-the-default-home rule in there are
-      # both things this repo has already got wrong once. One copy, compiled by both targets, rather
-      # than a command line spelled a second time inside a hook.
-      - path: Tally/Core/RenewLoginCommand.swift
       # Which program a claude launch actually execs: the installer's app bundle when it is proven
       # to be the current version, so macOS permissions survive updates (B-565). The app spawns
       # through the same rule (CLIRunner, RenewLoginRunner, EffortLevels).
       - path: Tally/Core/ClaudeStableExecutable.swift
-      # The Artifact publishing guard's shared vocabulary: the tool the app registers a PreToolUse
-      # matcher for, the command it registers, and the environment variable that waives the whole
-      # thing. Both targets compile the one copy for the reason above - the app writes these words
-      # into somebody's settings.json and this binary answers to them, so a drift is a hook that
-      # runs on every Artifact call and abstains, or a guard nobody ever registered.
-      - path: Tally/Core/ArtifactHookContract.swift
       # The personal account and its reserve: the rules over the `accounts` block of
-      # ~/.tally/state.json. Same reason again, and the sharpest instance of it yet - the app writes
+      # ~/.tally/state.json. Same reason as the contracts above, and the sharpest instance of it - the app writes
       # that block from a Settings row and this binary is what ACTS on it, so a rule spelled twice is
       # quota held back on an account whose Settings row shows none, or a water line the launcher
       # walks straight through. Only the rules are here; who reads which document stays on each side

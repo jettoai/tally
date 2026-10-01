@@ -69,10 +69,10 @@ func runReserveChecks() {
           readBack.settings["/tmp/reserve-B"]?.reserve == 0
               && readBack.reserve(for: acct("B", weekly: 50)) == 0)
     check("…and the personal account is the one that says so",
-          readBack.personalHome == "/tmp/reserve-A")
+          AccountRoles.personalHome(readBack.settings) == "/tmp/reserve-A")
     // TWO MARKED HOMES RESOLVE THE SAME WAY ON EVERY READ. Only a hand edit or two builds writing
     // the file can produce that (the setter clears the role wherever it was), and the cost of
-    // getting it wrong is not a wrong answer but an UNSTABLE one: the Artifact guard would name a
+    // getting it wrong is not a wrong answer but an UNSTABLE one: the reserve would land on a
     // different account on different runs of the same binary against the same file, which is the
     // failure mode nobody can reproduce. The shared rule sorts for exactly this.
     //
@@ -88,7 +88,7 @@ func runReserveChecks() {
             upper: AccountRoleSetting(role: AccountRoles.personal, reserve: 30),
             lower: AccountRoleSetting(role: AccountRoles.personal, reserve: 10),
         ])
-        return both.personalHome == lower
+        return AccountRoles.personalHome(both.settings) == lower
     }
     check("a document carrying two marked homes answers the same one every time",
           tieBreaks.allSatisfy { $0 })

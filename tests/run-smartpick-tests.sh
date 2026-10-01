@@ -28,7 +28,6 @@ swiftc -o "$out" tests/smartpick/main.swift tests/smartpick/launchchecks.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift \
   TallyCLI/OpenTurn.swift TallyCLI/TranscriptSignals.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
-  Tally/Core/ArtifactHookContract.swift \
   TallyCLI/ResumePrompt.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/AccountComfort.swift
 "$out"

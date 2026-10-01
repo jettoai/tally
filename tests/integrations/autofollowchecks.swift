@@ -15,7 +15,6 @@ func runAutoFollowChecks(tmp: URL) throws {
     typealias Candidate = IntegrationsStore.AutoFollowCandidate
     typealias Plan = IntegrationsStore.AutoFollowPlan
     let knock = IntegrationsStore.knockHookManifest
-    let artifact = IntegrationsStore.artifactHookManifest
 
     /// A manifest whose OTHER component records a settings.json: the user's own earlier press.
     let authorized: [String: Any] = [
@@ -52,9 +51,9 @@ func runAutoFollowChecks(tmp: URL) throws {
     check("…and every followable row is judged on its own status",
           IntegrationsStore.autoFollowPlan(
             [Candidate(component: knock, status: .installed, deliverable: true),
-             Candidate(component: artifact, status: .notInstalled, deliverable: true)],
+             Candidate(component: "claudeOther", status: .notInstalled, deliverable: true)],
             manifest: authorized, handled: [], isUnshipped: false, isDemo: false)
-              == Plan(install: [artifact], settle: [knock]))
+              == Plan(install: ["claudeOther"], settle: [knock]))
 
     // MARK: the three preconditions, each removed on its own
 
@@ -113,22 +112,17 @@ func runAutoFollowChecks(tmp: URL) throws {
 
     // MARK: the registry
 
-    // THE SETTINGS.JSON HOOK FAMILY, and the next hook in it is one more line of the list: the
-    // Artifact guard is the second, and it followed the same way the quota knock did. The rest of
+    // THE SETTINGS.JSON HOOK FAMILY, and the next hook in it is one more line of the list. The rest of
     // the pane is deliberately absent: those rows write shell profiles, a shared /usr/local/bin, and
     // other people's config homes, none of which a settings.json press authorizes.
     let followable = IntegrationsStore.autoFollowComponents.map(\.component)
-    check("exactly the settings.json hook family follows", followable == [knock, artifact])
+    check("exactly the settings.json hook family follows", followable == [knock])
     check("…found by the key the manifest and the notice both name it with",
           IntegrationsStore.autoFollowComponent(knock)?.component == knock
-              && IntegrationsStore.autoFollowComponent(artifact)?.component == artifact
-              && IntegrationsStore.autoFollowComponent("claudeSkill") == nil)
-    check("…and each is named by the row's own title, so the notice cannot call it something else",
-          IntegrationsStore.autoFollowComponent(knock)?.title() == L("Claude quota warning")
-              && IntegrationsStore.autoFollowComponent(artifact)?.title()
-                  == L("Artifact publishing account"))
-    check("…and the two are recorded apart, so answering for one never answers for the other",
-          knock != artifact)
+              && IntegrationsStore.autoFollowComponent("claudeSkill") == nil
+              && IntegrationsStore.autoFollowComponent(IntegrationsStore.artifactHookManifest) == nil)
+    check("…and named by the row's own title, so the notice cannot call it something else",
+          IntegrationsStore.autoFollowComponent(knock)?.title() == L("Claude quota warning"))
     check("the handled list and the notice list are kept apart",
           IntegrationsStore.autoFollowHandledKey != IntegrationsStore.autoFollowNoticeKey)
 

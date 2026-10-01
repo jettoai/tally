@@ -32,7 +32,6 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
    \
    \
   Tally/Core/AccountReserve.swift \
-  Tally/Core/ArtifactHookContract.swift \
   Tally/Core/ChromeSettingSignal.swift \
   Tally/Core/LaunchAxisNames.swift \
   Tally/Core/LimitReset.swift \

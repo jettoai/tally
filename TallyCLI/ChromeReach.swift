@@ -337,6 +337,15 @@ func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
                          reachedBefore: chromeReachable(ledger, account: account),
                          reachableLabels: chromeReachableAccounts(ledger).map { labels[$0] ?? $0 }.sorted())
     }
+    /// The moved sentence when the session moved itself onto the set account, else the hand-off
+    /// sentence (given the setting's label), noting work in flight when that withheld the move.
+    func handOff(_ setting: String, _ sentence: (String) -> String) -> String {
+        let move = chromeSelfMove(setting: setting, supervisor: supervisor, context: context,
+                                  now: now, pre: false, deps: deps)
+        let settingLabel = labels[setting] ?? setting
+        if move == .queued { return chromeMovedMessage(accountLabel: label, settingLabel: settingLabel) }
+        return sentence(settingLabel) + (move == .withheld ? chromeAgentsSuffix : "")
+    }
     switch route {
     case .explain:
         return explained()
@@ -344,19 +353,13 @@ func chromeGapNotice(tool: String, outcome: ChromeReachOutcome,
         deps.signalSettingGap(setting, now)
         return explained() + chromeSettingItselfSuffix
     case .relay(let setting, let sessions):
-        let move = chromeSelfMove(setting: setting, supervisor: supervisor, context: context,
-                                  now: now, pre: false, deps: deps)
-        let settingLabel = labels[setting] ?? setting
-        if move == .queued { return chromeMovedMessage(accountLabel: label, settingLabel: settingLabel) }
-        return chromeRelayMessage(accountLabel: label, settingLabel: settingLabel,
-                                  sessions: sessions, selfSupervisor: supervisor)
-            + (move == .withheld ? chromeAgentsSuffix : "")
+        return handOff(setting) {
+            chromeRelayMessage(accountLabel: label, settingLabel: $0, sessions: sessions,
+                               selfSupervisor: supervisor)
+        }
     case .move(let setting):
-        let move = chromeSelfMove(setting: setting, supervisor: supervisor, context: context,
-                                  now: now, pre: false, deps: deps)
-        let settingLabel = labels[setting] ?? setting
-        if move == .queued { return chromeMovedMessage(accountLabel: label, settingLabel: settingLabel) }
-        return chromeMoveMessage(accountLabel: label, settingLabel: settingLabel, settingID: setting)
-            + (move == .withheld ? chromeAgentsSuffix : "")
+        return handOff(setting) {
+            chromeMoveMessage(accountLabel: label, settingLabel: $0, settingID: setting)
+        }
     }
 }

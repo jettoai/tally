@@ -2,9 +2,9 @@ import Foundation
 
 // The `tally hook-knock <event>` subcommand: Claude Code's `UserPromptSubmit` and `PostToolUse`
 // hooks, registered by the app's Integrations pane, plus the two Claude in Chrome events
-// (`PostToolUseFailure` after a call, `PreToolUse` before one, ChromePreflight.swift). It delivers the one sentence this session's
-// supervisor has filed for it (QuotaKnockNotice.swift holds the record and every rule about the
-// file; this is the plumbing around them).
+// (`PostToolUseFailure` after a call, `PreToolUse` before one, ChromePreflight.swift). It delivers
+// the one sentence this session's supervisor has filed for it (QuotaKnockNotice.swift holds the
+// record and every rule about the file; this is the plumbing around them).
 //
 // THE SAME HARD CONSTRAINTS AS THE OTHER HOOKS, and one more that is this one's alone. Like them it
 // never throws, never blocks and answers 0 whatever happens: this runs inside somebody's session,
@@ -77,7 +77,7 @@ func runHookKnock(args: [String],
     let named = payload?["hook_event_name"] as? String
     let failure = named == chromeGapHookEvent
     let preflight = named == chromePreflightHookEvent
-    guard let event = failure ? chromeGapHookEvent : preflight ? chromePreflightHookEvent
+    guard let event = failure || preflight ? named
             : quotaKnockHookEvent(registered: args.first, payload: named)
     else { return 0 }
     // WHOSE EVENT IS THIS. The marker above is inherited by every descendant of a supervised

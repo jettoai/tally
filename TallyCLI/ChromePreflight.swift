@@ -31,12 +31,9 @@ struct ChromeCallContext: Equatable {
     var fromSubagent = false
     /// The main transcript, whose `<stem>/subagents/` tree is one witness of work in flight.
     var transcriptPath: String? = nil
+}
 
-    init(fromSubagent: Bool = false, transcriptPath: String? = nil) {
-        self.fromSubagent = fromSubagent
-        self.transcriptPath = transcriptPath
-    }
-
+extension ChromeCallContext {
     init(payload: [String: Any]?) {
         fromSubagent = payload?["agent_id"] != nil || payload?["agent_type"] != nil
         transcriptPath = payload?["transcript_path"] as? String
@@ -135,6 +132,7 @@ func chromeAgentsIdleLive(supervisor: String, context: ChromeCallContext,
     var isDirectory: ObjCBool = false
     let subagentsUnreadable = manager.fileExists(atPath: subagents.path, isDirectory: &isDirectory)
         && isDirectory.boolValue && (try? manager.contentsOfDirectory(atPath: subagents.path)) == nil
+    let boundary = start.map { chromeBackgroundBoundary(record: record, childStartedAt: $0) }
     return chromeAgentsIdle(
         fromSubagent: context.fromSubagent, childStartedAt: start,
         agentHookRegistered: agentRosterHookRegistered(home: home),
@@ -144,8 +142,7 @@ func chromeAgentsIdleLive(supervisor: String, context: ChromeCallContext,
             && manager.fileExists(atPath: sessionAgentsFile(pid: supervisor, dir: dir).path),
         newestSubagentWrite: start.flatMap { subagentTreeNewestWrite(transcript: transcript, since: $0) },
         subagentsUnreadable: subagentsUnreadable,
-        backgroundThisTurn: backgroundSince(transcript: transcript,
-                                            boundary: start.map { chromeBackgroundBoundary(record: record, childStartedAt: $0) }),
+        backgroundThisTurn: backgroundSince(transcript: transcript, boundary: boundary),
         now: now)
 }
 

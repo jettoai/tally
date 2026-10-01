@@ -41,9 +41,6 @@ struct SessionAgentsRecord: Codable, Equatable, Sendable {
     /// as the last turn end's roll call counted it. nil until a `Stop` carrying the list is seen.
     /// Only a COUNT: nothing reads which ones, and counting spares us naming a type we cannot see.
     var background: Int? = nil
-    /// When that roll call was taken: the newest `Stop` that carried the list. nil until one is seen.
-    /// A background start in the transcript after this moment is work the count above cannot see.
-    var backgroundCountedAt: Date? = nil
 
     /// What a card may draw: the number working, or nothing at all when the count cannot be
     /// believed. FAIL-CLOSED, and that is the whole design of the field above: an edge-counted
@@ -170,8 +167,7 @@ func advanceAgentRoster(_ record: SessionAgentsRecord?, event: AgentRosterEvent,
     return SessionAgentsRecord(live: live.sorted(),
                                trusted: (record?.trusted ?? false) || event.carriedCensus || declared,
                                updatedAt: now,
-                               background: rollCall ? event.otherTasks : record?.background,
-                               backgroundCountedAt: rollCall ? now : record?.backgroundCountedAt)
+                               background: rollCall ? event.otherTasks : record?.background)
 }
 
 // MARK: - Whose roster this is, and what it claims

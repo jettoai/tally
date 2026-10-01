@@ -51,13 +51,10 @@ func runRunnerChecks() {
     check("R6 --file reads the file and trims it",
           chromeRunTask(args: ["--file", "/t/task.md"], read: read) == .task("open the page"))
     check("R6 words are joined", chromeRunTask(args: ["open", "x"], read: read) == .task("open x"))
+    func usage(_ task: ChromeRunTask) -> Bool { if case .usage = task { return true }; return false }
     for (name, input) in [("nothing", [String]()), ("blank", ["  "]), ("--file alone", ["--file"]),
                           ("an unreadable file", ["--file", "/t/missing.md"])] {
-        if case .usage = chromeRunTask(args: input, read: read) {
-            check("R6 \(name) is a usage error", true)
-        } else {
-            check("R6 \(name) is a usage error", false)
-        }
+        check("R6 \(name) is a usage error", usage(chromeRunTask(args: input, read: read)))
     }
 
     func refused(_ setup: ChromeRunSetup) -> Bool { if case .refused = setup { return true }; return false }

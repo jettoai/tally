@@ -8,8 +8,9 @@ import SwiftUI
 ///
 /// It hides words, never facts. Every window a card shows is here (the same `showAllModels` filter
 /// decides), every state a card can be in has a mark here, and the words the card spells out (the
-/// window's name, the reset's exact time, what the pin does) move into hover tooltips; how long
-/// until each window resets stays on screen, as a countdown under its figure (B-650).
+/// window's name, how long until its reset and the exact time, what the pin does) move into hover
+/// tooltips rather than disappearing (B-650: the countdown is the hover's first words, never a
+/// second line that would make the row taller).
 struct AccountListRowView: View {
     let usage: AccountUsage
     @Bindable var settings: SettingsStore
@@ -295,40 +296,26 @@ struct AccountListRowView: View {
             .compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// One window this account reports, as a track plus a figure over its reset countdown, in the
-    /// card's order; the window's NAME and the reset's exact time live in the cluster's tooltip.
+    /// One window this account reports, as a track plus a figure, in the card's order; the window's
+    /// NAME, its reset countdown and the exact time live in the cluster's tooltip, because spelling
+    /// them out per window is what makes the card as tall as it is.
     private func meterCluster(_ metric: UsageMetric) -> some View {
         let passed = usage.resetPassed(metric)
         let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
-        return VStack(alignment: .trailing, spacing: 1) {
-            HStack(spacing: 4) {
-                bar(metric, resetPassed: passed)
-                Text(figure)
-                    .font(.caption.monospacedDigit())
-                    // The figure carries the warning here, unlike on a card. A track this short is too small
-                    // for its colour alone to be the alarm, and the row has no space for the card's
-                    // "Limit reached" line. Not while a redeemed reset settles, though: the number is
-                    // seconds from being replaced, so that is a wait rather than a warning.
-                    .foregroundStyle(figureColor(metric, resetPassed: passed))
-                    .frame(width: Self.valueWidth, alignment: .trailing)
-            }
-            // Blank rather than absent with no reset, so every cluster keeps one height.
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                Text(resetCaption(metric, resetPassed: passed, now: context.date) ?? " ")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
+        return HStack(spacing: 4) {
+            bar(metric, resetPassed: passed)
+            Text(figure)
+                .font(.caption.monospacedDigit())
+                // The figure carries the warning here, unlike on a card. A track this short is too small
+                // for its colour alone to be the alarm, and the row has no space for the card's
+                // "Limit reached" line. Not while a redeemed reset settles, though: the number is
+                // seconds from being replaced, so that is a wait rather than a warning.
+                .foregroundStyle(figureColor(metric, resetPassed: passed))
+                .frame(width: Self.valueWidth, alignment: .trailing)
         }
         .tallyTooltip(meterHelp(metric))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(L(metric.label)), \(figure)")
-    }
-
-    /// The bare countdown under a cluster ("2h 13m"); "resets in" is the hover's, the cluster is
-    /// too narrow for it. Nothing once the reset has passed or with no reset instant.
-    private func resetCaption(_ metric: UsageMetric, resetPassed: Bool, now: Date) -> String? {
-        guard !resetPassed, let at = metric.resetsAt else { return nil }
-        return UsageFormat.durationBody(max(60, at.timeIntervalSince(now)))
     }
 
     private func figureColor(_ metric: UsageMetric, resetPassed: Bool) -> Color {

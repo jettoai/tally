@@ -285,8 +285,7 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     // session named by `--session` or `--project` as well as for this one.
     if intent.composerOnly,
        let unsupported = sessionInputComposerOnlyUnsupported(
-           supervisorVersion: readSessionState(pid: sessionKey)?.supervisorVersion,
-           cliVersion: supervisorBuildVersion()) {
+           supervisorVersion: readSessionState(pid: sessionKey)?.supervisorVersion) {
         warn(unsupported)
         return 3
     }

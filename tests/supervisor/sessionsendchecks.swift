@@ -940,25 +940,26 @@ func runSessionSendChecks() {
           sessionInputMessage(dialogRefusal, sessionKey: "9").contains("nothing was typed")
               && sessionInputMessage(dialogRefusal, sessionKey: "9").contains("a dialog is open"))
 
-    // THE VERSION GATE: fail-closed on unknown, numeric rather than lexical, same build accepted.
+    // THE VERSION GATE: fail-closed on unknown, numeric rather than lexical, and the version alone
+    // decides: no build is let through for matching the CLI that asks.
     check("a supervisor that does not report its version cannot take a composer-only line",
-          sessionInputComposerOnlyUnsupported(supervisorVersion: nil, cliVersion: "0.84.0") != nil)
+          sessionInputComposerOnlyUnsupported(supervisorVersion: nil) != nil)
     check("…nor one older than the flag",
-          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.83.0", cliVersion: "0.84.0")
-              != nil)
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.83.0") != nil)
     check("…while the release that brought it, and any later one, can",
-          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.84.0", cliVersion: "0.84.0")
-              == nil
-              && sessionInputComposerOnlyUnsupported(supervisorVersion: "0.85.0",
-                                                     cliVersion: "0.84.0") == nil
-              && sessionInputComposerOnlyUnsupported(supervisorVersion: "0.84.0",
-                                                     cliVersion: nil) == nil)
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.84.0") == nil
+              && sessionInputComposerOnlyUnsupported(supervisorVersion: "0.85.0") == nil)
     check("…compared as numbers, so 0.100.0 is later than 0.84.0",
-          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.100.0", cliVersion: "0.84.0")
-              == nil)
-    check("…and the same build as this CLI is accepted whatever its number",
-          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.83.0", cliVersion: "0.83.0")
-              == nil)
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.100.0") == nil)
+    // A supervisor was once taken for matching the CLI that asks, which let a pre-0.84.0 session
+    // named by a pre-0.84.0 CLI through to type into a dialog. The gate no longer sees that build.
+    let sendWait = (try? String(contentsOfFile: "TallyCLI/SessionSendWait.swift",
+                                encoding: .utf8)) ?? ""
+    let gateBody = sendWait.range(of: "func sessionInputComposerOnlyUnsupported(")
+        .flatMap { start in sendWait.range(of: "\n}\n", range: start.lowerBound ..< sendWait.endIndex)
+            .map { String(sendWait[start.lowerBound ..< $0.upperBound]) } } ?? ""
+    check("…and a build below the flag is refused even when it is the build asking",
+          !gateBody.isEmpty && !gateBody.contains("==") && !gateBody.contains("BuildVersion"))
     // …AND IT REFUSES BEFORE THE WRITE, so an old supervisor never sees the line.
     if let gate = command.range(of: "sessionInputComposerOnlyUnsupported("),
        let write = command.range(of: "try writeSessionInputRequest(") {

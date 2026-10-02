@@ -74,18 +74,13 @@ let sessionInputComposerOnlyExitCode: Int32 = 6
 let sessionInputComposerOnlySince = "0.84.0"
 
 /// Why a `--composer-only` line cannot be queued for a supervisor of this version, or nil when it
-/// can. FAIL-CLOSED: a version that cannot be read is refused, because the one supervisor that
-/// would mis-serve this line is an old one, and "unknown" includes it.
-///
-/// The same build as this CLI is accepted whatever its number, so a development build can address
-/// a session it launched itself; a different build must be at least `sessionInputComposerOnlySince`.
-func sessionInputComposerOnlyUnsupported(supervisorVersion: String?,
-                                          cliVersion: String?) -> String? {
-    if let supervisorVersion {
-        if supervisorVersion == cliVersion { return nil }
-        if supervisorVersion.compare(sessionInputComposerOnlySince, options: .numeric)
-            != .orderedAscending { return nil }
-    }
+/// can: the supervisor must be at least `sessionInputComposerOnlySince`, compared as numbers.
+/// FAIL-CLOSED: a version that cannot be read is refused, because the one supervisor that would
+/// mis-serve this line is an old one, and "unknown" includes it.
+func sessionInputComposerOnlyUnsupported(supervisorVersion: String?) -> String? {
+    if let supervisorVersion,
+       supervisorVersion.compare(sessionInputComposerOnlySince, options: .numeric)
+           != .orderedAscending { return nil }
     let running = supervisorVersion.map { "runs \($0)" } ?? "does not report its version"
     return "this session's supervisor \(running) and cannot honour --composer-only (it arrived "
         + "in \(sessionInputComposerOnlySince)), so it would type the line into an open dialog; "
@@ -241,8 +236,9 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
 
 /// The exit code one run ends on, for the one ending that has an answer to read: 0 it landed, 3 it
 /// was refused with a reason. 6 is the one refusal with a code of its own: a --composer-only line
-/// kept out of a dialog (sessionInputComposerOnlyExitCode). The other two are decided by the run itself - 4 the session is gone,
-/// 1 something here broke - and usage errors are 2, as everywhere else in this binary.
+/// kept out of a dialog (sessionInputComposerOnlyExitCode). The other two are decided by the run
+/// itself - 4 the session is gone, 1 something here broke - and usage errors are 2, as everywhere
+/// else in this binary.
 ///
 /// A QUEUED LINE EXITS 0 WITHOUT A RESULT, which is the one thing this code says that no
 /// `SessionInputResult` can: since 2026-08-18 every caller leaves after a short grace, so "did it

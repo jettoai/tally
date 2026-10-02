@@ -87,9 +87,17 @@ final class HostHealthMonitor {
         // more (`HostHealthReaders.heaviest`).
         if event == .alarm {
             let top = await Task.detached(priority: .utility) { HostHealthReaders.heaviest() }.value
+            // The board's live sessions, read here on the main actor (memory only) and handed to
+            // the background sample, which resolves each culprit to one of them (B-693).
+            let sessions = SessionRosterStore.shared.rows.compactMap { row in
+                pid_t(row.id).map { HostHealthSession(supervisor: $0, child: row.childPid,
+                                                      accountID: row.accountID) }
+            }
             // A load alarm also names what is burning CPU: two seconds of sampling, once per alarm.
             let cpuTop = HostHealthLogic.loadExceeds(reading)
-                ? await Task.detached(priority: .utility) { await HostHealthReaders.busiest() }.value
+                ? await Task.detached(priority: .utility) {
+                    await HostHealthReaders.busiest(sessions: sessions)
+                }.value
                 : nil
             tracker.lastAlarm = HostHealthAlarm(at: now, load1: reading.load1,
                                                 freeBytes: reading.freeBytes, top: top, cpuTop: cpuTop)

@@ -398,7 +398,7 @@ func runKnockChecks() {
            "the banner's body is built out of the phrase the names are repaired in")
     // The CPU sample is the load alarm's, inside the alarm branch like the memory scan.
     if let branch = monitor.range(of: "if event == .alarm {"),
-       let call = monitor.range(of: "HostHealthReaders.busiest()"),
+       let call = monitor.range(of: "HostHealthReaders.busiest("),
        let close = blockEnd(monitor, from: branch.upperBound) {
         expect(branch.upperBound < call.lowerBound && call.upperBound <= close
                 && monitor.contains("HostHealthLogic.loadExceeds(reading)"),

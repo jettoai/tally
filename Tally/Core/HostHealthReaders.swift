@@ -16,7 +16,8 @@ import Foundation
 /// whole process table and asks the kernel for one `rusage_info` record per process, which is
 /// 3.9 ms on the same machine and the same table (mean of five runs, worst 4.4). That is the same
 /// walk the session footprint makes every two seconds while a panel is open, and it is made here
-/// exactly once per alarm, never on a sample that found nothing wrong.
+/// exactly once per alarm, never on a sample that found nothing wrong. `sessionNames` makes the same
+/// walk once more, on the same alarm and only when the board has a session to match against.
 enum HostHealthReaders {
 
     /// The one-minute load average, or nothing when the machine will not say.
@@ -102,11 +103,15 @@ enum HostHealthReaders {
     }
 
     /// The busiest processes by CPU, most first, in share of one core. Two seconds of sampling
-    /// (`CPUAlertReaders.busiest`), made only by a load alarm. Owner: the checkout the working
-    /// directory is in (`CPUAlertLogic.processName`'s walk), else whether the executable is the OS's.
-    static func busiest(_ limit: Int = 3) async -> [HostHealthCPUProcess] {
+    /// (`CPUAlertReaders.busiest`), made only by a load alarm. Owner: the session it runs under
+    /// (`sessionNames`), else the checkout its working directory is in (`CPUAlertLogic.processName`'s
+    /// walk), else whether the executable is the OS's.
+    static func busiest(_ limit: Int = 3, sessions: [HostHealthSession] = []) async
+        -> [HostHealthCPUProcess] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return await CPUAlertReaders.busiest().prefix(limit).map { pid, percent in
+        let ranked = Array(await CPUAlertReaders.busiest().prefix(limit))
+        let named = sessionNames(of: ranked.map(\.pid), sessions: sessions, home: home)
+        return ranked.map { pid, percent in
             let path = ProcessTree.executablePath(of: pid)
             // An empty executable makes the walk answer "" when no checkout encloses the cwd.
             let project = CPUAlertLogic.processName(
@@ -114,7 +119,63 @@ enum HostHealthReaders {
             ) { FileManager.default.fileExists(atPath: $0 + "/.git") }
             return HostHealthCPUProcess(name: path.flatMap(ProcessTree.displayName) ?? "unknown",
                                         percent: percent, project: project.isEmpty ? nil : project,
-                                        system: path.map(hostHealthIsSystemPath) ?? false)
+                                        system: path.map(hostHealthIsSystemPath) ?? false,
+                                        session: named[pid])
         }
+    }
+
+    /// Each pid's session, by the name Claude Code gave it, for the pids that have one.
+    ///
+    /// ONE TABLE WALK FOR ALL OF THEM, and only when there is a session to find: the order of the
+    /// three witnesses is `hostHealthSessionOwner`'s. The environment is read one key at a time
+    /// (`processEnvironmentValue`), never decoded whole, and only for a pid the parent chain could
+    /// not place; the ledger file is read at most once, and only when the marker could not answer.
+    /// A marker naming a supervisor that started AFTER the process is a recycled pid and refused.
+    static func sessionNames(of pids: [pid_t], sessions: [HostHealthSession],
+                             home: String) -> [pid_t: String] {
+        guard !pids.isEmpty, !sessions.isEmpty else { return [:] }
+        var identity: [pid_t: ProcessIdentity] = [:]
+        for one in ProcessTree.liveProcesses() { identity[one.pid] = one }
+        func began(_ pid: pid_t) -> Int64? { identity[pid]?.startedAt }
+        var live: [String: Int64] = [:]
+        for session in sessions {
+            if let at = began(session.supervisor) { live[String(session.supervisor)] = at }
+        }
+        let supervisors = Set(sessions.map(\.supervisor).filter { live[String($0)] != nil })
+        let bySupervisor = Dictionary(sessions.map { ($0.supervisor, $0) },
+                                      uniquingKeysWith: { first, _ in first })
+        var ledger: SessionProcessGroups.Index?
+        func claims() -> SessionProcessGroups.Index {
+            if let ledger { return ledger }
+            let index = SessionProcessGroups.Index(SessionProcessGroups.load())
+            ledger = index
+            return index
+        }
+        var names: [pid_t: String] = [:]
+        for pid in pids {
+            let owner = hostHealthSessionOwner(
+                of: pid, supervisors: supervisors,
+                parent: { identity[$0]?.parent },
+                marker: { candidate in
+                    guard let raw = processEnvironmentValue(ofProcess: Int(candidate),
+                                                            key: hostHealthSupervisorEnvKey),
+                          let marked = pid_t(raw), let markedAt = began(marked),
+                          let at = began(candidate), at >= markedAt else { return nil }
+                    return marked
+                },
+                ledger: { candidate in
+                    guard let process = identity[candidate] else { return nil }
+                    return SessionProcessGroups.claimant(of: process, in: claims(), sessions: live,
+                                                         startedAt: began).flatMap { pid_t($0) }
+                })
+            guard let owner, let session = bySupervisor[owner], let child = session.child,
+                  let configHome = hostHealthClaudeConfigHome(accountID: session.accountID,
+                                                              home: home),
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: configHome)
+                      .appendingPathComponent("sessions/\(child).json")),
+                  let name = hostHealthRegistryName(data, childPid: child) else { continue }
+            names[pid] = name
+        }
+        return names
     }
 }

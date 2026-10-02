@@ -19,6 +19,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/hosthealth/main.swift tests/hosthealth/knockchecks.swift \
-  Tally/Core/HostHealthLogic.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthSessions.swift \
   Tally/Core/KeystrokeText.swift TallyCLI/HostHealthKnockLogic.swift
 "$out"

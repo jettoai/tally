@@ -277,7 +277,7 @@ do {
             + "(system) · can stop, node 104% (geo), llama-server 70%",
            "a load alarm names what burns CPU, and says the free figure is memory")
     expect(hostHealthAlarmTitle(loadOnly, localized: en)
-            == "Host under pressure: ApplicationsStorageExtension",
+            == "Host under pressure: ApplicationsStorageExtension (system)",
            "…and its title carries the first culprit, which a stacked-banner summary still reads")
     tracker.lastAlarm?.freeBytes = gigabyte
     let both = HostHealthLogic.report(tracker, reading: HostHealthReading(
@@ -309,6 +309,74 @@ do {
     let old = #"{"cores":16,"freeBytes":1,"lastAlarm":{"at":"2026-10-02T13:23:45Z","freeBytes":1,"load1":227,"top":[]},"load1":227,"sampledAt":"2026-10-02T13:23:45Z","since":"2026-10-02T13:23:45Z","state":"alarmed"}"#
     expect(decodeHostHealthReport(Data(old.utf8))?.lastAlarm?.cpuTop == nil,
            "a report written before cpuTop still decodes")
+}
+
+// MARK: - 5. Naming the session (B-693, 2026-10-02: `node 104% (geo)` could not say which of three
+// geo sessions was burning it)
+
+do {
+    let inSession = HostHealthCPUProcess(name: "node", percent: 104, project: "geo", system: false,
+                                         session: "geo-12")
+    expect(inSession.owner(system: "system") == "geo-12", "the session outranks the checkout")
+    expect(hostHealthCPUText([inSession], system: "system", stoppable: " · can stop")
+            == "node 104% (geo-12)", "the banner names the session")
+    let unnamedSystem = HostHealthCPUProcess(name: "mds_stores", percent: 90, project: nil,
+                                             system: true, session: nil)
+    expect(unnamedSystem.owner(system: "system") == "system", "no session: system stays system")
+
+    let en: (String) -> String = { $0 }
+    var tracker = HostHealthTracker(state: .alarmed)
+    tracker.lastAlarm = HostHealthAlarm(at: at(0), load1: 227, freeBytes: 25 * gigabyte,
+                                        top: sampleTop, cpuTop: [inSession, unnamedSystem])
+    let report = HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0))
+    expect(hostHealthAlarmTitle(report, localized: en) == "Host under pressure: node (geo-12)",
+           "the title's culprit carries its session")
+    expect(hostHealthLogLine(.alarm, report: report, now: at(0))
+            .contains(" cpu=node[geo-12]:104%,mds_stores[system]:90% "), "…and so does the log")
+    tracker.lastAlarm?.cpuTop = [HostHealthCPUProcess(name: "llama-server", percent: 70,
+                                                      project: nil, system: false)]
+    expect(hostHealthAlarmTitle(HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0)), localized: en)
+            == "Host under pressure: llama-server", "an ownerless culprit: no parentheses")
+
+    // Additive on disk: the field is written when known and absent rows still decode.
+    let encoded = String(decoding: try! JSONEncoder().encode(inSession), as: UTF8.self)
+    expect(encoded.contains(#""session":"geo-12""#), "a known session is written")
+    let older = #"{"name":"node","percent":104,"project":"geo","system":false}"#
+    let decoded = try? JSONDecoder().decode(HostHealthCPUProcess.self, from: Data(older.utf8))
+    expect(decoded != nil && decoded?.session == nil && decoded?.owner(system: "system") == "geo",
+           "a row written before the field decodes and keeps its checkout")
+
+    // The three witnesses, first answer wins.
+    let chain: [Int32: Int32] = [5: 4, 4: 3, 3: 1, 7: 1, 8: 9, 9: 8]
+    func owner(_ pid: Int32, marker: Int32? = nil, ledger: Int32? = nil) -> Int32? {
+        hostHealthSessionOwner(of: pid, supervisors: [3], parent: { chain[$0] },
+                               marker: { _ in marker }, ledger: { _ in ledger })
+    }
+    expect(owner(5, marker: 99, ledger: 99) == 3, "the parent chain answers first")
+    expect(owner(3) == 3, "a supervisor is its own session")
+    expect(owner(7, marker: 3) == 3, "a broken chain falls to the environment marker")
+    expect(owner(7, marker: 9, ledger: 3) == 3, "a marker off the board falls to the ledger")
+    expect(owner(7, marker: 9, ledger: 9) == nil, "no witness on the board: no session")
+    expect(owner(8, marker: 3) == 3, "a looping chain ends and falls to the marker")
+
+    expect(hostHealthClaudeConfigHome(accountID: "claude:.claude5", home: "/h") == "/h/.claude5",
+           "an account names its config home")
+    expect(hostHealthClaudeConfigHome(accountID: "claude:.claude", home: "/h") == "/h/.claude",
+           "…the default one too")
+    for refused in ["codex:.codex", "claude:../x", "claude:.claude/x", "claude:x"] {
+        expect(hostHealthClaudeConfigHome(accountID: refused, home: "/h") == nil,
+               "\(refused) names no config home")
+    }
+    expect(hostHealthClaudeConfigHome(accountID: nil, home: "/h") == nil, "no account, no home")
+
+    let record = Data(#"{"pid":29410,"name":"geo-12","nameSource":"derived"}"#.utf8)
+    expect(hostHealthRegistryName(record, childPid: 29410) == "geo-12", "the registry's name")
+    expect(hostHealthRegistryName(record, childPid: 1) == nil, "…only for the pid it names")
+    expect(hostHealthRegistryName(Data(#"{"pid":29410,"name":""}"#.utf8), childPid: 29410) == nil,
+           "an empty name is no name")
+    expect(hostHealthRegistryName(Data("nope".utf8), childPid: 29410) == nil, "not JSON, no name")
 }
 
 // The knock's half, next door on size (knockchecks.swift): the sentence, what it repairs, when one

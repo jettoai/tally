@@ -69,11 +69,16 @@ struct HostHealthCPUProcess: Codable, Equatable, Sendable {
     var project: String?
     /// Whether its executable is the operating system's own (`hostHealthIsSystemPath`).
     var system: Bool
+    /// The supervised session it runs under, by the name Claude Code gave it (`geo-12`), nil when
+    /// it is in none or the session has no name to read (B-693). Optional and last: a report
+    /// written before it decodes, and one written by this build carries it only when known.
+    var session: String? = nil
 
-    /// Who it belongs to: the checkout, else `system` for an OS executable, else nobody (the name
-    /// already says it). The banner and the log line both name owners by this one rule.
+    /// Who it belongs to: the session, else the checkout, else `system` for an OS executable, else
+    /// nobody (the name already says it). The banner, its title and the log line all name owners by
+    /// this one rule.
     func owner(system label: String) -> String? {
-        project.map(keystrokeStripped) ?? (system ? label : nil)
+        (session ?? project).map(keystrokeStripped) ?? (system ? label : nil)
     }
 }
 
@@ -267,9 +272,10 @@ func hostHealthIsSystemPath(_ path: String) -> Bool {
     return ["/System/", "/usr/", "/bin/", "/sbin/", "/Library/Apple/"].contains { path.hasPrefix($0) }
 }
 
-/// The busiest processes as one phrase: `name 188% (system) · can stop, node 104% (geo)`.
+/// The busiest processes as one phrase: `name 188% (system) · can stop, node 104% (geo-12)`.
 /// `stoppable` carries its own separator, so each language spaces it its own way. The owner
-/// is the checkout, else `system` for an OS executable, else nothing (the name already says it).
+/// is the session, else the checkout, else `system` for an OS executable, else nothing (the name
+/// already says it).
 /// `tag` wraps the owner the way the language wants its parentheses.
 func hostHealthCPUText(_ top: [HostHealthCPUProcess], system: String, stoppable: String,
                        tag: (String) -> String = { " (\($0))" }) -> String {
@@ -307,10 +313,13 @@ func hostHealthAlarmBody(_ report: HostHealthReport,
 /// stack from titles and opening words, so a name left to the body is a name nobody reads
 /// (2026-10-02, a summary of sixteen banners read "load too high; free space low").
 func hostHealthAlarmTitle(_ report: HostHealthReport, localized: (String) -> String) -> String {
-    let first = report.lastAlarm?.cpuTop?.first?.name ?? report.lastAlarm?.top.first?.name
+    let culprit = report.lastAlarm?.cpuTop?.first
+    let first = culprit?.name ?? report.lastAlarm?.top.first?.name
     let name = first.map(keystrokeStripped) ?? ""
-    return name.isEmpty ? localized("Host under pressure")
-        : String(format: localized("Host under pressure: %@"), name)
+    guard !name.isEmpty else { return localized("Host under pressure") }
+    let owner = culprit?.owner(system: localized("system"))
+        .map { String(format: localized(" (%@)"), $0) } ?? ""
+    return String(format: localized("Host under pressure: %@"), name + owner)
 }
 
 /// One line for `~/.tally/logs/host-health.log`.

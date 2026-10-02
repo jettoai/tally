@@ -175,12 +175,10 @@ func chromeRunScan(line: Data, into stream: inout ChromeRunStream) {
 
 /// Takes every complete line out of `buffer`, leaving a partial last line in it. Pure.
 func chromeRunTakeLines(_ buffer: inout Data) -> [Data] {
-    var lines: [Data] = []
-    while let newline = buffer.firstIndex(of: 0x0A) {
-        let line = buffer[buffer.startIndex..<newline]
-        if !line.isEmpty { lines.append(Data(line)) }
-        buffer.removeSubrange(buffer.startIndex...newline)
-    }
+    guard let last = buffer.lastIndex(of: 0x0A) else { return [] }
+    // split drops the empty lines between two newlines; one removal instead of one per line.
+    let lines = buffer[buffer.startIndex..<last].split(separator: 0x0A).map { Data($0) }
+    buffer.removeSubrange(buffer.startIndex...last)
     return lines
 }
 

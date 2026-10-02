@@ -446,5 +446,6 @@ func resolveSessionProject(_ intent: SessionSendIntent, sessions: [SessionProjec
     // THE PROJECT IS SPENT HERE. What travels on is a request that names a pid, so everything
     // downstream (the roster check, the Codex refusal, the one-send-at-a-time address) is asked the
     // same question about it as it is asked about a pid somebody typed.
-    return .addressed(SessionSendIntent(text: intent.text, session: pid, noQueue: intent.noQueue))
+    return .addressed(SessionSendIntent(text: intent.text, session: pid, noQueue: intent.noQueue,
+                                        composerOnly: intent.composerOnly))
 }

@@ -226,4 +226,12 @@ func runSessionProjectChecks() {
                                 sessions: [session(pid: 70_324, dir: real.path, provider: "claude")],
                                 cwd: temp.path)
               == .addressed(SessionSendIntent(text: "hi", session: "70324")))
+    // AND THE FLAGS SURVIVE THE REBUILD: the pid-named intent is a new value, so a field it forgets
+    // to copy is a flag that silently stops working on the --project path.
+    check("--composer-only survives being resolved from a directory",
+          resolveSessionProject(SessionSendIntent(text: "hi", session: nil, project: "./checkout/",
+                                                  provider: nil, composerOnly: true),
+                                sessions: [session(pid: 70_324, dir: real.path, provider: "claude")],
+                                cwd: temp.path)
+              == .addressed(SessionSendIntent(text: "hi", session: "70324", composerOnly: true)))
 }

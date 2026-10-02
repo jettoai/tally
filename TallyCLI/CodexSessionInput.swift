@@ -31,6 +31,8 @@ func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSes
         userTurnAt: observer?.lastUserTurnAt, launchedAt: launchedAt)
     // Reuse the existing queue, expiry, keyboard gate, receipt and audit writer. Unknown and
     // permission-wait readings stay closed; no Claude-specific account or draft action runs.
+    // A composer-only line needs nothing extra here: this relay only types once the observer says
+    // the composer accepts input, and a permission wait never reads as ready.
     return applySessionInput(&input, session: ready ? .idle : (observer?.state == .working ? .working : .unknown),
         quiet: ready ? .quiet : .busy, turnEnded: { false },
         keyboardIdle: terminalReady && keyboard.lastStamp != nil
@@ -41,6 +43,7 @@ func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSes
             ?? (suspected ? "Cannot verify that the Codex composer has no unsent input. "
             + "Submit an actual prompt in that "
             + "Codex session, wait for its turn to finish, then retry." : nil) },
+        composerOnlyDialog: false,
         confirmInput: confirm, dir: dir, log: log, now: now, agents: { _ in nil },
         inject: { text, _ in inject(text) })
 }

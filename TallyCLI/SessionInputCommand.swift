@@ -41,6 +41,11 @@ struct SessionSendIntent: Equatable {
     /// `--no-queue`: a line that is not typed within the wait is withdrawn rather than queued
     /// (`SessionInputRequest.life` says why a caller wants that).
     var noQueue: Bool = false
+    /// `--composer-only`: the line is meant for the composer and for nothing standing in front of
+    /// it. At the instant it would be typed, a session that may have a dialog open (a permission
+    /// request, a plan approval, an open question) refuses it with no byte written rather than
+    /// letting it answer that dialog (`sessionInputComposerOnlyRefusal`).
+    var composerOnly: Bool = false
 }
 
 /// What one command line asks for, or nil when it asks for something this command cannot act on.
@@ -60,16 +65,25 @@ struct SessionSendIntent: Equatable {
 /// with the verb that messages the session these words name (MessageVerb.swift).
 func sessionSendIntent(_ args: [String]) -> SessionSendIntent? {
     var noQueue = false
+    var composerOnly = false
     let parsed = sessionAddressGrammar(args) { word, _, _ in
-        guard word == "--no-queue" else { return nil }
-        guard !noQueue else { return false }
-        noQueue = true
-        return true
+        switch word {
+        case "--no-queue":
+            guard !noQueue else { return false }
+            noQueue = true
+            return true
+        case "--composer-only":
+            guard !composerOnly else { return false }
+            composerOnly = true
+            return true
+        default:
+            return nil
+        }
     }
     guard let parsed else { return nil }
     return SessionSendIntent(text: parsed.word ?? "", session: parsed.address.session,
                              project: parsed.address.project, provider: parsed.address.provider,
-                             noQueue: noQueue)
+                             noQueue: noQueue, composerOnly: composerOnly)
 }
 
 /// Why this cannot be asked for, or nil when it can. Pure, and asked BEFORE anything is written, so
@@ -263,6 +277,19 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
             + "with `tally claude`) and it can be typed into from then on.")
         return 3
     }
+    // A COMPOSER-ONLY LINE NEEDS A SUPERVISOR THAT READS THE FLAG. One that predates it ignores the
+    // unknown key and serves the line as a plain send, which types it into whatever dialog is open:
+    // the one thing this flag exists to rule out. So that skew is a refusal, not a note
+    // (`sessionInputSkewNote` covers the case where the request means the same to both builds).
+    // Read off the session's own state file rather than this environment, so it holds for a
+    // session named by `--session` or `--project` as well as for this one.
+    if intent.composerOnly,
+       let unsupported = sessionInputComposerOnlyUnsupported(
+           supervisorVersion: readSessionState(pid: sessionKey)?.supervisorVersion,
+           cliVersion: supervisorBuildVersion()) {
+        warn(unsupported)
+        return 3
+    }
     // Both husk sweeps, at the only moment this directory grows. The requests are swept by the same
     // loop every per-session channel uses; the answers need their own, because that loop reads a
     // file name as a pid outright (SessionInputRequest.swift).
@@ -313,7 +340,8 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     let request = SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
                                       text: intent.text, waitSeconds: Int(wait),
                                       intent: requestIntent,
-                                      life: intent.noQueue ? Int(life) : nil)
+                                      life: intent.noQueue ? Int(life) : nil,
+                                      composerOnly: intent.composerOnly ? true : nil)
     do {
         try writeSessionInputRequest(request, sessionKey: sessionKey)
     } catch {
@@ -371,7 +399,7 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
 }
 
 let sessionSendUsage = """
-usage: tally session send [<text>] [--session <pid> | --project <dir-or-name> [--provider claude|codex]] [--no-queue]
+usage: tally session send [<text>] [--session <pid> | --project <dir-or-name> [--provider claude|codex]] [--no-queue] [--composer-only]
 
 Types <text> into a supervised session's own terminal and presses Return. Claude supports slash
 commands and permission answers. With no text, Claude presses Return alone to answer the default
@@ -429,6 +457,15 @@ that stayed would hold open the very turn it is waiting for. What became of it i
 if it is not typed within \(Int(sessionInputGraceSeconds))s it is withdrawn rather than queued, so it
 can never land on a later prompt nobody has read. It exits \(sessionInputWithdrawnExitCode) when withdrawn.
 
+--composer-only is for a line meant for the composer and never for a dialog: if, at the moment it
+would be typed, a permission request, a plan approval or an open question may be standing in front
+of the composer (or Claude Code's session registry cannot be read to rule one out), nothing is
+typed, not even Return, and the line is refused. It exits \(sessionInputComposerOnlyExitCode) when
+refused that way within the wait; a queued line refused later is recorded in ~/.tally/logs/input.log
+as `input=refused-dialog`. A session whose supervisor predates the flag is refused before anything
+is queued (exit 3); restart it once. Codex sessions never type into a permission wait, so there the
+flag changes nothing.
+
 For a hand-over clear, use `tally session clear`: same queueing, and it may reopen the session on a
 healthier account instead of typing (nothing here decides anything about accounts).
 
@@ -436,7 +473,8 @@ One send at a time per session: a second one while the first is still queued is 
 replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, for short direct input.
 
 Exit codes: 0 confirmed or queued; 3 refused or unconfirmed (inspect the printed reason before
-retrying); 4 that session has exited; 5 withdrawn untyped (--no-queue); 1 something went wrong.
+retrying); 4 that session has exited; 5 withdrawn untyped (--no-queue); 6 refused untyped because
+a dialog may stand in front of the composer (--composer-only); 1 something went wrong.
 """
 
 /// What a missing or unknown verb is told: the first line of each verb's own text rather than a

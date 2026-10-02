@@ -1032,6 +1032,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // A dialog KNOWN open (the registry included) is typed into key by key, never stashed;
                 // this line may answer it, so it is not handed the automatic writers' hold.
                 draftSuspected: draftSuspected, waitingOnPerson: board.dialogOpen, seen: board.seen,
+                // …and a line sent `--composer-only` is refused on a dialog that MAY be open, an
+                // unreadable registry included: its caller asked never to answer one.
+                composerOnlyDialog: board.dialogPossible,
                 clearBoundary: {
                     windowRepickMove(provider: provider.id, account: account,
                                      primaryModel: effectivePrimary, mode: policy.mode,

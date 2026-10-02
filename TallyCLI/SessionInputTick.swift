@@ -124,11 +124,20 @@ enum SessionInputRepick: Equatable {
 /// (SessionInputDraft.swift carries the 2026-08-20 removal). It has NO DEFAULT, on the terms
 /// `relaunchPlanned` has none: a caller that forgot it would let a preventive move kill the child
 /// holding somebody's prompt and report the line delivered.
+///
+/// `composerOnlyDialog` is whether a dialog MAY be standing in front of the composer this tick
+/// (`SessionTick.dialogPossible`), and it reaches one kind of line only: one sent
+/// `--composer-only`, which is refused rather than typed when it is true. IT DEFAULTS TO TRUE, the
+/// direction `clearBoundary`'s default is chosen in: a caller that forgot it refuses every
+/// composer-only line, which costs a retry, while a default of false would type such a line into
+/// a dialog, which is the one thing the flag exists to prevent. A line without the flag never
+/// reads it.
 @discardableResult
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
                        relaunchPlanned: Bool, draftSuspected: Bool, waitingOnPerson: Bool,
                        seen: SessionInputSeen? = nil, stashComposer: Bool = true, inputRefusal: ((SessionInputRequest) -> String?)? = nil,
+                       composerOnlyDialog: Bool = true,
                        confirmInput: () -> Bool = { true }, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
@@ -182,6 +191,16 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         outcome = refusal
         detail = why
     case .inject(let asked):
+        // BEFORE ANYTHING IS TYPED, the stash keys included: a composer-only line with a dialog
+        // that may be open in front of the composer is consumed with nothing written, and its
+        // caller is told why (`sessionInputComposerOnlyRefusal`). `waitingOnPerson` is this
+        // line's known-open reading and only picks the sentence.
+        if let refusal = sessionInputComposerOnlyRefusal(asked, dialogPossible: composerOnlyDialog,
+                                                         dialogOpen: waitingOnPerson) {
+            outcome = .refusedDialog
+            detail = refusal
+            break
+        }
         if let refusal = inputRefusal?(asked) {
             outcome = .refusedUnsafeInput
             detail = refusal

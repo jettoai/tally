@@ -124,6 +124,17 @@ struct SessionInputRequest: Codable, Equatable {
     /// line for the full life, which is why the command also withdraws the file itself when its
     /// wait ends unanswered (`sessionInputWithdraw`).
     var life: Int?
+    /// WHETHER THIS LINE MAY ONLY REACH A COMPOSER, and nil for every line that did not say so.
+    /// Written only by `tally session send --composer-only`. At the instant the line would be typed,
+    /// a supervisor that reads this refuses it with nothing written if a dialog may be standing in
+    /// front of the composer (`sessionInputComposerOnlyRefusal`), rather than typing it into that
+    /// dialog, where its bytes pick an option and its Return confirms one.
+    ///
+    /// ADDITIVE, BUT NOT SAFE TO DEGRADE, unlike its neighbours: a supervisor that predates it would
+    /// read the line as a plain send and type it into the dialog. So the command refuses to write
+    /// one for such a supervisor (`sessionInputComposerOnlyUnsupported`) instead of relying on it.
+    /// nil, never false, when unset, so a request without the flag encodes byte for byte as before.
+    var composerOnly: Bool?
 }
 
 /// What became of one request, in the vocabulary both ends share.
@@ -157,6 +168,10 @@ enum SessionInputOutcome: String {
     /// Only a request carrying `sessionClearIntent` can ever be answered with it, which is what
     /// keeps this out of a plain send's vocabulary: a CLI old enough to send one cannot receive it.
     case movedAccount = "moved-account"
+    /// A `--composer-only` line reached a session where a dialog may be standing in front of the
+    /// composer, so nothing was typed, not even Return. `detail` says whether the dialog was known
+    /// to be open or could not be ruled out.
+    case refusedDialog = "refused-dialog"
 
     /// Whether this outcome means what the caller asked for happened. Two words rather than one
     /// since 2026-08-18: a line typed and sent, and a window closed by moving the session that was

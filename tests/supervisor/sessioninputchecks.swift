@@ -849,4 +849,95 @@ func runSessionInputChecks() {
                                                                         dir: dir) != nil)
     clearSessionInputRequest(sessionKey: livePid, dir: dir)
     clearSessionInputResult(sessionKey: livePid, dir: dir)
+
+    // MARK: - --composer-only (B-638)
+
+    /// One tick for a composer-only line, recording every injection. `dialog` nil leaves
+    /// `composerOnlyDialog` to its default, which is what the fail-closed check needs.
+    func composerTick(state: SupervisedState = .idle, at offset: TimeInterval = 1,
+                      waitingOnPerson: Bool, dialog: Bool?,
+                      input: inout SessionInputState) -> [String] {
+        var typed: [String] = []
+        let quiet: SessionQuiet = state == .working ? .busy : .quiet
+        let now = t0.addingTimeInterval(offset)
+        if let dialog {
+            applySessionInput(&input, session: state, quiet: quiet, turnEnded: { false },
+                              keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
+                              waitingOnPerson: waitingOnPerson, composerOnlyDialog: dialog,
+                              dir: dir, log: log, now: now) { text, _ in
+                typed.append(text)
+                return .done
+            }
+        } else {
+            applySessionInput(&input, session: state, quiet: quiet, turnEnded: { false },
+                              keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
+                              waitingOnPerson: waitingOnPerson, dir: dir, log: log,
+                              now: now) { text, _ in
+                typed.append(text)
+                return .done
+            }
+        }
+        return typed
+    }
+    func composerOnly(_ text: String) -> SessionInputRequest {
+        var asked = request(text)
+        asked.composerOnly = true
+        return asked
+    }
+
+    var dialogOpen = SessionInputState(sessionKey: "9601", servedEpoch: 0)
+    try? writeSessionInputRequest(composerOnly("x"), sessionKey: "9601", dir: dir)
+    check("a composer-only line meets an open dialog and not one byte is typed",
+          composerTick(waitingOnPerson: true, dialog: true, input: &dialogOpen).isEmpty)
+    let refusedOpen = readSessionInputResult(sessionKey: "9601", dir: dir)
+    check("…it is answered refused-dialog, saying the dialog is open",
+          refusedOpen?.outcome == "refused-dialog"
+              && refusedOpen?.detail?.contains("dialog is open") == true)
+    check("…the request is consumed and the stamp moves, so it is never typed later",
+          readSessionInputRequest(sessionKey: "9601", dir: dir) == nil
+              && dialogOpen.servedEpoch == epoch(0))
+    check("…and the log records the refusal",
+          ((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("input=refused-dialog"))
+    clearSessionInputResult(sessionKey: "9601", dir: dir)
+
+    var unreadable = SessionInputState(sessionKey: "9602", servedEpoch: 0)
+    try? writeSessionInputRequest(composerOnly("x"), sessionKey: "9602", dir: dir)
+    check("an unreadable registry is refused too, with no byte typed",
+          composerTick(waitingOnPerson: false, dialog: true, input: &unreadable).isEmpty
+              && readSessionInputResult(sessionKey: "9602", dir: dir)?.detail?
+                  .contains("cannot be ruled out") == true)
+    clearSessionInputResult(sessionKey: "9602", dir: dir)
+
+    var forgotten = SessionInputState(sessionKey: "9603", servedEpoch: 0)
+    try? writeSessionInputRequest(composerOnly("x"), sessionKey: "9603", dir: dir)
+    check("a caller that does not say whether a dialog may be open refuses the line",
+          composerTick(waitingOnPerson: true, dialog: nil, input: &forgotten).isEmpty
+              && readSessionInputResult(sessionKey: "9603", dir: dir)?.outcome == "refused-dialog")
+    clearSessionInputResult(sessionKey: "9603", dir: dir)
+
+    var composerFree = SessionInputState(sessionKey: "9604", servedEpoch: 0)
+    try? writeSessionInputRequest(composerOnly("x"), sessionKey: "9604", dir: dir)
+    check("with no dialog possible a composer-only line is typed as usual",
+          composerTick(waitingOnPerson: false, dialog: false, input: &composerFree) == ["x"]
+              && readSessionInputResult(sessionKey: "9604", dir: dir)?.outcome == "submitted")
+    clearSessionInputResult(sessionKey: "9604", dir: dir)
+
+    var plainLine = SessionInputState(sessionKey: "9605", servedEpoch: 0)
+    try? writeSessionInputRequest(request("x"), sessionKey: "9605", dir: dir)
+    check("a line without the flag is typed into a dialog exactly as before",
+          composerTick(waitingOnPerson: true, dialog: true, input: &plainLine) == ["x"]
+              && readSessionInputResult(sessionKey: "9605", dir: dir)?.outcome == "submitted")
+    clearSessionInputResult(sessionKey: "9605", dir: dir)
+
+    var queued = SessionInputState(sessionKey: "9606", servedEpoch: 0)
+    try? writeSessionInputRequest(composerOnly("x"), sessionKey: "9606", dir: dir)
+    check("a queued composer-only line waits out the turn untouched",
+          composerTick(state: .working, waitingOnPerson: false, dialog: false, input: &queued)
+              .isEmpty
+              && readSessionInputResult(sessionKey: "9606", dir: dir) == nil)
+    check("…and is refused, not typed, when the turn ends on a dialog",
+          composerTick(state: .blocked, at: 5, waitingOnPerson: true, dialog: true,
+                       input: &queued).isEmpty
+              && readSessionInputResult(sessionKey: "9606", dir: dir)?.outcome == "refused-dialog")
+    clearSessionInputResult(sessionKey: "9606", dir: dir)
 }

@@ -654,9 +654,14 @@ func runDraftStashChecks() {
           [resume, knock, hostKnock, limitReset, wake].allSatisfy {
               arguments(of: $0).contains("waitingOnPerson: board.dialogPossible")
           })
-    check("…and the requested line only the dialogs known to be open",
+    check("…and the requested line only the dialogs known to be open, for its keystrokes",
           arguments(of: requested).contains("waitingOnPerson: board.dialogOpen")
-              && !arguments(of: requested).contains("dialogPossible"))
+              && !arguments(of: requested).contains("waitingOnPerson: board.dialogPossible"))
+    // THE ONE EXCEPTION, and it refuses rather than types: a line sent --composer-only is handed
+    // the dialog that MAY be open, once, under its own name (SessionInputTick.swift).
+    check("…and the may-be-open reading reaches it once, only for a composer-only line",
+          arguments(of: requested).contains("composerOnlyDialog: board.dialogPossible")
+              && arguments(of: requested).components(separatedBy: "dialogPossible").count - 1 == 1)
     // AND EVERY ONE OF THEM IS ACCOUNTED FOR, which is what stops a SIXTH writer joining the loop
     // on a reading nobody looked at: six calls, six arguments. The count moved from four when the
     // session-limit reset joined (2026-09-06), which is the whole point of counting it here - the

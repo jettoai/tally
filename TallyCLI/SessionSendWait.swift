@@ -64,6 +64,50 @@ let sessionInputNoQueueGrace: TimeInterval = 4
 /// from the supervisor (3) nor a session that has gone (4).
 let sessionInputWithdrawnExitCode: Int32 = 5
 
+/// What a `--composer-only` line refused because a dialog may be open exits on: its own code,
+/// because the advice differs from a plain refusal (3). This one usually lifts by itself once the
+/// dialog is answered, so a caller may retry; 3 asks the caller to read the reason first.
+let sessionInputComposerOnlyExitCode: Int32 = 6
+
+/// The first release whose supervisor reads `SessionInputRequest.composerOnly`. Set to the version
+/// this change ships in.
+let sessionInputComposerOnlySince = "0.84.0"
+
+/// Why a `--composer-only` line cannot be queued for a supervisor of this version, or nil when it
+/// can. FAIL-CLOSED: a version that cannot be read is refused, because the one supervisor that
+/// would mis-serve this line is an old one, and "unknown" includes it.
+///
+/// The same build as this CLI is accepted whatever its number, so a development build can address
+/// a session it launched itself; a different build must be at least `sessionInputComposerOnlySince`.
+func sessionInputComposerOnlyUnsupported(supervisorVersion: String?,
+                                          cliVersion: String?) -> String? {
+    if let supervisorVersion {
+        if supervisorVersion == cliVersion { return nil }
+        if supervisorVersion.compare(sessionInputComposerOnlySince, options: .numeric)
+            != .orderedAscending { return nil }
+    }
+    let running = supervisorVersion.map { "runs \($0)" } ?? "does not report its version"
+    return "this session's supervisor \(running) and cannot honour --composer-only (it arrived "
+        + "in \(sessionInputComposerOnlySince)), so it would type the line into an open dialog; "
+        + "nothing was queued. Restart that session once (exit, then launch it again with "
+        + "`tally claude`) and it can be sent to from then on"
+}
+
+/// Why the supervisor refuses a pending line instead of typing it, under `--composer-only`, or
+/// nil when it may be typed. Asked at the instant the line would land, after every shared gate.
+///
+/// `dialogPossible` is `SessionTick.dialogPossible`: a dialog known open OR a registry that cannot
+/// be read. It errs toward refusing, which is this flag's whole promise; `dialogOpen` only picks
+/// the sentence.
+func sessionInputComposerOnlyRefusal(_ request: SessionInputRequest, dialogPossible: Bool,
+                                     dialogOpen: Bool) -> String? {
+    guard request.composerOnly == true, dialogPossible else { return nil }
+    return dialogOpen
+        ? "a dialog is open in front of the composer; nothing was typed (--composer-only)"
+        : "Claude Code's session registry cannot be read, so an open dialog cannot be ruled out; "
+            + "nothing was typed (--composer-only)"
+}
+
 /// Take back an unanswered request, but only the one this caller wrote: true when the file on disk
 /// still carried `epoch` and has been removed. A different epoch, or no file, is left alone and
 /// answers false - the supervisor has already taken the line, and removing somebody else's would
@@ -183,6 +227,9 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
         return "refused: session \(sessionKey) never reached a moment this could be typed at"
             + "\(detail)"
     case .failedTTY: return "failed: the session's terminal refused the write\(detail)"
+    case .refusedDialog:
+        return "refused: a dialog may be standing in front of session \(sessionKey)'s composer, "
+            + "so nothing was typed\(detail)"
     case .movedAccount:
         // A DELIVERY WORDED AS WHAT HAPPENED rather than as "sent": nothing was typed into session
         // \(sessionKey), and a caller told it was would go looking for the line in a conversation
@@ -193,7 +240,8 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
 }
 
 /// The exit code one run ends on, for the one ending that has an answer to read: 0 it landed, 3 it
-/// was refused with a reason. The other two are decided by the run itself - 4 the session is gone,
+/// was refused with a reason. 6 is the one refusal with a code of its own: a --composer-only line
+/// kept out of a dialog (sessionInputComposerOnlyExitCode). The other two are decided by the run itself - 4 the session is gone,
 /// 1 something here broke - and usage errors are 2, as everywhere else in this binary.
 ///
 /// A QUEUED LINE EXITS 0 WITHOUT A RESULT, which is the one thing this code says that no
@@ -203,7 +251,8 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
 /// code of its own was weighed and refused: every caller of this is a hand-over that reads non-zero
 /// as "fall back to doing it by hand", and a queued line is not a failure to fall back from.
 func sessionInputExitCode(_ result: SessionInputResult) -> Int32 {
-    result.delivered ? 0 : 3
+    if result.resolved == .refusedDialog { return sessionInputComposerOnlyExitCode }
+    return result.delivered ? 0 : 3
 }
 
 /// What a caller is told when the supervisor about to read its request is not this build, or nil

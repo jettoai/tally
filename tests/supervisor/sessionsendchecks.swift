@@ -61,6 +61,14 @@ func runSessionSendChecks() {
           sessionSendIntent(["y", "--no-queue", "--session", "9"])
               == SessionSendIntent(text: "y", session: "9", noQueue: true))
     check("…given twice it is a usage error", sessionSendIntent(["--no-queue", "--no-queue"]) == nil)
+    check("--composer-only is a flag, not text",
+          sessionSendIntent(["y", "--composer-only", "--session", "9"])
+              == SessionSendIntent(text: "y", session: "9", composerOnly: true))
+    check("…given twice it is a usage error",
+          sessionSendIntent(["--composer-only", "--composer-only"]) == nil)
+    check("…and it rides with --no-queue, both kept",
+          sessionSendIntent(["y", "--no-queue", "--composer-only"])
+              == SessionSendIntent(text: "y", session: nil, noQueue: true, composerOnly: true))
     check("…and it can be aimed at another session too",
           sessionSendIntent(["--session", "412"]) == SessionSendIntent(text: "", session: "412"))
     // THE FLAG THAT USED TO SAY "AND SEND IT" IS NOT A FLAG ANY MORE, so it is content or an error
@@ -758,17 +766,18 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // Twelve refusals, counted where they are now worded. Eight return 3 here - the
+        // Thirteen refusals, counted where they are now worded. Nine return 3 here - the
         // explicitly named legacy Codex monitor, the directory that names no single session
         // (`--project`, decided before anything else is asked), the session that turns out to be
-        // the provider `tally type <claude|codex>` did NOT name, and the rest - and the four that
+        // the provider `tally type <claude|codex>` did NOT name, a supervisor too old to read
+        // --composer-only, and the rest - and the four that
         // say which session an address names moved to `addressedSessionKey` when `tally message`
         // began taking the same three addresses (SessionAddressing.swift). BOTH HALVES ARE
         // COUNTED, because a refusal that went missing in the move would leave this check passing
         // on a smaller number. A refusal below the write can only be reached after a caller has
         // already been told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 10
+              before.components(separatedBy: "return 3").count == 11
                   && before.contains("return 2")
                   // the one `return 3` below it is the --no-queue line that was taken but never
                   // answered, and that caller was never told its line was queued
@@ -896,4 +905,74 @@ func runSessionSendChecks() {
           made && mode(umasked) == 0o644 && mode(umasked) != sessionInputFileMode)
 
     try? FileManager.default.removeItem(at: dir)
+
+    // MARK: - --composer-only (B-638)
+
+    // THE KEY IS ABSENT UNLESS ASKED FOR, so a request without the flag is the v0.83.0 bytes.
+    let plainBytes = sessionInputData(SessionInputRequest(epoch: 1, text: "x", waitSeconds: 6,
+                                                          intent: nil, life: nil,
+                                                          composerOnly: nil))
+        .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    let flagged = SessionInputRequest(epoch: 1, text: "x", waitSeconds: 6, intent: nil, life: nil,
+                                      composerOnly: true)
+    let flaggedData = sessionInputData(flagged)
+    check("a plain request never carries the composer-only key",
+          !plainBytes.isEmpty && !plainBytes.contains("composerOnly"))
+    check("…a flagged one carries it as true, and reads back the same",
+          flaggedData.flatMap { String(data: $0, encoding: .utf8) }?
+              .contains("\"composerOnly\":true") == true
+              && flaggedData.flatMap { try? JSONDecoder().decode(SessionInputRequest.self,
+                                                                 from: $0) } == flagged)
+    check("…and a request written before the flag existed reads as not asking for it",
+          (try? JSONDecoder().decode(SessionInputRequest.self,
+                                     from: Data(#"{"epoch":1,"text":"x"}"#.utf8)))
+              .map { $0.composerOnly == nil } == true)
+
+    // ITS OWN EXIT CODE, and the sentence says nothing was typed.
+    let dialogRefusal = SessionInputResult(epoch: 1, outcome: "refused-dialog",
+                                           detail: "a dialog is open")
+    check("a line kept out of a dialog exits 6, apart from every other refusal",
+          sessionInputExitCode(dialogRefusal) == 6
+              && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "submitted")) == 0
+              && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "refused-expired")) == 3
+              && !dialogRefusal.delivered)
+    check("…and says nothing was typed, with the reason",
+          sessionInputMessage(dialogRefusal, sessionKey: "9").contains("nothing was typed")
+              && sessionInputMessage(dialogRefusal, sessionKey: "9").contains("a dialog is open"))
+
+    // THE VERSION GATE: fail-closed on unknown, numeric rather than lexical, same build accepted.
+    check("a supervisor that does not report its version cannot take a composer-only line",
+          sessionInputComposerOnlyUnsupported(supervisorVersion: nil, cliVersion: "0.84.0") != nil)
+    check("…nor one older than the flag",
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.83.0", cliVersion: "0.84.0")
+              != nil)
+    check("…while the release that brought it, and any later one, can",
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.84.0", cliVersion: "0.84.0")
+              == nil
+              && sessionInputComposerOnlyUnsupported(supervisorVersion: "0.85.0",
+                                                     cliVersion: "0.84.0") == nil
+              && sessionInputComposerOnlyUnsupported(supervisorVersion: "0.84.0",
+                                                     cliVersion: nil) == nil)
+    check("…compared as numbers, so 0.100.0 is later than 0.84.0",
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.100.0", cliVersion: "0.84.0")
+              == nil)
+    check("…and the same build as this CLI is accepted whatever its number",
+          sessionInputComposerOnlyUnsupported(supervisorVersion: "0.83.0", cliVersion: "0.83.0")
+              == nil)
+    // …AND IT REFUSES BEFORE THE WRITE, so an old supervisor never sees the line.
+    if let gate = command.range(of: "sessionInputComposerOnlyUnsupported("),
+       let write = command.range(of: "try writeSessionInputRequest(") {
+        check("the version gate is asked before the request is written, and refuses with 3",
+              gate.lowerBound < write.lowerBound
+                  && command[gate.upperBound ..< write.lowerBound].contains("return 3"))
+    } else {
+        check("the version gate is asked before the request is written, and refuses with 3", false)
+    }
+    let codexInput = (try? String(contentsOfFile: "TallyCLI/CodexSessionInput.swift",
+                                  encoding: .utf8)) ?? ""
+    check("the Codex relay says outright that no dialog stands in front of its composer",
+          codexInput.contains("composerOnlyDialog: false"))
+    check("usage names the flag and its exit code",
+          sessionSendUsage.contains("[--composer-only]")
+              && sessionSendUsage.contains("6 refused untyped"))
 }

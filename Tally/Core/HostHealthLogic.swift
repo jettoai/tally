@@ -69,6 +69,12 @@ struct HostHealthCPUProcess: Codable, Equatable, Sendable {
     var project: String?
     /// Whether its executable is the operating system's own (`hostHealthIsSystemPath`).
     var system: Bool
+
+    /// Who it belongs to: the checkout, else `system` for an OS executable, else nobody (the name
+    /// already says it). The banner and the log line both name owners by this one rule.
+    func owner(system label: String) -> String? {
+        project.map(keystrokeStripped) ?? (system ? label : nil)
+    }
 }
 
 /// Which side of the line the machine is on.
@@ -269,7 +275,7 @@ func hostHealthCPUText(_ top: [HostHealthCPUProcess], system: String, stoppable:
                        tag: (String) -> String = { " (\($0))" }) -> String {
     top.map { entry in
         let name = keystrokeStripped(entry.name)
-        let owner = entry.project.map(keystrokeStripped) ?? (entry.system ? system : nil)
+        let owner = entry.owner(system: system)
         return "\(name) \(String(format: "%.0f", entry.percent))%"
             + (owner.map(tag) ?? "")
             + (hostHealthStoppable.contains(entry.name) ? stoppable : "")
@@ -286,7 +292,7 @@ func hostHealthAlarmBody(_ report: HostHealthReport,
     let cpu = hostHealthCPUText(alarm?.cpuTop ?? [], system: localized("system"),
                                 stoppable: localized(" · can stop"),
                                 tag: { String(format: localized(" (%@)"), $0) })
-    let named = !cpu.isEmpty ? cpu : !memory.isEmpty ? memory : localized("unknown")
+    let named = [cpu, memory].first { !$0.isEmpty } ?? localized("unknown")
     var body = String(format: localized("load %1$@ (%2$@ cores) · free memory %3$@ GB · top: %4$@"),
                       hostHealthFigure(report.load1), String(report.cores),
                       hostHealthGigabytes(report.freeBytes), named)
@@ -326,8 +332,7 @@ func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
     // CPU before memory: `top=` stays last, where readers of this format already look for it.
     let busy = report.state == .alarmed ? (report.lastAlarm?.cpuTop ?? []) : []
     let cpu = busy.map { entry in
-        let owner = entry.project.map(keystrokeStripped) ?? (entry.system ? "system" : nil)
-        return keystrokeStripped(entry.name) + (owner.map { "[\($0)]" } ?? "")
+        keystrokeStripped(entry.name) + (entry.owner(system: "system").map { "[\($0)]" } ?? "")
             + ":\(String(format: "%.0f", entry.percent))%"
     }
     .joined(separator: ",")

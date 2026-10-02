@@ -33,10 +33,10 @@ enum CPUAlertReaders {
     /// process; `CPUAlertLogic.named` sums entries that share a name.
     static func unattributed(roots: Set<String>, cores: Int) async -> [CPUAlertCulprit] {
         guard cores > 0 else { return [] }
-        let ranked = await busiest().map { ($0.pid, $0.percent / Double(cores)) }
+        let ranked = await busiest().prefix(5)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var out: [CPUAlertCulprit] = []
-        for (pid, share) in ranked.prefix(5) {
+        for (pid, percent) in ranked {
             let dir = MachineLoadRollup.workingDirectory(of: pid)
             if let dir, MachineLoadRollup.project(of: dir, roots: roots) != nil { continue }
             let executable = ProcessTree.executablePath(of: pid)
@@ -44,7 +44,7 @@ enum CPUAlertReaders {
             let name = CPUAlertLogic.processName(cwd: dir, executable: executable, home: home) {
                 FileManager.default.fileExists(atPath: $0 + "/.git")
             }
-            out.append(CPUAlertCulprit(name: name, percent: share))
+            out.append(CPUAlertCulprit(name: name, percent: percent / Double(cores)))
         }
         return out
     }

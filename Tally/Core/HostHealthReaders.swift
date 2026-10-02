@@ -100,4 +100,21 @@ enum HostHealthReaders {
             return HostHealthProcess(name: name, rss: entry.value)
         }
     }
+
+    /// The busiest processes by CPU, most first, in share of one core. Two seconds of sampling
+    /// (`CPUAlertReaders.busiest`), made only by a load alarm. Owner: the checkout the working
+    /// directory is in (`CPUAlertLogic.processName`'s walk), else whether the executable is the OS's.
+    static func busiest(_ limit: Int = 3) async -> [HostHealthCPUProcess] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return await CPUAlertReaders.busiest().prefix(limit).map { pid, percent in
+            let path = ProcessTree.executablePath(of: pid)
+            // An empty executable makes the walk answer "" when no checkout encloses the cwd.
+            let project = CPUAlertLogic.processName(
+                cwd: MachineLoadRollup.workingDirectory(of: pid), executable: "", home: home
+            ) { FileManager.default.fileExists(atPath: $0 + "/.git") }
+            return HostHealthCPUProcess(name: path.flatMap(ProcessTree.displayName) ?? "unknown",
+                                        percent: percent, project: project.isEmpty ? nil : project,
+                                        system: path.map(hostHealthIsSystemPath) ?? false)
+        }
+    }
 }

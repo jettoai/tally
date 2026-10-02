@@ -33,17 +33,7 @@ enum CPUAlertReaders {
     /// process; `CPUAlertLogic.named` sums entries that share a name.
     static func unattributed(roots: Set<String>, cores: Int) async -> [CPUAlertCulprit] {
         guard cores > 0 else { return [] }
-        let pids = ProcessTree.liveProcesses().map(\.pid)
-        let first = ProcessTree.resourceSample(of: pids)
-        try? await Task.sleep(for: .seconds(2))
-        let second = ProcessTree.resourceSample(of: pids)
-        let elapsed = second.at.timeIntervalSince(first.at)
-        guard elapsed > 0 else { return [] }
-        let ranked = second.times.compactMap { pid, now -> (pid_t, Double)? in
-            guard let before = first.times[pid], now >= before else { return nil }
-            return (pid, (now - before) / elapsed * 100 / Double(cores))
-        }
-        .sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 > $1.1 }
+        let ranked = await busiest().map { ($0.pid, $0.percent / Double(cores)) }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var out: [CPUAlertCulprit] = []
         for (pid, share) in ranked.prefix(5) {
@@ -57,5 +47,21 @@ enum CPUAlertReaders {
             out.append(CPUAlertCulprit(name: name, percent: share))
         }
         return out
+    }
+
+    /// Every readable process's own CPU over a two-second window, in share of ONE core (Activity
+    /// Monitor's unit), busiest first, ties on the pid.
+    static func busiest() async -> [(pid: pid_t, percent: Double)] {
+        let pids = ProcessTree.liveProcesses().map(\.pid)
+        let first = ProcessTree.resourceSample(of: pids)
+        try? await Task.sleep(for: .seconds(2))
+        let second = ProcessTree.resourceSample(of: pids)
+        let elapsed = second.at.timeIntervalSince(first.at)
+        guard elapsed > 0 else { return [] }
+        return second.times.compactMap { pid, now -> (pid: pid_t, percent: Double)? in
+            guard let before = first.times[pid], now >= before else { return nil }
+            return (pid, (now - before) / elapsed * 100)
+        }
+        .sorted { $0.percent == $1.percent ? $0.pid < $1.pid : $0.percent > $1.percent }
     }
 }

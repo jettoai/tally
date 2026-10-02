@@ -392,8 +392,20 @@ func runKnockChecks() {
     // THE NOTIFICATION'S OWN BODY CANNOT BE DRIVEN FROM HERE (it is @MainActor, localised and ends in
     // SystemAlert), so what is stated is where it gets its names: the one phrase this suite asserts
     // repairs them.
-    expect(monitor.contains("hostHealthTopText(report.lastAlarm?.top ?? [], unit: \"GB\")"),
+    expect(monitor.contains("hostHealthAlarmBody(report, localized: L)")
+            && source("Tally/Core/HostHealthLogic.swift")
+                .contains("hostHealthTopText(report.lastAlarm?.top ?? [], unit: \"GB\")"),
            "the banner's body is built out of the phrase the names are repaired in")
+    // The CPU sample is the load alarm's, inside the alarm branch like the memory scan.
+    if let branch = monitor.range(of: "if event == .alarm {"),
+       let call = monitor.range(of: "HostHealthReaders.busiest()"),
+       let close = blockEnd(monitor, from: branch.upperBound) {
+        expect(branch.upperBound < call.lowerBound && call.upperBound <= close
+                && monitor.contains("HostHealthLogic.loadExceeds(reading)"),
+               "the CPU sample is taken only by a load alarm")
+    } else {
+        expect(false, "the CPU sample is taken only by a load alarm")
+    }
 
     // THE STATION SPEAKS LAST AND THROUGH THE EXISTING DOOR. Placed after the quota knock, told what
     // that knock typed, and holding entirely when a filed sentence is still sitting unread.

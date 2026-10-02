@@ -106,15 +106,18 @@ final class CPUAlertMonitor {
             hasShares = false
         }
         let percent = String(Int(busy.rounded()))
+        // The first name rides in the title too: macOS summarises stacked banners from titles.
+        let first = shares.first?.name
         let title: String
         let body: String
         if event == .handover {
-            title = L("CPU still running hot")
+            title = first.map { String(format: L("CPU still running hot: %@"), $0) }
+                ?? L("CPU still running hot")
             body = hasShares
                 ? String(format: L("CPU %1$@%% · now mostly %2$@"), percent, names)
                 : String(format: L("CPU %1$@%% · no single cause: %2$@"), percent, names)
         } else {
-            title = L("CPU running hot")
+            title = first.map { String(format: L("CPU running hot: %@"), $0) } ?? L("CPU running hot")
             body = hasShares
                 ? String(format: L("CPU %1$@%% for %2$@ seconds · mostly %3$@"), percent, String(held), names)
                 : String(format: L("CPU %1$@%% for %2$@ seconds · no single cause: %3$@"),

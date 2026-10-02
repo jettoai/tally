@@ -53,6 +53,22 @@ struct HostHealthAlarm: Codable, Equatable, Sendable {
     /// The three biggest memory holders, most first, read once at this instant and never again
     /// (`HostHealthReaders.heaviest` states what that costs and why it is affordable only here).
     var top: [HostHealthProcess]
+    /// The three busiest processes by CPU, most first, read only when the LOAD witness raised the
+    /// alarm (a memory-only alarm leaves it absent). Added 2026-10-02: a load-227 alarm listed the
+    /// memory holders while a stuck system scan burning 188% was the cause, and nobody could tell.
+    var cpuTop: [HostHealthCPUProcess]? = nil
+}
+
+/// One process named in a load alarm, by what it is burning.
+struct HostHealthCPUProcess: Codable, Equatable, Sendable {
+    /// The executable's display name, never an argument (the `HostHealthProcess` rule).
+    var name: String
+    /// Share of ONE core, Activity Monitor's unit: a process on two full cores reads 200.
+    var percent: Double
+    /// The checkout its working directory is in, nil when it is in none or cannot be read.
+    var project: String?
+    /// Whether its executable is the operating system's own (`hostHealthIsSystemPath`).
+    var system: Bool
 }
 
 /// Which side of the line the machine is on.
@@ -157,8 +173,12 @@ enum HostHealthLogic {
     /// unreadable core count must not put every machine into alarm. The memory witness is
     /// unaffected and still answers.
     static func exceeds(_ reading: HostHealthReading) -> Bool {
-        if reading.cores > 0, reading.load1 >= loadLimit(cores: reading.cores) { return true }
-        return reading.freeBytes < minimumFreeBytes
+        loadExceeds(reading) || reading.freeBytes < minimumFreeBytes
+    }
+
+    /// The load witness on its own, which is what decides whether an alarm is worth a CPU sample.
+    static func loadExceeds(_ reading: HostHealthReading) -> Bool {
+        reading.cores > 0 && reading.load1 >= loadLimit(cores: reading.cores)
     }
 
     /// Fold one sample into the watch, returning the next state and what it asks the caller to do.
@@ -229,6 +249,64 @@ func hostHealthTopText(_ top: [HostHealthProcess], unit: String) -> String {
         .joined(separator: ", ")
 }
 
+/// Programs a person can quit without losing anything, which an alarm marks as such. Only names with
+/// a measured incident behind them: `ApplicationsStorageExtension` is System Settings' Storage pane
+/// scanning app sizes, stuck for 1h31m at 188% CPU on 2026-10-02 and gone the moment the pane closed.
+let hostHealthStoppable: Set<String> = ["ApplicationsStorageExtension"]
+
+/// Whether an executable belongs to the operating system rather than to the person, which is the
+/// only case an alarm may call a process "system". `/usr/local` is Homebrew's and the person's.
+func hostHealthIsSystemPath(_ path: String) -> Bool {
+    if path.hasPrefix("/usr/local/") { return false }
+    return ["/System/", "/usr/", "/bin/", "/sbin/", "/Library/Apple/"].contains { path.hasPrefix($0) }
+}
+
+/// The busiest processes as one phrase: `name 188% (system) · can stop, node 104% (geo)`.
+/// `stoppable` carries its own separator, so each language spaces it its own way. The owner
+/// is the checkout, else `system` for an OS executable, else nothing (the name already says it).
+/// `tag` wraps the owner the way the language wants its parentheses.
+func hostHealthCPUText(_ top: [HostHealthCPUProcess], system: String, stoppable: String,
+                       tag: (String) -> String = { " (\($0))" }) -> String {
+    top.map { entry in
+        let name = keystrokeStripped(entry.name)
+        let owner = entry.project.map(keystrokeStripped) ?? (entry.system ? system : nil)
+        return "\(name) \(String(format: "%.0f", entry.percent))%"
+            + (owner.map(tag) ?? "")
+            + (hostHealthStoppable.contains(entry.name) ? stoppable : "")
+    }
+    .joined(separator: ", ")
+}
+
+/// The banner's body. `localized` is the app's `L`, handed in so this stays pure. A load alarm names
+/// what is burning CPU; a memory alarm names what holds memory; both at once gets a second line.
+func hostHealthAlarmBody(_ report: HostHealthReport,
+                         localized: (String) -> String) -> String {
+    let alarm = report.lastAlarm
+    let memory = hostHealthTopText(report.lastAlarm?.top ?? [], unit: "GB")
+    let cpu = hostHealthCPUText(alarm?.cpuTop ?? [], system: localized("system"),
+                                stoppable: localized(" · can stop"),
+                                tag: { String(format: localized(" (%@)"), $0) })
+    let named = !cpu.isEmpty ? cpu : !memory.isEmpty ? memory : localized("unknown")
+    var body = String(format: localized("load %1$@ (%2$@ cores) · free memory %3$@ GB · top: %4$@"),
+                      hostHealthFigure(report.load1), String(report.cores),
+                      hostHealthGigabytes(report.freeBytes), named)
+    if !cpu.isEmpty, !memory.isEmpty,
+       (alarm?.freeBytes ?? .max) < HostHealthLogic.minimumFreeBytes {
+        body += "\n" + String(format: localized("memory: %@"), memory)
+    }
+    return body
+}
+
+/// The banner's title, carrying the first culprit: macOS stacks Tally's banners and summarises the
+/// stack from titles and opening words, so a name left to the body is a name nobody reads
+/// (2026-10-02, a summary of sixteen banners read "load too high; free space low").
+func hostHealthAlarmTitle(_ report: HostHealthReport, localized: (String) -> String) -> String {
+    let first = report.lastAlarm?.cpuTop?.first?.name ?? report.lastAlarm?.top.first?.name
+    let name = first.map(keystrokeStripped) ?? ""
+    return name.isEmpty ? localized("Host under pressure")
+        : String(format: localized("Host under pressure: %@"), name)
+}
+
 /// One line for `~/.tally/logs/host-health.log`.
 ///
 /// THE SAME SHAPE AS `~/.tally/logs/input.log`: an ISO instant, then fixed-offset `key=value`
@@ -245,9 +323,18 @@ func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
     let top = report.state == .alarmed ? (report.lastAlarm?.top ?? []) : []
     let names = top.map { "\(keystrokeStripped($0.name)):\(hostHealthGigabytes($0.rss))G" }
         .joined(separator: ",")
+    // CPU before memory: `top=` stays last, where readers of this format already look for it.
+    let busy = report.state == .alarmed ? (report.lastAlarm?.cpuTop ?? []) : []
+    let cpu = busy.map { entry in
+        let owner = entry.project.map(keystrokeStripped) ?? (entry.system ? "system" : nil)
+        return keystrokeStripped(entry.name) + (owner.map { "[\($0)]" } ?? "")
+            + ":\(String(format: "%.0f", entry.percent))%"
+    }
+    .joined(separator: ",")
     return "\(ISO8601DateFormatter().string(from: now)) host-health=\(event.rawValue) "
         + "load=\(hostHealthFigure(report.load1)) cores=\(report.cores) "
         + "free=\(hostHealthGigabytes(report.freeBytes))G"
+        + (cpu.isEmpty ? "" : " cpu=\(cpu)")
         + (names.isEmpty ? "\n" : " top=\(names)\n")
 }
 

@@ -87,8 +87,12 @@ final class HostHealthMonitor {
         // more (`HostHealthReaders.heaviest`).
         if event == .alarm {
             let top = await Task.detached(priority: .utility) { HostHealthReaders.heaviest() }.value
+            // A load alarm also names what is burning CPU: two seconds of sampling, once per alarm.
+            let cpuTop = HostHealthLogic.loadExceeds(reading)
+                ? await Task.detached(priority: .utility) { await HostHealthReaders.busiest() }.value
+                : nil
             tracker.lastAlarm = HostHealthAlarm(at: now, load1: reading.load1,
-                                                freeBytes: reading.freeBytes, top: top)
+                                                freeBytes: reading.freeBytes, top: top, cpuTop: cpuTop)
         }
         let report = HostHealthLogic.report(tracker, reading: reading, at: now)
         let line = event.map { hostHealthLogLine($0, report: report, now: now) }
@@ -144,12 +148,8 @@ final class HostHealthMonitor {
     /// re-arms on its own as soon as the machine recovers and crosses again, so a refused one comes
     /// back around without any bookkeeping.
     private func post(_ report: HostHealthReport) {
-        let top = hostHealthTopText(report.lastAlarm?.top ?? [], unit: "GB")
-        let body = String(format: L("load %1$@ (%2$@ cores) · free %3$@ GB · top: %4$@"),
-                          hostHealthFigure(report.load1), String(report.cores),
-                          hostHealthGigabytes(report.freeBytes),
-                          top.isEmpty ? L("unknown") : top)
-        let title = L("Host under pressure")
+        let body = hostHealthAlarmBody(report, localized: L)
+        let title = hostHealthAlarmTitle(report, localized: L)
         Task { _ = await SystemAlert.post(title: title, body: body) }
     }
 }

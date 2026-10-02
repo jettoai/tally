@@ -385,7 +385,8 @@ do {
     let data = (try? Data(contentsOf: URL(fileURLWithPath: "Tally/Resources/Localizable.xcstrings"))) ?? Data()
     let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     let strings = root?["strings"] as? [String: Any] ?? [:]
-    let keys = ["CPU running hot", "CPU still running hot",
+    let keys = ["CPU running hot", "CPU still running hot", "CPU running hot: %@",
+                "CPU still running hot: %@",
                 "CPU %1$@%% for %2$@ seconds · mostly %3$@", "CPU %1$@%% · now mostly %2$@",
                 "CPU %1$@%% for %2$@ seconds · no single cause: %3$@",
                 "CPU %1$@%% · no single cause: %2$@", "%1$@ (%2$@%% of the machine)", ", ",

@@ -239,6 +239,78 @@ do {
     expect(hostHealthTopText([], unit: "GB").isEmpty, "an empty scan produces no phrase")
 }
 
+// MARK: - 4. Naming the CPU culprit (2026-10-02: a load-227 banner listed memory holders while a
+// stuck System Settings scan at 188% was the cause)
+
+do {
+    let culprits = [
+        HostHealthCPUProcess(name: "ApplicationsStorageExtension", percent: 188.4, project: nil,
+                             system: true),
+        HostHealthCPUProcess(name: "node", percent: 104, project: "geo", system: false),
+        HostHealthCPUProcess(name: "llama-server", percent: 70, project: nil, system: false)]
+    expect(hostHealthCPUText(culprits, system: "system", stoppable: " · can stop")
+            == "ApplicationsStorageExtension 188% (system) · can stop, node 104% (geo), llama-server 70%",
+           "one-core percent, checkout or system owner, the stoppable mark, nothing for the rest")
+    expect(hostHealthCPUText(culprits, system: "系統", stoppable: "・可停", tag: { "（\($0)）" })
+            .hasPrefix("ApplicationsStorageExtension 188%（系統）・可停, "),
+           "…with the language's own parentheses")
+
+    // System only for the OS's own executables; Homebrew and the person's programs are not.
+    for path in ["/System/Library/PrivateFrameworks/X.framework/ApplicationsStorageExtension",
+                 "/usr/libexec/mds_stores", "/usr/sbin/cfprefsd", "/Library/Apple/usr/bin/x"] {
+        expect(hostHealthIsSystemPath(path), "\(path) is the system's")
+    }
+    for path in ["/usr/local/bin/llama-server", "/opt/homebrew/bin/node",
+                 "/Applications/Tally.app/Contents/MacOS/Tally", "/Users/me/bin/tool"] {
+        expect(!hostHealthIsSystemPath(path), "\(path) is not the system's")
+    }
+
+    // The banner: the CPU list and "free memory" for a load alarm, alone or beside the memory list.
+    let en: (String) -> String = { $0 }
+    var tracker = HostHealthTracker(state: .alarmed)
+    tracker.lastAlarm = HostHealthAlarm(at: at(0), load1: 227, freeBytes: 25 * gigabyte,
+                                        top: sampleTop, cpuTop: culprits)
+    let loadOnly = HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0))
+    expect(hostHealthAlarmBody(loadOnly, localized: en)
+            == "load 227 (16 cores) · free memory 25 GB · top: ApplicationsStorageExtension 188% "
+            + "(system) · can stop, node 104% (geo), llama-server 70%",
+           "a load alarm names what burns CPU, and says the free figure is memory")
+    expect(hostHealthAlarmTitle(loadOnly, localized: en)
+            == "Host under pressure: ApplicationsStorageExtension",
+           "…and its title carries the first culprit, which a stacked-banner summary still reads")
+    tracker.lastAlarm?.freeBytes = gigabyte
+    let both = HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 227, cores: 16, freeBytes: gigabyte), at: at(0))
+    expect(hostHealthAlarmBody(both, localized: en).hasSuffix(
+            "\nmemory: node 15GB, qemu 6.2GB, Google Chrome 4.1GB"),
+           "both witnesses: the memory holders get a second line")
+    tracker.lastAlarm?.cpuTop = nil
+    let memoryOnly = HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 2, cores: 16, freeBytes: gigabyte), at: at(0))
+    expect(hostHealthAlarmBody(memoryOnly, localized: en)
+            == "load 2.0 (16 cores) · free memory 1.0 GB · top: node 15GB, qemu 6.2GB, Google Chrome 4.1GB",
+           "a memory alarm names the memory holders as before")
+    expect(hostHealthAlarmTitle(memoryOnly, localized: en) == "Host under pressure: node",
+           "…and titles the biggest one")
+    tracker.lastAlarm?.top = []
+    expect(hostHealthAlarmTitle(HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 2, cores: 16, freeBytes: gigabyte), at: at(0)), localized: en) == "Host under pressure",
+           "no name, the plain title")
+
+    // The log keeps `top=` last and adds `cpu=` before it; an older report without the field still
+    // decodes (the document is additive for ever).
+    tracker.lastAlarm = HostHealthAlarm(at: at(0), load1: 227, freeBytes: 25 * gigabyte,
+                                        top: sampleTop, cpuTop: culprits)
+    let line = hostHealthLogLine(.alarm, report: HostHealthLogic.report(tracker, reading:
+        HostHealthReading(load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0)), now: at(0))
+    expect(line.contains(" free=25G cpu=ApplicationsStorageExtension[system]:188%,node[geo]:104%,"
+                         + "llama-server:70% top=node:15G,"), "the log line gains cpu= before top=")
+    let old = #"{"cores":16,"freeBytes":1,"lastAlarm":{"at":"2026-10-02T13:23:45Z","freeBytes":1,"load1":227,"top":[]},"load1":227,"sampledAt":"2026-10-02T13:23:45Z","since":"2026-10-02T13:23:45Z","state":"alarmed"}"#
+    expect(decodeHostHealthReport(Data(old.utf8))?.lastAlarm?.cpuTop == nil,
+           "a report written before cpuTop still decodes")
+}
+
 // The knock's half, next door on size (knockchecks.swift): the sentence, what it repairs, when one
 // is owed, and the structural promises a pure harness cannot drive.
 runKnockChecks()

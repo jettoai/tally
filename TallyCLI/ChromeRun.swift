@@ -19,12 +19,19 @@ import Foundation
 //   - CLAUDE_CHROME_PERMISSION_MODE=skip_all_permission_checks and `--allowedTools` for the Chrome
 //     tools: nobody is there to answer a prompt.
 //   - stdin is /dev/null: `-p` would otherwise wait on a pipe nobody writes.
+//   - `--output-format stream-json --verbose`: Tally reads the run line by line, so a run that is
+//     stopped (timeout, max_turns) still tells which tabs it opened; the last `result` line is the
+//     same object `--output-format json` printed, and stdout.json keeps exactly that (B-468).
+//     After the run, the tabs it opened and did not close are closed over AppleScript; a tab that
+//     was open before the run started is never closed.
 
 /// The model a run uses. A Chrome step is navigation and reading; the default model cost $1.61 for
 /// one twelve-turn probe.
 let chromeRunModel = "sonnet"
-/// Room for "load the Chrome tools, call them, answer" plus a few page steps (the probe used 12).
-let chromeRunMaxTurns = 12
+/// Room for "load the Chrome tools, call them, answer" plus a few page steps (the probe used 12),
+/// and two more for closing the tabs the run opened before it answers (B-468: 19 of 88 runs ended
+/// on max_turns with their tabs still open).
+let chromeRunMaxTurns = 14
 /// How long a run may take before it is stopped and reported as timed out.
 let chromeRunTimeout: TimeInterval = 600
 /// Set on every run, so a run that tries `tally chrome run` itself is refused.
@@ -45,7 +52,9 @@ let chromeRunUsage = "usage: tally chrome run <task> | --file <task file>"
 func chromeRunPrompt(task: String) -> String {
     "You are doing one Claude in Chrome step for another Claude Code session, which reads your final"
         + " reply. Use only the Claude in Chrome tools. Save every screenshot you take to disk and list"
-        + " each saved path in your final reply. End with the result the task asks for.\n\nTask:\n\n"
+        + " each saved path in your final reply. Each time you open a tab, note its tab id; before"
+        + " your final reply, close every tab you opened with tabs_close_mcp."
+        + " End with the result the task asks for.\n\nTask:\n\n"
         + task
 }
 
@@ -55,7 +64,7 @@ func chromeRunArguments(task: String) -> [String] {
      "--chrome",
      "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
      "--allowedTools", "mcp__claude-in-chrome__*",
-     "--output-format", "json",
+     "--output-format", "stream-json", "--verbose",
      "--max-turns", String(chromeRunMaxTurns),
      "--no-session-persistence",
      "--settings", "{\"disableAllHooks\":true}",
@@ -117,6 +126,162 @@ struct ChromeRunOutcome: Equatable {
     var text: String
 }
 
+/// What a run's stream said so far: the tab ids its tool results named, the ones it closed, and its
+/// final `result` object (the line `--output-format json` would have printed alone). B-468.
+struct ChromeRunStream: Equatable {
+    var seen: Set<Int> = []
+    var closed: Set<Int> = []
+    var result: Data?
+    /// The tabs the run left open, as far as its own tool results tell.
+    var leftOpen: Set<Int> { seen.subtracting(closed) }
+}
+
+/// The forms Claude in Chrome names a tab in, measured on 2026-10-02 in real tool results:
+/// `Created new tab. Tab ID: N`, `"tabId":N` (tabs_context JSON), `• tabId N:` and
+/// `Executed on tabId: N` (the Tab Context block). Closing says `Closed tab N.`
+private let chromeRunTabNamed = try! NSRegularExpression(
+    pattern: #"(?:Tab ID: |"tabId": ?|\btabId:? )(\d{4,})"#)
+private let chromeRunTabClosed = try! NSRegularExpression(pattern: #"\bClosed tab (\d{4,})"#)
+
+private func chromeRunIDs(_ regex: NSRegularExpression, in text: String) -> [Int] {
+    let range = NSRange(text.startIndex..., in: text)
+    return regex.matches(in: text, range: range).compactMap {
+        Range($0.range(at: 1), in: text).flatMap { Int(text[$0]) }
+    }
+}
+
+/// The text of every tool result in one stream line (`type: user`). Only tool results count: a tab
+/// id the model wrote or a page showed is not proof the run opened that tab.
+func chromeRunToolResultTexts(_ object: [String: Any]) -> [String] {
+    guard object["type"] as? String == "user",
+          let message = object["message"] as? [String: Any],
+          let blocks = message["content"] as? [[String: Any]] else { return [] }
+    return blocks.filter { $0["type"] as? String == "tool_result" }.flatMap { block -> [String] in
+        if let text = block["content"] as? String { return [text] }
+        let parts = block["content"] as? [[String: Any]] ?? []
+        return parts.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
+    }
+}
+
+/// Folds one complete line of the stream into what is known. Pure.
+func chromeRunScan(line: Data, into stream: inout ChromeRunStream) {
+    guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
+    if object["type"] as? String == "result" { stream.result = line; return }
+    for text in chromeRunToolResultTexts(object) {
+        stream.seen.formUnion(chromeRunIDs(chromeRunTabNamed, in: text))
+        stream.closed.formUnion(chromeRunIDs(chromeRunTabClosed, in: text))
+    }
+}
+
+/// Takes every complete line out of `buffer`, leaving a partial last line in it. Pure.
+func chromeRunTakeLines(_ buffer: inout Data) -> [Data] {
+    var lines: [Data] = []
+    while let newline = buffer.firstIndex(of: 0x0A) {
+        let line = buffer[buffer.startIndex..<newline]
+        if !line.isEmpty { lines.append(Data(line)) }
+        buffer.removeSubrange(buffer.startIndex...newline)
+    }
+    return lines
+}
+
+/// Which tabs to close: the ones the run's tool results named and did not close, minus every tab
+/// that was already open before the run started (a second, independent proof the tab is not the
+/// user's). With no list from before the run (`nil`) that second proof is missing, so nothing is
+/// closed. Pure.
+func chromeRunTabsToClose(_ stream: ChromeRunStream, before: Set<Int>?) -> [Int] {
+    guard let before else { return [] }
+    return stream.leftOpen.subtracting(before).sorted()
+}
+
+/// Lists every tab id; returns "" without starting Chrome when it is not running. The ids are
+/// joined with commas: inside `tell application "Google Chrome"` the word `tab` is Chrome's tab
+/// class, not the tab character.
+let chromeListTabsScript = """
+if application "Google Chrome" is not running then return ""
+set out to ""
+tell application "Google Chrome"
+    repeat with w in windows
+        repeat with t in tabs of w
+            set out to out & (id of t as text) & ","
+        end repeat
+    end repeat
+end tell
+return out
+"""
+
+/// Closes exactly the given tab ids, wherever they are, and returns how many it closed. The ids are
+/// written into the script as numbers (they are Ints, so nothing else can reach the source); a tab
+/// that is already gone is skipped. Never starts Chrome. Pure.
+func chromeCloseTabsScript(ids: [Int]) -> String {
+    var lines = ["if application \"Google Chrome\" is not running then return \"0\"",
+                 "set closedCount to 0",
+                 "tell application \"Google Chrome\""]
+    for id in ids {
+        lines += ["    repeat with w in windows",
+                  "        try",
+                  "            set hits to (tabs of w whose id is \(id))",
+                  "            if (count of hits) > 0 then",
+                  "                close (tabs of w whose id is \(id))",
+                  "                set closedCount to closedCount + (count of hits)",
+                  "            end if",
+                  "        end try",
+                  "    end repeat"]
+    }
+    lines += ["end tell", "return closedCount as text"]
+    return lines.joined(separator: "\n")
+}
+
+/// Runs one AppleScript with a deadline and stdin on /dev/null; nil when it failed, timed out or
+/// could not start. The first run may stop on macOS asking whether this terminal may control
+/// Google Chrome, so a timeout is just "could not close".
+func chromeRunAppleScript(_ source: String, timeout: TimeInterval = 15) -> String? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = ["-e", source]
+    process.standardInput = FileHandle.nullDevice
+    let out = Pipe()
+    process.standardOutput = out
+    process.standardError = FileHandle.nullDevice
+    let done = DispatchSemaphore(value: 0)
+    process.terminationHandler = { _ in done.signal() }
+    guard (try? process.run()) != nil else { return nil }
+    if done.wait(timeout: .now() + timeout) == .timedOut {
+        process.terminate()
+        _ = done.wait(timeout: .now() + 2)
+        return nil
+    }
+    guard process.terminationStatus == 0 else { return nil }
+    // The output is a short list of numbers, far below a pipe's buffer, so reading after exit is safe.
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+/// Every open tab id; [] when Chrome is not running (no tab is open), nil when the script failed or
+/// timed out (the tabs are unknown, which is not the same as none).
+func chromeListTabIDs() -> Set<Int>? {
+    chromeRunAppleScript(chromeListTabsScript).map { Set($0.split(separator: ",").compactMap { Int($0) }) }
+}
+
+/// The `tabs:` line of the result file. Pure.
+func chromeRunTabsLine(leftOpen: Int, closed: Int?, listedBefore: Bool = true) -> String {
+    if leftOpen == 0 { return "none left open" }
+    guard listedBefore else { return "\(leftOpen) left open (could not list tabs before the run)" }
+    guard let closed else { return "\(leftOpen) left open (could not close them)" }
+    return closed == leftOpen ? "closed \(closed) the run left open"
+        : "closed \(closed) of \(leftOpen) the run left open"
+}
+
+/// The stream as the reader thread builds it; the main thread takes a copy under the lock.
+private final class ChromeRunStreamBox: @unchecked Sendable {
+    let lock = NSLock()
+    var value = ChromeRunStream()
+    func scan(_ lines: [Data]) {
+        lock.lock(); defer { lock.unlock() }
+        for line in lines { chromeRunScan(line: line, into: &value) }
+    }
+    var snapshot: ChromeRunStream { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 /// What the run answered, from its stdout (`--output-format json`: one object with `result`,
 /// `is_error`, `subtype`). Pure.
 func chromeRunOutcome(stdout: Data, exitCode: Int32, timedOut: Bool) -> ChromeRunOutcome {
@@ -136,9 +301,10 @@ func chromeRunOutcome(stdout: Data, exitCode: Int32, timedOut: Bool) -> ChromeRu
 
 /// The result file: status first, then the run's whole answer, then its raw output.
 func chromeRunResultDocument(account: String, outcome: ChromeRunOutcome, raw: String,
-                             rawPath: String, errorPath: String) -> String {
+                             rawPath: String, errorPath: String, tabs: String? = nil) -> String {
     let answer = outcome.text.isEmpty ? "(no answer; see the raw output and \(errorPath))" : outcome.text
-    return "# Claude in Chrome run\n\naccount: \(account)\nstatus: \(outcome.status)\n"
+    let tabsLine = tabs.map { "tabs: \($0)\n" } ?? ""
+    return "# Claude in Chrome run\n\naccount: \(account)\nstatus: \(outcome.status)\n" + tabsLine
         + "raw output: \(rawPath)\nstderr: \(errorPath)\n\n## Answer\n\n\(answer)\n\n"
         + "## Raw output\n\n```json\n\(raw)\n```\n"
 }
@@ -184,29 +350,54 @@ func runChromeRun(args: [String],
         warn("tally chrome run: cannot create \(dir.path)."); return 2
     }
     let rawURL = dir.appendingPathComponent("stdout.json")
+    let streamURL = dir.appendingPathComponent("stream.jsonl")
     let errorURL = dir.appendingPathComponent("stderr.log")
     let resultURL = dir.appendingPathComponent("result.md")
     try? task.write(to: dir.appendingPathComponent("task.md"), atomically: true, encoding: .utf8)
-    manager.createFile(atPath: rawURL.path, contents: nil)
+    manager.createFile(atPath: streamURL.path, contents: nil)
     manager.createFile(atPath: errorURL.path, contents: nil)
-    guard let rawHandle = try? FileHandle(forWritingTo: rawURL),
+    guard let streamHandle = try? FileHandle(forWritingTo: streamURL),
           let errorHandle = try? FileHandle(forWritingTo: errorURL) else {
         warn("tally chrome run: cannot write in \(dir.path)."); return 2
     }
+    // Tabs open before the run are never closed by it, whatever its output says.
+    let tabsBefore = chromeListTabIDs()
+    let output = Pipe()
     let process = Process()
     process.executableURL = URL(fileURLWithPath: program)
     process.arguments = chromeRunArguments(task: task)
     process.environment = chromeRunEnvironment(environment, home: home)
     process.currentDirectoryURL = cwd
     process.standardInput = FileHandle.nullDevice
-    process.standardOutput = rawHandle
+    process.standardOutput = output
     process.standardError = errorHandle
     let done = DispatchSemaphore(value: 0)
     process.terminationHandler = { _ in done.signal() }
+    let stream = ChromeRunStreamBox()
+    let readerDone = DispatchSemaphore(value: 0)
     var timedOut = false
     var outcome: ChromeRunOutcome?
     do {
         try process.run()
+        // Only the child keeps the write end, so the read below ends when the run ends.
+        try? output.fileHandleForWriting.close()
+        let fd = output.fileHandleForReading.fileDescriptor
+        Thread.detachNewThread {
+            // One reader, plain read(2): no buffered reader mixed with polling on this descriptor.
+            var pending = Data()
+            var chunk = [UInt8](repeating: 0, count: 65_536)
+            while true {
+                let count = read(fd, &chunk, chunk.count)
+                if count < 0, errno == EINTR { continue }
+                if count <= 0 { break }
+                let data = Data(chunk[0..<count])
+                try? streamHandle.write(contentsOf: data)
+                pending.append(data)
+                stream.scan(chromeRunTakeLines(&pending))
+            }
+            if !pending.isEmpty { stream.scan([pending]) }
+            readerDone.signal()
+        }
         if done.wait(timeout: .now() + chromeRunTimeout) == .timedOut {
             timedOut = true
             process.terminate()
@@ -215,19 +406,31 @@ func runChromeRun(args: [String],
                 done.wait()
             }
         }
+        // A helper the run started could still hold its stdout; what was read by then is enough.
+        _ = readerDone.wait(timeout: .now() + 5)
     } catch {
+        try? output.fileHandleForWriting.close()
         // Never started: `terminationStatus` would raise, so the outcome is said here.
         try? errorHandle.write(contentsOf: Data("cannot start \(program): \(error.localizedDescription)\n".utf8))
         outcome = ChromeRunOutcome(ok: false, status: "could not start", text: "")
     }
-    try? rawHandle.close()
+    let seen = stream.snapshot
+    try? streamHandle.close()
     try? errorHandle.close()
-    let rawData = (try? Data(contentsOf: rawURL)) ?? Data()
-    let result = outcome ?? chromeRunOutcome(stdout: rawData, exitCode: process.terminationStatus,
+    let resultData = seen.result ?? Data()
+    try? resultData.write(to: rawURL)  // stdout.json: the one result object, as before
+    let result = outcome ?? chromeRunOutcome(stdout: resultData, exitCode: process.terminationStatus,
                                              timedOut: timedOut)
+    // Closing is best effort: whatever happens here, the run's status and exit code stay as they are.
+    let doomed = chromeRunTabsToClose(seen, before: tabsBefore)
+    let closed: Int? = doomed.isEmpty ? 0
+        : chromeRunAppleScript(chromeCloseTabsScript(ids: doomed)).flatMap { Int($0) }
     let document = chromeRunResultDocument(account: account, outcome: result,
-                                           raw: String(decoding: rawData, as: UTF8.self),
-                                           rawPath: rawURL.path, errorPath: errorURL.path)
+                                           raw: String(decoding: resultData, as: UTF8.self),
+                                           rawPath: rawURL.path, errorPath: errorURL.path,
+                                           tabs: chromeRunTabsLine(
+                                               leftOpen: tabsBefore == nil ? seen.leftOpen.count : doomed.count,
+                                               closed: closed, listedBefore: tabsBefore != nil))
     try? document.write(to: resultURL, atomically: true, encoding: .utf8)
     print(resultURL.path)
     return result.ok ? 0 : 1

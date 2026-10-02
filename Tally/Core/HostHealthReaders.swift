@@ -138,19 +138,15 @@ enum HostHealthReaders {
         for one in ProcessTree.liveProcesses() { identity[one.pid] = one }
         func began(_ pid: pid_t) -> Int64? { identity[pid]?.startedAt }
         var live: [String: Int64] = [:]
+        var supervisors: Set<pid_t> = []
         for session in sessions {
-            if let at = began(session.supervisor) { live[String(session.supervisor)] = at }
+            guard let at = began(session.supervisor) else { continue }
+            live[String(session.supervisor)] = at
+            supervisors.insert(session.supervisor)
         }
-        let supervisors = Set(sessions.map(\.supervisor).filter { live[String($0)] != nil })
         let bySupervisor = Dictionary(sessions.map { ($0.supervisor, $0) },
                                       uniquingKeysWith: { first, _ in first })
-        var ledger: SessionProcessGroups.Index?
-        func claims() -> SessionProcessGroups.Index {
-            if let ledger { return ledger }
-            let index = SessionProcessGroups.Index(SessionProcessGroups.load())
-            ledger = index
-            return index
-        }
+        lazy var claims = SessionProcessGroups.Index(SessionProcessGroups.load())
         var names: [pid_t: String] = [:]
         for pid in pids {
             let owner = hostHealthSessionOwner(
@@ -165,7 +161,7 @@ enum HostHealthReaders {
                 },
                 ledger: { candidate in
                     guard let process = identity[candidate] else { return nil }
-                    return SessionProcessGroups.claimant(of: process, in: claims(), sessions: live,
+                    return SessionProcessGroups.claimant(of: process, in: claims, sessions: live,
                                                          startedAt: began).flatMap { pid_t($0) }
                 })
             guard let owner, let session = bySupervisor[owner], let child = session.child,

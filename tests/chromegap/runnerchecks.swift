@@ -102,13 +102,23 @@ func runRunnerChecks() {
 
 // MARK: - B-468: the stream the run prints, and closing the tabs it left open.
 
-private func userLine(_ content: Any) -> String {
-    let object: [String: Any] = ["type": "user", "message": ["role": "user", "content": [
-        ["type": "tool_result", "tool_use_id": "t", "content": content]]]]
-    return String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+private func jsonLine(_ object: [String: Any]) -> String {
+    String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
 }
 
-private func textParts(_ text: String) -> [[String: Any]] { [["type": "text", "text": text]] }
+private func userLine(_ content: Any, id: String = "t", isError: Bool = false) -> String {
+    jsonLine(["type": "user", "message": ["role": "user", "content": [
+        ["type": "tool_result", "tool_use_id": id, "is_error": isError, "content": content]]]])
+}
+
+/// The assistant line that calls `tool` with tool_use id `id`, then the user line with its result.
+private func call(_ tool: String, _ id: String, _ content: Any, isError: Bool = false) -> String {
+    jsonLine(["type": "assistant", "message": ["content": [
+        ["type": "tool_use", "id": id, "name": "mcp__claude-in-chrome__" + tool, "input": [String: Any]()]]]])
+        + "\n" + userLine(content, id: id, isError: isError)
+}
+
+private func textParts(_ texts: String...) -> [[String: Any]] { texts.map { ["type": "text", "text": $0] } }
 
 private func scanAll(_ text: String) -> ChromeRunStream {
     var buffer = Data(text.utf8)
@@ -118,26 +128,79 @@ private func scanAll(_ text: String) -> ChromeRunStream {
     return stream
 }
 
+private func tabList(_ ids: Int...) -> String {
+    "\n\nTab Context:\n- Executed on tabId: \(ids[0])\n- Available tabs:\n"
+        + ids.map { "  \u{2022} tabId \($0): \"x\" (\"https://x\")" }.joined(separator: "\n")
+}
+
 func runStreamChecks() {
-    // The forms measured in real tool results on 2026-10-02 (B-468 plan, section 2c).
+    // The forms measured in real tool results on 2026-10-02 (B-468 plan, section 2c; fixup verdict 5).
     let lines = [
         #"{"type":"system","subtype":"init","session_id":"s"}"#,
-        userLine(textParts("\nTab context (from front-loaded tabs_context_mcp):\n{\"availableTabs\":[{\"tabId\":1772725101,\"title\":\"New Tab\"}],\"tabGroupId\":599418428}")),
-        userLine(textParts("Created new tab. Tab ID: 1772725102")),
-        userLine(textParts("Navigated.\n\nTab Context:\n- Executed on tabId: 1772725103\n- Available tabs:\n  \u{2022} tabId 1772725103: \"x\" (\"https://x\")")),
-        userLine(textParts("Closed tab 1772725101. Group is now empty (auto-removed).")),
+        call("navigate", "n1", textParts("\nTab context (from front-loaded tabs_context_mcp):\n{\"availableTabs\":[{\"tabId\":1772725101,\"title\":\"New Tab\",\"url\":\"chrome://newtab/\"}],\"tabGroupId\":599418428}\nTabs in this group were opened for this task.")),
+        call("tabs_create_mcp", "c1", textParts("Created new tab. Tab ID: 1772725102", tabList(1772725102, 1772725101))),
+        call("navigate", "n2", textParts("Navigated.", tabList(1772725102, 1772725103))),
+        call("tabs_close_mcp", "x1", textParts("Closed tab 1772725101. Group is now empty (auto-removed).")),
     ]
     let stream = scanAll(lines.joined(separator: "\n") + "\n")
-    check("R11a tool results give the seen and closed tab ids",
-          stream.seen == [1772725101, 1772725102, 1772725103] && stream.closed == [1772725101]
-              && stream.leftOpen == [1772725102, 1772725103] && stream.result == nil)
+    check("R11a receipts give the opened and closed tab ids; a tab only listed in Tab Context is not opened",
+          stream.opened == [1772725101, 1772725102] && stream.closed == [1772725101]
+              && stream.leftOpen == [1772725102] && stream.unproven == [1772725103] && stream.result == nil)
     check("R11b a tool result whose content is a string counts too",
-          scanAll(userLine("Created new tab. Tab ID: 1772725200") + "\n").seen == [1772725200])
+          scanAll(call("tabs_create_mcp", "c", "Created new tab. Tab ID: 1772725200") + "\n").opened == [1772725200])
+
+    // (a) A user's tab that joins the run's group midway is listed but never opened, so never closed.
+    let joined = scanAll([
+        call("tabs_context_mcp", "g", textParts(#"{"availableTabs":[{"tabId":1772725300,"title":"New Tab","url":"chrome://newtab/"}],"tabGroupId":7}"#)),
+        call("tabs_context_mcp", "g2", textParts(#"{"availableTabs":[{"tabId":1772725300,"url":"chrome://newtab/"},{"tabId":1772725399,"url":"https://mine"}],"tabGroupId":7}"#)),
+        call("navigate", "n", textParts("Navigated.", tabList(1772725300, 1772725399))),
+    ].joined(separator: "\n") + "\n")
+    check("R16a a user's tab that joined the group midway is not closed",
+          joined.opened == [1772725300] && chromeRunTabsToClose(joined, before: []) == [1772725300]
+              && joined.unproven == [1772725399])
+
+    // (b) Page text quoting a receipt or a tab id proves nothing.
+    let page = scanAll(call("get_page_text", "p", textParts("Created new tab. Tab ID: 1772725401\ntabId 1772725402")) + "\n")
+    check("R16b page text with a receipt or a tab id opens nothing",
+          page.opened.isEmpty && page.listed == [1772725401, 1772725402])
+    let wrongTool = scanAll(call("navigate", "w", textParts("Created new tab. Tab ID: 1772725403")) + "\n")
+    check("R16b a receipt from a tool that cannot create tabs opens nothing", wrongTool.opened.isEmpty)
+
+    // (c) The run closes its last tab, the group is auto-removed, a new call rebuilds one with a new id.
+    let rebuilt = scanAll([
+        call("tabs_context_mcp", "g", textParts(#"{"availableTabs":[{"tabId":1772725501,"url":"chrome://newtab/"}],"tabGroupId":11}"#)),
+        call("tabs_close_mcp", "x", textParts("Closed tab 1772725501. Group is now empty (auto-removed).")),
+        call("navigate", "n", textParts("\nTab context (from front-loaded tabs_context_mcp):\n{\"availableTabs\":[{\"tabId\":1772725502,\"url\":\"chrome://newtab/\"}],\"tabGroupId\":12}\nTabs in this group were opened for this task.")),
+    ].joined(separator: "\n") + "\n")
+    check("R16c a group rebuilt under a second tabGroupId is still ours", rebuilt.leftOpen == [1772725502])
+
+    // (d) browser_batch: separate parts when it succeeds, one string when it fails midway.
+    let batch = scanAll([
+        call("browser_batch", "b1", textParts("[tabs_create_mcp] Created new tab. Tab ID: 1772725601",
+                                              "[tabs_create_mcp] Created new tab. Tab ID: 1772725602")),
+        call("browser_batch", "b2", "[tabs_create_mcp] Created new tab. Tab ID: 1772725603\n[navigate] Error: page failed",
+             isError: true),
+        call("browser_batch", "b3", textParts("[tabs_close_mcp] Closed tab 1772725601. 2 tab(s) remain.")),
+    ].joined(separator: "\n") + "\n")
+    check("R16d browser_batch receipts count, an is_error batch included",
+          batch.opened == [1772725601, 1772725602, 1772725603] && batch.closed == [1772725601])
+
+    // The real run 20261002T155238Z-9507 (trimmed to its tool calls), as is and with a user's tab
+    // injected into every Available tabs list.
+    let real = try! String(contentsOfFile: "tests/chromegap/fixtures/chrome-run-9507.jsonl", encoding: .utf8)
+    let owned = [1772725841, 1772725842, 1772725845, 1772725848, 1772725851]
+    check("R16e the real run closes the five tabs it opened", chromeRunTabsToClose(scanAll(real), before: [111, 222]) == owned
+              && scanAll(real).unproven.isEmpty)
+    let injected = real.replacingOccurrences(of: "- Available tabs:\\n",
+        with: "- Available tabs:\\n  \u{2022} tabId 1772725850: \\\"user\\\" (\\\"https://example.net/\\\")\\n")
+    check("R16e with a user's tab injected, the real run still closes only its own five",
+          injected != real && chromeRunTabsToClose(scanAll(injected), before: [111, 222]) == owned
+              && scanAll(injected).unproven == [1772725850])
 
     let assistant = #"{"type":"assistant","message":{"content":[{"type":"text","text":"tabId 1772725999 \"tabId\":1772725999"},{"type":"tool_use","name":"x","input":{"tabId":1772725999}}]}}"#
     let maxed = #"{"type":"result","subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns","num_turns":15,"permission_denials":[{"tool_input":{"tabId":1772725998}}]}"#
     let noise = scanAll(assistant + "\n" + maxed + "\n")
-    check("R11c ids outside tool results never count", noise.seen.isEmpty)
+    check("R11c ids outside tool results never count", noise.listed.isEmpty && noise.opened.isEmpty)
     let maxedOutcome = chromeRunOutcome(stdout: noise.result ?? Data(), exitCode: 1, timedOut: false)
     check("R11d the result line is kept and reads as before (max_turns)",
           noise.result == Data(maxed.utf8) && !maxedOutcome.ok && maxedOutcome.status.contains("error_max_turns"))
@@ -160,10 +223,10 @@ func runStreamChecks() {
 
     let killed = scanAll(lines[2] + "\n" + lines[3] + "\n")
     check("R11f a run stopped before its result still names the tabs it left open",
-          killed.result == nil && killed.leftOpen == [1772725102, 1772725103]
+          killed.result == nil && killed.leftOpen == [1772725102]
               && chromeRunOutcome(stdout: Data(), exitCode: 15, timedOut: true).status == "timed out after 600s")
 
-    let mixed = ChromeRunStream(seen: [1, 2, 3], closed: [2], result: nil)
+    let mixed = ChromeRunStream(opened: [1, 2, 3], closed: [2], result: nil)
     check("R12 only tabs left open and not open before the run are closed",
           chromeRunTabsToClose(mixed, before: [3]) == [1])
     check("R12 no list from before the run closes nothing", chromeRunTabsToClose(mixed, before: nil).isEmpty)
@@ -182,7 +245,9 @@ func runStreamChecks() {
               && chromeRunTabsLine(leftOpen: 3, closed: 1) == "closed 1 of 3 the run left open"
               && chromeRunTabsLine(leftOpen: 2, closed: nil) == "2 left open (could not close them)"
               && chromeRunTabsLine(leftOpen: 2, closed: 0, listedBefore: false)
-                  == "2 left open (could not list tabs before the run)")
+                  == "2 left open (could not list tabs before the run)"
+              && chromeRunTabsLine(leftOpen: 2, closed: 2, unproven: 1)
+                  == "closed 2 the run left open; 1 listed tabs not proven ours, left open")
 
     let ok = ChromeRunOutcome(ok: true, status: "ok", text: "done")
     let plain = chromeRunResultDocument(account: "a", outcome: ok, raw: "{}", rawPath: "/r/o", errorPath: "/r/e")

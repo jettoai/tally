@@ -126,22 +126,42 @@ struct ChromeRunOutcome: Equatable {
     var text: String
 }
 
-/// What a run's stream said so far: the tab ids its tool results named, the ones it closed, and its
-/// final `result` object (the line `--output-format json` would have printed alone). B-468.
+/// What a run's stream said so far: the tabs its own receipts say it opened, the ones it closed, and
+/// its final `result` object (the line `--output-format json` would have printed alone). B-468.
 struct ChromeRunStream: Equatable {
-    var seen: Set<Int> = []
+    /// Tabs a receipt of this run's own create call names (see `chromeRunScan`). Only these are ours.
+    var opened: Set<Int> = []
     var closed: Set<Int> = []
+    /// Every tab id any tool result named, receipt or not. Reported, never closed: a tab listed in the
+    /// run's group can be one the user dragged or cmd-clicked into it.
+    var listed: Set<Int> = []
+    /// tool_use id -> the tool's short name, so a result is read by the tool that produced it.
+    var toolNames: [String: String] = [:]
+    /// Tab groups already seen; a group id not yet in here was created by that very call.
+    var groups: Set<Int> = []
     var result: Data?
-    /// The tabs the run left open, as far as its own tool results tell.
-    var leftOpen: Set<Int> { seen.subtracting(closed) }
+    /// The tabs the run left open, as far as its own receipts tell.
+    var leftOpen: Set<Int> { opened.subtracting(closed) }
+    /// Listed tabs with no receipt. Nonzero in a run that opened tabs is the sign the extension
+    /// changed its receipt wording and B-468 silently went back to leaving everything open.
+    var unproven: Set<Int> { listed.subtracting(opened).subtracting(closed) }
 }
 
-/// The forms Claude in Chrome names a tab in, measured on 2026-10-02 in real tool results:
-/// `Created new tab. Tab ID: N`, `"tabId":N` (tabs_context JSON), `• tabId N:` and
-/// `Executed on tabId: N` (the Tab Context block). Closing says `Closed tab N.`
+/// Any form Claude in Chrome names a tab in (measured 2026-10-02): `Tab ID: N`, `"tabId":N`,
+/// `• tabId N:`, `Executed on tabId: N`. Only feeds `listed`.
 private let chromeRunTabNamed = try! NSRegularExpression(
     pattern: #"(?:Tab ID: |"tabId": ?|\btabId:? )(\d{4,})"#)
-private let chromeRunTabClosed = try! NSRegularExpression(pattern: #"\bClosed tab (\d{4,})"#)
+/// Receipts, anchored at the start of a text part (one tool call) or, inside a browser_batch result,
+/// at the start of the line its action prefix opens. Real samples: `Created new tab. Tab ID: 1772725842`,
+/// `[tabs_create_mcp] Created new tab. Tab ID: 1772725822`, `[tabs_close_mcp] Closed tab 1772725822.`
+private let chromeRunCreated = try! NSRegularExpression(pattern: #"^Created new tab\. Tab ID: (\d+)"#)
+private let chromeRunClosed = try! NSRegularExpression(pattern: #"^Closed tab (\d+)\."#)
+private let chromeRunBatchCreated = try! NSRegularExpression(
+    pattern: #"^\[tabs_create_mcp\] Created new tab\. Tab ID: (\d+)"#, options: .anchorsMatchLines)
+private let chromeRunBatchClosed = try! NSRegularExpression(
+    pattern: #"^\[tabs_close_mcp\] Closed tab (\d+)\."#, options: .anchorsMatchLines)
+/// The header `navigate` puts before the group it made when called without a tab (front-loaded).
+private let chromeRunFrontLoaded = "\nTab context (from front-loaded tabs_context_mcp):\n"
 
 private func chromeRunIDs(_ regex: NSRegularExpression, in text: String) -> [Int] {
     let range = NSRange(text.startIndex..., in: text)
@@ -150,26 +170,64 @@ private func chromeRunIDs(_ regex: NSRegularExpression, in text: String) -> [Int
     }
 }
 
-/// The text of every tool result in one stream line (`type: user`). Only tool results count: a tab
-/// id the model wrote or a page showed is not proof the run opened that tab.
-func chromeRunToolResultTexts(_ object: [String: Any]) -> [String] {
+/// Every tool result in one stream line (`type: user`): its tool_use id and its text parts. Only
+/// tool results count: a tab id the model wrote is not proof the run opened that tab.
+func chromeRunToolResults(_ object: [String: Any]) -> [(id: String, parts: [String])] {
     guard object["type"] as? String == "user",
           let message = object["message"] as? [String: Any],
           let blocks = message["content"] as? [[String: Any]] else { return [] }
-    return blocks.filter { $0["type"] as? String == "tool_result" }.flatMap { block -> [String] in
-        if let text = block["content"] as? String { return [text] }
+    return blocks.filter { $0["type"] as? String == "tool_result" }.map { block in
+        let id = block["tool_use_id"] as? String ?? ""
+        if let text = block["content"] as? String { return (id, [text]) }
         let parts = block["content"] as? [[String: Any]] ?? []
-        return parts.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
+        return (id, parts.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil })
     }
 }
 
-/// Folds one complete line of the stream into what is known. Pure.
+/// A group-creation receipt: the tabs_context JSON a part starts with, when its group is new and holds
+/// exactly the one blank tab the call made. Any other shape is not proof, so it opens nothing.
+private func chromeRunNewGroupTab(_ part: String, tool: String, into stream: inout ChromeRunStream) {
+    let body: Substring
+    if tool == "tabs_context_mcp", part.hasPrefix(#"{"availableTabs":"#) { body = part[...] }
+    else if tool == "navigate", part.hasPrefix(chromeRunFrontLoaded) { body = part.dropFirst(chromeRunFrontLoaded.count) }
+    else { return }
+    guard let json = (try? JSONSerialization.jsonObject(with: Data(body.prefix { $0 != "\n" }.utf8)))
+            as? [String: Any],
+          let group = json["tabGroupId"] as? Int, stream.groups.insert(group).inserted,
+          let tabs = json["availableTabs"] as? [[String: Any]], tabs.count == 1,
+          tabs[0]["url"] as? String == "chrome://newtab/", let id = tabs[0]["tabId"] as? Int else { return }
+    stream.opened.insert(id)
+}
+
+/// Folds one complete line of the stream into what is known. A tab is ours only by a receipt from
+/// the tool that made it, read part by part; being named in a Tab Context list or in page text is
+/// not. `is_error` is not consulted: a browser_batch that fails midway still lists what it finished.
+/// Pure.
 func chromeRunScan(line: Data, into stream: inout ChromeRunStream) {
     guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
     if object["type"] as? String == "result" { stream.result = line; return }
-    for text in chromeRunToolResultTexts(object) {
-        stream.seen.formUnion(chromeRunIDs(chromeRunTabNamed, in: text))
-        stream.closed.formUnion(chromeRunIDs(chromeRunTabClosed, in: text))
+    if object["type"] as? String == "assistant",
+       let blocks = (object["message"] as? [String: Any])?["content"] as? [[String: Any]] {
+        for block in blocks where block["type"] as? String == "tool_use" {
+            if let id = block["id"] as? String, let name = block["name"] as? String {
+                stream.toolNames[id] = name.components(separatedBy: "__").last
+            }
+        }
+        return
+    }
+    for (id, parts) in chromeRunToolResults(object) {
+        let tool = stream.toolNames[id] ?? ""
+        for part in parts {
+            stream.listed.formUnion(chromeRunIDs(chromeRunTabNamed, in: part))
+            switch tool {
+            case "tabs_create_mcp": stream.opened.formUnion(chromeRunIDs(chromeRunCreated, in: part))
+            case "tabs_close_mcp": stream.closed.formUnion(chromeRunIDs(chromeRunClosed, in: part))
+            case "browser_batch":
+                stream.opened.formUnion(chromeRunIDs(chromeRunBatchCreated, in: part))
+                stream.closed.formUnion(chromeRunIDs(chromeRunBatchClosed, in: part))
+            default: chromeRunNewGroupTab(part, tool: tool, into: &stream)
+            }
+        }
     }
 }
 
@@ -182,10 +240,10 @@ func chromeRunTakeLines(_ buffer: inout Data) -> [Data] {
     return lines
 }
 
-/// Which tabs to close: the ones the run's tool results named and did not close, minus every tab
-/// that was already open before the run started (a second, independent proof the tab is not the
-/// user's). With no list from before the run (`nil`) that second proof is missing, so nothing is
-/// closed. Pure.
+/// Which tabs to close: the ones the run's receipts say it opened and did not close, minus every tab
+/// already open before the run started. The second check only catches tabs older than the run, not
+/// a user's tab that appeared during it; ownership rests on the receipts. With no list from before
+/// the run (`nil`) nothing is closed. Pure.
 func chromeRunTabsToClose(_ stream: ChromeRunStream, before: Set<Int>?) -> [Int] {
     guard let before else { return [] }
     return stream.leftOpen.subtracting(before).sorted()
@@ -261,7 +319,12 @@ func chromeListTabIDs() -> Set<Int>? {
 }
 
 /// The `tabs:` line of the result file. Pure.
-func chromeRunTabsLine(leftOpen: Int, closed: Int?, listedBefore: Bool = true) -> String {
+func chromeRunTabsLine(leftOpen: Int, closed: Int?, listedBefore: Bool = true, unproven: Int = 0) -> String {
+    let main = chromeRunTabsMain(leftOpen: leftOpen, closed: closed, listedBefore: listedBefore)
+    return unproven == 0 ? main : main + "; \(unproven) listed tabs not proven ours, left open"
+}
+
+private func chromeRunTabsMain(leftOpen: Int, closed: Int?, listedBefore: Bool) -> String {
     if leftOpen == 0 { return "none left open" }
     guard listedBefore else { return "\(leftOpen) left open (could not list tabs before the run)" }
     guard let closed else { return "\(leftOpen) left open (could not close them)" }
@@ -412,23 +475,24 @@ func runChromeRun(args: [String],
         try? errorHandle.write(contentsOf: Data("cannot start \(program): \(error.localizedDescription)\n".utf8))
         outcome = ChromeRunOutcome(ok: false, status: "could not start", text: "")
     }
-    let seen = stream.snapshot
+    let scanned = stream.snapshot
     try? streamHandle.close()
     try? errorHandle.close()
-    let resultData = seen.result ?? Data()
+    let resultData = scanned.result ?? Data()
     try? resultData.write(to: rawURL)  // stdout.json: the one result object, as before
     let result = outcome ?? chromeRunOutcome(stdout: resultData, exitCode: process.terminationStatus,
                                              timedOut: timedOut)
     // Closing is best effort: whatever happens here, the run's status and exit code stay as they are.
-    let doomed = chromeRunTabsToClose(seen, before: tabsBefore)
+    let doomed = chromeRunTabsToClose(scanned, before: tabsBefore)
     let closed: Int? = doomed.isEmpty ? 0
         : chromeRunAppleScript(chromeCloseTabsScript(ids: doomed)).flatMap { Int($0) }
     let document = chromeRunResultDocument(account: account, outcome: result,
                                            raw: String(decoding: resultData, as: UTF8.self),
                                            rawPath: rawURL.path, errorPath: errorURL.path,
                                            tabs: chromeRunTabsLine(
-                                               leftOpen: tabsBefore == nil ? seen.leftOpen.count : doomed.count,
-                                               closed: closed, listedBefore: tabsBefore != nil))
+                                               leftOpen: tabsBefore == nil ? scanned.leftOpen.count : doomed.count,
+                                               closed: closed, listedBefore: tabsBefore != nil,
+                                               unproven: scanned.unproven.subtracting(tabsBefore ?? []).count))
     try? document.write(to: resultURL, atomically: true, encoding: .utf8)
     print(resultURL.path)
     return result.ok ? 0 : 1

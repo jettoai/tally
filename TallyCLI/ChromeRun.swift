@@ -53,7 +53,8 @@ func chromeRunPrompt(task: String) -> String {
     "You are doing one Claude in Chrome step for another Claude Code session, which reads your final"
         + " reply. Use only the Claude in Chrome tools. Save every screenshot you take to disk and list"
         + " each saved path in your final reply. Each time you open a tab, note its tab id; before"
-        + " your final reply, close every tab you opened with tabs_close_mcp."
+        + " your final reply, close every tab you opened with tabs_close_mcp. Open each new tab with its"
+        + " own tabs_create_mcp call, never inside browser_batch, so Tally can tell the tab is yours."
         + " End with the result the task asks for.\n\nTask:\n\n"
         + task
 }

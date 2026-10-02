@@ -13,8 +13,6 @@ struct ChromeRunStream: Equatable {
     var listed: Set<Int> = []
     /// tool_use id -> the tool's short name, so a result is read by the tool that produced it.
     var toolNames: [String: String] = [:]
-    /// browser_batch tool_use id -> the names of the actions its input asked for, in order.
-    var batchActions: [String: [String]] = [:]
     /// Tab groups already seen; a group id not yet in here was created by that very call.
     var groups: Set<Int> = []
     var result: Data?
@@ -29,13 +27,11 @@ struct ChromeRunStream: Equatable {
 /// `• tabId N:`, `Executed on tabId: N`. Only feeds `listed`.
 private let chromeRunTabNamed = try! NSRegularExpression(
     pattern: #"(?:Tab ID: |"tabId": ?|\btabId:? )(\d{4,})"#)
-/// Receipts, anchored at the start of a text part (one tool call) or, inside a browser_batch result,
-/// at the start of the line its action prefix opens. Real samples: `Created new tab. Tab ID: 1772725842`,
-/// `[tabs_create_mcp] Created new tab. Tab ID: 1772725822`, `[tabs_close_mcp] Closed tab 1772725822.`
+/// Receipts, anchored at the start of a text part (one tool call) or, for closing inside a
+/// browser_batch result, at the start of the line its action prefix opens. Real samples:
+/// `Created new tab. Tab ID: 1772725842`, `[tabs_close_mcp] Closed tab 1772725822.`
 private let chromeRunCreated = try! NSRegularExpression(pattern: #"^Created new tab\. Tab ID: (\d+)"#)
 private let chromeRunClosed = try! NSRegularExpression(pattern: #"^Closed tab (\d+)\."#)
-private let chromeRunBatchCreated = try! NSRegularExpression(
-    pattern: #"^\[tabs_create_mcp\] Created new tab\. Tab ID: (\d+)"#, options: .anchorsMatchLines)
 private let chromeRunBatchClosed = try! NSRegularExpression(
     pattern: #"^\[tabs_close_mcp\] Closed tab (\d+)\."#, options: .anchorsMatchLines)
 /// The header `navigate` puts before the group it made when called without a tab (front-loaded).
@@ -77,22 +73,13 @@ private func chromeRunNewGroupTab(_ part: String, tool: String, into stream: ino
     stream.opened.insert(id)
 }
 
-/// A browser_batch result is one text the actions write into, page text included, so a line that
-/// reads like a receipt is only believed when the receipts add up to exactly the create (or close)
-/// actions the batch's input asked for. Any mismatch, a forged line or a create that never ran,
-/// believes none of them: the ids stay merely listed and are left open.
-private func chromeRunBatchReceipts(_ parts: [String], actions: [String], into stream: inout ChromeRunStream) {
-    let created = parts.flatMap { chromeRunIDs(chromeRunBatchCreated, in: $0) }
-    if created.count == actions.filter({ $0 == "tabs_create_mcp" }).count { stream.opened.formUnion(created) }
-    let closed = parts.flatMap { chromeRunIDs(chromeRunBatchClosed, in: $0) }
-    if closed.count == actions.filter({ $0 == "tabs_close_mcp" }).count { stream.closed.formUnion(closed) }
-}
-
 /// Folds one complete line of the stream into what is known. A tab is ours only by a receipt from
 /// the tool that made it, read part by part; being named in a Tab Context list or in page text is
-/// not. `is_error` is not consulted: a browser_batch that fails midway still lists what it finished,
-/// which counts when it adds up to the batch's create actions (`chromeRunBatchReceipts`).
-/// Pure.
+/// not. A browser_batch result mixes the actions' receipts with page text in one text, so nothing
+/// there can prove a create: a page can forge the line, and counting the batch's actions only made
+/// forging a matter of adding up (three review rounds, B-468). Batch creates are never believed
+/// (those tabs stay listed and open; the prompt asks for tabs_create_mcp on its own). Batch closes
+/// are believed as written: a forged close only keeps a tab open, the safe way to be wrong. Pure.
 func chromeRunScan(line: Data, into stream: inout ChromeRunStream) {
     guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
     if object["type"] as? String == "result" { stream.result = line; return }
@@ -101,21 +88,17 @@ func chromeRunScan(line: Data, into stream: inout ChromeRunStream) {
         for block in blocks where block["type"] as? String == "tool_use" {
             guard let id = block["id"] as? String, let name = block["name"] as? String else { continue }
             stream.toolNames[id] = name.components(separatedBy: "__").last
-            if let actions = (block["input"] as? [String: Any])?["actions"] as? [[String: Any]] {
-                stream.batchActions[id] = actions.map { $0["name"] as? String ?? "" }
-            }
         }
         return
     }
     for (id, parts) in chromeRunToolResults(object) {
         let tool = stream.toolNames[id] ?? ""
-        if tool == "browser_batch" { chromeRunBatchReceipts(parts, actions: stream.batchActions[id] ?? [], into: &stream) }
         for part in parts {
             stream.listed.formUnion(chromeRunIDs(chromeRunTabNamed, in: part))
             switch tool {
             case "tabs_create_mcp": stream.opened.formUnion(chromeRunIDs(chromeRunCreated, in: part))
             case "tabs_close_mcp": stream.closed.formUnion(chromeRunIDs(chromeRunClosed, in: part))
-            case "browser_batch": break
+            case "browser_batch": stream.closed.formUnion(chromeRunIDs(chromeRunBatchClosed, in: part))
             default: chromeRunNewGroupTab(part, tool: tool, into: &stream)
             }
         }

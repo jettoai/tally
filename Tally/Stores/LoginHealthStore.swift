@@ -15,6 +15,10 @@ final class LoginHealthStore {
     private var known: Set<String> = []
     private var labels: [String: String] = [:]
     private var alerts: LoginHealthAlerts
+    // Last value handed to the writer; save() skips identical state so the main thread stays off cfprefsd.
+    private var savedAlerts: LoginHealthAlerts?
+    // Serial so the newest write lands last; cfprefsd's sync XPC can stall for seconds under load (TALLY-1K).
+    private static let writer = DispatchQueue(label: "ai.jetto.tally.loginHealth.save", qos: .utility)
     private static let stateKey = "ai.jetto.tally.loginHealth.alerts"
     private static let log = Logger(subsystem: "ai.jetto.tally", category: "login-health")
 
@@ -23,6 +27,7 @@ final class LoginHealthStore {
            let data = UserDefaults.standard.data(forKey: Self.stateKey),
            let saved = try? JSONDecoder().decode(LoginHealthAlerts.self, from: data) {
             alerts = saved
+            savedAlerts = saved
         } else { alerts = LoginHealthAlerts() }
         SessionRosterStore.shared.onLoginHealthChange = { [weak self] in self?.refreshSessions() }
     }
@@ -130,7 +135,9 @@ final class LoginHealthStore {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(alerts) else { return }
-        UserDefaults.standard.set(data, forKey: Self.stateKey)
+        guard alerts != savedAlerts, let data = try? JSONEncoder().encode(alerts) else { return }
+        savedAlerts = alerts
+        let key = Self.stateKey
+        Self.writer.async { UserDefaults.standard.set(data, forKey: key) }
     }
 }

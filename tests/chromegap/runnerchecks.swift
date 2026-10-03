@@ -60,6 +60,29 @@ func runRunnerChecks() {
         check("R6 \(name) is a usage error", usage(chromeRunTask(args: input, read: read)))
     }
 
+    check("R6b without --max-turns the run keeps 14 turns",
+          chromeRunTask(args: ["open", "x"], read: read) == .task("open x", maxTurns: 14))
+    check("R6b --max-turns before --file",
+          chromeRunTask(args: ["--max-turns", "40", "--file", "/t/task.md"], read: read)
+              == .task("open the page", maxTurns: 40))
+    check("R6b --max-turns before words",
+          chromeRunTask(args: ["--max-turns", "40", "open", "x"], read: read) == .task("open x", maxTurns: 40))
+    for (name, input) in [("0", ["--max-turns", "0", "open"]), ("-1", ["--max-turns", "-1", "open"]),
+                          ("61", ["--max-turns", "61", "open"]), ("abc", ["--max-turns", "abc", "open"]),
+                          ("a missing value", ["--max-turns"]), ("no task", ["--max-turns", "40"])] {
+        check("R6b --max-turns \(name) is a usage error", usage(chromeRunTask(args: input, read: read)))
+    }
+    check("R6b the usage line names --max-turns", chromeRunUsage.contains("[--max-turns <1-60>]"))
+    let forty = chromeRunArguments(task: "t", maxTurns: 40)
+    check("R6b the argv carries the chosen turns",
+          forty.firstIndex(of: "--max-turns").map { forty[$0 + 1] } == "40")
+    check("R6b the timeout is max(600, turns x 30)",
+          chromeRunTimeout(maxTurns: 14) == 600 && chromeRunTimeout(maxTurns: 10) == 600
+              && chromeRunTimeout(maxTurns: 40) == 1200)
+    check("R6b a timed-out run names its own timeout",
+          chromeRunOutcome(stdout: Data(), exitCode: 15, timedOut: true, timeout: 1200).status
+              == "timed out after 1200s")
+
     func refused(_ setup: ChromeRunSetup) -> Bool { if case .refused = setup { return true }; return false }
     check("R7 no setting is refused", refused(chromeRunSetup(setting: nil, environment: [:], isDirectory: { _ in true })))
     check("R7 a setting whose home is missing is refused",

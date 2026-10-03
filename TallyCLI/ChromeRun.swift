@@ -32,8 +32,13 @@ let chromeRunModel = "sonnet"
 /// and two more for closing the tabs the run opened before it answers (B-468: 19 of 88 runs ended
 /// on max_turns with their tabs still open).
 let chromeRunMaxTurns = 14
-/// How long a run may take before it is stopped and reported as timed out.
-let chromeRunTimeout: TimeInterval = 600
+/// The most turns `--max-turns` accepts.
+let chromeRunMaxTurnsLimit = 60
+/// How long a run may take before it is stopped and reported as timed out: 600 seconds, or 30 a
+/// turn when more turns were asked for. Pure.
+func chromeRunTimeout(maxTurns: Int = chromeRunMaxTurns) -> TimeInterval {
+    TimeInterval(max(600, maxTurns * 30))
+}
 /// Set on every run, so a run that tries `tally chrome run` itself is refused.
 let chromeRunNestedKey = "TALLY_CHROME_RUN"
 
@@ -46,7 +51,7 @@ let chromeRunRoot = FileManager.default.homeDirectoryForCurrentUser
 let chromeRunDroppedEnvironment = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
                                    "CLAUDE_CODE_SIMPLE", "TALLY_SUPERVISOR_PID"]
 
-let chromeRunUsage = "usage: tally chrome run <task> | --file <task file>"
+let chromeRunUsage = "usage: tally chrome run [--max-turns <1-60>] <task> | --file <task file>"
 
 /// The prompt: the task, wrapped so the answer comes back in a form the asking session can use.
 func chromeRunPrompt(task: String) -> String {
@@ -60,13 +65,13 @@ func chromeRunPrompt(task: String) -> String {
 }
 
 /// Everything after the program. Pure.
-func chromeRunArguments(task: String) -> [String] {
+func chromeRunArguments(task: String, maxTurns: Int = chromeRunMaxTurns) -> [String] {
     ["-p", chromeRunPrompt(task: task),
      "--chrome",
      "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
      "--allowedTools", "mcp__claude-in-chrome__*",
      "--output-format", "stream-json", "--verbose",
-     "--max-turns", String(chromeRunMaxTurns),
+     "--max-turns", String(maxTurns),
      "--no-session-persistence",
      "--settings", "{\"disableAllHooks\":true}",
      "--model", chromeRunModel]
@@ -85,11 +90,20 @@ func chromeRunEnvironment(_ base: [String: String], home: String) -> [String: St
     return environment
 }
 
-enum ChromeRunTask: Equatable { case task(String), usage(String) }
+enum ChromeRunTask: Equatable { case task(String, maxTurns: Int = chromeRunMaxTurns), usage(String) }
 
-/// The task from the command line: `--file <path>` read whole, else the words joined. Pure over
-/// `read`.
+/// The task from the command line: an optional leading `--max-turns <1-60>`, then `--file <path>`
+/// read whole, else the words joined. Pure over `read`.
 func chromeRunTask(args: [String], read: (String) -> String?) -> ChromeRunTask {
+    var args = args
+    var maxTurns = chromeRunMaxTurns
+    if args.first == "--max-turns" {
+        guard args.count >= 2, let turns = Int(args[1]), (1...chromeRunMaxTurnsLimit).contains(turns) else {
+            return .usage(chromeRunUsage)
+        }
+        maxTurns = turns
+        args.removeFirst(2)
+    }
     var text: String
     if args.first == "--file" {
         guard args.count == 2 else { return .usage(chromeRunUsage) }
@@ -99,7 +113,7 @@ func chromeRunTask(args: [String], read: (String) -> String?) -> ChromeRunTask {
         text = args.joined(separator: " ")
     }
     text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    return text.isEmpty ? .usage(chromeRunUsage) : .task(text)
+    return text.isEmpty ? .usage(chromeRunUsage) : .task(text, maxTurns: maxTurns)
 }
 
 enum ChromeRunSetup: Equatable { case ready(account: String, home: String), refused(String) }
@@ -232,11 +246,12 @@ private final class ChromeRunStreamBox: @unchecked Sendable {
 
 /// What the run answered, from its stdout (`--output-format json`: one object with `result`,
 /// `is_error`, `subtype`). Pure.
-func chromeRunOutcome(stdout: Data, exitCode: Int32, timedOut: Bool) -> ChromeRunOutcome {
+func chromeRunOutcome(stdout: Data, exitCode: Int32, timedOut: Bool,
+                      timeout: TimeInterval = chromeRunTimeout()) -> ChromeRunOutcome {
     let object = (try? JSONSerialization.jsonObject(with: stdout)) as? [String: Any]
     let text = object?["result"] as? String ?? ""
     if timedOut {
-        return ChromeRunOutcome(ok: false, status: "timed out after \(Int(chromeRunTimeout))s", text: text)
+        return ChromeRunOutcome(ok: false, status: "timed out after \(Int(timeout))s", text: text)
     }
     guard let object else {
         return ChromeRunOutcome(ok: false, status: "exit \(exitCode), no JSON result", text: "")
@@ -276,9 +291,9 @@ func runChrome(args: [String]) -> Int32 {
 /// stderr. 0 when the run answered without error, 1 when it ran and failed, 2 when it never started.
 func runChromeRun(args: [String],
                   environment: [String: String] = ProcessInfo.processInfo.environment) -> Int32 {
-    let task: String
+    let task: String, maxTurns: Int
     switch chromeRunTask(args: args, read: { try? String(contentsOfFile: $0, encoding: .utf8) }) {
-    case .task(let text): task = text
+    case .task(let text, let turns): (task, maxTurns) = (text, turns)
     case .usage(let line): warn(line); return 2
     }
     let setup = chromeRunSetup(setting: chromeAccountSetting(), environment: environment,
@@ -313,7 +328,7 @@ func runChromeRun(args: [String],
     let output = Pipe()
     let process = Process()
     process.executableURL = URL(fileURLWithPath: program)
-    process.arguments = chromeRunArguments(task: task)
+    process.arguments = chromeRunArguments(task: task, maxTurns: maxTurns)
     process.environment = chromeRunEnvironment(environment, home: home)
     process.currentDirectoryURL = cwd
     process.standardInput = FileHandle.nullDevice
@@ -323,6 +338,7 @@ func runChromeRun(args: [String],
     process.terminationHandler = { _ in done.signal() }
     let stream = ChromeRunStreamBox()
     let readerDone = DispatchSemaphore(value: 0)
+    let timeout = chromeRunTimeout(maxTurns: maxTurns)
     var timedOut = false
     var outcome: ChromeRunOutcome?
     do {
@@ -346,7 +362,7 @@ func runChromeRun(args: [String],
             if !pending.isEmpty { stream.scan([pending]) }
             readerDone.signal()
         }
-        if done.wait(timeout: .now() + chromeRunTimeout) == .timedOut {
+        if done.wait(timeout: .now() + timeout) == .timedOut {
             timedOut = true
             process.terminate()
             if done.wait(timeout: .now() + 5) == .timedOut {
@@ -368,7 +384,7 @@ func runChromeRun(args: [String],
     let resultData = scanned.result ?? Data()
     try? resultData.write(to: rawURL)  // stdout.json: the one result object, as before
     let result = outcome ?? chromeRunOutcome(stdout: resultData, exitCode: process.terminationStatus,
-                                             timedOut: timedOut)
+                                             timedOut: timedOut, timeout: timeout)
     // Closing is best effort: whatever happens here, the run's status and exit code stay as they are.
     let doomed = chromeRunTabsToClose(scanned, before: tabsBefore)
     let closed: Int? = doomed.isEmpty ? 0

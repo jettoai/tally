@@ -223,6 +223,8 @@ struct StatusReport: Encodable {
         /// Capabilities of this resident, independent of whether a model supports these actions.
         var provider: String?
         var supportedActions: [String]?
+        /// The other host this read-only row runs on (no pid, no actions); absent means this Mac.
+        var machine: String?
     }
 
     struct Advisor: Encodable {

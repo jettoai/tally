@@ -495,6 +495,6 @@ check("status text: not supported prints nothing", suffix["claude:d"] == "")
 check("status text: an old snapshot keeps the banked count",
       snapshot.accounts.first { $0.id == "codex:.codex" }.map { resetStatusSuffix($0) }
           == " · 3 resets banked")
-resetPassedStatusChecks(); capWeightStatusChecks()
+resetPassedStatusChecks(); capWeightStatusChecks(); machineStatusChecks()
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

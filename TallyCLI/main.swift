@@ -322,10 +322,12 @@ func runStatus(json: Bool = false) {
         // running. ONE VALUE for both blocks, which is one scan: asked separately they could
         // describe different moments.
         let live = sessionReadings()
+        // A private build's read-only rows (OverlayStatus.swift) join HERE and nowhere else:
+        // send, clear and every other reader of `sessionReadings()` keep seeing this Mac only.
         print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
                                               quarantined: quarantined,
                                               accountSessions: live.accountSessions,
-                                              sessions: live.sessions,
+                                              sessions: live.sessions + OverlayStatus.extraSessions(now: Date()),
                                               projectPolicy: profile, reserves: reserves)))
         return
     }

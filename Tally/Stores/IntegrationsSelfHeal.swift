@@ -45,10 +45,6 @@ func settingsEventIsInteresting(path: String, trimmedDirectories: Set<String>) -
     trimmedDirectories.contains(withoutTrailingSlash(path))
 }
 
-func withoutTrailingSlash(_ s: String) -> String {
-    s.hasSuffix("/") && s != "/" ? String(s.dropLast()) : s
-}
-
 /// What the heal's inputs looked like: `config` (settings files, SKILL.md, helper) triggers a pass
 /// on any change, `state` (`.claude.json`, rewritten by every claude process) only on a throttle.
 struct HealFingerprint: Equatable, Sendable {

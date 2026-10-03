@@ -37,14 +37,16 @@ import Foundation
 ///
 /// Pure and exported so the rule is testable without a filesystem.
 func accountDirEventIsInteresting(path: String, home: String) -> Bool {
-    func withoutTrailingSlash(_ s: String) -> String {
-        s.hasSuffix("/") && s.count > 1 ? String(s.dropLast()) : s
-    }
     let home = withoutTrailingSlash(home), path = withoutTrailingSlash(path)
     guard path != home else { return true }
     guard path.hasPrefix(home + "/") else { return false }
     let entry = path.dropFirst(home.count + 1).prefix { $0 != "/" }
     return entry.hasPrefix(".claude") || entry.hasPrefix(".codex")
+}
+
+/// FSEvents reports directories with a trailing slash; the root stays "/".
+func withoutTrailingSlash(_ s: String) -> String {
+    s.hasSuffix("/") && s != "/" ? String(s.dropLast()) : s
 }
 
 /// Whether two discovery results describe a different set of accounts.
@@ -128,8 +130,9 @@ final class AccountDirWatcher {
     private let reroot: (() -> [URL])?
     private let debounce: Duration
     /// Whether a changed path is worth waking the gate for. The cheap string test that keeps a
-    /// busy subtree's traffic away from everything downstream. Run on the FSEvents queue, never on
-    /// the main thread (Sentry TALLY-39: a busy batch filtered on the main actor hung the app).
+    /// busy subtree's traffic away from everything downstream. FSEvents batches are filtered on the
+    /// stream's own queue (Sentry TALLY-39: a busy batch filtered on the main actor hung the app);
+    /// shallow-watch events arrive one path at a time and are still filtered on the main thread.
     private nonisolated let isInteresting: @Sendable (String) -> Bool
     /// Does the real work of deciding whether anything differs, and answers false when nothing
     /// does. Injected so the watcher itself needs no knowledge of what it is watching for.

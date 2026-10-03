@@ -1,0 +1,16 @@
+[package]
+name = "tally_ffi"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+# staticlib is what Xcode links; rlib lets `cargo test` exercise the same code.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+tally_core = { path = "../core" }
+
+[features]
+# Test-only: tests/run-ctxrust-tests.sh builds its own copy with it.
+panic-probe = ["tally_core/panic-probe"]

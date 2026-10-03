@@ -120,9 +120,23 @@ let followIdleSeconds: TimeInterval = 120
 
 // MARK: - Build version and supervision status
 
+/// The directory, beside the Rust `tally` entry, that holds this Swift CLI. Must match
+/// SWIFT_CLI_DIR in rust/crates/sys/src/paths.rs (tests/run-entry-tests.sh compares the two).
+let swiftCLIDirectoryName = "swift"
+
+/// The bundle's `Contents` for a CLI at `<App>/Contents/Helpers/tally` or, since the Rust entry
+/// took that name, at `<App>/Contents/Helpers/swift/tally`. Only the one known extra level is
+/// skipped, so every other layout resolves exactly as it did before.
+func cliBundleContents(_ resolvedExecutable: URL) -> URL {
+    let parent = resolvedExecutable.deletingLastPathComponent()
+    let helpers = parent.lastPathComponent == swiftCLIDirectoryName
+        ? parent.deletingLastPathComponent() : parent
+    return helpers.deletingLastPathComponent()
+}
+
 /// The app version this `tally` binary ships inside, read from the enclosing bundle's Info.plist.
-/// The CLI is embedded at <App>/Contents/Helpers/tally, so the plist is two directories up from
-/// the executable. nil when not running from inside the app bundle (a standalone or dev build),
+/// The CLI is embedded at <App>/Contents/Helpers/tally (the Swift CLI behind the Rust entry at
+/// <App>/Contents/Helpers/swift/tally), so the plist sits in `cliBundleContents`. nil when not running from inside the app bundle (a standalone or dev build),
 /// which the status line renders as "unknown" rather than asserting "outdated".
 ///
 /// The path is resolved first: the installed command is a symlink (/usr/local/bin/tally points into
@@ -132,8 +146,7 @@ let followIdleSeconds: TimeInterval = 120
 /// restart could clear (2026-07-25).
 func supervisorBuildVersion(executable: URL? = Bundle.main.executableURL) -> String? {
     guard let exe = executable?.resolvingSymlinksInPath() else { return nil }
-    let plistURL = exe.deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Info.plist")
+    let plistURL = cliBundleContents(exe).appendingPathComponent("Info.plist")
     guard let data = try? Data(contentsOf: plistURL),
           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
               as? [String: Any],

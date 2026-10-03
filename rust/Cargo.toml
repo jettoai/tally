@@ -1,22 +1,11 @@
-[package]
-name = "tally_core"
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/sys", "crates/ffi", "crates/cli"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 publish = false
-
-[lib]
-# staticlib is what Xcode links; rlib lets `cargo test` exercise the same code.
-crate-type = ["staticlib", "rlib"]
-
-[dependencies]
-# SIMD substring search. macOS libc memmem is about 24x slower on transcript lines, and that
-# search is most of what reading a live line costs.
-memchr = "2.8"
-
-[features]
-# Test-only: a line equal to `__tally_panic_probe__` panics inside the FFI guard. Never enabled by
-# the Xcode build (tests/run-ctxrust-tests.sh builds its own copy with it).
-panic-probe = []
 
 [profile.release]
 # catch_unwind at the FFI boundary only works with unwinding panics.

@@ -340,6 +340,17 @@ func runAppRelaunchChecks() {
     check("a binary that is not inside a bundle has nothing to watch or open",
           bundledAppPaths(fixture.appendingPathComponent("tally")) == nil)
 
+    // The Rust entry took Contents/Helpers/tally and execs the Swift CLI at
+    // Contents/Helpers/swift/tally, which must still find the same bundle and the same version.
+    let swiftCLI = cli.deletingLastPathComponent().appendingPathComponent(swiftCLIDirectoryName)
+        .appendingPathComponent("tally")
+    try? FileManager.default.createDirectory(at: swiftCLI.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: swiftCLI.path, contents: Data())
+    check("the Swift CLI behind the Rust entry resolves the same bundle",
+          bundledAppPaths(swiftCLI) == paths)
+    check("and reads the same version", supervisorBuildVersion(executable: swiftCLI) == new)
+
     // MARK: - 29. One tick, end to end
 
     // Everything above tested in one piece: the reading, the decision, and the act.

@@ -1,0 +1,15 @@
+[package]
+name = "tally_core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# SIMD substring search. macOS libc memmem is about 24x slower on transcript lines, and that
+# search is most of what reading a live line costs.
+memchr = "2.8"
+
+[features]
+# Test-only: a line equal to `__tally_panic_probe__` panics (see tally_ffi). Never enabled by
+# the Xcode build.
+panic-probe = []

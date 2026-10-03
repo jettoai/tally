@@ -359,15 +359,16 @@ struct AppBundlePaths: Equatable {
     var executable: String
 }
 
-/// The CLI lives at `<App>.app/Contents/Helpers/tally`, so two directories up is `Contents` and
-/// three is the bundle. The path is resolved first for the reason `supervisorBuildVersion` resolves
+/// The CLI lives at `<App>.app/Contents/Helpers/tally` (the Swift CLI behind the Rust entry at
+/// `<App>.app/Contents/Helpers/swift/tally`), so `cliBundleContents` is `Contents` and its parent
+/// is the bundle. The path is resolved first for the reason `supervisorBuildVersion` resolves
 /// it: the installed command is a symlink from /usr/local/bin and walking up from there lands
 /// nowhere. The executable's NAME comes from the same Info.plist rather than from the bundle's
 /// directory name, so the Debug build ("Tally Dev") is matched as itself and a bundle somebody
 /// renamed on disk is still matched correctly.
 func bundledAppPaths(_ executable: URL? = Bundle.main.executableURL) -> AppBundlePaths? {
     guard let exe = executable?.resolvingSymlinksInPath() else { return nil }
-    let contents = exe.deletingLastPathComponent().deletingLastPathComponent()
+    let contents = cliBundleContents(exe)
     guard contents.lastPathComponent == "Contents" else { return nil }
     let plistURL = contents.appendingPathComponent("Info.plist")
     guard let data = try? Data(contentsOf: plistURL),

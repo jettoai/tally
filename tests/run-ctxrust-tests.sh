@@ -12,8 +12,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 export MACOSX_DEPLOYMENT_TARGET=14.0
-(cd rust && cargo test --quiet --locked)
-(cd rust && cargo build --quiet --release --locked --features panic-probe \
+(cd rust && cargo test --quiet --locked --workspace)
+(cd rust && cargo build --quiet --release --locked -p tally_ffi --features panic-probe \
   --target-dir target/ctxrust-probe)
 lib=rust/target/ctxrust-probe/release
 out=$(mktemp -d)/run

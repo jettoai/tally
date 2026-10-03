@@ -1,0 +1,15 @@
+[package]
+name = "tally"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tally"
+path = "src/main.rs"
+# The binary is `no_main` and its `main` execs; a test harness built from it would run that `main`
+# instead of any test. tally_sys holds the logic, and tests/run-entry-tests.sh tests the binary.
+test = false
+
+[dependencies]
+tally_sys = { path = "../sys" }

@@ -97,6 +97,20 @@ for arch in arm64 x86_64; do
     || { echo "Rust core missing from the $arch CLI slice" >&2; exit 1; }
 done
 
+echo "==> build the Rust tally entry (universal)"
+entry_slices=()
+for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+  (cd rust && MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked -p tally --target "$triple")
+  entry_slices+=("rust/target/$triple/release/tally")
+done
+ENTRY_BIN="build/tally-entry"
+lipo -create "${entry_slices[@]}" -output "$ENTRY_BIN"
+for arch in arm64 x86_64; do
+  lipo "$ENTRY_BIN" -thin "$arch" -output "build/entry-$arch.thin"
+  strings "build/entry-$arch.thin" | grep 'tally_entry forward-v1' > /dev/null \
+    || { echo "entry marker missing from the $arch slice" >&2; exit 1; }
+done
+
 echo "==> export"
 xcodebuild -exportArchive -archivePath "$ARCHIVE" \
   -exportOptionsPlist ExportOptions.plist -exportPath "$EXPORT" -quiet
@@ -108,17 +122,22 @@ lipo -archs "$APP/Contents/MacOS/Tally" | grep -q arm64 \
   && lipo -archs "$APP/Contents/MacOS/Tally" | grep -q x86_64 \
   || { echo "App binary is not universal" >&2; exit 1; }
 
-echo "==> embed tally CLI in the bundle (Contents/Helpers)"
-mkdir -p "$APP/Contents/Helpers"
-ditto "$CLI_BIN" "$APP/Contents/Helpers/tally"
+echo "==> embed the tally entry and the Swift CLI it forwards to (Contents/Helpers)"
+mkdir -p "$APP/Contents/Helpers/swift"
+ditto "$CLI_BIN" "$APP/Contents/Helpers/swift/tally"
+ditto "$ENTRY_BIN" "$APP/Contents/Helpers/tally"
 
 echo "==> strip Sparkle XPC services + deep re-sign (non-sandboxed app; leaving them in fails notarization)"
 SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"
 rm -rf "$SPARKLE_FW/Versions/B/XPCServices"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" --deep "$SPARKLE_FW"
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP/Contents/Helpers/swift/tally"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP/Contents/Helpers/tally"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --strict --deep "$APP"
+echo "==> smoke: the embedded entry forwards to the Swift CLI"
+"$APP/Contents/Helpers/tally" help > /dev/null \
+  || { echo "embedded tally entry does not run" >&2; exit 1; }
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
 DMG="$DIST/Tally-$VERSION.dmg"

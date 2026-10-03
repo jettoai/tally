@@ -369,6 +369,16 @@ func runKnockChecks() {
         expect(branch.upperBound < call.lowerBound && call.upperBound <= close,
                "…and it sits inside the alarm branch, between its braces")
     }
+    // The thread census walks every thread on the machine: the alarm branch only, once.
+    if let branch = monitor.range(of: "if event == .alarm {"),
+       let call = monitor.range(of: "HostHealthReaders.threadCensus()"),
+       let close = blockEnd(monitor, from: branch.upperBound) {
+        expect(monitor.components(separatedBy: "HostHealthReaders.threadCensus()").count == 2
+                && branch.upperBound < call.lowerBound && call.upperBound <= close,
+               "the thread census is taken once, inside the alarm branch")
+    } else {
+        expect(false, "the thread census is taken once, inside the alarm branch")
+    }
     expect(monitor.contains("if event == .alarm { post(report) }"),
            "a recovery is written down and not announced")
 

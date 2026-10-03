@@ -57,6 +57,26 @@ struct HostHealthAlarm: Codable, Equatable, Sendable {
     /// alarm (a memory-only alarm leaves it absent). Added 2026-10-02: a load-227 alarm listed the
     /// memory holders while a stuck system scan burning 188% was the cause, and nobody could tell.
     var cpuTop: [HostHealthCPUProcess]? = nil
+    /// The thread census at this instant (`HostHealthReaders.threadCensus`). Added 2026-10-03: nine
+    /// load spikes of 180 to 316 with CPU not full named no culprit, and load counts runnable and
+    /// uninterruptible threads, not CPU.
+    var threads: HostHealthThreads? = nil
+}
+
+/// Threads at an alarm. Thread figures cover only the processes this user may inspect (libproc
+/// answers nothing about root's without privilege); `processes` counts every pid on the machine.
+struct HostHealthThreads: Codable, Equatable, Sendable {
+    var running: Int
+    var uninterruptible: Int
+    var total: Int
+    var processes: Int
+    /// Programs holding the most threads, summed by executable name, most first.
+    var top: [HostHealthThreadHolder]
+}
+
+struct HostHealthThreadHolder: Codable, Equatable, Sendable {
+    var name: String
+    var threads: Int
 }
 
 /// One process named in a load alarm, by what it is burning.
@@ -345,9 +365,14 @@ func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
             + ":\(String(format: "%.0f", entry.percent))%"
     }
     .joined(separator: ",")
+    let threads = report.state == .alarmed ? report.lastAlarm?.threads : nil
     return "\(ISO8601DateFormatter().string(from: now)) host-health=\(event.rawValue) "
         + "load=\(hostHealthFigure(report.load1)) cores=\(report.cores) "
         + "free=\(hostHealthGigabytes(report.freeBytes))G"
+        + (threads.map { t in
+            " thr=r\(t.running),u\(t.uninterruptible),t\(t.total) procs=\(t.processes) nthr="
+                + t.top.map { "\(keystrokeStripped($0.name)):\($0.threads)" }.joined(separator: ",")
+        } ?? "")
         + (cpu.isEmpty ? "" : " cpu=\(cpu)")
         + (names.isEmpty ? "\n" : " top=\(names)\n")
 }

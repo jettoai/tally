@@ -309,6 +309,29 @@ do {
     let old = #"{"cores":16,"freeBytes":1,"lastAlarm":{"at":"2026-10-02T13:23:45Z","freeBytes":1,"load1":227,"top":[]},"load1":227,"sampledAt":"2026-10-02T13:23:45Z","since":"2026-10-02T13:23:45Z","state":"alarmed"}"#
     expect(decodeHostHealthReport(Data(old.utf8))?.lastAlarm?.cpuTop == nil,
            "a report written before cpuTop still decodes")
+
+    // The thread census (2026-10-03) sits after free= and before cpu=, so `top=` stays last.
+    tracker.lastAlarm?.threads = HostHealthThreads(
+        running: 12, uninterruptible: 340, total: 9000, processes: 812,
+        top: [HostHealthThreadHolder(name: "Virtualization", threads: 410),
+              HostHealthThreadHolder(name: "no\nde", threads: 388)])
+    let threaded = HostHealthLogic.report(tracker, reading: HostHealthReading(
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0))
+    let census = hostHealthLogLine(.alarm, report: threaded, now: at(0))
+    expect(census.contains(" free=25G thr=r12,u340,t9000 procs=812 nthr=Virtualization:410,node:388"
+                           + " cpu=ApplicationsStorageExtension[system]:188%,"),
+           "the log line carries the thread census between free= and cpu=, names repaired")
+    expect(census.hasSuffix(" top=node:15G,qemu:6.2G,Google Chrome:4.1G\n")
+            && census.components(separatedBy: "\n").count == 2,
+           "…and `top=` is still the last field of one line")
+    tracker.state = .normal
+    expect(!hostHealthLogLine(.clear, report: HostHealthLogic.report(tracker, reading:
+        HostHealthReading(load1: 2, cores: 16, freeBytes: 25 * gigabyte), at: at(0)), now: at(0))
+            .contains("thr="), "a clear line carries no census")
+    expect(decodeHostHealthReport(Data(old.utf8))?.lastAlarm?.threads == nil,
+           "a report written before the census still decodes")
+    let roundTrip = encodeHostHealthReport(threaded).flatMap(decodeHostHealthReport)
+    expect(roundTrip?.lastAlarm?.threads == tracker.lastAlarm?.threads, "the census round-trips")
 }
 
 // MARK: - 5. Naming the session (B-693, 2026-10-02: `node 104% (geo)` could not say which of three

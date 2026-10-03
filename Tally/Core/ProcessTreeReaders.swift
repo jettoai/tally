@@ -130,6 +130,16 @@ extension ProcessTree {
         return usage(of: pid) == nil ? .collected : .ended
     }
 
+    /// How many processes the machine has, every user's included (`liveProcesses` keeps only the
+    /// ones this user can inspect). The fill call returns a COUNT, the trap noted above.
+    static func machineProcessCount() -> Int {
+        let capacity = proc_listallpids(nil, 0)
+        guard capacity > 0 else { return 0 }
+        var pids = [pid_t](repeating: 0, count: Int(capacity))
+        let returned = proc_listallpids(&pids, Int32(Int(capacity) * MemoryLayout<pid_t>.size))
+        return max(0, min(Int(returned), pids.count))
+    }
+
     /// The program each of these pids is running. ONE PASS FOR THE WHOLE TREE, because the tick
     /// needs the same answer twice: to tell Tally's own processes from the session's work
     /// (`ownFamily`) and to put a name beside the number (`displayName`). Asking twice would be two

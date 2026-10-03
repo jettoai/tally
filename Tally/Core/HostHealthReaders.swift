@@ -102,6 +102,41 @@ enum HostHealthReaders {
         }
     }
 
+    /// Every readable process's threads: how many are running or uninterruptible (what the load
+    /// average counts), and which programs hold the most. Alarm-only, like `heaviest`: three libproc
+    /// calls per process plus one per thread, 6 ms over 1,000 processes and 7,500 threads here.
+    /// Run states are `TH_STATE_RUNNING` (1) and `TH_STATE_UNINTERRUPTIBLE` (4), mach/thread_info.h.
+    static func threadCensus(_ limit: Int = 5) -> HostHealthThreads {
+        var running = 0, uninterruptible = 0, total = 0
+        var byName: [String: Int] = [:]
+        for pid in ProcessTree.liveProcesses().map(\.pid) {
+            var task = proc_taskinfo()
+            let size = Int32(MemoryLayout<proc_taskinfo>.size)
+            guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, size) == size else { continue }
+            let count = Int(task.pti_threadnum)
+            total += count
+            let name = ProcessTree.executablePath(of: pid).flatMap(ProcessTree.displayName) ?? "unknown"
+            byName[name, default: 0] += count
+            // Slack for threads started between the two calls; the kernel fills what fits.
+            var ids = [UInt64](repeating: 0, count: count + 16)
+            let bytes = proc_pidinfo(pid, PROC_PIDLISTTHREADS, 0, &ids,
+                                     Int32(ids.count * MemoryLayout<UInt64>.size))
+            guard bytes > 0 else { continue }
+            for id in ids.prefix(Int(bytes) / MemoryLayout<UInt64>.size) {
+                var thread = proc_threadinfo()
+                let threadSize = Int32(MemoryLayout<proc_threadinfo>.size)
+                guard proc_pidinfo(pid, PROC_PIDTHREADINFO, id, &thread, threadSize) == threadSize
+                else { continue }
+                if thread.pth_run_state == 1 { running += 1 }
+                if thread.pth_run_state == 4 { uninterruptible += 1 }
+            }
+        }
+        let top = byName.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .prefix(limit).map { HostHealthThreadHolder(name: $0.key, threads: $0.value) }
+        return HostHealthThreads(running: running, uninterruptible: uninterruptible, total: total,
+                                 processes: ProcessTree.machineProcessCount(), top: Array(top))
+    }
+
     /// The busiest processes by CPU, most first, in share of one core. Two seconds of sampling
     /// (`CPUAlertReaders.busiest`), made only by a load alarm. Owner: the session it runs under
     /// (`sessionNames`), else the checkout its working directory is in (`CPUAlertLogic.processName`'s

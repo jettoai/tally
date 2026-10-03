@@ -86,7 +86,9 @@ final class HostHealthMonitor {
         // walks the process table, so the steady state pays for two syscalls a minute and nothing
         // more (`HostHealthReaders.heaviest`).
         if event == .alarm {
-            let top = await Task.detached(priority: .utility) { HostHealthReaders.heaviest() }.value
+            let (top, threads) = await Task.detached(priority: .utility) {
+                (HostHealthReaders.heaviest(), HostHealthReaders.threadCensus())
+            }.value
             // The board's live sessions, read here on the main actor (memory only) and handed to
             // the background sample, which resolves each culprit to one of them (B-693).
             let sessions = SessionRosterStore.shared.rows.compactMap { row in
@@ -100,7 +102,8 @@ final class HostHealthMonitor {
                 }.value
                 : nil
             tracker.lastAlarm = HostHealthAlarm(at: now, load1: reading.load1,
-                                                freeBytes: reading.freeBytes, top: top, cpuTop: cpuTop)
+                                                freeBytes: reading.freeBytes, top: top, cpuTop: cpuTop,
+                                                threads: threads)
         }
         let report = HostHealthLogic.report(tracker, reading: reading, at: now)
         let line = event.map { hostHealthLogLine($0, report: report, now: now) }

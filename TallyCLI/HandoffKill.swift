@@ -221,7 +221,7 @@ func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess]
         var up = parentOf[other]
         while let pid = up, pid > 1, protected.insert(pid).inserted { up = parentOf[pid] }
     }
-    let accounted = Set(descendants.map(\.pid) + [supervisor, child]).union(protected)
+    let accounted = Set(descendants.map(\.pid) + [supervisor, child])
     let mark = String(supervisor)
     let generation = String(supervisorStart)
     // The cheap tests first and the reading of the machine last, in one pass: the guard is walked
@@ -239,11 +239,13 @@ func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess]
         return stamped == generation
     }
     // Apps `open` started (the file head's last paragraph), with whatever they spawned. The path is
-    // read only for the marked orphans launchd parents, a handful at most.
+    // read only for the marked orphans launchd parents, a handful at most. Protected processes are
+    // still looked at here: an app that is another supervisor's ancestor sits in `protected`, and
+    // its other helpers are spared only if it is recognised as an app first.
     let apps = orphans.filter {
         $0.parent == 1 && executablePath($0.pid)?.contains(".app/Contents/MacOS/") == true
     }
-    var spared = Set(apps.map(\.pid))
+    var spared = Set(apps.map(\.pid)).union(protected)
     for app in apps {
         spared.formUnion(childTreeDescendants(of: app.pid, in: table, excluding: [supervisor]).map(\.pid))
     }

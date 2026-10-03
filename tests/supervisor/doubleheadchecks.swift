@@ -385,6 +385,21 @@ func runDoubleHeadChecks() {
                               environmentValue: appMark).map(\.pid)) == [900, 901])
     check("and the handoff reads executable paths for that decision",
           handoffKillSource.contains("executablePath: handoffExecutablePath,"))
+    // An app that is also another supervisor's ancestor (a terminal app opened in-session, with a
+    // second `tally claude` running inside it) sits in the protected set, and must still count as an
+    // app so its other helpers are spared too.
+    let hostTable = [proc(38881, under: 1, startedAt: 1_000),
+                     proc(100, under: 38881, startedAt: 1_100),
+                     proc(500, under: 1, startedAt: 1_200),     // the app, opened in-session
+                     proc(501, under: 500, startedAt: 1_210),   // a helper of that app
+                     proc(502, under: 500, startedAt: 1_220)]   // another registered supervisor
+    let hostPaths: [pid_t: String] = [500: "/Applications/X.app/Contents/MacOS/X"]
+    check("an app hosting another supervisor keeps its other helpers on a move",
+          handoffKillList(child: 100, supervisor: 38881, in: hostTable, otherSupervisors: [502],
+                          executablePath: { hostPaths[$0] }, environmentValue: appMark).isEmpty)
+    check("and the same table with no other supervisor is empty as well",
+          handoffKillList(child: 100, supervisor: 38881, in: hostTable,
+                          executablePath: { hostPaths[$0] }, environmentValue: appMark).isEmpty)
 
     // The identity check that stands between a two-second-old snapshot and a stranger's process.
     let recorded = proc(4242, under: 100, startedAt: 111)

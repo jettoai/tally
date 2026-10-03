@@ -8,6 +8,15 @@ publish.workspace = true
 # SIMD substring search. macOS libc memmem is about 24x slower on transcript lines, and that
 # search is most of what reading a live line costs.
 memchr = "2.8"
+tally_sys = { path = "../sys" }
+# The on-disk cache (~/.tally/token-stats.json) keeps the shape the Swift engine wrote, so an
+# upgrade starts warm and a downgrade still reads it.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Swift compares paths as Strings: by grapheme cluster and under canonical equivalence. The few
+# path rules that must agree with what the Swift engine decided use these on non-ASCII input.
+unicode-segmentation = "1.13"
+unicode-normalization = "0.1.25"
 
 [features]
 # Test-only: a line equal to `__tally_panic_probe__` panics (see tally_ffi). Never enabled by

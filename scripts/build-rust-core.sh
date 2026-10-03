@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds rust/ (the tally_ffi static library) for every architecture Xcode is building and
-# merges the slices into $BUILT_PRODUCTS_DIR/libtally_ffi.a. Called by the TallyCLI target's
-# pre-build phase (project.yml); runnable by hand with BUILT_PRODUCTS_DIR (and optionally ARCHS)
+# merges the slices into $BUILT_PRODUCTS_DIR/libtally_ffi.a. Called by the pre-build phase of both
+# targets (project.yml); runnable by hand with BUILT_PRODUCTS_DIR (and optionally ARCHS)
 # set. Always the release profile: the Rust core is measured against optimized Swift, and a
 # debug build of it would be the slower of the two for no reason anyone wants.
 set -euo pipefail

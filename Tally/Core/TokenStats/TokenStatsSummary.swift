@@ -32,66 +32,25 @@ struct TokenStatsSummary: Sendable {
     /// being a ranking and starts being a directory listing.
     static let projectRowLimit = 15
 
-    /// Aggregate `samples` over the window ending today.
+    /// Aggregate `samples` over the window ending today (rust/crates/core/src/tokenstats/summary.rs).
     ///
-    /// Ranking, bars and shares are all by TOTAL, the same figure the headline states, so a row's
-    /// bar and the card above it are the same quantity measured the same way. Output ties are
-    /// broken second, which only matters between two projects whose totals match exactly.
+    /// Ranking, bars and shares are all by TOTAL, the same figure the headline states; output
+    /// breaks ties second and the key third. Every provider that has ever recorded anything keeps
+    /// its row in catalog order even when this window is empty, so switching ranges changes
+    /// numbers, not the layout. Names that repeat are widened to two path components.
     static func make(samples: [TokenSample], range: TokenStatsRange,
                      today: Int = LocalDayStamper.today()) -> TokenStatsSummary {
-        let earliest = range.dayCount.map { today - ($0 - 1) }
-        var summary = TokenStatsSummary()
-
-        var byProvider: [String: TokenTotals] = [:]
-        var byProject: [String: TokenTotals] = [:]
-        var everSeenProviders = Set<String>()
-        for sample in samples {
-            everSeenProviders.insert(sample.providerID)
-            if let earliest, sample.day < earliest { continue }
-            summary.totals += sample.totals
-            byProvider[sample.providerID, default: TokenTotals()] += sample.totals
-            byProject[sample.project, default: TokenTotals()] += sample.totals
+        let made = tokenStatsSummarize(samples: samples.map(\.ffi), dayCount: range.dayCount.map(UInt32.init),
+                                       today: Int64(today), providerOrder: ProviderCatalog.all.map(\.id))
+        var summary = TokenStatsSummary(totals: TokenTotals(made.totals))
+        summary.providers = made.providers.map {
+            ProviderRow(providerID: $0.providerId, totals: TokenTotals($0.totals), share: $0.share)
         }
-
-        let denominator = Double(max(summary.totals.total, 1))
-
-        // Catalog order, and every provider that has ever recorded anything keeps its row even
-        // when this window is empty - so switching ranges changes numbers, not the layout.
-        summary.providers = ProviderCatalog.all.map(\.id).filter(everSeenProviders.contains).map {
-            let totals = byProvider[$0] ?? TokenTotals()
-            return ProviderRow(providerID: $0, totals: totals,
-                               share: Double(totals.total) / denominator)
-        }
-
-        var pooled = byProject.removeValue(forKey: TokenProject.otherKey) ?? TokenTotals()
-        let ranked = byProject.sorted { ($0.value.total, $0.value.output) > ($1.value.total, $1.value.output) }
-        for (_, totals) in ranked.dropFirst(projectRowLimit) { pooled += totals }
-
-        summary.projects = ranked.prefix(projectRowLimit).map { key, totals in
-            ProjectRow(key: key, name: TokenProject.displayName(forKey: key), totals: totals,
-                       share: Double(totals.total) / denominator)
-        }
-        summary.projects = disambiguated(summary.projects)
-        if !pooled.isEmpty {
-            summary.projects.append(
-                ProjectRow(key: TokenProject.otherKey,
-                           name: TokenProject.displayName(forKey: TokenProject.otherKey),
-                           totals: pooled, share: Double(pooled.total) / denominator))
+        summary.projects = made.projects.map {
+            ProjectRow(key: $0.key,
+                       name: $0.isOther ? TokenProject.displayName(forKey: TokenProject.otherKey) : $0.name,
+                       totals: TokenTotals($0.totals), share: $0.share)
         }
         return summary
-    }
-
-    /// Widen the names that repeat. Trailing path components collide constantly in a real
-    /// checkout (`src`, `web`, `app`), and two rows reading the same with different numbers looks
-    /// like a bug in the counting rather than two different directories. Deeper collisions keep
-    /// the two-component form and lean on the row's full-path tooltip.
-    private static func disambiguated(_ rows: [ProjectRow]) -> [ProjectRow] {
-        let counts = rows.reduce(into: [String: Int]()) { $0[$1.name, default: 0] += 1 }
-        return rows.map { row in
-            guard counts[row.name, default: 0] > 1 else { return row }
-            var widened = row
-            widened.name = TokenProject.displayName(forKey: row.key, components: 2)
-            return widened
-        }
     }
 }

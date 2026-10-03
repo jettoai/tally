@@ -88,6 +88,10 @@ for target in aarch64-apple-darwin x86_64-apple-darwin; do
     || { echo "Rust target $target missing - (cd rust && rustup target add $target)" >&2; exit 1; }
 done
 
+# Committed UniFFI bindings that lag the Rust exports fail the first call in the shipped app.
+echo "==> preflight: UniFFI bindings current"
+"$SRC/scripts/gen-uniffi.sh" --check
+
 echo "==> xcodegen"
 xcodegen generate --spec "$SRC/project.yml"
 

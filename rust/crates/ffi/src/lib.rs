@@ -11,6 +11,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 pub use tally_core::*;
 
+mod uniffi_tokenstats;
+
+uniffi::setup_scaffolding!();
+
 fn leak<T>(v: Vec<T>) -> (*mut T, usize) {
     let len = v.len();
     (Box::into_raw(v.into_boxed_slice()).cast(), len)

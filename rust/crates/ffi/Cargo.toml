@@ -10,6 +10,10 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 tally_core = { path = "../core" }
+tally_sys = { path = "../sys" }
+# Bindings for the token statistics API (src/tokenstats.rs). Pinned exactly: the generated Swift
+# (rust/generated/swift) checks the scaffolding's API checksums, so both sides must be one version.
+uniffi = "=0.32.2"
 
 [features]
 # Test-only: tests/run-ctxrust-tests.sh builds its own copy with it.

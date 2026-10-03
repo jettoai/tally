@@ -60,11 +60,8 @@ final class TokenStatsStore {
     /// and a store method that silently dropped everything older would be a second, invisible
     /// definition of "past year" sitting a layer away from the one on screen.
     func dailyTotals(forProject key: String) -> [Int: Int64] {
-        var totals: [Int: Int64] = [:]
-        for sample in samples where sample.project == key {
-            totals[sample.day, default: 0] += sample.totals.total
-        }
-        return totals
+        let totals = tokenDailyTotals(samples: samples.map(\.ffi), project: key)
+        return Dictionary(uniqueKeysWithValues: totals.map { (Int($0.key), $0.value) })
     }
 
     private func rebuild() {

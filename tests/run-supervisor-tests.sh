@@ -215,7 +215,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/DemoSessions.swift Tally/Core/DemoUsage.swift \
   Tally/Providers/ProviderModels.swift Tally/Core/FleetForecast.swift \
   Tally/Core/UsageHistory.swift Tally/Core/TokenStats/TokenTotals.swift \
-  Tally/Core/TokenStats/JSONScan.swift Tally/Core/AppLocale.swift
+  Tally/Core/AppLocale.swift
 "$out"
 
 python3 tests/supervisor/codexinputpty.py "$out"

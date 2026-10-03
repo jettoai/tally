@@ -30,7 +30,7 @@ swiftc -target "$(uname -m)-apple-macos14.0" -o "$out" tests/launchatlogin/main.
   Tally/Core/LoginItemPreview.swift Tally/Core/CaptureLaunch.swift \
   Tally/Core/BuildVariant.swift Tally/Core/DemoUsage.swift Tally/Core/LimitReset.swift Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \
-  Tally/Core/TokenStats/TokenTotals.swift Tally/Core/TokenStats/JSONScan.swift \
+  Tally/Core/TokenStats/TokenTotals.swift \
   Tally/Providers/ProviderModels.swift TallyCLI/UsageAdvisor.swift \
   TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreePool.swift Tally/Core/ProcessTreeRates.swift Tally/Core/ProcessTreeLine.swift \

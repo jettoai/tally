@@ -368,7 +368,7 @@ let mapSource = (try? String(contentsOfFile: "Tally/Core/TokenStats/TokenProject
                              encoding: .utf8)) ?? ""
 let mapLines = mapSource.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 let clockLine = mapLines.firstIndex { $0.contains("let observedAt = ") }
-let firstLook = mapLines.firstIndex { $0.contains("for child in directories(in: workspace)") }
+let firstLook = mapLines.firstIndex { $0.contains("TokenProjectMapCore.build(") }
 check(clockLine != nil && firstLook != nil && clockLine! < firstLook!,
       "the scan reads its clock before it looks at the filesystem, not when it writes")
 
@@ -399,15 +399,15 @@ check(afterBareRemoval.key(forCWD: agentDirectory(serving: ws + "/geo-admin")) =
 section("the cache version moves with the attribution rule")
 
 // Attribution is baked into the cached entries, so this rule change is only complete if the cache
-// version was bumped with it (TokenStatsEngine.Cache.currentVersion); otherwise entries written
+// version was bumped with it (CURRENT_VERSION in the Rust engine); otherwise entries written
 // before it keep crediting worktrees to rows of their own and the table mixes both rules. Read
 // from the source rather than linked, so this suite stays the map's closure and nothing more.
-let engineSource = (try? String(contentsOfFile: "Tally/Core/TokenStats/TokenStatsEngine.swift",
+let engineSource = (try? String(contentsOfFile: "rust/crates/core/src/tokenstats/engine.rs",
                                 encoding: .utf8)) ?? ""
-let marker = "static let currentVersion = "
+let marker = "pub const CURRENT_VERSION: i64 = "
 let cacheVersion = engineSource.split(separator: "\n")
-    .first(where: { $0.contains(marker) })
-    .flatMap { Int($0.trimmingCharacters(in: .whitespaces).dropFirst(marker.count)) }
+    .first(where: { $0.hasPrefix(marker) })
+    .flatMap { Int($0.dropFirst(marker.count).dropLast()) }
 // Pinned, not `>=`: the next attribution change has to fail here and be bumped past 6 deliberately.
 check(cacheVersion == 6, "the cache version is 6, the git-directory reading of the worktree-folding rule (found \(cacheVersion.map(String.init) ?? "nothing"))")
 

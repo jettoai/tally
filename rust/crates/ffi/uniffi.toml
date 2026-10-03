@@ -1,0 +1,6 @@
+[bindings.swift]
+# The generated header joins the existing TallyRustCore module (rust/include/module.modulemap),
+# which already links libtally_ffi.a, so no second module or linker flag is needed.
+ffi_module_name = "TallyRustCore"
+ffi_module_filename = "tally_uniffi"
+generate_module_map = false

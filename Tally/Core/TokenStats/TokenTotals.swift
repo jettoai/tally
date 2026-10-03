@@ -25,38 +25,10 @@ struct TokenTotals: Codable, Sendable, Equatable {
         lhs.cacheRead += rhs.cacheRead
         lhs.output += rhs.output
     }
-
-    /// Raises every column to the higher of the two values and reports what that added.
-    ///
-    /// This is how a figure that is restated rather than accumulated gets counted: the same
-    /// assistant turn is written several times while it streams, each time with the usage it had
-    /// reached so far, so the truth is the highest value each column ever showed and the new part
-    /// is the difference. Column by column rather than "the last record wins", because the columns
-    /// finish at different moments.
-    mutating func raise(to peak: TokenTotals) -> TokenTotals {
-        let added = TokenTotals(input: max(0, peak.input - input),
-                                cacheWrite: max(0, peak.cacheWrite - cacheWrite),
-                                cacheRead: max(0, peak.cacheRead - cacheRead),
-                                output: max(0, peak.output - output))
-        self += added
-        return added
-    }
 }
 
-/// One aggregation cell: a local calendar day, one project, one provider. This is the finest grain
-/// Tally keeps, and the grain the cache is written at, so a re-scan of one changed transcript
-/// replaces exactly that file's contribution and nothing else.
-struct TokenBucket: Codable, Sendable {
-    /// Local days since 1970-01-01. An integer rather than a date string because nothing ever
-    /// displays a day (the UI only ever shows range totals), and range filtering is then a
-    /// comparison instead of a parse.
-    var day: Int
-    /// Absolute working directory, or `TokenProject.otherKey` for the pooled bucket.
-    var project: String
-    var totals: TokenTotals
-}
-
-/// A merged cell, with the provider that produced it (which the cache stores once per file).
+/// One (local day, project, provider) cell of the merged token history. Local days are days since
+/// 1970-01-01, computed and cached by the Rust core (rust/crates/core/src/tokenstats).
 struct TokenSample: Sendable {
     var day: Int
     var project: String
@@ -108,5 +80,17 @@ enum TokenStatsRange: String, CaseIterable, Identifiable, Sendable {
         case .thirtyDays: return "30D"
         case .all: return L("All")
         }
+    }
+}
+
+/// Today's local day number, the anchor every range window counts back from. The same arithmetic
+/// as the Rust core's day stamper (`token_local_day`), kept in Swift because the demo fixtures and
+/// several test suites that compile this file do not link the Rust library;
+/// tests/run-tokenstats-tests.sh checks the two agree across zones.
+enum LocalDayStamper {
+    static func today(zone: TimeZone = .current, now: Date = Date()) -> Int {
+        let seconds = Int(now.timeIntervalSince1970)
+        let offset = zone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(seconds)))
+        return Int(floor(Double(seconds + offset) / 86_400))
     }
 }

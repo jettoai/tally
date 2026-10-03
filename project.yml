@@ -275,7 +275,8 @@ targets:
         # Sparkle wiring. Both values flow into Info.plist via variable substitution; while either
         # is empty (every Debug build, and Release until the EdDSA key is generated at ship time)
         # UpdaterController stays dormant and the Settings row hides - dev builds never poll a feed.
-        SPARKLE_FEED_URL: "https://github.com/jettoai/tally/releases/latest/download/appcast.xml"
+        # The Release feed URL comes from Config/Overlay.xcconfig, where an overlay can override it;
+        # a target-level value here would win over any xcconfig.
         SPARKLE_PUBLIC_ED_KEY: ""
       configs:
         Debug:

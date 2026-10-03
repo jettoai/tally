@@ -1,46 +1,98 @@
 #!/bin/bash
-# Checks that an assembled Tally.app carries the private overlay linked at ./overlay.
-# usage: scripts/check-overlay-bundle.sh <Tally.app> <tally CLI binary>
+# Checks an assembled Tally.app for the private overlay, in either direction.
+# usage: scripts/check-overlay-bundle.sh [--absent] <Tally.app> <tally CLI binary>...
 #
-# The strings to look for come from the overlay itself (overlay/bundle-markers: lines of
-# `cli:<text>` or `app:<text>`), so this public script names nothing the overlay adds. Every CLI
-# slice must carry every cli marker, the app binary every app marker, and the app's Info.plist a
-# non-empty NSLocalNetworkUsageDescription. Any miss exits 1.
+# The strings to look for come from the overlay itself (lines of `cli:<text>` or `app:<text>`), so
+# this public script names nothing the overlay adds.
+#
+# Present (default): the overlay linked at ./overlay lists the markers (overlay/bundle-markers).
+# Every CLI slice must carry every cli marker, the app binary every app marker, the Info.plist a
+# non-empty NSLocalNetworkUsageDescription, and SUFeedURL an https feed other than the public one.
+#
+# Absent (--absent): every marker the overlay lists (build/overlay-markers, copied before the
+# public build) must be missing from every CLI slice and the app binary,
+# NSLocalNetworkUsageDescription must be empty or missing, and SUFeedURL must be the public feed.
+# With no marker list here the plist checks stand alone, because the public build is
+# made from a tree that cannot hold an overlay (scripts/stage-public-tree.sh).
+# Any miss exits 1.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP="${1:?usage: check-overlay-bundle.sh <Tally.app> <tally CLI>}"
-CLI="${2:?usage: check-overlay-bundle.sh <Tally.app> <tally CLI>}"
-MARKERS=overlay/bundle-markers
-[ -s "$MARKERS" ] || { echo "no $MARKERS - is the overlay linked at ./overlay?" >&2; exit 1; }
+PUBLIC_FEED=https://github.com/jettoai/tally/releases/latest/download/appcast.xml
+USAGE="usage: check-overlay-bundle.sh [--absent] <Tally.app> <tally CLI>..."
+MODE=present
+if [ "${1:-}" = --absent ]; then MODE=absent; shift; fi
+APP="${1:?$USAGE}"
+shift
+[ "$#" -gt 0 ] || { echo "$USAGE" >&2; exit 1; }
+CLIS=("$@")
+
+if [ "$MODE" = present ]; then
+  MARKERS=overlay/bundle-markers
+  [ -s "$MARKERS" ] || { echo "no $MARKERS - is the overlay linked at ./overlay?" >&2; exit 1; }
+else
+  MARKERS=build/overlay-markers
+fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-found=0
-for arch in $(lipo -archs "$CLI"); do
-  lipo "$CLI" -thin "$arch" -output "$work/cli-$arch" 2> /dev/null || cp "$CLI" "$work/cli-$arch"
-  strings "$work/cli-$arch" > "$work/cli-$arch.txt"
+i=0
+for cli in "${CLIS[@]}"; do
+  i=$((i + 1))
+  for arch in $(lipo -archs "$cli"); do
+    lipo "$cli" -thin "$arch" -output "$work/cli$i-$arch" 2> /dev/null || cp "$cli" "$work/cli$i-$arch"
+    strings "$work/cli$i-$arch" > "$work/cli$i-$arch.txt"
+  done
 done
 strings "$APP/Contents/MacOS/Tally" > "$work/app.txt"
 
-while IFS= read -r line; do
-  case "$line" in
-    cli:*)
-      for txt in "$work"/cli-*.txt; do
-        command grep -qF -- "${line#cli:}" "$txt" \
-          || { echo "overlay marker missing from CLI slice ${txt##*/}: ${line#cli:}" >&2; exit 1; }
-      done
-      found=$((found + 1)) ;;
-    app:*)
-      command grep -qF -- "${line#app:}" "$work/app.txt" \
-        || { echo "overlay marker missing from the app binary: ${line#app:}" >&2; exit 1; }
-      found=$((found + 1)) ;;
-  esac
-done < "$MARKERS"
-[ "$found" -gt 0 ] || { echo "$MARKERS lists no markers" >&2; exit 1; }
+# has <text> <strings file>: 0 when the text is there.
+has() { command grep -qF -- "$1" "$2"; }
 
-usage=$(/usr/libexec/PlistBuddy -c 'Print NSLocalNetworkUsageDescription' "$APP/Contents/Info.plist" 2> /dev/null || true)
-[ -n "$usage" ] || { echo "NSLocalNetworkUsageDescription is empty in $APP" >&2; exit 1; }
+found=0
+if [ -s "$MARKERS" ]; then
+  while IFS= read -r line; do
+    case "$line" in
+      cli:*)
+        for txt in "$work"/cli*.txt; do
+          if [ "$MODE" = present ]; then
+            has "${line#cli:}" "$txt" \
+              || { echo "overlay marker missing from CLI slice ${txt##*/}: ${line#cli:}" >&2; exit 1; }
+          elif has "${line#cli:}" "$txt"; then
+            echo "overlay marker found in CLI slice ${txt##*/}: ${line#cli:}" >&2; exit 1
+          fi
+        done
+        found=$((found + 1)) ;;
+      app:*)
+        if [ "$MODE" = present ]; then
+          has "${line#app:}" "$work/app.txt" \
+            || { echo "overlay marker missing from the app binary: ${line#app:}" >&2; exit 1; }
+        elif has "${line#app:}" "$work/app.txt"; then
+          echo "overlay marker found in the app binary: ${line#app:}" >&2; exit 1
+        fi
+        found=$((found + 1)) ;;
+    esac
+  done < "$MARKERS"
+fi
 
-echo "    overlay present in bundle ($found markers)"
+plist() { /usr/libexec/PlistBuddy -c "Print $1" "$APP/Contents/Info.plist" 2> /dev/null || true; }
+usage=$(plist NSLocalNetworkUsageDescription)
+feed=$(plist SUFeedURL)
+
+if [ "$MODE" = present ]; then
+  [ "$found" -gt 0 ] || { echo "$MARKERS lists no markers" >&2; exit 1; }
+  [ -n "$usage" ] || { echo "NSLocalNetworkUsageDescription is empty in $APP" >&2; exit 1; }
+  case "$feed" in https://*) ;; *) echo "SUFeedURL is not an https feed: '$feed'" >&2; exit 1 ;; esac
+  [ "$feed" != "$PUBLIC_FEED" ] \
+    || { echo "SUFeedURL is the public feed; an overlay build must follow its own" >&2; exit 1; }
+  echo "    overlay present in bundle ($found markers, feed $feed)"
+else
+  [ -z "$usage" ] || { echo "NSLocalNetworkUsageDescription is set in $APP: $usage" >&2; exit 1; }
+  [ "$feed" = "$PUBLIC_FEED" ] || { echo "SUFeedURL is not the public feed: '$feed'" >&2; exit 1; }
+  if [ "$found" -gt 0 ]; then
+    echo "    overlay absent from bundle ($found markers checked, public feed)"
+  else
+    echo "    no marker list on this tree; checking plist and feed only (public feed, no local network text)"
+  fi
+fi

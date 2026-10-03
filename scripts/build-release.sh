@@ -12,9 +12,18 @@
 #   op signin                                                # 1Password session for the ASC notary
 #                                                            # key (op://dev/global-shared/ASC_*)
 #   generate_keys --account ai.jetto.tally                   # Sparkle EdDSA pair (Keychain)
+#
+# Usage: scripts/build-release.sh [--with-overlay] [BUILD_SETTING=value ...]
+# Without --with-overlay the app is built from a copy of the git-tracked files
+# (scripts/stage-public-tree.sh), so an overlay linked at ./overlay never reaches it, and the
+# bundle is checked for its absence. With it, the build runs in place, requires the overlay, and
+# checks for its presence. Remaining arguments are passed to both xcodebuild builds.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+MODE=public
+if [ "${1:-}" = "--with-overlay" ]; then MODE=overlay; shift; fi
+EXTRA_SETTINGS=("$@")
 
 TEAM_ID="87Z993GX39"
 SIGN_IDENTITY="Developer ID Application: Jetto AI, LLC (${TEAM_ID})"
@@ -24,6 +33,8 @@ ASC_NOTARY_ITEM="op://dev/global-shared"
 ARCHIVE=build/Tally.xcarchive
 EXPORT=build/export
 DIST=dist
+# Public and overlay DMGs never share a directory, so release.sh cannot pick up the wrong one.
+if [ "$MODE" = overlay ]; then DIST=dist/overlay; fi
 rm -rf "$ARCHIVE" "$EXPORT"
 mkdir -p build "$DIST"
 
@@ -47,11 +58,20 @@ else
   NOTARY_ARGS=(--key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
 fi
 
-echo "==> preflight: private overlay (./overlay)"
-[ -f overlay/Overlay.xcconfig ] \
-  || { echo "overlay missing at ./overlay - a release without it drops features installed copies have" >&2; exit 1; }
-[ -z "$(git -C overlay/ status --porcelain)" ] || { echo "overlay has uncommitted changes" >&2; exit 1; }
-echo "    overlay at $(git -C overlay/ rev-parse --short HEAD)"
+if [ "$MODE" = overlay ]; then
+  echo "==> preflight: overlay (./overlay)"
+  [ -f overlay/Overlay.xcconfig ] || { echo "overlay missing at ./overlay" >&2; exit 1; }
+  [ -z "$(git -C overlay/ status --porcelain)" ] || { echo "overlay has uncommitted changes" >&2; exit 1; }
+  echo "    overlay at $(git -C overlay/ rev-parse --short HEAD)"
+  SRC=.
+else
+  echo "==> preflight: public build (no overlay)"
+  # The overlay's own marker list, when one is linked here, is what the absence check looks for.
+  rm -f build/overlay-markers
+  if [ -s overlay/bundle-markers ]; then cp overlay/bundle-markers build/overlay-markers; fi
+  SRC=$(scripts/stage-public-tree.sh)
+  echo "    building from $SRC"
+fi
 
 echo "==> preflight: sentry-cli + Sentry auth env (dSYM upload)"
 SENTRY_ENV="$HOME/.config/op-env/sentry.env"
@@ -64,21 +84,22 @@ echo "==> preflight: Rust toolchain (both Mac targets)"
 export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo > /dev/null || { echo "cargo not found - install rustup" >&2; exit 1; }
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
-  (cd rust && rustup target list --installed) | grep -qx "$target" \
+  (cd "$SRC/rust" && rustup target list --installed) | grep -qx "$target" \
     || { echo "Rust target $target missing - (cd rust && rustup target add $target)" >&2; exit 1; }
 done
 
 echo "==> xcodegen"
-xcodegen generate
+xcodegen generate --spec "$SRC/project.yml"
 
 echo "==> archive (universal, Developer ID)"
 xcodebuild archive \
-  -project Tally.xcodeproj -scheme Tally -configuration Release \
+  -project "$SRC/Tally.xcodeproj" -scheme Tally -configuration Release \
   -archivePath "$ARCHIVE" \
   ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_IDENTITY="Developer ID Application" CODE_SIGN_STYLE=Manual \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
+  ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"} \
   -quiet
 
 echo "==> upload dSYMs to Sentry"
@@ -88,12 +109,13 @@ op run --env-file="$SENTRY_ENV" -- \
 
 echo "==> build tally CLI (universal)"
 xcodebuild build \
-  -project Tally.xcodeproj -scheme TallyCLI -configuration Release \
+  -project "$SRC/Tally.xcodeproj" -scheme TallyCLI -configuration Release \
   ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_IDENTITY="Developer ID Application" CODE_SIGN_STYLE=Manual \
   DEVELOPMENT_TEAM="$TEAM_ID" \
-  -derivedDataPath build/cli-dd -quiet
-CLI_BIN="build/cli-dd/Build/Products/Release/tally"
+  ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"} \
+  -derivedDataPath "build/cli-dd-$MODE" -quiet
+CLI_BIN="build/cli-dd-$MODE/Build/Products/Release/tally"
 lipo -archs "$CLI_BIN" | grep -q arm64 && lipo -archs "$CLI_BIN" | grep -q x86_64 \
   || { echo "CLI is not universal" >&2; exit 1; }
 echo "==> verify the Rust core is linked into both CLI slices"
@@ -106,8 +128,8 @@ done
 echo "==> build the Rust tally entry (universal)"
 entry_slices=()
 for triple in aarch64-apple-darwin x86_64-apple-darwin; do
-  (cd rust && MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked -p tally --target "$triple")
-  entry_slices+=("rust/target/$triple/release/tally")
+  (cd "$SRC/rust" && MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked -p tally --target "$triple")
+  entry_slices+=("$SRC/rust/target/$triple/release/tally")
 done
 ENTRY_BIN="build/tally-entry"
 lipo -create "${entry_slices[@]}" -output "$ENTRY_BIN"
@@ -131,8 +153,13 @@ lipo -archs "$APP/Contents/MacOS/Tally" | grep -q arm64 \
 echo "==> embed the tally entry and the Swift CLI it forwards to (Contents/Helpers)"
 mkdir -p "$APP/Contents/Helpers/swift"
 ditto "$CLI_BIN" "$APP/Contents/Helpers/swift/tally"
-scripts/check-overlay-bundle.sh "$APP" "$APP/Contents/Helpers/swift/tally"
 ditto "$ENTRY_BIN" "$APP/Contents/Helpers/tally"
+# The overlay's markers live in the Swift CLI; the public check also covers the Rust entry.
+if [ "$MODE" = overlay ]; then
+  scripts/check-overlay-bundle.sh "$APP" "$APP/Contents/Helpers/swift/tally"
+else
+  scripts/check-overlay-bundle.sh --absent "$APP" "$APP/Contents/Helpers/swift/tally" "$APP/Contents/Helpers/tally"
+fi
 
 echo "==> strip Sparkle XPC services + deep re-sign (non-sandboxed app; leaving them in fails notarization)"
 SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"

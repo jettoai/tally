@@ -1,3 +1,7 @@
+// The public update feed. An overlay included below may point its builds at its own feed; a
+// later assignment wins. `$()` keeps `//` from starting a comment.
+SPARKLE_FEED_URL = https:/$()/github.com/jettoai/tally/releases/latest/download/appcast.xml
+
 // Empty in the public tree. A private build links its overlay at ./overlay, whose settings are
 // included here; a missing file is skipped.
 #include? "../overlay/Overlay.xcconfig"

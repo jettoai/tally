@@ -31,6 +31,15 @@ scripts/build-release.sh
 DMG="dist/Tally-$VERSION.dmg"
 [ -f "$DMG" ] || { echo "expected $DMG" >&2; exit 1; }
 
+echo "==> verify the DMG that will be uploaded carries no overlay"
+MNT=$(mktemp -d)
+hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT" -quiet
+check_rc=0
+scripts/check-overlay-bundle.sh --absent "$MNT/Tally.app" \
+  "$MNT/Tally.app/Contents/Helpers/swift/tally" "$MNT/Tally.app/Contents/Helpers/tally" || check_rc=$?
+hdiutil detach "$MNT" -quiet
+[ "$check_rc" -eq 0 ] || exit 1
+
 echo "==> merge appcast (append-only)"
 FEED=build/feed
 rm -rf "$FEED"; mkdir -p "$FEED"
@@ -60,9 +69,6 @@ echo "==> commit version bump + tag"
 git add project.yml
 git commit -m "release: v$VERSION"
 git tag "$TAG"
-# The same tag on the private overlay records which overlay this binary was built with.
-git -C overlay/ tag "$TAG"
-git -C overlay/ push origin "$TAG"
 
 echo "==> GitHub release"
 git push origin main "$TAG"
@@ -73,3 +79,10 @@ gh release create "$TAG" "$DMG" "$FEED/Tally.dmg" "$FEED/appcast.xml" \
   --repo "$REPO" --title "Tally $VERSION" --generate-notes
 
 echo "==> done - verify: curl -sL https://github.com/$REPO/releases/latest/download/appcast.xml | grep $VERSION"
+
+# A linked overlay may publish its own build of this version through its own feed.
+if [ -x overlay/release.sh ]; then
+  echo "==> overlay release"
+  overlay/release.sh "$VERSION" \
+    || { echo "public release $TAG is out; the overlay release failed" >&2; exit 1; }
+fi

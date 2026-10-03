@@ -26,13 +26,8 @@ extension ProcessTree {
     /// carries the same note against the same trap). Clamped to the buffer because processes started
     /// between the sizing call and the fill can push the count past it.
     static func liveProcesses() -> [ProcessIdentity] {
-        let capacity = proc_listallpids(nil, 0)
-        guard capacity > 0 else { return [] }
-        var pids = [pid_t](repeating: 0, count: Int(capacity))
-        let returned = proc_listallpids(&pids, Int32(Int(capacity) * MemoryLayout<pid_t>.size))
-        guard returned > 0 else { return [] }
         var processes: [ProcessIdentity] = []
-        for pid in pids.prefix(min(Int(returned), pids.count)) where pid > 0 {
+        for pid in allPids() where pid > 0 {
             var info = proc_bsdinfo()
             let size = Int32(MemoryLayout<proc_bsdinfo>.size)
             // A process that ended between the listing and this call, or one belonging to another
@@ -131,13 +126,17 @@ extension ProcessTree {
     }
 
     /// How many processes the machine has, every user's included (`liveProcesses` keeps only the
-    /// ones this user can inspect). The fill call returns a COUNT, the trap noted above.
-    static func machineProcessCount() -> Int {
+    /// ones this user can inspect).
+    static func machineProcessCount() -> Int { allPids().count }
+
+    /// Every pid on the machine, every user's included. The fill call returns a COUNT, the trap
+    /// noted on `liveProcesses`, clamped to the buffer.
+    private static func allPids() -> ArraySlice<pid_t> {
         let capacity = proc_listallpids(nil, 0)
-        guard capacity > 0 else { return 0 }
+        guard capacity > 0 else { return [] }
         var pids = [pid_t](repeating: 0, count: Int(capacity))
         let returned = proc_listallpids(&pids, Int32(Int(capacity) * MemoryLayout<pid_t>.size))
-        return max(0, min(Int(returned), pids.count))
+        return pids.prefix(max(0, min(Int(returned), pids.count)))
     }
 
     /// The program each of these pids is running. ONE PASS FOR THE WHOLE TREE, because the tick

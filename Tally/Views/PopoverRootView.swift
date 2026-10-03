@@ -130,6 +130,7 @@ struct PopoverRootView: View {
                             launchSummaryStrip
                             fleetStrip
                             advisorStrip
+                            overlayStrip
                             // Fully folded WITH nothing left to head the sections skips the card
                             // container entirely: its 12pt padding read as a hollow band between
                             // two dividers (see `showsAccountRegion` - folded sections keep their
@@ -235,6 +236,8 @@ struct PopoverRootView: View {
         // (`sessionsPage`): a surface can sit on another tab for an hour.
         .onAppear { SessionRosterStore.shared.beginViewing() }
         .onDisappear { SessionRosterStore.shared.endViewing() }
+        .onAppear { OverlayApp.panelAppeared() }
+        .onDisappear { OverlayApp.panelDisappeared() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
         // A host can go away with its card still up (the popover closes on a click outside, the
         // panel is unpinned), and `onChange` never fires for a view that was torn down - so a

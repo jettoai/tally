@@ -45,3 +45,4 @@ docs/specs/
 .codex/
 .agents/
 rust/target/
+/overlay

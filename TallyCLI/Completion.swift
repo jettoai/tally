@@ -16,7 +16,12 @@ import Foundation
 // flags, the names a launch axis takes) and ASKED where the answer belongs to this machine (which
 // accounts exist, which worktrees exist). The static half is interpolated from the same constants
 // the commands themselves validate against, so there is no second copy to drift.
-let tallyCompletionZsh = #"""
+/// The marker line becomes the commands a private build adds, or nothing.
+var tallyCompletionZsh: String {
+    tallyCompletionZshTemplate.replacingOccurrences(of: "    @OVERLAY_COMMANDS@\n", with: OverlayCLI.completionLines)
+}
+
+let tallyCompletionZshTemplate = #"""
 #compdef tally
 
 # tally-completion: tab completion for tally, printed by `tally completion zsh`. Installing the
@@ -327,6 +332,7 @@ _tally() {
     "inbox:handle provider-scoped offline messages"
     "reload:restart every supervised session at its next idle moment"
     "keychain-repair:heal the Claude Code Keychain items Tally 0.64.0 left needing a dialog"
+    @OVERLAY_COMMANDS@
     "update:check for app updates now"
     "completion:print the shell completion script"
     "help:print the list of commands"

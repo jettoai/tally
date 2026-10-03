@@ -47,6 +47,12 @@ else
   NOTARY_ARGS=(--key "$NOTARY_KEY_FILE" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
 fi
 
+echo "==> preflight: private overlay (./overlay)"
+[ -f overlay/Overlay.xcconfig ] \
+  || { echo "overlay missing at ./overlay - a release without it drops features installed copies have" >&2; exit 1; }
+[ -z "$(git -C overlay/ status --porcelain)" ] || { echo "overlay has uncommitted changes" >&2; exit 1; }
+echo "    overlay at $(git -C overlay/ rev-parse --short HEAD)"
+
 echo "==> preflight: sentry-cli + Sentry auth env (dSYM upload)"
 SENTRY_ENV="$HOME/.config/op-env/sentry.env"
 command -v sentry-cli > /dev/null \
@@ -125,6 +131,7 @@ lipo -archs "$APP/Contents/MacOS/Tally" | grep -q arm64 \
 echo "==> embed the tally entry and the Swift CLI it forwards to (Contents/Helpers)"
 mkdir -p "$APP/Contents/Helpers/swift"
 ditto "$CLI_BIN" "$APP/Contents/Helpers/swift/tally"
+scripts/check-overlay-bundle.sh "$APP" "$APP/Contents/Helpers/swift/tally"
 ditto "$ENTRY_BIN" "$APP/Contents/Helpers/tally"
 
 echo "==> strip Sparkle XPC services + deep re-sign (non-sandboxed app; leaving them in fails notarization)"

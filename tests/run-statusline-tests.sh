@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/statusline/main.swift tests/statusline/completionchecks.swift \
-  TallyCLI/Statusline.swift TallyCLI/Usage.swift TallyCLI/Completion.swift TallyCLI/HarnessCompletion.swift TallyCLI/RepoCompletion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
+  TallyCLI/Statusline.swift TallyCLI/Usage.swift TallyCLI/OverlayCLI.swift TallyCLI/Completion.swift TallyCLI/HarnessCompletion.swift TallyCLI/RepoCompletion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   TallyCLI/AccountComfort.swift TallyCLI/SupervisorRuntime.swift TallyCLI/TaskListPin.swift TallyCLI/RelaunchPlan.swift Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift TallyCLI/LiveRates.swift \
   TallyCLI/DriftMonitor.swift TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/QuotaKnockNotice.swift TallyCLI/SessionContext.swift Tally/Core/SessionPinScope.swift TallyCLI/MoveField.swift TallyCLI/AgentRoster.swift \

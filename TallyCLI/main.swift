@@ -472,6 +472,9 @@ case "update":
     runUpdate()
 case "add":
     runAdd(args: Array(arguments.dropFirst()))
+// Commands a private build adds (OverlayCLI.swift); the public build has none.
+case let command? where OverlayCLI.handles(command):
+    exit(OverlayCLI.run(command, args: Array(arguments.dropFirst())))
 // What `add` does for an account it creates, done to one that is already here (ShareCommand.swift).
 case "share":
     exit(runShare(args: Array(arguments.dropFirst())))

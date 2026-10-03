@@ -8,7 +8,7 @@
 // harness. What is asserted (tests/statusline) is that this text and the dispatch agree about which
 // commands exist, which is the one way this file goes wrong: a command renamed or removed while the
 // text goes on describing it.
-let tallyUsage = """
+let tallyUsageHead = """
 usage:
   tally claude [args…]      launch Claude Code on the best account (auto-handoff on cap hit;
                             opt out with --no-handoff or TALLY_AUTO_HANDOFF=0)
@@ -193,6 +193,11 @@ usage:
                             read through) started asking. Every launch does this too; the
                             command is here for a machine you want to fix without one. Prints
                             one line per item and never prints a value
+"""
+
+let tallyUsage = tallyUsageHead + "\n" + OverlayCLI.usage + tallyUsageTail
+
+let tallyUsageTail = """
   tally update              check for app updates now (opens the update window)
   tally completion zsh      print the zsh tab-completion script: add
                             `eval "$(tally completion zsh)"` to ~/.zshrc, or write it to a

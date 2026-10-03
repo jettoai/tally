@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // on (`ProcessFootprintStore`). After the status item, because the roster it reads its
         // sessions from is installed there.
         ProcessFootprintStore.shared.install()
+        OverlayApp.didFinishLaunching()   // private build hook (OverlayApp.swift)
         // Updater before the window restores: a restored Settings window renders update rows,
         // and they must see a live updater (plus the observable mirror, for any later render).
         UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key

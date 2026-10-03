@@ -52,7 +52,7 @@ trap 'rm -rf "$work"' EXIT
 
 self=$(basename "$0")
 suites=()
-for script in tests/run-*-tests.sh; do
+for script in tests/run-*-tests.sh overlay/tests/run-*-tests.sh; do
     if [ -f "$script" ] && [ "$(basename "$script")" != "$self" ]; then
         suites+=("$script")
     fi

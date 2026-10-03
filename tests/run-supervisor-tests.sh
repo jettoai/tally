@@ -163,7 +163,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/SessionInputRequest.swift \
   TallyCLI/SessionInputCommand.swift TallyCLI/SessionInputOccupant.swift \
   TallyCLI/SessionProjectAddress.swift \
-  TallyCLI/SessionSendVerb.swift TallyCLI/Usage.swift \
+  TallyCLI/SessionSendVerb.swift TallyCLI/Usage.swift TallyCLI/OverlayCLI.swift \
   TallyCLI/MessageVerb.swift TallyCLI/NativeMessage.swift \
   TallyCLI/SessionAddressLookup.swift \
   TallyCLI/ClaudeNativeMessage.swift \

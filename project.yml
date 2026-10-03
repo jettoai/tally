@@ -50,6 +50,9 @@ targets:
   TallyCLI:
     type: tool
     platform: macOS
+    configFiles:
+      Debug: Config/Overlay.xcconfig
+      Release: Config/Overlay.xcconfig
     sources:
       - TallyCLI
       - path: Tally/Core/SessionMonitoring.swift
@@ -163,6 +166,11 @@ targets:
       # is the only thing separating a command line from an environment in that buffer, and a
       # second spelling of that boundary reads `env FOO=1 cmd` as a process launched with FOO set.
       - path: Tally/Core/SupervisorVersionStamp.swift
+      # A private overlay linked at ./overlay; absent in the public tree.
+      - path: overlay/Shared
+        optional: true
+      - path: overlay/TallyCLI
+        optional: true
     # The Rust core (rust/crates/ffi, see scripts/build-rust-core.sh) reads each live transcript line off
     # its bytes for the supervisor's scan (TranscriptLineRust.swift). Built for every
     # architecture in $ARCHS before Swift compiles; cargo's own cache makes an unchanged tree a
@@ -196,6 +204,9 @@ targets:
   Tally:
     type: application
     platform: macOS
+    configFiles:
+      Debug: Config/Overlay.xcconfig
+      Release: Config/Overlay.xcconfig
     sources:
       - Tally
       # The usage advisor's pure math lives in the CLI folder (so the CLI target compiles it too);
@@ -237,6 +248,11 @@ targets:
       # The status line's rate-limit facts: `tally statusline claude` writes them, the poller reads
       # them to show fresher session and weekly numbers and to probe live accounts less often.
       - path: TallyCLI/LiveRates.swift
+      # A private overlay linked at ./overlay; absent in the public tree.
+      - path: overlay/Shared
+        optional: true
+      - path: overlay/Tally
+        optional: true
     dependencies:
       - package: Sparkle
       - package: Sentry
@@ -287,6 +303,8 @@ targets:
         # The default banner style disappears after a few seconds; alerts (CPU running hot, a pool
         # about to run dry) stay on screen until dismissed, so they are not missed.
         NSUserNotificationAlertStyle: alert
+        # Set by a private overlay; empty in the public build, which never reaches the local network.
+        NSLocalNetworkUsageDescription: "$(TALLY_LOCAL_NETWORK_USAGE)"
         # A background "Renew login" that does not complete falls back to a real Terminal window,
         # opened through osascript. Apple events are a user-granted permission and macOS reads the
         # reason from the RESPONSIBLE app (this one, not the osascript it spawns), so without this

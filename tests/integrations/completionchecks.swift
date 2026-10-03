@@ -56,17 +56,19 @@ func runCompletionChecks(tmp: URL) throws {
     // MARK: Whose file this is.
 
     // Read off the script the binary actually prints, so the marker cannot drift from it: this is
-    // the source of the constant `tallyCompletionZsh`, which the CLI target compiles and this
-    // harness does not (Completion.swift lives on the other side of the seam).
+    // the source of the constant `tallyCompletionZshTemplate`, which the CLI target compiles and
+    // this harness does not (Completion.swift lives on the other side of the seam). The overlay
+    // marker line is dropped, matching what the public CLI prints.
     let root = URL(fileURLWithPath: #filePath)          // tests/integrations/completionchecks.swift
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let source = (try? String(contentsOf: root.appendingPathComponent("TallyCLI/Completion.swift"),
                               encoding: .utf8)) ?? ""
     let script: String = {
-        guard let start = source.range(of: "let tallyCompletionZsh = #\"\"\"\n"),
+        guard let start = source.range(of: "let tallyCompletionZshTemplate = #\"\"\"\n"),
               let end = source.range(of: "\n\"\"\"#", range: start.upperBound ..< source.endIndex)
         else { return "" }
-        return String(source[start.upperBound ..< end.lowerBound]) + "\n"
+        return (String(source[start.upperBound ..< end.lowerBound]) + "\n")
+            .replacingOccurrences(of: "    @OVERLAY_COMMANDS@\n", with: "")
     }()
     // The extractor's own sanity first: a marker that stopped matching would find nothing and let
     // every check below pass by saying nothing about anything.

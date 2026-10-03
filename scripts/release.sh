@@ -19,7 +19,11 @@ DOWNLOAD_PREFIX="https://github.com/$REPO/releases/download/$TAG/"
 
 echo "==> bump project.yml to $VERSION"
 sed -i '' "s/MARKETING_VERSION: \"[^\"]*\"/MARKETING_VERSION: \"$VERSION\"/" project.yml
-BUILD_NUM=$(git rev-list --count HEAD)
+# History was rewritten on 2026-10-03, so the commit count alone can fall below a shipped build
+# and Sparkle would offer nothing.
+PREV_BUILD=$(sed -n 's/.*CURRENT_PROJECT_VERSION: "\([0-9]*\)".*/\1/p' project.yml)
+COUNT=$(git rev-list --count HEAD)
+BUILD_NUM=$(( COUNT > PREV_BUILD ? COUNT : PREV_BUILD + 1 ))
 sed -i '' "s/CURRENT_PROJECT_VERSION: \"[^\"]*\"/CURRENT_PROJECT_VERSION: \"$BUILD_NUM\"/" project.yml
 
 echo "==> build + notarize"
@@ -56,6 +60,9 @@ echo "==> commit version bump + tag"
 git add project.yml
 git commit -m "release: v$VERSION"
 git tag "$TAG"
+# The same tag on the private overlay records which overlay this binary was built with.
+git -C overlay/ tag "$TAG"
+git -C overlay/ push origin "$TAG"
 
 echo "==> GitHub release"
 git push origin main "$TAG"

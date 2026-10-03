@@ -192,6 +192,15 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// Open the usage surface for an app reopen, never closing it: a second reopen leaves an open
+    /// popover alone. False when the status item is not on screen, so the caller can fall back.
+    func openUsageSurfaceOnReopen() -> Bool {
+        guard let button = statusItem?.button,
+              button.window?.occlusionState.contains(.visible) == true else { return false }
+        if !popover.isShown { togglePopover(button: button, afterDismissal: false) }
+        return true
+    }
+
     /// COME FORWARD FOR THE POPOVER ONLY WHEN NOTHING OF OURS COMES WITH IT.
     ///
     /// Activating is what a popover needs to be typed into - Esc closes it, an account rename has a

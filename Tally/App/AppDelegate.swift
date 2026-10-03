@@ -313,12 +313,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
-    /// Escape hatch for a hidden status item: macOS silently hides menu bar icons that
-    /// no longer fit (notch or a crowded bar), and this app has no Dock icon, so
-    /// relaunching from Spotlight or Finder is the only door left. Surface the main
-    /// window instead of doing nothing.
+    /// A reopen (`open -b`, a relaunch from Spotlight or Finder) is a request to SEE Tally, so it
+    /// opens the usage surface the status item opens. `flag` is not consulted: the status item's
+    /// own windows count as visible, so it is always true here (measured 2026-10-03) and the old
+    /// `!flag` branch never ran. Escape hatch kept for a hidden status item: macOS silently hides
+    /// menu bar icons that no longer fit (notch or a crowded bar), and this app has no Dock icon,
+    /// so with no item on screen the main window is surfaced instead.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { MainWindowController.shared.show() }
+        if !statusItemController.openUsageSurfaceOnReopen() { MainWindowController.shared.show() }
         return true
     }
 }

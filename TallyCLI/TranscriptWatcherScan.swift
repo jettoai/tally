@@ -434,17 +434,7 @@ extension TranscriptWatcher {
 /// Limitation 13 (a tool result of another call read as the answer) is therefore confined to the
 /// registry-less path.
 func lineIsPersonInput<S: StringProtocol>(_ line: S) -> Bool {
-    guard line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
-          !line.contains("\"isMeta\":true"), !line.contains("\"isCompactSummary\":true"),
-          !line.contains("<task-notification>") else { return false }
-    if line.contains("\"origin\":{\"kind\":\""), !line.contains("\"origin\":{\"kind\":\"human\"") {
-        return false
-    }
-    if line.contains("\"promptSource\":\""),
-       !personPromptSources.contains(where: { line.contains("\"promptSource\":\"\($0)\"") }) {
-        return false
-    }
-    return true
+    lineIsPersonInput(view: StringLineView(line: Substring(line)))
 }
 
 extension TranscriptWatcher {

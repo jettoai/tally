@@ -39,9 +39,9 @@ enum LineNeedle: Int, CaseIterable {
         case .isMeta: "\"isMeta\":true"
         case .promptSourceAny: "\"promptSource\":\""
         case .promptSourceSystem: "\"promptSource\":\"system\""
-        case .promptSourceTyped: "\"promptSource\":\"\(personPromptSources[0])\""
-        case .promptSourceQueued: "\"promptSource\":\"\(personPromptSources[1])\""
-        case .promptSourceSdk: "\"promptSource\":\"\(personPromptSources[2])\""
+        case .promptSourceTyped: "\"promptSource\":\"typed\""
+        case .promptSourceQueued: "\"promptSource\":\"queued\""
+        case .promptSourceSdk: "\"promptSource\":\"sdk\""
         case .taskNotificationTag: "<task-notification>"
         case .compactSummary: "\"isCompactSummary\":true"
         case .apiError: "\"isApiErrorMessage\":true"
@@ -66,9 +66,6 @@ enum LineNeedle: Int, CaseIterable {
         return strings.map { Array($0.utf8) }
     }()
 }
-
-/// The `promptSource` values people produce (`lineIsPersonInput`).
-let personPromptSources = ["typed", "queued", "sdk"]
 
 /// The substring readers, unchanged: what the scan ran before the Rust core, and what it runs
 /// wherever that core is not linked (the swiftc-built suites).
@@ -128,7 +125,8 @@ func lineModelValue(_ line: Substring) -> Substring? {
     return rest[..<quote]
 }
 
-/// `lineIsPersonInput`, asked of a view. Same tests in the same order; keep the two together.
+/// `lineIsPersonInput`, asked of a view: the one home of its tests (the string form reads through
+/// `StringLineView`).
 func lineIsPersonInput(view line: some TranscriptLineView) -> Bool {
     guard line.has(.typeUser), !line.has(.sidechain), !line.has(.isMeta),
           !line.has(.compactSummary), !line.has(.taskNotificationTag) else { return false }

@@ -76,7 +76,7 @@ struct RustLineView: TranscriptLineView {
     }
 
     var uuid: String? { string(f.uuid) }
-    var parentUUID: String? { string(f.parent_uuid).flatMap { $0.isEmpty ? nil : $0 } }
+    var parentUUID: String? { f.parent_uuid.len > 0 ? string(f.parent_uuid) : nil }
     var timestamp: Date? {
         switch f.ts_kind {
         case TALLY_TS_PARSED:

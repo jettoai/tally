@@ -74,9 +74,10 @@ extension TranscriptWatcher {
     }
 
 #if canImport(TallyRustCore)
-    /// `sawCapHit` with the read on the Rust core (rust/src/scan.rs): one call returns this tick's
-    /// lines, applied here in order exactly as the loop above applies them. nil when the core cannot
-    /// answer (no needle table, a panic), and then the loop above runs instead, from the same state.
+    /// `sawCapHit` with the read on the Rust core (rust/crates/core/src/scan.rs): one call returns
+    /// this tick's lines, applied here in order exactly as the loop above applies them. nil when
+    /// the core cannot answer (no needle table, a panic), and then the loop above runs instead,
+    /// from the same state.
     private mutating func sawCapHitOnRust(_ file: URL) -> Bool? {
         let sinceKey = transcriptSecondKey(since)
         var block = TallyScanBlock()
@@ -100,8 +101,8 @@ extension TranscriptWatcher {
         }
         let all = UnsafeRawBufferPointer(start: block.bytes, count: block.bytes_len)
         var hit = false
-        for index in 0..<block.line_count where applyRustLine(block.lines[index], in: all, sinceKey) {
-            hit = true
+        for index in 0..<block.line_count {
+            if applyRustLine(block.lines[index], in: all, sinceKey) { hit = true }
         }
         offset = block.new_offset
         if block.at_end != 0, block.has_tail != 0 {

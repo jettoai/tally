@@ -32,7 +32,7 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "bench" {
     exit(0)
 }
 
-// MARK: ABI layout, the same numbers rust/src/lib.rs asserts.
+// MARK: ABI layout, the same numbers rust/crates/ffi/src/lib.rs asserts.
 check(MemoryLayout<TallySpan>.size == 16, "abi: TallySpan is 16 bytes")
 check(MemoryLayout<TallyLineFields>.size == 120, "abi: TallyLineFields is 120 bytes")
 let offsets: [(PartialKeyPath<TallyLineFields>, Int)] = [
@@ -186,7 +186,8 @@ let invalid = Data(fixtures.joined(separator: "\n").utf8) + Data([0x0A, 0x7B, 0x
 let invalidURL = scratch.appendingPathComponent("invalid.jsonl")
 try? invalid.write(to: invalidURL)
 files.append(invalidURL)
-// The string side is the read loop in Swift; the Rust side is the core's scan (rust/src/scan.rs).
+// The string side is the read loop in Swift; the Rust side is the core's scan
+// (rust/crates/core/src/scan.rs).
 // History on: every line before `since` goes through the history path; `late` makes them all
 // history, so a login failure opened mid-tick sends the lines after it down the full path.
 let late = parseISO("2026-10-04T00:00:00Z")!

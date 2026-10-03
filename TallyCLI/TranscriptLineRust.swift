@@ -33,8 +33,9 @@ private nonisolated(unsafe) let rustHistoryNeedles = rustNeedleTable(
     [sidechainTrueBytes, typeAssistantBytes, typeUserBytes] + transcriptFullPathNeedles)
 
 enum RustScan {
-    /// One tick of `sawCapHit` read by the core (rust/src/scan.rs) into `block`, which the caller
-    /// frees with `tally_scan_block_free` when this returns 0. nil when there are no needle tables.
+    /// One tick of `sawCapHit` read by the core (rust/crates/core/src/scan.rs) into `block`, which
+    /// the caller frees with `tally_scan_block_free` when this returns 0. nil when there are no
+    /// needle tables.
     static func read(path: String, offset: UInt64, budget: Int, block: Int, since: Date,
                      sinceKey: [UInt8], into out: inout TallyScanBlock) -> Int32? {
         guard let rustNeedles, let rustHistoryNeedles else { return nil }

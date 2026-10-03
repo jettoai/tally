@@ -29,7 +29,13 @@ print("argv=\(hex(argvBytes))")
 print("pid=\(getpid())")
 print("cwd=\(FileManager.default.currentDirectoryPath)")
 print("env=\(env["TALLY_ENTRY_PROBE"] ?? "<unset>")")
-print("sigpipe=\(pipeHandler == 1 ? "ign" : pipeHandler == 0 ? "dfl" : "other")")
+let sigpipe: String
+switch pipeHandler {
+case 1: sigpipe = "ign"
+case 0: sigpipe = "dfl"
+default: sigpipe = "other"
+}
+print("sigpipe=\(sigpipe)")
 print("usr1blocked=\((mask & (1 << (SIGUSR1 - 1))) != 0)")
 print("fd3=\(fcntl(3, F_GETFD) != -1)")
 print("stdin=\(hex(stdinBytes))")

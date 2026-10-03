@@ -300,10 +300,12 @@ struct TranscriptWatcher {
         return recentUserExcerpts[uuid]
     }
 
-    /// Twins: TranscriptLineBytes.swift and rust/src/line.rs (TranscriptLineView.swift holds it).
+    /// Twins: TranscriptLineBytes.swift and rust/crates/core/src/line.rs
+    /// (TranscriptLineView.swift holds it).
     func lineUUID(_ line: Substring) -> String? { transcriptLineUUIDText(line) }
 
-    /// Twins: TranscriptLineBytes.swift and rust/src/line.rs (TranscriptLineView.swift holds it).
+    /// Twins: TranscriptLineBytes.swift and rust/crates/core/src/line.rs
+    /// (TranscriptLineView.swift holds it).
     func userExcerpt(_ line: Substring) -> String? { transcriptUserExcerptText(line) }
 
     /// Store a user prompt under its uuid, evicting the oldest past the capacity. Re-seen uuids keep

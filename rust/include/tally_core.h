@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// C ABI of rust/ (tally_core). Mirrored field for field by rust/src/lib.rs; the ctxrust suite
-// asserts both sides agree on every size and offset.
+// C ABI of rust/ (tally_core). Mirrored field for field by rust/crates/ffi/src/lib.rs; the ctxrust
+// suite asserts both sides agree on every size and offset.
 
 #define TALLY_ERR_PANIC (-1)
 #define TALLY_ERR_ARGS (-2)

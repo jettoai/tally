@@ -47,8 +47,14 @@ for cli in "${CLIS[@]}"; do
 done
 strings "$APP/Contents/MacOS/Tally" > "$work/app.txt"
 
-# has <text> <strings file>: 0 when the text is there.
-has() { command grep -qF -- "$1" "$2"; }
+# expect <text> <strings file> <where>: the text is there when present, missing when absent.
+expect() {
+  if command grep -qF -- "$1" "$2"; then
+    [ "$MODE" = present ] || { echo "overlay marker found in $3: $1" >&2; exit 1; }
+  else
+    [ "$MODE" = absent ] || { echo "overlay marker missing from $3: $1" >&2; exit 1; }
+  fi
+}
 
 found=0
 if [ -s "$MARKERS" ]; then
@@ -56,21 +62,11 @@ if [ -s "$MARKERS" ]; then
     case "$line" in
       cli:*)
         for txt in "$work"/cli*.txt; do
-          if [ "$MODE" = present ]; then
-            has "${line#cli:}" "$txt" \
-              || { echo "overlay marker missing from CLI slice ${txt##*/}: ${line#cli:}" >&2; exit 1; }
-          elif has "${line#cli:}" "$txt"; then
-            echo "overlay marker found in CLI slice ${txt##*/}: ${line#cli:}" >&2; exit 1
-          fi
+          expect "${line#cli:}" "$txt" "CLI slice ${txt##*/}"
         done
         found=$((found + 1)) ;;
       app:*)
-        if [ "$MODE" = present ]; then
-          has "${line#app:}" "$work/app.txt" \
-            || { echo "overlay marker missing from the app binary: ${line#app:}" >&2; exit 1; }
-        elif has "${line#app:}" "$work/app.txt"; then
-          echo "overlay marker found in the app binary: ${line#app:}" >&2; exit 1
-        fi
+        expect "${line#app:}" "$work/app.txt" "the app binary"
         found=$((found + 1)) ;;
     esac
   done < "$MARKERS"

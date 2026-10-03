@@ -136,8 +136,9 @@ func cliBundleContents(_ resolvedExecutable: URL) -> URL {
 
 /// The app version this `tally` binary ships inside, read from the enclosing bundle's Info.plist.
 /// The CLI is embedded at <App>/Contents/Helpers/tally (the Swift CLI behind the Rust entry at
-/// <App>/Contents/Helpers/swift/tally), so the plist sits in `cliBundleContents`. nil when not running from inside the app bundle (a standalone or dev build),
-/// which the status line renders as "unknown" rather than asserting "outdated".
+/// <App>/Contents/Helpers/swift/tally), so the plist sits in `cliBundleContents`. nil when not
+/// running from inside the app bundle (a standalone or dev build), which the status line renders
+/// as "unknown" rather than asserting "outdated".
 ///
 /// The path is resolved first: the installed command is a symlink (/usr/local/bin/tally points into
 /// the bundle), and `executableURL` reports the path as invoked, so walking up from the symlink

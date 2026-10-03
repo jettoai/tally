@@ -91,7 +91,7 @@ private func lineContextTokens(_ line: Substring) -> Int? { contextTokens(inLine
 
 /// The top-level `uuid` of one transcript line, without a full parse. `"uuid":"` never appears
 /// inside `"parentUuid":"` (the leading quote guards it), so the first match is the event's own.
-/// Twins: TranscriptLineBytes.swift and rust/src/line.rs; change all three.
+/// Twins: TranscriptLineBytes.swift and rust/crates/core/src/line.rs; change all three.
 func transcriptLineUUIDText(_ line: Substring) -> String? {
     guard let key = line.range(of: "\"uuid\":\"") else { return nil }
     let rest = line[key.upperBound...]
@@ -102,7 +102,7 @@ func transcriptLineUUIDText(_ line: Substring) -> String? {
 /// A user event's visible text by substring (no full parse - every user line hits this). Reads
 /// a string `content`, else the first `text` of an array `content`. Best-effort: an embedded
 /// escaped quote truncates it early, fine for a snippet already capped and newline-stripped.
-/// Twins: TranscriptLineBytes.swift and rust/src/line.rs; change all three.
+/// Twins: TranscriptLineBytes.swift and rust/crates/core/src/line.rs; change all three.
 func transcriptUserExcerptText(_ line: Substring) -> String? {
     guard let key = line.range(of: "\"content\":") else { return nil }
     let rest = line[key.upperBound...]
@@ -120,7 +120,7 @@ func transcriptUserExcerptText(_ line: Substring) -> String? {
 }
 
 /// The value after the first `"model":"`, up to its closing quote; nil without one.
-/// Twin: rust/src/line.rs.
+/// Twin: rust/crates/core/src/line.rs.
 func lineModelValue(_ line: Substring) -> Substring? {
     guard let modelKey = line.range(of: "\"model\":\"") else { return nil }
     let rest = line[modelKey.upperBound...]

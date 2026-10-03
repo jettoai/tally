@@ -1,5 +1,5 @@
 //! C ABI of the Rust core (tally_core): reads one tick of a live transcript (`tally_scan_read`,
-//! tally_core/src/scan.rs) and one line off its bytes for the supervisor's scan
+//! rust/crates/core/src/scan.rs) and one line off its bytes for the supervisor's scan
 //! (TallyCLI/TranscriptLineRust.swift). Every export runs inside `catch_unwind`, so a panic becomes
 //! TALLY_ERR_PANIC instead of unwinding into Swift. Types mirror rust/include/tally_core.h.
 //!
@@ -14,6 +14,13 @@ pub use tally_core::*;
 fn leak<T>(v: Vec<T>) -> (*mut T, usize) {
     let len = v.len();
     (Box::into_raw(v.into_boxed_slice()).cast(), len)
+}
+
+/// Frees what `leak` returned; null is a no-op.
+unsafe fn unleak<T>(ptr: *mut T, len: usize) {
+    if !ptr.is_null() {
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)) });
+    }
 }
 
 /// # Safety
@@ -85,11 +92,9 @@ pub unsafe extern "C" fn tally_scan_read(
 pub unsafe extern "C" fn tally_scan_block_free(block: *mut TallyScanBlock) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let Some(b) = (unsafe { block.as_mut() }) else { return };
-        if !b.bytes.is_null() {
-            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(b.bytes, b.bytes_len)) });
-        }
-        if !b.lines.is_null() {
-            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(b.lines, b.line_count)) });
+        unsafe {
+            unleak(b.bytes, b.bytes_len);
+            unleak(b.lines, b.line_count);
         }
         b.bytes = std::ptr::null_mut();
         b.lines = std::ptr::null_mut();

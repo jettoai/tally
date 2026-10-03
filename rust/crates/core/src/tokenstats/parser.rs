@@ -216,7 +216,7 @@ fn for_each_line(raw: &[u8], mut body: impl FnMut(std::ops::Range<usize>)) {
 }
 
 fn contains(needle: &Finder, hay: &[u8]) -> bool {
-    hay.len() >= needle.needle().len() && needle.find(hay).is_some()
+    needle.find(hay).is_some()
 }
 
 /// 64-bit FNV-1a over a value's raw bytes (quotes included): the dedupe key for `message.id`.
@@ -243,8 +243,9 @@ impl<'m> KeyMemo<'m> {
 
     fn key(&mut self, scan: &Scan, range: Option<std::ops::Range<usize>>) -> &str {
         let Some(range) = range else { return OTHER_KEY };
-        if self.last_bytes != scan.bytes[range.clone()] {
-            self.last_bytes = scan.bytes[range.clone()].to_vec();
+        let bytes = &scan.bytes[range.clone()];
+        if self.last_bytes != bytes {
+            self.last_bytes = bytes.to_vec();
             self.last_key = self.map.key_for_cwd(scan.string(range).as_deref());
         }
         &self.last_key
@@ -258,11 +259,7 @@ struct Accumulator {
 
 impl Accumulator {
     fn add(&mut self, totals: &Totals, day: i64, project: &str) {
-        if let Some(t) = self.cells.get_mut(&(day, project.to_string())) {
-            t.add(totals);
-        } else {
-            self.cells.insert((day, project.to_string()), *totals);
-        }
+        self.cells.entry((day, project.to_string())).or_default().add(totals);
     }
 
     /// Sorted so a re-scan of an unchanged file produces an identical cache entry.

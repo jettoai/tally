@@ -46,6 +46,7 @@ extension PopoverRootView {
                 if let version = BuildVariant.version {
                     Text(version).font(.caption2).foregroundStyle(.tertiary)
                 }
+                overlayHeaderBadge
                 // The dev variant tags every surface (menu bar strip + panel header), so a test
                 // instance can never be mistaken for the installed app.
                 if BuildVariant.isDev {

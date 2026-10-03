@@ -11,5 +11,13 @@ enum OverlayApp {
 extension PopoverRootView {
     /// A strip a private build shows under the advisor row.
     @ViewBuilder var overlayStrip: some View { EmptyView() }
+    /// A mark a private build shows beside the header's version.
+    @ViewBuilder var overlayHeaderBadge: some View { EmptyView() }
+}
+
+extension SettingsView {
+    /// Rows a private build adds to the About pane, under the brand row. Each row brings its own
+    /// trailing divider, so the public pane is unchanged.
+    @ViewBuilder var overlayAboutRows: some View { EmptyView() }
 }
 #endif

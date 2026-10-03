@@ -35,11 +35,18 @@ import Foundation
 ///
 /// Pure and exported so the rule is testable without a filesystem.
 func settingsEventIsInteresting(path: String, watching directories: [String]) -> Bool {
-    func trimmed(_ s: String) -> String {
-        s.hasSuffix("/") && s.count > 1 ? String(s.dropLast()) : s
-    }
-    let path = trimmed(path)
-    return directories.contains { trimmed($0) == path }
+    settingsEventIsInteresting(path: path,
+                               trimmedDirectories: Set(directories.map(withoutTrailingSlash)))
+}
+
+/// The same rule against directories already passed through `withoutTrailingSlash`, so each event
+/// costs one trim and one hash lookup rather than a trim per watched directory (Sentry TALLY-39).
+func settingsEventIsInteresting(path: String, trimmedDirectories: Set<String>) -> Bool {
+    trimmedDirectories.contains(withoutTrailingSlash(path))
+}
+
+func withoutTrailingSlash(_ s: String) -> String {
+    s.hasSuffix("/") && s != "/" ? String(s.dropLast()) : s
 }
 
 /// What the heal's inputs looked like: `config` (settings files, SKILL.md, helper) triggers a pass
@@ -338,14 +345,14 @@ extension IntegrationsStore {
         settingsWatcher = nil
         settingsWatcherRoots = directories
         guard !directories.isEmpty else { return }
-        let paths = directories.map(\.path)
+        let watched = Set(directories.map { withoutTrailingSlash($0.path) })
         let watcher = AccountDirWatcher(
             roots: directories,
             // Shorter than the account watcher's three seconds: a wholesale rewrite of settings.json
             // is one write, not the burst a login produces, and the wait here is time the user's
             // slash commands spend costing a turn.
             debounce: .seconds(2),
-            isInteresting: { settingsEventIsInteresting(path: $0, watching: paths) },
+            isInteresting: { settingsEventIsInteresting(path: $0, trimmedDirectories: watched) },
             discoverChanged: { [weak self] in await self?.healPromptHooksInBackground() ?? false },
             onChange: { [weak self] in self?.refresh() })
         watcher.start()

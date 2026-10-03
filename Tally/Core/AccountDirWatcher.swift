@@ -128,8 +128,9 @@ final class AccountDirWatcher {
     private let reroot: (() -> [URL])?
     private let debounce: Duration
     /// Whether a changed path is worth waking the gate for. The cheap string test that keeps a
-    /// busy subtree's traffic away from everything downstream.
-    private let isInteresting: (String) -> Bool
+    /// busy subtree's traffic away from everything downstream. Run on the FSEvents queue, never on
+    /// the main thread (Sentry TALLY-39: a busy batch filtered on the main actor hung the app).
+    private nonisolated let isInteresting: @Sendable (String) -> Bool
     /// Does the real work of deciding whether anything differs, and answers false when nothing
     /// does. Injected so the watcher itself needs no knowledge of what it is watching for.
     private let discoverChanged: @MainActor () async -> Bool
@@ -150,10 +151,7 @@ final class AccountDirWatcher {
          shallowRoots: [URL] = [],
          reroot: (() -> [URL])? = nil,
          debounce: Duration = .seconds(3),
-         isInteresting: @escaping (String) -> Bool = {
-             accountDirEventIsInteresting(
-                 path: $0, home: FileManager.default.homeDirectoryForCurrentUser.path)
-         },
+         isInteresting: @escaping @Sendable (String) -> Bool = AccountDirWatcher.accountDirFilter(),
          discoverChanged: @escaping @MainActor () async -> Bool,
          onChange: @escaping () -> Void) {
         self.roots = roots
@@ -163,6 +161,12 @@ final class AccountDirWatcher {
         self.isInteresting = isInteresting
         self.discoverChanged = discoverChanged
         self.onChange = onChange
+    }
+
+    /// The default filter, with the home resolved once rather than per path.
+    nonisolated static func accountDirFilter() -> @Sendable (String) -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return { accountDirEventIsInteresting(path: $0, home: home) }
     }
 
     /// Begin watching. Safe to call twice; a second call is ignored.
@@ -198,7 +202,7 @@ final class AccountDirWatcher {
                 startStream()
             }
         }
-        handle([path])
+        if isInteresting(path) { handle() }
     }
 
     /// Creating and starting the stream happens OFF the main thread (Sentry TALLY-1N):
@@ -242,12 +246,13 @@ final class AccountDirWatcher {
             guard let info, let paths = paths.assumingMemoryBound(to: UnsafePointer<CChar>?.self)
                 as UnsafeMutablePointer<UnsafePointer<CChar>?>? else { return }
             let watcher = Unmanaged<AccountDirWatcher>.fromOpaque(info).takeUnretainedValue()
-            var changed: [String] = []
-            for i in 0 ..< count {
-                if let raw = paths[i] { changed.append(String(cString: raw)) }
+            // Filter here, on the stream's own queue: a batch can name many busy directories, and
+            // only "at least one is interesting" needs to reach the main actor.
+            let interesting = (0 ..< count).contains { i in
+                paths[i].map { watcher.isInteresting(String(cString: $0)) } ?? false
             }
-            // The callback arrives on the stream's own queue; everything below is main-actor state.
-            Task { @MainActor in watcher.handle(changed) }
+            guard interesting else { return }
+            Task { @MainActor in watcher.handle() }
         }
         // Directory-level granularity on purpose (no kFSEventStreamCreateFlagFileEvents): one event
         // per busy directory rather than one per write, which is all the filter below needs and a
@@ -278,8 +283,8 @@ final class AccountDirWatcher {
         box.cancelSources()
     }
 
-    private func handle(_ paths: [String]) {
-        guard paths.contains(where: isInteresting) else { return }
+    /// Called only once a path has already passed `isInteresting`.
+    private func handle() {
         // Coalesce: a login writes a burst, and the answer is only interesting once it settles.
         debounceTask?.cancel()
         debounceTask = Task { [weak self, debounce] in

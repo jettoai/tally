@@ -76,6 +76,13 @@ import Foundation
 // v0.72.1 that way would never sweep the detached jobs it started before the upgrade, for as long
 // as that process lives. The fallback can be deleted once no supervisor process predating v0.72.1
 // is still running.
+//
+// AND AN APP IS NOT A JOB. `open` from inside the session hands the mark to whatever LaunchServices
+// starts, so a GUI app launched that way reads exactly like a nohupped server (2026-10-03: a move
+// TERMed Tally.app and FutuOpenD). What separates them is the shape `open` leaves: launchd for a
+// parent and an executable inside a bundle's `Contents/MacOS/`. Such a process and its subtree are
+// left running. The error is toward the safe direction named above: a CLI that lives in a bundle's
+// `Contents/MacOS/` and was started detached is now spared along with the apps.
 
 /// One live process, reduced to what this decision needs: who its parent is, and enough identity to
 /// tell it from a LATER process wearing the same number.
@@ -197,6 +204,7 @@ let supervisorStartedAtEnvKey = "TALLY_SUPERVISOR_STARTED_AT"
 /// pane with it. A supervisor missing from that set (one that never registered) is not protected.
 func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess],
                      sweepDetached: Bool = true, otherSupervisors: Set<pid_t> = [],
+                     executablePath: (pid_t) -> String? = { _ in nil },
                      environmentValue: (pid_t, String) -> String?) -> [HandoffProcess] {
     let descendants = childTreeDescendants(of: child, in: table, excluding: [supervisor])
     // The tree on every handoff, the detached jobs only on a move. Nothing is read out of any
@@ -230,7 +238,24 @@ func handoffKillList(child: pid_t, supervisor: pid_t, in table: [HandoffProcess]
         }
         return stamped == generation
     }
-    return descendants + orphans
+    // Apps `open` started (the file head's last paragraph), with whatever they spawned. The path is
+    // read only for the marked orphans launchd parents, a handful at most.
+    let apps = orphans.filter {
+        $0.parent == 1 && executablePath($0.pid)?.contains(".app/Contents/MacOS/") == true
+    }
+    var spared = Set(apps.map(\.pid))
+    for app in apps {
+        spared.formUnion(childTreeDescendants(of: app.pid, in: table, excluding: [supervisor]).map(\.pid))
+    }
+    return descendants + orphans.filter { !spared.contains($0.pid) }
+}
+
+/// A process's executable path, or nil when the machine will not say.
+func handoffExecutablePath(_ pid: pid_t) -> String? {
+    // PROC_PIDPATHINFO_MAXSIZE (4 * MAXPATHLEN) is not imported into Swift; use its literal value.
+    var buffer = [CChar](repeating: 0, count: 4 * 1024)
+    guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+    return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
 }
 
 /// Whether the process wearing `recorded.pid` right now is still the one that was recorded.
@@ -330,6 +355,7 @@ func endChildTree(_ child: inout ChildReaper, supervisor: pid_t = getpid(),
         child: child.pid, supervisor: supervisor, in: handoffProcessTable(),
         sweepDetached: sweepDetached && registry != nil,
         otherSupervisors: Set((registry ?? []).compactMap { pid_t($0) }),
+        executablePath: handoffExecutablePath,
         environmentValue: { processEnvironmentValue(ofProcess: Int($0), key: $1) })
     kill(child.pid, SIGTERM)   // let claude run its SessionEnd cleanup
     var deadline = Date().addingTimeInterval(grace)

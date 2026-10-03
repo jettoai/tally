@@ -347,6 +347,45 @@ func runDoubleHeadChecks() {
           handoffKillSource.contains("sweepDetached: sweepDetached && registry != nil")
               && handoffKillSource.contains("otherSupervisors: Set((registry ?? []).compactMap"))
 
+    // APPS `open` STARTED FROM INSIDE THE SESSION, replayed from 2026-10-03 17:49:01: a move sent
+    // TERM to Tally.app (72367) and FutuOpenDGUI (77964), both launched with `open` from a session
+    // shell, so both carried this supervisor's pid and generation. LaunchServices leaves launchd as
+    // the parent and the executable inside a bundle's Contents/MacOS; that shape is not a job.
+    let appTable = [proc(38881, under: 1, startedAt: 1_000),    // the supervisor moving
+                    proc(100, under: 38881, startedAt: 1_100),  // its child claude
+                    proc(72367, under: 1, startedAt: 1_200),    // Tally.app, opened in-session
+                    proc(77964, under: 1, startedAt: 1_300),    // FutuOpenDGUI, opened in-session
+                    proc(77965, under: 77964, startedAt: 1_310), // a helper that app spawned
+                    proc(800, under: 1, startedAt: 1_400)]      // the turn's nohupped dev server
+    let appPaths: [pid_t: String] = [
+        72367: "/Applications/Tally.app/Contents/MacOS/Tally",
+        77964: "/Applications/FutuOpenD-GUI.app/Contents/MacOS/FutuOpenD-GUI",
+        77965: "/Users/x/.futu/opend/FutuOpenD",
+        800: "/opt/homebrew/bin/node"]
+    func appMark(_ pid: pid_t, _ key: String) -> String? {
+        key == supervisorPIDEnvKey ? "38881" : "1000"
+    }
+    check("a move leaves the apps `open` started in the session running, and what they spawned",
+          Set(handoffKillList(child: 100, supervisor: 38881, in: appTable,
+                              executablePath: { appPaths[$0] },
+                              environmentValue: appMark).map(\.pid)) == [800])
+    // The failure log alone, with no dev server beside it: nothing on the list.
+    check("the two logged apps alone yield an empty kill list",
+          handoffKillList(child: 100, supervisor: 38881, in: appTable.filter { $0.pid != 800 },
+                          executablePath: { appPaths[$0] }, environmentValue: appMark).isEmpty)
+    // A bundle executable that is NOT launchd's child is a job a shell started, not an app `open`
+    // started, and stays on the list.
+    check("a bundle executable whose parent is not launchd is still swept",
+          Set(handoffKillList(child: 100, supervisor: 38881,
+                              in: [proc(38881, under: 1, startedAt: 1_000),
+                                   proc(100, under: 38881, startedAt: 1_100),
+                                   proc(900, under: 1, startedAt: 1_200),
+                                   proc(901, under: 900, startedAt: 1_210)],
+                              executablePath: { $0 == 901 ? "/A.app/Contents/MacOS/A" : "/bin/sh" },
+                              environmentValue: appMark).map(\.pid)) == [900, 901])
+    check("and the handoff reads executable paths for that decision",
+          handoffKillSource.contains("executablePath: handoffExecutablePath,"))
+
     // The identity check that stands between a two-second-old snapshot and a stranger's process.
     let recorded = proc(4242, under: 100, startedAt: 111)
     check("a pid the machine no longer answers for is not signalled",

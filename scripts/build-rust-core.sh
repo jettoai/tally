@@ -25,7 +25,8 @@ for arch in $WANT_ARCHS; do
     x86_64) triple=x86_64-apple-darwin ;;
     *) echo "error: no Rust target for architecture $arch" >&2; exit 1 ;;
   esac
-  cargo build --release --locked --manifest-path "$ROOT/rust/Cargo.toml" --target "$triple" \
+  # Run inside rust/ so rustup picks up rust/rust-toolchain.toml, not the cwd's toolchain.
+  (cd "$ROOT/rust" && cargo build --release --locked --target "$triple") \
     || { echo "error: cargo build failed for $triple (first build needs the crates.io index for memchr)" >&2; exit 1; }
   slices+=("$ROOT/rust/target/$triple/release/libtally_core.a")
 done

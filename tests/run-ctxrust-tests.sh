@@ -12,9 +12,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 export MACOSX_DEPLOYMENT_TARGET=14.0
-cargo test --quiet --locked --manifest-path rust/Cargo.toml
-cargo build --quiet --release --locked --features panic-probe --manifest-path rust/Cargo.toml \
-  --target-dir rust/target/ctxrust-probe
+(cd rust && cargo test --quiet --locked)
+(cd rust && cargo build --quiet --release --locked --features panic-probe \
+  --target-dir target/ctxrust-probe)
 lib=rust/target/ctxrust-probe/release
 out=$(mktemp -d)/run
 swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \

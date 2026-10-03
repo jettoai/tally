@@ -93,7 +93,7 @@ lipo -archs "$CLI_BIN" | grep -q arm64 && lipo -archs "$CLI_BIN" | grep -q x86_6
 echo "==> verify the Rust core is linked into both CLI slices"
 for arch in arm64 x86_64; do
   lipo "$CLI_BIN" -thin "$arch" -output "build/cli-$arch.thin"
-  strings "build/cli-$arch.thin" | grep -q 'tally_core ctx-v1' \
+  strings "build/cli-$arch.thin" | grep 'tally_core ctx-v1' > /dev/null \
     || { echo "Rust core missing from the $arch CLI slice" >&2; exit 1; }
 done
 

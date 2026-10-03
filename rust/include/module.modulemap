@@ -1,0 +1,5 @@
+module TallyRustCore {
+    header "tally_core.h"
+    link "tally_core"
+    export *
+}

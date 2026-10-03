@@ -12,7 +12,8 @@ import Foundation
 // These are TWINS of `lineTimestamp` (TranscriptSignals.swift), `lineUUID` and `userExcerpt`
 // (TranscriptWatcher.swift) and `contextTokens` (SessionContext.swift). Every needle is ASCII and
 // a transcript is UTF-8, so a byte match is a character match; change one side and the other in
-// the same commit (transcriptcatchupchecks.swift compares them shape by shape).
+// the same commit (transcriptcatchupchecks.swift compares them shape by shape). rust/src/line.rs
+// is a third twin, the live path's reader (TranscriptLineRust.swift); change all three.
 
 /// Lines that must keep going through the full scan even when older than the launch: the readers
 /// behind them judge time by the TOP-LEVEL stamp after a JSON parse (a cap event with no stamp at

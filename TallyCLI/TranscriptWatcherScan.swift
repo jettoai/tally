@@ -80,8 +80,17 @@ extension TranscriptWatcher {
                 let line = UnsafeRawBufferPointer(rebasing: all[lineStart..<lineEnd])
                 if consumedAsHistory(line, sinceKey: sinceKey) { continue }
                 fullPathLines += 1
+#if canImport(TallyRustCore)
+                if !forceStringLineView, let fields = RustLineFields.read(line) {
+                    guard fields.utf8_valid == 1 else { continue }
+                    if scanLine(RustLineView(bytes: line, f: fields)) { hit = true }
+                    continue
+                }
+                // No needle table, or a panic in the Rust core: this line is read the way it
+                // always was.
+#endif
                 guard let text = String(bytes: line, encoding: .utf8) else { continue }
-                if scanLine(text[...]) { hit = true }
+                if scanLine(StringLineView(line: text[...])) { hit = true }
             }
         }
         return hit
@@ -114,9 +123,13 @@ extension TranscriptWatcher {
     }
 
     /// One complete line through every reader, in the order the scan has always used. True when it
-    /// is a genuine cap hit.
-    private mutating func scanLine(_ line: Substring) -> Bool {
-        loginSignals.observe(line, since: since, sessionID: transcriptSessionID)
+    /// is a genuine cap hit. The readers are the view's (TranscriptLineView.swift); the decisions
+    /// are all here, once, whichever view answers.
+    private mutating func scanLine<L: TranscriptLineView>(_ line: L) -> Bool {
+        // `observe` opens with the same gate; asking it here first spares building `text`.
+        if loginSignals.requiredAt != nil || line.has(.authFailed) {
+            loginSignals.observe(line.text, since: since, sessionID: transcriptSessionID)
+        }
         // WHICH TURN THIS LINE BELONGS TO, before anything asks. Main-chain and post-launch
         // only: a replayed history would fill the map with turns that ended before this session
         // started, evicting the live ones, and an event whose root is missing is treated as
@@ -126,22 +139,20 @@ extension TranscriptWatcher {
         /// The parent this line hangs off, kept so the canary can ask whether THAT is one the
         /// cap dropped rather than whether anything ever was.
         var lineParent: String?
-        if !line.contains("\"isSidechain\":true"), let uuid = lineUUID(line),
-           let ts = lineTimestamp(line), ts >= since {
+        if !line.has(.sidechain), let uuid = line.uuid, let ts = line.timestamp, ts >= since {
             // The two clocks a standing wait is judged against: whether the conversation moved
             // at all (`lastConversationEventAt`, user and assistant records only; a `system`
             // record is Claude Code talking about the session, not the session moving) and
             // whether a PERSON moved it (`lastPersonInputAt`, `lineIsPersonInput`).
-            if line.contains("\"type\":\"user\"") || line.contains("\"type\":\"assistant\""),
-               lastConversationEventAt.map({ ts > $0 }) ?? true {
+            if line.has(.typeUser) || line.has(.typeAssistant), lastConversationEventAt.map({ ts > $0 }) ?? true {
                 lastConversationEventAt = ts
             }
-            if lineIsPersonInput(line), lastPersonInputAt.map({ ts > $0 }) ?? true {
+            if lineIsPersonInput(view: line), lastPersonInputAt.map({ ts > $0 }) ?? true {
                 lastPersonInputAt = ts
             }
-            let startsTurn = lineStartsTurn(line)
+            let startsTurn = lineStartsTurn(view: line)
             scanSeq += 1
-            lineParent = lineParentUUID(line)
+            lineParent = line.parentUUID
             turnRoot = turnRoots.record(uuid: uuid, parent: lineParent,
                                         startsTurn: startsTurn, at: ts, seq: scanSeq)
             // The first turn placed in the new file ends the post-move grace: from here on an
@@ -158,12 +169,9 @@ extension TranscriptWatcher {
         // (2026-07-19: a continued session replays its whole history, whose old lines and
         // "<synthetic>" error turns poisoned lastModel and ping-ponged the rescue):
         // real model ids only, main-chain events only, and only events newer than launch.
-        if let modelKey = line.range(of: "\"model\":\""),
-           !line.contains("\"isSidechain\":true") {
-            let rest = line[modelKey.upperBound...]
-            if let quote = rest.firstIndex(of: "\""), rest[..<quote].hasPrefix("claude"),
-               let ts = lineTimestamp(line), ts >= since {
-                let model = String(rest[..<quote])
+        if let raw = line.modelValue, !line.has(.sidechain) {
+            if raw.hasPrefix("claude"), let ts = line.timestamp, ts >= since {
+                let model = String(raw)
                 lastModel = model
                 lastMainChainEventAt = ts
                 // The answer to the newest `/model`: this request was served, so the only
@@ -199,35 +207,35 @@ extension TranscriptWatcher {
         // How big the conversation is now, off the same line the model came from. Main-chain
         // only: a subagent's context is its own, and it is not what a resume of THIS
         // conversation reloads.
-        if line.contains("\"type\":\"assistant\""), !line.contains("\"isSidechain\":true"),
-           let tokens = contextTokens(inLine: line) {
+        if line.has(.typeAssistant), !line.has(.sidechain), let tokens = line.contextTokens {
             lastContextTokens = tokens
         }
         // Remember recent user prompts so a later fallback's refused-uuid resolves to a
         // readable excerpt. Substring extraction (this runs on every user line), main-chain
         // only, no time guard - a replayed old prompt just ages out of the bounded FIFO.
-        if line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
-           let uuid = lineUUID(line), let text = userExcerpt(line) {
+        if line.has(.typeUser), !line.has(.sidechain), let uuid = line.uuid,
+           let text = line.excerpt {
             rememberExcerpt(uuid: uuid, text: text)
         }
         // When the person last said something themselves (`lastUserTurnAt` explains why this is
         // not the event above, and why it is not `lastMainChainEventAt` either). Post-launch
         // only, like the model signal: a resumed conversation replays its prompts, and a
         // replayed one is not somebody coming back.
-        if line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
-           !line.contains("\"tool_result\""), !line.contains("\"isMeta\":true"),
-           !line.contains("\"promptSource\":\"system\""),
-           !line.contains("<task-notification>"),
+        if line.has(.typeUser), !line.has(.sidechain), !line.has(.toolResult), !line.has(.isMeta),
+           !line.has(.promptSourceSystem), !line.has(.taskNotificationTag),
            // An auto-compact writes its summary as a user event carrying no promptSource, so it
            // read as somebody coming back and took down a badge nobody had seen. Nobody is in
            // the room when a compaction happens; it is the session folding itself up.
-           !line.contains("\"isCompactSummary\":true"),
-           let ts = lineTimestamp(line), ts >= since {
+           !line.has(.compactSummary), let ts = line.timestamp, ts >= since {
             lastUserTurnAt = ts
         }
         // Background work a relaunch stopped, as the resumed Claude Code reports it. Several
         // notices in one child fold into one reading (RestartWake.swift types one line for them).
-        if let notice = stoppedTaskNotice(inLine: line) {
+        // The gate is `stoppedTaskNotice`'s own opening tests, which it asks again.
+        if line.has(.typeUser), !line.has(.sidechain),
+           line.has(.originTaskNotification) || line.has(.contentTaskNotification),
+           line.has(.statusStopped) || line.has(.statusKilled),
+           let notice = stoppedTaskNotice(inLine: line.text) {
             lastStoppedTasks = lastStoppedTasks.map { $0.merged(with: notice) } ?? notice
         }
         // Claude Code's own `/model`, in the two events it writes. The invocation is what
@@ -235,14 +243,14 @@ extension TranscriptWatcher {
         // past a substring prefilter (its text is ANSI-coded, so it cannot be read off the raw
         // line). Guarded like the model signal - post-launch, main-chain - because a resumed
         // session replays every earlier one.
-        if line.contains(nativeModelCommandTag), !line.contains("\"isSidechain\":true"),
+        if line.has(.modelCommandTag), !line.has(.sidechain),
            // …and IS the command rather than merely mentioning it. The tag is a substring, and
            // a transcript carries it innocently more often than one would think: a tool_result
            // holding this repo's own source, a prompt quoting a transcript. Read as a command,
            // any of them resets a live anchor and spends the served stamp
            // (`lineIsCommandRecord`, TranscriptSignals.swift).
-           lineIsCommandRecord(line, opening: nativeModelCommandOpening),
-           let ts = lineTimestamp(line), ts >= since {
+           lineIsCommandRecord(line.text, opening: nativeModelCommandOpening),
+           let ts = line.timestamp, ts >= since {
             lastModelCommandAt = ts
             // WHERE it sits, which is what every later "after the command" test compares
             // against: the stamp above is for display and for the badge, and a transcript's
@@ -257,9 +265,9 @@ extension TranscriptWatcher {
             unanchoredServed = 0
             anchorLossReported = false
         }
-        if line.contains(nativeModelStdoutPrefix),
-           lineIsCommandRecord(line, opening: nativeModelStdoutOpening),
-           let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
+        if line.has(.modelStdout), case let text = line.text,
+           lineIsCommandRecord(text, opening: nativeModelStdoutOpening),
+           let object = try? JSONSerialization.jsonObject(with: Data(text.utf8))
                as? [String: Any],
            (object["isSidechain"] as? Bool) != true,
            let when = (object["timestamp"] as? String).flatMap(parseISO), when >= since,
@@ -269,8 +277,9 @@ extension TranscriptWatcher {
         // A Fable safeguard fallback: a structured system event, parsed only past a cheap
         // substring prefilter. Guarded like the model signal (post-launch, main-chain) so a
         // resumed session's replayed history never re-raises a stale flag.
-        if line.contains("model_refusal_fallback"),
-           let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+        if line.has(.refusalFallback),
+           let object = try? JSONSerialization.jsonObject(with: Data(line.text.utf8))
+               as? [String: Any],
            (object["isSidechain"] as? Bool) != true,
            let from = object["originalModel"] as? String,
            let to = object["fallbackModel"] as? String,
@@ -293,13 +302,13 @@ extension TranscriptWatcher {
         // one matcher (LimitResetSignals.swift). Post-launch and main-chain, the guards every
         // signal here carries: a resumed conversation replays its whole history, and a reset
         // spent last week is not news about this one.
-        if let ts = lineTimestamp(line), ts >= since,
-           !line.contains("\"isSidechain\":true"),
-           let outcome = limitResetSignal(inLine: line) {
+        if let ts = line.timestamp, ts >= since, !line.has(.sidechain),
+           line.hasLimitResetToken(), let outcome = limitResetSignal(inLine: line.text) {
             lastLimitReset = (outcome, ts)
         }
-        guard line.contains("\"isApiErrorMessage\":true") else { return false }
-        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+        guard line.has(.apiError) else { return false }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(line.text.utf8))
+                  as? [String: Any],
               let message = object["message"] as? [String: Any] else { return false }
         let content = message["content"]
         let body = (content as? String)
@@ -350,7 +359,7 @@ func lineIsPersonInput<S: StringProtocol>(_ line: S) -> Bool {
         return false
     }
     if line.contains("\"promptSource\":\""),
-       !["typed", "queued", "sdk"].contains(where: { line.contains("\"promptSource\":\"\($0)\"") }) {
+       !personPromptSources.contains(where: { line.contains("\"promptSource\":\"\($0)\"") }) {
         return false
     }
     return true

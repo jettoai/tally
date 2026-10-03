@@ -163,9 +163,28 @@ targets:
       # is the only thing separating a command line from an environment in that buffer, and a
       # second spelling of that boundary reads `env FOO=1 cmd` as a process launched with FOO set.
       - path: Tally/Core/SupervisorVersionStamp.swift
+    # The Rust core (rust/, see scripts/build-rust-core.sh) reads each live transcript line off
+    # its bytes for the supervisor's scan (TranscriptLineRust.swift). Built for every
+    # architecture in $ARCHS before Swift compiles; cargo's own cache makes an unchanged tree a
+    # sub-second no-op, and Xcode cannot see cargo's dependency graph to decide that itself.
+    preBuildScripts:
+      - name: Build Rust core
+        script: |
+          "${SRCROOT}/scripts/build-rust-core.sh"
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/libtally_core.a
     settings:
       base:
         PRODUCT_NAME: tally
+        # Rust core: the module map and header live in rust/include, the merged static library in
+        # BUILT_PRODUCTS_DIR (written by the pre-build script above). TALLY_RUST_REQUIRED turns a
+        # missing module into a compile error (TallyCLI/TranscriptLineRust.swift). The script
+        # writes rust/target inside the source tree, hence no script sandboxing.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/rust/include
+        LIBRARY_SEARCH_PATHS: $(inherited) $(BUILT_PRODUCTS_DIR)
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TALLY_RUST_REQUIRED
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally.cli
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"

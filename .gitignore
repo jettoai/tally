@@ -44,3 +44,4 @@ docs/specs/
 .claude/
 .codex/
 .agents/
+rust/target/

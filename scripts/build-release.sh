@@ -54,6 +54,14 @@ command -v sentry-cli > /dev/null \
 [ -f "$SENTRY_ENV" ] \
   || { echo "Sentry env file missing ($SENTRY_ENV) - needs SENTRY_AUTH_TOKEN as an op:// reference" >&2; exit 1; }
 
+echo "==> preflight: Rust toolchain (both Mac targets)"
+export PATH="$HOME/.cargo/bin:$PATH"
+command -v cargo > /dev/null || { echo "cargo not found - install rustup" >&2; exit 1; }
+for target in aarch64-apple-darwin x86_64-apple-darwin; do
+  (cd rust && rustup target list --installed) | grep -qx "$target" \
+    || { echo "Rust target $target missing - (cd rust && rustup target add $target)" >&2; exit 1; }
+done
+
 echo "==> xcodegen"
 xcodegen generate
 
@@ -82,6 +90,12 @@ xcodebuild build \
 CLI_BIN="build/cli-dd/Build/Products/Release/tally"
 lipo -archs "$CLI_BIN" | grep -q arm64 && lipo -archs "$CLI_BIN" | grep -q x86_64 \
   || { echo "CLI is not universal" >&2; exit 1; }
+echo "==> verify the Rust core is linked into both CLI slices"
+for arch in arm64 x86_64; do
+  lipo "$CLI_BIN" -thin "$arch" -output "build/cli-$arch.thin"
+  strings "build/cli-$arch.thin" | grep -q 'tally_core ctx-v1' \
+    || { echo "Rust core missing from the $arch CLI slice" >&2; exit 1; }
+done
 
 echo "==> export"
 xcodebuild -exportArchive -archivePath "$ARCHIVE" \

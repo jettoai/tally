@@ -1,36 +1,51 @@
 #!/bin/bash
-# Compiles the Chrome-gap notice (TallyCLI/ChromeReach.swift, the branch in TallyCLI/HookKnock.swift)
-# with its assertion harness and runs it. No Xcode target is needed;
-# exits non-zero on failure. Every collaborator is injected, so nothing here touches a real ~/.tally,
-# supervisor, snapshot, Claude session or browser.
+# The live transcript scan's Rust line reader (rust/, TallyCLI/TranscriptLineRust.swift) against
+# the substring readers it replaces. Runs the Rust unit tests, builds the core with the test-only
+# panic probe (its own target dir, so the shipped build never carries it), then compiles the
+# watcher with the core linked and compares the two readers member by member and state by state.
+# Count assertions with `command grep -c '^PASS:'`.
 #
-# The source list is the closure of `runHookKnock` and the live defaults it names (the supervisor's
-# account and child readers, the snapshot), found by compiling and adding each file a missing symbol
-# lives in. It is about a third of the supervisor suite's list and compiles in about a third of the
-# time. Count assertions with `command grep -c '^PASS:'`.
+# The source list is the chromegap suite's closure of the watcher (run-chromegap-tests.sh).
+#
+# Speed gate G1 (not part of the suite): CTXRUST_BENCH=<file listing transcripts, one per line>.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+export PATH="$HOME/.cargo/bin:$PATH"
+export MACOSX_DEPLOYMENT_TARGET=14.0
+cargo test --quiet --locked --manifest-path rust/Cargo.toml
+cargo build --quiet --release --locked --features panic-probe --manifest-path rust/Cargo.toml \
+  --target-dir rust/target/ctxrust-probe
+lib=rust/target/ctxrust-probe/release
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift \
-  tests/chromegap/preflightchecks.swift tests/chromegap/runnerchecks.swift TallyCLI/ChromePreflight.swift TallyCLI/ChromeRun.swift TallyCLI/ChromeRunStream.swift TallyCLI/SwitchCommand.swift \
+swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
+  tests/ctxrust/main.swift tests/ctxrust/dump.swift tests/ctxrust/bench.swift \
+  TallyCLI/ChromePreflight.swift \
+  TallyCLI/ChromeRun.swift \
+  TallyCLI/ChromeRunStream.swift \
+  TallyCLI/SwitchCommand.swift \
   TallyCLI/TranscriptLineBytes.swift \
   TallyCLI/QuotaKnock.swift \
-  TallyCLI/CapResume.swift TallyCLI/CapResumeLog.swift TallyCLI/NativeModelCommand.swift TallyCLI/QuotaKnockLogic.swift \
-  TallyCLI/SelfSwitchResume.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift \
+  TallyCLI/CapResume.swift \
+  TallyCLI/CapResumeLog.swift \
+  TallyCLI/NativeModelCommand.swift \
+  TallyCLI/QuotaKnockLogic.swift \
+  TallyCLI/SelfSwitchResume.swift \
+  TallyCLI/TranscriptWatcherScan.swift \
+  TallyCLI/TranscriptLineView.swift \
+  TallyCLI/TranscriptLineRust.swift \
   TallyCLI/ModelMenu.swift \
-  TallyCLI/MCPAccountOffer.swift TallyCLI/MCPPickOffer.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift TallyCLI/PickRows.swift TallyCLI/TallyPrompt.swift \
-  Tally/Core/PromptHookInput.swift TallyCLI/MCPPicker.swift \
+  TallyCLI/MCPAccountOffer.swift \
+  TallyCLI/MCPPickOffer.swift \
+  TallyCLI/ModelCommand.swift \
+  TallyCLI/ModelHook.swift \
+  TallyCLI/PickRows.swift \
+  TallyCLI/TallyPrompt.swift \
+  Tally/Core/PromptHookInput.swift \
+  TallyCLI/MCPPicker.swift \
   TallyCLI/PromptHookBackstop.swift \
-  TallyCLI/SwitchHook.swift TallyCLI/WorktreeMenu.swift \
+  TallyCLI/SwitchHook.swift \
+  TallyCLI/WorktreeMenu.swift \
   TallyCLI/SwitchMenu.swift \
-   \
-   \
-   \
-   \
-   \
-   \
-   \
-   \
   Tally/Core/AccountReserve.swift \
   Tally/Core/ChromeSettingSignal.swift \
   Tally/Core/LaunchAxisNames.swift \
@@ -51,8 +66,10 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/DriftMonitor.swift \
   TallyCLI/FollowAdoption.swift \
   TallyCLI/GitRepoRoot.swift \
-  TallyCLI/HookKnock.swift TallyCLI/HostHealthKnockLogic.swift \
-  Tally/Core/HostHealthLogic.swift Tally/Core/KeystrokeText.swift \
+  TallyCLI/HookKnock.swift \
+  TallyCLI/HostHealthKnockLogic.swift \
+  Tally/Core/HostHealthLogic.swift \
+  Tally/Core/KeystrokeText.swift \
   TallyCLI/KeyboardIdle.swift \
   TallyCLI/LaunchFlags.swift \
   TallyCLI/LimitResetSignals.swift \
@@ -96,9 +113,12 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/SessionState.swift \
   TallyCLI/SessionSwitch.swift \
   TallyCLI/SessionTurnEnd.swift \
-  TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift \
-  TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift \
-  TallyCLI/SupervisorRuntime.swift TallyCLI/TaskListPin.swift \
+  TallyCLI/Snapshot.swift \
+  Tally/Core/ClaudeStableExecutable.swift \
+  TallyCLI/StatusReport.swift \
+  Tally/Core/HeldOverReset.swift \
+  TallyCLI/SupervisorRuntime.swift \
+  TallyCLI/TaskListPin.swift \
   TallyCLI/SwitchBadges.swift \
   TallyCLI/SwitchDecision.swift \
   TallyCLI/SwitchRequest.swift \
@@ -112,5 +132,10 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/UsageAdvisorMath.swift \
   TallyCLI/UserNotice.swift \
   TallyCLI/WindowRepick.swift \
-  TallyCLI/WindowRepickWindow.swift
-"$out"
+  TallyCLI/WindowRepickWindow.swift \
+
+if [ -n "${CTXRUST_BENCH:-}" ]; then
+  "$out" bench "$CTXRUST_BENCH"
+else
+  "$out"
+fi

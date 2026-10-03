@@ -68,7 +68,8 @@ func tokenField(_ key: String, in window: Substring) -> Int? {
 /// The three input figures `contextTokens` requires, hoisted out of it because it runs on every
 /// assistant line the poll reads. The leading quote is what keeps `"input_tokens":` off
 /// `cache_creation_input_tokens`, whose own key carries an underscore in that position, so the
-/// three stay independent whatever order a future writer emits them in.
+/// three stay independent whatever order a future writer emits them in. Rust twin:
+/// rust/src/line.rs, which spells the same three keys; change both.
 let contextTokenFields = ["\"input_tokens\":", "\"cache_creation_input_tokens\":",
                           "\"cache_read_input_tokens\":"]
 

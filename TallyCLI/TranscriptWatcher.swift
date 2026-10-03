@@ -51,6 +51,9 @@ struct TranscriptWatcher {
     /// Lines handed to the full scan so far: the cost the history path keeps off the tick, counted
     /// so a suite can bound it without timing anything.
     var fullPathLines = 0
+    /// Reads every live line with the substring readers even where the Rust core is linked: the
+    /// ctxrust suite compares the two readers through it. Nothing in the product sets it.
+    var forceStringLineView = false
     let since: Date
     /// The session id this child was launched to resume, when known (set after a handoff, which
     /// relaunches with `--resume <id>`). Lets `locateFile` pin `<id>.jsonl` directly instead of
@@ -297,35 +300,11 @@ struct TranscriptWatcher {
         return recentUserExcerpts[uuid]
     }
 
-    /// The top-level `uuid` of one transcript line, without a full parse. `"uuid":"` never appears
-    /// inside `"parentUuid":"` (the leading quote guards it), so the first match is the event's own.
-    /// Byte twin: TranscriptLineBytes.swift; change both.
-    func lineUUID(_ line: Substring) -> String? {
-        guard let key = line.range(of: "\"uuid\":\"") else { return nil }
-        let rest = line[key.upperBound...]
-        guard let quote = rest.firstIndex(of: "\"") else { return nil }
-        return String(rest[..<quote])
-    }
+    /// Twins: TranscriptLineBytes.swift and rust/src/line.rs (TranscriptLineView.swift holds it).
+    func lineUUID(_ line: Substring) -> String? { transcriptLineUUIDText(line) }
 
-    /// A user event's visible text by substring (no full parse - every user line hits this). Reads
-    /// a string `content`, else the first `text` of an array `content`. Best-effort: an embedded
-    /// escaped quote truncates it early, fine for a snippet already capped and newline-stripped.
-    /// Byte twin: TranscriptLineBytes.swift; change both.
-    func userExcerpt(_ line: Substring) -> String? {
-        guard let key = line.range(of: "\"content\":") else { return nil }
-        let rest = line[key.upperBound...]
-        if rest.first == "\"" {
-            let body = rest.dropFirst()
-            guard let end = body.firstIndex(of: "\"") else { return nil }
-            return String(body[..<end])
-        }
-        if let textKey = rest.range(of: "\"text\":\"") {
-            let body = rest[textKey.upperBound...]
-            guard let end = body.firstIndex(of: "\"") else { return nil }
-            return String(body[..<end])
-        }
-        return nil
-    }
+    /// Twins: TranscriptLineBytes.swift and rust/src/line.rs (TranscriptLineView.swift holds it).
+    func userExcerpt(_ line: Substring) -> String? { transcriptUserExcerptText(line) }
 
     /// Store a user prompt under its uuid, evicting the oldest past the capacity. Re-seen uuids keep
     /// their place (the text does not change), so the FIFO tracks distinct recent messages.

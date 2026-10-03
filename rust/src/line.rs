@@ -10,11 +10,11 @@ use memchr::memmem::Finder;
 
 /// The finders one process builds once: the presence needles from Swift, and the extraction keys.
 pub struct TallyNeedles {
-    flags: Vec<Finder<'static>>,
+    pub(crate) flags: Vec<Finder<'static>>,
     uuid: Finder<'static>,
     parent: Finder<'static>,
     model: Finder<'static>,
-    timestamp: Finder<'static>,
+    pub(crate) timestamp: Finder<'static>,
     content: Finder<'static>,
     text: Finder<'static>,
     usage: Finder<'static>,

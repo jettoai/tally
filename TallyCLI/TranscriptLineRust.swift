@@ -12,10 +12,9 @@ import TallyRustCore
 #endif
 
 #if canImport(TallyRustCore)
-/// The needle finders, built once per process from `LineNeedle.table` and never freed. nil when the
-/// core refuses the table, and then every line takes the substring readers.
-private nonisolated(unsafe) let rustNeedles: OpaquePointer? = {
-    let table = LineNeedle.table
+/// Needle finders over `table`, built once per process and never freed. nil when the core refuses
+/// the table.
+private func rustNeedleTable(_ table: [[UInt8]]) -> OpaquePointer? {
     let flat = table.flatMap { $0 }
     let lens = table.map(\.count)
     let offsets = lens.reduce(into: [0]) { $0.append($0.last! + $1) }
@@ -25,7 +24,27 @@ private nonisolated(unsafe) let rustNeedles: OpaquePointer? = {
             lens.withUnsafeBufferPointer { l in tally_needles_new(p.baseAddress, l.baseAddress, table.count) }
         }
     }
-}()
+}
+
+/// From `LineNeedle.table`. nil: every line takes the substring readers.
+private nonisolated(unsafe) let rustNeedles = rustNeedleTable(LineNeedle.table)
+/// What `consumedAsHistory` asks of a line, in the order tally_core.h states. nil: no Rust scan.
+private nonisolated(unsafe) let rustHistoryNeedles = rustNeedleTable(
+    [sidechainTrueBytes, typeAssistantBytes, typeUserBytes] + transcriptFullPathNeedles)
+
+enum RustScan {
+    /// One tick of `sawCapHit` read by the core (rust/src/scan.rs) into `block`, which the caller
+    /// frees with `tally_scan_block_free` when this returns 0. nil when there are no needle tables.
+    static func read(path: String, offset: UInt64, budget: Int, block: Int, since: Date,
+                     sinceKey: [UInt8], into out: inout TallyScanBlock) -> Int32? {
+        guard let rustNeedles, let rustHistoryNeedles else { return nil }
+        return sinceKey.withUnsafeBufferPointer { key in
+            tally_scan_read(rustNeedles, rustHistoryNeedles, path, offset, UInt64(max(0, budget)),
+                            UInt64(max(0, block)), since.timeIntervalSinceReferenceDate,
+                            key.baseAddress, key.count, &out)
+        }
+    }
+}
 
 enum RustLineFields {
     /// What the core read off `line`, or nil when it could not answer (no needle table, or a

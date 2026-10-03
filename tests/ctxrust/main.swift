@@ -17,9 +17,10 @@ try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectorie
 let emptyDir = scratch.appendingPathComponent("empty", isDirectory: true)
 try? FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
 
-func watcher(_ file: URL, since: Date, forceString: Bool, budget: Int? = nil) -> TranscriptWatcher {
+func watcher(_ file: URL, since: Date, forceString: Bool, budget: Int? = nil,
+             history: Bool = false) -> TranscriptWatcher {
     var w = TranscriptWatcher(projectDir: emptyDir, file: file, since: since)
-    w.skipsHistoryCheaply = false
+    w.skipsHistoryCheaply = history
     w.forceStringLineView = forceString
     w.auditLog = scratch.appendingPathComponent("audit.log")
     if let budget { w.scanBudgetBytes = budget }
@@ -41,6 +42,14 @@ let offsets: [(PartialKeyPath<TallyLineFields>, Int)] = [
 ]
 check(offsets.allSatisfy { MemoryLayout<TallyLineFields>.offset(of: $0.0) == $0.1 },
       "abi: every field offset matches the Rust layout")
+check(MemoryLayout<TallyScanLine>.size == 144 && MemoryLayout<TallyScanLine>.offset(of: \.off) == 120
+      && MemoryLayout<TallyScanLine>.offset(of: \.kind) == 136, "abi: TallyScanLine matches")
+let blockOffsets: [(PartialKeyPath<TallyScanBlock>, Int)] = [
+    (\.at_end, 24), (\.bytes, 32), (\.lines, 48), (\.tail, 64), (\.has_tail, 208),
+]
+check(MemoryLayout<TallyScanBlock>.size == 216
+      && blockOffsets.allSatisfy { MemoryLayout<TallyScanBlock>.offset(of: $0.0) == $0.1 },
+      "abi: TallyScanBlock matches")
 
 // MARK: The needle table.
 check(LineNeedle.table.count == LineNeedle.allCases.count + limitResetPrefilter.count,
@@ -177,15 +186,40 @@ let invalid = Data(fixtures.joined(separator: "\n").utf8) + Data([0x0A, 0x7B, 0x
 let invalidURL = scratch.appendingPathComponent("invalid.jsonl")
 try? invalid.write(to: invalidURL)
 files.append(invalidURL)
+// The string side is the read loop in Swift; the Rust side is the core's scan (rust/src/scan.rs).
+// History on: every line before `since` goes through the history path; `late` makes them all
+// history, so a login failure opened mid-tick sends the lines after it down the full path.
+let late = parseISO("2026-10-04T00:00:00Z")!
+let modes: [(Date, Int?, Bool, String)] = [
+    (early, nil, false, "A"), (mid, nil, false, "B"), (early, 64, false, "C"),
+    (mid, nil, true, "H"), (mid, 64, true, "HC"), (late, 7, true, "HL"), (late, nil, true, "HL2"),
+]
 for file in files {
-    for (since, budget, mode) in [(early, nil, "A"), (mid, nil, "B"), (early, 64 as Int?, "C")] {
-        var s = watcher(file, since: since, forceString: true, budget: budget)
-        var r = watcher(file, since: since, forceString: false, budget: budget)
+    for (since, budget, history, mode) in modes {
+        var s = watcher(file, since: since, forceString: true, budget: budget, history: history)
+        var r = watcher(file, since: since, forceString: false, budget: budget, history: history)
         let sh = ctxScan(&s), rh = ctxScan(&r)
         let a = ctxDump(s, hits: sh), b = ctxDump(r, hits: rh)
         let diff = zip(a.split(separator: "\t"), b.split(separator: "\t")).filter { $0.0 != $0.1 }
         check(a == b, "watcher \(file.lastPathComponent) mode \(mode): same state \(diff)")
     }
+}
+do {
+    // The scan panics on the probe line and the tick falls back to the Swift loop (compared above).
+    var block = TallyScanBlock()
+    let key = transcriptSecondKey(early)
+    let rc = RustScan.read(path: files[0].path, offset: 0, budget: 1 << 20, block: 1 << 20,
+                           since: early, sinceKey: key, into: &block)
+    check(rc == TALLY_ERR_PANIC, "scan: a panic in the core is reported, not unwound")
+    var ok = TallyScanBlock()
+    let good = RustScan.read(path: files[1].path, offset: 0, budget: 1 << 20, block: 1 << 20,
+                             since: early, sinceKey: key, into: &ok)
+    check(good == 0 && ok.line_count == fixtures.count - 1 && ok.has_tail == 1,
+          "scan: the file without a final newline reads as lines plus a tail")
+    tally_scan_block_free(&ok)
+    let missing = RustScan.read(path: scratch.appendingPathComponent("none").path, offset: 0,
+                                budget: 1, block: 1, since: early, sinceKey: key, into: &block)
+    check(missing == TALLY_ERR_NOFILE, "scan: a missing file is TALLY_ERR_NOFILE")
 }
 do {
     // The fixtures do reach the states compared above (an all-nil comparison proves nothing).

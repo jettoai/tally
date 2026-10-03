@@ -1,5 +1,5 @@
-//! C ABI of tally_core: reads one live transcript line off its bytes for the supervisor's scan
-//! (TallyCLI/TranscriptLineRust.swift). Every export runs inside `catch_unwind`, so a panic becomes
+//! C ABI of tally_core: reads one tick of a live transcript (`tally_scan_read`, scan.rs) and one
+//! line off its bytes for the supervisor's scan (TallyCLI/TranscriptLineRust.swift). Every export runs inside `catch_unwind`, so a panic becomes
 //! TALLY_ERR_PANIC instead of unwinding into Swift. Types mirror rust/include/tally_core.h.
 //!
 //! Only extraction lives here. Every decision about a line stays in Swift (`scanLine`), and the
@@ -7,14 +7,16 @@
 
 mod iso;
 mod line;
+mod scan;
 
-use std::ffi::c_char;
+use std::ffi::{c_char, CStr};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 pub use line::{read_line, TallyNeedles};
 
 pub const ERR_PANIC: i32 = -1;
 pub const ERR_ARGS: i32 = -2;
+pub const ERR_NOFILE: i32 = -3;
 pub const TS_NONE: i32 = 0;
 pub const TS_PARSED: i32 = 1;
 pub const TS_RAW: i32 = 2;
@@ -64,6 +66,122 @@ impl Default for TallyLineFields {
             excerpt: TallySpan::ABSENT,
         }
     }
+}
+
+/// One line of a scan: its fields (spans relative to the line), where it sits in the block's
+/// bytes, and its `LINE_*` kind bits (scan.rs).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TallyScanLine {
+    pub fields: TallyLineFields,
+    pub off: i64,
+    pub len: i64,
+    pub kind: u32,
+    pub reserved: i32,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct TallyScanBlock {
+    pub start_offset: u64,
+    pub new_offset: u64,
+    pub end: u64,
+    pub at_end: i32,
+    pub truncated: i32,
+    pub bytes: *mut u8,
+    pub bytes_len: usize,
+    pub lines: *mut TallyScanLine,
+    pub line_count: usize,
+    pub tail: TallyScanLine,
+    pub has_tail: i32,
+    pub reserved: i32,
+}
+
+fn leak<T>(v: Vec<T>) -> (*mut T, usize) {
+    let len = v.len();
+    (Box::into_raw(v.into_boxed_slice()).cast(), len)
+}
+
+/// # Safety
+/// `line_needles` and `history_needles` must come from `tally_needles_new`, `path` be a
+/// NUL-terminated string, `since_key` valid for `since_key_len` bytes, `out` writable. A block
+/// this returns 0 for must be released with `tally_scan_block_free`.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn tally_scan_read(
+    line_needles: *const TallyNeedles,
+    history_needles: *const TallyNeedles,
+    path: *const c_char,
+    offset: u64,
+    budget_bytes: u64,
+    block_bytes: u64,
+    since_reference: f64,
+    since_key: *const u8,
+    since_key_len: usize,
+    out: *mut TallyScanBlock,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if line_needles.is_null()
+            || history_needles.is_null()
+            || path.is_null()
+            || out.is_null()
+            || since_key.is_null()
+        {
+            return ERR_ARGS;
+        }
+        let history = unsafe { &*history_needles };
+        // sidechain, type assistant, type user, then at least one full-path needle.
+        if history.flags.len() < 4 {
+            return ERR_ARGS;
+        }
+        let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() else { return ERR_ARGS };
+        let key = unsafe { std::slice::from_raw_parts(since_key, since_key_len) };
+        let since = scan::Since { reference: since_reference, key };
+        let needles = unsafe { &*line_needles };
+        let Ok(s) = scan::scan(path, offset, budget_bytes, block_bytes, needles, history, &since)
+        else {
+            return ERR_NOFILE;
+        };
+        let (bytes, bytes_len) = leak(s.bytes);
+        let (lines, line_count) = leak(s.lines);
+        unsafe {
+            out.write(TallyScanBlock {
+                start_offset: s.start,
+                new_offset: s.new_offset,
+                end: s.end,
+                at_end: i32::from(s.at_end),
+                truncated: i32::from(s.truncated),
+                bytes,
+                bytes_len,
+                lines,
+                line_count,
+                tail: s.tail.unwrap_or_default(),
+                has_tail: i32::from(s.tail.is_some()),
+                reserved: 0,
+            })
+        };
+        0
+    }))
+    .unwrap_or(ERR_PANIC)
+}
+
+/// # Safety
+/// `block` must be one `tally_scan_read` filled (returned 0), or zeroed; freed at most once.
+#[no_mangle]
+pub unsafe extern "C" fn tally_scan_block_free(block: *mut TallyScanBlock) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Some(b) = (unsafe { block.as_mut() }) else { return };
+        if !b.bytes.is_null() {
+            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(b.bytes, b.bytes_len)) });
+        }
+        if !b.lines.is_null() {
+            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(b.lines, b.line_count)) });
+        }
+        b.bytes = std::ptr::null_mut();
+        b.lines = std::ptr::null_mut();
+        b.bytes_len = 0;
+        b.line_count = 0;
+    }));
 }
 
 /// # Safety
@@ -142,6 +260,15 @@ mod abi {
         assert_eq!(offset_of!(TallyLineFields, parent_uuid), 72);
         assert_eq!(offset_of!(TallyLineFields, model), 88);
         assert_eq!(offset_of!(TallyLineFields, excerpt), 104);
+        assert_eq!(size_of::<TallyScanLine>(), 144);
+        assert_eq!(offset_of!(TallyScanLine, off), 120);
+        assert_eq!(offset_of!(TallyScanLine, kind), 136);
+        assert_eq!(size_of::<TallyScanBlock>(), 216);
+        assert_eq!(offset_of!(TallyScanBlock, at_end), 24);
+        assert_eq!(offset_of!(TallyScanBlock, bytes), 32);
+        assert_eq!(offset_of!(TallyScanBlock, lines), 48);
+        assert_eq!(offset_of!(TallyScanBlock, tail), 64);
+        assert_eq!(offset_of!(TallyScanBlock, has_tail), 208);
     }
 
     #[test]

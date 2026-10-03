@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(TallyRustCore)
+import TallyRustCore
+#endif
 
 // Incremental transcript event processing, split from the watcher storage and binding.
 extension TranscriptWatcher {
@@ -11,6 +14,9 @@ extension TranscriptWatcher {
     /// what the full scan would have done with them.
     mutating func sawCapHit() -> Bool {
         locateFile()
+#if canImport(TallyRustCore)
+        if !forceStringLineView, let file, let hit = sawCapHitOnRust(file) { return hit }
+#endif
         guard let file, let handle = try? FileHandle(forReadingFrom: file) else {
             caughtUp = false
             return false
@@ -66,6 +72,81 @@ extension TranscriptWatcher {
         caughtUp = atEnd || offset >= end
         return hit
     }
+
+#if canImport(TallyRustCore)
+    /// `sawCapHit` with the read on the Rust core (rust/src/scan.rs): one call returns this tick's
+    /// lines, applied here in order exactly as the loop above applies them. nil when the core cannot
+    /// answer (no needle table, a panic), and then the loop above runs instead, from the same state.
+    private mutating func sawCapHitOnRust(_ file: URL) -> Bool? {
+        let sinceKey = transcriptSecondKey(since)
+        var block = TallyScanBlock()
+        guard let rc = RustScan.read(path: file.path, offset: offset, budget: scanBudgetBytes,
+                                     block: transcriptScanBlockBytes, since: since,
+                                     sinceKey: sinceKey, into: &block) else { return nil }
+        if rc == TALLY_ERR_NOFILE {
+            caughtUp = false
+            return false
+        }
+        guard rc == 0 else { return nil }
+        defer { tally_scan_block_free(&block) }
+        if block.truncated != 0 {
+            offset = 0
+            loginSignals = TranscriptLoginSignals()
+        }
+        guard block.end > offset else {
+            caughtUp = true
+            settlePendingIfQuiet()
+            return false
+        }
+        let all = UnsafeRawBufferPointer(start: block.bytes, count: block.bytes_len)
+        var hit = false
+        for index in 0..<block.line_count where applyRustLine(block.lines[index], in: all, sinceKey) {
+            hit = true
+        }
+        offset = block.new_offset
+        if block.at_end != 0, block.has_tail != 0 {
+            let tail = block.tail
+            let bytes = Data(all[Int(tail.off)..<Int(tail.off + tail.len)])
+            if (try? JSONSerialization.jsonObject(with: bytes)) != nil {
+                if applyRustLine(tail, in: all, sinceKey) { hit = true }
+                offset += UInt64(tail.len)
+            }
+        }
+        caughtUp = block.at_end != 0 || offset >= block.end
+        return hit
+    }
+
+    /// One line of a Rust scan: `consumedAsHistory` or the full scan, as `scanCompleteLines` does.
+    private mutating func applyRustLine(_ scanned: TallyScanLine, in all: UnsafeRawBufferPointer,
+                                        _ sinceKey: [UInt8]) -> Bool {
+        let line = UnsafeRawBufferPointer(rebasing: all[Int(scanned.off)..<Int(scanned.off + scanned.len)])
+        let view = RustLineView(bytes: line, f: scanned.fields)
+        let valid = scanned.fields.utf8_valid == 1
+        let kind = scanned.kind
+        // The core marks lines that may be history; whether they are depends on the login state,
+        // which an earlier line of this same tick may have opened.
+        if skipsHistoryCheaply, loginSignals.requiredAt == nil,
+           kind & TALLY_LINE_HISTORY_CANDIDATE != 0
+            || (kind & TALLY_LINE_HISTORY_UNDECIDED != 0
+                && transcriptLineStampedBefore(bytes: line, since: since, sinceKey: sinceKey)) {
+            guard kind & TALLY_LINE_SIDECHAIN == 0 else { return false }
+            // A line that is not valid UTF-8 has no fields: the byte readers answer it, as before.
+            if kind & TALLY_LINE_TYPE_ASSISTANT != 0,
+               let tokens = valid ? view.contextTokens : transcriptContextTokens(bytes: line) {
+                lastContextTokens = tokens
+            }
+            if kind & TALLY_LINE_TYPE_USER != 0,
+               let uuid = valid ? view.uuid : transcriptLineUUID(bytes: line),
+               let text = valid ? view.excerpt : transcriptUserExcerpt(bytes: line) {
+                rememberExcerpt(uuid: uuid, text: text)
+            }
+            return false
+        }
+        fullPathLines += 1
+        guard valid else { return false }
+        return scanLine(view)
+    }
+#endif
 
     /// Every non-empty line in `bytes`, each consumed by the history path or decoded and scanned.
     /// A line that is not valid UTF-8 is skipped on its own rather than taking its block with it.

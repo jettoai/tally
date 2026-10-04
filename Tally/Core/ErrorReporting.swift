@@ -74,13 +74,15 @@ enum ErrorReporting {
     }
 
     /// App Hang events (mechanism type "AppHang", sentry-cocoa 9.29.1 SentryHangTrackingIntegration)
-    /// raised while the display sleeps on an overloaded host are dropped: nobody was waiting on the
-    /// app, and the machine was starving every process (Sentry TALLY-6, 64 such events in 40
-    /// minutes). Every other hang carries both readings as tags. Non-hang events pass untouched.
+    /// raised while the display sleeps are dropped, whatever the host load: nobody could see the
+    /// stall, and sending it only reopens resolved issues (Sentry TALLY-6, 64 such events in 40
+    /// minutes; eight issues from TALLY-59 on 2026-10-04, all asleep with the host below its
+    /// alarm). Hangs with the display awake carry both readings as tags. Non-hang events pass
+    /// untouched.
     static func contextualizeHang(_ event: Event, displayAsleep: Bool, hostAlarmed: Bool) -> Event? {
         guard event.exceptions?.contains(where: { $0.mechanism?.type == "AppHang" }) == true
         else { return event }
-        if displayAsleep && hostAlarmed { return nil }
+        if displayAsleep { return nil }
         var tags = event.tags ?? [:]
         tags["display_asleep"] = String(displayAsleep)
         tags["host_alarmed"] = String(hostAlarmed)

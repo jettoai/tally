@@ -146,12 +146,22 @@ extension PopoverRootView {
                 Spacer(minLength: Self.clockLead)
                 // TimelineView re-evaluates every second so the countdown ticks live (a plain
                 // render would freeze it at whatever it said on open). A heartbeat, so it dims - and
-                // is dropped when the row is tight.
+                // is dropped when the row is tight. B-879: while another once-a-second redraw drives
+                // `SecondsClock` (the compute pool), the countdown ticks on that redraw instead, so
+                // the panel draws once a second rather than twice.
                 if showsCountdown {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        counterSlot(store.isRefreshing
-                            ? L("refreshing…")
-                            : UsageFormat.updatesIn(store.nextRefreshAt, now: context.date))
+                    if SecondsClock.shared.drivers > 0 {
+                        ClockedCounter { now in
+                            counterSlot(store.isRefreshing
+                                ? L("refreshing…")
+                                : UsageFormat.updatesIn(store.nextRefreshAt, now: now))
+                        }
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            counterSlot(store.isRefreshing
+                                ? L("refreshing…")
+                                : UsageFormat.updatesIn(store.nextRefreshAt, now: context.date))
+                        }
                     }
                 }
             }
@@ -358,4 +368,11 @@ extension PopoverRootView {
         }
         .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
     }
+}
+
+/// B-879: the countdown on `SecondsClock`, read in a view of its own so a tick re-runs the counter
+/// and not the header around it (the same reason the compute pool reads its store in `PoolStripHost`).
+private struct ClockedCounter<Label: View>: View {
+    let label: (Date) -> Label
+    var body: some View { label(SecondsClock.shared.now) }
 }

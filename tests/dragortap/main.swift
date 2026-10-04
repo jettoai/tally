@@ -157,6 +157,14 @@ check("the refresh button and its drag overlay share one action",
           && headerSource.components(separatedBy: "startRefresh()").count == 4)
 check("…and that action carries the disabled guard itself",
       headerSource.range(of: "func startRefresh() {\n        guard !isRefreshing else { return }") != nil)
+// 8b. B-879: while the compute pool's once-a-second redraw drives `SecondsClock`, the countdown
+//     ticks on it (one panel pass a second, not two); without a driver it keeps its own timer.
+check("the countdown ticks on the pool's redraw while one drives the clock",
+      headerSource.contains("if SecondsClock.shared.drivers > 0 {")
+          && headerSource.contains("ClockedCounter { now in")
+          && headerSource.contains("var body: some View { label(SecondsClock.shared.now) }"))
+check("…and keeps its own TimelineView when nothing does",
+      headerSource.contains("TimelineView(.periodic(from: .now, by: 1))"))
 
 // 9. THE MECHANISM IS AN OVERLAY, EVERYWHERE. A drag layer mounted behind SwiftUI content is never
 //    sent the press (measured 2026-08-07 on the dev instance: the wordmark, the clock, the strip's

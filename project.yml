@@ -270,6 +270,12 @@ targets:
           - $(BUILT_PRODUCTS_DIR)/libtally_ffi.a
     # An overlay linked at ./overlay may add files to the built app; absent in the public tree.
     postBuildScripts:
+      # Debug: a fixed main-executable UUID, so a rebuilt Tally Dev.app keeps its local network
+      # grant (Apple TN3179). Release: asserts the linker's UUID is untouched.
+      - name: Pin dev UUID
+        script: |
+          "${SRCROOT}/scripts/pin-dev-uuid.sh"
+        basedOnDependencyAnalysis: false
       - name: Overlay post-build
         script: |
           if [ -x "${SRCROOT}/overlay/postbuild.sh" ]; then "${SRCROOT}/overlay/postbuild.sh"; fi

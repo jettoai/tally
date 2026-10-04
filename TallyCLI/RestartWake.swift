@@ -29,7 +29,7 @@ func firstLaunchRestartNote(launchArgs: [String], exec: Bool) -> RestartNote? {
     if exec { return execRestartNote }
     let options = optionsOnly(launchArgs)
     guard !options.contains("--fork-session"),
-          flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r") != nil
+          (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) != nil
               || options.contains(where: continueFlags.contains) else { return nil }
     return RestartNote(reason: "resume", background: 0)
 }

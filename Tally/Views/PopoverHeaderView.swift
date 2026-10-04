@@ -105,11 +105,8 @@ extension PopoverRootView {
                     // Around the control rather than on it, because the busy chip is disabled and
                     // a disabled control is routed no hover at all - which is the state that most
                     // needs to be able to explain itself.
-                    .tallyTooltipAroundControl(stalled
-                        ? L("Quit Tally to finish installing. It reopens by itself.")
-                        : busy.map(Self.busyLabel)
-                        ?? (ready ? L("Update downloaded - click to restart")
-                                  : L("Update available - click to install")))
+                    .tallyTooltipAroundControl(Self.installChipHelp(stalled: stalled, busy: busy,
+                                                                    ready: ready))
                 }
             }
             // Held at its ideal width, which is both what it is owed - the product's name and the
@@ -232,6 +229,13 @@ extension PopoverRootView {
     /// waiting needs is that it is working and that the restart, when it comes, is not sudden.
     private static func busyLabel(_ busy: UpdateBusy) -> String {
         busy == .restarting ? L("Restarting…") : L("Updating…")
+    }
+
+    /// The install chip's hover text, one line per face it can show.
+    private static func installChipHelp(stalled: Bool, busy: UpdateBusy?, ready: Bool) -> String {
+        if stalled { return L("Quit Tally to finish installing. It reopens by itself.") }
+        if let busy { return busyLabel(busy) }
+        return ready ? L("Update downloaded - click to restart") : L("Update available - click to install")
     }
 
     /// A grab area exactly as wide as one side's centring pad, full height. Zero-width when that

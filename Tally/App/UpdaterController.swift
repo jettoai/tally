@@ -396,9 +396,9 @@ final class UpdaterController: NSObject {
     /// The stalled chip's action. Quitting is what every stalled shape needs: Sparkle installs a
     /// prepared update on quit, and anything not yet prepared is abandoned and retried by the
     /// relaunched app. Sparkle does not relaunch after an install on quit, so a detached helper
-    /// waits for the bundle's version to change (or gives up) and opens the app again, unless
+    /// waits up to 90 seconds for the bundle's version to change and opens the app again, unless
     /// something else (Sparkle, a supervisor's relaunch station) already has.
-    func finishStalledUpdate(versionWait: Int = 90) {
+    func finishStalledUpdate() {
         Self.log.error("user finished a stalled update by quitting")
         let bundle = Bundle.main.bundlePath
         let old = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? ""
@@ -415,7 +415,7 @@ final class UpdaterController: NSObject {
         /usr/bin/pgrep -f "$app/Contents/MacOS/" >/dev/null || /usr/bin/open -g "$app"
         """
         let args = ["-c", script, "sh", String(ProcessInfo.processInfo.processIdentifier),
-                    bundle, old, String(versionWait)]
+                    bundle, old, "90"]
         // Spawned off the main thread; the quit waits until the helper has started (or failed to),
         // so the helper is already watching the pid when the app goes away.
         DispatchQueue.global(qos: .userInitiated).async {

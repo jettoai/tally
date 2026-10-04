@@ -52,7 +52,7 @@ fresh; ! phase Debug "$root" "$name" XXXXXXXXXX && refused "signing team is" && 
 # A pinner whose rewrite does nothing: only the phase's UUID comparison can catch it.
 mkdir -p "$work/noop/scripts"
 sed 's/data\[at:at + 16\] = pinned.bytes/pass/' scripts/pin-macho-uuid.py > "$work/noop/scripts/pin-macho-uuid.py"
-! command grep -qF 'pinned.bytes' "$work/noop/scripts/pin-macho-uuid.py" || fail "no-op pinner was built"
+command grep -qF 'pinned.bytes' "$work/noop/scripts/pin-macho-uuid.py" && fail "no-op pinner was built"
 fresh; ! phase Debug "$work/noop" && refused "LC_UUID is" && pass "Debug phase refuses a pin that did not land" || fail "Debug phase refuses a pin that did not land"
 
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }

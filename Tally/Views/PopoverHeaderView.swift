@@ -151,16 +151,10 @@ extension PopoverRootView {
                 // the panel draws once a second rather than twice.
                 if showsCountdown {
                     if SecondsClock.shared.drivers > 0 {
-                        ClockedCounter { now in
-                            counterSlot(store.isRefreshing
-                                ? L("refreshing…")
-                                : UsageFormat.updatesIn(store.nextRefreshAt, now: now))
-                        }
+                        ClockedCounter { now in counterSlot(countdownText(at: now)) }
                     } else {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            counterSlot(store.isRefreshing
-                                ? L("refreshing…")
-                                : UsageFormat.updatesIn(store.nextRefreshAt, now: context.date))
+                            counterSlot(countdownText(at: context.date))
                         }
                     }
                 }
@@ -353,6 +347,10 @@ extension PopoverRootView {
         counterSlot(nil)
             .background { widthProbe { headerWidths.counter = $0 } }
             .hidden()
+    }
+
+    private func countdownText(at now: Date) -> String? {
+        store.isRefreshing ? L("refreshing…") : UsageFormat.updatesIn(store.nextRefreshAt, now: now)
     }
 
     /// The counter's string width changes every second; hidden templates (the widest forms,

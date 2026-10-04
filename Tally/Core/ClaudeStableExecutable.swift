@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 // Claude Code's native installer keeps two names for one program: the launcher symlink
 // (~/.local/bin/claude -> ~/.local/share/claude/versions/<version>) and an app bundle
@@ -51,10 +52,52 @@ func claudeStableExecutable(_ executable: String,
     guard chosen == latest || choseBundle else { return executable }
     // Whatever happens below, the answer is never the bundle unless it IS the latest version.
     let fallback = chosen == latest ? executable : install.launcher.path
-    guard FileManager.default.fileExists(
-        atPath: install.bundleContents.appendingPathComponent("Info.plist").path) else { return fallback }
+    func fallingBack(_ reason: String) -> String {
+        stableLog.notice("stable-exec=fallback reason=\(reason, privacy: .public)")
+        return fallback
+    }
+    // No Contents at all: the bundle may have been thrown away on purpose (Gatekeeper's "damaged,
+    // move to Trash"), so nothing is rebuilt. Contents without Info.plist is the half-made shell
+    // other tools leave behind (`mkdir -p` + `ln`), and it is completed instead (B-565, 2026-10-04).
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: install.bundleContents.path, isDirectory: &isDirectory),
+          isDirectory.boolValue else { return fallingBack("no-contents") }
+    let infoPlist = install.bundleContents.appendingPathComponent("Info.plist")
+    if !FileManager.default.fileExists(atPath: infoPlist.path) { stableWriteInfoPlist(infoPlist) }
+    guard FileManager.default.fileExists(atPath: infoPlist.path) else { return fallingBack("plist-write-failed") }
     if !stableSameFile(bundle, latest) { stableRelink(latest, to: install.bundleExecutable) }
-    return stableSameFile(bundle, latest) && access(bundle, X_OK) == 0 ? bundle : fallback
+    guard stableSameFile(bundle, latest) else { return fallingBack("relink-failed") }
+    return access(bundle, X_OK) == 0 ? bundle : fallingBack("not-executable")
+}
+
+private let stableLog = Logger(subsystem: "ai.jetto.tally", category: "stable-exec")
+
+/// Byte for byte the Info.plist Claude Code 2.1.289 itself writes into this bundle (918 bytes,
+/// identical to the one an earlier Claude Code left in place). Written only when the file is
+/// missing; Claude Code overwrites it with its own whenever it maintains the bundle.
+let claudeBundleInfoPlist = """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.anthropic.claude-code</string>\
+<key>CFBundleName</key><string>Claude Code</string><key>CFBundleDisplayName</key><string>Claude Code</string>\
+<key>CFBundleExecutable</key><string>claude</string><key>CFBundlePackageType</key><string>APPL</string>\
+<key>LSUIElement</key><true/><key>NSMicrophoneUsageDescription</key>\
+<string>Claude Code uses the microphone for voice dictation.</string><key>NSAppleEventsUsageDescription</key>\
+<string>Claude Code needs to send Apple Events to open URLs and control applications you authorize.</string>\
+<key>NSLocalNetworkUsageDescription</key>\
+<string>Claude Code connects to servers and devices on your local network when commands you run need to reach them.</string>\
+</dict></plist>
+
+"""
+
+/// A uniquely named file moved in with RENAME_EXCL, so the plist is never seen half written and one
+/// that already exists (Claude Code's own, or a concurrent caller's) is never replaced.
+private func stableWriteInfoPlist(_ target: URL) {
+    let temporary = target.deletingLastPathComponent()
+        .appendingPathComponent(".Info.plist.tally-\(getpid())-\(UUID().uuidString)")
+    guard (try? Data(claudeBundleInfoPlist.utf8).write(to: temporary, options: .withoutOverwriting)) != nil else { return }
+    _ = renamex_np(temporary.path, target.path, UInt32(RENAME_EXCL))
+    Darwin.unlink(temporary.path)
 }
 
 /// Atomic `ln -f`: a uniquely named link renamed over the target, so the bundle executable is never

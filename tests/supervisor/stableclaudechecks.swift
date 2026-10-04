@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -17,7 +18,7 @@ private struct StableFixture {
     var launcher: String { install.launcher.path }
 }
 
-private enum BundleShape { case sameInode, oldInode, emptyMacOS, noMacOS, symlinkToLatest, directory, noInfoPlist }
+private enum BundleShape { case sameInode, oldInode, emptyMacOS, noMacOS, symlinkToLatest, directory, noInfoPlist, oldInodeNoInfoPlist, noContents }
 
 /// A stand-in program that writes "$0" into the file named by its first argument.
 private func writeFakeProgram(_ path: String) {
@@ -34,18 +35,19 @@ private func makeStableFixture(_ shape: BundleShape) -> StableFixture {
     try! fm.createDirectory(at: root.appendingPathComponent("bin"), withIntermediateDirectories: true)
     for version in [fixture.old, fixture.latest] { writeFakeProgram(version) }
     try! fm.createSymbolicLink(atPath: fixture.launcher, withDestinationPath: fixture.latest)
+    if shape == .noContents { return fixture }
     let contents = fixture.install.bundleContents
     try! fm.createDirectory(at: contents, withIntermediateDirectories: true)
-    if shape != .noInfoPlist { try! "<plist/>".write(to: contents.appendingPathComponent("Info.plist"), atomically: true, encoding: .utf8) }
+    if shape != .noInfoPlist && shape != .oldInodeNoInfoPlist { try! "<plist/>".write(to: contents.appendingPathComponent("Info.plist"), atomically: true, encoding: .utf8) }
     if shape != .noMacOS { try! fm.createDirectory(at: fixture.macOS, withIntermediateDirectories: true) }
     switch shape {
     case .sameInode: precondition(link(fixture.latest, fixture.bundle) == 0)
-    case .oldInode: precondition(link(fixture.old, fixture.bundle) == 0)
+    case .oldInode, .oldInodeNoInfoPlist: precondition(link(fixture.old, fixture.bundle) == 0)
     case .symlinkToLatest: try! fm.createSymbolicLink(atPath: fixture.bundle, withDestinationPath: fixture.latest)
     case .directory:
         try! fm.createDirectory(atPath: fixture.bundle, withIntermediateDirectories: true)
         try! "x".write(toFile: fixture.bundle + "/keep", atomically: true, encoding: .utf8)
-    case .emptyMacOS, .noMacOS, .noInfoPlist: break
+    case .emptyMacOS, .noMacOS, .noInfoPlist, .noContents: break
     }
     return fixture
 }
@@ -61,8 +63,21 @@ private func isRegular(_ path: String) -> Bool {
 }
 
 private func leftoverTemporaries(_ fixture: StableFixture) -> Bool {
-    let names = (try? FileManager.default.contentsOfDirectory(atPath: fixture.macOS.path)) ?? []
-    return names.contains { $0.hasPrefix(".claude.tally-") }
+    let fm = FileManager.default
+    let names = ((try? fm.contentsOfDirectory(atPath: fixture.macOS.path)) ?? [])
+        + ((try? fm.contentsOfDirectory(atPath: fixture.install.bundleContents.path)) ?? [])
+    return names.contains { $0.hasPrefix(".claude.tally-") || $0.hasPrefix(".Info.plist.tally-") }
+}
+
+/// SHA-256 of the 918-byte Info.plist Claude Code 2.1.289 wrote into a real bundle (measured from
+/// that file, 2026-10-04): an oracle independent of the constant the code writes.
+private let claudeCodeInfoPlistSHA256 = "5998a4821167f7d75b49cafe9fd2347cd2f18e5bf1603bd3390216ebbbb8bd22"
+
+private func infoPlistIsClaudeCodes(_ fixture: StableFixture) -> Bool {
+    guard let data = FileManager.default.contents(
+        atPath: fixture.install.bundleContents.appendingPathComponent("Info.plist").path) else { return false }
+    return data.count == 918
+        && SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() == claudeCodeInfoPlistSHA256
 }
 
 private func allPaths(under root: URL) -> [String] {
@@ -110,8 +125,10 @@ func runStableClaudeChecks() {
     do {
         let f = makeStableFixture(.oldInode); defer { try? fm.removeItem(at: f.root) }
         let got = claudeStableExecutable(f.launcher, install: f.install)
-        check("stable: an old bundle inode is re-linked to the latest and used",
-              got == f.bundle && sameFile(f.bundle, f.latest) && fm.fileExists(atPath: f.old) && !leftoverTemporaries(f))
+        let plist = try? String(contentsOf: f.install.bundleContents.appendingPathComponent("Info.plist"), encoding: .utf8)
+        check("stable: an old bundle inode is re-linked to the latest and used, its Info.plist left as it was",
+              got == f.bundle && sameFile(f.bundle, f.latest) && fm.fileExists(atPath: f.old) && !leftoverTemporaries(f)
+              && plist == "<plist/>")
     }
     // T3 (D3) / T4 (D4): an empty or missing MacOS directory is filled in.
     for (shape, label) in [(BundleShape.emptyMacOS, "an empty MacOS directory"), (.noMacOS, "a missing MacOS directory")] {
@@ -139,12 +156,40 @@ func runStableClaudeChecks() {
         check("stable: a directory in the bundle's place falls back to the launcher",
               claudeStableExecutable(f.launcher, install: f.install) == f.launcher && !leftoverTemporaries(f))
     }
-    // T8 (D7): no installer bundle: unchanged, and nothing created.
+    // T8 (D7): no installer bundle at all (it may have been thrown away on purpose): unchanged,
+    // and nothing created.
+    do {
+        let f = makeStableFixture(.noContents); defer { try? fm.removeItem(at: f.root) }
+        let before = allPaths(under: f.root)
+        check("stable: without a bundle Contents the executable is returned untouched and nothing is created",
+              claudeStableExecutable(f.launcher, install: f.install) == f.launcher && allPaths(under: f.root) == before)
+    }
+    // T8b (B-565): Contents without Info.plist, the shell a `mkdir -p` + `ln` leaves: Claude Code's
+    // own plist is written, the latest linked in, and the bundle used.
     do {
         let f = makeStableFixture(.noInfoPlist); defer { try? fm.removeItem(at: f.root) }
-        let before = allPaths(under: f.root)
-        check("stable: without Info.plist the executable is returned untouched and nothing is created",
-              claudeStableExecutable(f.launcher, install: f.install) == f.launcher && allPaths(under: f.root) == before)
+        check("stable: a bundle missing Info.plist gets Claude Code's plist and the latest linked in",
+              claudeStableExecutable(f.launcher, install: f.install) == f.bundle && sameFile(f.bundle, f.latest)
+              && infoPlistIsClaudeCodes(f) && !leftoverTemporaries(f))
+    }
+    // T8c (B-565, the 2026-10-04 11:39 shape): an older version in a bundle missing Info.plist,
+    // through the real spawnChild: the child runs from the bundle, now the latest.
+    do {
+        let f = makeStableFixture(.oldInodeNoInfoPlist); defer { try? fm.removeItem(at: f.root) }
+        let bin = f.root.appendingPathComponent("bin").path
+        check("stable: an old bundle missing Info.plist is completed, re-linked, and spawnChild execs it",
+              spawnedPath(["claude"], path: bin, install: f.install, in: f.root) == f.bundle
+              && sameFile(f.bundle, f.latest) && fm.fileExists(atPath: f.old) && infoPlistIsClaudeCodes(f)
+              && !leftoverTemporaries(f))
+    }
+    // T8d: a plist that cannot be written (read-only Contents): the launcher, nothing replaced.
+    do {
+        let f = makeStableFixture(.oldInodeNoInfoPlist)
+        chmod(f.install.bundleContents.path, 0o555)
+        defer { chmod(f.install.bundleContents.path, 0o755); try? fm.removeItem(at: f.root) }
+        check("stable: an unwritable Contents falls back to the launcher and the bundle stays as it was",
+              claudeStableExecutable(f.launcher, install: f.install) == f.launcher && sameFile(f.bundle, f.old)
+              && !fm.fileExists(atPath: f.install.bundleContents.appendingPathComponent("Info.plist").path))
     }
     // T9 (D9): asked for the bundle itself while it holds an old version that cannot be fixed.
     do {

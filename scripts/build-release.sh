@@ -171,6 +171,13 @@ rm -rf "$SPARKLE_FW/Versions/B/XPCServices"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" --deep "$SPARKLE_FW"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP/Contents/Helpers/swift/tally"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP/Contents/Helpers/tally"
+# Notarization wants every Mach-O in the bundle under the Developer ID, including any an overlay
+# put in Resources; other files there are data. The public bundle has none.
+resource_machos=$(find "$APP/Contents/Resources" -type f \
+  -exec sh -c 'file -b "$1" | grep -q "^Mach-O"' _ {} \; -print)
+while IFS= read -r f; do
+  [ -z "$f" ] || codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$f"
+done <<< "$resource_machos"
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --strict --deep "$APP"
 echo "==> smoke: the embedded entry forwards to the Swift CLI"

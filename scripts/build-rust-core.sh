@@ -9,6 +9,11 @@ set -euo pipefail
 # Xcode runs scripts with a minimal PATH that does not include rustup's shims.
 export PATH="$HOME/.cargo/bin:$PATH"
 ROOT="${SRCROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# An overlay linked at ./overlay may build its own library in place of this one (the same optional
+# overlay pattern as project.yml's sources); the public tree has none, so this never fires there.
+if [ -x "$ROOT/overlay/rust/build-ffi.sh" ]; then
+  SRCROOT="$ROOT" exec "$ROOT/overlay/rust/build-ffi.sh" "$@"
+fi
 OUT="${BUILT_PRODUCTS_DIR:?BUILT_PRODUCTS_DIR is not set}"
 WANT_ARCHS="${ARCHS:-$(uname -m)}"
 # Matches the CLI's deployment target, so the linker does not warn that the Rust objects were

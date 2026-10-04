@@ -3,7 +3,8 @@
 # usage: scripts/check-overlay-bundle.sh [--absent] <Tally.app> <tally CLI binary>...
 #
 # The strings to look for come from the overlay itself (lines of `cli:<text>` or `app:<text>`), so
-# this public script names nothing the overlay adds.
+# this public script names nothing the overlay adds. A `file:<path>` line names a file inside the
+# bundle, relative to Tally.app, that must exist (present) or must not (absent).
 #
 # Present (default): the overlay linked at ./overlay lists the markers (overlay/bundle-markers).
 # Every CLI slice must carry every cli marker, the app binary every app marker, the Info.plist a
@@ -67,6 +68,13 @@ if [ -s "$MARKERS" ]; then
         found=$((found + 1)) ;;
       app:*)
         expect "${line#app:}" "$work/app.txt" "the app binary"
+        found=$((found + 1)) ;;
+      file:*)
+        if [ -e "$APP/${line#file:}" ]; then
+          [ "$MODE" = present ] || { echo "overlay file found in the bundle: ${line#file:}" >&2; exit 1; }
+        else
+          [ "$MODE" = absent ] || { echo "overlay file missing from the bundle: ${line#file:}" >&2; exit 1; }
+        fi
         found=$((found + 1)) ;;
     esac
   done < "$MARKERS"

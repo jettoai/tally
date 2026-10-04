@@ -434,7 +434,8 @@ func runSessionBoardOrderChecks() {
     check("the roster scans every 2 s only while a surface shows the board",
           rosterSource.contains("static let boardInterval: TimeInterval = 2")
               && rosterSource.contains("static let surfaceInterval: TimeInterval = 10")
-              && beatBody.contains(": boardViewers > 0 ? Self.boardInterval : Self.surfaceInterval")
+              && beatBody.contains("} else if boardViewers > 0 {\n            wanted = Self.boardInterval")
+              && beatBody.contains("} else {\n            wanted = Self.surfaceInterval")
               && surfaceBody.contains("retime()") && !surfaceBody.contains("Timer(timeInterval:")
               && openingBody.contains("retime()")
               && body(of: "endViewing").contains("retime()")

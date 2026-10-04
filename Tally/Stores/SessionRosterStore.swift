@@ -102,8 +102,8 @@ final class SessionRosterStore {
     /// once (the popover, the pinned panel, the dashboard window), and one of them closing must not
     /// stop the scanning the other two are relying on. Every page pays for a beat, the board's at 2 s
     /// and any other page's at 10 s (`retime`): the tab switch carries the blocked dot, and the knock
-    /// keeps that current between beats. What it is NOT is the
-    /// count that decides the seats - a surface sitting on Usage reads no board (`boardViewers`).
+    /// keeps that current between beats. What it is NOT is the count that decides the seats - a
+    /// surface sitting on Usage reads no board (`boardViewers`).
     @ObservationIgnored private var surfaces = 0
     /// How many surfaces are showing THE BOARD, which is a page rather than a window - and that is
     /// the whole difference between this count and `surfaces`. They were one count until this was
@@ -331,8 +331,14 @@ final class SessionRosterStore {
     /// shape as ProcessFootprintStore's): none with no surface up, the board's while one shows it,
     /// the slow one otherwise.
     private func retime() {
-        let wanted: TimeInterval? = surfaces == 0 ? nil
-            : boardViewers > 0 ? Self.boardInterval : Self.surfaceInterval
+        let wanted: TimeInterval?
+        if surfaces == 0 {
+            wanted = nil
+        } else if boardViewers > 0 {
+            wanted = Self.boardInterval
+        } else {
+            wanted = Self.surfaceInterval
+        }
         guard wanted != timerInterval else { return }
         timer?.invalidate()
         timer = nil

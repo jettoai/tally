@@ -82,6 +82,14 @@ final class SessionRosterStore {
     @ObservationIgnored var sortsByState: () -> Bool = { false }
 
     @ObservationIgnored private var timer: Timer?
+    /// The beat `timer` runs at, nil while it is stopped (`retime`).
+    @ObservationIgnored private var timerInterval: TimeInterval?
+    /// B-879: 2 s while a surface shows the board (its durations and context line count in seconds),
+    /// 10 s on any other page, where the one roster reading on screen is the blocked dot and the
+    /// supervisors' knock already refreshes it the moment a state changes (`install`). The slow beat
+    /// only catches a supervisor that died without knocking.
+    static let boardInterval: TimeInterval = 2
+    static let surfaceInterval: TimeInterval = 10
     /// WHERE EACH SESSION SITS, as supervisor pids in board order, or nil until a scan finds a board
     /// to seat. Everything about the freeze is this one field, and `seat` is all of the rule.
     ///
@@ -92,8 +100,9 @@ final class SessionRosterStore {
     @ObservationIgnored private var seating: [String]?
     /// How many surfaces are up at all, WHICHEVER PAGE they are showing: three hosts can be open at
     /// once (the popover, the pinned panel, the dashboard window), and one of them closing must not
-    /// stop the scanning the other two are relying on. Every page pays for it, because the tab
-    /// switch carries the blocked dot and the durations tick on all of them. What it is NOT is the
+    /// stop the scanning the other two are relying on. Every page pays for a beat, the board's at 2 s
+    /// and any other page's at 10 s (`retime`): the tab switch carries the blocked dot, and the knock
+    /// keeps that current between beats. What it is NOT is the
     /// count that decides the seats - a surface sitting on Usage reads no board (`boardViewers`).
     @ObservationIgnored private var surfaces = 0
     /// How many surfaces are showing THE BOARD, which is a page rather than a window - and that is
@@ -285,22 +294,13 @@ final class SessionRosterStore {
     func beginViewing() {
         surfaces += 1
         refresh()
-        guard timer == nil else { return }
-        let timer = Timer(timeInterval: 2, repeats: true) { _ in
-            Task { @MainActor in SessionRosterStore.shared.refresh() }
-        }
-        // `.common`, so the board keeps ticking while a menu or a scroll is tracking: a default-mode
-        // timer stops for the whole of either, and a duration frozen mid-read is the one thing on
-        // this row a person would notice.
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        retime()
     }
 
     func endViewing() {
         surfaces = max(0, surfaces - 1)
         guard surfaces == 0 else { return }
-        timer?.invalidate()
-        timer = nil
+        retime()
     }
 
     /// A surface is now SHOWING THE BOARD - opened onto it, or flipped to it from another tab - and
@@ -309,12 +309,14 @@ final class SessionRosterStore {
     /// without moving a card out from under a hand already reaching for it.
     ///
     /// Refreshes, so the new seats are on screen at the switch rather than up to two seconds later.
-    /// The scan itself is already running: a page cannot appear without its surface (`beginViewing`).
+    /// The scan itself is already running: a page cannot appear without its surface (`beginViewing`),
+    /// and the board puts it on the 2 s beat (`retime`).
     func beginViewingBoard() {
         boardViewers += 1
         seating = Self.seatingOnOpen(seating, viewers: boardViewers, sortsByState: sortsByState())
         if let lastScanned { publish(lastScanned) }
         refresh()
+        retime()
     }
 
     /// The board has left this surface: the tab was switched away from, or the whole surface went.
@@ -322,6 +324,28 @@ final class SessionRosterStore {
     /// board on screen is what asks the states again.
     func endViewingBoard() {
         boardViewers = max(0, boardViewers - 1)
+        retime()
+    }
+
+    /// The scan's beat for the current audience, restarted only when that rate changed (the same
+    /// shape as ProcessFootprintStore's): none with no surface up, the board's while one shows it,
+    /// the slow one otherwise.
+    private func retime() {
+        let wanted: TimeInterval? = surfaces == 0 ? nil
+            : boardViewers > 0 ? Self.boardInterval : Self.surfaceInterval
+        guard wanted != timerInterval else { return }
+        timer?.invalidate()
+        timer = nil
+        timerInterval = wanted
+        guard let wanted else { return }
+        let timer = Timer(timeInterval: wanted, repeats: true) { _ in
+            Task { @MainActor in SessionRosterStore.shared.refresh() }
+        }
+        // `.common`, so the board keeps ticking while a menu or a scroll is tracking: a default-mode
+        // timer stops for the whole of either, and a duration frozen mid-read is the one thing on
+        // this row a person would notice.
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     // MARK: The scan
@@ -430,32 +454,12 @@ final class SessionRosterStore {
         viewers == 1 && sortsByState ? nil : seating
     }
 
-    /// The board in the order somebody DRAGGED it into, given what they have arranged so far
-    /// (`SessionBoardOrder`, which says why the arrangement is written in project directories).
-    ///
-    /// Handed the seated board and nothing else, so the two orders compose in one direction only:
-    /// an empty arrangement is the seating untouched, and inside one seat - two sessions of the
-    /// same project - the seating is what still separates them. The stable tie-break is what
-    /// carries that, so it is not an implementation detail: rewrite it as an unstable sort and two
-    /// sessions of one project start swapping places twice a second.
-    ///
-    /// A PROJECT NOBODY HAS ARRANGED SITS LAST, in the order it arrived in. A session started in a
-    /// new checkout has to appear somewhere, and anywhere else means the board rearranging itself
-    /// around a card the user never touched.
-    ///
-    /// `nonisolated` for the reason `sorted` is: it is a pure function of what it is handed, which
-    /// is also what lets the assertion harness state the order without an app around it.
-    nonisolated static func arranged(_ rows: [SessionRow], manualKeys: [String]) -> [SessionRow] {
-        guard SessionBoardOrder.isManual(manualKeys) else { return rows }
-        return ordered(rows, by: manualKeys, key: orderKey)
-    }
-
     /// Rows in the order a list of keys names, stably: what the list does not name keeps the order
     /// it was handed in, at the end. Spelled once because the board's two orders are the same
     /// ordering asked about two different keys - a card's session (the seating) and a card's project
     /// (the arrangement) - and two copies of it would be two places for the tie-break to rot.
-    nonisolated private static func ordered(_ rows: [SessionRow], by keys: [String],
-                                            key: (SessionRow) -> String?) -> [SessionRow] {
+    nonisolated static func ordered(_ rows: [SessionRow], by keys: [String],
+                                    key: (SessionRow) -> String?) -> [SessionRow] {
         // The arrangement's own index, which is plain string algebra: first mention wins, blanks are
         // not keys (`SessionBoardOrder.ranking`). Both true of pids as well as of directories.
         let ranking = SessionBoardOrder.ranking(keys)
@@ -464,15 +468,6 @@ final class SessionRosterStore {
             let right = key(rhs.element).flatMap { ranking[$0] } ?? Int.max
             return left == right ? lhs.offset < rhs.offset : left < right
         }.map(\.element)
-    }
-
-    /// What a card is ARRANGED by: the directory its session runs in, which outlives the session
-    /// (`SessionBoardOrder`). Nil for a session that has published no directory at all - it cannot
-    /// be dragged and cannot be dropped onto, because there is nothing about it to remember.
-    nonisolated static func orderKey(_ row: SessionRow) -> String? {
-        guard let directory = row.directory?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !directory.isEmpty else { return nil }
-        return directory
     }
 
     /// A session that has published nothing sits below all four states rather than among the

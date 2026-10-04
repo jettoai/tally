@@ -422,13 +422,23 @@ func runSessionBoardOrderChecks() {
               && openingBody.contains("sortsByState: sortsByState())")
               && rosterSource.contains("viewers == 1 && sortsByState ? nil : seating"))
     // A WINDOW OPENING IS NOT SOMEBODY READING THE BOARD: a surface that appears on the Usage tab
-    // must leave the seats as it found them, and keep only the count the scan's timer is held by.
+    // must leave the seats as it found them, and keep only the count the scan's slow beat is held by.
     check("…and a surface merely appearing asks them nothing",
           !["seatingOnOpen", "sortsByState", "boardViewers"].contains { surfaceBody.contains($0) }
               && rosterSource.contains("private var surfaces = 0")
               && rosterSource.contains("private var boardViewers = 0")
               && body(of: "endViewing").contains("guard surfaces == 0 else { return }")
               && body(of: "endViewingBoard").contains("boardViewers = max(0, boardViewers - 1)"))
+    // B-879 #120: the 2 s beat belongs to the board; any other page scans every 10 s and on the knock.
+    let beatBody = body(of: "retime")
+    check("the roster scans every 2 s only while a surface shows the board",
+          rosterSource.contains("static let boardInterval: TimeInterval = 2")
+              && rosterSource.contains("static let surfaceInterval: TimeInterval = 10")
+              && beatBody.contains(": boardViewers > 0 ? Self.boardInterval : Self.surfaceInterval")
+              && surfaceBody.contains("retime()") && !surfaceBody.contains("Timer(timeInterval:")
+              && openingBody.contains("retime()")
+              && body(of: "endViewing").contains("retime()")
+              && body(of: "endViewingBoard").contains("retime()"))
     // WHERE EACH COUNT IS TAKEN, read from both files: the defect this replaced was a call site one
     // level too high, not anything wrong with the rule it was calling.
     check("the board is opened by the page that shows it, not by the window around it",

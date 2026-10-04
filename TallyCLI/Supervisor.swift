@@ -808,6 +808,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let draftSuspected = sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,
                                                             userTurnAt: watcher.lastUserTurnAt,
                                                             injectedAt: lastComposerWrite,
+                                                            childStartedAt: launchedAt,
                                                             now: tickNow)
             // THE BOUNDARY THIS SESSION'S CLAUDE CODE LAST REPORTED, read ONCE for the two stations
             // that consult it: the rebalance below stands down while one is undecided, and the

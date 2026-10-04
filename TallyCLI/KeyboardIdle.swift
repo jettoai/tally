@@ -91,6 +91,13 @@ func lastKeyboardInput(path: String? = controllingTTYPath) -> Date? {
 /// by the app's own record of focus changes instead (FocusEvents.swift).
 let keyboardBurstGap: TimeInterval = 15
 
+/// How long after a child starts its own terminal reads are still the startup rather than a person
+/// (`sessionInputDraftSuspected`). Measured 2026-10-04: six children relaunched together read their
+/// terminal 2 to 3 seconds after launch, and that read paired with the previous child's last stamp
+/// into a burst that held their restart wake for the full `sessionInputDraftLife`. The bound is the
+/// burst gap's own order, since a startup read later than that is one the gap would not pair anyway.
+let keyboardStartupChatter: TimeInterval = 15
+
 /// A stamp this close to a recorded focus change (FocusEvents.swift) is a focus report, not a key.
 /// Compared against the stamp's own atime, which is when the child actually read the bytes, so the
 /// 2s poll adds no error here. The window is the typical distance itself, under 0.2s: at 1s (until

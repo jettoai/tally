@@ -443,6 +443,7 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
                     userTurnAt: Date?, conversation: String?, now: Date = Date(),
                     outcomes: CapResumeOutcomes = .cap, log: URL = sessionInputLog,
                     stamped: () -> Date = { Date() },
+                    held: (CapResumeHold) -> Void = { _ in },
                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
                         injectSessionInput($0, draft: $1)
                     }) -> String? {
@@ -453,7 +454,10 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
                                 draftSuspected: draftSuspected, caughtUp: caughtUp,
                                 userTurnAt: userTurnAt, conversation: conversation, now: now)
     switch decision {
-    case .idle, .hold:
+    case .idle:
+        return nil
+    case .hold(let why):
+        held(why)
         return nil
     case .drop(let why):
         // SAID OUT LOUD, because the whole of what happens here is that nothing happens: a resume

@@ -73,6 +73,8 @@ struct RestartWakeState: Equatable {
     private(set) var armedFor: Date?
     /// The notice that raised it, so a notice read twice arms once.
     private(set) var noticeUUID: String?
+    /// The hold last written to the log, so a wait is one line rather than one per tick.
+    var lastHold: CapResumeHold?
 
     var isArmed: Bool { offer != nil }
     mutating func arm(_ offer: CapResumeState.Offer, child: Date, notice: String?) {
@@ -80,7 +82,10 @@ struct RestartWakeState: Equatable {
         armedFor = child
         if let notice { noticeUUID = notice }
     }
-    mutating func settle(_ offer: CapResumeState.Offer?) { self.offer = offer }
+    mutating func settle(_ offer: CapResumeState.Offer?) {
+        self.offer = offer
+        if offer == nil { lastHold = nil }
+    }
 }
 
 /// The offer this child is owed now, or nil. Pure, so the whole grid is assertable.
@@ -104,6 +109,12 @@ func restartWakeOffer(state: RestartWakeState, spawnedByTally: Bool, resumesConv
     return CapResumeState.Offer(at: notice?.at ?? now, conversation: conversation,
                                 line: restartWakeMessage(reason: note?.reason ?? "self-update",
                                                          count: count))
+}
+
+/// The word a hold is logged under: the shared table's own case name, or this door's.
+func restartWakeHoldWord(_ hold: CapResumeHold) -> String {
+    if case .input(let why) = hold { return "\(why)" }
+    return "\(hold)"
 }
 
 func restartWakeLogLine(pid: String, outcome: String, fields: String, now: Date = Date()) -> String {
@@ -145,6 +156,16 @@ func applyRestartWake(_ state: inout RestartWakeState, pid: String, candidate: C
                                waitingOnPerson: waitingOnPerson, seen: seen, caughtUp: caughtUp,
                                userTurnAt: userTurnAt, conversation: conversation, now: now,
                                outcomes: restartWakeOutcomes, log: log, stamped: stamped,
+                               held: { why in
+                                   // Said once per hold rather than once per tick: a wait with no
+                                   // line is what hid the 15-minute drafting hold (B-885).
+                                   guard why != state.lastHold else { return }
+                                   state.lastHold = why
+                                   appendSessionInputLine(restartWakeLogLine(
+                                       pid: pid, outcome: "restart-wake-held",
+                                       fields: "reason=\(restartWakeHoldWord(why))", now: now),
+                                       to: log)
+                               },
                                inject: inject)
     state.settle(door.offer)
     return typed

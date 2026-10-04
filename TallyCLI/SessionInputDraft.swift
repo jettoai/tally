@@ -174,6 +174,8 @@ let sessionInputDraftLife: TimeInterval = 900
 /// has. It is stated in the plan document as a limitation, and a session moved away from a pasted
 /// draft loses it exactly as one moved away from a typed one would.
 func sessionInputDraftSuspected(burstAt: Date?, userTurnAt: Date?, injectedAt: Date?,
+                                childStartedAt: Date? = nil,
+                                startupChatter: TimeInterval = keyboardStartupChatter,
                                 grace: TimeInterval = sessionInputDraftGrace,
                                 life: TimeInterval = sessionInputDraftLife,
                                 now: Date = Date()) -> Bool {
@@ -181,6 +183,11 @@ func sessionInputDraftSuspected(burstAt: Date?, userTurnAt: Date?, injectedAt: D
     // this function says somebody is at that composer, and evidence of that has to be recent as
     // well as uncontradicted (`sessionInputDraftLife` carries the incident and the number).
     guard let burstAt, now.timeIntervalSince(burstAt) < life else { return false }
+    // A CHILD THAT HAS JUST STARTED reads its own terminal (query replies), and the first stamp a
+    // new child's keyboard sees is the previous child's last read, so the two pair into a burst
+    // nobody typed (`keyboardStartupChatter`). The cost: a draft typed inside that window and left
+    // unsent is not seen; typing on past it makes a new burst, which holds as before.
+    if let childStartedAt, burstAt.timeIntervalSince(childStartedAt) <= startupChatter { return false }
     // EVERY KNOWN CAUSE OF A BURST THAT IS NOT A DRAFT, in one list rather than as a chain of ifs:
     // the burst has to be clear of all of them, and a cause this build does not know about is a
     // cause that is missing from this array rather than one hidden in a condition.

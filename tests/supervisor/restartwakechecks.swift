@@ -99,13 +99,14 @@ func runRestartWakeChecks() {
     func station(_ state: inout RestartWakeState, _ w: TranscriptWatcher, launch: Date,
                  candidate: CapResumeState.Offer?, log: URL, typedAlready: Bool = false,
                  waitingOnPerson: Bool = false, userTurnAt: Date?? = .none,
+                 draftSuspected: Bool = false,
                  after seconds: TimeInterval = 40) -> String? {
         applyRestartWake(&state, pid: "rw-test", candidate: candidate,
                          source: w.lastStoppedTasks == nil ? "roster" : "notice", launchedAt: launch,
                          noticeUUID: w.lastStoppedTasks?.uuid, answeredAt: w.lastMainChainEventAt,
                          typedAlready: typedAlready, session: .idle, quiet: .quiet,
                          turnEnded: { true }, keyboardIdle: true, relaunchPlanned: false,
-                         draftSuspected: false, waitingOnPerson: waitingOnPerson,
+                         draftSuspected: draftSuspected, waitingOnPerson: waitingOnPerson,
                          caughtUp: w.caughtUp, userTurnAt: userTurnAt ?? w.lastUserTurnAt,
                          conversation: w.transcriptSessionID,
                          now: launch.addingTimeInterval(seconds), log: log,
@@ -220,6 +221,52 @@ func runRestartWakeChecks() {
     check("R9c …and the resume note words the line after the settle",
           wakeOffer(quiet, launch: sample1Launch, note: resume, after: 16)?.line
               == "[tally] Tally restarted Claude Code (resume). Re-arm any monitors you had running and pick up pending work; if nothing was running, no action is needed.")
+
+    // R9d, B-885 2026-10-04 03:39Z: six children relaunched together; each one's startup terminal
+    // read paired with the previous child's last stamp into a burst, and the drafting hold kept the
+    // wake back for 900s with nothing on the record.
+    let L = sample1Launch
+    var kb = KeyboardActivity()
+    kb.observe(stamp: L.addingTimeInterval(-1), now: L.addingTimeInterval(1))
+    kb.observe(stamp: L.addingTimeInterval(3), now: L.addingTimeInterval(3))
+    check("R9d the old child's last stamp and the startup read make a burst",
+          kb.lastBurstAt == L.addingTimeInterval(3))
+    let startupDraft = sessionInputDraftSuspected(burstAt: kb.lastBurstAt, userTurnAt: nil,
+                                                  injectedAt: nil, childStartedAt: L,
+                                                  now: L.addingTimeInterval(40))
+    check("R9d …which is the child starting, not a draft", !startupDraft)
+    func wakeRun(_ name: String, draft: Bool, ticks: [TimeInterval]) -> (RestartWakeState, String) {
+        let log = dir.appendingPathComponent(name)
+        var s = RestartWakeState()
+        typed = []
+        _ = station(&s, quiet, launch: L, candidate: wakeOffer(quiet, launch: L, note: idle, after: 16),
+                    log: log, typedAlready: true, after: 16)
+        for t in ticks { _ = station(&s, quiet, launch: L, candidate: nil, log: log,
+                                     draftSuspected: draft, after: t) }
+        return (s, audit(log))
+    }
+    let (_, log9d) = wakeRun("r9d.log", draft: startupDraft, ticks: [40])
+    check("R9d …so the wake is typed at the first open tick",
+          typed == [idleLine] && count("input=restart-wake ", in: log9d) == 1)
+    let lateDraft = sessionInputDraftSuspected(burstAt: L.addingTimeInterval(20), userTurnAt: nil,
+                                               injectedAt: nil, childStartedAt: L,
+                                               now: L.addingTimeInterval(40))
+    let (s9dn, log9dn) = wakeRun("r9d-late.log", draft: lateDraft, ticks: [40, 42])
+    check("R9d a burst outside the startup window still holds, said once over two ticks",
+          lateDraft && s9dn.isArmed && typed.isEmpty
+              && count("input=restart-wake-held reason=drafting", in: log9dn) == 1)
+    let (_, log9dr) = wakeRun("r9d-none.log",
+                              draft: sessionInputDraftSuspected(burstAt: nil, userTurnAt: nil,
+                                                                injectedAt: nil, childStartedAt: L,
+                                                                now: L.addingTimeInterval(40)),
+                              ticks: [40])
+    check("R9d no burst at all: typed as before",
+          typed == [idleLine] && count("input=restart-wake ", in: log9dr) == 1
+              && !log9dr.contains("restart-wake-held"))
+    let (s9de, log9de) = wakeRun("r9d-expired.log", draft: true, ticks: [40, 16 + capResumeLife + 1])
+    check("R9d a drafting hold to the end of the offer's life drops it as expired",
+          !s9de.isArmed && typed.isEmpty
+              && log9de.contains("input=restart-wake-dropped reason=expired"))
 
     // R10: the shared door's holds and drops.
     let log10 = dir.appendingPathComponent("r10.log")

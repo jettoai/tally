@@ -226,9 +226,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
     writeSupervisorCwd(cwd, pid: supervisorPID)
     /// What the last handoff told the next child about the restart (RestartWake.swift): nil on a
-    /// first launch and on a fresh relaunch. An exec is a self-update whose old image counted
-    /// nothing here, so its first child is owed the restart line on the notice or on nothing.
-    var restartNote: RestartNote? = resumed ? execRestartNote : nil
+    /// fresh first launch and on a fresh relaunch. An exec is a self-update whose old image counted
+    /// nothing here, and a first launch that resumes a conversation is a session brought back by
+    /// hand; either first child is owed the restart line on the notice or on nothing.
+    var restartNote: RestartNote? = firstLaunchRestartNote(launchArgs: launchArgs, exec: resumed)
     /// Whether this session is owed the line that wakes it after a restart killed its background
     /// work. Per session, since it is raised and spent against the child after a handoff.
     var restartWake = RestartWakeState()
@@ -336,7 +337,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         }
         // Read before the flag flips below: whether THIS child is one Tally restarted, what the
         // handoff said about it, and whether it resumes a conversation at all (RestartWake.swift).
-        let spawnedByTally = relaunching
+        // A first child carrying a note (a resume by hand) is armed as if Tally restarted it.
+        let spawnedByTally = relaunching || restartNote != nil
         let childNote = restartNote
         restartNote = nil
         let resumeID = flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")

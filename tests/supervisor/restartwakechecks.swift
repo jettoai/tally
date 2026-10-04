@@ -200,6 +200,26 @@ func runRestartWakeChecks() {
     check("R9 notice and roster together: the larger count",
           wakeOffer(w1, launch: sample1Launch, note: RestartNote(reason: "reload", background: 3))?.line
               .contains("and 3 background task(s)") == true)
+    // R9c, B-885 2026-10-04: after a reboot the owner typed `tally claude --continue`; the new
+    // supervisor's first child resumed an idle conversation and nobody woke it.
+    let id9c = "99de728d-ded6-4fa1-8b8f-de6a9b9e96d0"
+    let resume = RestartNote(reason: "resume", background: 0)
+    check("R9c a first launch that resumes by id is owed the resume note",
+          firstLaunchRestartNote(launchArgs: ["--resume", id9c], exec: false) == resume
+              && firstLaunchRestartNote(launchArgs: ["-r", id9c, "--model", "opus"], exec: false) == resume)
+    check("R9c a bare --continue that reaches the supervisor is owed it too",
+          firstLaunchRestartNote(launchArgs: ["--continue"], exec: false) == resume
+              && firstLaunchRestartNote(launchArgs: ["-c"], exec: false) == resume)
+    check("R9c a fresh launch and a fork get no note",
+          firstLaunchRestartNote(launchArgs: [], exec: false) == nil
+              && firstLaunchRestartNote(launchArgs: ["--model", "opus", "fix the build"], exec: false) == nil
+              && firstLaunchRestartNote(launchArgs: ["--resume", id9c, "--fork-session"], exec: false) == nil)
+    check("R9c an exec keeps the self-update note, whatever it resumes",
+          firstLaunchRestartNote(launchArgs: ["--resume", id9c], exec: true) == execRestartNote
+              && firstLaunchRestartNote(launchArgs: [], exec: true) == execRestartNote)
+    check("R9c …and the resume note words the line after the settle",
+          wakeOffer(quiet, launch: sample1Launch, note: resume, after: 16)?.line
+              == "[tally] Tally restarted Claude Code (resume). Re-arm any monitors you had running and pick up pending work; if nothing was running, no action is needed.")
 
     // R10: the shared door's holds and drops.
     let log10 = dir.appendingPathComponent("r10.log")

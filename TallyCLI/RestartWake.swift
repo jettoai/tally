@@ -7,7 +7,8 @@ import Foundation
 // (2026-09-27: two sessions, 54 and 59 minutes). This types one line into it.
 //
 // Only a child this supervisor restarted itself (`spawnedByTally`) is armed: a child that exits on
-// its own ends the supervisor, so a person's `tally claude --resume` is always a first spawn.
+// its own ends the supervisor. A person's `tally claude --resume` is a first spawn, armed only
+// through the note `firstLaunchRestartNote` gives it.
 // Either signal arms: the stopped notice in the new child's transcript, or the old child's roster
 // at the handoff. Delivery is the cap resume door with all its gates, under words of its own and
 // with a state of its own, so it never spends the cap station's latch.
@@ -18,6 +19,20 @@ import Foundation
 
 /// The note an exec's first child starts with: the old image counted nothing it could hand over.
 let execRestartNote = RestartNote(reason: "self-update", background: 0)
+
+/// The note a supervisor's first child starts with. An exec is a self-update. A new supervisor
+/// whose launch resumes a conversation (`--resume <id>`, `--continue`) is a person bringing a
+/// session back after its old supervisor died, a reboot most often (2026-10-04: an idle session
+/// resumed by hand sat at an empty prompt), so it is owed the line too. A fresh launch, a fork, and
+/// a cleared conversation the start mode declined to resume are new windows and get nothing.
+func firstLaunchRestartNote(launchArgs: [String], exec: Bool) -> RestartNote? {
+    if exec { return execRestartNote }
+    let options = optionsOnly(launchArgs)
+    guard !options.contains("--fork-session"),
+          flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r") != nil
+              || options.contains(where: continueFlags.contains) else { return nil }
+    return RestartNote(reason: "resume", background: 0)
+}
 
 let restartWakeOutcomes = CapResumeOutcomes(typed: "restart-wake", failed: "restart-wake-failed",
                                             dropped: "restart-wake-dropped")

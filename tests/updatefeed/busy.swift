@@ -95,7 +95,9 @@ func runBusyChecks() {
         var state = fresh()
         send(&state, .feedRead(newest: v531, skippedBuild: nil))
         send(&state, .chipPressed)
-        expect(send(&state, .updateCycleEnded).isEmpty, "the cycle ending asks for nothing")
+        // The press is still owed an answer (stall.swift T5), so the ending brings Sparkle's window.
+        expect(send(&state, .updateCycleEnded) == [.visibleCheck],
+               "the cycle ending under a press answers it in a window")
         expect(state.busy == nil, "P3: Sparkle stopped working, so the chip stops saying it is")
     }
 

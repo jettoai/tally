@@ -200,8 +200,10 @@ check("…and the update badge keeps its click while joining them",
 check("…through the one implementation its button also presses",
       headerSource.contains("private func startInstall() {")
           && headerSource.components(separatedBy: "startInstall()").count == 4)
+// The one exception (2026-10-04): a stalled install is a busy state a press must act on, by
+// quitting to finish it, and it is checked first in the same function so both entrances get it.
 check("…and that action carries the busy guard itself, where both entrances meet it",
-      headerSource.range(of: "func startInstall() {\n        guard UpdateAvailability.shared.busy == nil else { return }") != nil)
+      headerSource.range(of: "func startInstall() {\n        if UpdateAvailability.shared.stalled { return UpdaterController.shared.finishStalledUpdate() }\n        guard UpdateAvailability.shared.busy == nil else { return }") != nil)
 
 // 11. A drag that is under way, and the reason it cannot be answered by a flag alone: AppKit carries
 //     the window after `performDrag` returns (measured: the call's entry and exit share a

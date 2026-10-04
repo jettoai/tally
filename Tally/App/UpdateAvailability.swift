@@ -18,6 +18,9 @@ final class UpdateAvailability {
     /// Which step of an install is under way, or nil when none is. The chip renders it as a spinner
     /// and stops taking presses while it is set.
     var busy: UpdateBusy?
+    /// True once the running install has gone past `UpdateStall.threshold`. The chip then stops
+    /// spinning and offers to finish the install by quitting.
+    var stalled = false
     /// Observable mirror of UpdaterController.isActive, so views rendered before start() (a
     /// Settings window restored at launch) correct themselves once the updater comes up.
     var updaterActive = false
@@ -26,5 +29,6 @@ final class UpdateAvailability {
         version = nil
         isDownloaded = false
         busy = nil
+        stalled = false
     }
 }

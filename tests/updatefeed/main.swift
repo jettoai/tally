@@ -355,13 +355,23 @@ do {
 // MARK: a question and an instruction are not the same press
 
 do {
-    var state = fresh()
+    // Without the consent to install automatically, Check Now is a question.
+    var state = fresh(autoInstall: false)
     send(&state, .feedRead(newest: v531, skippedBuild: nil))
     expect(send(&state, .checkPressed) == [.visibleCheck],
-           "Check Now asks, and gets a window - it must not silently restart the app")
+           "Check Now without the consent asks, and gets a window - it must not silently restart the app")
     expect(!state.requestedByUser, "and asking is not an outstanding instruction to install")
-    expect(send(&state, .chipPressed) == [.beginSilentInstall],
-           "the chip instructs, and that is the one that installs")
+}
+
+do {
+    // With it, the window was the defect (2026-10-04): Sparkle's UI driver ended in a
+    // ready-to-install window nobody saw, and the chip spun for eighteen minutes over it. The
+    // consent already says "install without asking", so the press installs like the chip does.
+    var state = fresh()
+    send(&state, .feedRead(newest: v531, skippedBuild: nil))
+    expect(send(&state, .checkPressed) == [.beginSilentInstall],
+           "Check Now with the consent installs in the background, the way the chip does")
+    expect(state.requestedByUser, "and the press is waiting on the payload")
 }
 
 do {
@@ -373,6 +383,7 @@ do {
 }
 runUserChoiceChecks()
 runBusyChecks()
+runStallChecks()
 
 // MARK: P1, the half of it that lives in the controller rather than in the table above
 //

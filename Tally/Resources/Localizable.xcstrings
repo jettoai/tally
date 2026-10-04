@@ -16517,6 +16517,64 @@
           }
         }
       }
+    },
+    "Update stuck": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新卡住"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新卡住"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新が止まっています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 멈춤"
+          }
+        }
+      }
+    },
+    "Quit Tally to finish installing. It reopens by itself.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束 Tally 以完成安裝，完成後會自動重開。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出 Tally 以完成安装，完成后会自动重新打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally を終了してインストールを完了します。完了後に自動で再起動します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally를 종료해 설치를 완료합니다. 완료 후 자동으로 다시 열립니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -65,11 +65,15 @@ extension PopoverRootView {
                 if let version = UpdateAvailability.shared.version {
                     let ready = UpdateAvailability.shared.isDownloaded
                     let busy = UpdateAvailability.shared.busy
+                    let stalled = UpdateAvailability.shared.stalled
                     Button {
                         startInstall()
                     } label: {
                         HStack(spacing: 4) {
-                            if let busy {
+                            if stalled {
+                                // No spinner: nothing is moving, and this face is a button again.
+                                Text(L("Update stuck"))
+                            } else if let busy {
                                 // The native spinner, for the reason the refresh button uses one:
                                 // a hand-rolled rotation cannot be stopped cleanly. Scaled to the
                                 // caption line it sits on - the small control size is the height
@@ -93,14 +97,17 @@ extension PopoverRootView {
                     // Nothing a second press could ask for that the first is not already doing,
                     // and the reducer refuses one anyway - this is what makes the refusal visible
                     // rather than a click that appears to have been swallowed.
-                    .disabled(busy != nil)
+                    // The stuck face is the exception: quitting is the one thing left to ask for.
+                    .disabled(busy != nil && !stalled)
                     // A control, so it takes the travelling form: the badge still installs on a
                     // click and the panel still moves if the hand meant to move it.
                     .windowDragOrTap { startInstall() }
                     // Around the control rather than on it, because the busy chip is disabled and
                     // a disabled control is routed no hover at all - which is the state that most
                     // needs to be able to explain itself.
-                    .tallyTooltipAroundControl(busy.map(Self.busyLabel)
+                    .tallyTooltipAroundControl(stalled
+                        ? L("Quit Tally to finish installing. It reopens by itself.")
+                        : busy.map(Self.busyLabel)
                         ?? (ready ? L("Update downloaded - click to restart")
                                   : L("Update available - click to install")))
                 }
@@ -213,7 +220,9 @@ extension PopoverRootView {
     /// One install, reached the two ways the refresh above is, and carrying the guard the button
     /// expresses with `.disabled`: the drag overlay is not a SwiftUI control, so nothing stops it
     /// on the caller's behalf.
+    /// A stalled install is the one busy state a press may act on: it finishes by quitting.
     private func startInstall() {
+        if UpdateAvailability.shared.stalled { return UpdaterController.shared.finishStalledUpdate() }
         guard UpdateAvailability.shared.busy == nil else { return }
         UpdaterController.shared.installNow()
     }

@@ -104,7 +104,12 @@ enum CaptureLaunch {
                                // nothing on its own - a board has to be up for there to be a figure
                                // - and it qualifies whatever surface the launch is opening, the
                                // samples window included.
-                               "TallyMotion"]
+                               "TallyMotion",
+                               // Qualifies TallyUpdateChip's busy preview: runs the real stall timer
+                               // against it (`UpdaterController.previewStall`). Alone it only
+                               // shortens the stall threshold of a real update, which shows nothing
+                               // until an update actually hangs.
+                               "TallyUpdateStallSeconds"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

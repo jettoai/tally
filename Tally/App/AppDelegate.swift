@@ -96,6 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "restarting": UpdateAvailability.shared.busy = .restarting
             default: break
             }
+            // -TallyUpdateStallSeconds N with a busy preview runs the real stall timer, so the
+            // stuck face and its button can be reviewed without a live update.
+            if UpdateAvailability.shared.busy != nil,
+               UserDefaults.standard.double(forKey: "TallyUpdateStallSeconds") > 0 {
+                UpdaterController.shared.previewStall()
+            }
         }
         // THE FIRST USAGE READING WAITS FOR THE KEYCHAIN REPAIR, and that ordering is the whole of
         // why these two lines share a task. A refresh runs the `claude` CLI, which reads its

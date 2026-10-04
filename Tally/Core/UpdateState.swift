@@ -57,6 +57,10 @@ struct UpdateState: Equatable {
     /// screen changing at all, and then replaced the app. From the outside that is a press that did
     /// nothing followed by the app closing itself, which is what it was reported as.
     var busy: UpdateBusy?
+    /// When `busy` last went from nil to a step. Kept across the steps of one install (checking,
+    /// downloading, extracting, restarting) and cleared the moment nothing is running, so it measures
+    /// how long the person has been looking at a spinner, which is what the stall rule asks.
+    var busySince: Date?
 
     /// What the app is prepared to offer, which is not everything it knows: a version the user
     /// chose to skip is knowledge, not an offer. Anything newer than the skipped build still is.
@@ -117,8 +121,9 @@ enum UpdateEvent: Equatable {
     /// What the user answered in Sparkle's own update dialog. `build` is the item it was about.
     case userMadeChoice(UpdateUserChoice, build: Int?)
     case chipPressed
-    /// Settings' Check Now, and the CLI's `tally update`: a question, "is there anything?", which
-    /// earns an answer in a window rather than a restart nobody asked for.
+    /// Settings' Check Now, and the CLI's `tally update`: a question, "is there anything?". With the
+    /// consent to install automatically it is answered by installing whatever is newer; without
+    /// it, or when nothing is, the answer is a window.
     case checkPressed
     /// The idle timer fired; `idle` is `IdleInstall`'s verdict, read from the world by the caller.
     case momentArrived(idle: Bool)
@@ -148,6 +153,17 @@ enum UpdateAction: Equatable {
 
 enum UpdateReducer {
     static func reduce(_ state: inout UpdateState, _ event: UpdateEvent, now: Date) -> [UpdateAction] {
+        let actions = reduceEvent(&state, event, now: now)
+        if state.busy == nil {
+            state.busySince = nil
+        } else if state.busySince == nil {
+            state.busySince = now
+        }
+        return actions
+    }
+
+    private static func reduceEvent(_ state: inout UpdateState, _ event: UpdateEvent,
+                                    now: Date) -> [UpdateAction] {
         switch event {
         case .watchingChanged(let on):
             state.watching = on
@@ -196,7 +212,12 @@ enum UpdateReducer {
             // app is on its way out, and the one path that ends the cycle afterwards (an
             // authorisation the user put off until quit) still installs on quit.
             if state.busy != .restarting { state.busy = nil }
-            return []
+            // A press that started a background check and got no install back (nothing newer, a
+            // skipped version, an item Sparkle will only present in a window) is still owed an
+            // answer, and the flag must not outlive the press it belongs to.
+            guard state.requestedByUser, !state.installHandlerHeld else { return [] }
+            state.requestedByUser = false
+            return [.visibleCheck]
 
         case .installHandlerArrived(let release):
             if let release { state.staged = release }
@@ -271,7 +292,21 @@ enum UpdateReducer {
             // (SPUUpdater bails while sessionInProgress); running the thing that is already in
             // hand is the only answer available, and it is the one the press wanted anyway.
             guard !state.installHandlerHeld else { return state.dispatch(userAsked: true) }
-            return state.installing ? [] : [.visibleCheck]
+            guard !state.installing else { return [] }
+            // With the standing consent to install, a check a person asks for must not end in
+            // Sparkle's own ready-to-install window. That window waits for a second click, nothing
+            // tells the app it is waiting, and the chip went on reading "Updating..." for eighteen
+            // minutes over it (2026-10-04). The background driver hands the install back instead,
+            // and a check that finds nothing still earns its window when the cycle ends.
+            // Something already running, or a build that failed, keeps the visible path: the first
+            // brings Sparkle's window forward, the second is where the person sees what goes wrong.
+            guard state.installsAutomatically, state.busy == nil,
+                  state.offeredNewest.map({ $0.build != state.failedBuild }) ?? true else {
+                return [.visibleCheck]
+            }
+            state.requestedByUser = true
+            state.busy = .checking
+            return [.beginSilentInstall]
 
         case .momentArrived(let idle):
             // Three separate consents, all of which have to hold for an install nobody asked for:
@@ -331,5 +366,18 @@ private extension UpdateState {
             busy = .checking
             return [.beginSilentInstall]
         }
+    }
+}
+
+/// When a running install has gone on long enough to tell the person it is stuck. Measured on
+/// `busySince`, the start of the whole install rather than of its current step, because what the
+/// person sees is one spinner. Every step counts, `.restarting` included: a trigger that was pulled
+/// and never led to the app quitting is the same silence.
+enum UpdateStall {
+    static let threshold: TimeInterval = 300
+
+    static func isStalled(_ state: UpdateState, now: Date, threshold: TimeInterval = threshold) -> Bool {
+        guard state.busy != nil, let since = state.busySince else { return false }
+        return now.timeIntervalSince(since) >= threshold
     }
 }

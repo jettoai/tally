@@ -63,6 +63,16 @@ enum ErrorReporting {
         DispatchQueue.global(qos: .utility).async { SentrySDK.flush(timeout: 5) }
     }
 
+    /// One event per stalled update, only when the user opted in. The step is the state machine's
+    /// own name for it; nothing about the machine or the account goes along.
+    static func reportUpdateStall(step: String) {
+        guard isEnabled, SentrySDK.isEnabled else { return }
+        SentrySDK.capture(message: "update stalled at \(step)") { scope in
+            scope.setLevel(.warning)
+            scope.setTag(value: "update-stall", key: "kind")
+        }
+    }
+
     /// App Hang events (mechanism type "AppHang", sentry-cocoa 9.29.1 SentryHangTrackingIntegration)
     /// raised while the display sleeps on an overloaded host are dropped: nobody was waiting on the
     /// app, and the machine was starving every process (Sentry TALLY-6, 64 such events in 40

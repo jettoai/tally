@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import os
 import Sparkle
 
 /// Owns the Sparkle updater. Dormant unless the build carries BOTH a feed URL and an EdDSA public
@@ -15,6 +16,19 @@ final class UpdaterController: NSObject {
     static let shared = UpdaterController()
 
     private var controller: SPUStandardUpdaterController?
+
+    nonisolated private static let log = Logger(subsystem: "ai.jetto.tally", category: "updater")
+    /// Dev and Release alike may shorten the stall threshold for a test run
+    /// (`-TallyUpdateStallSeconds 20`); absent or non-positive means the shipped five minutes.
+    static var stallThreshold: TimeInterval {
+        let v = UserDefaults.standard.double(forKey: "TallyUpdateStallSeconds")
+        return v > 0 ? v : UpdateStall.threshold
+    }
+    private var stallTimer: Timer?
+    /// The install the stall timer was aimed at. One timer per install, and once it has fired it is
+    /// not aimed again at the same one, so a stalled install is reported once rather than on every
+    /// event that arrives after it.
+    private var stallArmedFor: Date?
 
     /// False in dev builds / until the ship pipeline bakes the key - callers hide their UI.
     /// UI reads go through UpdateAvailability.updaterActive instead: this is not observable, and
@@ -136,6 +150,7 @@ final class UpdaterController: NSObject {
     func apply(_ event: UpdateEvent) {
         state.installsAutomatically = automaticallyDownloadsUpdates
         let actions = UpdateReducer.reduce(&state, event, now: Date())
+        Self.log.info("event \(String(describing: event), privacy: .public) busy=\(String(describing: self.state.busy), privacy: .public) held=\(self.state.installHandlerHeld) asked=\(self.state.requestedByUser)")
         // Written only on a real change: this is an @Observable the panel header reads, and every
         // assignment invalidates the view whether or not the value moved.
         let chip = state.chip
@@ -148,6 +163,7 @@ final class UpdaterController: NSObject {
         if UpdateAvailability.shared.busy != state.busy {
             UpdateAvailability.shared.busy = state.busy
         }
+        armStallWatch()
         // The idle timer runs exactly while there is an offer whose moment could arrive.
         if state.knownSince == nil {
             idleTimer?.invalidate()
@@ -349,6 +365,78 @@ final class UpdaterController: NSObject {
         guard let handler = pendingInstall else { return }
         pendingInstall = nil
         handler.run()
+    }
+
+    /// Aimed at the moment the running install would count as stuck, and taken down (with the
+    /// stuck face) when nothing is running.
+    private func armStallWatch() {
+        guard let since = state.busySince else {
+            stallTimer?.invalidate(); stallTimer = nil
+            if UpdateAvailability.shared.stalled { UpdateAvailability.shared.stalled = false }
+            return
+        }
+        guard stallArmedFor != since else { return }
+        stallTimer?.invalidate()
+        let fireIn = max(0, since.addingTimeInterval(Self.stallThreshold).timeIntervalSinceNow)
+        stallTimer = Timer.scheduledTimer(withTimeInterval: fireIn, repeats: false) { _ in
+            Task { @MainActor in UpdaterController.shared.noticeStall() }
+        }
+        stallArmedFor = since
+    }
+
+    private func noticeStall() {
+        stallTimer = nil
+        guard UpdateStall.isStalled(state, now: Date(), threshold: Self.stallThreshold) else { return }
+        UpdateAvailability.shared.stalled = true
+        let step = String(describing: state.busy)
+        Self.log.error("update stalled step=\(step, privacy: .public) seconds=\(Int(Self.stallThreshold))")
+        ErrorReporting.reportUpdateStall(step: step)
+    }
+
+    /// The stalled chip's action. Quitting is what every stalled shape needs: Sparkle installs a
+    /// prepared update on quit, and anything not yet prepared is abandoned and retried by the
+    /// relaunched app. Sparkle does not relaunch after an install on quit, so a detached helper
+    /// waits for the bundle's version to change (or gives up) and opens the app again, unless
+    /// something else (Sparkle, a supervisor's relaunch station) already has.
+    func finishStalledUpdate(versionWait: Int = 90) {
+        Self.log.error("user finished a stalled update by quitting")
+        let bundle = Bundle.main.bundlePath
+        let old = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? ""
+        // Arguments go in positionally and are never spliced into the script text.
+        let script = """
+        pid="$1"; app="$2"; old="$3"; wait="$4"
+        i=0; while kill -0 "$pid" 2>/dev/null && [ $i -lt 60 ]; do sleep 0.5; i=$((i+1)); done
+        i=0; while [ $i -lt "$wait" ]; do
+          v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist" 2>/dev/null)
+          [ -n "$v" ] && [ "$v" != "$old" ] && [ -x "$app/Contents/MacOS" ] && break
+          sleep 1; i=$((i+1))
+        done
+        sleep 1
+        /usr/bin/pgrep -f "$app/Contents/MacOS/" >/dev/null || /usr/bin/open -g "$app"
+        """
+        let args = ["-c", script, "sh", String(ProcessInfo.processInfo.processIdentifier),
+                    bundle, old, String(versionWait)]
+        // Spawned off the main thread; the quit waits until the helper has started (or failed to),
+        // so the helper is already watching the pid when the app goes away.
+        DispatchQueue.global(qos: .userInitiated).async {
+            let helper = Process()
+            helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+            helper.arguments = args
+            helper.standardOutput = FileHandle.nullDevice
+            helper.standardError = FileHandle.nullDevice
+            do { try helper.run() } catch {
+                Self.log.error("could not start the relaunch helper: \(error.localizedDescription, privacy: .public)")
+            }
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+
+    /// Design preview only: run the same stall timer against the faked busy chip, so the stuck face
+    /// and its button can be reached in a Dev build that has no feed.
+    func previewStall() {
+        state.busy = .downloading   // stands for the three "Updating..." steps, as the preview does
+        state.busySince = Date()
+        armStallWatch()
     }
 
     /// The app really is being replaced. Now the machinery can go.

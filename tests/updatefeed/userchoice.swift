@@ -99,7 +99,10 @@ func runUserChoiceChecks() {
     }
 
     do {
-        var state = fresh()
+        // Consent off: what this guards is that a cancelled install is not run, and with the
+        // consent on Check Now installs in the background instead (stall.swift), which says
+        // nothing about the cancelled trigger either way.
+        var state = fresh(autoInstall: false)
         send(&state, .feedRead(newest: v531, skippedBuild: nil))
         send(&state, .installHandlerArrived(v531))
         expect(state.installHandlerHeld, "a trigger is in hand")

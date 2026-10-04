@@ -78,6 +78,11 @@ enum TallyTooltip {
         /// The machine table's lid switch (a private build's pool strip). Shows on every MacBook row
         /// at once, so a capture wants a pool with exactly one MacBook in it.
         case lid
+        /// The machine table's CPU figure on this Mac's row (a private build's pool strip). Only one
+        /// row is local, so it does not race for the single preference slot.
+        case topcpu
+        /// Same for the memory figure.
+        case topmemory
     }
 
     static func previewForced(_ target: PreviewTarget) -> Bool {

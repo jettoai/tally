@@ -168,9 +168,35 @@ func runRestartWakeChecks() {
     _ = station(&s9, quiet, launch: sample1Launch, candidate: roster9, log: log9, typedAlready: true,
                 after: 16)
     check("R9 …recorded as a roster arm", audit(log9).contains("input=restart-wake-armed source=roster"))
-    check("R9 a roster of zero raises nothing",
-          wakeOffer(quiet, launch: sample1Launch, note: RestartNote(reason: "reload", background: 0),
-                    after: 16) == nil)
+    // R9b, 2026-10-02 09:35: a turn-boundary move of an idle session, roster zero, no notice.
+    let idle = RestartNote(reason: "turn-boundary", background: 0)
+    let idleLine = "[tally] Tally restarted Claude Code (turn-boundary). Re-arm any monitors you had running and pick up pending work; if nothing was running, no action is needed."
+    check("R9b a roster of zero, before the settle: nothing yet",
+          wakeOffer(quiet, launch: sample1Launch, note: idle, after: 5) == nil)
+    check("R9b …after it, the line that names no stopped work",
+          wakeOffer(quiet, launch: sample1Launch, note: idle, after: 16)?.line == idleLine)
+    check("R9b a fresh or second-head relaunch (no note) still raises nothing",
+          wakeOffer(quiet, launch: sample1Launch, note: nil, after: 16) == nil)
+    check("R9b a first spawn is still not armed",
+          wakeOffer(quiet, launch: sample1Launch, spawnedByTally: false, note: idle, after: 16) == nil)
+    check("R9b a child that resumes nothing is still not armed",
+          wakeOffer(quiet, launch: sample1Launch, resumes: false, note: idle, after: 16) == nil)
+    check("R9b a cap or switch resume that owns the child still wins",
+          wakeOffer(quiet, launch: sample1Launch, note: idle, capOwns: true, after: 16) == nil)
+    check("R9b an exec's self-update note words it the same way",
+          wakeOffer(quiet, launch: sample1Launch,
+                    note: RestartNote(reason: "self-update", background: 0), after: 16)?.line
+              == "[tally] Tally restarted Claude Code (self-update). Re-arm any monitors you had running and pick up pending work; if nothing was running, no action is needed.")
+    let log9b = dir.appendingPathComponent("r9b.log")
+    var s9b = RestartWakeState()
+    typed = []
+    let typed9b = station(&s9b, quiet, launch: sample1Launch,
+                          candidate: wakeOffer(quiet, launch: sample1Launch, note: idle, after: 16),
+                          log: log9b, after: 16)
+    check("R9b …typed once through the shared door, armed as a roster arm",
+          typed9b == idleLine && typed == [idleLine]
+              && audit(log9b).contains("input=restart-wake-armed source=roster")
+              && count("input=restart-wake ", in: audit(log9b)) == 1)
     check("R9 notice and roster together: the larger count",
           wakeOffer(w1, launch: sample1Launch, note: RestartNote(reason: "reload", background: 3))?.line
               .contains("and 3 background task(s)") == true)

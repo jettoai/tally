@@ -11,6 +11,13 @@ import Foundation
 // Either signal arms: the stopped notice in the new child's transcript, or the old child's roster
 // at the handoff. Delivery is the cap resume door with all its gates, under words of its own and
 // with a state of its own, so it never spends the cap station's latch.
+//
+// A restart that stopped nothing is owed a line too (2026-10-02: a turn-boundary move left an idle
+// session asleep for 26 minutes), worded without the stopped count. Owed means a note: a fresh or
+// second-head relaunch leaves none, so a new empty window is never typed into.
+
+/// The note an exec's first child starts with: the old image counted nothing it could hand over.
+let execRestartNote = RestartNote(reason: "self-update", background: 0)
 
 let restartWakeOutcomes = CapResumeOutcomes(typed: "restart-wake", failed: "restart-wake-failed",
                                             dropped: "restart-wake-dropped")
@@ -37,7 +44,12 @@ func rosterBackgroundCount(_ record: SessionAgentsRecord?) -> Int {
 }
 
 func restartWakeMessage(reason: String, count: Int, limit: Int = sessionInputMaxBytes) -> String {
-    keystrokeClipped("[tally] Tally restarted Claude Code (\(reason)) and \(count) background "
+    guard count > 0 else {
+        return keystrokeClipped("[tally] Tally restarted Claude Code (\(reason)). Re-arm any monitors "
+                                    + "you had running and pick up pending work; if nothing was running, "
+                                    + "no action is needed.", bytes: limit)
+    }
+    return keystrokeClipped("[tally] Tally restarted Claude Code (\(reason)) and \(count) background "
                          + "task(s) were stopped. Check which ones stopped and restart or resume them.",
                      bytes: limit)
 }
@@ -72,10 +84,10 @@ func restartWakeOffer(state: RestartWakeState, spawnedByTally: Bool, resumesConv
         guard notice.uuid != state.noticeUUID,
               answeredAt.map({ $0 <= notice.at }) ?? true else { return nil }
     } else {
-        guard roster > 0, answeredAt == nil,
+        guard note != nil, answeredAt == nil,
               now.timeIntervalSince(launchedAt) >= restartWakeSettle else { return nil }
     }
-    let count = max(roster, notice?.ids.count ?? 0, 1)
+    let count = notice.map { max(roster, $0.ids.count, 1) } ?? roster
     return CapResumeState.Offer(at: notice?.at ?? now, conversation: conversation,
                                 line: restartWakeMessage(reason: note?.reason ?? "self-update",
                                                          count: count))

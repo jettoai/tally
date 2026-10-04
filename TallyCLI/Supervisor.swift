@@ -226,8 +226,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
     writeSupervisorCwd(cwd, pid: supervisorPID)
     /// What the last handoff told the next child about the restart (RestartWake.swift): nil on a
-    /// first launch, on a fresh relaunch, and after an exec.
-    var restartNote: RestartNote? = nil
+    /// first launch and on a fresh relaunch. An exec is a self-update whose old image counted
+    /// nothing here, so its first child is owed the restart line on the notice or on nothing.
+    var restartNote: RestartNote? = resumed ? execRestartNote : nil
     /// Whether this session is owed the line that wakes it after a restart killed its background
     /// work. Per session, since it is raised and spent against the child after a handoff.
     var restartWake = RestartWakeState()

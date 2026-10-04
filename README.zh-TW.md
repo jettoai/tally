@@ -213,6 +213,8 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   時刻重新啟動，於是改過的 hook、skill 或 CLAUDE.md 不必你逐個終端機走一遍，就能送到每一個
   開著的視窗。對話會留著（重啟走的是與額度接手同一條 resume 路徑），正在串流或正在被打字
   的 session 不會被動到，而反正都要重啟的 session，也順便從快見底的帳號上搬走。
+  在某個 session 裡跑 `tally reload --self`（你或它的 agent 都行），只會重啟那一個 session：
+  在當前這一輪結束後，模型與帳號都不變。
 - **啟動預設值，就在設定裡。** 預設權限模式、啟動模式（continue 或 new）、模型與 reasoning
   effort 綁成一組，另外還有一組獨立的 fallback 配對（fallback 模型＋自己的 effort＋額外
   旗標）。只在你沒自己打旗標時才會注入：你自己下的參數永遠優先。

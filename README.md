@@ -260,7 +260,8 @@ subscriptions at once:
   terminal without you walking them one by one. The conversation survives (the restart rides
   the same resume path as a cap handoff), a session that is streaming or being typed into is
   left alone, and a restart that is happening anyway also carries a session off an account that
-  is nearly dry.
+  is nearly dry. `tally reload --self`, run inside one session (by you or by its agent), restarts
+  only that session, at the end of the current turn, on the same model and account.
 - **Launch defaults, in Settings.** Default permission mode, start mode (continue vs new), model
   and reasoning effort as one pairing, and a separate fallback pairing (fallback model + its own
   effort + extra flags). Injected only when you didn't type the flag yourself: your own arguments

@@ -445,7 +445,7 @@ _tally() {
             "--all[share every account of that provider, not one named account]"
           ;;
         (best-dir|launch-dir) _arguments ":provider:_tally_providers" ;;
-        (reload) _arguments "--now[wait only for a 5s quiet gap rather than for idle]" ;;
+        (reload) _arguments "--now[wait only for a 5s quiet gap rather than for idle]" "--self[restart only the session this runs in, when its turn ends]" ;;
         (completion) _arguments ":shell:(zsh)" ;;
       esac
       ;;

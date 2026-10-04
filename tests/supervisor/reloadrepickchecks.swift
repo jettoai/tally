@@ -143,4 +143,97 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     } else {
         check("the capture and the call were both found in the tick", false)
     }
+
+    // MARK: - `tally reload --self` (ReloadSelf.swift)
+
+    // The fold: one served stamp for both files, the newest pending stamp wins, the short bar if any
+    // pending request asked for it, and `ownPending` only while this session's own one is pending.
+    let fleet101 = ReloadRequest(epoch: 101, immediate: false)
+    let own101 = ReloadRequest(epoch: 101, immediate: true)
+    check("self: no files, no request",
+          effectiveReloadRequest(fleet: nil, own: nil, served: 100)
+              == EffectiveReload(request: nil, ownPending: false))
+    check("self: a pending fleet request alone passes through",
+          effectiveReloadRequest(fleet: fleet101, own: nil, served: 100)
+              == EffectiveReload(request: fleet101, ownPending: false))
+    check("self: a pending own request alone is short-bar and own",
+          effectiveReloadRequest(fleet: nil, own: own101, served: 100)
+              == EffectiveReload(request: own101, ownPending: true))
+    check("self: both pending, the newer fleet stamp wins but keeps the short bar and the own flag",
+          effectiveReloadRequest(fleet: ReloadRequest(epoch: 105, immediate: false), own: own101,
+                                 served: 100)
+              == EffectiveReload(request: ReloadRequest(epoch: 105, immediate: true), ownPending: true))
+    check("self: an own request already served does not hold the fleet one to the short bar",
+          effectiveReloadRequest(fleet: fleet101, own: ReloadRequest(epoch: 99, immediate: true),
+                                 served: 100)
+              == EffectiveReload(request: fleet101, ownPending: false))
+    let bothServed = effectiveReloadRequest(fleet: ReloadRequest(epoch: 99, immediate: false),
+                                            own: ReloadRequest(epoch: 98, immediate: true),
+                                            served: 100)
+    check("self: nothing pending hands back a served request, which decides nothing",
+          bothServed.request?.epoch == 99 && !bothServed.ownPending
+              && reloadDecision(captured: 100, requested: bothServed.request?.epoch,
+                                relaunchPlanned: false, isQuiet: true) == .none)
+
+    // The tick: an own request restarts on the SAME account even when the rebalance would move it,
+    // and never asks the rebalance (asking spends the drought's one claim).
+    let ownFold = effectiveReloadRequest(fleet: nil, own: own101, served: 100)
+    let ownTick = reloadTick(repick: { elsewhere("B") }, watcher: &tickWatcher,
+                             carryable: ownFold.carryable(true), request: ownFold.request!)
+    check("self: an own reload restarts on the same account", ownTick.plan?.target.id == "A")
+    check("self: and is tagged a reload, so the wake and the cap carry read it as one",
+          ownTick.plan?.reason == "reload")
+    check("self: and never asks the rebalance", !ownTick.asked)
+    // Pass-to-pass: with no own request pending, the fleet reload still rides off a dying account.
+    let fleetFold = effectiveReloadRequest(fleet: fleet101, own: ReloadRequest(epoch: 90, immediate: true),
+                                           served: 100)
+    let fleetTick = reloadTick(repick: { elsewhere("B") }, watcher: &tickWatcher,
+                               carryable: fleetFold.carryable(true), request: fleetFold.request!)
+    check("self: a fleet reload with no own request pending may still move", fleetTick.plan?.target.id == "B")
+
+    // The command: addressed by the marker only, refused without one, written short-bar with one.
+    let selfDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-reload-self-\(UUID().uuidString)")
+    let selfState = selfDir.appendingPathComponent("state")
+    let selfRequests = selfDir.appendingPathComponent("requests")
+    let me = String(getpid())
+    let selfAt = Date(timeIntervalSince1970: 1_800_000_042)
+    let unmanaged = attemptReloadSelf(marker: nil, stateDir: selfState, dir: selfRequests,
+                                      honourability: { _ in .honoured }, now: selfAt)
+    check("self: outside a supervised session it refuses", !unmanaged.queued && unmanaged.exitCode == 1)
+    check("self: and writes nothing",
+          !FileManager.default.fileExists(atPath: reloadSelfFile(sessionKey: me, dir: selfRequests).path))
+    let tooOld = attemptReloadSelf(marker: me, stateDir: selfState, dir: selfRequests,
+                                   honourability: { _ in .tooOld }, now: selfAt)
+    check("self: a supervisor too old to read it is refused, and nothing is written",
+          tooOld.exitCode == 1
+              && !FileManager.default.fileExists(atPath: reloadSelfFile(sessionKey: me, dir: selfRequests).path))
+    try! FileManager.default.createDirectory(at: selfRequests, withIntermediateDirectories: true)
+    let husk = reloadSelfFile(sessionKey: "2147483646", dir: selfRequests)
+    try! "1\nnow\n".write(to: husk, atomically: true, encoding: .utf8)
+    let selfQueued = attemptReloadSelf(marker: me, stateDir: selfState, dir: selfRequests,
+                                   honourability: { _ in .honoured }, now: selfAt)
+    check("self: inside a current session it queues", selfQueued.queued && selfQueued.exitCode == 0
+              && selfQueued.notes.isEmpty)
+    check("self: the request is this pid's, short-bar, stamped now",
+          readReloadRequest(from: reloadSelfFile(sessionKey: me, dir: selfRequests))
+              == ReloadRequest(epoch: 1_800_000_042, immediate: true))
+    check("self: a dead pid's request is swept as it writes", !FileManager.default.fileExists(atPath: husk.path))
+    let afterUpdate = attemptReloadSelf(marker: me, stateDir: selfState, dir: selfRequests,
+                                        honourability: { _ in .afterSelfUpdate }, now: selfAt)
+    check("self: an outdated supervisor still gets it, with a note saying the self-update is the restart",
+          afterUpdate.queued && afterUpdate.notes.count == 1)
+    try? FileManager.default.removeItem(at: selfDir)
+
+    // The wiring lives in files this suite cannot drive (top-level main.swift, the live tick), so
+    // the lines that connect them are locked by shape.
+    let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    let mainSource = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+    for wiring in ["readReloadRequest(from: reloadSelfFile(sessionKey: String(getpid())))",
+                   "own: readReloadRequest(from: reloadSelfFile(sessionKey: supervisorPID))",
+                   "carryable: reload.carryable(carryable), request: reload.request"] {
+        check("self: the supervisor is wired: \(wiring)", supervisorSource.contains(wiring))
+    }
+    check("self: the command routes --self to its own entry",
+          mainSource.contains("runReloadSelf(args: reloadArgs)"))
 }

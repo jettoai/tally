@@ -432,7 +432,9 @@ case "launch-dir":
 case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
 case "reload":
-    exit(runReload(args: Array(arguments.dropFirst())))
+    let reloadArgs = Array(arguments.dropFirst())
+    exit(reloadArgs.contains("--self") ? runReloadSelf(args: reloadArgs)
+                                       : runReload(args: reloadArgs))
 // `account` is the name this is called by now, matching the slash command (`/tally-account`) and
 // the axis it sets, the way `model` does. `switch` still answers: it is in muscle memory, in the
 // skill files installed by older app versions, and in whatever anyone wrote down.

@@ -187,6 +187,8 @@ usage:
                             hooks, skills, and instructions take effect everywhere without
                             visiting each terminal (--now waits only for a 5s quiet gap, so it
                             may land closer to an active turn)
+  tally reload --self       restart only the session this runs in, once its current turn ends
+                            and it has been quiet for 5s: same conversation, model and account
   tally keychain-repair     heal the Claude Code Keychain items Tally 0.64.0 left needing a
                             consent dialog: it rewrote their partition list, so `security`
                             (which Claude Code, this launcher and the app's usage polling all

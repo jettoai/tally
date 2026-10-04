@@ -372,11 +372,12 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
 /// no session directly (the supervisors do the work), so it returns at once and exits 0 even with
 /// nothing running - an editor hook must not fail because no session is open. Unconfirmed on
 /// purpose: typing the command IS the intent, where a button click is not (the app asks first).
+/// `--self` never reaches here: main.swift routes it to `runReloadSelf` (ReloadSelf.swift).
 func runReload(args: [String]) -> Int32 {
     var immediate = false
     for arg in args {
         guard arg == "--now" else {
-            warn("unknown argument \(arg) - usage: tally reload [--now]")
+            warn("unknown argument \(arg) - usage: tally reload [--now] | tally reload --self")
             return 2
         }
         immediate = true

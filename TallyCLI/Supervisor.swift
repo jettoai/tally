@@ -82,7 +82,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// The `tally reload` stamp this supervisor has already served. Captured at startup so an older
     /// request is never replayed - a child spawned now already carries the edited hooks, skills, and
     /// instructions the request was about. Held across relaunches, like the fuse and the quarantine.
-    var reloadEpoch = readReloadRequest()?.epoch ?? 0
+    /// The newer of the fleet-wide stamp and this pid's own `tally reload --self` stamp
+    /// (ReloadSelf.swift): one served stamp covers both, a file left by a dead supervisor that wore
+    /// this pid is old news, and a self-update exec restarts the child, which serves a pending one.
+    var reloadEpoch = max(readReloadRequest()?.epoch ?? 0,
+                          readReloadRequest(from: reloadSelfFile(sessionKey: String(getpid())))?
+                              .epoch ?? 0)
     /// What has been said about a queued reload: the stamp it was said for, so a session in use
     /// says it once, and when the wait began, so past five minutes the badge is recomputed every
     /// tick and names the gate holding it now.
@@ -907,12 +912,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // direction (this says no, the session stays, the rebalance moves it later).
             let carryable = carryableSession(launchArgs: launchArgs,
                                              sessionLocated: watcher.file != nil)
+            // The fleet-wide request and this session's own `tally reload --self`, folded into the
+            // one request the decision below acts on (ReloadSelf.swift). The own one promises the
+            // same account, so while it is pending the restart is not offered to the rebalance.
+            let reload = effectiveReloadRequest(
+                fleet: readReloadRequest(),
+                own: readReloadRequest(from: reloadSelfFile(sessionKey: supervisorPID)),
+                served: reloadEpoch)
             applyReloadRequest(plan: &plan, epoch: &reloadEpoch, notice: &reloadNotice,
                                account: account, watcher: &watcher,
                                childAge: Date().timeIntervalSince(launchedAt),
                                keyboardIdle: { keyboard.idle($0) },
                                keyboardBurstAt: keyboard.lastBurstAt,
-                               keyboardStampAt: keyboard.lastStamp, carryable: carryable,
+                               keyboardStampAt: keyboard.lastStamp,
+                               carryable: reload.carryable(carryable), request: reload.request,
                                repick: {
                                    rebalanceMove(provider: provider.id, account: account,
                                                  primaryModel: effectivePrimary, mode: policy.mode,

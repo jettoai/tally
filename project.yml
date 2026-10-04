@@ -276,8 +276,8 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         CODE_SIGN_ENTITLEMENTS: Tally/Resources/Tally.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally
-        MARKETING_VERSION: "0.85.7"
-        CURRENT_PROJECT_VERSION: "1209"
+        MARKETING_VERSION: "0.85.8"
+        CURRENT_PROJECT_VERSION: "1218"
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         CODE_SIGN_IDENTITY: "Apple Development"

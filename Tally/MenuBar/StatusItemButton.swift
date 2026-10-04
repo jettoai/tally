@@ -49,7 +49,8 @@ extension StatusItemController {
         let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip, note: note)
         guard face != lastAppliedFace else { return }
         lastAppliedFace = face
-        let title = NSMutableAttributedString(attributedString: blocked > 0 ? Self.blockedDot : NSAttributedString(string: ""))
+        let title = NSMutableAttributedString()
+        if blocked > 0 { title.append(Self.blockedDot) }
         if let note { title.append(Self.noteMark(note)) }
         button.attributedTitle = title
         button.toolTip = tooltip

@@ -44,14 +44,12 @@ func rosterBackgroundCount(_ record: SessionAgentsRecord?) -> Int {
 }
 
 func restartWakeMessage(reason: String, count: Int, limit: Int = sessionInputMaxBytes) -> String {
-    guard count > 0 else {
-        return keystrokeClipped("[tally] Tally restarted Claude Code (\(reason)). Re-arm any monitors "
-                                    + "you had running and pick up pending work; if nothing was running, "
-                                    + "no action is needed.", bytes: limit)
-    }
-    return keystrokeClipped("[tally] Tally restarted Claude Code (\(reason)) and \(count) background "
-                         + "task(s) were stopped. Check which ones stopped and restart or resume them.",
-                     bytes: limit)
+    let line = count > 0
+        ? "[tally] Tally restarted Claude Code (\(reason)) and \(count) background task(s) were "
+            + "stopped. Check which ones stopped and restart or resume them."
+        : "[tally] Tally restarted Claude Code (\(reason)). Re-arm any monitors you had running and "
+            + "pick up pending work; if nothing was running, no action is needed."
+    return keystrokeClipped(line, bytes: limit)
 }
 
 struct RestartWakeState: Equatable {

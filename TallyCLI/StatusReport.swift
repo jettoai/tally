@@ -225,6 +225,17 @@ struct StatusReport: Encodable {
         var supportedActions: [String]?
         /// The other host this read-only row runs on (no pid, no actions); absent means this Mac.
         var machine: String?
+        /// The model serving this session: the one seen on its last turn, else the `--model` it was
+        /// launched with; and the launch `--effort`. Absent when the supervisor has published neither.
+        var model: String?
+        var effort: String?
+        /// The Claude Code task list this session writes (TaskListPin.swift); absent until pinned.
+        var taskList: TaskList?
+
+        struct TaskList: Encodable {
+            var id: String
+            var dir: String
+        }
     }
 
     struct Advisor: Encodable {
@@ -447,32 +458,6 @@ func encodeStatusReport(_ report: StatusReport) -> String {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let data = (try? encoder.encode(report)) ?? Data("{}".utf8)
     return String(decoding: data, as: UTF8.self)
-}
-
-/// The reset part of one `tally status` text line, in the four states the app publishes. Not
-/// supported prints nothing; unknown is printed, so it never passes for "no resets". An app too
-/// old to publish `resetState` falls back to the banked count alone.
-func resetStatusSuffix(_ account: Snapshot.Account, now: Date = Date()) -> String {
-    let banked = account.resetCreditsAvailable ?? 0
-    let bankedText = " · \(banked) reset\(banked == 1 ? "" : "s") banked"
-    switch account.resetState {
-    case "available" where banked > 0:
-        var text = bankedText
-        if let expiry = account.resetCreditsNextExpiry {
-            let stamp = DateFormatter()
-            stamp.locale = Locale(identifier: "en_US_POSIX")
-            stamp.dateFormat = "yyyy-MM-dd HH:mm"
-            text += ", expires in \(shortETA(max(60, expiry.timeIntervalSince(now))))"
-                + " (\(stamp.string(from: expiry)))"
-        }
-        if account.resetCreditsExpiryUnknown == true { text += ", expiry unknown" }
-        return text
-    case "available": return " · reset available"
-    case "used": return " · no resets banked"
-    case "unknown": return " · resets unknown"
-    case "notSupported": return ""
-    default: return banked > 0 ? bankedText : ""
-    }
 }
 
 extension Snapshot.Account {

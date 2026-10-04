@@ -141,7 +141,11 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             provider: session.monitoring ? "codex" : "claude",
             // The same answer `tally session send` refuses or accepts on (SessionMonitoring.swift),
             // so the inventory cannot advertise a control the send path would then turn down.
-            supportedActions: sessionSupportedActions(pid: session.supervisorPid, dir: dir))
+            supportedActions: sessionSupportedActions(pid: session.supervisorPid, dir: dir),
+            model: session.context?.observedModel ?? session.context?.runningModel,
+            effort: session.context?.runningEffort,
+            taskList: readTaskListPin(pid: session.supervisorPid, dir: dir)
+                .map { StatusReport.Session.TaskList(id: $0.id, dir: $0.dir) })
     }
 }
 

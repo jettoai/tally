@@ -306,6 +306,34 @@ func runSessionInventoryChecks() {
                   && $0.quiet == nil
           } == true)
 
+    // MODEL, EFFORT AND TASK LIST (B-907): filled from the supervisor's own files, the observed model
+    // winning over the launch one, and absent where nothing was published.
+    writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
+                                          updatedAt: at, observedModel: "claude-opus-5-5",
+                                          runningModel: "opus", runningEffort: "high",
+                                          transcriptSessionID: transcript),
+                        pid: trunkSupervisor, dir: dir)
+    writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 12_000,
+                                          updatedAt: at, runningModel: "sonnet",
+                                          transcriptSessionID: nextTranscript),
+                        pid: lineSupervisor, dir: dir)
+    publishTaskListPin(TaskListPin(id: "session-8f2f46fd", dir: "/x/tasks/session-8f2f46fd"),
+                       pid: trunkSupervisor, dir: dir)
+    let axes = readings(sockets: empty).sessions
+    let axesTrunk = axes.first { $0.directory == "/x/repo" }
+    let axesLine = axes.first { $0.directory == "/x/repo-cart" }
+    let axesFresh = axes.first { $0.directory == "/x/other" }
+    check("a session publishes the model seen on its last turn and its launch effort",
+          axesTrunk?.model == "claude-opus-5-5" && axesTrunk?.effort == "high")
+    check("…the launch model when no turn has been observed",
+          axesLine?.model == "sonnet" && axesLine?.effort == nil)
+    check("a session publishes the task list its supervisor pinned",
+          axesTrunk?.taskList?.id == "session-8f2f46fd"
+              && axesTrunk?.taskList?.dir == "/x/tasks/session-8f2f46fd")
+    check("a session with none of the three published says nothing about them",
+          axesFresh?.model == nil && axesFresh?.effort == nil && axesFresh?.taskList == nil
+              && axesLine?.taskList == nil)
+
     // A Codex registration only gains the one action its runtime can prove: its own exact
     // terminal. The same live child the inventory already verified supplies the generation
     // witness, so this tests the status contract rather than a hand-built Session value.

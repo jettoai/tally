@@ -139,6 +139,15 @@ func publishTaskListPin(_ pin: TaskListPin, pid: String, dir: URL = supervisorSt
                atomically: true, encoding: .utf8)
 }
 
+/// `publishTaskListPin` read back: nil when the file is absent or either line is empty.
+func readTaskListPin(pid: String, dir: URL = supervisorStateDir) -> TaskListPin? {
+    guard let raw = try? String(contentsOf: dir.appendingPathComponent(pid + taskListPublishedSuffix),
+                                encoding: .utf8) else { return nil }
+    let lines = raw.components(separatedBy: "\n")
+    guard lines.count > 1, !lines[0].isEmpty, !lines[1].isEmpty else { return nil }
+    return TaskListPin(id: lines[0], dir: lines[1])
+}
+
 func taskListLine(pid: String, pin: TaskListPin, source: String,
                   placement: TaskListPlacement? = nil, now: Date = Date()) -> String {
     // appendHandoffLine adds no newline: stamp and terminate here like every other record.

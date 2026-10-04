@@ -6,6 +6,11 @@ enum OverlayApp {
     @MainActor static func didFinishLaunching() {}
     @MainActor static func panelAppeared() {}
     @MainActor static func panelDisappeared() {}
+    /// A line a private build adds to the menu-bar item's hover; non-nil also puts a small mark
+    /// beside the strip.
+    @MainActor static var statusItemNote: String? { nil }
+    /// Set by the status item; a private build calls it when its note changes.
+    @MainActor static var statusItemChanged: (() -> Void)?
 }
 
 extension PopoverRootView {

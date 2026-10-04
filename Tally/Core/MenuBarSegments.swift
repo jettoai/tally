@@ -338,4 +338,5 @@ struct StatusItemFace: Equatable {
     var segments: [MenuBarSegment]
     var blocked: Int
     var tooltip: String?
+    var note: String? = nil
 }

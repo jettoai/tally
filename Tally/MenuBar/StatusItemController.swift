@@ -121,6 +121,8 @@ final class StatusItemController: NSObject {
         // every window is closed is exactly the case the dot exists for (SessionRosterStore.swift
         // states how it hears about that with nothing open).
         SessionRosterStore.shared.onChange = { [weak self] in self?.updateButton() }
+        // A private build's mark (OverlayApp.statusItemNote) has its own reason to redraw too.
+        OverlayApp.statusItemChanged = { [weak self] in self?.updateButton() }
         // Which order the board is in is the user's switch, and the roster READS it rather than
         // holding a copy: the setting is the one answer (`SettingsStore.sessionBoardSortsByState`),
         // and the store is compiled into an assertion harness that has no settings around it.

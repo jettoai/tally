@@ -39,13 +39,19 @@ extension StatusItemController {
             ? String(format: L("%d session is waiting on you"), blocked)
             : nil
         // Hover / VoiceOver carry the full per-account identity the compact strip can't.
-        let tooltip = segments.isEmpty
+        // A private build's note (OverlayApp.statusItemNote) adds one hover line and a small mark;
+        // nil, as in the public build, leaves both exactly as they were.
+        let note = OverlayApp.statusItemNote
+        var tooltip = segments.isEmpty
             ? waiting
             : [waiting, UsageStore.shared.menuBarTooltip].compactMap { $0 }.joined(separator: "\n")
-        let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip)
+        if let note { tooltip = [tooltip, note].compactMap { $0 }.joined(separator: "\n") }
+        let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip, note: note)
         guard face != lastAppliedFace else { return }
         lastAppliedFace = face
-        button.attributedTitle = blocked > 0 ? Self.blockedDot : NSAttributedString(string: "")
+        let title = NSMutableAttributedString(attributedString: blocked > 0 ? Self.blockedDot : NSAttributedString(string: ""))
+        if let note { title.append(Self.noteMark(note)) }
+        button.attributedTitle = title
         button.toolTip = tooltip
         if segments.isEmpty {
             // No visible accounts - fall back to the app glyph.
@@ -64,9 +70,19 @@ extension StatusItemController {
         // The dot rides AFTER the numbers, which is why the position moves with it: `.imageOnly`
         // is what suppresses a title, so the strip alone keeps it and the strip-plus-dot asks for
         // the image to lead instead.
-        button.imagePosition = waiting == nil ? .imageOnly : .imageLeading
+        button.imagePosition = waiting == nil && note == nil ? .imageOnly : .imageLeading
         // Surface resizing is handled by PopoverRootView.onContentSize (it reports the real content
         // size on every layout change), so nothing to do here.
+    }
+
+    /// A private build's mark: a small template symbol, so it follows the menu bar's tint.
+    private static func noteMark(_ note: String) -> NSAttributedString {
+        let image = NSImage(systemSymbolName: "cup.and.saucer.fill", accessibilityDescription: note)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+        image?.isTemplate = true
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        return NSAttributedString(attachment: attachment)
     }
 
     private static func symbolImage() -> NSImage? {

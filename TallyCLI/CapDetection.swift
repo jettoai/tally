@@ -360,12 +360,9 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
         $0.provider == providerID && eligible($0, primaryModel: primary)
             && $0.id != account.id && !excluded.contains($0.id)
     }
-    // The nearly-dry gate, stricter here than on the launch path (AccountComfort.swift): handing a
-    // capped session to an account with 1% left just caps it again a few minutes later, and unlike a
-    // launch there is a running conversation to reload, so no comfortable sibling means WAIT rather
-    // than move. A fleet pin the session pin is being cleared in favour of overrides that, because a
-    // pin is an instruction rather than a quota opinion. A sibling with a full runway is preferred
-    // over one the knock would call running low (`capHandoffPick`).
+    // Comfortable siblings first, then the thin ones spent down in reset order, and a wait only
+    // when nothing usable is left (`capHandoffPick`). A fleet pin the session pin is being cleared
+    // in favour of overrides that, because a pin is an instruction rather than a quota opinion.
     let reading = capReading(fleet: fleet, sessionPin: sessionPin, candidates: candidates)
     let target = reading.preferred
         ?? capHandoffPick(candidates, primaryModel: primary, reserves: reserves, now: now)
@@ -389,6 +386,9 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
 /// back to the shared chooser and its nearly-dry gate. A cap handoff already costs a restart;
 /// landing on an account its own knock calls running low three seconds later buys the next wall and
 /// the next restart (2026-09-26: moved to 7% weekly while a 100% sibling was idle).
+/// When nobody is even nearly-dry comfortable, the thin field is spent down rather than waited on
+/// (`capLastResortPick`): a session sitting on "no account with quota to spare" while `tally claude`
+/// launches fine wastes every sibling's remainder (B-5634, 2026-10-05).
 /// Cap only: rebalance, turn boundary and window repick keep `capHandoffTarget` as it is.
 func capHandoffPick(_ candidates: [Snapshot.Account], primaryModel: String?,
                     reserves: AccountReserves, now: Date) -> Snapshot.Account? {
@@ -396,4 +396,31 @@ func capHandoffPick(_ candidates: [Snapshot.Account], primaryModel: String?,
                                 reserves: reserves, now: now)
     return capHandoffTarget(roomy, primaryModel: primaryModel, reserves: reserves, now: now)
         ?? capHandoffTarget(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
+        ?? capLastResortPick(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
+}
+
+/// The cap's last tier: every candidate is thin, so the session will drain whichever it lands on and
+/// cap again onto the next. In that sequence the order decides waste, and earliest weekly reset
+/// first loses the least (a remainder that resets before it is reached is gone). Ties fall to
+/// `smartScore`, the launch ranking, which already weighs every counted window by hours to reset.
+///
+/// Two filters: the reserve, dropped when nobody is above it exactly as `best` drops it for a
+/// launch; and the 5h window, which must be above the nearly-dry line (a refill inside the grace
+/// counts as full). A 5h window at 2% would cap the session within minutes for a restart's cost, so
+/// it is skipped and comes back once that window resets. `candidates` are already `eligible`, so
+/// any account with a window at 0 is not here: an empty answer means wait.
+func capLastResortPick(_ candidates: [Snapshot.Account], primaryModel: String?,
+                       reserves: AccountReserves, now: Date) -> Snapshot.Account? {
+    let above = aboveReserve(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
+    let pool = (above.isEmpty ? candidates : above).filter { account in
+        account.sessionRemaining.map {
+            effectiveRemaining(ComfortWindow(remaining: $0, resetsAt: account.sessionResetsAt),
+                               now: now) > nearlyDryPercent
+        } ?? true
+    }
+    func key(_ account: Snapshot.Account) -> (Date, Double) {
+        (account.weeklyResetsAt ?? .distantFuture,
+         -smartScore(account, primaryModel: primaryModel, now: now))
+    }
+    return pool.min { key($0) < key($1) }
 }

@@ -52,8 +52,10 @@ func runCapHandoffRunwayChecks() {
                     weeklyResets: "2026-09-27T10:00:00Z"),
                acct("B", session: 100, sessionResets: nil, weekly: 3,
                     weeklyResets: "2026-09-30T10:00:00Z")]
-    check("runway: nobody above nearly dry still means wait",
-          capHandoffPick(dry, primaryModel: "opus", reserves: .none, now: now) == nil)
+    // Rewritten for B-5634: a thin field is spent down rather than waited on, earliest weekly
+    // reset first (A resets three days before B).
+    check("runway: nobody above nearly dry spends the earliest weekly reset first",
+          capHandoffPick(dry, primaryModel: "opus", reserves: .none, now: now)?.id == "A")
     // C4. The reserve counts: 22 with 10 held back is 12, under the line.
     let reserved = acct("R", session: 100, sessionResets: nil, weekly: 22,
                         weeklyResets: "2026-09-26T12:00:00Z")
@@ -70,6 +72,7 @@ func runCapHandoffRunwayChecks() {
           !hasRunway([ComfortWindow(remaining: quotaKnockPercent, resetsAt: nil)],
                      floor: quotaKnockPercent, now: now)
               && quotaKnockStep(quotaKnockPercent) == quotaKnockPercent)
+    runCapLastResortChecks()
     // C5. Wired at the cap, and only at the cap.
     let detection = (try? String(contentsOfFile: "TallyCLI/CapDetection.swift",
                                  encoding: .utf8)) ?? ""
@@ -81,4 +84,82 @@ func runCapHandoffRunwayChecks() {
     } ?? ""
     check("runway: the chooser the other three moves share is untouched",
           shared.contains("requiringComfortable") && !shared.contains("quotaKnockPercent"))
+}
+
+// SPEND THE THIN FIELD DOWN (B-5634). 2026-10-05 22:3x Taipei: Claude 5 hit its weekly wall and the
+// badge sat on "no account with quota to spare" while `tally claude` launched fine. Readings as the
+// owner reported them; weekly resets as `~/.tally/snapshot.json` held them at 14:38:53Z.
+func runCapLastResortChecks() {
+    let iso = ISO8601DateFormatter()
+    func at(_ text: String) -> Date { iso.date(from: text)! }
+    let now = at("2026-10-05T14:36:00Z")
+    func acct(_ label: String, session: Double, sessionResets: String?, weekly: Double,
+              weeklyResets: String) -> Snapshot.Account {
+        Snapshot.Account(id: label, provider: "claude", label: label,
+                         launchHome: "/tmp/lastresort-\(label)", sessionRemaining: session,
+                         weeklyRemaining: weekly, modelRemaining: nil,
+                         sessionResetsAt: sessionResets.map(at), weeklyResetsAt: at(weeklyResets),
+                         modelResetsAt: nil, modelWindowName: nil, resetCreditsAvailable: nil,
+                         isStale: false, error: nil)
+    }
+    let c0 = acct("Claude 0", session: 4, sessionResets: "2026-10-05T15:00:00Z", weekly: 6,
+                  weeklyResets: "2026-10-08T17:00:00Z")
+    let c2 = acct("Claude 2", session: 100, sessionResets: nil, weekly: 3,
+                  weeklyResets: "2026-10-10T12:00:00Z")
+    let c3 = acct("Claude 3", session: 2, sessionResets: "2026-10-05T17:20:00Z", weekly: 3,
+                  weeklyResets: "2026-10-10T10:00:00Z")
+    let c4 = acct("Claude 4", session: 100, sessionResets: "2026-10-05T17:59:00Z", weekly: 0,
+                  weeklyResets: "2026-10-07T16:59:00Z")
+    let c5 = acct("Claude 5", session: 47, sessionResets: "2026-10-05T16:19:00Z", weekly: 0,
+                  weeklyResets: "2026-10-10T20:59:00Z")
+
+    func capTick(_ accounts: [Snapshot.Account]) -> (RelaunchPlan?, PendingCapRecovery?) {
+        var plan: RelaunchPlan?
+        var pending: PendingCapRecovery? = PendingCapRecovery(
+            cappedAccountID: c5.id, cappedAt: now, primaryModel: "opus",
+            recoveryResetsAt: nil, nextRetry: .distantPast, reason: "")
+        applyCapHandoff(plan: &plan, pendingCap: &pending, account: c5, providerID: "claude",
+                        fleet: LaunchPolicy(), steering: true, sessionPin: nil, quarantine: [:],
+                        fuseAllows: true, now: now,
+                        loaded: (Snapshot(version: 2, generatedAt: now, accounts: accounts), nil))
+        return (plan, pending)
+    }
+    let replay = capTick([c0, c2, c3, c4, c5])
+    check("last resort: the 22:3x fleet hands off instead of waiting",
+          replay.0?.reason == "cap" && replay.1?.reason != CapAction.waitNoTarget.waitingNote)
+    check("last resort: to Claude 2, the one whose 5h window still has room",
+          replay.0?.target.label == "Claude 2")
+
+    // Rule (2): among thin accounts with a usable 5h window, the earliest weekly reset wins,
+    // whatever the rate or the remaining percentage says (B resets two days earlier on less).
+    let early = acct("B", session: 100, sessionResets: nil, weekly: 2,
+                     weeklyResets: "2026-10-08T10:00:00Z")
+    let late = acct("L", session: 100, sessionResets: nil, weekly: 5,
+                    weeklyResets: "2026-10-10T10:00:00Z")
+    check("last resort: same thin field, the earlier weekly reset is spent first",
+          capHandoffPick([late, early], primaryModel: "opus", reserves: .none, now: now)?.id == "B")
+    // A 5h window at or under the nearly-dry line is skipped even when its weekly resets first.
+    check("last resort: a spent 5h window is skipped and waited back",
+          capHandoffPick([c0, late], primaryModel: "opus", reserves: .none, now: now)?.id == "L")
+    // ...unless it refills inside the grace, which counts as already full.
+    let refilling = acct("R", session: 1, sessionResets: "2026-10-05T14:40:00Z", weekly: 3,
+                         weeklyResets: "2026-10-07T10:00:00Z")
+    check("last resort: a 5h window resetting inside the grace is usable",
+          capHandoffPick([refilling, late], primaryModel: "opus", reserves: .none, now: now)?
+              .id == "R")
+    // Boundary: a weekly window 30 minutes from resetting is quota about to be thrown away, so it
+    // is spent first (outside the 10-minute grace, so still a thin account, not a refilled one).
+    let expiring = acct("E", session: 100, sessionResets: nil, weekly: 2,
+                        weeklyResets: "2026-10-05T15:06:00Z")
+    check("last resort: a weekly reset 30 minutes out is burned before it expires",
+          capHandoffPick([late, early, expiring], primaryModel: "opus", reserves: .none,
+                         now: now)?.id == "E")
+    // Rule (3): every sibling has a window at 0, so the wait stands.
+    let empty = capTick([c4, c5, acct("Z", session: 0, sessionResets: "2026-10-05T16:00:00Z",
+                                      weekly: 40, weeklyResets: "2026-10-09T10:00:00Z")])
+    check("last resort: nothing but 0% windows left still waits",
+          empty.0 == nil && empty.1?.reason == CapAction.waitNoTarget.waitingNote)
+    // Only 5h-spent siblings left (above 0, under the line): wait for the 5h reset too.
+    check("last resort: only nearly-spent 5h windows left still waits",
+          capHandoffPick([c0, c3], primaryModel: "opus", reserves: .none, now: now) == nil)
 }

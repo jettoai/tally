@@ -54,13 +54,25 @@ extension CPUAlertLogic {
     /// everything when the pid was born inside it (`windowStart`, microseconds like `startedAt`).
     /// Reaped time is the growth of the pid's children counter less what its children that left
     /// during the window had already burned when it opened: their whole life lands in the counter
-    /// at once, and only the part inside the window is new work. A pid read at neither end, or born
-    /// before the window but unread at its start, counts nothing (the residual takes it).
+    /// at once, and only the part inside the window is new work. A child whose parent left too is
+    /// settled on the nearest ancestor still alive, the one whose counter took the whole chain. A pid
+    /// read at neither end, or born before the window but unread at its start, counts nothing (the
+    /// residual takes it).
     static func windowWork(first: [Int32: CPUAlertPidReading], second: [Int32: CPUAlertPidReading],
                            windowStart: Int64) -> [Int32: Double] {
         var departedByParent: [Int32: Double] = [:]
-        for (pid, before) in first where second[pid]?.startedAt != before.startedAt {
-            departedByParent[before.parent, default: 0] += before.own + before.children
+        func departed(_ pid: Int32) -> Bool {
+            guard let before = first[pid] else { return false }
+            return second[pid]?.startedAt != before.startedAt
+        }
+        for (pid, before) in first where departed(pid) {
+            // ponytail: assumes each parent reaped its child before leaving; a child orphaned to
+            // launchd first is still charged to the live ancestor, so that ancestor reads low.
+            var collector = before.parent
+            for _ in 0..<maxAncestors where departed(collector) {
+                collector = first[collector]?.parent ?? collector
+            }
+            departedByParent[collector, default: 0] += before.own + before.children
         }
         var out: [Int32: Double] = [:]
         for (pid, after) in second {
@@ -143,16 +155,34 @@ extension CPUAlertLogic {
         })
     }
 
-    /// The three names and what the rest adds up to, in whole percents that sum to `busy` rounded
-    /// (an `other` that rounding would push below zero reads zero, so the sum can run one over).
+    /// The three names and what the rest adds up to, in whole percents that sum to `busy` rounded:
+    /// each part takes its floor and the points left go to the largest fractions (largest
+    /// remainder), so no set of parts rounds past the title. Named shares come back whole.
     static func banner(_ groups: [CPUAlertCulprit], busy: Double) -> CPUAlertBanner {
         let all = ranked(groups)
-        let named = Array(all.filter { $0.percent >= minimumShare }.prefix(maxNames))
-        let otherProjects = Int(all.filter { culprit in
+        var named = Array(all.filter { $0.percent >= minimumShare }.prefix(maxNames))
+        let projects = all.filter { culprit in
             culprit.kind == .project && !named.contains(culprit)
-        }.reduce(0) { $0 + $1.percent }.rounded())
-        let shown = named.reduce(0) { $0 + Int($1.percent.rounded()) }
-        return CPUAlertBanner(named: named, otherProjects: otherProjects,
-                              other: max(0, Int(busy.rounded()) - shown - otherProjects))
+        }.reduce(0) { $0 + $1.percent }
+        let exact = named.map(\.percent) + [projects]
+        let parts = wholeParts(exact + [max(0, busy - exact.reduce(0, +))], total: Int(busy.rounded()))
+        for index in named.indices { named[index].percent = Double(parts[index]) }
+        return CPUAlertBanner(named: named, otherProjects: parts[named.count], other: parts[named.count + 1])
+    }
+
+    /// Whole numbers, one per share, that add up to `total`: floors first, then a point to each of
+    /// the largest fractions (taken back from the smallest when the shares overrun the total).
+    static func wholeParts(_ shares: [Double], total: Int) -> [Int] {
+        var parts = shares.map { Int($0.rounded(.down)) }
+        let fraction = shares.indices.map { shares[$0] - Double(parts[$0]) }
+        let byFraction = shares.indices.sorted { fraction[$0] == fraction[$1] ? $0 < $1 : fraction[$0] > fraction[$1] }
+        var left = total - parts.reduce(0, +)
+        for index in byFraction where left > 0 { parts[index] += 1; left -= 1 }
+        for index in byFraction.reversed() where left < 0 && parts[index] > 0 {
+            let take = min(parts[index], -left)
+            parts[index] -= take
+            left += take
+        }
+        return parts
     }
 }

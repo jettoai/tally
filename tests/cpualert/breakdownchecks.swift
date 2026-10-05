@@ -99,6 +99,24 @@ func runBreakdownChecks() {
         expect(w[14] == nil && w[11] == nil, "T20 an elder unread at the start and a departed pid count nothing")
     }
 
+    // T20b a chain reaped inside the window (A reaps B after B reaped C, C reaped D): the kernel folds
+    // every generation's whole life into A, so each departed pid's prior life is settled on its
+    // nearest live ancestor, not on a parent that left too.
+    do {
+        let first: [Int32: CPUAlertPidReading] = [
+            100: CPUAlertPidReading(parent: 1, startedAt: 100, own: 1, children: 0),
+            101: CPUAlertPidReading(parent: 100, startedAt: 200, own: 0, children: 0),
+            102: CPUAlertPidReading(parent: 101, startedAt: 300, own: 80, children: 0),
+            103: CPUAlertPidReading(parent: 102, startedAt: 400, own: 10, children: 0),
+        ]
+        func a(children: Double) -> Double {
+            let second: [Int32: CPUAlertPidReading] = [100: CPUAlertPidReading(parent: 1, startedAt: 100, own: 1, children: children)]
+            return L.windowWork(first: first, second: second, windowStart: 1000)[100] ?? -1
+        }
+        expect(abs(a(children: 90)) < 1e-9, "T20b no work inside the window: the reaped chain's prior life is not new")
+        expect(abs(a(children: 92.5) - 2.5) < 1e-9, "T20b only the chain's work inside the window counts")
+    }
+
     // T21 owner, rule by rule
     do {
         func own(_ list: [CPUAlertProcessWork], roots: Set<String> = bRoots) -> (CPUAlertKind, String) {
@@ -139,7 +157,25 @@ func runBreakdownChecks() {
     do {
         let banner = L.banner([CPUAlertCulprit(name: "a", percent: 33.5), CPUAlertCulprit(name: "b", percent: 33.5),
                                CPUAlertCulprit(name: "c", percent: 33.0)], busy: 100)
-        expect(banner.other == 0 && bannerSum(banner) <= 101, "T23 other clamps at zero")
+        expect(banner.other == 0 && bannerSum(banner) == 100, "T23 other clamps at zero, the sum is the title")
+        func parts(_ percents: [Double], project: Double, busy: Double) -> CPUAlertBanner {
+            L.banner(percents.enumerated().map { CPUAlertCulprit(name: "n\($0.offset)", percent: $0.element) }
+                     + [CPUAlertCulprit(name: "p", percent: project, kind: .project)], busy: busy)
+        }
+        let halves = parts([26.5, 24.5, 24.5], project: 24.5, busy: 100)
+        expect(bannerSum(halves) == 100 && halves.other == 0, "T23 four halves and other projects add up to the title")
+        let tenths = parts([24.6, 24.6, 24.6], project: 18.6, busy: 92.4)
+        expect(bannerSum(tenths) == 92, "T23 four .6 fractions add up to a fractional title")
+        let shares = halves.named.map(\.percent)
+        expect(shares == shares.sorted(by: >), "T23 the leader stays the largest share after rounding")
+        for busy in stride(from: 90.0, through: 100.0, by: 0.1) {
+            for a in stride(from: 5.0, through: 40.0, by: 0.7) {
+                let b = parts([a, a * 0.8, a * 0.6], project: a * 0.5, busy: busy)
+                if bannerSum(b) != Int(busy.rounded()) {
+                    expect(false, "T23 sweep: busy \(busy) lead \(a) sums to \(bannerSum(b))")
+                }
+            }
+        }
     }
 
     // T24 one group: nothing else to print

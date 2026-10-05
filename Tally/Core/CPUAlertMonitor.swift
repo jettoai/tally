@@ -64,50 +64,62 @@ final class CPUAlertMonitor {
         case .handover: true
         case .clear: false
         }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         Task {
-            // THE EXPENSIVE READING HAPPENS ONLY HERE: a banner is going out and the rollup cannot
-            // explain most of the load.
-            var others: [CPUAlertCulprit] = []
-            if announce, CPUAlertLogic.needsProcessScan(projects, busy: busy) {
-                others = await Task.detached(priority: .utility) {
-                    await CPUAlertReaders.unattributed(roots: roots, cores: cores)
-                }.value
+            // THE EXPENSIVE READING HAPPENS ONLY HERE: a banner is going out, and it accounts for
+            // the whole machine so its names and its "other" add up to the figure in its title.
+            // An unreadable scan falls back to the rollup's projects; "other" still fills the gap.
+            var groups = projects
+            if announce, let scan = await Task.detached(priority: .utility, operation: {
+                await CPUAlertReaders.scan()
+            }).value {
+                let found = CPUAlertLogic.breakdown(
+                    scan, busy: busy, roots: roots, home: home,
+                    isCheckout: { FileManager.default.fileExists(atPath: $0 + "/.git") },
+                    displayName: { ProcessTree.displayName(forPath: $0) })
+                if !found.isEmpty { groups = found }
             }
-            let named = CPUAlertLogic.named(projects: projects, others: others)
-            let line = CPUAlertLogic.logLine(event, busy: busy, cores: cores, culprits: named, now: now)
+            let banner = CPUAlertLogic.banner(groups, busy: busy)
+            let line = CPUAlertLogic.logLine(event, busy: busy, cores: cores, culprits: banner.named,
+                                             rest: (banner.otherProjects, banner.other), now: now)
             // A file of its own, so two detached appends never race on host-health.log.
             await Task.detached(priority: .utility) {
                 HostHealthMonitor.append(line, to: cpuAlertLogFile)
             }.value
             guard announce else { return }
             post(event, busy: busy, held: CPUAlertLogic.heldSeconds(since: alarmSince, now: now),
-                 culprits: named)
+                 banner: banner)
         }
     }
 
     /// The category carries no button, so the set registered at launch
     /// (`NotificationRouter.refreshCategories`) is all the routing needs.
-    private func post(_ event: CPUAlertEvent, busy: Double, held: Int, culprits: [CPUAlertCulprit]) {
-        let shares = CPUAlertLogic.namedShares(culprits)
-        // Empty reads as the existing "unknown" banner (still the "mostly" wording): every other
-        // outcome is `share`d or not, never mixed, by `namedShares`' own leader test.
-        let names: String
-        let hasShares: Bool
-        if shares.isEmpty {
-            names = L("unknown")
-            hasShares = true
-        } else if shares[0].share != nil {
-            names = shares.map {
-                String(format: L("%1$@ (%2$@%% of the machine)"), $0.name, String($0.share!))
-            }.joined(separator: L(", "))
-            hasShares = true
-        } else {
-            names = shares.map(\.name).joined(separator: L(", "))
-            hasShares = false
+    private func post(_ event: CPUAlertEvent, busy: Double, held: Int, banner: CPUAlertBanner) {
+        let (shares, leading) = CPUAlertLogic.namedShares(banner.named)
+        func display(_ entry: (culprit: CPUAlertCulprit, name: String, share: Int)) -> String {
+            switch entry.culprit.kind {
+            case .system: L("System")
+            case .tally: L("Tally itself")
+            default: entry.name
+            }
         }
+        var parts = shares.map {
+            String(format: L("%1$@ (%2$@%% of the machine)"), display($0), String($0.share))
+        }
+        if banner.otherProjects > 0 {
+            parts.append(String(format: L("other projects (%@%% of the machine)"), String(banner.otherProjects)))
+        }
+        if banner.other > 0 {
+            parts.append(String(format: L("other (%@%% of the machine)"), String(banner.other)))
+        }
+        // Every part carries its percent, so the banner adds up to its title; only the opening
+        // wording ("mostly" or "no single cause") follows `namedShares`' leader test. Nothing at all
+        // reads as the existing "unknown" banner.
+        let names = parts.isEmpty ? L("unknown") : parts.joined(separator: L(", "))
+        let hasShares = parts.isEmpty || leading
         let percent = String(Int(busy.rounded()))
         // The first name rides in the title too: macOS summarises stacked banners from titles.
-        let first = shares.first?.name
+        let first = shares.first.map(display)
         let title: String
         let body: String
         if event == .handover {

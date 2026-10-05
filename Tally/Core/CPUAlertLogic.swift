@@ -9,8 +9,9 @@ import Foundation
 // it? The answer comes from the per-project rollup the session board already keeps
 // (`MachineLoadRollup`), so it names a checkout rather than `node`. A process outside every
 // session root is filed under the checkout its working directory is in (`processName`) and summed
-// with that project by name (`named`), so a checkout's jobs started from a terminal are one cause
-// rather than one entry per interpreter.
+// with that project by name, so a checkout's jobs started from a terminal are one cause rather
+// than one entry per interpreter. The banner's names come from the whole-machine breakdown in
+// CPUAlertBreakdown.swift, which also sums what it does not name, so the banner adds up to its title.
 //
 // PURE, on the split this repository makes everywhere it takes a reading: the syscalls are in
 // CPUAlertReaders.swift and the banner and the log are in CPUAlertMonitor.swift.
@@ -27,6 +28,7 @@ struct CPUTicks: Equatable, Sendable {
 struct CPUAlertCulprit: Equatable, Sendable {
     var name: String
     var percent: Double
+    var kind: CPUAlertKind = .project
 }
 
 /// One project as the rollup reads it, reduced to what this file needs. A plain value rather than
@@ -93,9 +95,6 @@ enum CPUAlertLogic {
     static let minimumShare = 5.0
     /// A project must hold this share to be the leader a handover is decided on.
     static let leaderShare = 10.0
-    /// The projects must explain at least this fraction of the busy figure, or the process table is
-    /// scanned for the rest.
-    static let explainedFraction = 0.6
     static let maxNames = 3
 
     /// The Settings switch (`SettingsStore.cpuAlertEnabled` writes it). Read here as well so the
@@ -116,7 +115,7 @@ enum CPUAlertLogic {
         return busy / total * 100
     }
 
-    private static func ranked(_ culprits: [CPUAlertCulprit]) -> [CPUAlertCulprit] {
+    static func ranked(_ culprits: [CPUAlertCulprit]) -> [CPUAlertCulprit] {
         culprits.sorted { $0.percent == $1.percent ? $0.name < $1.name : $0.percent > $1.percent }
     }
 
@@ -135,11 +134,6 @@ enum CPUAlertLogic {
         culprits.first.flatMap { $0.percent >= leaderShare ? $0.name : nil }
     }
 
-    /// Whether the projects leave too much of the busy figure unexplained.
-    static func needsProcessScan(_ culprits: [CPUAlertCulprit], busy: Double) -> Bool {
-        culprits.reduce(0) { $0 + $1.percent } < busy * explainedFraction
-    }
-
     /// The name an unattributed process is filed under: the checkout its working directory is in
     /// (the nearest directory at or above it holding `.git`, named by its last component the way
     /// the rollup names a root), or `executable` when there is none or the directory could not be
@@ -153,14 +147,6 @@ enum CPUAlertLogic {
             dir = (dir as NSString).deletingLastPathComponent
         }
         return executable
-    }
-
-    /// Projects and unattributed processes merged into what the banner names: one entry per name,
-    /// shares summed, so a project's session work and its processes outside the session tree add up.
-    static func named(projects: [CPUAlertCulprit], others: [CPUAlertCulprit]) -> [CPUAlertCulprit] {
-        let summed = Dictionary((projects + others).map { ($0.name, $0.percent) }, uniquingKeysWith: +)
-        return Array(ranked(summed.map { CPUAlertCulprit(name: $0.key, percent: $0.value) }
-            .filter { $0.percent >= minimumShare }).prefix(maxNames))
     }
 
     private static func hostRecent(_ alarmed: Bool, _ at: Date?, now: Date) -> Bool {
@@ -273,25 +259,29 @@ enum CPUAlertLogic {
     }
 
     /// The banner's names, largest first, cleaned the way `phrase` is (control characters stripped,
-    /// an emptied name left out) and paired with the single-cause test: `share` carries every
-    /// name's own rounded percent when the leading culprit clears `leaderShare` AND outweighs the
-    /// other names combined, or every share reads nil otherwise, which the caller reads as "no
-    /// single cause" rather than pointing at a project a reader would ask "why does 9% count" about,
-    /// or calling one of three projects at 30% each the cause.
-    static func namedShares(_ culprits: [CPUAlertCulprit]) -> [(name: String, share: Int?)] {
+    /// an emptied name left out), each with its own rounded percent and the culprit it came from,
+    /// plus the single-cause test: `leading` when the first culprit clears `leaderShare` AND
+    /// outweighs the other names combined. Otherwise the caller says "no single cause" rather than
+    /// calling one of three projects at 30% each the cause; the percents print either way, so the
+    /// banner always adds up.
+    static func namedShares(_ culprits: [CPUAlertCulprit])
+        -> (names: [(culprit: CPUAlertCulprit, name: String, share: Int)], leading: Bool) {
         let rest = culprits.dropFirst().reduce(0) { $0 + $1.percent }
         let leading = culprits.first.map { $0.percent >= leaderShare && $0.percent > rest } ?? false
-        return culprits.compactMap { culprit -> (name: String, share: Int?)? in
+        let names = culprits.compactMap { culprit -> (culprit: CPUAlertCulprit, name: String, share: Int)? in
             let name = keystrokeStripped(culprit.name)
             guard !name.isEmpty else { return nil }
-            return (name, leading ? Int(culprit.percent.rounded()) : nil)
+            return (culprit, name, Int(culprit.percent.rounded()))
         }
+        return (names, leading)
     }
 
     /// One line for `~/.tally/logs/cpu-alert.log`: ISO instant, fixed `key=value` fields, the names
-    /// last. Names only, never arguments.
+    /// last, then what the banner summed outside them (`rest=`, zero parts left out). Names only,
+    /// never arguments.
     static func logLine(_ event: CPUAlertEvent, busy: Double, cores: Int,
-                        culprits: [CPUAlertCulprit], now: Date) -> String {
+                        culprits: [CPUAlertCulprit], rest: (projects: Int, other: Int) = (0, 0),
+                        now: Date) -> String {
         let (kind, extra): (String, String) = switch event {
         case .alarm(let silence):
             ("alarm", silence.map { " announced=no reason=\($0.rawValue)" } ?? " announced=yes")
@@ -301,9 +291,12 @@ enum CPUAlertLogic {
         let names = culprits.map {
             "\(keystrokeStripped($0.name)):\(Int($0.percent.rounded()))"
         }.joined(separator: ",")
+        let restParts = [("projects", rest.projects), ("other", rest.other)]
+            .filter { $0.1 > 0 }.map { "\($0.0):\($0.1)" }.joined(separator: ",")
         return "\(ISO8601DateFormatter().string(from: now)) cpu-alert=\(kind) "
             + "cpu=\(Int(busy.rounded())) cores=\(cores)\(extra)"
-            + (names.isEmpty ? "\n" : " top=\(names)\n")
+            + (names.isEmpty ? "" : " top=\(names)")
+            + (restParts.isEmpty ? "" : " rest=\(restParts)") + "\n"
     }
 }
 

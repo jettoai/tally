@@ -223,23 +223,6 @@ do {
            "T10 zero cores is empty")
 }
 
-// T11 named
-do {
-    let n = L.named(projects: [CPUAlertCulprit(name: "bigdata", percent: 20),
-                               CPUAlertCulprit(name: "tally", percent: 8)],
-                    others: [CPUAlertCulprit(name: "prl_vm_app", percent: 50),
-                             CPUAlertCulprit(name: "node", percent: 6),
-                             CPUAlertCulprit(name: "noise", percent: 3)])
-    expect(n.map(\.name) == ["prl_vm_app", "bigdata", "tally"], "T11 merged, ranked, others under 5 dropped, at most three")
-}
-
-// T12 needsProcessScan
-do {
-    expect(!L.needsProcessScan([CPUAlertCulprit(name: "a", percent: 61), CPUAlertCulprit(name: "b", percent: 12)], busy: 94),
-           "T12 73 of 94 explained needs no scan")
-    expect(L.needsProcessScan([CPUAlertCulprit(name: "a", percent: 3)], busy: 92), "T12 3 of 92 needs a scan")
-}
-
 // T13 phrase
 do {
     let p = L.phrase([CPUAlertCulprit(name: "bigdata", percent: 61.4),
@@ -273,22 +256,25 @@ do {
     expect(L.heldSeconds(since: nil, now: t0) == 30, "T15 unknown start reads 30")
 }
 
-// T16 namedShares: a leader names every culprit with its own share; nobody past leaderShare names
-// the field with no percentages at all (the real crossing this fixed: cpu=97 top=geo:9,finance:8,
-// com.apple.Virtualization.VirtualMachine:7 used to read "mostly geo 9%, finance 8%, ..." and a
-// 9% share is not a reason).
+// T16' namedShares: every name carries its own share either way; `leading` says whether the
+// banner opens with "mostly" (the real crossing: cpu=97 top=geo:9,finance:8,VM:7 must not read
+// "mostly geo"), and an emptied name drops out without shifting the culprits it pairs with.
 do {
     let leading = L.namedShares([CPUAlertCulprit(name: "bigdata", percent: 61.4),
                                  CPUAlertCulprit(name: "tally", percent: 11.6)])
-    expect(leading.map(\.name) == ["bigdata", "tally"] && leading.map(\.share) == [61, 12],
-           "T16 a leading share names every culprit with its own percent")
+    expect(leading.names.map(\.name) == ["bigdata", "tally"] && leading.names.map(\.share) == [61, 12]
+           && leading.leading, "T16 a leading share names every culprit with its own percent")
 
     let none = L.namedShares([CPUAlertCulprit(name: "geo", percent: 9),
                               CPUAlertCulprit(name: "finance", percent: 8),
                               CPUAlertCulprit(name: "com.apple.Virtualization.VirtualMachine", percent: 7)])
-    expect(none.map(\.name) == ["geo", "finance", "com.apple.Virtualization.VirtualMachine"]
-           && none.allSatisfy { $0.share == nil },
-           "T16 nobody past leaderShare names the field with no percentages")
+    expect(none.names.map(\.share) == [9, 8, 7] && !none.leading,
+           "T16 nobody past leaderShare is no single cause, percents still printed")
+
+    let emptied = L.namedShares([CPUAlertCulprit(name: "\u{1B}", percent: 50),
+                                 CPUAlertCulprit(name: "geo", percent: 30, kind: .project)])
+    expect(emptied.names.count == 1 && emptied.names[0].culprit.name == "geo" && emptied.names[0].share == 30,
+           "T16 an emptied name drops out and the rest stay paired with their culprits")
 }
 
 // T17 attribution by checkout (the real crossing: 2026-09-28 07:05 cpu=98 top=python3.13:10,
@@ -303,31 +289,14 @@ do {
     }
     expect(name(finance, "python3.13") == "finance" && name(finance + "/engine/jobs", "python3.13") == "finance",
            "T17 a process working in a checkout, or below it, is filed under the checkout")
-    let projects = L.projectCulprits([CPUAlertProjectInput(name: "finance", oneCorePercent: 80)], cores: 16)
-    let n = L.named(projects: projects,
-                    others: [CPUAlertCulprit(name: name(finance, "python3.13"), percent: 10),
-                             CPUAlertCulprit(name: name(finance + "/engine", "python3.13"), percent: 10)])
-    let shares = L.namedShares(n)
-    expect(n.map(\.name) == ["finance"] && n.first?.percent == 25,
-           "T17 the session's share and its checkout's processes add up to one name")
-    expect(shares.first?.name == "finance" && shares.first?.share == 25,
-           "T17 the replayed crossing reads mostly finance")
-
-    let spread = L.named(projects: [CPUAlertCulprit(name: "geo", percent: 30)],
-                         others: [CPUAlertCulprit(name: name("/Users/a/workspace/voice", "node"), percent: 30),
-                                  CPUAlertCulprit(name: name(finance, "python3.13"), percent: 30)])
-    let spreadShares = L.namedShares(spread)
-    expect(spreadShares.map(\.name) == ["finance", "geo", "voice"] && spreadShares.allSatisfy { $0.share == nil },
-           "T17 three projects at 30% each is no single cause, named by project")
-
     expect(name(nil, "python3.13") == "python3.13", "T17 an unreadable working directory falls back to the executable")
     expect(name("/tmp/scratch", "node") == "node" && name("/", "launchd") == "launchd",
            "T17 a directory in no checkout falls back to the executable")
     expect(name(home + "/Downloads", "ffmpeg") == "ffmpeg", "T17 a home directory under version control is not a checkout")
-    let kept = L.named(projects: [], others: [CPUAlertCulprit(name: name(nil, "python3.13"), percent: 12)])
-    expect(kept.map(\.name) == ["python3.13"] && kept.first?.percent == 12,
-           "T17 the fallback keeps its share of the machine")
 }
+
+// T18 to T25, the whole-machine breakdown (CPUAlertBreakdown.swift): breakdownchecks.swift
+runBreakdownChecks()
 
 // MARK: - structural promises, read as text
 
@@ -363,15 +332,18 @@ func blockEnd(_ text: String, from: String.Index) -> String.Index? {
     return nil
 }
 do {
-    let calls = monitor.components(separatedBy: "CPUAlertReaders.unattributed(").count - 1
-    expect(calls == 1, "S3 the process scan has exactly one caller")
-    if let branch = monitor.range(of: "if announce, CPUAlertLogic.needsProcessScan(projects, busy: busy) {"),
-       let call = monitor.range(of: "CPUAlertReaders.unattributed("),
-       let close = blockEnd(monitor, from: branch.upperBound) {
+    let calls = monitor.components(separatedBy: "CPUAlertReaders.scan(").count - 1
+    expect(calls == 1, "S3 the machine scan has exactly one caller")
+    expect(!monitor.contains("unattributed(") && !readers.contains("unattributed("),
+           "S3 the partial scan is gone")
+    if let branch = monitor.range(of: "if announce, let scan = await Task.detached"),
+       let body = monitor.range(of: "}).value {", range: branch.upperBound..<monitor.endIndex),
+       let call = monitor.range(of: "CPUAlertReaders.scan("),
+       let close = blockEnd(monitor, from: body.upperBound) {
         expect(call.lowerBound > branch.upperBound && call.lowerBound < close,
-               "S3 the process scan sits inside the announcing branch")
+               "S3 the machine scan sits inside the announcing branch")
     } else {
-        expect(false, "S3 the process scan sits inside the announcing branch")
+        expect(false, "S3 the machine scan sits inside the announcing branch")
     }
 }
 
@@ -390,7 +362,8 @@ do {
                 "CPU %1$@%% for %2$@ seconds · mostly %3$@", "CPU %1$@%% · now mostly %2$@",
                 "CPU %1$@%% for %2$@ seconds · no single cause: %3$@",
                 "CPU %1$@%% · no single cause: %2$@", "%1$@ (%2$@%% of the machine)", ", ",
-                "CPU alert", "Notify when CPU stays above 90% for 30 seconds, naming the project behind it."]
+                "CPU alert", "Notify when CPU stays above 90% for 30 seconds, naming the project behind it.",
+                "System", "Tally itself", "other projects (%@%% of the machine)", "other (%@%% of the machine)"]
     for key in keys {
         let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
         let ok = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
@@ -409,6 +382,20 @@ do {
         }
         expect(ok, "S5 \"\(key)\" keeps every placeholder and the percent sign")
     }
+    for key in keys where key.contains("(%@%%") {
+        let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
+        let ok = !locs.isEmpty && locs.values.allSatisfy { loc in
+            let value = ((loc as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
+            return value.components(separatedBy: "%@").count == 2 && value.contains("%%")
+        }
+        expect(ok, "S5 \"\(key)\" keeps its placeholder and the percent sign")
+    }
+}
+
+// S6 the banner prints the rest, and names Tally's and the OS's work in words
+for key in ["L(\"other (%@%% of the machine)\")", "L(\"other projects (%@%% of the machine)\")",
+            "L(\"Tally itself\")", "L(\"System\")"] {
+    expect(monitor.contains(key), "S6 the monitor prints \(key)")
 }
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")

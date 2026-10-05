@@ -4,8 +4,8 @@ import Foundation
 /// WHAT THE CPU WATCH ASKS THE MACHINE (CPUAlertLogic.swift holds the rules).
 ///
 /// THE ORDINARY SAMPLE IS ONE SYSCALL: `host_statistics(HOST_CPU_LOAD_INFO)`, cumulative ticks
-/// across every core, which walks nothing. The process table is walked only by `unattributed`, and
-/// only at the instant a banner is about to go out and the rollup cannot explain the load.
+/// across every core, which walks nothing. The process table is walked only by `busiest` (the load
+/// alarm) and `scan` (a CPU banner going out).
 enum CPUAlertReaders {
 
     static func ticks() -> CPUTicks? {
@@ -23,30 +23,44 @@ enum CPUAlertReaders {
         return CPUTicks(user: UInt64(t.0), system: UInt64(t.1), idle: UInt64(t.2), nice: UInt64(t.3))
     }
 
-    /// The busiest processes whose working directory is in none of `roots`, as shares of the whole
-    /// machine, over a two-second window. Own CPU only (not `childTimes`), so a parent is not
-    /// charged for children it reaped.
+    /// The whole machine over one window, for the breakdown (`CPUAlertLogic.breakdown`). Read only
+    /// when a banner is going out. The process table is listed at both ends so a pid born inside
+    /// the window is seen, and the host ticks bracket the same window so the busy figure and the
+    /// processes are one measurement. Nil when the ticks cannot say.
     ///
-    /// NAMES, NEVER ARGUMENTS: the checkout the working directory is in, else the executable's
-    /// display name, the rule `HostHealthProcess` states (`CPUAlertLogic.processName`). A process
-    /// whose program cannot be read is named "unknown" rather than guessed at. One entry per
-    /// process; `CPUAlertLogic.named` sums entries that share a name.
-    static func unattributed(roots: Set<String>, cores: Int) async -> [CPUAlertCulprit] {
-        guard cores > 0 else { return [] }
-        let ranked = await busiest().prefix(5)
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        var out: [CPUAlertCulprit] = []
-        for (pid, percent) in ranked {
-            let dir = MachineLoadRollup.workingDirectory(of: pid)
-            if let dir, MachineLoadRollup.project(of: dir, roots: roots) != nil { continue }
-            let executable = ProcessTree.executablePath(of: pid)
-                .flatMap { ProcessTree.displayName(forPath: $0) } ?? "unknown"
-            let name = CPUAlertLogic.processName(cwd: dir, executable: executable, home: home) {
-                FileManager.default.fileExists(atPath: $0 + "/.git")
+    /// NAMES, NEVER ARGUMENTS: working directories and executable paths, the rule
+    /// `HostHealthProcess` states. The path is read only for pids that worked.
+    static func scan(seconds: Double = 2) async -> CPUAlertScan? {
+        let firstList = ProcessTree.liveProcesses()
+        guard let ticksA = ticks() else { return nil }
+        let a = ProcessTree.resourceSample(of: firstList.map(\.pid))
+        let windowStart = Int64(a.at.timeIntervalSince1970 * 1_000_000)
+        try? await Task.sleep(for: .seconds(seconds))
+        let secondList = ProcessTree.liveProcesses()
+        guard let ticksB = ticks(),
+              let busyShare = CPUAlertLogic.busyPercent(from: ticksA, to: ticksB) else { return nil }
+        let b = ProcessTree.resourceSample(of: secondList.map(\.pid))
+        let elapsed = b.at.timeIntervalSince(a.at)
+        guard elapsed > 0 else { return nil }
+        func readings(_ list: [ProcessIdentity], _ s: ProcessResourceSample) -> [Int32: CPUAlertPidReading] {
+            var out: [Int32: CPUAlertPidReading] = [:]
+            for p in list {
+                guard let own = s.times[p.pid] else { continue }
+                out[p.pid] = CPUAlertPidReading(parent: p.parent, startedAt: p.startedAt, own: own,
+                                                children: s.childTimes[p.pid] ?? 0)
             }
-            out.append(CPUAlertCulprit(name: name, percent: percent / Double(cores)))
+            return out
         }
-        return out
+        let work = CPUAlertLogic.windowWork(first: readings(firstList, a), second: readings(secondList, b),
+                                            windowStart: windowStart)
+        let cores = Double(ProcessInfo.processInfo.activeProcessorCount)
+        let processes = secondList.map { p -> CPUAlertProcessWork in
+            let seconds = work[p.pid] ?? 0
+            return CPUAlertProcessWork(pid: p.pid, parent: p.parent, seconds: seconds,
+                                       cwd: MachineLoadRollup.workingDirectory(of: p.pid),
+                                       executablePath: seconds > 0 ? ProcessTree.executablePath(of: p.pid) : nil)
+        }
+        return CPUAlertScan(processes: processes, busySeconds: busyShare / 100 * elapsed * cores)
     }
 
     /// Every readable process's own CPU over a two-second window, in share of ONE core (Activity

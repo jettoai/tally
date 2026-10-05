@@ -253,13 +253,13 @@ private struct TallyTooltipTarget: ViewModifier {
         if isShown || (forced && !payload.isEmpty) {
             GeometryReader { proxy in
                 let own = proxy.frame(in: .named(TallyTooltip.space))
+                let row = hugsRow ? rowFrame : nil
                 Color.clear.preference(
                     key: TallyTooltipKey.self,
                     value: TallyTooltipItem(content: payload,
-                                            anchor: TooltipPlacement.rowAnchor(target: own, row: hugsRow ? rowFrame : nil,
-                                                                                gap: TallyTooltip.gap),
+                                            anchor: TooltipPlacement.rowAnchor(target: own, row: row, gap: TallyTooltip.gap),
                                             seams: hugsRow ? seams : [],
-                                            stretchLimit: hugsRow ? rowFrame?.height ?? 0 : 0))
+                                            stretchLimit: row?.height ?? 0))
             }
         }
     }

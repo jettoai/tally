@@ -118,6 +118,22 @@ check("a row thinner than two gaps collapses to its middle line rather than inve
 check("no row published leaves the target as it was",
       TooltipPlacement.rowAnchor(target: figure, row: nil, gap: gap) == figure)
 
+// The far edge reaches the nearest seam (B-907): a chip whose top lands inside the column
+// headings stretches its background up to the headings' top edge, not through them.
+let up = CGRect(x: 200, y: 340, width: 50, height: 20)          // anchor: chip opens above it
+let seams: [CGFloat] = [250, 270, 300, 334]                     // headings 250..270, a row 300..334
+check("opening up, the top edge stretches to the nearest seam above it",
+      TooltipPlacement.farEdgeStretch(top: 262, height: 72, anchor: up, seams: seams, limit: 34) == (12, 0))
+check("…not at all when the top already sits on a seam",
+      TooltipPlacement.farEdgeStretch(top: 270, height: 64, anchor: up, seams: seams, limit: 34) == (0, 0))
+check("…not at all when no seam was published",
+      TooltipPlacement.farEdgeStretch(top: 262, height: 72, anchor: up, seams: [], limit: 34) == (0, 0))
+check("…and not at all when the nearest seam is more than a row away",
+      TooltipPlacement.farEdgeStretch(top: 240, height: 94, anchor: up, seams: [200], limit: 34) == (0, 0))
+let down = CGRect(x: 200, y: 20, width: 50, height: 20)         // chip flipped below it
+check("flipped below, the bottom edge stretches down to the nearest seam below it",
+      TooltipPlacement.farEdgeStretch(top: 46, height: 60, anchor: down, seams: [40, 110, 140], limit: 34) == (0, 4))
+
 print(failures == 0 ? "\nAll tooltip placement assertions passed."
                     : "\n\(failures) assertion(s) failed.")
 exit(failures == 0 ? 0 : 1)

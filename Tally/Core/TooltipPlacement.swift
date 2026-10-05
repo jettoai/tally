@@ -45,4 +45,20 @@ enum TooltipPlacement {
         let inset = min(gap, row.height / 2)
         return CGRect(x: target.minX, y: row.minY + inset, width: target.width, height: row.height - 2 * inset)
     }
+
+    /// How far the chip's background reaches past its FAR edge (the top when it opens above the
+    /// anchor, the bottom when it flips below) so that edge lands on the nearest seam instead of
+    /// through a line of text: the near edge already sits on the row's seam (`rowAnchor`), but the
+    /// far edge falls wherever the chip's own height puts it, which in the compute pool table was the
+    /// column headings or the layout switch above them (B-907). Only the background grows; the
+    /// content and the near edge stay put. No seam on that side within `limit` (one row): no stretch,
+    /// since a longer reach would cover more of the table than the line it was meant to spare.
+    static func farEdgeStretch(top: CGFloat, height: CGFloat, anchor: CGRect, seams: [CGFloat],
+                               limit: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
+        let opensUp = top + height <= anchor.minY + 0.5
+        let far = opensUp ? top : top + height
+        let reach = seams.map { opensUp ? far - $0 : $0 - far }.filter { $0 >= 0 }.min() ?? 0
+        let stretch = reach <= limit ? reach : 0
+        return opensUp ? (stretch, 0) : (0, stretch)
+    }
 }

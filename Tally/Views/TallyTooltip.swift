@@ -95,71 +95,14 @@ enum TallyTooltip {
     }
 }
 
-/// One line of a structured callout: a label on the left, its value on the right, and the severity
-/// the value is tinted by (nil = no verdict, rendered in the callout's own quiet colour).
-///
-/// A row rather than a sentence because the values are numbers that want a column: three lines of
-/// "Weekly pool 42% left" read as prose that has to be parsed one line at a time, where a column of
-/// right-aligned figures is read at a glance. That is the whole reason this type exists.
-struct TallyTooltipRow: Equatable {
-    let label: String
-    let value: String
-    let severity: MetricSeverity?
-    /// A label that loses its end rather than its middle when too wide (a process name reads from
-    /// its start; an account or path keeps both ends).
-    let tailTruncated: Bool
-
-    init(_ label: String, _ value: String, severity: MetricSeverity? = nil, tailTruncated: Bool = false) {
-        self.label = label
-        self.value = value
-        self.severity = severity
-        self.tailTruncated = tailTruncated
-    }
-}
-
-/// A titled group of rows: one subject per block, so a two-provider fleet reads as two small tables
-/// rather than one list the reader has to re-sort in their head.
-struct TallyTooltipBlock: Equatable {
-    let title: String
-    let rows: [TallyTooltipRow]
-}
-
-/// What a callout carries. Plain text stays the default and the common case (most call sites are
-/// one short sentence); a second line is for the hovers that answer with a subject and something
-/// qualifying it, and blocks are for the few that answer with figures.
-enum TallyTooltipContent: Equatable {
-    /// The first line is the subject, in the callout's primary ink; any after it are quieter. Empty
-    /// lines are dropped by the modifier that builds this, so a missing qualifier never renders as
-    /// a blank row under the subject.
-    case lines([String])
-    case blocks([TallyTooltipBlock])
-
-    var isEmpty: Bool {
-        switch self {
-        case .lines(let lines): return lines.allSatisfy(\.isEmpty)
-        case .blocks(let blocks): return blocks.allSatisfy { $0.rows.isEmpty && $0.title.isEmpty }
-        }
-    }
-
-    /// The same content as one string, for the accessibility hint: VoiceOver reads what the pointer
-    /// would have been shown, and there is one source for both so they cannot drift.
-    var spoken: String {
-        switch self {
-        case .lines(let lines):
-            return lines.filter { !$0.isEmpty }.joined(separator: ", ")
-        case .blocks(let blocks):
-            return blocks.map { block in
-                ([block.title] + block.rows.map { "\($0.label) \($0.value)" })
-                    .filter { !$0.isEmpty }.joined(separator: ", ")
-            }.joined(separator: ". ")
-        }
-    }
-}
-
 /// A live tooltip request: what to say and where its target is, in the surface's coordinate space.
 private struct TallyTooltipItem: Equatable {
     let content: TallyTooltipContent
     let anchor: CGRect
+    /// Where the chip's far edge may stop, and how far it may reach for one
+    /// (`TooltipPlacement.farEdgeStretch`). Empty for every callout that does not hug a row.
+    var seams: [CGFloat] = []
+    var stretchLimit: CGFloat = 0
 }
 
 /// One request at a time travels up: the hovered target publishes, everything else publishes nothing.
@@ -264,6 +207,7 @@ private struct TallyTooltipTarget: ViewModifier {
 
     @Environment(\.hasTallyTooltipLayer) private var hosted
     @Environment(\.tallyTooltipRowFrame) private var rowFrame
+    @Environment(\.tallyTooltipSeams) private var seams
     @State private var isHovering = false
     @State private var isShown = false
 
@@ -313,7 +257,9 @@ private struct TallyTooltipTarget: ViewModifier {
                     key: TallyTooltipKey.self,
                     value: TallyTooltipItem(content: payload,
                                             anchor: TooltipPlacement.rowAnchor(target: own, row: hugsRow ? rowFrame : nil,
-                                                                                gap: TallyTooltip.gap)))
+                                                                                gap: TallyTooltip.gap),
+                                            seams: hugsRow ? seams : [],
+                                            stretchLimit: hugsRow ? rowFrame?.height ?? 0 : 0))
             }
         }
     }
@@ -380,8 +326,19 @@ private struct TallyTooltipCallout: View {
         content
             .padding(.horizontal, Self.insetH)
             .padding(.vertical, 4)
-            .background(shape.fill(surface))
-            .overlay(shape.strokeBorder(rim, lineWidth: TallyMetrics.hairline))
+            .background(GeometryReader { proxy in
+                // The far edge's stretch to the nearest seam: background only, so the content and
+                // the near edge stay exactly where `originY` put them.
+                let stretch = TooltipPlacement.farEdgeStretch(top: originY(height: proxy.size.height),
+                                                              height: proxy.size.height, anchor: item.anchor,
+                                                              seams: item.seams, limit: item.stretchLimit)
+                ZStack {
+                    shape.fill(surface)
+                    shape.strokeBorder(rim, lineWidth: TallyMetrics.hairline)
+                }
+                .padding(.top, -stretch.top)
+                .padding(.bottom, -stretch.bottom)
+            })
             .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.22), radius: 7, x: 0, y: 2)
             .fixedSize()
             .alignmentGuide(.leading) { dimensions in -originX(width: dimensions.width) }

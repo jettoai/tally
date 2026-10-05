@@ -403,7 +403,7 @@ final class OrphanReclaimStore {
         // process's own entry may predate another's newer message.
         var disk = OrphanReclaim.NoticeMemory.load(home: machine.home)
         let key = String(reading.tree.root)
-        said.merge(disk.said) { max($0, $1) }
+        said.merge(disk.said, uniquingKeysWith: max)
         if let shared = disk.told[key] { told[reading.tree.root] = shared }
         guard OrphanReclaim.worthSaying(told[reading.tree.root],
                                         rootStartedAt: reading.tree.rootStartedAt,
@@ -417,13 +417,13 @@ final class OrphanReclaimStore {
         // it by design. The next round's answer about that second tree was then refused by its own
         // memory, and it was never announced at all: a tree this app had plenty to say about, held
         // quiet by a message that was about something else.
-        told[reading.tree.root] = OrphanReclaim.Told(rootStartedAt: reading.tree.rootStartedAt,
-                                                     doubts: doubts)
+        let record = OrphanReclaim.Told(rootStartedAt: reading.tree.rootStartedAt, doubts: doubts)
+        told[reading.tree.root] = record
         said[fingerprint] = now
         // ponytail: `told` on disk is keyed by pid and only replaced, never pruned, so it is bounded
         // by the pids that ever held a reported tree; prune against the table if it ever grows.
         disk.said = said.filter { now.timeIntervalSince($0.value) < OrphanReclaim.noticeInterval }
-        disk.told[key] = told[reading.tree.root]
+        disk.told[key] = record
         disk.save(home: machine.home)
         announce(OrphanNotice.Report(
             project: reading.tree.project, program: reading.name ?? "?", pid: reading.tree.root,

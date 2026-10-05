@@ -115,6 +115,7 @@ final class FakeMachine {
 @MainActor
 func runOrphanStoreChecks() {
     runOrphanRecordExpiryChecks()
+    runOrphanMemoryChecks()
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let repo = "/Users/x/workspace/bigdata"
     let web = repo + "/web"

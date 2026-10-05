@@ -208,7 +208,7 @@ enum OrphanReclaim {
     /// orphan at all - somebody is at it, or in it - and the right response is silence: a message
     /// about the terminal the reader is typing in is noise that teaches them to ignore the channel.
     /// A soft veto says this app cannot tell, which is exactly what tier C is for.
-    enum Veto: String, CaseIterable, Comparable {
+    enum Veto: String, CaseIterable, Comparable, Codable {
         /// Something in the tree has a controlling terminal: a person is sitting in front of it.
         case terminal
         /// An ancestor is a terminal multiplexer or an editor, so the tree is somebody's workspace

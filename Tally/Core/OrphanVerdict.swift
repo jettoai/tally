@@ -225,7 +225,7 @@ extension OrphanReclaim {
     /// few minutes, which is what `fingerprint` refuses; keyed by the situation alone a standing
     /// tree talks whenever anything volatile about it moves, which is what this refuses. A tree is
     /// the pid and the instant it began, the identity rule the sighting next door already uses.
-    struct Told: Equatable {
+    struct Told: Equatable, Codable {
         var rootStartedAt: Int64
         /// The doubts that message named, sorted. A different set is a different ANSWER, and an
         /// answer the reader has not been given yet is worth giving: the session that was working
@@ -240,6 +240,47 @@ extension OrphanReclaim {
     /// by being there. Nothing said yet is unequal to anything, which is the `nil` case.
     static func worthSaying(_ told: Told?, rootStartedAt: Int64, doubts: [Veto]) -> Bool {
         told != Told(rootStartedAt: rootStartedAt, doubts: doubts)
+    }
+
+    /// BOTH MEMORIES ON DISK, because the process that holds them in memory is not the only one
+    /// writing to the inbox and does not live long. Every launch of this app starts with nothing
+    /// said and takes its first round at once, so a Dev build opened for a screenshot, a release
+    /// that relaunches, or three builds running side by side each announced the same standing tree
+    /// again: 29 messages in 5.5 hours about one `pnpm dev` (2026-10-05, jetto-web), every one
+    /// from a different process and none of them a repeat within its own.
+    ///
+    /// SHARED BY EVERY BUILD, unshipped ones included, and that is deliberate where the rest of
+    /// `~/.tally` is kept from them: an unshipped build writes these messages into the same real
+    /// inboxes, so the record of what those inboxes were told has to be the one they all read.
+    ///
+    /// A file that will not read is an empty memory (the next message is said again, which is the
+    /// noisy direction rather than the silent one); one that will not write leaves the in-process
+    /// memory exactly as it was before this existed.
+    struct NoticeMemory: Codable, Equatable {
+        var said: [String: Date] = [:]
+        /// Keyed by root pid as text, which is what a JSON object key can be.
+        var told: [String: Told] = [:]
+
+        static func url(home: URL) -> URL {
+            home.appendingPathComponent(".tally/orphan-notices.json")
+        }
+
+        static func load(home: URL) -> NoticeMemory {
+            guard let data = try? Data(contentsOf: url(home: home)),
+                  let memory = try? JSONDecoder().decode(NoticeMemory.self, from: data)
+            else { return NoticeMemory() }
+            return memory
+        }
+
+        // ponytail: last writer wins between two processes saving in the same instant, which costs
+        // at most one repeated message; a lock if that is ever seen.
+        func save(home: URL) {
+            let file = Self.url(home: home)
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            guard let data = try? JSONEncoder().encode(self) else { return }
+            try? data.write(to: file, options: .atomic)
+        }
     }
 
     /// How long a message silences its own repeat.

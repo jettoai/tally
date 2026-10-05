@@ -396,6 +396,15 @@ final class OrphanReclaimStore {
         // it (`OrphanReclaim.fingerprint`). Neither covers the other's case, and the machine has
         // now produced both.
         let doubts = reading.vetoes.sorted()
+        // WHAT OTHER PROCESSES, AND EARLIER LAUNCHES OF THIS ONE, HAVE ALREADY SAID, read at the
+        // moment it matters rather than at launch: another build may have written since
+        // (`OrphanReclaim.NoticeMemory`). What this process remembers itself is kept where both know.
+        // The file wins for this tree: it holds the last thing any process said about it, and this
+        // process's own entry may predate another's newer message.
+        var disk = OrphanReclaim.NoticeMemory.load(home: machine.home)
+        let key = String(reading.tree.root)
+        said.merge(disk.said) { max($0, $1) }
+        if let shared = disk.told[key] { told[reading.tree.root] = shared }
         guard OrphanReclaim.worthSaying(told[reading.tree.root],
                                         rootStartedAt: reading.tree.rootStartedAt,
                                         doubts: doubts) else { return }
@@ -411,6 +420,11 @@ final class OrphanReclaimStore {
         told[reading.tree.root] = OrphanReclaim.Told(rootStartedAt: reading.tree.rootStartedAt,
                                                      doubts: doubts)
         said[fingerprint] = now
+        // ponytail: `told` on disk is keyed by pid and only replaced, never pruned, so it is bounded
+        // by the pids that ever held a reported tree; prune against the table if it ever grows.
+        disk.said = said.filter { now.timeIntervalSince($0.value) < OrphanReclaim.noticeInterval }
+        disk.told[key] = told[reading.tree.root]
+        disk.save(home: machine.home)
         announce(OrphanNotice.Report(
             project: reading.tree.project, program: reading.name ?? "?", pid: reading.tree.root,
             processes: reading.tree.members.count, cpuPercent: reading.cpuPercent,

@@ -317,9 +317,11 @@ enum OrphanNotice {
                         + " be: " + doubts.map { reason($0) }.joined(separator: "; ") + ".",
                     "",
                     mightBeTheirs
-                        ? "If it is yours, there is nothing to do. If it should stay up on its own,"
-                            + " run it under `/dev-watch`, whose lease says whose it is. If it is"
-                            + " not wanted, end it yourself."
+                        ? "If it is yours, there is nothing to do. This is not said again while"
+                            + " it keeps running and nothing about it changes. A server started"
+                            + " with `/dev-watch` is not reported while its supervisor runs,"
+                            + " because the supervisor writes `/tmp/<project>.devwatch.pid` files"
+                            + " saying it is looked after. If it is not wanted, end it yourself."
                         : "Have a look and end it yourself if it is not wanted."]
         case .failed(let reason):
             return ["Tried to end it and could not: \(reason). It is still running.",

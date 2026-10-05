@@ -55,10 +55,10 @@ enum CPUAlertReaders {
                                             windowStart: windowStart)
         let cores = Double(ProcessInfo.processInfo.activeProcessorCount)
         let processes = secondList.map { p -> CPUAlertProcessWork in
-            let seconds = work[p.pid] ?? 0
-            return CPUAlertProcessWork(pid: p.pid, parent: p.parent, seconds: seconds,
+            let worked = work[p.pid] ?? 0
+            return CPUAlertProcessWork(pid: p.pid, parent: p.parent, seconds: worked,
                                        cwd: MachineLoadRollup.workingDirectory(of: p.pid),
-                                       executablePath: seconds > 0 ? ProcessTree.executablePath(of: p.pid) : nil)
+                                       executablePath: worked > 0 ? ProcessTree.executablePath(of: p.pid) : nil)
         }
         return CPUAlertScan(processes: processes, busySeconds: busyShare / 100 * elapsed * cores)
     }

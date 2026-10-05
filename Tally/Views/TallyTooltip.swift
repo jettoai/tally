@@ -381,26 +381,44 @@ private struct TallyTooltipCallout: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(primaryInk)
                             .lineLimit(1)
-                        ForEach(Array(block.rows.enumerated()), id: \.offset) { _, row in
-                            HStack(spacing: 10) {
-                                Text(row.label)
-                                    .foregroundStyle(secondaryInk)
-                                    .lineLimit(1)
-                                    .truncationMode(row.tailTruncated ? .tail : .middle)
-                                Spacer(minLength: 0)
-                                Text(row.value)
-                                    .foregroundStyle(row.severity.map { $0.color } ?? primaryInk)
-                                    .monospacedDigit()
-                                    .lineLimit(1)
-                                    .layoutPriority(1)
+                        ForEach(Array(block.rows.enumerated()), id: \.offset) { index, row in
+                            if index > 0, [.strong, .quiet, .note].contains(row.style) {
+                                Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1).padding(.vertical, 2)
                             }
-                            .font(.caption)
+                            blockRow(row)
                         }
                     }
                 }
             }
             .frame(width: TallyTooltip.blocksWidth, alignment: .leading)
         }
+    }
+
+    @ViewBuilder
+    private func blockRow(_ row: TallyTooltipRow) -> some View {
+        let heading = row.style == .strong || row.style == .quiet
+        let indented = row.style == .detail || row.style == .sub
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(row.label)
+                .fontWeight(heading ? .semibold : nil)
+                .foregroundStyle(row.style == .strong ? primaryInk : secondaryInk)
+                // A grouped line wraps to a second line rather than losing its end; a process row
+                // (plain, sub) truncates as before.
+                .lineLimit(row.style == .plain || row.style == .sub ? 1 : 2)
+                .fixedSize(horizontal: false, vertical: true)
+                .truncationMode(row.tailTruncated ? .tail : .middle)
+            Spacer(minLength: 0)
+            if !row.value.isEmpty {
+                Text(row.value)
+                    .fontWeight(heading ? .semibold : nil)
+                    .foregroundStyle(row.severity.map { $0.color } ?? (row.style == .quiet ? secondaryInk : primaryInk))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .layoutPriority(1)
+            }
+        }
+        .font(.caption)
+        .padding(.leading, indented ? 10 : 0)
     }
 
     /// What is left of the surface for a plain-text chip: the whole width, less the margin it is

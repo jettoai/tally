@@ -13,13 +13,24 @@ struct TallyTooltipRow: Equatable {
     /// A label that loses its end rather than its middle when too wide (a process name reads from
     /// its start; an account or path keeps both ends).
     let tailTruncated: Bool
+    let style: TallyTooltipRowStyle
 
-    init(_ label: String, _ value: String, severity: MetricSeverity? = nil, tailTruncated: Bool = false) {
+    init(_ label: String, _ value: String, severity: MetricSeverity? = nil, tailTruncated: Bool = false,
+         style: TallyTooltipRowStyle = .plain) {
         self.label = label
         self.value = value
         self.severity = severity
         self.tailTruncated = tailTruncated
+        self.style = style
     }
+}
+
+/// How a block row reads, for a callout grouped under headings (the pool's by-project callout):
+/// `strong` a heading with its figure, `detail` a quieter indented line under it with no figure,
+/// `sub` an indented row of the heading above, `quiet` a closing figure such as Other, `note` a
+/// closing sentence. A rule separates each heading, closing figure and note from what is above it.
+enum TallyTooltipRowStyle: Equatable {
+    case plain, strong, detail, sub, quiet, note
 }
 
 /// A titled group of rows: one subject per block, so a two-provider fleet reads as two small tables

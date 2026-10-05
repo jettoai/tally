@@ -178,6 +178,11 @@ resource_machos=$(find "$APP/Contents/Resources" -type f \
 while IFS= read -r f; do
   [ -z "$f" ] || codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$f"
 done <<< "$resource_machos"
+# Re-signing rewrote those files; an overlay that records their hashes updates them here, before
+# the app seal covers the record.
+if [ -x overlay/postsign.sh ]; then
+  overlay/postsign.sh "$APP" || { echo "overlay postsign failed" >&2; exit 1; }
+fi
 codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --strict --deep "$APP"
 echo "==> smoke: the embedded entry forwards to the Swift CLI"

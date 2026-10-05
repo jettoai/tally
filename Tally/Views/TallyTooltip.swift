@@ -105,11 +105,15 @@ struct TallyTooltipRow: Equatable {
     let label: String
     let value: String
     let severity: MetricSeverity?
+    /// A label that loses its end rather than its middle when too wide (a process name reads from
+    /// its start; an account or path keeps both ends).
+    let tailTruncated: Bool
 
-    init(_ label: String, _ value: String, severity: MetricSeverity? = nil) {
+    init(_ label: String, _ value: String, severity: MetricSeverity? = nil, tailTruncated: Bool = false) {
         self.label = label
         self.value = value
         self.severity = severity
+        self.tailTruncated = tailTruncated
     }
 }
 
@@ -419,7 +423,7 @@ private struct TallyTooltipCallout: View {
                                 Text(row.label)
                                     .foregroundStyle(secondaryInk)
                                     .lineLimit(1)
-                                    .truncationMode(.middle)
+                                    .truncationMode(row.tailTruncated ? .tail : .middle)
                                 Spacer(minLength: 0)
                                 Text(row.value)
                                     .foregroundStyle(row.severity.map { $0.color } ?? primaryInk)

@@ -484,15 +484,16 @@ if let r = reading(wobble) {
 
 // 13d. THE APP WAS CLOSED ACROSS A ROLLOVER and came back to a fresh week already at 40%. Those 40
 //      points were spent; the old rule skipped the pair outright and made the new week's opening
-//      reading a baseline, losing every one of them.
+//      reading a baseline, losing every one of them. The next reading confirms the new week (13m).
 let reopened = [
     s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
     s("a1", "weeklyAll", used: 90, at: daysAgo(9), reset: resetA),
     s("a1", "weeklyAll", used: 40, at: daysAgo(2), reset: resetB),
+    s("a1", "weeklyAll", used: 45, at: daysAgo(1), reset: resetB),
 ]
 if let r = reading(reopened) {
-    check("a rollover seen only after the fact still counts its opening reading (0.65)",
-          near(r.demandPerWeek, 0.65))
+    check("a rollover seen only after the fact still counts its opening reading (0.675)",
+          near(r.demandPerWeek, 0.675))
 } else { check("reopened reading exists", false) }
 
 // 13e. AND THE VERY FIRST SAMPLE IS NOT BURN. Whatever the window already read when the history
@@ -613,6 +614,51 @@ if let r = reading(heldWithUsage) {
     check("a dropped held snapshot bills nothing of its own (0.35)", near(r.demandPerWeek, 0.35))
     check("…not its 42 as a fresh cycle (0.46)", !near(r.demandPerWeek, 0.46))
 } else { check("heldWithUsage reading exists", false) }
+
+// 13m. A RESET THAT JUMPS FORWARD FOR ONE READING IS NOT A ROLLOVER EITHER. claude5 2026-10-04
+//      00:24 recorded another account's 90% against that account's later reset, then its own 0%
+//      against its own new week 30 seconds on; rolling over at the first jump billed the 90.
+//      97 in week A, the stray 90, then the real new week B from 0 to 5: 97 + 0 + 5.
+let strayForward = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 97, at: daysAgo(2), reset: resetA),
+    s("a1", "weeklyAll", used: 90, at: daysAgo(1.9), reset: resetA.addingTimeInterval(2 * 86_400)),
+    s("a1", "weeklyAll", used: 0, at: daysAgo(1.89), reset: resetB),
+    s("a1", "weeklyAll", used: 5, at: daysAgo(1), reset: resetB),
+]
+if let r = reading(strayForward) {
+    check("a one-reading forward jump is not billed (0.51)", near(r.demandPerWeek, 0.51))
+    check("…not its 90 as a fresh cycle (0.96)", !near(r.demandPerWeek, 0.96))
+} else { check("strayForward reading exists", false) }
+
+// 13n. A REAL WEEKLY ROLLOVER STILL COUNTS ITS OPENING READING once the next one agrees: 60 in
+//      week A, then week B opens at 30 and climbs to 40 (60 + 30 + 10).
+let confirmedForward = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(9), reset: resetA),
+    s("a1", "weeklyAll", used: 30, at: daysAgo(5), reset: resetB),
+    s("a1", "weeklyAll", used: 40, at: daysAgo(2), reset: resetB.addingTimeInterval(60)),
+]
+if let r = reading(confirmedForward) {
+    check("a confirmed forward rollover bills its opening reading (0.50)",
+          near(r.demandPerWeek, 0.50))
+} else { check("confirmedForward reading exists", false) }
+
+// 13o. A FORWARD JUMP THAT IS STILL THE LAST READING IS PENDING, not billed and not dropped: the
+//      next reading decides it. Billing it now is the 13m bug for as long as it stays last;
+//      dropping it for good loses a real week's opening reading. The cost is a reading's delay.
+let pendingForward = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14), reset: resetA),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(9), reset: resetA),
+    s("a1", "weeklyAll", used: 30, at: daysAgo(2), reset: resetB),
+]
+if let pending = reading(pendingForward),
+   let decided = reading(pendingForward + [s("a1", "weeklyAll", used: 35, at: daysAgo(1),
+                                             reset: resetB)]) {
+    check("a forward jump that is the last reading is not billed yet (0.30)",
+          near(pending.demandPerWeek, 0.30))
+    check("…and the next agreeing reading bills it (0.475)", near(decided.demandPerWeek, 0.475))
+} else { check("pendingForward readings exist", false) }
 
 // 13j. A RESTART CREDITS THE GROWTH BETWEEN ITS TWO LOW READINGS. 100, then 0 and 20 with the reset
 //      time kept, then 60: the restart bills 20 and the climb after it 40 (100 + 20 + 40).

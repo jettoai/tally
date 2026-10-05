@@ -114,12 +114,13 @@ extension UsageAdvisor {
     ///   every point spent until the old reset. Two readings in a row `restartDrop` under the high,
     ///   the second carrying a reset time, restart the high at the low reading; only the growth
     ///   between those two is credited.
-    /// - A RESET TIME THAT JUMPS BACK IS HELD, NEITHER A ROLLOVER NOR A READING YET. A provider
-    ///   that briefly serves an earlier week's figures and then goes back must not be billed as a
-    ///   fresh cycle (twice, or shutting the current week out until the next rollover), but a
-    ///   reset that really moved earlier and stays there is a new cycle. So the reading waits: the
-    ///   next one agreeing on the earlier time confirms the rollover from the held reading, and
-    ///   anything else drops it. A reset that jumps forward rolls over at once.
+    /// - A RESET TIME THAT MOVES, EITHER WAY, IS HELD, NEITHER A ROLLOVER NOR A READING YET. A
+    ///   provider that briefly serves another cycle's figures and then goes back must not be billed
+    ///   as a fresh cycle (twice, or shutting the current week out until the next rollover), but a
+    ///   reset that really moved and stays there is a new cycle. So the reading waits: the next one
+    ///   agreeing on the new time confirms the rollover from the held reading, and anything else
+    ///   drops it. A held reading that is still the last one is not billed yet; the next reading
+    ///   decides it.
     ///
     /// `since` is the display window: the walk always sees the whole history (so the sample just
     /// before the window is a baseline rather than a loss) and credits only what lands at or after
@@ -144,8 +145,9 @@ extension UsageAdvisor {
                     held = nil
                     if let reported = sample.resetAt, let earlier = waiting.resetAt,
                        abs(reported.timeIntervalSince(earlier)) <= resetTolerance {
-                        // Confirmed: the held reading opens the new cycle (all burn, unwatched span,
-                        // as any rollover) and this one grows from it like any same-cycle reading.
+                        // Confirmed: the held reading opens the new cycle. Spent inside it but over a
+                        // span this history did not watch (the rollover happened between two
+                        // samples), so it is burn without active time; this one grows from it.
                         cycle = earlier
                         watermark = waiting.used
                         if waiting.ts >= since { total += waiting.used }
@@ -154,20 +156,13 @@ extension UsageAdvisor {
                 }
                 if let reported = sample.resetAt, let anchor = cycle,
                    abs(reported.timeIntervalSince(anchor)) > resetTolerance {
-                    // A reset earlier than the anchor is held, and not the next sample's `prior`
-                    // either. codex 2026-09-09 17:11 served last week's 42% and went back at 17:40,
-                    // and billing both hops invented 241 points; claude4 2026-09-28 moved its reset
-                    // earlier for good, and skipping it dropped the whole new cycle.
-                    if reported < anchor {
-                        held = sample
-                        continue
-                    }
-                    cycle = reported
-                    watermark = sample.used
-                    previous = sample
-                    // Spent inside the new cycle, but over a span this history did not watch (the
-                    // rollover happened between two samples), so it is burn without active time.
-                    if sample.ts >= since { total += sample.used }
+                    // Held, and not the next sample's `prior` either. codex 2026-09-09 17:11 served
+                    // last week's 42% and went back at 17:40, and billing both hops invented 241
+                    // points; claude4 2026-09-28 moved its reset earlier for good, and skipping it
+                    // dropped the whole new cycle. Forward too: claude5 2026-10-04 00:24 carried
+                    // another account's 90% and a later reset for one poll, and rolling over at
+                    // once billed all 90 (B-5629).
+                    held = sample
                     continue
                 }
                 previous = sample

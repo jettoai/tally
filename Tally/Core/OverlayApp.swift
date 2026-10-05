@@ -20,6 +20,11 @@ extension PopoverRootView {
     @ViewBuilder var overlayHeaderBadge: some View { EmptyView() }
 }
 
+extension SessionCardView {
+    /// A mark a private build shows at the trailing end of a session card's headline.
+    @ViewBuilder var overlaySessionBadge: some View { EmptyView() }
+}
+
 extension SettingsView {
     /// Rows a private build adds to the About pane, under the brand row. Each row brings its own
     /// trailing divider, so the public pane is unchanged.

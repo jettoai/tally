@@ -46,6 +46,7 @@ extension SessionCardView {
             // (Albert, seeing the first live board, 2026-09-03). Past the Spacer nothing is
             // reserved and nothing moves: the title keeps the leading edge whatever else the row is
             // carrying, exactly as the state word and the age already do on the waiting card.
+            overlaySessionBadge
             if marked { Self.flameMark }
             if showsDragHandle { dragHandle }
         }

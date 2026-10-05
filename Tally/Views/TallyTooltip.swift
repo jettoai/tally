@@ -105,6 +105,13 @@ private struct TallyTooltipItem: Equatable {
     var stretchLimit: CGFloat = 0
 }
 
+/// The callout content's offset inside its stretched background. Summed: only the background sets
+/// it, and a sibling that does not (the content itself) folds in as 0, which "last one wins" would keep.
+private struct TallyTooltipShiftKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value += nextValue() }
+}
+
 /// One request at a time travels up: the hovered target publishes, everything else publishes nothing.
 private struct TallyTooltipKey: PreferenceKey {
     static let defaultValue: TallyTooltipItem? = nil
@@ -317,6 +324,8 @@ private struct TallyTooltipCallout: View {
     let bounds: CGSize
 
     @Environment(\.colorScheme) private var scheme
+    /// The content's share of the far edge's stretch (TooltipPlacement.contentShift), measured with it.
+    @State private var shift: CGFloat = 0
 
     /// The chip's own horizontal inset, named because the plain-text width cap has to subtract it:
     /// the cap bounds the CONTENT, and what has to fit inside the surface is the padded chip.
@@ -324,11 +333,13 @@ private struct TallyTooltipCallout: View {
 
     var body: some View {
         content
+            // Moved, not laid out again: the chip's measured height, and so the stretch, stay the same.
+            .offset(y: shift)
             .padding(.horizontal, Self.insetH)
             .padding(.vertical, 4)
             .background(GeometryReader { proxy in
-                // The far edge's stretch to the nearest seam: background only, so the content and
-                // the near edge stay exactly where `originY` put them.
+                // The far edge's stretch to the nearest seam: the background reaches it and the
+                // content moves half way (contentShift), so the near edge stays where `originY` put it.
                 let stretch = TooltipPlacement.farEdgeStretch(top: originY(height: proxy.size.height),
                                                               height: proxy.size.height, anchor: item.anchor,
                                                               seams: item.seams, limit: item.stretchLimit)
@@ -338,7 +349,9 @@ private struct TallyTooltipCallout: View {
                 }
                 .padding(.top, -stretch.top)
                 .padding(.bottom, -stretch.bottom)
+                .preference(key: TallyTooltipShiftKey.self, value: TooltipPlacement.contentShift(stretch))
             })
+            .onPreferenceChange(TallyTooltipShiftKey.self) { shift = $0 }
             .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.22), radius: 7, x: 0, y: 2)
             .fixedSize()
             .alignmentGuide(.leading) { dimensions in -originX(width: dimensions.width) }

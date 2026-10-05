@@ -133,6 +133,9 @@ check("…and not at all when the nearest seam is more than a row away",
 let down = CGRect(x: 200, y: 20, width: 50, height: 20)         // chip flipped below it
 check("flipped below, the bottom edge stretches down to the nearest seam below it",
       TooltipPlacement.farEdgeStretch(top: 46, height: 60, anchor: down, seams: [40, 110, 140], limit: 34) == (0, 4))
+check("the content moves half the stretch toward it: up when the top stretched, down when the bottom did",
+      TooltipPlacement.contentShift((12, 0)) == -6 && TooltipPlacement.contentShift((0, 4)) == 2
+      && TooltipPlacement.contentShift((0, 0)) == 0)
 
 print(failures == 0 ? "\nAll tooltip placement assertions passed."
                     : "\n\(failures) assertion(s) failed.")

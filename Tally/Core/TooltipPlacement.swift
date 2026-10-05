@@ -61,4 +61,11 @@ enum TooltipPlacement {
         let stretch = reach <= limit ? reach : 0
         return opensUp ? (stretch, 0) : (0, stretch)
     }
+
+    /// How far the content moves inside a stretched background so the stretch is shared above and
+    /// below it (B-907 r5): a two-line GPU chip stretched to the seam above otherwise kept the whole
+    /// stretch over its title. Both edges stay on their seams; only the content moves.
+    static func contentShift(_ stretch: (top: CGFloat, bottom: CGFloat)) -> CGFloat {
+        (stretch.bottom - stretch.top) / 2
+    }
 }

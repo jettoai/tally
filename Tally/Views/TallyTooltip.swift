@@ -245,8 +245,10 @@ extension View {
     ///   exactly as it does for the text callout: the fleet gauge now gives each provider its own
     ///   hover, so a flag that forced "the blocks callout" would force one per provider and they
     ///   would race for the single preference slot (`TallyTooltip.previewForced`).
-    func tallyTooltip(blocks: [TallyTooltipBlock], forced: Bool = false) -> some View {
-        modifier(TallyTooltipTarget(payload: .blocks(blocks), forced: forced))
+    /// - Parameter hugsRow: hug the enclosing `tallyTooltipAnchorRow()` vertically instead of this
+    ///   element, so the chip clears the neighbouring rows' text (`TooltipPlacement.rowAnchor`).
+    func tallyTooltip(blocks: [TallyTooltipBlock], forced: Bool = false, hugsRow: Bool = false) -> some View {
+        modifier(TallyTooltipTarget(payload: .blocks(blocks), forced: forced, hugsRow: hugsRow))
     }
 }
 
@@ -258,8 +260,10 @@ private struct TallyTooltipTarget: ViewModifier {
     let payload: TallyTooltipContent
     /// Held open with no pointer, for a design capture (`TallyTooltip.previewForced`).
     var forced = false
+    var hugsRow = false
 
     @Environment(\.hasTallyTooltipLayer) private var hosted
+    @Environment(\.tallyTooltipRowFrame) private var rowFrame
     @State private var isHovering = false
     @State private var isShown = false
 
@@ -304,10 +308,12 @@ private struct TallyTooltipTarget: ViewModifier {
     private var probe: some View {
         if isShown || (forced && !payload.isEmpty) {
             GeometryReader { proxy in
+                let own = proxy.frame(in: .named(TallyTooltip.space))
                 Color.clear.preference(
                     key: TallyTooltipKey.self,
                     value: TallyTooltipItem(content: payload,
-                                            anchor: proxy.frame(in: .named(TallyTooltip.space))))
+                                            anchor: TooltipPlacement.rowAnchor(target: own, row: hugsRow ? rowFrame : nil,
+                                                                                gap: TallyTooltip.gap)))
             }
         }
     }

@@ -33,4 +33,16 @@ enum TooltipPlacement {
         let lowest = max(margin, bounds.height - height - margin)
         return min(anchor.maxY + gap, lowest)
     }
+
+    /// What a callout hugs when its target asks for its row (`tallyTooltip(blocks:hugsRow:)`): the
+    /// target's own columns, the row's top and bottom pulled in by `gap`, so the chip's edge lands
+    /// ON the seam between two rows. A figure in a table row is shorter than the row, and a table's
+    /// rows keep less padding than the callout's gap, so hugging the figure, or the row one gap off,
+    /// still puts the chip's edge through the neighbouring row's last line (the compute pool table,
+    /// B-907). No row published: the target itself.
+    static func rowAnchor(target: CGRect, row: CGRect?, gap: CGFloat) -> CGRect {
+        guard let row else { return target }
+        let inset = min(gap, row.height / 2)
+        return CGRect(x: target.minX, y: row.minY + inset, width: target.width, height: row.height - 2 * inset)
+    }
 }

@@ -97,6 +97,27 @@ check("a chip wider than the surface still starts at the near margin",
       near(TooltipPlacement.originX(width: 500, anchor: midRow, bounds: panel, margin: margin),
            margin))
 
+// A figure in a table row hugs the row (B-907): the chip's edge lands on the seam between this row
+// and the next, not one gap above the figure (inside the row above) nor one gap above the row (still
+// inside the row above's last line, since a table row keeps less padding than the gap).
+let figure = CGRect(x: 200, y: 343, width: 50, height: 26)
+let tableRow = CGRect(x: 10, y: 337, width: 360, height: 34)
+let hugged = TooltipPlacement.rowAnchor(target: figure, row: tableRow, gap: gap)
+check("a row anchor keeps the figure's own columns, so the chip stays centred on the figure",
+      near(hugged.minX, 200) && near(hugged.width, 50))
+check("…puts the chip's bottom exactly on the row's top edge",
+      near(TooltipPlacement.originY(height: chip.height, anchor: hugged, bounds: panel, gap: gap,
+                                    margin: margin) + chip.height, 337))
+check("…and, flipped below a row near the top, the chip's top exactly on the row's bottom edge",
+      near(TooltipPlacement.originY(height: chip.height,
+                                    anchor: TooltipPlacement.rowAnchor(target: CGRect(x: 200, y: 26, width: 50, height: 26),
+                                                                       row: CGRect(x: 10, y: 20, width: 360, height: 34), gap: gap),
+                                    bounds: panel, gap: gap, margin: margin), 54))
+check("a row thinner than two gaps collapses to its middle line rather than inverting",
+      TooltipPlacement.rowAnchor(target: figure, row: CGRect(x: 10, y: 337, width: 360, height: 8), gap: gap).height >= 0)
+check("no row published leaves the target as it was",
+      TooltipPlacement.rowAnchor(target: figure, row: nil, gap: gap) == figure)
+
 print(failures == 0 ? "\nAll tooltip placement assertions passed."
                     : "\n\(failures) assertion(s) failed.")
 exit(failures == 0 ? 0 : 1)

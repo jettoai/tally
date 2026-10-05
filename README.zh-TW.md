@@ -285,6 +285,16 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   打開「傳送當機與錯誤回報」後送到 Sentry 的錯誤回報，沒有任何東西離開你的機器。錯誤回報含
   錯誤堆疊、App 與 macOS 版本、Mac 機型、語系與時區，以及 Sentry 由連線推得的大致地區；
   絕不含 IP、帳號、用量數字或檔案內容。在同一處可隨時關閉。
+- **給整合用的小型 API。** 儀表板與腳本透過 `tally` CLI 與 Tally 溝通；沒有 socket 或伺服器可連。
+  - `tally status --json` 是讀取端：每個帳號剩餘的額度窗與重置時間，外加 `sessions`，
+    每個受監督的 session 一筆，帶有它的 `pid`、`project`、`state`、`model`、`effort` 與
+    `taskList`（它寫入的任務清單）。報告帶有 `"version": 1`，而且只加不改：之後版本可能新增
+    欄位，既有欄位永不消失或改變意義。
+  - `tally session send <text> --session <pid>` 會把一行文字打進該 session 並按下 Return；
+    `tally message claude|codex <text> --session <pid>` 則把訊息交給該 session 自己的傳輸通道，
+    不按任何鍵。
+  - 搭配 Jetto Pro，`tally run --on <machine>|auto -- <cmd>` 會在運算池中的一台機器上，於
+    儲存庫的副本內執行指令，並把輸出與結束碼串流回來。
 
 ## 需求
 

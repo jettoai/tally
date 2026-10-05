@@ -355,6 +355,17 @@ subscriptions at once:
   stack trace, the app and macOS versions, the Mac model, language and time zone, and the rough
   region Sentry infers from the connection; never your IP address, accounts, usage numbers or file
   contents. Turn it off again in the same place.
+- **A small API for integrations.** Dashboards and scripts talk to Tally through the `tally` CLI;
+  there is no socket or server to connect to.
+  - `tally status --json` is the read side: every account's remaining windows and resets, plus
+    `sessions`, one entry per supervised session with its `pid`, `project`, `state`, `model`,
+    `effort` and `taskList` (the task list it writes to). The report carries `"version": 1` and is
+    additive only: fields may appear in later versions, never vanish or change meaning.
+  - `tally session send <text> --session <pid>` types one line into that session and presses
+    Return; `tally message claude|codex <text> --session <pid>` hands a message to the session's
+    own transport without pressing a key.
+  - With Jetto Pro, `tally run --on <machine>|auto -- <cmd>` runs a command on a pool machine in a
+    copy of the repository and streams back its output and exit code.
 
 ## Requirements
 

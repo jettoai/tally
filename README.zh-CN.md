@@ -285,6 +285,16 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   打开「发送崩溃与错误报告」后发送到 Sentry 的错误报告，没有任何东西离开你的机器。错误报告含
   错误堆栈、App 与 macOS 版本、Mac 机型、语言与时区，以及 Sentry 由连接推断的大致地区；
   绝不包含 IP、账号、用量数字或文件内容。在同一处可随时关闭。
+- **面向集成的小型 API。** 仪表板与脚本通过 `tally` CLI 与 Tally 交互；没有 socket 或服务器可连。
+  - `tally status --json` 是读取端：每个账号剩余的额度窗与重置时间，外加 `sessions`，
+    每个受监督的会话一条，带有它的 `pid`、`project`、`state`、`model`、`effort` 与
+    `taskList`（它写入的任务列表）。报告带有 `"version": 1`，并且只增不改：之后的版本可能新增
+    字段，既有字段永不消失或改变含义。
+  - `tally session send <text> --session <pid>` 会把一行文字输入该会话并按下 Return；
+    `tally message claude|codex <text> --session <pid>` 则把消息交给该会话自己的传输通道，
+    不按任何键。
+  - 搭配 Jetto Pro，`tally run --on <machine>|auto -- <cmd>` 会在池中的一台机器上，于
+    仓库的副本内运行命令，并把输出与退出码流式传回来。
 
 ## 要求
 

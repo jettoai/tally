@@ -346,6 +346,18 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   언어와 시간대, 그리고 Sentry가 연결에서 추정한 대략적인 지역이 담기며, IP 주소, 계정,
   사용량 수치, 파일 내용은 절대 담기지 않습니다. 같은 곳에서 언제든 끌 수
   있습니다.
+- **연동을 위한 작은 API.** 대시보드와 스크립트는 `tally` CLI를 통해 Tally와 통신합니다.
+  연결할 소켓이나 서버는 없습니다.
+  - `tally status --json`은 읽기 쪽입니다. 모든 계정의 남은 창과 리셋 시각에 더해
+    `sessions`를 반환하며, 감독 중인 세션마다 한 항목씩 `pid`, `project`, `state`, `model`,
+    `effort`, `taskList`(세션이 기록하는 작업 목록)를 담습니다. 보고서에는 `"version": 1`이
+    붙으며 추가만 허용됩니다. 이후 버전에서 필드가 늘어날 수는 있어도, 기존 필드가 사라지거나
+    의미가 바뀌는 일은 없습니다.
+  - `tally session send <text> --session <pid>`는 해당 세션에 한 줄을 입력하고 Return을
+    누릅니다. `tally message claude|codex <text> --session <pid>`는 키를 누르지 않고
+    세션 자체의 전송 경로로 메시지를 전달합니다.
+  - Jetto Pro에서는 `tally run --on <machine>|auto -- <cmd>`가 풀의 머신에서 저장소 사본
+    안에 명령을 실행하고, 출력과 종료 코드를 스트리밍으로 돌려줍니다.
 
 ## 요구 사항
 

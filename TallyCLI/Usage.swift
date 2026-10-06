@@ -45,6 +45,10 @@ usage:
                             reclaim idle Xcode build folders, finished worktrees and clones, and
                             long-idle session folders under /private/tmp/claude-<uid>; anything
                             with uncommitted or unpushed work, or still in use, is kept
+  tally redeem --account <name> [--timeout <seconds>]
+                            spend one Codex banked reset through the running app (same
+                            dedupe as the panel button); exit 0 redeemed, 1 refused or failed,
+                            2 usage or ambiguous name, 3 no answer in time (may have spent)
   tally best-dir <provider> print the export line for the best account
   tally launch-dir <provider> shim interface: like best-dir but honours the app's
                             launch policy (off → prints nothing)

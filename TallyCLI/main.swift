@@ -475,13 +475,13 @@ case "completion":
 case "update": runUpdate()
 case "cost": exit(runCost(args: Array(arguments.dropFirst())))
 case "reap": exit(runReap(args: Array(arguments.dropFirst())))
+case "redeem": exit(runRedeem(args: Array(arguments.dropFirst())))
 case "add": runAdd(args: Array(arguments.dropFirst()))
 // Commands a private build adds (OverlayCLI.swift); the public build has none.
 case let command? where OverlayCLI.handles(command):
     exit(OverlayCLI.run(command, args: Array(arguments.dropFirst())))
 // What `add` does for an account it creates, done to one that is already here (ShareCommand.swift).
-case "share":
-    exit(runShare(args: Array(arguments.dropFirst())))
+case "share": exit(runShare(args: Array(arguments.dropFirst())))
 // The one act of repair this binary performs on somebody else's data, and it is repair of damage
 // this binary did (KeychainPartitionRepair.swift). Run by hand, by every launch, and once by the app
 // at startup; the exit code is what the last of those would read if it read anything.

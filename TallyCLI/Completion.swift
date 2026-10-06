@@ -319,6 +319,7 @@ _tally() {
     "status:every account's remaining windows, with --json for scripts"
     "cost:what each project's tokens cost, with --json for scripts"
     "reap:reclaim idle build folders, worktrees and sessions under the scratch root"
+    "redeem:spend one Codex banked reset on an account"
     "best-dir:print the export line for the best account"
     "launch-dir:like best-dir, but honouring the app's launch policy"
     "add:log in one more account in the next free config home"
@@ -391,6 +392,8 @@ _tally() {
           "(--range)--days[the last N days, 1 to 90]:days:" "(--days)--range[a preset range]:range:(today 7d 30d all)" ;;
         (reap) _arguments "--dry-run[print what would be removed, remove nothing]" \
           "--report[daily size, growth and reclaimed space per project]" "--project[limit --report to projects containing this]:project:" ;;
+        (redeem) _arguments "--account[the Codex account, by label or config-dir name]:account: _tally_accounts codex" \
+          "--timeout[seconds to wait for the app's answer]:seconds:" ;;
         # `switch` is the name `account` shipped under. Still answered here, as the dispatch still
         # answers it, but deliberately absent from the list above: it is not the name to learn.
         (account|switch)

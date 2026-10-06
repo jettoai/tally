@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // clicked a banked-reset hint that launched it), and the action button only exists if its
         // category was registered before the alert landed.
         NotificationRouter.shared.install()
+        // `tally redeem` requests: answered with notReady until the first refresh lands.
+        RedeemRequestStore.shared.install()
         // Menu-bar accessory app: install the status item, then start the refresh loop.
         statusItemController.install()
         // The session footprints, which sample slowly for the life of the process rather than only

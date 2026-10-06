@@ -1,5 +1,17 @@
 import Foundation
 
+/// The store's thresholds for the fold below, kept beside it so the store stays a caller.
+enum LastGoodThresholds {
+    /// Only flag "Outdated" after this many consecutive failures. A single miss - e.g. the brief window
+    /// while the CLI rotates the OAuth token, which 1-minute polling reliably catches - keeps showing the
+    /// last-good numbers unbadged, so the badge stops flickering on every token refresh.
+    static let staleAfterFailures = 2
+    /// No numbers yet: "Reading quota, retrying" until this many failures in a row. Relaunch polls every
+    /// account at once; 2026-10-06 two read empty and recovered within 4 minutes. Signed-out accounts
+    /// still get LoginStatusStore's own alert.
+    static let bareErrorAfterFailures = 3
+}
+
 /// What one refresh round leaves on an account when the poll failed: the last good numbers, plus a
 /// machine-readable note saying they are held over rather than freshly fetched.
 ///
@@ -21,9 +33,13 @@ import Foundation
 /// A round that SUCCEEDS clears the note, so the flag always describes this account's latest poll
 /// rather than any poll it ever had.
 ///
-/// `previous` nil is an account that has never succeeded: there are no numbers to hold over, so the
-/// failure is returned as it arrived, carrying its own bare error. It is flagged all the same, since
-/// what the flag states is that the latest poll failed, which it did.
+/// `previous` nil is an account that has never succeeded IN THIS PROCESS: there are no numbers to
+/// hold over, so the failure is returned as it arrived, flagged all the same, since what the flag
+/// states is that the latest poll failed, which it did. Its short line is held back for the first
+/// `bareErrorAfterFailures - 1` rounds and reads "Reading quota, retrying" instead: right after a
+/// relaunch every account polls at once, and a /usage that comes back empty under that load clears
+/// by itself a few rounds later, so the provider's own line ("run /login") would send the person
+/// to fix nothing. The longer `errorDetail` is left as it arrived, so the real reason still hovers.
 ///
 /// AND A THIRD READER ASKS NEITHER QUESTION. Both facts above are about the NUMBERS - are these
 /// this moment's, are the held-over ones old enough to badge - so on the branch just described,
@@ -33,7 +49,7 @@ import Foundation
 /// must not be folded into it - the badge staying false here is what keeps the card showing the
 /// error and a Retry rather than an empty set of meters (`AccountFacts.isHardError`).
 func foldLastGood(_ usage: AccountUsage, previous: AccountUsage?, failureStreak streak: Int,
-                  staleAfterFailures: Int) -> AccountUsage {
+                  staleAfterFailures: Int, bareErrorAfterFailures: Int) -> AccountUsage {
     guard usage.error != nil else {
         var fresh = usage
         fresh.lastRefreshFailed = false
@@ -53,6 +69,7 @@ func foldLastGood(_ usage: AccountUsage, previous: AccountUsage?, failureStreak 
         // would turn all three off for the one account they exist for. The streak goes on the
         // field that does not mention numbers instead.
         bare.pollsKeepFailing = sustained
+        if streak < bareErrorAfterFailures { bare.error = L("Reading quota, retrying") }
         return bare
     }
     // The numbers are stale; the identity need not be. Whatever this round established without the

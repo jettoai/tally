@@ -471,16 +471,11 @@ final class UsageStore {
     /// Consecutive failed polls per account, so a single transient failure doesn't flip the badge.
     private var failureStreak: [String: Int] = [:]
 
-    /// Only flag "Outdated" after this many consecutive failures. A single miss - e.g. the brief window
-    /// while the CLI rotates the OAuth token, which 1-minute polling reliably catches - keeps showing the
-    /// last-good numbers unbadged, so the badge stops flickering on every token refresh.
-    private static let staleAfterFailures = 2
-
     /// On success, record the snapshot. On a failure hand the round to `foldLastGood`
     /// (Core/LastGoodFold.swift), which decides what the card shows and what the CLI is told: the
     /// last-good numbers either way, flagged as held over from the first failure, and badged
     /// "Outdated" only once the failures are sustained (≥ staleAfterFailures in a row). An account
-    /// that never succeeded still shows a bare error immediately.
+    /// that never succeeded reads "retrying" until bareErrorAfterFailures, then its bare error.
     ///
     /// The streak counters stay here because they are this store's state across rounds; the fold
     /// itself is a function of one round, which is what lets a suite assert it (tests/lastgood).
@@ -488,13 +483,15 @@ final class UsageStore {
         if usage.error == nil {
             failureStreak[usage.id] = 0
             let fresh = foldLastGood(usage, previous: nil, failureStreak: 0,
-                                     staleAfterFailures: Self.staleAfterFailures)
+                                     staleAfterFailures: LastGoodThresholds.staleAfterFailures,
+                                     bareErrorAfterFailures: LastGoodThresholds.bareErrorAfterFailures)
             lastGood[usage.id] = fresh
             return fresh
         }
         let streak = (failureStreak[usage.id] ?? 0) + 1
         failureStreak[usage.id] = streak
         return foldLastGood(usage, previous: lastGood[usage.id], failureStreak: streak,
-                            staleAfterFailures: Self.staleAfterFailures)
+                            staleAfterFailures: LastGoodThresholds.staleAfterFailures,
+                            bareErrorAfterFailures: LastGoodThresholds.bareErrorAfterFailures)
     }
 }

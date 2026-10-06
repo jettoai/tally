@@ -15735,6 +15735,35 @@
         }
       }
     },
+    "Reading quota, retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取額度中，重試中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取额度中，重试中"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量を読み込み中、再試行しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량을 읽는 중, 다시 시도 중"
+          }
+        }
+      }
+    },
     "Reset passed, awaiting refresh": {
       "extractionState": "manual",
       "localizations": {

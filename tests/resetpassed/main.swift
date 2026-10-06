@@ -9,6 +9,9 @@ import Foundation
 // quota. A row that is not held over, or whose reading already postdates the reset, keeps its
 // number, and a later good round clears the state with nothing left behind.
 
+/// The fold localizes its retrying line; the app bundle is not compiled in, so the key reads as-is.
+func L(_ key: String) -> String { key }
+
 var passed = 0, failed = 0
 func check(_ name: String, _ condition: Bool) {
     if condition { passed += 1; print("PASS \(name)") } else { failed += 1; print("FAIL \(name)") }
@@ -62,12 +65,12 @@ let good = AccountUsage(id: "claude:a", providerID: "claude", accountLabel: "A",
 let failure = AccountUsage.failure(account: ProviderAccount(id: "claude:a", providerID: "claude",
                                                             label: "A", locator: [:]),
                                    providerID: "claude", message: "No quota returned")
-let held = foldLastGood(failure, previous: good, failureStreak: 2, staleAfterFailures: 2)
+let held = foldLastGood(failure, previous: good, failureStreak: 2, staleAfterFailures: 2, bareErrorAfterFailures: 3)
 check("replay: the held-over session window reads as passed",
       held.metrics.first.map { held.resetPassed($0, now: now) } == true)
 let recovered = AccountUsage(id: "claude:a", providerID: "claude", accountLabel: "A",
                              metrics: [session(used: 3, resetsAt: at(300))], refreshedAt: now)
-let next = foldLastGood(recovered, previous: held, failureStreak: 0, staleAfterFailures: 2)
+let next = foldLastGood(recovered, previous: held, failureStreak: 0, staleAfterFailures: 2, bareErrorAfterFailures: 3)
 check("replay: a good round afterwards leaves no window marked passed",
       !next.metrics.isEmpty && next.metrics.allSatisfy { !next.resetPassed($0, now: now) })
 

@@ -15,6 +15,9 @@ import Foundation
 // these checks hold the two apart at every step: the failure that is not yet a badge, the one that
 // is, and the success that clears both.
 
+/// The fold localizes its retrying line; the app bundle is not compiled in, so the key reads as-is.
+func L(_ key: String) -> String { key }
+
 var passed = 0, failed = 0
 func check(_ name: String, _ condition: Bool) {
     if condition { passed += 1; print("PASS \(name)") } else { failed += 1; print("FAIL \(name)") }
@@ -38,7 +41,8 @@ let failure = AccountUsage.failure(account: ProviderAccount(id: "A", providerID:
                                    errorDetail: "Codex app-server said: 404 Not Found")
 
 func fold(_ usage: AccountUsage, previous: AccountUsage?, streak: Int) -> AccountUsage {
-    foldLastGood(usage, previous: previous, failureStreak: streak, staleAfterFailures: 2)
+    foldLastGood(usage, previous: previous, failureStreak: streak, staleAfterFailures: 2,
+                 bareErrorAfterFailures: 3)
 }
 
 // MARK: - A successful round
@@ -93,11 +97,15 @@ check("a round that succeeds clears the flag", !healed.lastRefreshFailed)
 
 // MARK: - An account that never succeeded
 
-// Nothing to hold over, so the failure is returned as it arrived: a bare error, which the app has
-// always shown immediately rather than debounced. It is flagged all the same, since what the flag
-// states is that the latest poll failed.
+// Nothing to hold over, so the failure is returned as it arrived, except its short line: for the
+// first two rounds it says "retrying" rather than the provider's line, because right after a
+// relaunch an empty /usage clears by itself and that line can say "run /login" (2026-10-06, two
+// accounts recovered within 4 minutes with nobody signing in). It is flagged all the same, since
+// what the flag states is that the latest poll failed.
 let never = fold(failure, previous: nil, streak: 1)
-check("an account that never succeeded keeps its bare error", never.error == "network down")
+check("an account that never succeeded says it is retrying on its first failure",
+      never.error == "Reading quota, retrying")
+check("…while the why under it is left as it arrived", never.errorDetail == failure.errorDetail)
 check("…and has no numbers to be believed", never.metrics.isEmpty)
 check("…and is flagged too, because its latest poll did fail", never.lastRefreshFailed)
 // The badge, asserted rather than assumed: this branch never raises it, and three surfaces read
@@ -122,7 +130,19 @@ check("…while one missed round does not, which is the badge's own debounce",
 // Retry button (the menu bar's "!" mark and the hover's error line read the same pair). Raising the
 // badge to carry the streak would have taken all three away from the only accounts they are for.
 check("…and the badge is still not raised, so the card keeps its error and its Retry",
-      !neverAgain.isStale && neverAgain.error == "network down" && neverAgain.metrics.isEmpty)
+      !neverAgain.isStale && neverAgain.error != nil && neverAgain.metrics.isEmpty)
+check("…and the second failure still says retrying, flagged as failed",
+      neverAgain.error == "Reading quota, retrying" && neverAgain.lastRefreshFailed)
+
+// The third round in a row is no longer a relaunch hiccup: the provider's own line comes through.
+let neverThird = fold(failure, previous: nil, streak: 3)
+check("a third failure in a row shows the provider's own line",
+      neverThird.error == "network down" && neverThird.errorDetail == failure.errorDetail)
+check("…still flagged, still sustained, badge still down",
+      neverThird.lastRefreshFailed && neverThird.pollsKeepFailing && !neverThird.isStale)
+let neverHealed = fold(good, previous: nil, streak: 0)
+check("a round that succeeds after them clears the retrying line and both flags",
+      neverHealed.error == nil && !neverHealed.lastRefreshFailed && !neverHealed.pollsKeepFailing)
 
 // The held-over branch answers the same question the same way, which is what lets one reader ask
 // one field and get both kinds of broken account.
@@ -167,9 +187,14 @@ check("the failing branch folds through this function with its own streak",
       storeSource.contains("foldLastGood(usage, previous: lastGood[usage.id], failureStreak: streak,"))
 check("…and the successful branch through it too, so recovery clears the flag",
       storeSource.contains("foldLastGood(usage, previous: nil, failureStreak: 0,"))
-check("…and the badge's debounce is still the store's own constant",
-      storeSource.contains("staleAfterFailures: Self.staleAfterFailures")
-          && storeSource.contains("staleAfterFailures = 2"))
+let foldSource = (try? String(contentsOfFile: "Tally/Core/LastGoodFold.swift", encoding: .utf8))
+    ?? ""
+check("…and both folds get the badge's debounce from LastGoodThresholds, which holds 2",
+      storeSource.components(separatedBy: "staleAfterFailures: LastGoodThresholds.staleAfterFailures")
+          .count == 3 && foldSource.contains("static let staleAfterFailures = 2"))
+check("…and the retrying window the same way, which holds 3",
+      storeSource.components(separatedBy: "bareErrorAfterFailures: LastGoodThresholds.bareErrorAfterFailures")
+          .count == 3 && foldSource.contains("static let bareErrorAfterFailures = 3"))
 
 // MARK: - The reader the third fact was added for
 
@@ -185,6 +210,13 @@ let keepsFailingRule = earlyStartSource.components(separatedBy: "func readingKee
 check("the early-start row asks this fact rather than the badge",
       keepsFailingRule.contains("usage.pollsKeepFailing")
           && !keepsFailingRule.contains("usage.isStale"))
+
+let catalogue = (try? Data(contentsOf: URL(fileURLWithPath: "Tally/Resources/Localizable.xcstrings")))
+    .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+let retrying = ((catalogue?["strings"] as? [String: Any])?["Reading quota, retrying"]
+    as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
+check("the retrying line is in all four translations",
+      ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { retrying[$0] != nil })
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

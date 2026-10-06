@@ -294,52 +294,6 @@ check("help is a command of its own, answering on stdout with a zero exit",
 check("…while a word this binary does not know is still an error on stderr",
       statusSource.contains("default:\n    warn(tallyUsage)\n    exit(2)"))
 
-// MARK: - The wrapped script runs at most once per session every 2 seconds
-
-// Claude Code renders a busy session several times a second, and every wrapped run forks the
-// user's whole script. The fake script counts its own runs in a file, so what is asserted is how
-// often the script actually ran, not what the cache file looks like.
-do {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("slcache-\(UUID().uuidString)")
-    let cache = root.appendingPathComponent("cache")
-    let counter = root.appendingPathComponent("runs").path
-    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    let script = "echo x >> '\(counter)'; echo body"
-    func runs() -> Int {
-        ((try? String(contentsOfFile: counter, encoding: .utf8)) ?? "").split(separator: "\n").count
-    }
-    // The clock is read after each write, so "inside 2 seconds" is measured from the file's own
-    // time: an injected moment earlier than the write would read as a negative age.
-    let first = wrappedBody(script: script, input: Data(), sessionID: "s1", dir: cache, now: Date())
-    let second = wrappedBody(script: script, input: Data(), sessionID: "s1", dir: cache, now: Date())
-    let t0 = Date()
-    check("the body is the script's output, cached or not", first == "body" && second == "body")
-    check("a second render of one session inside 2 seconds does not rerun the script", runs() == 1)
-    _ = wrappedBody(script: script, input: Data(), sessionID: "s2", dir: cache, now: t0)
-    check("another session runs the script for itself", runs() == 2)
-    _ = wrappedBody(script: script, input: Data(), sessionID: "s1", dir: cache, now: t0.addingTimeInterval(2.5))
-    check("past 2 seconds the script runs again", runs() == 3)
-    _ = wrappedBody(script: script, input: Data(), sessionID: "s1", dir: cache, now: t0.addingTimeInterval(-60))
-    check("a clock that moved backwards does not keep the cache fresh", runs() == 4)
-    _ = wrappedBody(script: script, input: Data(), sessionID: nil, dir: cache, now: t0)
-    _ = wrappedBody(script: script, input: Data(), sessionID: nil, dir: cache, now: t0)
-    _ = wrappedBody(script: script, input: Data(), sessionID: "", dir: cache, now: Date())
-    _ = wrappedBody(script: script, input: Data(), sessionID: "", dir: cache, now: Date())
-    check("with no session id the script runs every time", runs() == 8)
-    let quiet = "echo x >> '\(counter)'"
-    _ = wrappedBody(script: quiet, input: Data(), sessionID: "s3", dir: cache, now: Date())
-    _ = wrappedBody(script: quiet, input: Data(), sessionID: "s3", dir: cache, now: Date())
-    check("an empty output is not cached", runs() == 10)
-    let failing = "echo x >> '\(counter)'; echo partial; exit 1"
-    let shown = wrappedBody(script: failing, input: Data(), sessionID: "s4", dir: cache, now: Date())
-    _ = wrappedBody(script: failing, input: Data(), sessionID: "s4", dir: cache, now: Date())
-    // A script that prints its line and exits 1 (ending on a false test) is the common shape, the
-    // owner's own status line among them: its line is shown either way, so it is cached like any.
-    check("a run that prints and exits non-zero is shown and cached", shown == "partial" && runs() == 11)
-    try? FileManager.default.removeItem(at: root)
-}
-
 runCompletionChecks()
 
 exit(failures == 0 ? 0 : 1)

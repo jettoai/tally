@@ -121,8 +121,8 @@ func sweepRedeemLeftovers(dir: URL = redeemDir) {
 /// Whether an unclaimed request is too old to act on.
 func redeemRequestExpired(_ request: RedeemRequest, now: Date = Date(),
                           window: TimeInterval = redeemPickupWindow) -> Bool {
-    let age = now.timeIntervalSince(request.createdAt)
-    return age > window || age < -window   // a clock jump either way is not a fresh request
+    // A clock jump either way is not a fresh request.
+    return abs(now.timeIntervalSince(request.createdAt)) > window
 }
 
 /// Exit code and sentence for one answer. Pure, so the whole table is testable.

@@ -276,6 +276,16 @@ sha=$(git log -1 --format=%h)
 check "binary file" 1 "$base"
 command grep -qF "$(line "$sha" src/blob.bin FakeWidget08)" "$work/err" || { echo "FAIL binary file: no hit for src/blob.bin"; failed=$((failed + 1)); }
 
+# BSD awk ends a line at a NUL byte: a term after one must still be read.
+start c29b; printf 'abc\000FakeWidget08\n' > src/blob.bin; git add src/blob.bin; git commit -q -m blob
+check "binary file, term after a NUL" 1 "$base" "$(line "$(git log -1 --format=%h)" src/blob.bin 'abc FakeWidget08')"
+
+# An annotated tag whose message has a NUL before the term (git tag -F writes it as is).
+start c29c; printf 'rel abc\000FakeWidget08\n' > "$work/tagmsg"; git tag -a v29 -F "$work/tagmsg" "$base"
+tag=$(git rev-parse v29); lref=refs/tags/v29 lsha=$tag
+check "tag message, term after a NUL" 1 "$ZERO" "$(line "$(git rev-parse --short "$tag")" COMMIT_MSG 'rel abc FakeWidget08')"
+lref= lsha=
+
 # A message body line that looks like the old fixed commit separator.
 start c30; commit src/app.txt harmless "$(printf 'docs: note\n\n@@@commit FakeWidget02')"
 check "forged separator in a message" 1 "$base" "$(line "$sha" COMMIT_MSG '@@@commit FakeWidget02')"

@@ -122,14 +122,15 @@ while read -r lref lsha rref rsha; do
   fi
   # first-parent diffs show what a merge adds, including text written while resolving a conflict;
   # --no-renames and --text keep renamed and binary content in the "+" lines.
+  # BSD awk ends a line at a NUL byte, so every git output it reads has NUL turned into a space.
   git -c core.quotepath=off log -p -U0 --diff-merges=first-parent --no-renames --text --no-color --no-ext-diff \
-    --no-textconv --format="$mark%h" --stdin < "$work/revs" > "$work/patch" || fail "git log -p failed for $lref (fail-closed)"
-  git log --format="$mark%h%n%B" --stdin < "$work/revs" > "$work/msgs" || fail "git log failed for $lref (fail-closed)"
+    --no-textconv --format="$mark%h" --stdin < "$work/revs" | tr '\000' ' ' > "$work/patch" || fail "git log -p failed for $lref (fail-closed)"
+  git log --format="$mark%h%n%B" --stdin < "$work/revs" | tr '\000' ' ' > "$work/msgs" || fail "git log failed for $lref (fail-closed)"
   # An annotated tag (or a chain of them) carries a message of its own.
   obj=$lsha
   while [ "$(git cat-file -t "$obj")" = tag ]; do
     git cat-file tag "$obj" > "$work/tag" || fail "cannot read tag $obj (fail-closed)"
-    { echo "$mark$(git rev-parse --short "$obj")"; cat "$work/tag"; } >> "$work/msgs"
+    { echo "$mark$(git rev-parse --short "$obj")"; tr '\000' ' ' < "$work/tag"; } >> "$work/msgs"
     obj=$(awk 'NR == 1 { print $2 }' "$work/tag")
   done
   { git -c core.quotepath=off log --format= --name-only --no-renames --diff-merges=first-parent --stdin < "$work/revs" \

@@ -256,24 +256,8 @@ func runStatusline(args: [String]) -> Never {
     if let wrapIndex = args.firstIndex(of: "--wrap"), wrapIndex + 1 < args.count,
        let original = Data(base64Encoded: args[wrapIndex + 1])
            .flatMap({ String(data: $0, encoding: .utf8) }) {
-        var body = ""
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", original]
-        let stdinPipe = Pipe(), stdoutPipe = Pipe()
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-        if (try? process.run()) != nil {
-            stdinPipe.fileHandleForWriting.write(input)
-            try? stdinPipe.fileHandleForWriting.close()
-            let out = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            // The WHOLE output passes through - multi-line status lines keep every line and
-            // their layout (only line 1 survived at first, which would wreck them).
-            body = String(data: out, encoding: .utf8)?
-                .trimmingCharacters(in: .newlines) ?? ""
-        }
+        let body = wrappedBody(script: original, input: input,
+                               sessionID: sessionJSON?["session_id"] as? String)
         // No double identity: a status line that already names the account anywhere (by
         // nickname or by config-dir name) keeps its account rendering, gaining only the
         // working-state signals; otherwise the whole identity joins the LAST line, where a
@@ -321,6 +305,63 @@ func runStatusline(args: [String]) -> Never {
         .filter { !$0.isEmpty }
         .joined(separator: " \(dim)|\(reset) "))
     exit(0)
+}
+
+// MARK: - The wrapped script's output, cached per session
+
+let statuslineBodyDir = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/statusline-body")
+
+/// The user's own status line script's output for this render. Claude Code renders a busy session
+/// several times a second and every render used to run the wrapped script afresh, each run forking
+/// its own handful of children (sh, sed, head, lsof...), across every session on the machine. So a
+/// session's body is reused for 2 seconds; Tally's own pieces around it are still computed fresh.
+///
+/// ponytail: the line can lag up to 2 seconds behind, and the last render of a burst can keep a body
+/// up to 2 seconds older (a context percent one step behind) until the next refresh. No session id
+/// means no cache: the script runs every time, as before. An empty run is never cached.
+func wrappedBody(script: String, input: Data, sessionID: String?,
+                 dir: URL = statuslineBodyDir, now: Date = Date()) -> String {
+    let file = sessionID.flatMap { id -> URL? in
+        guard !id.isEmpty else { return nil }
+        let safe = id.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "_" }
+        return dir.appendingPathComponent(String(safe))
+    }
+    if let file,
+       let modified = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date,
+       case let age = now.timeIntervalSince(modified), age >= 0, age < 2,
+       let cached = try? String(contentsOf: file, encoding: .utf8) {
+        return cached
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", script]
+    let stdinPipe = Pipe(), stdoutPipe = Pipe()
+    process.standardInput = stdinPipe
+    process.standardOutput = stdoutPipe
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return "" }
+    stdinPipe.fileHandleForWriting.write(input)
+    try? stdinPipe.fileHandleForWriting.close()
+    let out = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    // The WHOLE output passes through - multi-line status lines keep every line and their layout
+    // (only line 1 survived at first, which would wreck them).
+    let body = String(data: out, encoding: .utf8)?.trimmingCharacters(in: .newlines) ?? ""
+    // An empty body is the only failure judged here: the exit status is not, because a status line
+    // script commonly ends on a false test and exits 1 with its whole line printed, and that line
+    // is shown either way.
+    if let file, !body.isEmpty {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Sweep on write only: a session id never comes back, so files a day old are dead weight.
+        for old in (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            if let at = try? old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+               now.timeIntervalSince(at) > 86_400 { try? FileManager.default.removeItem(at: old) }
+        }
+        try? Data(body.utf8).write(to: file, options: .atomic)
+    }
+    return body
 }
 
 // MARK: - The fleet pool slot in `tally status`

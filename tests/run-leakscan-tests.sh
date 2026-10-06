@@ -50,11 +50,34 @@ commit() {
   sha=$(git log -1 --format=%h)
 }
 
+# seed <bare repo> [<rev> <ref>]: create a bare repo standing in for a remote, optionally holding rev
+seed() {
+  [ -d "$1" ] || git init -q --bare "$1"
+  [ -z "${2:-}" ] || git -c core.hooksPath=/dev/null push -q "$1" "$2:$3"
+}
+
 # check <name> <expected rc> <remote sha> [exact stderr line]
+# Feeds the hook what git would: $1 the remote name, $2 the URL pushed to ($name and $url override).
 check() {
   local rc=0
-  printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$3" \
-    | "$HOOK" "${to:-origin}" "${to:-$work/remote.git}" > /dev/null 2> "$work/err" || rc=$?
+  printf '%s %s %s %s\n' "${lref:-refs/heads/main}" "${lsha:-$(git rev-parse HEAD)}" "${lref:-refs/heads/main}" "$3" \
+    | "$HOOK" "${name:-origin}" "${url:-$work/remote.git}" > /dev/null 2> "$work/err" || rc=$?
+  verdict "$1" "$2" "$rc" "${4:-}"
+}
+
+# realpush <name> <expected rc> <remote> [exact stderr line]: a real git push of the current branch,
+# so git itself resolves pushurl, pushInsteadOf and multiple urls before running the hook.
+realpush() {
+  local rc=0 b
+  b=refs/heads/$(git branch --show-current)
+  git -c core.hooksPath="$work/hooks" push -q "$3" "$b:$b" \
+    > /dev/null 2> "$work/err" || rc=$?
+  verdict "$1" "$2" "$rc" "${4:-}"
+}
+
+# verdict <name> <expected rc> <rc> [exact stderr line]
+verdict() {
+  local rc=$3
   if [ "$rc" != "$2" ]; then
     echo "FAIL $1: rc=$rc, expected $2"; sed 's/^/  | /' "$work/err"; failed=$((failed + 1)); return
   fi
@@ -64,7 +87,7 @@ check() {
   pass=$((pass + 1))
 }
 
-line() { printf 'refs/heads/main\t%s\t%s\t%s' "$1" "$2" "$3"; }
+line() { printf '%s\t%s\t%s\t%s' "${lref:-refs/heads/main}" "$1" "$2" "$3"; }
 
 mkdir -p "$fake"
 git init -q -b main "$repo"
@@ -82,6 +105,9 @@ git commit -q -m base
 base=$(git rev-parse HEAD)
 git update-ref refs/remotes/origin/main "$base"
 git config remote.origin.url "$work/remote.git"
+seed "$work/remote.git" "$base" refs/heads/main
+mkdir -p "$work/hooks"
+ln -s "$HOOK" "$work/hooks/pre-push"
 
 start c1; commit src/app.txt 'x FakeWidget07 y'
 check "added line, existing branch" 1 "$base" "$(line "$sha" src/app.txt 'x FakeWidget07 y')"
@@ -165,29 +191,95 @@ git commit -q -m merge
 git merge -q --no-ff --no-commit "$side2" > /dev/null 2>&1; git rm -q src/FakeWidget05.txt; git commit -q -m merge2
 check "private path added by a merge, then deleted" 1 "$base" "$(line - src/FakeWidget05.txt 'private path')"
 
+# What a new ref's target already has comes from the target itself, never from tracking refs.
 # Pushing to a URL: a commit that only a private remote has is still new to that URL.
 start c20; commit src/app.txt 'x FakeWidget12 y'
+seed "$work/private.git" HEAD refs/heads/c20; seed "$work/public.git" "$base" refs/heads/main
 git config remote.private.url "$work/private.git"
 git update-ref refs/remotes/private/c20 HEAD
-to=$work/public.git
+name=$work/public.git url=$work/public.git
 check "URL push, commit only on another remote" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget12 y')"
-to=$work/private.git
-check "URL push equal to a named remote that has the commit" 0 "$ZERO"
+name=$work/private.git url=$work/private.git
+check "URL push to a target that has the commit" 0 "$ZERO"
 git config remote.private.pushurl "$work/private.git"
-to=private
+name=private url=$work/private.git
 check "named push, pushurl equal to url" 0 "$ZERO"
 
-# A remote that fetches from the private repo but pushes to a public one: its tracking refs say
-# nothing about the push target.
+# A remote that fetches from the private repo but pushes to a public one.
 start c21; commit src/app.txt 'x FakeWidget13 y'
+seed "$work/private2.git" HEAD refs/heads/c21; seed "$work/public2.git" "$base" refs/heads/main
 git config remote.mixed.url "$work/private2.git"
 git config remote.mixed.pushurl "$work/public2.git"
 git update-ref refs/remotes/mixed/c21 HEAD
-to=mixed
+name=mixed url=$work/public2.git
 check "named push, pushurl differs from url" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget13 y')"
-to=$work/public2.git
+name=$work/public2.git
 check "URL push equal to a pushurl that differs from url" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget13 y')"
-to=
+lref=refs/heads/c21
+realpush "real push, pushurl differs from url" 1 mixed "$(line "$sha" src/app.txt 'x FakeWidget13 y')"
+
+# url.<x>.pushInsteadOf sends the push of a remote that fetches from a private repo elsewhere.
+start c22; commit src/app.txt 'x FakeWidget14 y'; lref=refs/heads/c22
+seed "$work/private3.git" HEAD refs/heads/c22; seed "$work/public3.git" "$base" refs/heads/main
+git config remote.rewritten.url "$work/private3.git"
+git config "url.$work/public3.git.pushInsteadOf" "$work/private3.git"
+git update-ref refs/remotes/rewritten/c22 HEAD
+realpush "pushInsteadOf rewrites the target" 1 rewritten "$(line "$sha" src/app.txt 'x FakeWidget14 y')"
+
+# A remote with two urls is pushed to both; the second one lacks the commit.
+start c23; commit src/app.txt 'x FakeWidget15 y'; lref=refs/heads/c23
+seed "$work/private4.git" HEAD refs/heads/c23; seed "$work/public4.git" "$base" refs/heads/main
+git config remote.multi.url "$work/private4.git"
+git config --add remote.multi.url "$work/public4.git"
+git update-ref refs/remotes/multi/c23 HEAD
+realpush "remote with two urls" 1 multi "$(line "$sha" src/app.txt 'x FakeWidget15 y')"
+lref=
+
+# A stale tracking ref: it says the target has the commit, the target does not.
+start c24; commit src/app.txt 'x FakeWidget16 y'
+git update-ref refs/remotes/origin/c24 HEAD
+name= url=
+check "stale tracking ref" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget16 y')"
+
+# A tip the target has but this clone lacks bounds nothing and must not break the listing.
+start c25; commit src/app.txt harmless
+git init -q "$work/other"; git -C "$work/other" -c user.email=o@example.com -c user.name=o commit -q --allow-empty -m other
+git -C "$work/other" -c core.hooksPath=/dev/null push -q "$work/remote.git" HEAD:refs/heads/foreign
+check "target tip unknown here" 0 "$ZERO"
+
+# The target cannot be listed: refuse.
+url=$work/missing.git
+check "target cannot be listed" 1 "$ZERO"
+command grep -qF "pre-push: cannot list $work/missing.git (fail-closed)" "$work/err" || { echo "FAIL target cannot be listed: no fail-closed reason"; failed=$((failed + 1)); }
+url=
+
+# An empty target: the whole history is new to it.
+start c26; commit src/app.txt 'x FakeWidget17 y'; seed "$work/empty.git"
+url=$work/empty.git
+check "empty target" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget17 y')"
+url=
+
+# An annotated tag on a published commit: the tag's own message is new.
+start c27; commit src/app.txt harmless; seed "$work/remote.git" HEAD refs/heads/c27
+git tag -a v27 -m 'release: quartz lantern'
+lref=refs/tags/v27 lsha=$(git rev-parse v27)
+check "annotated tag message" 1 "$ZERO" "$(line "$(git rev-parse --short v27)" COMMIT_MSG 'release: quartz lantern')"
+lref= lsha=
+
+# A rename moves allowed text out of the file it is allowed in; git log -p would show only the rename.
+start c28; commit README.md 'see quartz lantern'; prev=$(git rev-parse HEAD)
+git mv README.md docs/moved.md; git commit -q -m move; sha=$(git log -1 --format=%h)
+check "rename" 1 "$prev" "$(line "$sha" docs/moved.md 'see quartz lantern')"
+
+# Binary content: git log -p would print "Binary files differ".
+start c29; printf 'FakeWidget08\000\001\n' > src/blob.bin; git add src/blob.bin; git commit -q -m blob
+sha=$(git log -1 --format=%h)
+check "binary file" 1 "$base"
+command grep -qF "$(line "$sha" src/blob.bin FakeWidget08)" "$work/err" || { echo "FAIL binary file: no hit for src/blob.bin"; failed=$((failed + 1)); }
+
+# A message body line that looks like the old fixed commit separator.
+start c30; commit src/app.txt harmless "$(printf 'docs: note\n\n@@@commit FakeWidget02')"
+check "forged separator in a message" 1 "$base" "$(line "$sha" COMMIT_MSG '@@@commit FakeWidget02')"
 
 echo "leakscan: $pass passed, $failed failed"
 [ "$failed" = 0 ]

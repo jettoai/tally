@@ -1,9 +1,9 @@
 #!/bin/bash
 # pre-push: refuse to publish anything that belongs to the private overlay.
 #
-# For every pushed ref, over the commits the remote does not have yet, three things are read:
-#   1. every line those commits add (git log -p -U0, the "+" lines),
-#   2. their commit messages,
+# For every pushed ref, over the commits the push target does not have yet, three things are read:
+#   1. every line those commits add (git log -p -U0 --text --no-renames, the "+" lines),
+#   2. their commit messages, plus the message of every annotated tag pushed,
 #   3. the paths they touch, plus every path in the pushed tip tree.
 # The texts to look for come from the overlay (overlay/leak-terms prints them), so this public
 # file names nothing the overlay adds. Each printed line is tab separated:
@@ -12,23 +12,27 @@
 #   path   <path>         a file only the overlay has; a pushed path equal to it is refused
 #   dir    <dir>          a directory only the overlay has; a pushed path under it is refused
 #   allow  <ERE>  <a|b>   hits of exactly those texts in files whose path matches the ERE pass;
-#                         commit messages are matched under the path COMMIT_MSG
+#                         commit and tag messages are matched under the path COMMIT_MSG
 #
 # The scan is required when the main checkout has an overlay link, or when
 # `git config tally.leakguard` is "required" (scripts/hooks/install.sh --required). Required means a
 # missing, failing or short term list refuses the push. A contributor's clone has neither, so only
 # the generic overlay/ path check runs there and the push goes through.
 #
-# Published history is never rescanned: only commits the remote lacks are read.
+# Published history is never rescanned: for a new ref, what the target already has is read from the
+# target itself (git ls-remote on the URL git pushes to), never from local tracking refs.
 #
 # Known limits:
-#   - A push to a URL that matches no named remote, or to a remote whose pushurl differs from its
-#     url, scans the whole history (fail-closed).
-#   - A commit message body line starting with "@@@commit " is read as a commit separator.
+#   - A push to an empty or new repository scans the whole history, so an already published commit
+#     that carries a term refuses it (fail-closed).
+#   - A path git has to quote (quotes, control characters) matches no allow line, so its hits are
+#     refused (fail-closed).
+#   - Ref names themselves (a branch or lightweight tag name) are not scanned.
 set -uo pipefail
 # Byte-wise matching: BSD awk aborts on bytes that are not valid UTF-8 under a UTF-8 locale.
 export LC_ALL=C
-remote="$1"
+# $2 is the URL git pushes to, after pushurl and url.*.pushInsteadOf; $1 (the remote name) is not used.
+url="$2"
 ZERO=0000000000000000000000000000000000000000
 fail() { echo "pre-push: $*" >&2; exit 1; }
 
@@ -53,23 +57,21 @@ if [ "$required" = 1 ]; then
   done
 fi
 
-# Commits the remote lacks. A remote given as a URL counts as the named remote whose url or pushurl
-# equals it; with no such remote nothing is known to be there, so the whole history is scanned.
-name=
-if git config --get "remote.$remote.url" > /dev/null; then
-  name=$remote
-else
-  while read -r key val; do
-    if [ "$val" = "$remote" ]; then name=${key#remote.}; name=${name%.*}; break; fi
-  done < <(git config --get-regexp '^remote\..*\.(url|pushurl)$' || true)
-fi
-# Tracking refs follow the fetch url; a remote that pushes elsewhere tells nothing about the target.
-if [ -n "$name" ]; then
-  url=$(git config --get "remote.$name.url" || true)
-  while read -r pu; do [ "$pu" = "$url" ] || name=; done < <(git config --get-all "remote.$name.pushurl" || true)
-fi
-known=()
-if [ -n "$name" ]; then known=(--not "--remotes=$name"); fi
+# Separates commits in the generated listings; random per run, so no message or content can forge it.
+mark="@@@$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n') "
+[ ${#mark} = 36 ] || fail "cannot generate a separator (fail-closed)"
+
+# The tips the push target already has, kept as "^sha" lines when this clone has them as commits:
+# the boundary for a new ref. A tip this clone lacks (pushed by someone else) bounds nothing here.
+have=0
+boundary() {
+  [ "$have" = 1 ] && return
+  git ls-remote "$url" > "$work/tips" 2> "$work/lserr" || fail "cannot list $url (fail-closed)"
+  cut -f1 "$work/tips" | sort -u | git cat-file --batch-check='%(objectname) %(objecttype)' > "$work/types" \
+    || fail "cannot check the tips of $url (fail-closed)"
+  awk '$2 == "commit" { print "^" $1 }' "$work/types" > "$work/known" || fail "boundary failed (fail-closed)"
+  have=1
+}
 
 cat > "$work/scan.awk" <<'AWK'
 function allowed(f, t,   i) {
@@ -91,7 +93,7 @@ FILENAME == ARGV[1] {
   next
 }
 FILENAME == ARGV[2] {
-  if (index($0, "@@@commit ") == 1) { sha = substr($0, 11); next }
+  if (mark != "" && index($0, mark) == 1) { sha = substr($0, length(mark) + 1); next }
   # "+++ " names the file only in a diff header; inside a hunk an added "++ x" line prints the same.
   if (index($0, "diff --git ") == 1) { inhdr = 1; next }
   if (index($0, "@@ ") == 1) { inhdr = 0; next }
@@ -100,7 +102,7 @@ FILENAME == ARGV[2] {
   next
 }
 FILENAME == ARGV[3] {
-  if (index($0, "@@@commit ") == 1) { sha = substr($0, 11); next }
+  if (mark != "" && index($0, mark) == 1) { sha = substr($0, length(mark) + 1); next }
   scan("COMMIT_MSG", sha, $0)
   next
 }
@@ -115,15 +117,27 @@ AWK
 : > "$work/hits"
 while read -r lref lsha rref rsha; do
   [ "$lsha" = "$ZERO" ] && continue
-  if [ "$rsha" != "$ZERO" ]; then range=("$rsha..$lsha"); else range=("$lsha" ${known[@]+"${known[@]}"}); fi
-  # first-parent diffs show what a merge adds, including text written while resolving a conflict.
-  git -c core.quotepath=off log -p -U0 --diff-merges=first-parent --no-color --no-ext-diff --no-textconv --format='@@@commit %h' \
-    "${range[@]}" > "$work/patch" || fail "git log -p failed for $lref (fail-closed)"
-  git log --format='@@@commit %h%n%B' "${range[@]}" > "$work/msgs" || fail "git log failed for $lref (fail-closed)"
-  { git -c core.quotepath=off log --format= --name-only --diff-merges=first-parent "${range[@]}" \
+  if [ "$rsha" != "$ZERO" ]; then
+    echo "$rsha..$lsha" > "$work/revs"
+  else
+    boundary; { echo "$lsha"; cat "$work/known"; } > "$work/revs"
+  fi
+  # first-parent diffs show what a merge adds, including text written while resolving a conflict;
+  # --no-renames and --text keep renamed and binary content in the "+" lines.
+  git -c core.quotepath=off log -p -U0 --diff-merges=first-parent --no-renames --text --no-color --no-ext-diff \
+    --no-textconv --format="$mark%h" --stdin < "$work/revs" > "$work/patch" || fail "git log -p failed for $lref (fail-closed)"
+  git log --format="$mark%h%n%B" --stdin < "$work/revs" > "$work/msgs" || fail "git log failed for $lref (fail-closed)"
+  # An annotated tag (or a chain of them) carries a message of its own.
+  obj=$lsha
+  while [ "$(git cat-file -t "$obj")" = tag ]; do
+    git cat-file tag "$obj" > "$work/tag" || fail "cannot read tag $obj (fail-closed)"
+    { echo "$mark$(git rev-parse --short "$obj")"; cat "$work/tag"; } >> "$work/msgs"
+    obj=$(awk 'NR == 1 { print $2 }' "$work/tag")
+  done
+  { git -c core.quotepath=off log --format= --name-only --no-renames --diff-merges=first-parent --stdin < "$work/revs" \
       && git -c core.quotepath=off ls-tree -r --name-only "$lsha"; } > "$work/paths" \
     || fail "path listing failed for $lref (fail-closed)"
-  awk -F'\t' -v ref="$lref" -f "$work/scan.awk" "$work/terms" "$work/patch" "$work/msgs" "$work/paths" \
+  awk -F'\t' -v ref="$lref" -v mark="$mark" -f "$work/scan.awk" "$work/terms" "$work/patch" "$work/msgs" "$work/paths" \
     >> "$work/hits" || fail "scan failed for $lref (fail-closed)"
 done
 

@@ -4,8 +4,8 @@ import Foundation
 /// B-879: the clock the header's countdown reads when some other once-a-second redraw is already
 /// running, so the two land in one pass instead of two. The countdown's own `TimelineView` ticks on
 /// a phase of its own, and every tick redrew the whole panel for one changed word (measured
-/// 2026-10-04: 1.31 percent of a core with the compute pool showing, more than the pool's own
-/// redraw). Nobody drives it in the public build; the countdown then keeps its `TimelineView`.
+/// 2026-10-04: 1.31 percent of a core with a private build's panel section showing, more than that
+/// section's own redraw). Nobody drives it in the public build; the countdown then keeps its `TimelineView`.
 @MainActor @Observable
 final class SecondsClock {
     static let shared = SecondsClock()

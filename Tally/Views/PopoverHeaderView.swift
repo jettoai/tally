@@ -147,7 +147,7 @@ extension PopoverRootView {
                 // TimelineView re-evaluates every second so the countdown ticks live (a plain
                 // render would freeze it at whatever it said on open). A heartbeat, so it dims - and
                 // is dropped when the row is tight. B-879: while another once-a-second redraw drives
-                // `SecondsClock` (the compute pool), the countdown ticks on that redraw instead, so
+                // `SecondsClock` (a private build's panel section), the countdown ticks on that redraw instead, so
                 // the panel draws once a second rather than twice.
                 if showsCountdown {
                     if SecondsClock.shared.drivers > 0 {
@@ -369,7 +369,7 @@ extension PopoverRootView {
 }
 
 /// B-879: the countdown on `SecondsClock`, read in a view of its own so a tick re-runs the counter
-/// and not the header around it (the same reason the compute pool reads its store in `PoolStripHost`).
+/// and not the header around it (the same reason a private build's panel section reads its store in a view of its own).
 private struct ClockedCounter<Label: View>: View {
     let label: (Date) -> Label
     var body: some View { label(SecondsClock.shared.now) }

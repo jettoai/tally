@@ -157,7 +157,7 @@ check("the refresh button and its drag overlay share one action",
           && headerSource.components(separatedBy: "startRefresh()").count == 4)
 check("…and that action carries the disabled guard itself",
       headerSource.range(of: "func startRefresh() {\n        guard !isRefreshing else { return }") != nil)
-// 8b. B-879: while the compute pool's once-a-second redraw drives `SecondsClock`, the countdown
+// 8b. B-879: while a private build's once-a-second redraw drives `SecondsClock`, the countdown
 //     ticks on it (one panel pass a second, not two); without a driver it keeps its own timer.
 check("the countdown ticks on the pool's redraw while one drives the clock",
       headerSource.contains("if SecondsClock.shared.drivers > 0 {")

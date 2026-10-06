@@ -20,23 +20,23 @@ enum SurfaceTabLaunch {
     /// Gated exactly like `-TallyAppearance` and `-TallyPanelCapture`: a release instance somebody
     /// is actually using must open where its own state says, whatever arguments reach its defaults.
     ///
-    /// The page is named by the tab's own word, or a Cost page's (`SurfacePage.named`), matched without regard to
-    /// case, because the label is what whoever writes the capture command has in front of them. A
-    /// word this app has no page for is ignored rather than refused: the flag exists to save that
-    /// command a click, and failing the launch over a typo in one would cost the whole instance.
+    /// The page is named by the tab's own word, or a Cost page's (`SurfacePage.named`, which is
+    /// where `tokens` keeps meaning the token history now that it lives inside Cost), matched without
+    /// regard to case, because the label is what whoever writes the capture command has in front of
+    /// them. A word this app has no page for is ignored rather than refused: the flag exists to save
+    /// that command a click, and failing the launch over a typo in one would cost the whole instance.
     ///
     /// Falling back to `-TallyTokenGraphPreview`'s implied page, and after it rather than before:
     /// that flag says which ROW to unfold and the Cost tab's Tokens page follows from it, while this
     /// one is a statement about the page itself, so the more specific instruction wins when both
-    /// are given. The word itself is read by `SurfacePage.named`, which is where `tokens` keeps
-    /// meaning the token history now that it lives inside Cost.
+    /// are given.
     static var initialPage: SurfacePage {
-        let preview = TokenGraphPreview.project == nil
+        if DemoUsage.isActive || BuildVariant.isDev,
+           let raw = UserDefaults.standard.string(forKey: "TallyTab"),
+           let named = SurfacePage.named(raw) {
+            return named
+        }
+        return TokenGraphPreview.project == nil
             ? SurfacePage(tab: .usage) : SurfacePage(tab: .cost, costPage: .tokens)
-        guard DemoUsage.isActive || BuildVariant.isDev,
-              let raw = UserDefaults.standard.string(forKey: "TallyTab"),
-              let named = SurfacePage.named(raw)
-        else { return preview }
-        return named
     }
 }

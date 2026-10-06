@@ -49,8 +49,9 @@ struct CostTabPage: View {
 }
 
 /// The Cost page: the total and what it is made of, then one row per project, for the range chosen
-/// on the Cost tab's control line (`CostTabPage`). It reads the same priced cells `~/.tally/project-cost.json` is written from
-/// (TokenStatsStore), so the page and `tally cost` agree on a scan.
+/// on the Cost tab's control line (`CostTabPage`). It reads the same priced cells
+/// `~/.tally/project-cost.json` is written from (TokenStatsStore), so the page and `tally cost`
+/// agree on a scan.
 struct CostPage: View {
     @Bindable var store: TokenStatsStore
     var width: CGFloat

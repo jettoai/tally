@@ -129,6 +129,38 @@ pub fn tree_blocker(p: &Path, k: Kind) -> Option<&'static str> {
         if local.code != 0 || !local.out.trim().is_empty() {
             return Some("unpushed-local-ref");
         }
+        // A worktree registered outside p uses p as its common dir; deleting p breaks it.
+        let wl = g(p, &["worktree", "list", "--porcelain"]);
+        if wl.code != 0 {
+            return Some("git-error");
+        }
+        if wl.out.split("\n\n").skip(1).any(|e| e.starts_with("worktree ") && !e.lines().any(|l| l.starts_with("prunable"))) {
+            return Some("linked-worktree");
+        }
     }
-    None
+    // An ignored repo nested inside goes with p and is never in p's status; each must be clean too.
+    match nested_repos(p) {
+        Err(()) => Some("git-error"),
+        Ok(kids) => kids.iter().any(|(q, k)| tree_blocker(q, *k).is_some()).then_some("nested-repo"),
+    }
+}
+
+/// Every directory below p holding a `.git` entry (not descended into), symlinks not followed.
+/// Err when a directory cannot be read.
+fn nested_repos(p: &Path) -> Result<Vec<(std::path::PathBuf, Kind)>, ()> {
+    let (mut out, mut stack) = (Vec::new(), vec![p.to_path_buf()]);
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).map_err(|_| ())? {
+            let e = e.map_err(|_| ())?;
+            if e.file_name() == ".git" || !e.file_type().map_err(|_| ())?.is_dir() {
+                continue;
+            }
+            let q = e.path();
+            match std::fs::symlink_metadata(q.join(".git")) {
+                Ok(m) => out.push((q, if m.is_dir() { Kind::Clone } else { Kind::Worktree })),
+                Err(_) => stack.push(q),
+            }
+        }
+    }
+    Ok(out)
 }

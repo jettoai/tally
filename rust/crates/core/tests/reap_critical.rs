@@ -66,3 +66,46 @@ fn c3_clone_with_tag_only_commit_kept() {
     let (rc, out) = c.run(false);
     assert!(rc == 0 && cl.is_dir() && skipped(&c, &cl, "clone", "unpushed-local-ref"), "C3: rc={rc} out={out}");
 }
+
+/// A clean, pushed clone idle 25h (origin ignores `nested/`).
+fn pushed_clone(c: &Case) -> std::path::PathBuf {
+    let (origin, cl) = (c.dir.join("origin"), c.sp.join("clone"));
+    std::fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "-q"]);
+    std::fs::write(origin.join(".gitignore"), "nested/\n").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "base"]);
+    git(&c.dir, &["clone", "-q", origin.to_str().unwrap(), cl.to_str().unwrap()]);
+    cl
+}
+
+#[test]
+fn c4_clone_with_ignored_nested_repo_kept() {
+    let c = Case::new();
+    let cl = pushed_clone(&c);
+    let nested = cl.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    git(&nested, &["init", "-q"]);
+    std::fs::write(nested.join("unique.txt"), "only copy").unwrap();
+    git(&nested, &["add", "."]);
+    git(&nested, &["commit", "-q", "-m", "unique"]);
+    age(&cl, 25.0);
+    let (rc, out) = c.run(false);
+    assert!(
+        rc == 0 && nested.join("unique.txt").is_file() && skipped(&c, &cl, "clone", "nested-repo"),
+        "C4: rc={rc} out={out}"
+    );
+}
+
+#[test]
+fn c5_clone_backing_external_worktree_kept() {
+    let c = Case::new();
+    let cl = pushed_clone(&c);
+    let ext = c.dir.join("external-wt");
+    git(&cl, &["worktree", "add", "-q", "--detach", ext.to_str().unwrap()]);
+    std::fs::write(ext.join("uncommitted.txt"), "active external work").unwrap();
+    age(&cl, 25.0);
+    c.set_proc(&format!("argv:/bin/zsh\ncwd:{}\n", ext.display()));
+    let (rc, out) = c.run(false);
+    assert!(rc == 0 && cl.is_dir() && skipped(&c, &cl, "clone", "linked-worktree"), "C5: rc={rc} out={out}");
+}

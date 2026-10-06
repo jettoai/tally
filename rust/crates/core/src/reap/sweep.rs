@@ -76,7 +76,7 @@ impl Ctx<'_> {
             Ok(()) => Ok(true),
             Err(e) => {
                 let why = format!("{:?}: {e}", e.kind());
-                self.act("error", &p.to_string_lossy(), kind, &why, vec![("session", Val::S(sid.into()))])?;
+                self.act("error", &p.to_string_lossy(), kind, &why, vec![session(sid)])?;
                 Ok(false)
             }
         }
@@ -139,7 +139,7 @@ fn sweep_inner(o: &Opts, out: &mut dyn Write) -> Result<i32, Stop> {
     for (sid, sd) in &sessions {
         let is_live = live.as_ref().is_none_or(|l| l.contains(sid));
         let scratch = sd.join("scratchpad");
-        let found = if scratch.is_dir() { targets(&scratch) } else { vec![] };
+        let found = targets(&scratch);
         for (p, _) in found.iter().filter(|t| t.1 == Kind::Dd) {
             let idle = if is_live { DD_IDLE_LIVE } else { DD_IDLE_DEAD };
             let la = if dd_root(p) { last_accessed(p) } else { None };
@@ -191,7 +191,7 @@ fn sweep_inner(o: &Opts, out: &mut dyn Write) -> Result<i32, Stop> {
         if !sd.is_dir() || !inside(&o.root, sd, 2) {
             continue;
         }
-        let left = if scratch.is_dir() { targets(&scratch) } else { vec![] };
+        let left = targets(&scratch);
         if left.iter().any(|(q, k)| *k != Kind::Dd && q.is_dir()) {
             continue;
         }

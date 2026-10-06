@@ -1,7 +1,7 @@
 //! The signals other than file age: which sessions are live, which paths a process names, and
 //! whether a git tree holds anything that exists nowhere else.
 use super::scan::{self, Kind};
-use super::{fsutil, Abstain, TRANSCRIPT_LIVE};
+use super::{fsutil, truthy, Abstain, TRANSCRIPT_LIVE};
 use crate::git;
 use std::collections::HashSet;
 use std::path::Path;
@@ -39,19 +39,6 @@ pub fn live_sessions(status_text: &str, projects: &Path, now: f64, sids: &[Strin
         }
     }
     Some(live)
-}
-
-/// Python truthiness of a JSON value.
-fn truthy(v: Option<&serde_json::Value>) -> bool {
-    use serde_json::Value::*;
-    match v {
-        None | Some(Null) => false,
-        Some(Bool(b)) => *b,
-        Some(Number(n)) => n.as_f64().is_none_or(|f| f != 0.0),
-        Some(String(s)) => !s.is_empty(),
-        Some(Array(a)) => !a.is_empty(),
-        Some(Object(o)) => !o.is_empty(),
-    }
 }
 
 /// One ps and one lsof snapshot: (every argv joined by newlines, every process cwd).

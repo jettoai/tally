@@ -1,7 +1,7 @@
 //! `tally reap --report`: per day and project, the size at the first run of the day, the change
 //! from the previous day, what was reaped that day, and gross new = change + reaped. Days are in
 //! local time. Dry-run lines are ignored.
-use super::Opts;
+use super::{truthy, Opts};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{c_char, c_int, c_long};
 use std::io::Write;
@@ -27,34 +27,12 @@ extern "C" {
 
 /// `time.strftime("%Y-%m-%d", time.localtime(ts))`.
 fn local_day(ts: i64) -> String {
-    let mut tm = Tm {
-        tm_sec: 0,
-        tm_min: 0,
-        tm_hour: 0,
-        tm_mday: 0,
-        tm_mon: 0,
-        tm_year: 0,
-        tm_wday: 0,
-        tm_yday: 0,
-        tm_isdst: 0,
-        tm_gmtoff: 0,
-        tm_zone: std::ptr::null(),
-    };
+    // All-zero is a valid Tm: integers and a null tm_zone.
+    let mut tm: Tm = unsafe { std::mem::zeroed() };
     if unsafe { localtime_r(&ts, &mut tm) }.is_null() {
         return String::new();
     }
     format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
-}
-
-fn truthy(v: Option<&serde_json::Value>) -> bool {
-    match v {
-        None | Some(serde_json::Value::Null) => false,
-        Some(serde_json::Value::Bool(b)) => *b,
-        Some(serde_json::Value::Number(n)) => n.as_f64().is_none_or(|f| f != 0.0),
-        Some(serde_json::Value::String(s)) => !s.is_empty(),
-        Some(serde_json::Value::Array(a)) => !a.is_empty(),
-        Some(serde_json::Value::Object(o)) => !o.is_empty(),
-    }
 }
 
 pub fn report(o: &Opts, out: &mut dyn Write) -> i32 {

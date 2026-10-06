@@ -130,14 +130,14 @@ pub fn busy_since(p: &Path, cutoff: f64) -> bool {
                 failed = true;
                 continue;
             };
+            if name == ".git" {
+                continue;
+            }
             let is_dir = if ft.is_symlink() {
                 fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false)
             } else {
                 ft.is_dir()
             };
-            if name == ".git" {
-                continue;
-            }
             if is_dir {
                 if !ft.is_symlink() {
                     stack.push(path);

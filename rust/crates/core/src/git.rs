@@ -42,17 +42,8 @@ pub fn run(cwd: &Path, args: &[&str], timeout: Duration) -> CommandResult {
         }
     };
     // Drain both pipes on threads so a chatty git cannot block on a full pipe while we wait.
-    let drain = |pipe: Option<Box<dyn Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut s = String::new();
-            if let Some(mut p) = pipe {
-                let _ = p.read_to_string(&mut s);
-            }
-            s
-        })
-    };
-    let to = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let te = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let to = drain(child.stdout.take());
+    let te = drain(child.stderr.take());
     let start = Instant::now();
     let code = loop {
         match child.try_wait() {
@@ -69,6 +60,16 @@ pub fn run(cwd: &Path, args: &[&str], timeout: Duration) -> CommandResult {
     let out = to.join().unwrap_or_default();
     let err = te.join().unwrap_or_default();
     CommandResult { out: out.trim().to_string(), err: err.trim().to_string(), code }
+}
+
+fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(mut p) = pipe {
+            let _ = p.read_to_string(&mut s);
+        }
+        s
+    })
 }
 
 /// `git worktree remove [--force] <path>` run in `main_repo`. The single implementation behind

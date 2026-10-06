@@ -136,6 +136,19 @@ pub(crate) fn now_secs() -> f64 {
         .unwrap_or(0.0)
 }
 
+/// Python truthiness of a JSON value.
+pub(crate) fn truthy(v: Option<&serde_json::Value>) -> bool {
+    use serde_json::Value::*;
+    match v {
+        None | Some(Null) => false,
+        Some(Bool(b)) => *b,
+        Some(Number(n)) => n.as_f64().is_none_or(|f| f != 0.0),
+        Some(String(s)) => !s.is_empty(),
+        Some(Array(a)) => !a.is_empty(),
+        Some(Object(o)) => !o.is_empty(),
+    }
+}
+
 /// Lower-case 8-4-4-4-12 hex, the shape of a Claude Code session id.
 pub(crate) fn is_uuid(s: &str) -> bool {
     let b = s.as_bytes();

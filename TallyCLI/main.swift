@@ -472,8 +472,8 @@ case resuperviseCommand:   // internal: a supervisor replacing itself after an a
     runResupervise(args: Array(arguments.dropFirst()))
 case "completion":
     exit(runCompletion(args: Array(arguments.dropFirst())))
-case "update":
-    runUpdate()
+case "update": runUpdate()
+case "cost": exit(runCost(args: Array(arguments.dropFirst())))
 case "add":
     runAdd(args: Array(arguments.dropFirst()))
 // Commands a private build adds (OverlayCLI.swift); the public build has none.

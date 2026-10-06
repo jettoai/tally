@@ -274,7 +274,7 @@ extension PopoverRootView {
         // is the only read of the roster a surface on any other tab makes.
         let waiting = SessionRosterStore.shared.blockedCount > 0
         return NeutralSegmentedPicker(selection: $tabState.tab,
-                                      options: SurfaceTab.shown,
+                                      options: SurfaceTab.allCases,
                                       size: .mini,
                                       dragsWindow: true,
                                       // The same red the board draws a blocked session with, and

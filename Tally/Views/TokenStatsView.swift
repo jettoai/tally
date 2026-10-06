@@ -79,25 +79,14 @@ struct TokenStatsView: View {
     /// survives the rebuild a range switch causes). View state on purpose: the graph is something
     /// the reader opened while looking, not a setting, and a closed panel starts clean.
     @State private var expandedProjects: Set<String> = []
-    /// Layout 2's Tokens/Cost switch (`CostLayout`); it opens on Cost, since the flag that shows
-    /// it exists to look at that.
-    @State private var unit: TokenStatsUnit = .cost
     /// A need, not a preference - the same rule the rest of the surface follows.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.sectionSpacing) {
-            HStack {
-                if CostLayout.current == .tokensSwitch {
-                    NeutralSegmentedPicker(selection: $unit, options: TokenStatsUnit.allCases,
-                                           size: .small) { $0.label }
-                }
-                rangePicker
-            }
+            rangePicker
             if isRangeEmpty {
                 emptyState
-            } else if CostLayout.current == .tokensSwitch && unit == .cost {
-                TokenCostModeView(cost: store.cost)
             } else {
                 headline
                 if !store.summary.providers.isEmpty { providers }

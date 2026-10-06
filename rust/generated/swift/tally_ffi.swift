@@ -1203,6 +1203,80 @@ public func FfiConverterTypeFfiBucket_lower(_ value: FfiBucket) -> RustBuffer {
 }
 
 
+public struct FfiCostCell: Equatable, Hashable {
+    public var day: Int64
+    public var project: String
+    public var providerId: String
+    public var model: String
+    public var subagent: Bool
+    public var cost: Double?
+    public var tokens: FfiTotals
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(day: Int64, project: String, providerId: String, model: String, subagent: Bool, cost: Double?, tokens: FfiTotals) {
+        self.day = day
+        self.project = project
+        self.providerId = providerId
+        self.model = model
+        self.subagent = subagent
+        self.cost = cost
+        self.tokens = tokens
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCostCell: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCostCell: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCostCell {
+        return
+            try FfiCostCell(
+                day: FfiConverterInt64.read(from: &buf), 
+                project: FfiConverterString.read(from: &buf), 
+                providerId: FfiConverterString.read(from: &buf), 
+                model: FfiConverterString.read(from: &buf), 
+                subagent: FfiConverterBool.read(from: &buf), 
+                cost: FfiConverterOptionDouble.read(from: &buf), 
+                tokens: FfiConverterTypeFfiTotals.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCostCell, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.day, into: &buf)
+        FfiConverterString.write(value.project, into: &buf)
+        FfiConverterString.write(value.providerId, into: &buf)
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterBool.write(value.subagent, into: &buf)
+        FfiConverterOptionDouble.write(value.cost, into: &buf)
+        FfiConverterTypeFfiTotals.write(value.tokens, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostCell_lift(_ buf: RustBuffer) throws -> FfiCostCell {
+    return try FfiConverterTypeFfiCostCell.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostCell_lower(_ value: FfiCostCell) -> RustBuffer {
+    return FfiConverterTypeFfiCostCell.lower(value)
+}
+
+
 public struct FfiCostParts: Equatable, Hashable {
     public var input: Double
     public var cacheWrite: Double
@@ -2472,6 +2546,31 @@ fileprivate struct FfiConverterSequenceTypeFfiBucket: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiCostCell: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiCostCell]
+
+    public static func write(_ value: [FfiCostCell], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiCostCell.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiCostCell] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiCostCell]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiCostCell.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiCostProject: FfiConverterRustBuffer {
     typealias SwiftType = [FfiCostProject]
 
@@ -2827,6 +2926,28 @@ public func tokenLocalDay(epochSeconds: Int64, offsetSeconds: Int32) -> Int64  {
     )
 })
 }
+/**
+ * The row label each project key gets in the Tokens tab (summary::row_names), for a set of keys.
+ */
+public func tokenProjectNames(keys: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tally_ffi_fn_func_token_project_names(
+        FfiConverterSequenceString.lower(keys),uniffiCallStatus
+    )
+})
+}
+/**
+ * Every sample priced at the grain `~/.tally/project-cost.json` is written at (cost::cost_cells).
+ */
+public func tokenStatsCostCells(samples: [FfiSample]) -> [FfiCostCell]  {
+    return try!  FfiConverterSequenceTypeFfiCostCell.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tally_ffi_fn_func_token_stats_cost_cells(
+        FfiConverterSequenceTypeFfiSample.lower(samples),uniffiCallStatus
+    )
+})
+}
 public func tokenStatsFileBuckets(path: String, provider: String, map: TokenProjectMapCore, host: TokenStatsHost) -> [FfiBucket]  {
     return try!  FfiConverterSequenceTypeFfiBucket.lift(try! rustCall() {
         uniffiCallStatus in
@@ -2930,6 +3051,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tally_ffi_checksum_func_token_local_day() != 33908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tally_ffi_checksum_func_token_project_names() != 5273) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tally_ffi_checksum_func_token_stats_cost_cells() != 49975) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tally_ffi_checksum_func_token_stats_file_buckets() != 34680) {

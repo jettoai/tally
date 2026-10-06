@@ -398,6 +398,16 @@ RustBuffer uniffi_tally_ffi_fn_func_token_daily_totals(RustBuffer samples, RustB
 int64_t uniffi_tally_ffi_fn_func_token_local_day(int64_t epoch_seconds, int32_t offset_seconds, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_PROJECT_NAMES
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_PROJECT_NAMES
+RustBuffer uniffi_tally_ffi_fn_func_token_project_names(RustBuffer keys, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_COST_CELLS
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_COST_CELLS
+RustBuffer uniffi_tally_ffi_fn_func_token_stats_cost_cells(RustBuffer samples, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_FILE_BUCKETS
 #define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_FILE_BUCKETS
 RustBuffer uniffi_tally_ffi_fn_func_token_stats_file_buckets(RustBuffer path, RustBuffer provider, uint64_t map, uint64_t host, RustCallStatus *_Nonnull out_status
@@ -740,6 +750,18 @@ uint16_t uniffi_tally_ffi_checksum_func_token_daily_totals(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_LOCAL_DAY
 #define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_LOCAL_DAY
 uint16_t uniffi_tally_ffi_checksum_func_token_local_day(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_PROJECT_NAMES
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_PROJECT_NAMES
+uint16_t uniffi_tally_ffi_checksum_func_token_project_names(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_STATS_COST_CELLS
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_STATS_COST_CELLS
+uint16_t uniffi_tally_ffi_checksum_func_token_stats_cost_cells(void
     
 );
 #endif

@@ -16692,35 +16692,6 @@
         }
       }
     },
-    "Total cost": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "總成本"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "总成本"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合計コスト"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "총 비용"
-          }
-        }
-      }
-    },
     "Total cost (%@)": {
       "extractionState": "manual",
       "localizations": {
@@ -16953,6 +16924,35 @@
         }
       }
     },
+    "$/M tok is the blended price per million tokens: high where a project runs on dearer models": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$/百萬 tok 是每百萬 token 的混合單價：專案用的模型越貴，這個數字越高"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$/百万 tok 是每百万 token 的混合单价：项目用的模型越贵，这个数字越高"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$/100万 tok は 100 万トークンあたりの平均単価です。高価なモデルを使うプロジェクトほど高くなります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$/백만 tok 은 토큰 100만 개당 평균 단가입니다. 비싼 모델을 쓰는 프로젝트일수록 높아집니다"
+          }
+        }
+      }
+    },
     "vs prev": {
       "extractionState": "manual",
       "localizations": {
@@ -16978,93 +16978,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이전 대비"
-          }
-        }
-      }
-    },
-    "Other models": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他模型"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他模型"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他のモデル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기타 모델"
-          }
-        }
-      }
-    },
-    "Main %1$@ · Subagents %2$@": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "主迴圈 %1$@ · Subagent %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "主循环 %1$@ · Subagent %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メイン %1$@ · サブ %2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "메인 %1$@ · 서브 %2$@"
-          }
-        }
-      }
-    },
-    "Not priced": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未定價"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未定价"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "価格未設定"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가격 미정"
           }
         }
       }

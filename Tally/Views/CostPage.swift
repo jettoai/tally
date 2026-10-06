@@ -1,24 +1,8 @@
 import SwiftUI
 
-/// Which of the three candidate cost layouts this instance shows (`-TallyCostLayout 1|2|3`, demo or
-/// dev builds only, argument domain so nothing persists). Unset on every release launch, where no
-/// cost view exists at all until one layout is chosen.
-///
-/// 1: a ranked table on its own Cost page. 2: a Tokens/Cost switch inside the Tokens page.
-/// 3: project cards with a model split on their own Cost page.
-enum CostLayout: Int {
-    case table = 1, tokensSwitch, cards
-
-    static var current: CostLayout? {
-        guard DemoUsage.isActive || BuildVariant.isDev else { return nil }
-        return CostLayout(rawValue: UserDefaults.standard.integer(forKey: "TallyCostLayout"))
-    }
-
-    /// Layouts 1 and 3 are a page of their own; layout 2 lives inside the Tokens page.
-    var hasOwnTab: Bool { self != .tokensSwitch }
-}
-
-/// The Cost page: whichever own-page layout is on, under the Tokens tab's range switch.
+/// The Cost page: the total and what it is made of, then one row per project, under the Tokens
+/// tab's range switch. It reads the same priced cells `~/.tally/project-cost.json` is written from
+/// (TokenStatsStore), so the page and `tally cost` agree on a scan.
 struct CostPage: View {
     @Bindable var store: TokenStatsStore
     var width: CGFloat
@@ -30,8 +14,6 @@ struct CostPage: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             if store.hasScanned && store.cost.isEmpty {
                 CostEmptyState()
-            } else if CostLayout.current == .cards {
-                CostCardsView(cost: store.cost, range: store.range)
             } else {
                 CostHeadline(cost: store.cost, range: store.range)
                 CostTableView(cost: store.cost, range: store.range)
@@ -42,7 +24,8 @@ struct CostPage: View {
     }
 }
 
-/// Total cost, the subagent part of it, and what it leaves out.
+/// Total cost, the subagent part of it, what it leaves out, and the four token classes it is made of
+/// (which shows at a glance whether the money goes on cache reads).
 struct CostHeadline: View {
     var cost: CostSummary
     var range: TokenStatsRange
@@ -62,11 +45,34 @@ struct CostHeadline: View {
                     .foregroundStyle(.secondary)
             }
             CostCaveats(cost: cost)
+            Divider().padding(.vertical, 6)
+            HStack(alignment: .top, spacing: 0) {
+                part(L("Input"), cost.parts.input)
+                part(L("Cache write"), cost.parts.cacheWrite)
+                part(L("Cache read"), cost.parts.cacheRead)
+                part(L("Output"), cost.parts.output)
+            }
         }
         .padding(.horizontal, TallyMetrics.cardPaddingH)
         .padding(.vertical, TallyMetrics.cardPaddingV)
         .frame(maxWidth: .infinity, alignment: .leading)
         .tallyCard()
+    }
+}
+
+extension CostHeadline {
+    private func part(_ label: String, _ value: Double) -> some View {
+        let share = UsageFormat.sharePercent(value / max(cost.total, 0.000_001))
+        return VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(CostFormat.dollars(value)).font(.callout.weight(.medium)).monospacedDigit()
+                Text(share).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(label), \(CostFormat.dollars(value)), \(share)"))
     }
 }
 
@@ -108,7 +114,7 @@ struct CostEmptyState: View {
     }
 }
 
-/// Layout 1: one row per project, ranked by cost, with the figures to compare them by.
+/// One row per project, ranked by cost, with the figures to compare them by.
 struct CostTableView: View {
     var cost: CostSummary
     var range: TokenStatsRange
@@ -126,6 +132,7 @@ struct CostTableView: View {
                 change: Text(range == .all ? "" : L("vs prev")))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .tallyTooltip(L("$/M tok is the blended price per million tokens: high where a project runs on dearer models"))
             Divider()
             ForEach(cost.projects) { p in
                 row(name: Text(p.name).foregroundStyle(p.isOther ? Color.secondary.opacity(0.7) : .primary),
@@ -137,6 +144,7 @@ struct CostTableView: View {
                     change: changeText(p))
                     .font(.footnote.monospacedDigit())
                     .tallyTooltip(p.isOther ? L("Scratch directories and sessions with no project") : p.key)
+                    .accessibilityElement(children: .combine)
             }
         }
         .padding(.horizontal, TallyMetrics.cardPaddingH)

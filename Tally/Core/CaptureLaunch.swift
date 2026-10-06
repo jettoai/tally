@@ -45,7 +45,6 @@ enum CaptureLaunch {
         // Surfaces held open so they can be photographed without synthesized input.
         "TallyPanelCapture",    // the pinned usage panel
         "TallyTab",             // which of that surface's pages it opens on (SurfaceTabLaunch)
-        "TallyCostLayout",      // which candidate cost layout is on (CostLayout)
         // The Settings window, and which pane it opens on: one flag rather than two, because the
         // pane is the value it carries (SettingsCaptureLaunch).
         settingsCapture,

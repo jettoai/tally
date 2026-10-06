@@ -11,8 +11,9 @@ import SwiftUI
 /// What a surface is showing. Not a window concept: the popover, the pinned panel and the dashboard
 /// window are all this same view, and all three can be flipped to any of its pages and back.
 ///
-/// The three answer three different questions and are deliberately not merged: how much quota is
-/// left, where the tokens went, and what is running right now (`SessionBoardView`).
+/// The four answer four different questions and are deliberately not merged: how much quota is
+/// left, where the tokens went, what is running right now (`SessionBoardView`), and what the tokens
+/// cost at list prices (`CostPage`).
 enum SurfaceTab: String, CaseIterable, Identifiable {
     case usage, tokens, sessions, cost
     var id: String { rawValue }
@@ -23,12 +24,6 @@ enum SurfaceTab: String, CaseIterable, Identifiable {
         case .sessions: return L("Sessions")
         case .cost: return L("Cost")
         }
-    }
-
-    /// The pages the header switch offers. Cost is a layout candidate shown only under its dev or
-    /// demo flag, and only for the layouts that are a page of their own (`CostLayout`).
-    static var shown: [SurfaceTab] {
-        CostLayout.current?.hasOwnTab == true ? allCases : allCases.filter { $0 != .cost }
     }
 }
 

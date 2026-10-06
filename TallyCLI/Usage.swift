@@ -37,6 +37,10 @@ usage:
                             `show` / `list` / `clear` round it out
   tally status [--json]     show every account's remaining windows (--json: versioned
                             machine-readable report for scripts, hooks, agent skills)
+  tally cost [--json] [--days N | --range today|7d|30d|all]
+                            what each project's tokens cost at list prices (default 7d), read
+                            from the snapshot Tally writes after each token scan; --json is the
+                            versioned contract (costUSD null = not priced, stale after 15 min)
   tally best-dir <provider> print the export line for the best account
   tally launch-dir <provider> shim interface: like best-dir but honours the app's
                             launch policy (off → prints nothing)

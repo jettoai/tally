@@ -104,7 +104,9 @@ subscriptions at once:
   to the project they served. Click a project row and it opens into a year of daily activity, a
   contribution-style heatmap graded on that project's own scale, with each day's total a hover
   away. Read from the CLIs' own local transcripts, aggregated behind an incremental cache (a
-  refresh with nothing new costs well under a second), and it never leaves your machine.
+  refresh with nothing new costs well under a second), and it never leaves your machine. A Cost
+  tab beside it prices those tokens at Anthropic's list prices, per project, with the input / cache
+  write / cache read / output split, and `tally cost --json` hands the same figures to scripts.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
 - **Login health at a glance.** Hover a card for the account's signed-in email. Signed-out

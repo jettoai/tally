@@ -18,7 +18,7 @@ final class TokenStatsStore {
     }
 
     private(set) var summary = TokenStatsSummary()
-    /// The cost view's input, built only while a cost layout is on (`CostLayout`).
+    /// The Cost page's input for the selected range.
     private(set) var cost = CostSummary()
     private(set) var isScanning = false
     /// True until the first scan of this app run has produced numbers - what separates "nothing
@@ -46,6 +46,7 @@ final class TokenStatsStore {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 samples = scanned
+                CostSnapshotWriter.publish(samples: scanned)
                 isScanning = false
                 hasScanned = true
                 rebuild()
@@ -68,6 +69,6 @@ final class TokenStatsStore {
 
     private func rebuild() {
         summary = TokenStatsSummary.make(samples: samples, range: range)
-        if CostLayout.current != nil { cost = CostSummary.make(samples: samples, range: range) }
+        cost = CostSummary.make(samples: samples, range: range)
     }
 }

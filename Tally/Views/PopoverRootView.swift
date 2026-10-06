@@ -164,7 +164,7 @@ struct PopoverRootView: View {
                         .transition(tabTransition)
                     }
                     if tab == .cost {
-                        // A cost layout candidate (`CostLayout`), dev and demo builds only.
+                        // WHAT THE TOKENS COST, by project (CostPage.swift).
                         ScrollView(.vertical) {
                             CostPage(store: tokens, width: scrollContentWidth)
                                 .onAppear { tokens.refresh() }

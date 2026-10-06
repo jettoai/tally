@@ -317,6 +317,7 @@ _tally() {
     "worktree:the main repo and its worktrees, and the teardown of a merged one"
     "project:declare what this project launches, overriding the app defaults"
     "status:every account's remaining windows, with --json for scripts"
+    "cost:what each project's tokens cost, with --json for scripts"
     "best-dir:print the export line for the best account"
     "launch-dir:like best-dir, but honouring the app's launch policy"
     "add:log in one more account in the next free config home"
@@ -385,6 +386,8 @@ _tally() {
         (harness) _tally_harness_command ;;
         (inbox) _tally_inbox_command ;;
         (status) _arguments "--json[versioned machine-readable report for scripts and hooks]" ;;
+        (cost) _arguments "--json[versioned machine-readable report for scripts]" \
+          "(--range)--days[the last N days, 1 to 90]:days:" "(--days)--range[a preset range]:range:(today 7d 30d all)" ;;
         # `switch` is the name `account` shipped under. Still answered here, as the dispatch still
         # answers it, but deliberately absent from the list above: it is not the name to learn.
         (account|switch)

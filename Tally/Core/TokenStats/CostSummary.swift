@@ -10,8 +10,6 @@ struct CostSummary: Sendable {
     var unpricedTurns: Int64 = 0
     var providers: [ProviderRow] = []
     var projects: [ProjectRow] = []
-    /// Days per bar of each row's `series`: 1, or 7 for the whole history.
-    var barDays = 1
 
     var total: Double { parts.total }
     var isEmpty: Bool { total <= 0 && !providers.contains { !$0.tokens.isEmpty } }
@@ -28,24 +26,14 @@ struct CostSummary: Sendable {
         var id: String { providerID }
     }
 
-    struct ModelCost: Sendable {
-        /// The price table key, e.g. `claude-opus-5-5`.
-        var model: String
-        var cost: Double
-    }
-
     struct ProjectRow: Identifiable, Sendable {
         var key: String
         var name: String
         var cost: Double
         var share: Double
         var tokens: TokenTotals
-        var mainCost: Double
-        var subagentCost: Double
         /// The window of equal length just before this one; nil for All and for Other.
         var previousCost: Double?
-        var byModel: [ModelCost]
-        var series: [Double]
         var id: String { key }
         var isOther: Bool { key == TokenProject.otherKey }
     }
@@ -66,11 +54,8 @@ struct CostSummary: Sendable {
                 ProjectRow(key: $0.key,
                            name: $0.isOther ? TokenProject.displayName(forKey: TokenProject.otherKey) : $0.name,
                            cost: $0.cost, share: $0.share, tokens: TokenTotals($0.tokens),
-                           mainCost: $0.mainCost, subagentCost: $0.subagentCost, previousCost: $0.previousCost,
-                           byModel: $0.byModel.map { ModelCost(model: $0.model, cost: $0.cost) },
-                           series: $0.series)
-            },
-            barDays: Int(made.barDays))
+                           previousCost: $0.previousCost)
+            })
     }
 }
 
@@ -85,14 +70,6 @@ enum CostFormat {
         f.minimumFractionDigits = digits
         f.maximumFractionDigits = digits
         return "$" + (f.string(from: NSNumber(value: value)) ?? "0")
-    }
-
-    /// `claude-opus-5-5` reads "Opus 5.5".
-    static func modelName(_ key: String) -> String {
-        let parts = key.replacingOccurrences(of: "claude-", with: "").split(separator: "-")
-        guard let family = parts.first else { return key }
-        let version = parts.dropFirst().joined(separator: ".")
-        return family.prefix(1).uppercased() + family.dropFirst() + (version.isEmpty ? "" : " " + version)
     }
 
     /// The change against the previous window, e.g. "+12%", or nil when there is nothing to compare.

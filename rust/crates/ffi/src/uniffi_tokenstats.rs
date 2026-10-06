@@ -327,6 +327,32 @@ pub fn token_stats_summarize_cost(samples: Vec<FfiSample>, day_count: Option<u32
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiCostCell {
+    pub day: i64,
+    pub project: String,
+    pub provider_id: String,
+    pub model: String,
+    pub subagent: bool,
+    pub cost: Option<f64>,
+    pub tokens: FfiTotals,
+}
+
+/// Every sample priced at the grain `~/.tally/project-cost.json` is written at (cost::cost_cells).
+#[uniffi::export]
+pub fn token_stats_cost_cells(samples: Vec<FfiSample>) -> Vec<FfiCostCell> {
+    cost::cost_cells(&samples_in(samples)).into_iter()
+        .map(|c| FfiCostCell { day: c.day, project: c.project, provider_id: c.provider_id, model: c.model,
+                               subagent: c.subagent, cost: c.cost, tokens: totals_out(c.tokens) })
+        .collect()
+}
+
+/// The row label each project key gets in the Tokens tab (summary::row_names), for a set of keys.
+#[uniffi::export]
+pub fn token_project_names(keys: Vec<String>) -> Vec<String> {
+    summary::row_names(&keys.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
 #[uniffi::export]
 pub fn token_daily_totals(samples: Vec<FfiSample>, project: String) -> HashMap<i64, i64> {
     heatmap::daily_totals(&samples_in(samples), &project)

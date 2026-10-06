@@ -183,6 +183,39 @@ pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, pr
     CostSummary { parts, subagent_cost, unpriced_turns, providers, projects, bar_days }
 }
 
+/// One priced cell of `~/.tally/project-cost.json`: a local day, an NFC project key, a provider, a
+/// model and a side. `model` is the price table key when the model is priced, otherwise the id as
+/// the transcript wrote it; `cost` is None for an unpriced model (never 0).
+pub struct CostCell {
+    pub day: i64,
+    pub project: String,
+    pub provider_id: String,
+    pub model: String,
+    pub subagent: bool,
+    pub cost: Option<f64>,
+    pub tokens: Totals,
+}
+
+/// Every sample priced and merged per (day, NFC project, provider, model, side), in that order.
+/// Pricing is linear in the tokens, so a merged cell costs what its parts did.
+pub fn cost_cells(samples: &[Sample]) -> Vec<CostCell> {
+    let mut cells: HashMap<(i64, String, String, String, bool), Totals> = HashMap::new();
+    for s in samples {
+        let model = pricing::canon(&s.model).map_or_else(|| s.model.clone(), str::to_string);
+        cells.entry((s.day, nfc(&s.project), s.provider_id.clone(), model, s.subagent))
+            .or_default().add(&s.totals);
+    }
+    let mut out: Vec<CostCell> = cells.into_iter()
+        .map(|((day, project, provider_id, model, subagent), tokens)| CostCell {
+            cost: pricing::cost(&model, &tokens).map(|c| c.total()),
+            day, project, provider_id, model, subagent, tokens,
+        })
+        .collect();
+    out.sort_by(|a, b| (a.day, &a.project, &a.provider_id, &a.model, a.subagent)
+        .cmp(&(b.day, &b.project, &b.provider_id, &b.model, b.subagent)));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +256,24 @@ mod tests {
         let all = summarize_cost(&samples, None, 10, &order);
         assert_eq!((all.bar_days, all.projects[0].series.len()), (7, ALL_RANGE_WEEKS as usize));
         assert!(all.projects[0].previous_cost.is_none());
+    }
+
+    #[test]
+    fn cells_merge_in_nfc_and_price_like_the_summary() {
+        let mut a = s(10, "/w/caf\u{e9}", "claude", "claude-opus-5-5-20260901", 400_000, false);
+        let b = s(10, "/w/cafe\u{301}", "claude", "claude-opus-5-5", 100_000, false);
+        a.turns = 2;
+        let samples = vec![a, b, s(10, "/w/x", "codex", "gpt-6-astra", 9, false),
+                           s(9, "/w/x", "claude", "claude-opus-5-5", 50_000, true)];
+        let cells = cost_cells(&samples);
+        assert_eq!(cells.len(), 3);
+        assert_eq!((cells[0].day, cells[0].subagent, cells[0].cost.map(|c| (c * 100.0).round())), (9, true, Some(100.0)));
+        let merged = &cells[1];
+        assert_eq!((merged.project.as_str(), merged.model.as_str(), merged.tokens.output),
+                   ("/w/caf\u{e9}", "claude-opus-5-5", 500_000));
+        assert!((merged.cost.unwrap() - 10.0).abs() < 1e-9);
+        assert_eq!((cells[2].model.as_str(), cells[2].cost), ("gpt-6-astra", None));
+        let priced: f64 = cells.iter().filter_map(|c| c.cost).sum();
+        assert!((priced - summarize_cost(&samples, None, 10, &[]).total()).abs() < 1e-9);
     }
 }

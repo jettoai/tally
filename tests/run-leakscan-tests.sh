@@ -54,7 +54,7 @@ commit() {
 check() {
   local rc=0
   printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$3" \
-    | "$HOOK" origin "$work/remote.git" > /dev/null 2> "$work/err" || rc=$?
+    | "$HOOK" "${to:-origin}" "${to:-$work/remote.git}" > /dev/null 2> "$work/err" || rc=$?
   if [ "$rc" != "$2" ]; then
     echo "FAIL $1: rc=$rc, expected $2"; sed 's/^/  | /' "$work/err"; failed=$((failed + 1)); return
   fi
@@ -86,6 +86,13 @@ git config remote.origin.url "$work/remote.git"
 start c1; commit src/app.txt 'x FakeWidget07 y'
 check "added line, existing branch" 1 "$base" "$(line "$sha" src/app.txt 'x FakeWidget07 y')"
 check "added line, new branch" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget07 y')"
+
+# git log -p prints an added "++ x" line as "+++ x", the same as a file header.
+start c2; commit src/app.txt '++ FakeWidget07'
+check "added line starting with ++" 1 "$base" "$(line "$sha" src/app.txt '++ FakeWidget07')"
+
+start c2b; commit README.md "$(printf '++ harmless\nsee quartz lantern')"
+check "allow keeps the file name after a ++ line" 0 "$base"
 
 start c3; commit src/app.txt harmless 'docs: Quartz Lantern'
 check "message, existing branch" 1 "$base" "$(line "$sha" COMMIT_MSG 'docs: Quartz Lantern')"
@@ -140,6 +147,33 @@ check "non UTF-8 bytes" 1 "$base" "$(line "$sha" src/app.txt "$bad")"
 
 start c18; commit README.md 'see quartz lantern'; gen noallow
 check "allow line removed" 1 "$base" "$(line "$sha" README.md 'see quartz lantern')"
+
+# A merge whose conflict resolution writes a term: only the merge's own diff carries that line.
+start c19; echo side > src/app.txt; git commit -q -am side; side=$(git rev-parse HEAD)
+start c19b; echo main > src/app.txt; git commit -q -am main
+git merge -q "$side" > /dev/null 2>&1 || true
+printf 'merged\nx FakeWidget11 y\n' > src/app.txt; git add src/app.txt; git commit -q -m merge
+check "term written while resolving a merge" 1 "$base" "$(line "$(git log -1 --format=%h)" src/app.txt 'x FakeWidget11 y')"
+
+# A private path added while resolving a merge and dropped again by a later merge: a plain delete
+# commit would list the path, so both steps are merges.
+start c19d; echo notes2 >> docs/NOTES.md; git commit -q -am side2; side2=$(git rev-parse HEAD)
+start c19c; echo main > src/app.txt; git commit -q -am main
+git merge -q "$side" > /dev/null 2>&1 || true
+echo merged > src/app.txt; echo x > src/FakeWidget05.txt; git add src/app.txt src/FakeWidget05.txt
+git commit -q -m merge
+git merge -q --no-ff --no-commit "$side2" > /dev/null 2>&1; git rm -q src/FakeWidget05.txt; git commit -q -m merge2
+check "private path added by a merge, then deleted" 1 "$base" "$(line - src/FakeWidget05.txt 'private path')"
+
+# Pushing to a URL: a commit that only a private remote has is still new to that URL.
+start c20; commit src/app.txt 'x FakeWidget12 y'
+git config remote.private.url "$work/private.git"
+git update-ref refs/remotes/private/c20 HEAD
+to=$work/public.git
+check "URL push, commit only on another remote" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget12 y')"
+to=$work/private.git
+check "URL push equal to a named remote that has the commit" 0 "$ZERO"
+to=
 
 echo "leakscan: $pass passed, $failed failed"
 [ "$failed" = 0 ]

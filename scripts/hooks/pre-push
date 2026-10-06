@@ -20,6 +20,10 @@
 # the generic overlay/ path check runs there and the push goes through.
 #
 # Published history is never rescanned: only commits the remote lacks are read.
+#
+# Known limits:
+#   - A push to a URL that matches no named remote scans the whole history (fail-closed).
+#   - A commit message body line starting with "@@@commit " is read as a commit separator.
 set -uo pipefail
 # Byte-wise matching: BSD awk aborts on bytes that are not valid UTF-8 under a UTF-8 locale.
 export LC_ALL=C
@@ -48,8 +52,18 @@ if [ "$required" = 1 ]; then
   done
 fi
 
-# Commits the remote lacks; a remote given as a URL has no tracking refs, so every remote counts.
-if git config --get "remote.$remote.url" > /dev/null; then known="--remotes=$remote"; else known=--remotes; fi
+# Commits the remote lacks. A remote given as a URL counts as the named remote whose url or pushurl
+# equals it; with no such remote nothing is known to be there, so the whole history is scanned.
+name=
+if git config --get "remote.$remote.url" > /dev/null; then
+  name=$remote
+else
+  while read -r key val; do
+    if [ "$val" = "$remote" ]; then name=${key#remote.}; name=${name%.*}; break; fi
+  done < <(git config --get-regexp '^remote\..*\.(url|pushurl)$' || true)
+fi
+known=()
+if [ -n "$name" ]; then known=(--not "--remotes=$name"); fi
 
 cat > "$work/scan.awk" <<'AWK'
 function allowed(f, t,   i) {
@@ -72,7 +86,10 @@ FILENAME == ARGV[1] {
 }
 FILENAME == ARGV[2] {
   if (index($0, "@@@commit ") == 1) { sha = substr($0, 11); next }
-  if (index($0, "+++ ") == 1) { file = substr($0, 5); sub(/^b\//, "", file); next }
+  # "+++ " names the file only in a diff header; inside a hunk an added "++ x" line prints the same.
+  if (index($0, "diff --git ") == 1) { inhdr = 1; next }
+  if (index($0, "@@ ") == 1) { inhdr = 0; next }
+  if (inhdr && index($0, "+++ ") == 1) { file = substr($0, 5); sub(/^b\//, "", file); next }
   if (index($0, "+") == 1) scan(file, sha, substr($0, 2))
   next
 }
@@ -92,11 +109,12 @@ AWK
 : > "$work/hits"
 while read -r lref lsha rref rsha; do
   [ "$lsha" = "$ZERO" ] && continue
-  if [ "$rsha" != "$ZERO" ]; then range=("$rsha..$lsha"); else range=("$lsha" --not "$known"); fi
-  git -c core.quotepath=off log -p -U0 --no-color --no-ext-diff --no-textconv --format='@@@commit %h' \
+  if [ "$rsha" != "$ZERO" ]; then range=("$rsha..$lsha"); else range=("$lsha" ${known[@]+"${known[@]}"}); fi
+  # first-parent diffs show what a merge adds, including text written while resolving a conflict.
+  git -c core.quotepath=off log -p -U0 --diff-merges=first-parent --no-color --no-ext-diff --no-textconv --format='@@@commit %h' \
     "${range[@]}" > "$work/patch" || fail "git log -p failed for $lref (fail-closed)"
   git log --format='@@@commit %h%n%B' "${range[@]}" > "$work/msgs" || fail "git log failed for $lref (fail-closed)"
-  { git -c core.quotepath=off log --format= --name-only "${range[@]}" \
+  { git -c core.quotepath=off log --format= --name-only --diff-merges=first-parent "${range[@]}" \
       && git -c core.quotepath=off ls-tree -r --name-only "$lsha"; } > "$work/paths" \
     || fail "path listing failed for $lref (fail-closed)"
   awk -F'\t' -v ref="$lref" -f "$work/scan.awk" "$work/terms" "$work/patch" "$work/msgs" "$work/paths" \

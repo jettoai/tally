@@ -14,14 +14,21 @@ import SwiftUI
 /// The three answer three different questions and are deliberately not merged: how much quota is
 /// left, where the tokens went, and what is running right now (`SessionBoardView`).
 enum SurfaceTab: String, CaseIterable, Identifiable {
-    case usage, tokens, sessions
+    case usage, tokens, sessions, cost
     var id: String { rawValue }
     var label: String {
         switch self {
         case .usage: return L("Usage")
         case .tokens: return L("Tokens")
         case .sessions: return L("Sessions")
+        case .cost: return L("Cost")
         }
+    }
+
+    /// The pages the header switch offers. Cost is a layout candidate shown only under its dev or
+    /// demo flag, and only for the layouts that are a page of their own (`CostLayout`).
+    static var shown: [SurfaceTab] {
+        CostLayout.current?.hasOwnTab == true ? allCases : allCases.filter { $0 != .cost }
     }
 }
 

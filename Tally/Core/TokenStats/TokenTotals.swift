@@ -15,6 +15,9 @@ struct TokenTotals: Codable, Sendable, Equatable {
     /// Tokens the model generated, reasoning included (Codex counts reasoning inside its own
     /// `output_tokens`, so both providers report the same thing here).
     var output: Int64 = 0
+    /// The part of `cacheWrite` written with the 1 hour TTL, priced higher than the rest. Not a
+    /// fifth class: `total` does not count it again.
+    var cacheWrite1h: Int64 = 0
 
     var total: Int64 { input + cacheWrite + cacheRead + output }
     var isEmpty: Bool { total == 0 }
@@ -24,6 +27,7 @@ struct TokenTotals: Codable, Sendable, Equatable {
         lhs.cacheWrite += rhs.cacheWrite
         lhs.cacheRead += rhs.cacheRead
         lhs.output += rhs.output
+        lhs.cacheWrite1h += rhs.cacheWrite1h
     }
 }
 
@@ -34,6 +38,11 @@ struct TokenSample: Sendable {
     var project: String
     var providerID: String
     var totals: TokenTotals
+    /// The model id the transcript named, empty when none; what the cost view prices.
+    var model = ""
+    /// Whether the tokens came from a subagent transcript.
+    var subagent = false
+    var turns: Int64 = 0
 }
 
 /// The project row's identity. Which directory maps to which project is `TokenProjectMap`.

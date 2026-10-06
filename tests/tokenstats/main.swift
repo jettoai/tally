@@ -97,7 +97,7 @@ struct OldBucket: Codable { var day: Int; var project: String; var totals: Token
 struct OldEntry: Codable { var provider: String; var size: Int64; var modified: Double; var buckets: [OldBucket] }
 struct OldCache: Codable { var version: Int; var zone: String; var files: [String: OldEntry] }
 let old = try? JSONDecoder().decode(OldCache.self, from: Data(contentsOf: URL(fileURLWithPath: cachePath)))
-check(old?.version == 6 && old?.zone == "Asia/Taipei" && old?.files.count == 2
+check(old?.version == 7 && old?.zone == "Asia/Taipei" && old?.files.count == 2
       && old?.files[projects + "/s1.jsonl"]?.buckets.count == 2,
       "the cache the core wrote decodes as the Swift engine's cache")
 

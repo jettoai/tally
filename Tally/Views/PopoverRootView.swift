@@ -163,6 +163,15 @@ struct PopoverRootView: View {
                         .frame(width: popoverWidth, alignment: .leading)   // as above
                         .transition(tabTransition)
                     }
+                    if tab == .cost {
+                        // A cost layout candidate (`CostLayout`), dev and demo builds only.
+                        ScrollView(.vertical) {
+                            CostPage(store: tokens, width: scrollContentWidth)
+                                .onAppear { tokens.refresh() }
+                        }
+                        .frame(width: popoverWidth, alignment: .leading)   // as above
+                        .transition(tabTransition)
+                    }
                     if tab == .sessions {
                         // WHAT IS RUNNING (SessionBoardView.swift). A page rather than the strip it
                         // used to be inside the Usage tab: a list of sessions, each with an account,

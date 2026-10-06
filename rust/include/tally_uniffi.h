@@ -413,6 +413,11 @@ RustBuffer uniffi_tally_ffi_fn_func_token_stats_sources(RustBuffer claude_homes,
 RustBuffer uniffi_tally_ffi_fn_func_token_stats_summarize(RustBuffer samples, RustBuffer day_count, int64_t today, RustBuffer provider_order, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_SUMMARIZE_COST
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_SUMMARIZE_COST
+RustBuffer uniffi_tally_ffi_fn_func_token_stats_summarize_cost(RustBuffer samples, RustBuffer day_count, int64_t today, RustBuffer provider_order, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_SWIFT_STR_PROBE
 #define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_TOKEN_STATS_SWIFT_STR_PROBE
 RustBuffer uniffi_tally_ffi_fn_func_token_stats_swift_str_probe(RustBuffer op, RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
@@ -753,6 +758,12 @@ uint16_t uniffi_tally_ffi_checksum_func_token_stats_sources(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_STATS_SUMMARIZE
 #define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_STATS_SUMMARIZE
 uint16_t uniffi_tally_ffi_checksum_func_token_stats_summarize(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_STATS_SUMMARIZE_COST
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_TOKEN_STATS_SUMMARIZE_COST
+uint16_t uniffi_tally_ffi_checksum_func_token_stats_summarize_cost(void
     
 );
 #endif

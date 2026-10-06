@@ -6,13 +6,18 @@ const SWIFT_CACHE: &str = include_str!("../../tests/fixtures/token-stats-swift-v
 
 #[test]
 fn reads_the_cache_the_swift_engine_wrote() {
-    let cache: Cache = serde_json::from_str(SWIFT_CACHE).unwrap();
+    let mut cache: Cache = serde_json::from_str(SWIFT_CACHE).unwrap();
+    // A version 6 cache predates the model columns: it reads (they default) and is then rescanned.
+    assert_eq!(cache.version, 6);
+    assert!(!cache.is_current("Asia/Taipei"));
+    cache.version = CURRENT_VERSION;
     assert!(cache.is_current("Asia/Taipei"));
     assert_eq!(cache.files.len(), 3);
     let s1 = &cache.files["/h/.claude/projects/-w-a/s1.jsonl"];
     assert_eq!((s1.provider.as_str(), s1.size, s1.modified), ("claude", 1234, 1759494000.123456));
     assert_eq!(s1.buckets[0], Bucket { day: 20454, project: "/w/a".into(),
-                                       totals: Totals { input: 10, cache_write: 1, cache_read: 2, output: 5 } });
+                                       totals: Totals { input: 10, cache_write: 1, cache_read: 2, output: 5, cache_write_1h: 0 },
+                                       ..Default::default() });
     let samples = merge(&cache.files);
     assert_eq!(samples.len(), 3);
     assert_eq!(samples[2].totals.output, 8 + 0);

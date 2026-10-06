@@ -11,8 +11,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
 use tally_core::tokenstats::{
-    engine, heatmap, parser, project_map::ProjectMap, sources, summary, swift_str, Host, LiveFold,
-    Origin, Sample, Totals,
+    cost, engine, heatmap, parser, pricing::CostParts, project_map::ProjectMap, sources, summary,
+    swift_str, Host, LiveFold, Origin, Sample, Totals,
 };
 
 #[derive(uniffi::Record)]
@@ -21,6 +21,7 @@ pub struct FfiTotals {
     pub cache_write: i64,
     pub cache_read: i64,
     pub output: i64,
+    pub cache_write_1h: i64,
 }
 
 #[derive(uniffi::Record)]
@@ -29,6 +30,55 @@ pub struct FfiSample {
     pub project: String,
     pub provider_id: String,
     pub totals: FfiTotals,
+    pub model: String,
+    pub subagent: bool,
+    pub turns: i64,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiCostParts {
+    pub input: f64,
+    pub cache_write: f64,
+    pub cache_read: f64,
+    pub output: f64,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiModelCost {
+    pub model: String,
+    pub cost: f64,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiCostProject {
+    pub key: String,
+    pub name: String,
+    pub is_other: bool,
+    pub cost: f64,
+    pub share: f64,
+    pub tokens: FfiTotals,
+    pub main_cost: f64,
+    pub subagent_cost: f64,
+    pub previous_cost: Option<f64>,
+    pub by_model: Vec<FfiModelCost>,
+    pub series: Vec<f64>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiCostProvider {
+    pub provider_id: String,
+    pub cost: Option<f64>,
+    pub tokens: FfiTotals,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiCostSummary {
+    pub parts: FfiCostParts,
+    pub subagent_cost: f64,
+    pub unpriced_turns: i64,
+    pub providers: Vec<FfiCostProvider>,
+    pub projects: Vec<FfiCostProject>,
+    pub bar_days: i64,
 }
 
 #[derive(uniffi::Record)]
@@ -199,21 +249,29 @@ impl TokenProjectMapCore {
 }
 
 fn totals_out(t: Totals) -> FfiTotals {
-    FfiTotals { input: t.input, cache_write: t.cache_write, cache_read: t.cache_read, output: t.output }
+    FfiTotals { input: t.input, cache_write: t.cache_write, cache_read: t.cache_read, output: t.output,
+                cache_write_1h: t.cache_write_1h }
 }
 
 fn totals_in(t: &FfiTotals) -> Totals {
-    Totals { input: t.input, cache_write: t.cache_write, cache_read: t.cache_read, output: t.output }
+    Totals { input: t.input, cache_write: t.cache_write, cache_read: t.cache_read, output: t.output,
+             cache_write_1h: t.cache_write_1h }
 }
 
 fn sample_out(s: Sample) -> FfiSample {
-    FfiSample { day: s.day, project: s.project, provider_id: s.provider_id, totals: totals_out(s.totals) }
+    FfiSample { day: s.day, project: s.project, provider_id: s.provider_id, totals: totals_out(s.totals),
+                model: s.model, subagent: s.subagent, turns: s.turns }
 }
 
 fn samples_in(samples: Vec<FfiSample>) -> Vec<Sample> {
     samples.into_iter()
-        .map(|s| Sample { day: s.day, totals: totals_in(&s.totals), project: s.project, provider_id: s.provider_id })
+        .map(|s| Sample { day: s.day, totals: totals_in(&s.totals), project: s.project, provider_id: s.provider_id,
+                          model: s.model, subagent: s.subagent, turns: s.turns })
         .collect()
+}
+
+fn parts_out(p: CostParts) -> FfiCostParts {
+    FfiCostParts { input: p.input, cache_write: p.cache_write, cache_read: p.cache_read, output: p.output }
 }
 
 #[uniffi::export]
@@ -243,6 +301,29 @@ pub fn token_stats_summarize(samples: Vec<FfiSample>, day_count: Option<u32>, to
         projects: s.projects.into_iter()
             .map(|p| FfiProjectRow { key: p.key, name: p.name, is_other: p.is_other, totals: totals_out(p.totals), share: p.share })
             .collect(),
+    }
+}
+
+/// The cost view's render input (tally_core::tokenstats::cost).
+#[uniffi::export]
+pub fn token_stats_summarize_cost(samples: Vec<FfiSample>, day_count: Option<u32>, today: i64,
+                                  provider_order: Vec<String>) -> FfiCostSummary {
+    let s = cost::summarize_cost(&samples_in(samples), day_count, today, &provider_order);
+    FfiCostSummary {
+        parts: parts_out(s.parts),
+        subagent_cost: s.subagent_cost,
+        unpriced_turns: s.unpriced_turns,
+        providers: s.providers.into_iter()
+            .map(|p| FfiCostProvider { provider_id: p.provider_id, cost: p.cost, tokens: totals_out(p.tokens) })
+            .collect(),
+        projects: s.projects.into_iter().map(|p| FfiCostProject {
+            key: p.key, name: p.name, is_other: p.is_other, cost: p.cost, share: p.share,
+            tokens: totals_out(p.tokens), main_cost: p.main_cost, subagent_cost: p.subagent_cost,
+            previous_cost: p.previous_cost,
+            by_model: p.by_model.into_iter().map(|m| FfiModelCost { model: m.model, cost: m.cost }).collect(),
+            series: p.series,
+        }).collect(),
+        bar_days: s.bar_days,
     }
 }
 

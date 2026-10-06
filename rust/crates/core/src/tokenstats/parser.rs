@@ -16,7 +16,12 @@ pub const CODEX: &str = "codex";
 
 pub fn buckets(path: &str, provider: &str, map: &ProjectMap, host: &dyn Host) -> Vec<Bucket> {
     let Ok(raw) = std::fs::read(path) else { return vec![] };
-    buckets_of(&raw, provider, map, host)
+    let subagent = path.contains("/subagents/");
+    let mut out = buckets_of(&raw, provider, map, host);
+    for b in &mut out {
+        b.subagent = subagent;
+    }
+    out
 }
 
 pub fn buckets_of(raw: &[u8], provider: &str, map: &ProjectMap, host: &dyn Host) -> Vec<Bucket> {
@@ -41,6 +46,7 @@ fn read_claude(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumula
     let mut stamper = Stamper::new(host);
     let mut counted: HashMap<u64, Totals> = HashMap::new();
     let mut projects = KeyMemo::new(map);
+    let mut models = ModelMemo::default();
 
     for_each_line(raw, |line| {
         if !contains(&usage_needle, &raw[line.clone()]) {
@@ -59,12 +65,14 @@ fn read_claude(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumula
         let (Some(message), Some(timestamp)) = (message, timestamp) else { return };
         let Some(day) = stamper.day_from_iso(raw, timestamp) else { return };
 
-        let (mut usage, mut message_id) = (None, None);
+        let (mut usage, mut message_id, mut model) = (None, None, None);
         scan.for_each_member(message, |k, v| {
             if scan.key_is(&k, b"usage") {
                 usage = Some(v);
             } else if scan.key_is(&k, b"id") {
                 message_id = Some(v);
+            } else if scan.key_is(&k, b"model") {
+                model = Some(v);
             }
         });
         let Some(usage) = usage else { return };
@@ -73,6 +81,9 @@ fn read_claude(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumula
         scan.for_each_member(usage, |k, v| {
             if scan.key_is(&k, b"input_tokens") {
                 totals.input = scan.int64(v).unwrap_or(0);
+            } else if scan.key_is(&k, b"cache_creation") {
+                totals.cache_write_1h = scan.member(b"ephemeral_1h_input_tokens", v)
+                    .and_then(|n| scan.int64(n)).unwrap_or(0);
             } else if scan.key_is(&k, b"cache_creation_input_tokens") {
                 totals.cache_write = scan.int64(v).unwrap_or(0);
             } else if scan.key_is(&k, b"cache_read_input_tokens") {
@@ -85,15 +96,19 @@ fn read_claude(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumula
             return;
         }
         // No id (older transcripts): counted whole, the safer error.
+        let mut turn = 1;
         if let Some(id) = message_id {
-            let added = counted.entry(fingerprint(&raw[id])).or_default().raise(&totals);
+            let key = fingerprint(&raw[id]);
+            turn = i64::from(!counted.contains_key(&key));
+            let added = counted.entry(key).or_default().raise(&totals);
             if added.is_empty() {
                 return;
             }
             totals = added;
         }
+        let model = models.name(&scan, model);
         let project = projects.key(&scan, cwd);
-        out.add(&totals, day, project);
+        out.add(&totals, day, project, model, turn);
     });
 }
 
@@ -107,6 +122,7 @@ fn read_codex(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumulat
     let mut stamper = Stamper::new(host);
     let mut projects = KeyMemo::new(map);
     let mut project = OTHER_KEY.to_string();
+    let mut model = String::new();
     let mut previous: Option<Counters> = None;
 
     for_each_line(raw, |line| {
@@ -127,8 +143,14 @@ fn read_codex(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumulat
         let Some(payload) = payload else { return };
 
         if let Some(kind) = kind {
-            if &raw[kind] == b"\"session_meta\"" {
+            if &raw[kind.clone()] == b"\"session_meta\"" {
                 project = projects.key(&scan, scan.member(b"cwd", payload)).to_string();
+                return;
+            }
+            if &raw[kind] == b"\"turn_context\"" {
+                if let Some(name) = scan.member(b"model", payload).and_then(|v| scan.string(v)) {
+                    model = name;
+                }
                 return;
             }
         }
@@ -167,7 +189,7 @@ fn read_codex(raw: &[u8], map: &ProjectMap, host: &dyn Host, out: &mut Accumulat
         if delta.is_empty() {
             return;
         }
-        out.add(&delta, day, &project);
+        out.add(&delta, day, &project, &model, 1);
     });
 }
 
@@ -191,6 +213,7 @@ impl Counters {
                     cache_write: self.cache_write - p.cache_write,
                     cache_read: self.cached - p.cached,
                     output: self.output - p.output,
+                    cache_write_1h: 0,
                 }
             }
             _ => Totals {
@@ -198,6 +221,7 @@ impl Counters {
                 cache_write: self.cache_write,
                 cache_read: self.cached,
                 output: self.output,
+                cache_write_1h: 0,
             },
         }
     }
@@ -252,21 +276,43 @@ impl<'m> KeyMemo<'m> {
     }
 }
 
+/// Remembers the last model's raw bytes, for the reason `KeyMemo` remembers the cwd.
+#[derive(Default)]
+struct ModelMemo {
+    last_bytes: Vec<u8>,
+    last: String,
+}
+
+impl ModelMemo {
+    fn name(&mut self, scan: &Scan, range: Option<std::ops::Range<usize>>) -> &str {
+        let Some(range) = range else { return "" };
+        let bytes = &scan.bytes[range.clone()];
+        if self.last_bytes != bytes {
+            self.last_bytes = bytes.to_vec();
+            self.last = scan.string(range).unwrap_or_default();
+        }
+        &self.last
+    }
+}
+
 #[derive(Default)]
 struct Accumulator {
-    cells: HashMap<(i64, String), Totals>,
+    cells: HashMap<(i64, String, String), (Totals, i64)>,
 }
 
 impl Accumulator {
-    fn add(&mut self, totals: &Totals, day: i64, project: &str) {
-        self.cells.entry((day, project.to_string())).or_default().add(totals);
+    fn add(&mut self, totals: &Totals, day: i64, project: &str, model: &str, turns: i64) {
+        let cell = self.cells.entry((day, project.to_string(), model.to_string())).or_default();
+        cell.0.add(totals);
+        cell.1 += turns;
     }
 
     /// Sorted so a re-scan of an unchanged file produces an identical cache entry.
     fn buckets(self) -> Vec<Bucket> {
-        let mut out: Vec<Bucket> =
-            self.cells.into_iter().map(|((day, project), totals)| Bucket { day, project, totals }).collect();
-        out.sort_by(|a, b| (a.day, &a.project).cmp(&(b.day, &b.project)));
+        let mut out: Vec<Bucket> = self.cells.into_iter()
+            .map(|((day, project, model), (totals, turns))| Bucket { day, project, totals, model, subagent: false, turns })
+            .collect();
+        out.sort_by(|a, b| (a.day, &a.project, &a.model).cmp(&(b.day, &b.project, &b.model)));
         out
     }
 }

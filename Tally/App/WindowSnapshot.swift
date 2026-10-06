@@ -40,6 +40,12 @@ enum WindowSnapshot {
               let dir = UserDefaults.standard.string(forKey: flagKey), !dir.isEmpty else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(settleDelay))
+            // A token or cost page on real data is still reading transcripts at this point; a
+            // picture of its spinner is not the page. Bounded so a stuck scan still gets a shot.
+            for _ in 0..<240 where TokenStatsStore.shared.isScanning {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            try? await Task.sleep(for: .milliseconds(500))
             write(into: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath))
         }
     }

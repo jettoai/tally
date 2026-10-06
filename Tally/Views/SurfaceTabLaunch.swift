@@ -31,7 +31,8 @@ enum SurfaceTabLaunch {
     static var initialTab: SurfaceTab {
         guard DemoUsage.isActive || BuildVariant.isDev,
               let raw = UserDefaults.standard.string(forKey: "TallyTab"),
-              let named = SurfaceTab(rawValue: raw.trimmingCharacters(in: .whitespaces).lowercased())
+              let named = SurfaceTab(rawValue: raw.trimmingCharacters(in: .whitespaces).lowercased()),
+              SurfaceTab.shown.contains(named)
         else { return TokenGraphPreview.project == nil ? .usage : .tokens }
         return named
     }

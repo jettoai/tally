@@ -4,6 +4,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use unicode_normalization::UnicodeNormalization;
+
 use super::{swift_str, Sample, Totals, OTHER_KEY};
 
 /// How many projects get their own row before the tail is pooled into Other.
@@ -35,7 +37,7 @@ pub fn summarize(samples: &[Sample], day_count: Option<u32>, today: i64, provide
     let earliest = day_count.map(|n| today - (i64::from(n) - 1));
     let mut totals = Totals::default();
     let mut by_provider: HashMap<&str, Totals> = HashMap::new();
-    let mut by_project: HashMap<&str, Totals> = HashMap::new();
+    let mut by_project: HashMap<String, Totals> = HashMap::new();
     let mut ever_seen: HashSet<&str> = HashSet::new();
     for s in samples {
         ever_seen.insert(&s.provider_id);
@@ -44,7 +46,7 @@ pub fn summarize(samples: &[Sample], day_count: Option<u32>, today: i64, provide
         }
         totals.add(&s.totals);
         by_provider.entry(&s.provider_id).or_default().add(&s.totals);
-        by_project.entry(&s.project).or_default().add(&s.totals);
+        by_project.entry(nfc(&s.project)).or_default().add(&s.totals);
     }
     let denominator = totals.total().max(1) as f64;
 
@@ -55,22 +57,17 @@ pub fn summarize(samples: &[Sample], day_count: Option<u32>, today: i64, provide
     }).collect();
 
     let mut pooled = by_project.remove(OTHER_KEY).unwrap_or_default();
-    let mut ranked: Vec<(&str, Totals)> = by_project.into_iter().collect();
-    ranked.sort_by(|a, b| (b.1.total(), b.1.output).cmp(&(a.1.total(), a.1.output)).then(a.0.cmp(b.0)));
+    let mut ranked: Vec<(String, Totals)> = by_project.into_iter().collect();
+    ranked.sort_by(|a, b| (b.1.total(), b.1.output).cmp(&(a.1.total(), a.1.output)).then(a.0.cmp(&b.0)));
     for (_, t) in ranked.iter().skip(PROJECT_ROW_LIMIT) {
         pooled.add(t);
     }
     ranked.truncate(PROJECT_ROW_LIMIT);
 
-    // Names that repeat are widened to two components.
-    let names: Vec<String> = ranked.iter().map(|(k, _)| display_name(k, 1)).collect();
-    let mut counts: HashMap<&str, usize> = HashMap::new();
-    for n in &names {
-        *counts.entry(n).or_default() += 1;
-    }
-    let mut projects: Vec<ProjectRow> = ranked.iter().zip(&names).map(|((key, t), name)| ProjectRow {
-        key: key.to_string(),
-        name: if counts[name.as_str()] > 1 { display_name(key, 2) } else { name.clone() },
+    let names = row_names(&ranked.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>());
+    let mut projects: Vec<ProjectRow> = ranked.iter().zip(names).map(|((key, t), name)| ProjectRow {
+        key: key.clone(),
+        name,
         is_other: false,
         totals: *t,
         share: t.total() as f64 / denominator,
@@ -87,6 +84,23 @@ pub fn summarize(samples: &[Sample], day_count: Option<u32>, today: i64, provide
     Summary { totals, providers, projects }
 }
 
+/// A project key in NFC, so one directory spelled in two Unicode forms is one row.
+pub fn nfc(key: &str) -> String {
+    if key.is_ascii() { key.to_string() } else { key.nfc().collect() }
+}
+
+/// Each key's row label: its last path component, widened to two where that repeats.
+pub fn row_names(keys: &[&str]) -> Vec<String> {
+    let names: Vec<String> = keys.iter().map(|k| display_name(k, 1)).collect();
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for n in &names {
+        *counts.entry(n).or_default() += 1;
+    }
+    keys.iter().zip(&names)
+        .map(|(key, name)| if counts[name.as_str()] > 1 { display_name(key, 2) } else { name.clone() })
+        .collect()
+}
+
 /// The trailing `components` path components of a project key.
 pub fn display_name(key: &str, components: usize) -> String {
     let parts = swift_str::split_nonempty(key, "/");
@@ -100,7 +114,15 @@ mod tests {
 
     fn s(day: i64, project: &str, provider: &str, output: i64) -> Sample {
         Sample { day, project: project.into(), provider_id: provider.into(),
-                 totals: Totals { output, ..Default::default() } }
+                 totals: Totals { output, ..Default::default() }, ..Default::default() }
+    }
+
+    #[test]
+    fn one_directory_in_two_unicode_forms_is_one_row() {
+        let order = vec!["claude".to_string()];
+        let samples = vec![s(1, "/w/caf\u{e9}", "claude", 5), s(1, "/w/cafe\u{301}", "claude", 5)];
+        let m = summarize(&samples, None, 1, &order);
+        assert_eq!((m.projects.len(), m.projects[0].totals.output), (1, 10));
     }
 
     #[test]

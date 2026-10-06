@@ -18,6 +18,8 @@ final class TokenStatsStore {
     }
 
     private(set) var summary = TokenStatsSummary()
+    /// The cost view's input, built only while a cost layout is on (`CostLayout`).
+    private(set) var cost = CostSummary()
     private(set) var isScanning = false
     /// True until the first scan of this app run has produced numbers - what separates "nothing
     /// found" from "not looked yet" for the empty state.
@@ -66,5 +68,6 @@ final class TokenStatsStore {
 
     private func rebuild() {
         summary = TokenStatsSummary.make(samples: samples, range: range)
+        if CostLayout.current != nil { cost = CostSummary.make(samples: samples, range: range) }
     }
 }

@@ -11,7 +11,7 @@ fn read(provider: &str, text: &str) -> Vec<(i64, String, Totals)> {
 }
 
 fn t(input: i64, cache_write: i64, cache_read: i64, output: i64) -> Totals {
-    Totals { input, cache_write, cache_read, output }
+    Totals { input, cache_write, cache_read, output, cache_write_1h: 0 }
 }
 
 #[test]
@@ -59,4 +59,32 @@ fn codex_takes_differences_and_restarts_on_a_backwards_total() {
 fn unknown_providers_and_empty_input_read_nothing() {
     assert!(read("gemini", r#"{"usage":1}"#).is_empty());
     assert!(read(CLAUDE, "").is_empty());
+}
+
+#[test]
+fn claude_cells_split_by_model_and_keep_the_one_hour_write() {
+    let text = r#"{"cwd":"/p","timestamp":"2026-01-01T15:00:00Z","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":1,"cache_creation_input_tokens":30,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":20},"output_tokens":1}}}
+{"cwd":"/p","timestamp":"2026-01-01T15:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":1,"cache_creation_input_tokens":30,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":20},"output_tokens":4}}}
+{"cwd":"/p","timestamp":"2026-01-01T15:00:02Z","message":{"id":"m2","model":"claude-sonnet-5","usage":{"output_tokens":2}}}
+"#;
+    let host = TestHost::at(8 * 3600);
+    let map = ProjectMap::build("/nonexistent-tally-home", &host);
+    let got = buckets_of(text.as_bytes(), CLAUDE, &map, &host);
+    assert_eq!(got.len(), 2);
+    assert_eq!((got[0].model.as_str(), got[0].turns), ("claude-opus-5-5", 1));
+    assert_eq!(got[0].totals, Totals { input: 1, cache_write: 30, cache_read: 0, output: 4, cache_write_1h: 20 });
+    assert_eq!((got[1].model.as_str(), got[1].turns, got[1].totals.output), ("claude-sonnet-5", 1, 2));
+}
+
+#[test]
+fn codex_cells_carry_the_turn_context_model() {
+    let text = [
+        r#"{"timestamp":"2026-01-02T01:30:00Z","type":"session_meta","payload":{"cwd":"/q","id":"x"}}"#,
+        r#"{"timestamp":"2026-01-02T01:31:00Z","type":"turn_context","payload":{"cwd":"/q","model":"gpt-6-astra"}}"#,
+        r#"{"timestamp":"2026-01-02T02:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":1}}}}"#,
+    ].join("\n");
+    let host = TestHost::at(8 * 3600);
+    let map = ProjectMap::build("/nonexistent-tally-home", &host);
+    let got = buckets_of(text.as_bytes(), CODEX, &map, &host);
+    assert_eq!((got.len(), got[0].model.as_str(), got[0].project.as_str()), (1, "gpt-6-astra", "/q"));
 }

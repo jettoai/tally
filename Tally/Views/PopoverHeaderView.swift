@@ -210,7 +210,7 @@ extension PopoverRootView {
         guard !isRefreshing else { return }
         switch tab {
         case .usage: Task { await store.refresh(userInitiated: true) }
-        case .tokens: tokens.refresh()
+        case .tokens, .cost: tokens.refresh()
         // The board's own rescan, which is what this button means on that tab: the states on it are
         // read from the supervisors' files, so re-polling the quota APIs would move nothing on
         // screen (SessionRosterStore says what a scan costs and when it happens on its own).
@@ -257,7 +257,7 @@ extension PopoverRootView {
     private var isRefreshing: Bool {
         switch tab {
         case .usage: return store.isRefreshing
-        case .tokens: return tokens.isScanning
+        case .tokens, .cost: return tokens.isScanning
         // A board scan is a directory listing and one small file per session, done synchronously
         // before this could draw anything: there is no in-flight state to report.
         case .sessions: return false
@@ -274,7 +274,7 @@ extension PopoverRootView {
         // is the only read of the roster a surface on any other tab makes.
         let waiting = SessionRosterStore.shared.blockedCount > 0
         return NeutralSegmentedPicker(selection: $tabState.tab,
-                                      options: SurfaceTab.allCases,
+                                      options: SurfaceTab.shown,
                                       size: .mini,
                                       dragsWindow: true,
                                       // The same red the board draws a blocked session with, and

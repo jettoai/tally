@@ -1203,6 +1203,286 @@ public func FfiConverterTypeFfiBucket_lower(_ value: FfiBucket) -> RustBuffer {
 }
 
 
+public struct FfiCostParts: Equatable, Hashable {
+    public var input: Double
+    public var cacheWrite: Double
+    public var cacheRead: Double
+    public var output: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(input: Double, cacheWrite: Double, cacheRead: Double, output: Double) {
+        self.input = input
+        self.cacheWrite = cacheWrite
+        self.cacheRead = cacheRead
+        self.output = output
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCostParts: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCostParts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCostParts {
+        return
+            try FfiCostParts(
+                input: FfiConverterDouble.read(from: &buf), 
+                cacheWrite: FfiConverterDouble.read(from: &buf), 
+                cacheRead: FfiConverterDouble.read(from: &buf), 
+                output: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCostParts, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.input, into: &buf)
+        FfiConverterDouble.write(value.cacheWrite, into: &buf)
+        FfiConverterDouble.write(value.cacheRead, into: &buf)
+        FfiConverterDouble.write(value.output, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostParts_lift(_ buf: RustBuffer) throws -> FfiCostParts {
+    return try FfiConverterTypeFfiCostParts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostParts_lower(_ value: FfiCostParts) -> RustBuffer {
+    return FfiConverterTypeFfiCostParts.lower(value)
+}
+
+
+public struct FfiCostProject: Equatable, Hashable {
+    public var key: String
+    public var name: String
+    public var isOther: Bool
+    public var cost: Double
+    public var share: Double
+    public var tokens: FfiTotals
+    public var mainCost: Double
+    public var subagentCost: Double
+    public var previousCost: Double?
+    public var byModel: [FfiModelCost]
+    public var series: [Double]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(key: String, name: String, isOther: Bool, cost: Double, share: Double, tokens: FfiTotals, mainCost: Double, subagentCost: Double, previousCost: Double?, byModel: [FfiModelCost], series: [Double]) {
+        self.key = key
+        self.name = name
+        self.isOther = isOther
+        self.cost = cost
+        self.share = share
+        self.tokens = tokens
+        self.mainCost = mainCost
+        self.subagentCost = subagentCost
+        self.previousCost = previousCost
+        self.byModel = byModel
+        self.series = series
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCostProject: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCostProject: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCostProject {
+        return
+            try FfiCostProject(
+                key: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                isOther: FfiConverterBool.read(from: &buf), 
+                cost: FfiConverterDouble.read(from: &buf), 
+                share: FfiConverterDouble.read(from: &buf), 
+                tokens: FfiConverterTypeFfiTotals.read(from: &buf), 
+                mainCost: FfiConverterDouble.read(from: &buf), 
+                subagentCost: FfiConverterDouble.read(from: &buf), 
+                previousCost: FfiConverterOptionDouble.read(from: &buf), 
+                byModel: FfiConverterSequenceTypeFfiModelCost.read(from: &buf), 
+                series: FfiConverterSequenceDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCostProject, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterBool.write(value.isOther, into: &buf)
+        FfiConverterDouble.write(value.cost, into: &buf)
+        FfiConverterDouble.write(value.share, into: &buf)
+        FfiConverterTypeFfiTotals.write(value.tokens, into: &buf)
+        FfiConverterDouble.write(value.mainCost, into: &buf)
+        FfiConverterDouble.write(value.subagentCost, into: &buf)
+        FfiConverterOptionDouble.write(value.previousCost, into: &buf)
+        FfiConverterSequenceTypeFfiModelCost.write(value.byModel, into: &buf)
+        FfiConverterSequenceDouble.write(value.series, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostProject_lift(_ buf: RustBuffer) throws -> FfiCostProject {
+    return try FfiConverterTypeFfiCostProject.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostProject_lower(_ value: FfiCostProject) -> RustBuffer {
+    return FfiConverterTypeFfiCostProject.lower(value)
+}
+
+
+public struct FfiCostProvider: Equatable, Hashable {
+    public var providerId: String
+    public var cost: Double?
+    public var tokens: FfiTotals
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(providerId: String, cost: Double?, tokens: FfiTotals) {
+        self.providerId = providerId
+        self.cost = cost
+        self.tokens = tokens
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCostProvider: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCostProvider: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCostProvider {
+        return
+            try FfiCostProvider(
+                providerId: FfiConverterString.read(from: &buf), 
+                cost: FfiConverterOptionDouble.read(from: &buf), 
+                tokens: FfiConverterTypeFfiTotals.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCostProvider, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.providerId, into: &buf)
+        FfiConverterOptionDouble.write(value.cost, into: &buf)
+        FfiConverterTypeFfiTotals.write(value.tokens, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostProvider_lift(_ buf: RustBuffer) throws -> FfiCostProvider {
+    return try FfiConverterTypeFfiCostProvider.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostProvider_lower(_ value: FfiCostProvider) -> RustBuffer {
+    return FfiConverterTypeFfiCostProvider.lower(value)
+}
+
+
+public struct FfiCostSummary: Equatable, Hashable {
+    public var parts: FfiCostParts
+    public var subagentCost: Double
+    public var unpricedTurns: Int64
+    public var providers: [FfiCostProvider]
+    public var projects: [FfiCostProject]
+    public var barDays: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(parts: FfiCostParts, subagentCost: Double, unpricedTurns: Int64, providers: [FfiCostProvider], projects: [FfiCostProject], barDays: Int64) {
+        self.parts = parts
+        self.subagentCost = subagentCost
+        self.unpricedTurns = unpricedTurns
+        self.providers = providers
+        self.projects = projects
+        self.barDays = barDays
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCostSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCostSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCostSummary {
+        return
+            try FfiCostSummary(
+                parts: FfiConverterTypeFfiCostParts.read(from: &buf), 
+                subagentCost: FfiConverterDouble.read(from: &buf), 
+                unpricedTurns: FfiConverterInt64.read(from: &buf), 
+                providers: FfiConverterSequenceTypeFfiCostProvider.read(from: &buf), 
+                projects: FfiConverterSequenceTypeFfiCostProject.read(from: &buf), 
+                barDays: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCostSummary, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiCostParts.write(value.parts, into: &buf)
+        FfiConverterDouble.write(value.subagentCost, into: &buf)
+        FfiConverterInt64.write(value.unpricedTurns, into: &buf)
+        FfiConverterSequenceTypeFfiCostProvider.write(value.providers, into: &buf)
+        FfiConverterSequenceTypeFfiCostProject.write(value.projects, into: &buf)
+        FfiConverterInt64.write(value.barDays, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostSummary_lift(_ buf: RustBuffer) throws -> FfiCostSummary {
+    return try FfiConverterTypeFfiCostSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCostSummary_lower(_ value: FfiCostSummary) -> RustBuffer {
+    return FfiConverterTypeFfiCostSummary.lower(value)
+}
+
+
 public struct FfiHeatmapCell: Equatable, Hashable {
     public var day: Int64
     public var column: Int64
@@ -1320,6 +1600,60 @@ public func FfiConverterTypeFfiLiveFold_lift(_ buf: RustBuffer) throws -> FfiLiv
 #endif
 public func FfiConverterTypeFfiLiveFold_lower(_ value: FfiLiveFold) -> RustBuffer {
     return FfiConverterTypeFfiLiveFold.lower(value)
+}
+
+
+public struct FfiModelCost: Equatable, Hashable {
+    public var model: String
+    public var cost: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(model: String, cost: Double) {
+        self.model = model
+        self.cost = cost
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiModelCost: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiModelCost: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiModelCost {
+        return
+            try FfiModelCost(
+                model: FfiConverterString.read(from: &buf), 
+                cost: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiModelCost, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterDouble.write(value.cost, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiModelCost_lift(_ buf: RustBuffer) throws -> FfiModelCost {
+    return try FfiConverterTypeFfiModelCost.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiModelCost_lower(_ value: FfiModelCost) -> RustBuffer {
+    return FfiConverterTypeFfiModelCost.lower(value)
 }
 
 
@@ -1510,14 +1844,20 @@ public struct FfiSample: Equatable, Hashable {
     public var project: String
     public var providerId: String
     public var totals: FfiTotals
+    public var model: String
+    public var subagent: Bool
+    public var turns: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(day: Int64, project: String, providerId: String, totals: FfiTotals) {
+    public init(day: Int64, project: String, providerId: String, totals: FfiTotals, model: String, subagent: Bool, turns: Int64) {
         self.day = day
         self.project = project
         self.providerId = providerId
         self.totals = totals
+        self.model = model
+        self.subagent = subagent
+        self.turns = turns
     }
 
     
@@ -1539,7 +1879,10 @@ public struct FfiConverterTypeFfiSample: FfiConverterRustBuffer {
                 day: FfiConverterInt64.read(from: &buf), 
                 project: FfiConverterString.read(from: &buf), 
                 providerId: FfiConverterString.read(from: &buf), 
-                totals: FfiConverterTypeFfiTotals.read(from: &buf)
+                totals: FfiConverterTypeFfiTotals.read(from: &buf), 
+                model: FfiConverterString.read(from: &buf), 
+                subagent: FfiConverterBool.read(from: &buf), 
+                turns: FfiConverterInt64.read(from: &buf)
         )
     }
 
@@ -1548,6 +1891,9 @@ public struct FfiConverterTypeFfiSample: FfiConverterRustBuffer {
         FfiConverterString.write(value.project, into: &buf)
         FfiConverterString.write(value.providerId, into: &buf)
         FfiConverterTypeFfiTotals.write(value.totals, into: &buf)
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterBool.write(value.subagent, into: &buf)
+        FfiConverterInt64.write(value.turns, into: &buf)
     }
 }
 
@@ -1816,14 +2162,16 @@ public struct FfiTotals: Equatable, Hashable {
     public var cacheWrite: Int64
     public var cacheRead: Int64
     public var output: Int64
+    public var cacheWrite1h: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(input: Int64, cacheWrite: Int64, cacheRead: Int64, output: Int64) {
+    public init(input: Int64, cacheWrite: Int64, cacheRead: Int64, output: Int64, cacheWrite1h: Int64) {
         self.input = input
         self.cacheWrite = cacheWrite
         self.cacheRead = cacheRead
         self.output = output
+        self.cacheWrite1h = cacheWrite1h
     }
 
     
@@ -1845,7 +2193,8 @@ public struct FfiConverterTypeFfiTotals: FfiConverterRustBuffer {
                 input: FfiConverterInt64.read(from: &buf), 
                 cacheWrite: FfiConverterInt64.read(from: &buf), 
                 cacheRead: FfiConverterInt64.read(from: &buf), 
-                output: FfiConverterInt64.read(from: &buf)
+                output: FfiConverterInt64.read(from: &buf), 
+                cacheWrite1h: FfiConverterInt64.read(from: &buf)
         )
     }
 
@@ -1854,6 +2203,7 @@ public struct FfiConverterTypeFfiTotals: FfiConverterRustBuffer {
         FfiConverterInt64.write(value.cacheWrite, into: &buf)
         FfiConverterInt64.write(value.cacheRead, into: &buf)
         FfiConverterInt64.write(value.output, into: &buf)
+        FfiConverterInt64.write(value.cacheWrite1h, into: &buf)
     }
 }
 
@@ -1974,6 +2324,30 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionDouble: FfiConverterRustBuffer {
+    typealias SwiftType = Double?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterDouble.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterDouble.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -2015,6 +2389,31 @@ fileprivate struct FfiConverterSequenceInt64: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
+    typealias SwiftType = [Double]
+
+    public static func write(_ value: [Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterDouble.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Double] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Double]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterDouble.read(from: &buf))
         }
         return seq
     }
@@ -2073,6 +2472,56 @@ fileprivate struct FfiConverterSequenceTypeFfiBucket: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiCostProject: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiCostProject]
+
+    public static func write(_ value: [FfiCostProject], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiCostProject.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiCostProject] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiCostProject]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiCostProject.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiCostProvider: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiCostProvider]
+
+    public static func write(_ value: [FfiCostProvider], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiCostProvider.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiCostProvider] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiCostProvider]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiCostProvider.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiHeatmapCell: FfiConverterRustBuffer {
     typealias SwiftType = [FfiHeatmapCell]
 
@@ -2115,6 +2564,31 @@ fileprivate struct FfiConverterSequenceTypeFfiLiveFold: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiLiveFold.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiModelCost: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiModelCost]
+
+    public static func write(_ value: [FfiModelCost], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiModelCost.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiModelCost] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiModelCost]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiModelCost.read(from: &buf))
         }
         return seq
     }
@@ -2385,6 +2859,20 @@ public func tokenStatsSummarize(samples: [FfiSample], dayCount: UInt32?, today: 
 })
 }
 /**
+ * The cost view's render input (tally_core::tokenstats::cost).
+ */
+public func tokenStatsSummarizeCost(samples: [FfiSample], dayCount: UInt32?, today: Int64, providerOrder: [String]) -> FfiCostSummary  {
+    return try!  FfiConverterTypeFfiCostSummary_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tally_ffi_fn_func_token_stats_summarize_cost(
+        FfiConverterSequenceTypeFfiSample.lower(samples),
+        FfiConverterOptionUInt32.lower(dayCount),
+        FfiConverterInt64.lower(today),
+        FfiConverterSequenceString.lower(providerOrder),uniffiCallStatus
+    )
+})
+}
+/**
  * The Swift `String` rules the project map relies on, one at a time, so the suite can compare
  * them with Swift's own answers (eq, has_prefix, count, split, trim, munged).
  */
@@ -2451,6 +2939,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tally_ffi_checksum_func_token_stats_summarize() != 1830) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tally_ffi_checksum_func_token_stats_summarize_cost() != 2594) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tally_ffi_checksum_func_token_stats_swift_str_probe() != 12822) {

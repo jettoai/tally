@@ -18,7 +18,9 @@ use super::{parser, sources, Bucket, Host, Sample, Totals};
 /// 5: a worktree is attributed to the repository it was cut from.
 /// 6: that attribution reads the git directory a worktree actually belongs to, and remembers a
 /// torn-down worktree's repository from the note teardown leaves.
-pub const CURRENT_VERSION: i64 = 6;
+/// 7: each cell also carries the model, the subagent flag, the turn count and the 1 hour cache
+/// write, which the cost view prices.
+pub const CURRENT_VERSION: i64 = 7;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Entry {
@@ -104,23 +106,31 @@ impl Engine {
     }
 }
 
-/// One cell per (day, project, provider), sorted (the Swift engine's order was undefined).
+/// One cell per (day, project, provider, model, side), sorted (the Swift engine's order was
+/// undefined).
 pub fn merge(files: &BTreeMap<String, Entry>) -> Vec<Sample> {
-    let mut cells: HashMap<(i64, &str, &str), Totals> = HashMap::new();
+    type Key<'a> = (i64, &'a str, &'a str, &'a str, bool);
+    let mut cells: HashMap<Key, (Totals, i64)> = HashMap::new();
     for entry in files.values() {
         for b in &entry.buckets {
-            cells.entry((b.day, &b.project, &entry.provider)).or_default().add(&b.totals);
+            let cell = cells.entry((b.day, &b.project, &entry.provider, &b.model, b.subagent)).or_default();
+            cell.0.add(&b.totals);
+            cell.1 += b.turns;
         }
     }
     let mut out: Vec<Sample> = cells.into_iter()
-        .map(|((day, project, provider), totals)| Sample {
+        .map(|((day, project, provider, model, subagent), (totals, turns))| Sample {
             day,
             project: project.to_string(),
             provider_id: provider.to_string(),
             totals,
+            model: model.to_string(),
+            subagent,
+            turns,
         })
         .collect();
-    out.sort_by(|a, b| (a.day, &a.project, &a.provider_id).cmp(&(b.day, &b.project, &b.provider_id)));
+    out.sort_by(|a, b| (a.day, &a.project, &a.provider_id, &a.model, a.subagent)
+        .cmp(&(b.day, &b.project, &b.provider_id, &b.model, b.subagent)));
     out
 }
 

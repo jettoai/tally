@@ -408,8 +408,9 @@ let marker = "pub const CURRENT_VERSION: i64 = "
 let cacheVersion = engineSource.split(separator: "\n")
     .first(where: { $0.hasPrefix(marker) })
     .flatMap { Int($0.dropFirst(marker.count).dropLast()) }
-// Pinned, not `>=`: the next attribution change has to fail here and be bumped past 6 deliberately.
-check(cacheVersion == 6, "the cache version is 6, the git-directory reading of the worktree-folding rule (found \(cacheVersion.map(String.init) ?? "nothing"))")
+// Pinned, not `>=`: the next attribution change has to fail here and be bumped past 7 deliberately.
+// 7 kept the attribution rule of 6 and added the model, side and turn columns.
+check(cacheVersion == 7, "the cache version is 7, the git-directory reading of the worktree-folding rule plus the cost columns (found \(cacheVersion.map(String.init) ?? "nothing"))")
 
 try? manager.removeItem(at: home)
 

@@ -9,8 +9,11 @@ import Foundation
 final class TokenStatsEngine: @unchecked Sendable {
     static let shared = TokenStatsEngine()
 
+    /// A dev build keeps its own file: a cache whose version differs from the installed app's is
+    /// discarded and rewritten by whichever app scans next, so sharing one would have the two
+    /// rescanning the whole history in turn.
     static let fileURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".tally/token-stats.json")
+        .appendingPathComponent(BuildVariant.isDev ? ".tally/token-stats-dev.json" : ".tally/token-stats.json")
 
     private let queue = DispatchQueue(label: "tally.token-stats", qos: .utility)
     private let core = TokenStatsCore()

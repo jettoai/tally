@@ -36,16 +36,23 @@ final class AppTokenStatsHost: TokenStatsHost {
 
 extension TokenTotals {
     init(_ ffi: FfiTotals) {
-        self.init(input: ffi.input, cacheWrite: ffi.cacheWrite, cacheRead: ffi.cacheRead, output: ffi.output)
+        self.init(input: ffi.input, cacheWrite: ffi.cacheWrite, cacheRead: ffi.cacheRead, output: ffi.output,
+                  cacheWrite1h: ffi.cacheWrite1h)
     }
 
-    var ffi: FfiTotals { FfiTotals(input: input, cacheWrite: cacheWrite, cacheRead: cacheRead, output: output) }
+    var ffi: FfiTotals {
+        FfiTotals(input: input, cacheWrite: cacheWrite, cacheRead: cacheRead, output: output, cacheWrite1h: cacheWrite1h)
+    }
 }
 
 extension TokenSample {
     init(_ ffi: FfiSample) {
-        self.init(day: Int(ffi.day), project: ffi.project, providerID: ffi.providerId, totals: TokenTotals(ffi.totals))
+        self.init(day: Int(ffi.day), project: ffi.project, providerID: ffi.providerId, totals: TokenTotals(ffi.totals),
+                  model: ffi.model, subagent: ffi.subagent, turns: ffi.turns)
     }
 
-    var ffi: FfiSample { FfiSample(day: Int64(day), project: project, providerId: providerID, totals: totals.ffi) }
+    var ffi: FfiSample {
+        FfiSample(day: Int64(day), project: project, providerId: providerID, totals: totals.ffi,
+                  model: model, subagent: subagent, turns: turns)
+    }
 }

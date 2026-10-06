@@ -44,12 +44,6 @@ pub struct FfiCostParts {
 }
 
 #[derive(uniffi::Record)]
-pub struct FfiModelCost {
-    pub model: String,
-    pub cost: f64,
-}
-
-#[derive(uniffi::Record)]
 pub struct FfiCostProject {
     pub key: String,
     pub name: String,
@@ -57,11 +51,7 @@ pub struct FfiCostProject {
     pub cost: f64,
     pub share: f64,
     pub tokens: FfiTotals,
-    pub main_cost: f64,
-    pub subagent_cost: f64,
     pub previous_cost: Option<f64>,
-    pub by_model: Vec<FfiModelCost>,
-    pub series: Vec<f64>,
 }
 
 #[derive(uniffi::Record)]
@@ -78,7 +68,6 @@ pub struct FfiCostSummary {
     pub unpriced_turns: i64,
     pub providers: Vec<FfiCostProvider>,
     pub projects: Vec<FfiCostProject>,
-    pub bar_days: i64,
 }
 
 #[derive(uniffi::Record)]
@@ -318,12 +307,8 @@ pub fn token_stats_summarize_cost(samples: Vec<FfiSample>, day_count: Option<u32
             .collect(),
         projects: s.projects.into_iter().map(|p| FfiCostProject {
             key: p.key, name: p.name, is_other: p.is_other, cost: p.cost, share: p.share,
-            tokens: totals_out(p.tokens), main_cost: p.main_cost, subagent_cost: p.subagent_cost,
-            previous_cost: p.previous_cost,
-            by_model: p.by_model.into_iter().map(|m| FfiModelCost { model: m.model, cost: m.cost }).collect(),
-            series: p.series,
+            tokens: totals_out(p.tokens), previous_cost: p.previous_cost,
         }).collect(),
-        bar_days: s.bar_days,
     }
 }
 

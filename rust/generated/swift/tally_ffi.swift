@@ -1346,26 +1346,18 @@ public struct FfiCostProject: Equatable, Hashable {
     public var cost: Double
     public var share: Double
     public var tokens: FfiTotals
-    public var mainCost: Double
-    public var subagentCost: Double
     public var previousCost: Double?
-    public var byModel: [FfiModelCost]
-    public var series: [Double]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(key: String, name: String, isOther: Bool, cost: Double, share: Double, tokens: FfiTotals, mainCost: Double, subagentCost: Double, previousCost: Double?, byModel: [FfiModelCost], series: [Double]) {
+    public init(key: String, name: String, isOther: Bool, cost: Double, share: Double, tokens: FfiTotals, previousCost: Double?) {
         self.key = key
         self.name = name
         self.isOther = isOther
         self.cost = cost
         self.share = share
         self.tokens = tokens
-        self.mainCost = mainCost
-        self.subagentCost = subagentCost
         self.previousCost = previousCost
-        self.byModel = byModel
-        self.series = series
     }
 
     
@@ -1390,11 +1382,7 @@ public struct FfiConverterTypeFfiCostProject: FfiConverterRustBuffer {
                 cost: FfiConverterDouble.read(from: &buf), 
                 share: FfiConverterDouble.read(from: &buf), 
                 tokens: FfiConverterTypeFfiTotals.read(from: &buf), 
-                mainCost: FfiConverterDouble.read(from: &buf), 
-                subagentCost: FfiConverterDouble.read(from: &buf), 
-                previousCost: FfiConverterOptionDouble.read(from: &buf), 
-                byModel: FfiConverterSequenceTypeFfiModelCost.read(from: &buf), 
-                series: FfiConverterSequenceDouble.read(from: &buf)
+                previousCost: FfiConverterOptionDouble.read(from: &buf)
         )
     }
 
@@ -1405,11 +1393,7 @@ public struct FfiConverterTypeFfiCostProject: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.cost, into: &buf)
         FfiConverterDouble.write(value.share, into: &buf)
         FfiConverterTypeFfiTotals.write(value.tokens, into: &buf)
-        FfiConverterDouble.write(value.mainCost, into: &buf)
-        FfiConverterDouble.write(value.subagentCost, into: &buf)
         FfiConverterOptionDouble.write(value.previousCost, into: &buf)
-        FfiConverterSequenceTypeFfiModelCost.write(value.byModel, into: &buf)
-        FfiConverterSequenceDouble.write(value.series, into: &buf)
     }
 }
 
@@ -1493,17 +1477,15 @@ public struct FfiCostSummary: Equatable, Hashable {
     public var unpricedTurns: Int64
     public var providers: [FfiCostProvider]
     public var projects: [FfiCostProject]
-    public var barDays: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(parts: FfiCostParts, subagentCost: Double, unpricedTurns: Int64, providers: [FfiCostProvider], projects: [FfiCostProject], barDays: Int64) {
+    public init(parts: FfiCostParts, subagentCost: Double, unpricedTurns: Int64, providers: [FfiCostProvider], projects: [FfiCostProject]) {
         self.parts = parts
         self.subagentCost = subagentCost
         self.unpricedTurns = unpricedTurns
         self.providers = providers
         self.projects = projects
-        self.barDays = barDays
     }
 
     
@@ -1526,8 +1508,7 @@ public struct FfiConverterTypeFfiCostSummary: FfiConverterRustBuffer {
                 subagentCost: FfiConverterDouble.read(from: &buf), 
                 unpricedTurns: FfiConverterInt64.read(from: &buf), 
                 providers: FfiConverterSequenceTypeFfiCostProvider.read(from: &buf), 
-                projects: FfiConverterSequenceTypeFfiCostProject.read(from: &buf), 
-                barDays: FfiConverterInt64.read(from: &buf)
+                projects: FfiConverterSequenceTypeFfiCostProject.read(from: &buf)
         )
     }
 
@@ -1537,7 +1518,6 @@ public struct FfiConverterTypeFfiCostSummary: FfiConverterRustBuffer {
         FfiConverterInt64.write(value.unpricedTurns, into: &buf)
         FfiConverterSequenceTypeFfiCostProvider.write(value.providers, into: &buf)
         FfiConverterSequenceTypeFfiCostProject.write(value.projects, into: &buf)
-        FfiConverterInt64.write(value.barDays, into: &buf)
     }
 }
 
@@ -1674,60 +1654,6 @@ public func FfiConverterTypeFfiLiveFold_lift(_ buf: RustBuffer) throws -> FfiLiv
 #endif
 public func FfiConverterTypeFfiLiveFold_lower(_ value: FfiLiveFold) -> RustBuffer {
     return FfiConverterTypeFfiLiveFold.lower(value)
-}
-
-
-public struct FfiModelCost: Equatable, Hashable {
-    public var model: String
-    public var cost: Double
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(model: String, cost: Double) {
-        self.model = model
-        self.cost = cost
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FfiModelCost: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiModelCost: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiModelCost {
-        return
-            try FfiModelCost(
-                model: FfiConverterString.read(from: &buf), 
-                cost: FfiConverterDouble.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FfiModelCost, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.model, into: &buf)
-        FfiConverterDouble.write(value.cost, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiModelCost_lift(_ buf: RustBuffer) throws -> FfiModelCost {
-    return try FfiConverterTypeFfiModelCost.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiModelCost_lower(_ value: FfiModelCost) -> RustBuffer {
-    return FfiConverterTypeFfiModelCost.lower(value)
 }
 
 
@@ -2471,31 +2397,6 @@ fileprivate struct FfiConverterSequenceInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
-    typealias SwiftType = [Double]
-
-    public static func write(_ value: [Double], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterDouble.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Double] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [Double]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterDouble.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -2663,31 +2564,6 @@ fileprivate struct FfiConverterSequenceTypeFfiLiveFold: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiLiveFold.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeFfiModelCost: FfiConverterRustBuffer {
-    typealias SwiftType = [FfiModelCost]
-
-    public static func write(_ value: [FfiModelCost], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeFfiModelCost.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiModelCost] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [FfiModelCost]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeFfiModelCost.read(from: &buf))
         }
         return seq
     }

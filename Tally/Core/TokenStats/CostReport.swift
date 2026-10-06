@@ -190,6 +190,19 @@ enum CostDate {
     }
 }
 
+/// `$1,234` from $100 up, `$12.34` below: cents matter on a small figure and are noise on a large
+/// one. US dollars and digit grouping whatever the locale, since the prices are. The panel and
+/// `tally cost` both print through this.
+func costDollars(_ value: Double) -> String {
+    let f = NumberFormatter()
+    f.numberStyle = .decimal
+    f.locale = Locale(identifier: "en_US")
+    let digits = abs(value) < 100 ? 2 : 0
+    f.minimumFractionDigits = digits
+    f.maximumFractionDigits = digits
+    return "$" + (f.string(from: NSNumber(value: value)) ?? "0")
+}
+
 enum CostReportBuilder {
     /// The report for the `days` ending on `today` (nil: every cell given), from priced cells.
     static func report(cells: [CostCell], days: Int?, today: String, names: [String: String],

@@ -96,17 +96,6 @@ func costTable(_ r: CostReport) -> String {
     return lines.joined(separator: "\n")
 }
 
-/// `$1,234` from $100 up, `$12.34` below, the panel's rule.
-func costDollars(_ value: Double) -> String {
-    let f = NumberFormatter()
-    f.numberStyle = .decimal
-    f.locale = Locale(identifier: "en_US")
-    let digits = abs(value) < 100 ? 2 : 0
-    f.minimumFractionDigits = digits
-    f.maximumFractionDigits = digits
-    return "$" + (f.string(from: NSNumber(value: value)) ?? "0")
-}
-
 func costCount(_ n: Int64) -> String {
     let v = Double(n)
     for (limit, suffix) in [(1e9, "B"), (1e6, "M"), (1e3, "K")] where v >= limit {

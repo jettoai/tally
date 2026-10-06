@@ -60,17 +60,7 @@ struct CostSummary: Sendable {
 }
 
 enum CostFormat {
-    /// `$1,234` from $100 up, `$12.34` below: cents matter on a small figure and are noise on a
-    /// large one. US dollars and digit grouping whatever the locale, since the prices are.
-    static func dollars(_ value: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.locale = Locale(identifier: "en_US")
-        let digits = abs(value) < 100 ? 2 : 0
-        f.minimumFractionDigits = digits
-        f.maximumFractionDigits = digits
-        return "$" + (f.string(from: NSNumber(value: value)) ?? "0")
-    }
+    static func dollars(_ value: Double) -> String { costDollars(value) }
 
     /// The change against the previous window, e.g. "+12%", or nil when there is nothing to compare.
     static func change(_ cost: Double, previous: Double?) -> String? {

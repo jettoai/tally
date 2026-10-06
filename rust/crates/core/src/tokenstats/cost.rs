@@ -1,5 +1,5 @@
 //! The cost view's render input for one range: what each project's tokens cost at list prices
-//! (pricing.rs), split by model, by main loop against subagents, and over time. Projects are keyed
+//! (pricing.rs), with the subagent part of the total. Projects are keyed
 //! in NFC like the Tokens tab, ranked by cost, then tokens, then key; the tail past
 //! `PROJECT_ROW_LIMIT` and the unattributed sessions pool into Other. Only priced tokens reach the
 //! project rows: a provider with no price (Codex) keeps its own row with no cost, and turns on a
@@ -11,15 +11,6 @@ use super::pricing::{self, CostParts};
 use super::summary::{nfc, row_names, PROJECT_ROW_LIMIT};
 use super::{Sample, Totals, OTHER_KEY};
 
-/// How many weekly bars the whole-history range draws.
-pub const ALL_RANGE_WEEKS: i64 = 12;
-
-pub struct ModelCost {
-    /// The price table key, e.g. `claude-opus-5-5`.
-    pub model: String,
-    pub cost: f64,
-}
-
 pub struct CostProject {
     pub key: String,
     /// Empty for the Other row, whose label is localized by the caller.
@@ -30,15 +21,9 @@ pub struct CostProject {
     pub share: f64,
     /// The priced tokens behind `cost`.
     pub tokens: Totals,
-    pub main_cost: f64,
-    pub subagent_cost: f64,
     /// The same project over the window of equal length just before this one; None for the whole
     /// history and the Other row.
     pub previous_cost: Option<f64>,
-    /// Most expensive first.
-    pub by_model: Vec<ModelCost>,
-    /// Cost per bar, oldest first: one bar a day, or a week for the whole history.
-    pub series: Vec<f64>,
 }
 
 pub struct CostProvider {
@@ -55,8 +40,6 @@ pub struct CostSummary {
     pub unpriced_turns: i64,
     pub providers: Vec<CostProvider>,
     pub projects: Vec<CostProject>,
-    /// Days per bar of every row's `series`.
-    pub bar_days: i64,
 }
 
 impl CostSummary {
@@ -69,49 +52,17 @@ impl CostSummary {
 struct Acc {
     cost: f64,
     tokens: Totals,
-    main: f64,
-    sub: f64,
-    models: HashMap<&'static str, f64>,
-    series: Vec<f64>,
 }
 
 impl Acc {
-    fn add(&mut self, model: &'static str, cost: f64, tokens: &Totals, subagent: bool, bar: Option<usize>, bars: usize) {
+    fn add(&mut self, cost: f64, tokens: &Totals) {
         self.cost += cost;
         self.tokens.add(tokens);
-        if subagent { self.sub += cost } else { self.main += cost }
-        *self.models.entry(model).or_default() += cost;
-        if self.series.len() != bars {
-            self.series = vec![0.0; bars];
-        }
-        if let Some(i) = bar {
-            self.series[i] += cost;
-        }
-    }
-
-    fn merge(&mut self, o: &Acc) {
-        self.cost += o.cost;
-        self.tokens.add(&o.tokens);
-        self.main += o.main;
-        self.sub += o.sub;
-        for (m, c) in &o.models {
-            *self.models.entry(m).or_default() += c;
-        }
-        if self.series.len() < o.series.len() {
-            self.series.resize(o.series.len(), 0.0);
-        }
-        for (a, b) in self.series.iter_mut().zip(&o.series) {
-            *a += b;
-        }
     }
 }
 
 /// `day_count` None is the whole history; otherwise the window ending on `today`.
 pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, provider_order: &[String]) -> CostSummary {
-    let (first_bar_day, bar_days, bars) = match day_count {
-        Some(n) => (today - (i64::from(n) - 1), 1, n as usize),
-        None => (today - (ALL_RANGE_WEEKS * 7 - 1), 7, ALL_RANGE_WEEKS as usize),
-    };
     let earliest = day_count.map(|n| today - (i64::from(n) - 1));
     let previous = day_count.map(|n| (today - (2 * i64::from(n) - 1), today - i64::from(n)));
 
@@ -121,8 +72,8 @@ pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, pr
     let mut by_project: HashMap<String, Acc> = HashMap::new();
     let mut before: HashMap<String, f64> = HashMap::new();
     for s in samples {
-        let priced = pricing::canon(&s.model).zip(pricing::cost(&s.model, &s.totals));
-        if let (Some((lo, hi)), Some((_, c))) = (previous, priced) {
+        let priced = pricing::cost(&s.model, &s.totals);
+        if let (Some((lo, hi)), Some(c)) = (previous, priced) {
             if (lo..=hi).contains(&s.day) {
                 *before.entry(nfc(&s.project)).or_default() += c.total();
             }
@@ -132,7 +83,7 @@ pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, pr
         }
         let row = providers.entry(&s.provider_id).or_default();
         row.1.add(&s.totals);
-        let Some((model, c)) = priced else {
+        let Some(c) = priced else {
             if s.provider_id == super::parser::CLAUDE {
                 unpriced_turns += s.turns;
             }
@@ -143,8 +94,7 @@ pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, pr
         if s.subagent {
             subagent_cost += c.total();
         }
-        let bar = (s.day >= first_bar_day).then(|| ((s.day - first_bar_day) / bar_days) as usize);
-        by_project.entry(nfc(&s.project)).or_default().add(model, c.total(), &s.totals, s.subagent, bar, bars);
+        by_project.entry(nfc(&s.project)).or_default().add(c.total(), &s.totals);
     }
     let denominator = parts.total().max(f64::MIN_POSITIVE);
 
@@ -159,18 +109,12 @@ pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, pr
         .then(b.1.tokens.total().cmp(&a.1.tokens.total()))
         .then(a.0.cmp(&b.0)));
     for (_, acc) in ranked.iter().skip(PROJECT_ROW_LIMIT) {
-        pooled.merge(acc);
+        pooled.add(acc.cost, &acc.tokens);
     }
     ranked.truncate(PROJECT_ROW_LIMIT);
 
-    let row = |key: String, name: String, is_other: bool, acc: &Acc, previous_cost: Option<f64>| {
-        let mut by_model: Vec<ModelCost> = acc.models.iter()
-            .map(|(m, c)| ModelCost { model: m.to_string(), cost: *c }).collect();
-        by_model.sort_by(|a, b| b.cost.total_cmp(&a.cost).then(a.model.cmp(&b.model)));
-        let mut series = acc.series.clone();
-        series.resize(bars, 0.0);
-        CostProject { key, name, is_other, cost: acc.cost, share: acc.cost / denominator, tokens: acc.tokens,
-                      main_cost: acc.main, subagent_cost: acc.sub, previous_cost, by_model, series }
+    let row = |key: String, name: String, is_other: bool, acc: &Acc, previous_cost: Option<f64>| CostProject {
+        key, name, is_other, cost: acc.cost, share: acc.cost / denominator, tokens: acc.tokens, previous_cost,
     };
     let names = row_names(&ranked.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>());
     let mut projects: Vec<CostProject> = ranked.iter().zip(names).map(|((key, acc), name)| {
@@ -180,7 +124,7 @@ pub fn summarize_cost(samples: &[Sample], day_count: Option<u32>, today: i64, pr
     if pooled.cost > 0.0 {
         projects.push(row(OTHER_KEY.to_string(), String::new(), true, &pooled, None));
     }
-    CostSummary { parts, subagent_cost, unpriced_turns, providers, projects, bar_days }
+    CostSummary { parts, subagent_cost, unpriced_turns, providers, projects }
 }
 
 /// One priced cell of `~/.tally/project-cost.json`: a local day, an NFC project key, a provider, a
@@ -226,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn ranks_by_cost_not_tokens_and_splits_sides_models_and_days() {
+    fn ranks_by_cost_not_tokens_and_splits_the_subagent_part() {
         let order = vec!["claude".to_string(), "codex".to_string()];
         let samples = vec![
             // /w/cheap has more tokens but on the cheaper model.
@@ -245,16 +189,13 @@ mod tests {
         assert_eq!(m.providers.iter().map(|p| (p.provider_id.as_str(), p.cost.is_some())).collect::<Vec<_>>(),
                    [("claude", true), ("codex", false)]);
         let dear = &m.projects[0];
-        assert_eq!((dear.name.as_str(), dear.by_model[0].model.as_str()), ("dear", "claude-opus-5-5"));
-        assert!((dear.cost - 13.0).abs() < 1e-9 && (dear.subagent_cost - 5.0).abs() < 1e-9);
+        assert_eq!(dear.name, "dear");
+        assert!((dear.cost - 13.0).abs() < 1e-9);
         assert_eq!(dear.previous_cost.map(|c| (c * 100.0).round()), Some(200.0));
-        assert_eq!(dear.series.len(), 7);
-        assert!((dear.series[5] - 5.0).abs() < 1e-9 && (dear.series[6] - 8.0).abs() < 1e-9);
         assert_eq!(m.projects[1].tokens.output, 1_000_000); // Codex tokens are not in the row
         assert!(m.projects[2].is_other);
 
         let all = summarize_cost(&samples, None, 10, &order);
-        assert_eq!((all.bar_days, all.projects[0].series.len()), (7, ALL_RANGE_WEEKS as usize));
         assert!(all.projects[0].previous_cost.is_none());
     }
 

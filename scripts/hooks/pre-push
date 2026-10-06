@@ -1,0 +1,112 @@
+#!/bin/bash
+# pre-push: refuse to publish anything that belongs to the private overlay.
+#
+# For every pushed ref, over the commits the remote does not have yet, three things are read:
+#   1. every line those commits add (git log -p -U0, the "+" lines),
+#   2. their commit messages,
+#   3. the paths they touch, plus every path in the pushed tip tree.
+# The texts to look for come from the overlay (overlay/leak-terms prints them), so this public
+# file names nothing the overlay adds. Each printed line is tab separated:
+#   id     <text>         case-sensitive substring
+#   word   <text>         case-insensitive substring
+#   path   <path>         a file only the overlay has; a pushed path equal to it is refused
+#   dir    <dir>          a directory only the overlay has; a pushed path under it is refused
+#   allow  <ERE>  <a|b>   hits of exactly those texts in files whose path matches the ERE pass;
+#                         commit messages are matched under the path COMMIT_MSG
+#
+# The scan is required when the main checkout has an overlay link, or when
+# `git config tally.leakguard` is "required" (scripts/hooks/install.sh --required). Required means a
+# missing, failing or short term list refuses the push. A contributor's clone has neither, so only
+# the generic overlay/ path check runs there and the push goes through.
+#
+# Published history is never rescanned: only commits the remote lacks are read.
+set -uo pipefail
+# Byte-wise matching: BSD awk aborts on bytes that are not valid UTF-8 under a UTF-8 locale.
+export LC_ALL=C
+remote="$1"
+ZERO=0000000000000000000000000000000000000000
+fail() { echo "pre-push: $*" >&2; exit 1; }
+
+common=$(git rev-parse --path-format=absolute --git-common-dir) || fail "cannot locate the git dir (fail-closed)"
+root=$(dirname "$common")
+overlay="$root/overlay"
+required=0
+if [ -e "$overlay" ] || [ -L "$overlay" ]; then required=1; fi
+if [ "$(git config --get tally.leakguard || true)" = required ]; then required=1; fi
+
+work=$(mktemp -d) || fail "mktemp failed (fail-closed)"
+trap 'rm -rf "$work"' EXIT
+: > "$work/terms"
+if [ "$required" = 1 ]; then
+  gen="$overlay/leak-terms"
+  [ -x "$gen" ] || fail "leak scan is required here but $gen is missing (fail-closed)"
+  "$gen" "$root" > "$work/terms" || fail "leak term generator failed (fail-closed)"
+  # A short list means the generator lost a source; refuse rather than scan with part of it.
+  for floor in id:20 path:20 word:1; do
+    n=$(command grep -c "^${floor%%:*}	" "$work/terms") || true
+    [ "${n:-0}" -ge "${floor#*:}" ] || fail "leak term list has ${n:-0} ${floor%%:*} lines (fail-closed)"
+  done
+fi
+
+# Commits the remote lacks; a remote given as a URL has no tracking refs, so every remote counts.
+if git config --get "remote.$remote.url" > /dev/null; then known="--remotes=$remote"; else known=--remotes; fi
+
+cat > "$work/scan.awk" <<'AWK'
+function allowed(f, t,   i) {
+  for (i = 1; i <= na; i++) if (f ~ are[i] && index(aterms[i], "|" t "|") > 0) return 1
+  return 0
+}
+function hit(f, sha, s) { print ref "\t" sha "\t" f "\t" substr(s, 1, 160) }
+function scan(f, sha, s,   i, low) {
+  for (i = 1; i <= nid; i++) if (index(s, idt[i]) > 0 && !allowed(f, idt[i])) { hit(f, sha, s); return }
+  low = tolower(s)
+  for (i = 1; i <= nw; i++) if (index(low, wt[i]) > 0 && !allowed(f, wt[i])) { hit(f, sha, s); return }
+}
+FILENAME == ARGV[1] {
+  if ($1 == "id") idt[++nid] = $2
+  else if ($1 == "word") wt[++nw] = tolower($2)
+  else if ($1 == "path") opath[$2] = 1
+  else if ($1 == "dir") odir[++nd] = $2 "/"
+  else if ($1 == "allow") { are[++na] = $2; aterms[na] = "|" $3 "|" }
+  next
+}
+FILENAME == ARGV[2] {
+  if (index($0, "@@@commit ") == 1) { sha = substr($0, 11); next }
+  if (index($0, "+++ ") == 1) { file = substr($0, 5); sub(/^b\//, "", file); next }
+  if (index($0, "+") == 1) scan(file, sha, substr($0, 2))
+  next
+}
+FILENAME == ARGV[3] {
+  if (index($0, "@@@commit ") == 1) { sha = substr($0, 11); next }
+  scan("COMMIT_MSG", sha, $0)
+  next
+}
+$0 != "" {
+  if (index($0, "overlay/") == 1) { hit($0, "-", "path under overlay/"); next }
+  if ($0 in opath) { hit($0, "-", "private path"); next }
+  for (i = 1; i <= nd; i++) if (index($0, odir[i]) == 1) { hit($0, "-", "private directory"); next }
+  scan($0, "-", $0)
+}
+AWK
+
+: > "$work/hits"
+while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$ZERO" ] && continue
+  if [ "$rsha" != "$ZERO" ]; then range=("$rsha..$lsha"); else range=("$lsha" --not "$known"); fi
+  git -c core.quotepath=off log -p -U0 --no-color --no-ext-diff --no-textconv --format='@@@commit %h' \
+    "${range[@]}" > "$work/patch" || fail "git log -p failed for $lref (fail-closed)"
+  git log --format='@@@commit %h%n%B' "${range[@]}" > "$work/msgs" || fail "git log failed for $lref (fail-closed)"
+  { git -c core.quotepath=off log --format= --name-only "${range[@]}" \
+      && git -c core.quotepath=off ls-tree -r --name-only "$lsha"; } > "$work/paths" \
+    || fail "path listing failed for $lref (fail-closed)"
+  awk -F'\t' -v ref="$lref" -f "$work/scan.awk" "$work/terms" "$work/patch" "$work/msgs" "$work/paths" \
+    >> "$work/hits" || fail "scan failed for $lref (fail-closed)"
+done
+
+if [ -s "$work/hits" ]; then
+  total=$(sort -u "$work/hits" | wc -l | tr -d ' ')
+  echo "pre-push: refusing to publish; $total lines carry private overlay terms or paths (first 10):" >&2
+  sort -u "$work/hits" | head -10 >&2
+  exit 1
+fi
+exit 0

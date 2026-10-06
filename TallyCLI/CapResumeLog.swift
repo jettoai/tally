@@ -27,11 +27,12 @@ func capResumeArmedLine(pid: String, offer: CapResumeState.Offer, now: Date = Da
 func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = sessionInputLog,
                   now: Date = Date(), reason: String, fresh: Bool, cappedAt: Date?,
                   answeredAt: Date?, conversation: String?, from: Snapshot.Account,
-                  to: Snapshot.Account, userTurnAt: Date?, caughtUp: Bool, owed: Bool = true) {
+                  to: Snapshot.Account, userTurnAt: Date?, caughtUp: Bool, owed: Bool = true,
+                  requiresLiveWork: Bool = capResumeRequiresLiveWork) {
     let before = state.offer
     // An arm the owed gate alone refused says so (grep `cap-resume-skipped`): the same call with
     // the child counted as busy is what would have armed.
-    if !owed, capResumeRequiresLiveWork {
+    if !owed, requiresLiveWork {
         var probe = state
         probe.arm(reason: reason, fresh: fresh, cappedAt: cappedAt, answeredAt: answeredAt,
                   conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
@@ -44,7 +45,7 @@ func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = session
     }
     state.arm(reason: reason, fresh: fresh, cappedAt: cappedAt, answeredAt: answeredAt,
               conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
-              caughtUp: caughtUp, owed: owed)
+              caughtUp: caughtUp, owed: owed, requiresLiveWork: requiresLiveWork)
     if let offer = state.offer, offer != before {
         appendSessionInputLine(capResumeArmedLine(pid: pid, offer: offer, now: now), to: log)
     }

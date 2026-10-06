@@ -202,23 +202,28 @@ func runRestartOwedChecks() {
     try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: dir) }
     let wall = owedLaunch
-    func capArm(owed: Bool, log: URL) -> CapResumeState {
+    func capArm(owed: Bool, gate: Bool, log: URL) -> CapResumeState {
         var state = CapResumeState()
         armCapResume(&state, pid: "42", log: log, now: wall.addingTimeInterval(4), reason: "cap",
                      fresh: false, cappedAt: wall, answeredAt: nil,
                      conversation: "0123456789abcdef", from: account("A"), to: account("B"),
-                     userTurnAt: nil, caughtUp: true, owed: owed)
+                     userTurnAt: nil, caughtUp: true, owed: owed, requiresLiveWork: gate)
         return state
     }
     let skipLog = dir.appendingPathComponent("skip.log")
-    let skipped = capArm(owed: false, log: skipLog)
+    let skipped = capArm(owed: false, gate: true, log: skipLog)
     let skipText = (try? String(contentsOf: skipLog, encoding: .utf8)) ?? ""
-    check("R20 a capped child with nothing running is not armed, and says why",
+    check("R20 gate on: a capped child with nothing running is not armed, and says why",
           !skipped.isArmed && skipText.contains("input=cap-resume-skipped reason=no-live-work")
               && !skipText.contains("cap-resume-armed"))
     let armLog = dir.appendingPathComponent("arm.log")
-    let armed = capArm(owed: true, log: armLog)
+    let armed = capArm(owed: true, gate: true, log: armLog)
     let armText = (try? String(contentsOf: armLog, encoding: .utf8)) ?? ""
-    check("R20 one with work running is armed as before",
+    check("R20 gate on: one with work running is armed as before",
           armed.isArmed && armText.contains("input=cap-resume-armed") && !armText.contains("skipped"))
+    let offLog = dir.appendingPathComponent("off.log")
+    let offArmed = capArm(owed: false, gate: false, log: offLog)
+    let offText = (try? String(contentsOf: offLog, encoding: .utf8)) ?? ""
+    check("R20 gate off: a capped child with nothing running is armed anyway, nothing skipped",
+          offArmed.isArmed && offText.contains("input=cap-resume-armed") && !offText.contains("skipped"))
 }

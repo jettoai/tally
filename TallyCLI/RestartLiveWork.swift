@@ -30,9 +30,12 @@ let cronDeleteMarker = "\"name\":\"CronDelete\""
 /// the tool call carry ids of their own ahead of it). A call still streaming writes `"input":{}`.
 let cronDeleteIDMarker = "\"name\":\"CronDelete\",\"input\":{\"id\":\""
 
-/// Whether a cap resume waits for the next real message when the capped child had nothing running
-/// (B-5730: 22 resumes in 48h, each rewriting a 337K prefix). One switch, so it is one line to undo.
-let capResumeRequiresLiveWork = true
+/// Whether a cap resume waits for the next real message when the capped child had nothing running.
+/// Off by default: a turn the wall cut short is usually foreground work, and no background work does
+/// not mean nothing was in progress (48h ledger: 22 cap resumes, 77% went on to do work; PM sent the
+/// B-5730 gate back on 10/07). The owed gate and its `cap-resume-skipped` line stay wired, so turning
+/// it back on is this one line.
+let capResumeRequiresLiveWork = false
 
 struct RestartLiveWork: Equatable {
     var tasks = Set<String>()

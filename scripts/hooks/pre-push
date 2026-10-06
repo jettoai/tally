@@ -22,7 +22,8 @@
 # Published history is never rescanned: only commits the remote lacks are read.
 #
 # Known limits:
-#   - A push to a URL that matches no named remote scans the whole history (fail-closed).
+#   - A push to a URL that matches no named remote, or to a remote whose pushurl differs from its
+#     url, scans the whole history (fail-closed).
 #   - A commit message body line starting with "@@@commit " is read as a commit separator.
 set -uo pipefail
 # Byte-wise matching: BSD awk aborts on bytes that are not valid UTF-8 under a UTF-8 locale.
@@ -61,6 +62,11 @@ else
   while read -r key val; do
     if [ "$val" = "$remote" ]; then name=${key#remote.}; name=${name%.*}; break; fi
   done < <(git config --get-regexp '^remote\..*\.(url|pushurl)$' || true)
+fi
+# Tracking refs follow the fetch url; a remote that pushes elsewhere tells nothing about the target.
+if [ -n "$name" ]; then
+  url=$(git config --get "remote.$name.url" || true)
+  while read -r pu; do [ "$pu" = "$url" ] || name=; done < <(git config --get-all "remote.$name.pushurl" || true)
 fi
 known=()
 if [ -n "$name" ]; then known=(--not "--remotes=$name"); fi

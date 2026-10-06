@@ -173,6 +173,20 @@ to=$work/public.git
 check "URL push, commit only on another remote" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget12 y')"
 to=$work/private.git
 check "URL push equal to a named remote that has the commit" 0 "$ZERO"
+git config remote.private.pushurl "$work/private.git"
+to=private
+check "named push, pushurl equal to url" 0 "$ZERO"
+
+# A remote that fetches from the private repo but pushes to a public one: its tracking refs say
+# nothing about the push target.
+start c21; commit src/app.txt 'x FakeWidget13 y'
+git config remote.mixed.url "$work/private2.git"
+git config remote.mixed.pushurl "$work/public2.git"
+git update-ref refs/remotes/mixed/c21 HEAD
+to=mixed
+check "named push, pushurl differs from url" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget13 y')"
+to=$work/public2.git
+check "URL push equal to a pushurl that differs from url" 1 "$ZERO" "$(line "$sha" src/app.txt 'x FakeWidget13 y')"
 to=
 
 echo "leakscan: $pass passed, $failed failed"

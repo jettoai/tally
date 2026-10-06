@@ -1203,6 +1203,64 @@ public func FfiConverterTypeFfiBucket_lower(_ value: FfiBucket) -> RustBuffer {
 }
 
 
+public struct FfiCommandResult: Equatable, Hashable {
+    public var out: String
+    public var err: String
+    public var code: Int32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(out: String, err: String, code: Int32) {
+        self.out = out
+        self.err = err
+        self.code = code
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCommandResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCommandResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCommandResult {
+        return
+            try FfiCommandResult(
+                out: FfiConverterString.read(from: &buf), 
+                err: FfiConverterString.read(from: &buf), 
+                code: FfiConverterInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCommandResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.out, into: &buf)
+        FfiConverterString.write(value.err, into: &buf)
+        FfiConverterInt32.write(value.code, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommandResult_lift(_ buf: RustBuffer) throws -> FfiCommandResult {
+    return try FfiConverterTypeFfiCommandResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommandResult_lower(_ value: FfiCommandResult) -> RustBuffer {
+    return FfiConverterTypeFfiCommandResult.lower(value)
+}
+
+
 public struct FfiCostCell: Equatable, Hashable {
     public var day: Int64
     public var project: String
@@ -2719,6 +2777,31 @@ fileprivate struct FfiConverterDictionaryInt64Int64: FfiConverterRustBuffer {
         return dict
     }
 }
+/**
+ * `git worktree remove [--force] <path>` in `main_repo` (tally_core::git::worktree_remove).
+ */
+public func gitWorktreeRemove(mainRepo: String, path: String, force: Bool) -> FfiCommandResult  {
+    return try!  FfiConverterTypeFfiCommandResult_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tally_ffi_fn_func_git_worktree_remove(
+        FfiConverterString.lower(mainRepo),
+        FfiConverterString.lower(path),
+        FfiConverterBool.lower(force),uniffiCallStatus
+    )
+})
+}
+/**
+ * Runs `tally reap` with its arguments (after the word `reap`) and returns its exit code. Prints
+ * to this process's stdout and stderr. A panic is exit code 70 instead of a crash in Swift.
+ */
+public func reapMain(args: [String]) -> Int32  {
+    return try!  FfiConverterInt32.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tally_ffi_fn_func_reap_main(
+        FfiConverterSequenceString.lower(args),uniffiCallStatus
+    )
+})
+}
 public func heatmapCells(dailyTotals: [Int64: Int64], today: Int64) -> [FfiHeatmapCell]  {
     return try!  FfiConverterSequenceTypeFfiHeatmapCell.lift(try! rustCall() {
         uniffiCallStatus in
@@ -2898,6 +2981,12 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_tally_ffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_tally_ffi_checksum_func_git_worktree_remove() != 60451) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tally_ffi_checksum_func_reap_main() != 21980) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tally_ffi_checksum_func_heatmap_cells() != 65508) {
         return InitializationResult.apiChecksumMismatch

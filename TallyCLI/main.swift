@@ -474,8 +474,8 @@ case "completion":
     exit(runCompletion(args: Array(arguments.dropFirst())))
 case "update": runUpdate()
 case "cost": exit(runCost(args: Array(arguments.dropFirst())))
-case "add":
-    runAdd(args: Array(arguments.dropFirst()))
+case "reap": exit(runReap(args: Array(arguments.dropFirst())))
+case "add": runAdd(args: Array(arguments.dropFirst()))
 // Commands a private build adds (OverlayCLI.swift); the public build has none.
 case let command? where OverlayCLI.handles(command):
     exit(OverlayCLI.run(command, args: Array(arguments.dropFirst())))

@@ -55,6 +55,8 @@ targets:
       Release: Config/Overlay.xcconfig
     sources:
       - TallyCLI
+      # UniFFI bindings of the Rust core: `tally reap` and the worktree removal step call them.
+      - path: rust/generated/swift/tally_ffi.swift
       - path: Tally/Core/SessionMonitoring.swift
       # The one file the Chrome-gap hook and the app share: the signal the app turns into a
       # notification when the account set for Claude in Chrome is itself not connected.

@@ -23,6 +23,7 @@ swiftc -o "$out" \
   TallyCLI/Worktree.swift \
   TallyCLI/GitRepoRoot.swift \
   TallyCLI/WorktreeTeardown.swift \
+  TallyCLI/WorktreeRemoveGit.swift \
   TallyCLI/WorktreeKill.swift \
   TallyCLI/WorktreeProcessScan.swift \
   Tally/Core/WorktreeOrigins.swift \

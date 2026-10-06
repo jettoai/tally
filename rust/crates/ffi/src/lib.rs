@@ -11,6 +11,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 pub use tally_core::*;
 
+mod uniffi_reap;
 mod uniffi_tokenstats;
 
 uniffi::setup_scaffolding!();

@@ -6,6 +6,8 @@ mod iso;
 mod line;
 pub mod scan;
 pub mod tokenstats;
+pub mod git;
+pub mod reap;
 
 pub use line::{read_line, TallyNeedles};
 

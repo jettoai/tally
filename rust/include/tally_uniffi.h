@@ -346,6 +346,16 @@ RustBuffer uniffi_tally_ffi_fn_method_tokenstatshost_load_worktree_origins(uint6
 void uniffi_tally_ffi_fn_method_tokenstatshost_record_live_worktrees(uint64_t ptr, RustBuffer folds, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_GIT_WORKTREE_REMOVE
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_GIT_WORKTREE_REMOVE
+RustBuffer uniffi_tally_ffi_fn_func_git_worktree_remove(RustBuffer main_repo, RustBuffer path, int8_t force, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_REAP_MAIN
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_REAP_MAIN
+int32_t uniffi_tally_ffi_fn_func_reap_main(RustBuffer args, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_HEATMAP_CELLS
 #define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_FN_FUNC_HEATMAP_CELLS
 RustBuffer uniffi_tally_ffi_fn_func_heatmap_cells(RustBuffer daily_totals, int64_t today, RustCallStatus *_Nonnull out_status
@@ -691,6 +701,18 @@ void ffi_tally_ffi_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_TALLY_FFI_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_TALLY_FFI_RUST_FUTURE_COMPLETE_VOID
 void ffi_tally_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_GIT_WORKTREE_REMOVE
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_GIT_WORKTREE_REMOVE
+uint16_t uniffi_tally_ffi_checksum_func_git_worktree_remove(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_REAP_MAIN
+#define UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_REAP_MAIN
+uint16_t uniffi_tally_ffi_checksum_func_reap_main(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TALLY_FFI_CHECKSUM_FUNC_HEATMAP_CELLS

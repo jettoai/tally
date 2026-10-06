@@ -230,9 +230,7 @@ func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
 
     // 3. git cleanup: remove the worktree, then delete its branch. Idempotent: an already-gone
     // target just notes and continues.
-    let removeArgs = force ? ["worktree", "remove", "--force", target.recordedPath]
-                           : ["worktree", "remove", target.recordedPath]
-    let removed = runGit(removeArgs, cwd: target.mainRepo)
+    let removed = worktreeRemoveGit(mainRepo: target.mainRepo, path: target.recordedPath, force: force)
     if removed.code != 0 {
         // A registration whose checkout no longer validates (its .git file gone, which git reports
         // as "prunable") fails remove while leaving the directory behind. Prune, then ask again:

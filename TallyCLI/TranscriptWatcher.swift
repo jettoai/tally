@@ -134,6 +134,9 @@ struct TranscriptWatcher {
     var lastUserTurnAt: Date?
     /// The newest post-launch stopped/killed background-work notice (`stoppedTaskNotice`).
     var lastStoppedTasks: StoppedTaskNotice?
+    /// What this child still has running, post-launch (RestartLiveWork.swift). Per process: a
+    /// transcript switch inside the same child (a /clear) never resets it.
+    var liveWork = RestartLiveWork()
     /// The timestamp of the newest main-chain, post-launch CONVERSATION event: a `user` (tool
     /// results included) or `assistant` record carrying its own `uuid` and `timestamp`. This is the
     /// clock a standing notice is measured against ("has the conversation moved since the notice

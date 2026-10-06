@@ -152,12 +152,12 @@ func runRestartWakeChecks() {
     check("R8 a fresh child is not armed", wakeOffer(w1, launch: sample1Launch, resumes: false) == nil)
     let busy = SessionAgentsRecord(live: ["a"], trusted: true, updatedAt: Date(), background: 2)
     check("R8 a fresh handoff leaves no note",
-          restartNoteForHandoff(reason: "clear-boundary", fresh: true, roster: busy) == nil
-              && restartNoteForHandoff(reason: "reload", fresh: false, roster: busy)
-                  == RestartNote(reason: "reload", background: 3))
+          restartNoteForHandoff(reason: "clear-boundary", fresh: true, roster: busy, owed: true) == nil
+              && restartNoteForHandoff(reason: "reload", fresh: false, roster: busy, owed: true)
+                  == RestartNote(reason: "reload", background: 3, owed: true))
 
     // R9: the roster alone, after the settle.
-    let reload = RestartNote(reason: "reload", background: 2)
+    let reload = RestartNote(reason: "reload", background: 2, owed: true)
     let quiet = wakeReplay([sample1[0], sample1[1]], conversation: sample1Conversation, since: sample1Launch)
     check("R9 roster only, before the settle: nothing yet",
           wakeOffer(quiet, launch: sample1Launch, note: reload, after: 5) == nil)
@@ -169,13 +169,18 @@ func runRestartWakeChecks() {
     _ = station(&s9, quiet, launch: sample1Launch, candidate: roster9, log: log9, typedAlready: true,
                 after: 16)
     check("R9 …recorded as a roster arm", audit(log9).contains("input=restart-wake-armed source=roster"))
-    // R9b, 2026-10-02 09:35: a turn-boundary move of an idle session, roster zero, no notice.
-    let idle = RestartNote(reason: "turn-boundary", background: 0)
+    // R9b, 2026-10-02 09:35: a turn-boundary move of a session whose roster said zero and whose
+    // handoff could not rule work out (owed; R14 replays why: a Monitor the roster missed).
+    let idle = RestartNote(reason: "turn-boundary", background: 0, owed: true)
     let idleLine = "[tally] Tally restarted Claude Code (turn-boundary). Re-arm any monitors you had running and pick up pending work; if nothing was running, no action is needed."
     check("R9b a roster of zero, before the settle: nothing yet",
           wakeOffer(quiet, launch: sample1Launch, note: idle, after: 5) == nil)
     check("R9b …after it, the line that names no stopped work",
           wakeOffer(quiet, launch: sample1Launch, note: idle, after: 16)?.line == idleLine)
+    check("R9b the same handoff when it ruled work out (B-5730): no line",
+          wakeOffer(quiet, launch: sample1Launch,
+                    note: RestartNote(reason: "turn-boundary", background: 0, owed: false),
+                    after: 16) == nil)
     check("R9b a fresh or second-head relaunch (no note) still raises nothing",
           wakeOffer(quiet, launch: sample1Launch, note: nil, after: 16) == nil)
     check("R9b a first spawn is still not armed",
@@ -186,7 +191,7 @@ func runRestartWakeChecks() {
           wakeOffer(quiet, launch: sample1Launch, note: idle, capOwns: true, after: 16) == nil)
     check("R9b an exec's self-update note words it the same way",
           wakeOffer(quiet, launch: sample1Launch,
-                    note: RestartNote(reason: "self-update", background: 0), after: 16)?.line
+                    note: RestartNote(reason: "self-update", background: 0, owed: true), after: 16)?.line
               == "[tally] Tally restarted Claude Code (self-update). Re-arm any monitors you had running and pick up pending work; if nothing was running, no action is needed.")
     let log9b = dir.appendingPathComponent("r9b.log")
     var s9b = RestartWakeState()
@@ -199,12 +204,12 @@ func runRestartWakeChecks() {
               && audit(log9b).contains("input=restart-wake-armed source=roster")
               && count("input=restart-wake ", in: audit(log9b)) == 1)
     check("R9 notice and roster together: the larger count",
-          wakeOffer(w1, launch: sample1Launch, note: RestartNote(reason: "reload", background: 3))?.line
+          wakeOffer(w1, launch: sample1Launch, note: RestartNote(reason: "reload", background: 3, owed: true))?.line
               .contains("and 3 background task(s)") == true)
     // R9c, B-885 2026-10-04: after a reboot the owner typed `tally claude --continue`; the new
     // supervisor's first child resumed an idle conversation and nobody woke it.
     let id9c = "99de728d-ded6-4fa1-8b8f-de6a9b9e96d0"
-    let resume = RestartNote(reason: "resume", background: 0)
+    let resume = RestartNote(reason: "resume", background: 0, owed: true)
     check("R9c a first launch that resumes by id is owed the resume note",
           firstLaunchRestartNote(launchArgs: ["--resume", id9c], exec: false) == resume
               && firstLaunchRestartNote(launchArgs: ["-r", id9c, "--model", "opus"], exec: false) == resume)
@@ -310,4 +315,5 @@ func runRestartWakeChecks() {
                                                            background: 1), childStartedAt: t) == "stale"
               && selfUpdateRosterState(SessionAgentsRecord(live: [], trusted: true, updatedAt: t,
                                                            background: 1), childStartedAt: t) == "ok")
+    runRestartOwedChecks()
 }

@@ -112,7 +112,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/turnendchecks.swift \
   tests/supervisor/steeringoffchecks.swift tests/supervisor/turnboundarychecks.swift \
   tests/supervisor/droughtchecks.swift \
-  tests/supervisor/capresumechecks.swift tests/supervisor/selfswitchresumechecks.swift tests/supervisor/restartwakechecks.swift \
+  tests/supervisor/capresumechecks.swift tests/supervisor/selfswitchresumechecks.swift tests/supervisor/restartwakechecks.swift tests/supervisor/restartowedchecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \
   tests/supervisor/sessionprojectchecks.swift \
@@ -143,7 +143,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/codexmonitoringchecks.swift tests/supervisor/codexinputchecks.swift tests/supervisor/codexresumechecks.swift \
   Tally/Core/CodexSessionHooks.swift TallyCLI/CodexStartMode.swift TallyCLI/CodexInputRelay.swift TallyCLI/CodexSessionInput.swift TallyCLI/CodexSupervisor.swift TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift TallyCLI/CodexSessionHook.swift \
   TallyCLI/Supervisor.swift TallyCLI/TaskListPin.swift TallyCLI/SupervisorTermination.swift TallyCLI/SupervisorRuntime.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CapRecovery.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
-  TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift TallyCLI/TranscriptLineBytes.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
+  TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/RestartLiveWork.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift TallyCLI/TranscriptLineBytes.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   TallyCLI/Reload.swift TallyCLI/ReloadSelf.swift \
   Tally/Core/ChromeSettingSignal.swift \

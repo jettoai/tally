@@ -105,15 +105,31 @@ enum IdleInstall {
     ///     window has been open": what the grace is there to bound is how long an update may be
     ///     held back, and a window opened after the update was already known has no claim to start
     ///     that clock again.
+    ///   - sinceLastInstall: seconds since the last install this app ran, nil when it never ran
+    ///     one. Below `autoInstallSpacing`, nothing is installed unattended.
+    ///   - busySessions: supervised sessions not idle, nil when they cannot be read. Any, or none
+    ///     readable, hold the install until `waiting` reaches `busySessionsCap`.
     static func shouldInstall(modalOpen: Bool, taskWindowOpen: Bool, pinnedPanelOpen: Bool,
                               secondsSinceUserInput: TimeInterval,
-                              waiting: TimeInterval) -> Bool {
+                              waiting: TimeInterval, sinceLastInstall: TimeInterval? = nil,
+                              busySessions: Int? = 0) -> Bool {
+        if let since = sinceLastInstall, since < autoInstallSpacing { return false }
+        if (busySessions ?? 1) > 0, waiting < busySessionsCap { return false }
         if modalOpen { return false }
         if taskWindowOpen, waiting < taskWindowGrace { return false }
         if pinnedPanelOpen, waiting < pinnedPanelGrace { return false }
         // The human-presence bar holds for a day, then gives way (see `idleBarCap`).
         return secondsSinceUserInput >= idleBar || waiting >= idleBarCap
     }
+
+    /// The fewest seconds between two installs nobody asked for (B-5730: about six a day, each
+    /// restarting every supervised session). A person's own check never comes through here: the
+    /// reducer installs a requested update without asking `shouldInstall` (UpdateState.swift).
+    static let autoInstallSpacing: TimeInterval = 24 * 3600
+
+    /// How long busy or unreadable sessions may hold an install off. Past it the install goes ahead,
+    /// so a session that never reports (an old supervisor, a stuck dialog) cannot freeze updates.
+    static let busySessionsCap: TimeInterval = 72 * 3600
 
     /// Whether Sparkle's standard alert should present a SCHEDULED update.
     ///

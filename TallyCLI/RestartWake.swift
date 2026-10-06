@@ -13,25 +13,29 @@ import Foundation
 // at the handoff. Delivery is the cap resume door with all its gates, under words of its own and
 // with a state of its own, so it never spends the cap station's latch.
 //
-// A restart that stopped nothing is owed a line too (2026-10-02: a turn-boundary move left an idle
-// session asleep for 26 minutes), worded without the stopped count. Owed means a note: a fresh or
-// second-head relaunch leaves none, so a new empty window is never typed into.
+// A restart that stopped nothing is owed a line only when the child it replaced had work the
+// restart took (`restartOwed`, RestartLiveWork.swift; 2026-10-02's 26 minutes were a Monitor the
+// roster missed, 2026-10-07's waste was idle sessions woken by every self-update), worded without
+// the stopped count. A fresh or second-head relaunch leaves no note, so a new empty window is never
+// typed into.
 
-/// The note an exec's first child starts with: the old image counted nothing it could hand over.
-let execRestartNote = RestartNote(reason: "self-update", background: 0)
+/// The note an exec's first child starts with when the old image carried none (a build before
+/// `--restart-note`): it cannot say, so it owes the line.
+let execRestartNote = RestartNote(reason: "self-update", background: 0, owed: true)
 
 /// The note a supervisor's first child starts with. An exec is a self-update. A new supervisor
 /// whose launch resumes a conversation (`--resume <id>`, `--continue`) is a person bringing a
 /// session back after its old supervisor died, a reboot most often (2026-10-04: an idle session
 /// resumed by hand sat at an empty prompt), so it is owed the line too. A fresh launch, a fork, and
 /// a cleared conversation the start mode declined to resume are new windows and get nothing.
-func firstLaunchRestartNote(launchArgs: [String], exec: Bool) -> RestartNote? {
-    if exec { return execRestartNote }
+func firstLaunchRestartNote(launchArgs: [String], exec: Bool,
+                            carried: RestartNote? = nil) -> RestartNote? {
+    if exec { return carried ?? execRestartNote }
     let options = optionsOnly(launchArgs)
     guard !options.contains("--fork-session"),
           (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) != nil
               || options.contains(where: continueFlags.contains) else { return nil }
-    return RestartNote(reason: "resume", background: 0)
+    return RestartNote(reason: "resume", background: 0, owed: true)
 }
 
 let restartWakeOutcomes = CapResumeOutcomes(typed: "restart-wake", failed: "restart-wake-failed",
@@ -40,16 +44,63 @@ let restartWakeOutcomes = CapResumeOutcomes(typed: "restart-wake", failed: "rest
 /// How long a roster-only arm waits for the notice, which landed 2s and 9s after the relaunch.
 let restartWakeSettle: TimeInterval = 15
 
-/// What a handoff tells the next child: why it was restarted and what the roster counted.
+/// What a handoff tells the next child: why it was restarted, what the roster counted, and
+/// whether the child it replaces had work the restart took (`restartOwed`). A note that cannot
+/// say (an exec from a build that carried none, a resume by hand) owes the line.
 struct RestartNote: Equatable {
     let reason: String
     let background: Int
+    let owed: Bool
 }
 
 /// The note a handoff leaves, or nil for a relaunch that resumes nothing (fresh, second head).
-func restartNoteForHandoff(reason: String, fresh: Bool,
-                           roster: SessionAgentsRecord?) -> RestartNote? {
-    fresh ? nil : RestartNote(reason: reason, background: rosterBackgroundCount(roster))
+func restartNoteForHandoff(reason: String, fresh: Bool, roster: SessionAgentsRecord?,
+                           owed: Bool) -> RestartNote? {
+    fresh ? nil : RestartNote(reason: reason, background: rosterBackgroundCount(roster), owed: owed)
+}
+
+/// Why a handoff owes, or does not owe, the next child a line. `owed` is what the gates read; the
+/// word is what `handoff.log` records, so a restart says which reading decided it.
+struct RestartOwedReading: Equatable {
+    let owed: Bool
+    let why: String
+}
+
+/// THE ONE DECISION the restart wake and the cap resume share (B-5730). In order: a transcript not
+/// read to the end cannot say (owed); a live task or session-only cron in it is owed; a child that
+/// never ran a turn cannot have started anything (not owed); a roster that cannot be read cannot
+/// say (owed); otherwise the roster's count decides.
+func restartOwed(roster: SessionAgentsRecord?, ranTurn: Bool, caughtUp: Bool,
+                 live: RestartLiveWork, now: Date) -> RestartOwedReading {
+    guard caughtUp else { return RestartOwedReading(owed: true, why: "catching-up") }
+    if !live.tasks.isEmpty { return RestartOwedReading(owed: true, why: "live-task") }
+    if live.liveCron(now: now) { return RestartOwedReading(owed: true, why: "live-cron") }
+    // Every task is started by a tool call, so a child with no turn started none.
+    guard ranTurn else { return RestartOwedReading(owed: false, why: "no-turn") }
+    guard let roster else { return RestartOwedReading(owed: true, why: "unknown-roster") }
+    return rosterBackgroundCount(roster) > 0
+        ? RestartOwedReading(owed: true, why: "roster")
+        : RestartOwedReading(owed: false, why: "none")
+}
+
+/// `handoff.log` (grep `restart-owed=`): one line per handoff, which reading decided it.
+func restartOwedLine(pid: String, reason: String, reading: RestartOwedReading,
+                     now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) restart-owed=\(reading.owed ? 1 : 0) "
+        + "why=\(reading.why) reason=\(reason)\n"
+}
+
+/// `--restart-note` across a self-update exec: `reason,background,owed`. Absent or unreadable is
+/// nil, which the new image reads as `execRestartNote` (owes the line).
+let resuperviseRestartNoteFlag = "--restart-note"
+func encodeRestartNote(_ note: RestartNote) -> String? {
+    note.reason.contains(",") ? nil : "\(note.reason),\(note.background),\(note.owed ? 1 : 0)"
+}
+func decodeRestartNote(_ raw: String) -> RestartNote? {
+    let f = raw.split(separator: ",", omittingEmptySubsequences: false)
+    guard f.count == 3, !f[0].isEmpty, let n = Int(f[1]), n >= 0, f[2] == "0" || f[2] == "1"
+    else { return nil }
+    return RestartNote(reason: String(f[0]), background: n, owed: f[2] == "1")
 }
 
 /// Everything a believable roster says is running, subagents included; zero otherwise.
@@ -102,7 +153,7 @@ func restartWakeOffer(state: RestartWakeState, spawnedByTally: Bool, resumesConv
         guard notice.uuid != state.noticeUUID,
               answeredAt.map({ $0 <= notice.at }) ?? true else { return nil }
     } else {
-        guard note != nil, answeredAt == nil,
+        guard let note, note.owed, answeredAt == nil,
               now.timeIntervalSince(launchedAt) >= restartWakeSettle else { return nil }
     }
     let count = notice.map { max(roster, $0.ids.count, 1) } ?? roster

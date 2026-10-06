@@ -175,6 +175,39 @@ expect(!install(modal: IdleInstall.decisionPending(windows: [window(sheet: true)
                 taskWindow: true, idleFor: 86_400, waiting: windowGrace * 10),
        "Add account open, the machine idle for a day, hours past every grace - still no restart")
 
+// MARK: B-5730 - at most one unattended install a day, and only with every session idle
+
+func spaced(since: TimeInterval?, busy: Int?, waiting: TimeInterval = 60) -> Bool {
+    IdleInstall.shouldInstall(modalOpen: false, taskWindowOpen: false, pinnedPanelOpen: false,
+                              secondsSinceUserInput: 1_000, waiting: waiting,
+                              sinceLastInstall: since, busySessions: busy)
+}
+let hour: TimeInterval = 3600
+expect(!spaced(since: 23 * hour, busy: 0), "T-F1 23 hours after the last install: not yet")
+expect(spaced(since: 25 * hour, busy: 0), "T-F1 25 hours after it, every session idle: install")
+expect(!spaced(since: 23 * hour, busy: 0, waiting: 100 * hour),
+       "T-F1 the spacing is not lifted by waiting")
+expect(!spaced(since: nil, busy: 1, waiting: hour), "T-F2 a busy session holds it")
+expect(spaced(since: nil, busy: 1, waiting: 73 * hour), "T-F2 …until 72 hours have passed")
+expect(!spaced(since: nil, busy: nil, waiting: hour), "T-F2 sessions that cannot be read hold it too")
+expect(spaced(since: nil, busy: nil, waiting: 73 * hour), "T-F2 …on the same cap")
+expect(spaced(since: nil, busy: 0), "T-F3 never installed and nothing busy: the old rules decide")
+expect(!IdleInstall.shouldInstall(modalOpen: true, taskWindowOpen: false, pinnedPanelOpen: false,
+                                  secondsSinceUserInput: 1_000, waiting: 60,
+                                  sinceLastInstall: nil, busySessions: 0),
+       "T-F3 …a modal still vetoes")
+// T-F4: a person's own check never meets these rules. The reducer runs a requested install on the
+// spot (UpdateState.swift `.installHandlerArrived`), so the only caller is the unattended moment.
+let appSources = (FileManager.default.enumerator(atPath: "Tally")?.allObjects as? [String] ?? [])
+    .filter { $0.hasSuffix(".swift") && $0 != "Core/IdleInstall.swift" }
+let callers = appSources.filter {
+    ((try? String(contentsOfFile: "Tally/\($0)", encoding: .utf8)) ?? "").contains("IdleInstall.shouldInstall(")
+}
+expect(callers == ["App/UpdaterController.swift"], "T-F4 shouldInstall has one caller: \(callers)")
+let reducer = (try? String(contentsOfFile: "Tally/Core/UpdateState.swift", encoding: .utf8)) ?? ""
+expect(reducer.contains("guard state.requestedByUser else { return [] }\n            return state.dispatch(userAsked: true)"),
+       "T-F4 a requested install is dispatched by the reducer, never through the idle moment")
+
 if failures > 0 {
     print("\(failures) failure(s)")
     exit(1)

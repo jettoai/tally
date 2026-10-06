@@ -30,7 +30,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/NativeModelCommand.swift \
   TallyCLI/QuotaKnockLogic.swift \
   TallyCLI/SelfSwitchResume.swift \
-  TallyCLI/TranscriptWatcherScan.swift \
+  TallyCLI/TranscriptWatcherScan.swift TallyCLI/RestartLiveWork.swift \
   TallyCLI/TranscriptLineView.swift \
   TallyCLI/TranscriptLineRust.swift \
   TallyCLI/ModelMenu.swift \

@@ -6,6 +6,16 @@ import Sparkle
 // the 500-line rule; nothing else changed in the move.
 
 extension UpdaterController: SPUUpdaterDelegate {
+    /// When this app last ran an install (written as Sparkle relaunches it, below), for
+    /// `IdleInstall`'s spacing between unattended installs (B-5730).
+    nonisolated static let lastInstallKey = "autoInstallLastAt"
+
+    /// Supervised sessions that are not idle, from the session board's last scan; nil before any
+    /// scan has finished. A session with no published state counts as busy (cannot say, so wait).
+    static func busySessions() -> Int? {
+        SessionRosterStore.shared.lastScanned.map { $0.filter { $0.state != .idle }.count }
+    }
+
     /// What Sparkle just fetched, which is a reading of the same feed the poller reads.
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let release = Self.release(from: item)
@@ -98,6 +108,8 @@ extension UpdaterController: SPUUpdaterDelegate {
     }
 
     nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        // Written here and now rather than in the task below: the app is about to go.
+        UserDefaults.standard.set(Date(), forKey: UpdaterController.lastInstallKey)
         Task { @MainActor in
             self.apply(.willRelaunch)
             UpdateAvailability.shared.clear()

@@ -16,7 +16,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/TranscriptLineBytes.swift \
   TallyCLI/QuotaKnock.swift \
   TallyCLI/CapResume.swift TallyCLI/CapResumeLog.swift TallyCLI/NativeModelCommand.swift TallyCLI/QuotaKnockLogic.swift \
-  TallyCLI/SelfSwitchResume.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift \
+  TallyCLI/SelfSwitchResume.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/RestartLiveWork.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift \
   TallyCLI/ModelMenu.swift \
   TallyCLI/MCPAccountOffer.swift TallyCLI/MCPPickOffer.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift TallyCLI/PickRows.swift TallyCLI/TallyPrompt.swift \
   Tally/Core/PromptHookInput.swift TallyCLI/MCPPicker.swift \

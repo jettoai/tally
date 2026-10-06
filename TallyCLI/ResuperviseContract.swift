@@ -307,7 +307,7 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
                     pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                     sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                     capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
-                    args: [String]) -> [String] {
+                    restartNote: RestartNote? = nil, args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow ? "--follow" : "--no-follow"]
     if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
@@ -332,6 +332,9 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
     if let taskList, isTaskListID(taskList.id), taskList.dir.hasPrefix("/") {
         argv += [resuperviseTaskListFlag, taskList.id, resuperviseTaskListDirFlag, taskList.dir]
     }
+    if let restartNote, let encoded = encodeRestartNote(restartNote) {
+        argv += [resuperviseRestartNoteFlag, encoded]
+    }
     return argv + ["--"] + args
 }
 
@@ -352,6 +355,7 @@ struct ResuperviseArgs {
     var capResume: CapResumeState?
     var taskListID: String?
     var taskListDir: String?
+    var restartNote: RestartNote?
     var childArgs: [String] = []
 
     var taskList: TaskListPin? {
@@ -398,6 +402,7 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
         case resupervisePendingCapFlag: parsed.pendingCap = decodePendingCap(value()); index += 2
         case resuperviseSessionModelFlag: parsed.sessionModel = decodeSessionModel(value()); index += 2
         case resuperviseCapResumeFlag: parsed.capResume = decodeCapResume(value()); index += 2
+        case resuperviseRestartNoteFlag: parsed.restartNote = decodeRestartNote(value()); index += 2
         // Re-validated rather than trusted: this value crossed a process boundary from a build we
         // cannot see, and it is about to name a file. Anything that is not an id is no memory, which
         // is the behaviour of every build that never wrote the flag.

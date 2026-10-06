@@ -315,11 +315,11 @@ struct CapResumeState: Equatable {
     /// composer.
     mutating func arm(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
                       conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
-                      userTurnAt: Date?, caughtUp: Bool) {
+                      userTurnAt: Date?, caughtUp: Bool, owed: Bool = true) {
         // `caughtUp` FIRST: a watcher mid catch-up may not have read an answer after the wall, so
         // "interrupted" is unknown and no arm costs one line, never a wrong one. And the id the
         // offer is ABOUT: no id is nothing for a later tick to compare the window against.
-        guard caughtUp, let conversation,
+        guard owed || !capResumeRequiresLiveWork, caughtUp, let conversation,
               capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
                                    answeredAt: answeredAt),
               let cappedAt,

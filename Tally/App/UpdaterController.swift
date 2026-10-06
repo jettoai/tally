@@ -343,13 +343,18 @@ final class UpdaterController: NSObject {
     /// Not private: the install handler arriving is one of the moments worth asking at, and that
     /// callback lives in UpdaterDelegate.swift.
     func installIfIdle() {
+        // Asked for the next minute's reading: the scan runs off the main thread.
+        SessionRosterStore.shared.refresh()
         let idle = state.knownSince.map {
             IdleInstall.shouldInstall(
                 modalOpen: Self.decisionPending,
                 taskWindowOpen: Self.taskWindowOnScreen,
                 pinnedPanelOpen: PinnedPanelController.shared.isVisible,
                 secondsSinceUserInput: Self.secondsSinceUserInput(),
-                waiting: Date().timeIntervalSince($0))
+                waiting: Date().timeIntervalSince($0),
+                sinceLastInstall: (UserDefaults.standard.object(forKey: Self.lastInstallKey) as? Date)
+                    .map { Date().timeIntervalSince($0) },
+                busySessions: Self.busySessions())
         } ?? false
         apply(.momentArrived(idle: idle))
     }

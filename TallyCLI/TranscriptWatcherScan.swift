@@ -320,6 +320,12 @@ extension TranscriptWatcher {
            let notice = stoppedTaskNotice(inLine: line.text) {
             lastStoppedTasks = lastStoppedTasks.map { $0.merged(with: notice) } ?? notice
         }
+        // What this child still has running, for the restart note (RestartLiveWork.swift).
+        let liveNotice = line.has(.originTaskNotification) || line.has(.contentTaskNotification)
+        if liveNotice || line.has(.toolResult) || line.has(.cronDelete), !line.has(.sidechain),
+           let ts = line.timestamp, ts >= since {
+            liveWork.fold(line.text, at: ts, notice: liveNotice, toolResult: line.has(.toolResult))
+        }
         // Claude Code's own `/model`, in the two events it writes. The invocation is what
         // marks the moment; the line it printed carries the effort, and is JSON-parsed only
         // past a substring prefilter (its text is ANSI-coded, so it cannot be read off the raw

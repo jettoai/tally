@@ -38,7 +38,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    lastConversation: String? = nil,
                    capResume carriedResume: CapResumeState? = nil,
                    taskList carriedTaskList: TaskListPin? = nil,
-                   clearedConversation: String? = nil) -> Never {
+                   clearedConversation: String? = nil,
+                   restartNote carriedNote: RestartNote? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -234,7 +235,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// fresh first launch and on a fresh relaunch. An exec is a self-update whose old image counted
     /// nothing here, and a first launch that resumes a conversation is a session brought back by
     /// hand; either first child is owed the restart line on the notice or on nothing.
-    var restartNote: RestartNote? = firstLaunchRestartNote(launchArgs: launchArgs, exec: resumed)
+    var restartNote: RestartNote? = firstLaunchRestartNote(launchArgs: launchArgs, exec: resumed,
+                                                           carried: carriedNote)
     /// Whether this session is owed the line that wakes it after a restart killed its background
     /// work. Per session, since it is raised and spent against the child after a handoff.
     var restartWake = RestartWakeState()
@@ -1243,6 +1245,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let leaving = account
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse,
                                fresh: plan.fresh)
+                // Whether the child just ended had work this restart took (RestartWake.swift), read
+                // once for both the cap resume below and the restart note.
+                let owedReading = restartOwed(roster: roster,
+                                              ranTurn: watcher.lastMainChainEventAt != nil,
+                                              caughtUp: watcher.caughtUp,
+                                              live: watcher.liveWork, now: Date())
+                appendHandoffLine(restartOwedLine(pid: supervisorPID, reason: plan.reason,
+                                                  reading: owedReading), to: handoffLog)
                 // AND WHETHER THE NEXT CHILD IS OWED A LINE ASKING IT TO CARRY ON (CapResume.swift
                 // owns every gate): a cap handoff whose wall cut a turn short leaves work sitting in
                 // a conversation nobody is going to resume by itself. Raised HERE rather than at the
@@ -1261,7 +1271,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                              from: leaving, to: plan.target,
                              userTurnAt: watcher.lastUserTurnAt,
                              // The old child's reading covers its whole transcript, or no arm.
-                             caughtUp: watcher.caughtUp)
+                             caughtUp: watcher.caughtUp, owed: owedReading.owed)
                 // AND THE SAME OFFER FOR A MOVE THIS CONVERSATION ASKED FOR ITSELF: a `tally
                 // account` its own agent ran mid-work leaves that work sitting in the resumed window
                 // exactly as a wall does (SelfSwitchResume.swift decides which moves those are).
@@ -1274,9 +1284,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 from: leaving, to: plan.target,
                                 userTurnAt: watcher.lastUserTurnAt, caughtUp: watcher.caughtUp)
                 // AND WHAT THE NEXT CHILD NEEDS TO WAKE ITSELF IF THIS KILLED BACKGROUND WORK
-                // (RestartWake.swift): the reason and the roster's count.
+                // (RestartWake.swift): the reason, the roster's count, and whether it is owed.
                 restartNote = restartNoteForHandoff(reason: plan.reason,
-                                                    fresh: plan.fresh || secondHead, roster: roster)
+                                                    fresh: plan.fresh || secondHead, roster: roster,
+                                                    owed: owedReading.owed)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child
@@ -1339,7 +1350,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       sessionModel: sessionModelState.pin,
                                       lastConversation: lastConversation.published,
                                       capResume: capResume, taskList: taskList,
-                                      args: launchArgs)
+                                      restartNote: restartNote, args: launchArgs)
                 return .childReplaced
             }
             maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)

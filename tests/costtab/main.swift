@@ -92,6 +92,17 @@ check(cost.contains("if page == .spend {") && cost.contains("CostPage(store: sto
 check(cost.components(separatedBy: ".onAppear { store.refresh() }").count == 2
         && !cost.contains("dragsWindow"),
       "…one refresh per arrival on the tab, none per page switch, and the switch is not a grab area")
+// One range switch for both pages, on the Cost tab's own control line beside Spend / Tokens.
+let views = (try? FileManager.default.contentsOfDirectory(atPath: "Tally/Views")) ?? []
+let rangeSwitches = views.filter { $0.hasSuffix(".swift") }.flatMap { file in
+    Array(repeating: file, count: code(of: "Tally/Views/" + file)
+        .components(separatedBy: "TokenStatsRange.allCases").count - 1)
+}
+let controlLine = cost.range(of: "struct CostTabPage")
+    .flatMap { tab in cost.range(of: "struct CostPage:").map { tab.upperBound..<$0.lowerBound } }
+check(rangeSwitches == ["CostPage.swift"]
+        && controlLine.map { cost[$0].contains("TokenStatsRange.allCases") } == true,
+      "the range switch is drawn once, on the Cost tab's control line, for both pages")
 let header = code(of: "Tally/Views/PopoverHeaderView.swift")
 check(header.contains("case .cost: tokens.refresh()") && header.contains("case .cost: return tokens.isScanning"),
       "the header's refresh and spinner follow the token scan on either Cost page")

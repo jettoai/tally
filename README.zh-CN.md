@@ -31,11 +31,11 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的舰队仪表合并九个账号（五个 Claude Max、四个 Codex），Claude 同时显示两条跑道（Fable 池与周池长条，各附节奏预测“约可再用 4d 12h”与下一次错开回充）、Codex 一条周池（此节奏可持续）；顾问行以账号圆点显示各 provider 的每周实际需求，Claude 单一方案合并计算（5.8 acct/wk）、Codex 按方案拆分（Pro 1.7・Team 0.9），节奏超出时标示应加开一个账号；下方每个账号各自的毛玻璃卡片显示 5 小时会话、每周、旗舰模型额度窗，含重置时间、接近上限警示，以及标出启动器当前选择的紫色智选徽章；标题栏带有“用量／Token／会话”切换" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的舰队仪表合并九个账号（五个 Claude Max、四个 Codex），Claude 同时显示两条跑道（Fable 池与周池长条，各附节奏预测“约可再用 4d 12h”与下一次错开回充）、Codex 一条周池（此节奏可持续）；顾问行以账号圆点显示各 provider 的每周实际需求，Claude 单一方案合并计算（5.8 acct/wk）、Codex 按方案拆分（Pro 1.7・Team 0.9），节奏超出时标示应加开一个账号；下方每个账号各自的毛玻璃卡片显示 5 小时会话、每周、旗舰模型额度窗，含重置时间、接近上限警示，以及标出启动器当前选择的紫色智选徽章；标题栏带有“用量／成本／会话”切换" width="834">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally 的 Token 分页：所选区间（今天／7 天／30 天／全部）的 Token 总计，附输入、缓存写入、缓存读取、输出的分项，Claude 与 Codex 的服务拆分，以及带占比长条的项目表，显示 Token 花到哪里去了；点一行项目会展开成一整年的每日活动，呈现为贡献记录风格的热力图，并附上过去一年的总计" width="834">
+  <img src="assets/screenshot-tokens.png" alt="Tally“成本”分页的 Token 页：所选区间（今天／7 天／30 天／全部）的 Token 总计，附输入、缓存写入、缓存读取、输出的分项，Claude 与 Codex 的服务拆分，以及带占比长条的项目表，显示 Token 花到哪里去了；点一行项目会展开成一整年的每日活动，呈现为贡献记录风格的热力图，并附上过去一年的总计" width="834">
 </p>
 
 ## 为什么是 Tally

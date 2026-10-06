@@ -34,11 +34,11 @@ machine.
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand, pooled for Claude's single plan (5.8 acct/wk) and split per plan for Codex (Pro 1.7 · Team 0.9), marking when the pace calls for one more account; below, every account's frosted-glass card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks; the header carries a Usage / Tokens / Sessions switch" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally's panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand, pooled for Claude's single plan (5.8 acct/wk) and split per plan for Codex (Pro 1.7 · Team 0.9), marking when the pace calls for one more account; below, every account's frosted-glass card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks; the header carries a Usage / Cost / Sessions switch" width="834">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally's Tokens tab: total tokens over the selected range (today / 7 days / 30 days / all time) with the input, cache write, cache read and output breakdown, a per-provider split between Claude and Codex, and a per-project table with share bars showing where the tokens went; one project row is expanded into a year of daily activity as a contribution-style heatmap with its past-year total" width="834">
+  <img src="assets/screenshot-tokens.png" alt="The Tokens page of Tally's Cost tab: total tokens over the selected range (today / 7 days / 30 days / all time) with the input, cache write, cache read and output breakdown, a per-provider split between Claude and Codex, and a per-project table with share bars showing where the tokens went; one project row is expanded into a year of daily activity as a contribution-style heatmap with its past-year total" width="834">
 </p>
 
 ## Why Tally

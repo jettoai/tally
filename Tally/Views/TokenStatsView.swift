@@ -84,7 +84,7 @@ struct TokenStatsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.sectionSpacing) {
-            rangePicker
+            // The range switch is on the Cost tab's control line (CostTabPage), shared with Spend.
             if isRangeEmpty {
                 emptyState
             } else {
@@ -111,16 +111,6 @@ struct TokenStatsView: View {
     /// A window with nothing in it, as opposed to a window whose numbers have not arrived yet - the
     /// first paint of a cold app has neither, and showing "no usage" there would be a lie.
     private var isRangeEmpty: Bool { store.hasScanned && store.summary.isEmpty }
-
-    /// Deliberately the quieter of the two segmented controls on screen. The tab picker above it
-    /// chooses what the window is about; this one only narrows what is already there, so it is the
-    /// compact size and hugs its content at the trailing edge instead of spanning the width.
-    private var rangePicker: some View {
-        NeutralSegmentedPicker(selection: $store.range,
-                               options: TokenStatsRange.allCases,
-                               size: .small) { $0.label }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-    }
 
     // MARK: Headline
 

@@ -31,11 +31,11 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；顧問列以帳號圓點顯示各 provider 的每週實際需求，Claude 單一方案合併計算（5.8 acct/wk）、Codex 依方案拆分（Pro 1.7・Team 0.9），節奏超出時標示該加開一個帳號；下方每個帳號各自的毛玻璃卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章；標題列帶有「用量／Token／Sessions」切換" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；顧問列以帳號圓點顯示各 provider 的每週實際需求，Claude 單一方案合併計算（5.8 acct/wk）、Codex 依方案拆分（Pro 1.7・Team 0.9），節奏超出時標示該加開一個帳號；下方每個帳號各自的毛玻璃卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章；標題列帶有「用量／成本／工作階段」切換" width="834">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally 的 Token 分頁：所選區間（今天／7 天／30 天／全部）的 Token 總計，附輸入、快取寫入、快取讀取、輸出的分項，Claude 與 Codex 的服務別拆分，以及帶佔比長條的專案表，顯示 Token 花到哪裡去了；點一列專案會展開成一整年的每日活動，呈現為貢獻紀錄風格的熱力圖，並附上過去一年的總計" width="834">
+  <img src="assets/screenshot-tokens.png" alt="Tally「成本」分頁的 Token 頁：所選區間（今天／7 天／30 天／全部）的 Token 總計，附輸入、快取寫入、快取讀取、輸出的分項，Claude 與 Codex 的服務別拆分，以及帶佔比長條的專案表，顯示 Token 花到哪裡去了；點一列專案會展開成一整年的每日活動，呈現為貢獻紀錄風格的熱力圖，並附上過去一年的總計" width="834">
 </p>
 
 ## 為什麼是 Tally

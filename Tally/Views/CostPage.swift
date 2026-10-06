@@ -14,12 +14,20 @@ struct CostTabPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // The quieter size, like the range switch on each page: the header's switch chooses
-            // what the window is about, this one which view of the same scan. Never `dragsWindow`:
-            // the header's is the only switch that doubles as a grab area (dragortap suite).
-            NeutralSegmentedPicker(selection: $page, options: CostSubpage.allCases,
-                                   size: .small) { $0.label }
-                .padding([.horizontal, .top], 12)
+            // One line of controls, the session board's arrangement (SessionBoardView): which view
+            // of the scan on the left, which range on the right. The range lives here rather than
+            // on each page because both pages read the one `store.range`, so a switch drawn twice
+            // would only be the same control fading out and back in. Both the quieter size: the
+            // header's switch chooses what the window is about. Never `dragsWindow`: the header's
+            // is the only switch that doubles as a grab area (dragortap suite).
+            HStack(spacing: 6) {
+                NeutralSegmentedPicker(selection: $page, options: CostSubpage.allCases,
+                                       size: .small) { $0.label }
+                Spacer(minLength: 0)
+                NeutralSegmentedPicker(selection: $store.range, options: TokenStatsRange.allCases,
+                                       size: .small) { $0.label }
+            }
+            .padding([.horizontal, .top], 12)
             // Independent conditions in a top-leading ZStack, for the reason the tabs are
             // (PopoverRootView): mid-crossfade both pages exist, and stacked they take the taller
             // one's height rather than the sum, so the host never chases a height neither has.
@@ -40,8 +48,8 @@ struct CostTabPage: View {
     }
 }
 
-/// The Cost page: the total and what it is made of, then one row per project, under the same
-/// range switch the Tokens page has. It reads the same priced cells `~/.tally/project-cost.json` is written from
+/// The Cost page: the total and what it is made of, then one row per project, for the range chosen
+/// on the Cost tab's control line (`CostTabPage`). It reads the same priced cells `~/.tally/project-cost.json` is written from
 /// (TokenStatsStore), so the page and `tally cost` agree on a scan.
 struct CostPage: View {
     @Bindable var store: TokenStatsStore
@@ -49,9 +57,6 @@ struct CostPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.sectionSpacing) {
-            NeutralSegmentedPicker(selection: $store.range, options: TokenStatsRange.allCases,
-                                   size: .small) { $0.label }
-                .frame(maxWidth: .infinity, alignment: .trailing)
             if store.hasScanned && store.cost.isEmpty {
                 CostEmptyState()
             } else {

@@ -63,14 +63,12 @@ mark="@@@$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n') "
 
 # The tips the push target already has, kept as "^sha" lines when this clone has them as commits:
 # the boundary for a new ref. A tip this clone lacks (pushed by someone else) bounds nothing here.
-have=0
 boundary() {
-  [ "$have" = 1 ] && return
-  git ls-remote "$url" > "$work/tips" 2> "$work/lserr" || fail "cannot list $url (fail-closed)"
+  [ -e "$work/known" ] && return
+  git ls-remote "$url" > "$work/tips" 2> /dev/null || fail "cannot list $url (fail-closed)"
   cut -f1 "$work/tips" | sort -u | git cat-file --batch-check='%(objectname) %(objecttype)' > "$work/types" \
     || fail "cannot check the tips of $url (fail-closed)"
   awk '$2 == "commit" { print "^" $1 }' "$work/types" > "$work/known" || fail "boundary failed (fail-closed)"
-  have=1
 }
 
 cat > "$work/scan.awk" <<'AWK'
@@ -92,8 +90,9 @@ FILENAME == ARGV[1] {
   else if ($1 == "allow") { are[++na] = $2; aterms[na] = "|" $3 "|" }
   next
 }
+# Both listings start each commit with the separator line.
+(FILENAME == ARGV[2] || FILENAME == ARGV[3]) && mark != "" && index($0, mark) == 1 { sha = substr($0, length(mark) + 1); next }
 FILENAME == ARGV[2] {
-  if (mark != "" && index($0, mark) == 1) { sha = substr($0, length(mark) + 1); next }
   # "+++ " names the file only in a diff header; inside a hunk an added "++ x" line prints the same.
   if (index($0, "diff --git ") == 1) { inhdr = 1; next }
   if (index($0, "@@ ") == 1) { inhdr = 0; next }
@@ -102,7 +101,6 @@ FILENAME == ARGV[2] {
   next
 }
 FILENAME == ARGV[3] {
-  if (mark != "" && index($0, mark) == 1) { sha = substr($0, length(mark) + 1); next }
   scan("COMMIT_MSG", sha, $0)
   next
 }

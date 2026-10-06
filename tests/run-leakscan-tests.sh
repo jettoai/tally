@@ -249,8 +249,7 @@ check "target tip unknown here" 0 "$ZERO"
 
 # The target cannot be listed: refuse.
 url=$work/missing.git
-check "target cannot be listed" 1 "$ZERO"
-command grep -qF "pre-push: cannot list $work/missing.git (fail-closed)" "$work/err" || { echo "FAIL target cannot be listed: no fail-closed reason"; failed=$((failed + 1)); }
+check "target cannot be listed" 1 "$ZERO" "pre-push: cannot list $work/missing.git (fail-closed)"
 url=
 
 # An empty target: the whole history is new to it.

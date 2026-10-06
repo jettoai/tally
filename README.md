@@ -309,16 +309,6 @@ subscriptions at once:
   the tools does not itself change project policy. Native hook trust needs separate
   review. See [the harness guide](docs/harness.md).
 
-### Jetto Pro: the compute pool
-
-- **Lid closed, still working.** A MacBook in your compute pool can keep running with its lid
-  shut: one switch on its row in the panel's Compute Pool section turns it on, and the same switch
-  turns it back off. The switch always shows what that Mac reports, read back right after every
-  change. The first time, a Terminal window asks for that Mac's password once, to install a rule
-  that allows exactly two commands (lid sleep on, lid sleep off) and its own removal; Tally never
-  sees the password. On battery below 20%, or when the Mac runs hot, it turns itself off and
-  Tally tells you. Removing the machine from the pool puts everything back.
-
 ### The chrome
 
 - **5 languages.** English, 繁體中文, 简体中文, 日本語, 한국어, switchable in-app, live.
@@ -344,8 +334,6 @@ subscriptions at once:
   already gave on an existing account. A merge, never a replacement; a file it cannot parse is
   refused rather than rewritten; a home that has been through the wizard is left byte for byte.
   Never a credential, and never a scan for other homes to repair.
-  Jetto Pro adds one more, only when you flip it: the lid-sleep switch above changes that Mac's
-  power setting, through a sudoers rule you install yourself.
 - **One poller, ever.** Only the menu-bar app runs the CLIs (every minute by default,
   relaxable to 2/5/15). The `tally` launcher reads a local snapshot
   (`~/.tally/snapshot.json`: percentages and paths, never tokens), so opening ten terminals
@@ -368,8 +356,6 @@ subscriptions at once:
   - `tally session send <text> --session <pid>` types one line into that session and presses
     Return; `tally message claude|codex <text> --session <pid>` hands a message to the session's
     own transport without pressing a key.
-  - With Jetto Pro, `tally run --on <machine>|auto -- <cmd>` runs a command on a pool machine in a
-    copy of the repository and streams back its output and exit code.
 
 ## Requirements
 

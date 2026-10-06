@@ -253,10 +253,6 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   harness。安裝工具本身不會變更專案規則，原生 hook 信任需另行確認。
   詳見 [harness 指南](docs/harness.md)。
 
-### Jetto Pro：運算池
-
-- **合上螢幕也繼續跑。** 運算池裡的 MacBook 可以合蓋不睡：面板「運算池」區那台的列上有一個開關，點一下開、再點一下關。開關顯示的永遠是那台 Mac 回報的實際值，每次切換後立刻讀回確認。第一次使用時會開一個終端機視窗，請你輸入那台 Mac 的密碼一次，安裝一條只允許兩個指令（開、關合蓋睡眠）與移除自身的規則；密碼不經過 Tally。未接電源且電量低於 20%，或機器過熱時，會自動關閉並通知你。把機器移出運算池時，一切恢復原狀。
-
 ### 介面與細節
 
 - **五種語言。** English、繁體中文、简体中文、日本語、한국어，app 內即時切換。
@@ -277,7 +273,6 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   那一個 home 的狀態檔，Tally 新建的 home 也會預先帶入你在既有帳號上已經回答過的資料夾
   信任答案。只合併，絕不整份覆寫；解析不了的檔案會直接拒寫，而不是被改寫；已經跑過精靈
   的 home 會原封不動、逐位元組保留。永不碰憑證，也永不掃描其他 home 去修補。
-  Jetto Pro 另有一項，只在你按下時發生：上面的合蓋不睡開關會改那台 Mac 的電源設定，經由你自己安裝的 sudoers 規則。
 - **永遠只有一個輪詢者。** 只有選單列 app 會執行 CLI（預設每 1 分鐘，可放寬到 2／5／15 分鐘）。
   `tally` 啟動器只讀本機快照（`~/.tally/snapshot.json`，只有百分比和路徑、絕無 token），
   開十個終端也不多讀一次。
@@ -295,8 +290,6 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   - `tally session send <text> --session <pid>` 會把一行文字打進該 session 並按下 Return；
     `tally message claude|codex <text> --session <pid>` 則把訊息交給該 session 自己的傳輸通道，
     不按任何鍵。
-  - 搭配 Jetto Pro，`tally run --on <machine>|auto -- <cmd>` 會在運算池中的一台機器上，於
-    儲存庫的副本內執行指令，並把輸出與結束碼串流回來。
 
 ## 需求
 

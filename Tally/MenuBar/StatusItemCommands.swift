@@ -37,13 +37,14 @@ extension StatusItemController {
         // Pinning is a transformation, not a copy: whichever surface the pin was clicked in
         // (popover or main window) hands its on-screen position AND the view it is showing to
         // the panel and closes, so the panel visibly takes over in place. Handing over only the
-        // position would have made pinning the Tokens tab a way to leave it.
+        // position would have made pinning the token history a way to leave it, which is why the
+        // view goes over whole: the tab and the Cost page (`SurfacePage`).
         let fromPopover = popoverContentTopLeft()
         let source = fromPopover != nil ? popoverTab : MainWindowController.shared.surfaceTab
         let topLeft = fromPopover ?? MainWindowController.shared.contentTopLeft
         popover.performClose(nil)
         MainWindowController.shared.close()
-        PinnedPanelController.shared.show(atTopLeft: topLeft, showing: source.tab)
+        PinnedPanelController.shared.show(atTopLeft: topLeft, showing: source.page)
     }
 
     /// The screen-space top-left of the popover's content, so the panel can open exactly where the

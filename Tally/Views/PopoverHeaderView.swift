@@ -210,7 +210,7 @@ extension PopoverRootView {
         guard !isRefreshing else { return }
         switch tab {
         case .usage: Task { await store.refresh(userInitiated: true) }
-        case .tokens, .cost: tokens.refresh()
+        case .cost: tokens.refresh()
         // The board's own rescan, which is what this button means on that tab: the states on it are
         // read from the supervisors' files, so re-polling the quota APIs would move nothing on
         // screen (SessionRosterStore says what a scan costs and when it happens on its own).
@@ -252,12 +252,12 @@ extension PopoverRootView {
     }
 
     /// Whichever store the visible tab reads from, so the spinner and the disabled state describe
-    /// the work the click actually started. The quota poll keeps its own schedule while the Tokens
+    /// the work the click actually started. The quota poll keeps its own schedule while the Cost
     /// tab is up, so this is about which one the button is for, not which one is allowed to run.
     private var isRefreshing: Bool {
         switch tab {
         case .usage: return store.isRefreshing
-        case .tokens, .cost: return tokens.isScanning
+        case .cost: return tokens.isScanning
         // A board scan is a directory listing and one small file per session, done synchronously
         // before this could draw anything: there is no in-flight state to report.
         case .sessions: return false

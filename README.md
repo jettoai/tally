@@ -49,8 +49,9 @@ subscriptions at once:
 - **Per-account cards, not a fallback chain.** Every account renders as its own card, side by
   side, because "which account still has room" is exactly the question a multi-subscription user
   is asking.
-- **Subscription quota, not spend estimates.** Tally shows the same 5-hour / weekly / top-model
-  windows the vendors themselves enforce, instead of estimating dollars from token counts.
+- **Quota first, spend on its own tab.** Tally leads with the same 5-hour / weekly / top-model
+  windows the vendors themselves enforce. What your tokens would cost at list prices is an
+  estimate, and it has its own place on the Cost tab.
 - **A launcher that acts on the answer.** A dashboard's whole point is deciding where to work
   next, so Tally makes that decision for you, every time, automatically, and keeps making it
   while the session runs (cap handoff, model-degradation rescue, a free re-pick at every
@@ -98,15 +99,16 @@ subscriptions at once:
   gauge and the advisor on or off, folds providers behind their gauges, and can seat the cards in a
   section per provider; drag cards to reorder within it. A folded provider keeps its heading, which
   is how it comes back. A fleet too tall for the screen scrolls instead of falling off it.
-- **Token usage, by project.** A Tokens view behind a header switch on every surface: total
+- **Token usage, by project.** A Tokens page inside the Cost tab on every surface: total
   tokens over today / 7 days / 30 days / all time with the input, cache and output breakdown, a
   per-provider split, and a per-project table that traces even agent and workflow sessions back
   to the project they served. Click a project row and it opens into a year of daily activity, a
   contribution-style heatmap graded on that project's own scale, with each day's total a hover
   away. Read from the CLIs' own local transcripts, aggregated behind an incremental cache (a
-  refresh with nothing new costs well under a second), and it never leaves your machine. A Cost
-  tab beside it prices those tokens at Anthropic's list prices, per project, with the input / cache
-  write / cache read / output split, and `tally cost --json` hands the same figures to scripts.
+  refresh with nothing new costs well under a second), and it never leaves your machine. The tab's
+  other page, Spend (the one it opens on), prices those tokens at Anthropic's list prices, per
+  project, with the input / cache write / cache read / output split, and `tally cost --json` hands
+  the same figures to scripts.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
 - **Login health at a glance.** Hover a card for the account's signed-in email. Signed-out
@@ -136,7 +138,7 @@ subscriptions at once:
 ### The session board
 
 - **Every conversation on one board.** A third position on the header switch, next to Usage and
-  Tokens: one card per supervised session, saying what it is (account, model, effort, the
+  Cost: one card per supervised session, saying what it is (account, model, effort, the
   worktree it runs in), what it is doing right now, and how big the conversation has grown
   ("142k context"). Four states, published by the session's own supervisor rather than guessed
   from the outside: working, blocked, idle, and an honest "not reporting" when nothing new

@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// background.
     ///
     /// Which page that panel opens on is the other half of the same command, and it is not decided
-    /// here: `-TallyTab <usage|tokens|sessions>` seeds the surface's own selection
+    /// here: `-TallyTab <usage|cost|spend|tokens|sessions>` seeds the surface's own selection
     /// (`SurfaceTabLaunch`), so a capture of the session board needs no click either. Seeded rather
     /// than switched afterwards, because a tab switched after the panel is up crossfades, and a
     /// capture racing that animation photographs whichever frame it caught.

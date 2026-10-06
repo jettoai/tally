@@ -230,7 +230,7 @@ final class PinnedPanelController {
     static let shared = PinnedPanelController()
 
     private var panel: PinnedUsagePanel?
-    /// The panel's own Usage / Tokens selection, seeded by the pin hand-off (see `show`).
+    /// The panel's own selection, seeded by the pin hand-off (see `show`).
     private let surfaceTab = SurfaceTabState()
     /// Owns everything about how big this panel is and where a resize leaves it (`SurfaceSizer`).
     private var sizer: SurfaceSizer?
@@ -242,12 +242,12 @@ final class PinnedPanelController {
     /// screen, the same shape as the position half of this hand-off (`MainWindowController
     /// .contentTopLeft`), so a caller cannot accidentally seed itself from a surface nobody is looking
     /// at. Read-only: `show(atTopLeft:showing:)` stays the only seam that writes this selection.
-    var visibleTab: SurfaceTab? { isVisible ? surfaceTab.tab : nil }
+    var visiblePage: SurfacePage? { isVisible ? surfaceTab.page : nil }
 
     /// Where the panel is on screen, the position half of that same hand-off back out of the panel:
     /// the dashboard window opens exactly where the panel stood instead of jumping to the pointer's
     /// screen (see `MainWindowController.show`). Nil while the panel is off screen, so a caller
-    /// cannot inherit a position nobody is looking at. Read-only, like `visibleTab`: the panel's own
+    /// cannot inherit a position nobody is looking at. Read-only, like `visiblePage`: the panel's own
     /// placement stays owned by `show(atTopLeft:showing:)` and the user's drags.
     var visibleContentTopLeft: CGPoint? { isVisible ? panel?.contentTopLeft : nil }
 
@@ -256,8 +256,8 @@ final class PinnedPanelController {
     /// whatever the panel was last left on (launch restore / re-show). The size is driven by the
     /// content's measured size (`SurfaceSizer`), so placing by TOP LEFT is safe before it arrives:
     /// that is the corner a content-driven resize holds anyway.
-    func show(atTopLeft topLeft: CGPoint?, showing tab: SurfaceTab? = nil) {
-        if let tab { surfaceTab.tab = tab }
+    func show(atTopLeft topLeft: CGPoint?, showing page: SurfacePage? = nil) {
+        if let page { surfaceTab.page = page }
         let panel = panel ?? makePanel()
         self.panel = panel
         if let topLeft { panel.setFrameTopLeftPoint(topLeft) }

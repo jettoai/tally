@@ -91,7 +91,8 @@ struct PopoverRootView: View {
     /// first frame of the switch, so the leaving view is already being cut off at the bottom, and
     /// drifting it downward only pushed it further into the part that is going away. It fades where
     /// it stands, leaving the top edge as the one thing nothing in the switch moves against.
-    private var tabTransition: AnyTransition {
+    /// Static so the Cost tab's own two pages switch with the same vocabulary (CostTabPage).
+    static var tabTransition: AnyTransition {
         .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity)
     }
 
@@ -150,27 +151,17 @@ struct PopoverRootView: View {
                                     .frame(width: popoverWidth, alignment: .leading)
                             }
                         }
-                        .transition(tabTransition)
-                    }
-                    if tab == .tokens {
-                        ScrollView(.vertical) {
-                            TokenStatsView(store: tokens, width: scrollContentWidth)
-                                // Every visit brings the numbers up to date; the scan itself skips
-                                // files whose identity has not changed, so a repeat visit costs a
-                                // directory walk.
-                                .onAppear { tokens.refresh() }
-                        }
-                        .frame(width: popoverWidth, alignment: .leading)   // as above
-                        .transition(tabTransition)
+                        .transition(Self.tabTransition)
                     }
                     if tab == .cost {
-                        // WHAT THE TOKENS COST, by project (CostPage.swift).
+                        // WHAT THE TOKENS COST AND WHERE THEY WENT: one tab, Spend and Tokens
+                        // inside it (CostTabPage, CostPage.swift).
                         ScrollView(.vertical) {
-                            CostPage(store: tokens, width: scrollContentWidth)
-                                .onAppear { tokens.refresh() }
+                            CostTabPage(store: tokens, page: $tabState.costPage,
+                                        width: scrollContentWidth)
                         }
                         .frame(width: popoverWidth, alignment: .leading)   // as above
-                        .transition(tabTransition)
+                        .transition(Self.tabTransition)
                     }
                     if tab == .sessions {
                         // WHAT IS RUNNING (SessionBoardView.swift). A page rather than the strip it
@@ -179,7 +170,7 @@ struct PopoverRootView: View {
                         // width of the surface rather than a band between two other summaries.
                         ScrollView(.vertical) { sessionsPage }
                             .frame(width: popoverWidth, alignment: .leading)   // as above
-                            .transition(tabTransition)
+                            .transition(Self.tabTransition)
                     }
                 }
                 .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tab)

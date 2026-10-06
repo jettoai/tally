@@ -1,7 +1,47 @@
 import SwiftUI
 
-/// The Cost page: the total and what it is made of, then one row per project, under the Tokens
-/// tab's range switch. It reads the same priced cells `~/.tally/project-cost.json` is written from
+/// The Cost tab: a Spend / Tokens switch over the two pages that read the token scan. Spend is the
+/// priced view (`CostPage`), Tokens the token history (`TokenStatsView`), each exactly as it was
+/// when it was a tab of its own. One store behind both, so the switch is instant and never
+/// rescans; arriving on the tab is what brings the numbers up to date, the way visiting either
+/// page did before.
+struct CostTabPage: View {
+    @Bindable var store: TokenStatsStore
+    /// This surface's own choice (`SurfaceTabState.costPage`): one per host, handed over on a pin.
+    @Binding var page: CostSubpage
+    var width: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // The quieter size, like the range switch on each page: the header's switch chooses
+            // what the window is about, this one which view of the same scan. Never `dragsWindow`:
+            // the header's is the only switch that doubles as a grab area (dragortap suite).
+            NeutralSegmentedPicker(selection: $page, options: CostSubpage.allCases,
+                                   size: .small) { $0.label }
+                .padding([.horizontal, .top], 12)
+            // Independent conditions in a top-leading ZStack, for the reason the tabs are
+            // (PopoverRootView): mid-crossfade both pages exist, and stacked they take the taller
+            // one's height rather than the sum, so the host never chases a height neither has.
+            ZStack(alignment: .topLeading) {
+                if page == .spend {
+                    CostPage(store: store, width: width)
+                        .transition(PopoverRootView.tabTransition)
+                }
+                if page == .tokens {
+                    TokenStatsView(store: store, width: width)
+                        .transition(PopoverRootView.tabTransition)
+                }
+            }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: page)
+        }
+        .frame(width: width, alignment: .leading)
+        .onAppear { store.refresh() }
+    }
+}
+
+/// The Cost page: the total and what it is made of, then one row per project, under the same
+/// range switch the Tokens page has. It reads the same priced cells `~/.tally/project-cost.json` is written from
 /// (TokenStatsStore), so the page and `tally cost` agree on a scan.
 struct CostPage: View {
     @Bindable var store: TokenStatsStore

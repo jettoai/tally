@@ -1,11 +1,12 @@
 import Foundation
 import Observation
 
-/// Drives the Tokens tab: holds the merged samples, the selected range, and the scan state.
+/// Drives the Cost tab's two pages: holds the merged samples, the selected range, and the scan state.
 ///
-/// The scan is kicked off when the tab is opened and never on a timer. Nothing about local token
-/// history changes while the user is looking at another tab, and a background sweep of several
-/// gigabytes to keep a screen nobody is reading up to date would be the worst trade in the app.
+/// The scan runs when the tab is opened, and in the background on the quota poll's cycle at most
+/// every `TokenScanCadence.maxAge`, so `~/.tally/project-cost.json` (the only thing a background
+/// scan is for) stays current with no surface open. Unchanged files are not reopened, so a scan
+/// with nothing new costs a directory walk.
 @MainActor
 @Observable
 final class TokenStatsStore {
@@ -26,6 +27,9 @@ final class TokenStatsStore {
     private(set) var hasScanned = false
 
     private var samples: [TokenSample] = []
+    /// When the last scan began, for the background cadence (`refreshIfStale`). Any visit's scan
+    /// counts, so opening the tab pushes the next background one back.
+    private var lastScanStart: Date?
 
     private init() {}
 
@@ -41,6 +45,7 @@ final class TokenStatsStore {
             rebuild()
             return
         }
+        lastScanStart = Date()
         isScanning = true
         TokenStatsEngine.shared.scan { scanned in
             Task { @MainActor [weak self] in
@@ -52,6 +57,14 @@ final class TokenStatsStore {
                 rebuild()
             }
         }
+    }
+
+    /// The background half: called on every quota poll (`UsageStore.refresh`), scans only when the
+    /// last scan began at least `TokenScanCadence.maxAge` ago. A scan already running is left alone
+    /// by `refresh`'s own guard.
+    func refreshIfStale(now: Date = Date()) {
+        guard TokenScanCadence.isDue(lastStart: lastScanStart, now: now) else { return }
+        refresh()
     }
 
     /// One project's tokens per local day, every provider merged, over the whole history that is

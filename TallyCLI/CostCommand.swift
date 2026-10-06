@@ -48,7 +48,7 @@ func costCommand(args: [String], data: Data?, now: Date) -> CostCommandResult {
           snapshot.schema == CostReportFile.schema
     else {
         return CostCommandResult(code: 1, err: "no cost snapshot at ~/.tally/project-cost.json: "
-                                     + "open Tally and its Tokens or Cost tab once to write it")
+                                     + "open Tally (it writes this on launch and every 15 minutes while running)")
     }
     var report: CostReport
     if let days {

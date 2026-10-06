@@ -393,11 +393,11 @@ final class UsageStore {
         // own, one clause wider: a dev build pointed at a stand-in CLI spends nothing and is how
         // the whole path gets reviewed (`EarlyStartStore.mayRun`).
         EarlyStartStore.shared.evaluate(accounts: labeled, launchHomes: launchHomes)
-        // And what each account's weekly session-limit reset is doing, re-read on the same cycle
-        // rather than per redraw: those records are written by whichever SUPERVISOR observed the
-        // answer (Stores/LimitResetStore.swift), so this app only ever reads them, and a card asks
-        // the question several times a frame.
+        // And each account's weekly session-limit reset, re-read on the same cycle rather than per
+        // redraw: supervisors write those records and this app only reads them (LimitResetStore).
         LimitResetStore.shared.refresh()
+        // And the token scan behind ~/.tally/project-cost.json, throttled (TokenScanCadence).
+        TokenStatsStore.shared.refreshIfStale()
         let now = Date()
         let planKeys = FleetMath.planTiers(accounts: labeled).mapValues(\.key) // split gauges' plans
         UsageHistory.shared.samples(

@@ -1,31 +1,12 @@
 import SwiftUI
 
-/// WHAT A SURFACE IS AND WHICH WINDOW IT IS IN: the three pages the usage surface shows, the three
-/// hosts that can show them, and one host's own selection.
+/// WHICH WINDOW A SURFACE IS IN AND WHAT IT IS SHOWING THERE: the three hosts that can show it, and
+/// one host's own selection (the pages themselves are plain values in SurfacePage.swift).
 ///
 /// Split out of `PopoverRootView` because none of it is the view: the hosts name themselves with
 /// `SurfaceHost` before any view exists (`SurfaceSizer`), the tab state is owned by the controllers
 /// and handed in, and the pages are named by the launch flags that seed them
 /// (`SurfaceTabLaunch`).
-
-/// What a surface is showing. Not a window concept: the popover, the pinned panel and the dashboard
-/// window are all this same view, and all three can be flipped to any of its pages and back.
-///
-/// The four answer four different questions and are deliberately not merged: how much quota is
-/// left, where the tokens went, what is running right now (`SessionBoardView`), and what the tokens
-/// cost at list prices (`CostPage`).
-enum SurfaceTab: String, CaseIterable, Identifiable {
-    case usage, tokens, sessions, cost
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .usage: return L("Usage")
-        case .tokens: return L("Tokens")
-        case .sessions: return L("Sessions")
-        case .cost: return L("Cost")
-        }
-    }
-}
 
 /// Which host is presenting this copy of the surface. The view itself is the same in all three, so
 /// this exists only for the answers that depend on WHICH window is asking - and there is one:
@@ -76,7 +57,17 @@ final class SurfaceTabState {
     /// naming it (`-TallyTab`) or by naming a graph that lives on one (`-TallyTokenGraphPreview`),
     /// so the capture needs no click to get there - those flags' whole purpose. Seeded rather than
     /// switched after launch, so nothing is ever photographed mid-crossfade (`SurfaceTabLaunch`).
-    var tab: SurfaceTab = SurfaceTabLaunch.initialTab
+    var tab: SurfaceTab = SurfaceTabLaunch.initialPage.tab
+    /// Which of the Cost tab's two pages is up (`CostSubpage`). Here for the reasons the tab is: one
+    /// per host, handed over on a pin, never persisted. Kept while the surface is on another tab, so
+    /// coming back to Cost finds the page the reader left.
+    var costPage: CostSubpage = SurfaceTabLaunch.initialPage.costPage
+    /// Both halves at once, for the two hand-offs (pinning, and the dashboard retiring the panel):
+    /// handing over only the tab would turn pinning the token history into a way to leave it.
+    var page: SurfacePage {
+        get { SurfacePage(tab: tab, costPage: costPage) }
+        set { tab = newValue.tab; costPage = newValue.costPage }
+    }
     /// Which sessions the board lists (`SessionFilter`). Here for the same reasons the tab is: one
     /// per host, so narrowing the pinned panel's board does not narrow the popover's, and never
     /// persisted - it is a question asked while looking, not a preference.

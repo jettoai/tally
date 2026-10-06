@@ -116,7 +116,7 @@ final class MainWindowController {
         // mid-glance. Both halves are read before `unpin`, which puts the panel off screen and with
         // it the answers to both questions.
         let fromPanel = PinnedPanelController.shared.visibleContentTopLeft
-        if let tab = PinnedPanelController.shared.visibleTab { surfaceTab.tab = tab }
+        if let page = PinnedPanelController.shared.visiblePage { surfaceTab.page = page }
         StatusItemController.unpin()
         if window == nil {
             // Built without a contentViewController: what goes in a window under this contract is

@@ -454,14 +454,6 @@ extension TranscriptWatcher {
               line.contains("<status>stopped</status>") || line.contains("<status>killed</status>"),
               let uuid = lineUUID(line), let ts = lineTimestamp(line), ts >= since
         else { return nil }
-        var ids = Set<String>()
-        var rest = line[...]
-        while let open = rest.range(of: "<task-id>"),
-              let close = rest[open.upperBound...].range(of: "</task-id>") {
-            let id = rest[open.upperBound..<close.lowerBound]
-            if !id.hasPrefix("__orphan_summary__") { ids.insert(String(id)) }
-            rest = rest[close.upperBound...]
-        }
-        return StoppedTaskNotice(at: ts, uuid: uuid, ids: ids)
+        return StoppedTaskNotice(at: ts, uuid: uuid, ids: taskNotificationIDs(line))
     }
 }

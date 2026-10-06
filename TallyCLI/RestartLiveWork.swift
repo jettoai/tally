@@ -52,9 +52,8 @@ struct RestartLiveWork: Equatable {
                        calendar: Calendar = .current) {
         if notice {
             let ids = taskNotificationIDs(text)
-            if let status = tagValue(text, "status"), terminalTaskStatuses.contains(status) {
-                tasks.subtract(ids)
-            } else if text.contains(monitorExpiredMarker) {
+            if tagValue(text, "status").map(terminalTaskStatuses.contains) == true
+                || text.contains(monitorExpiredMarker) {
                 tasks.subtract(ids)
             } else if text.contains(monitorEventMarker) {
                 tasks.formUnion(ids)
@@ -81,7 +80,7 @@ struct RestartLiveWork: Equatable {
 
 // MARK: - Readers (substring, like the rest of the scan)
 
-/// `<task-id>` values, `__orphan_summary__` markers left out (same rule as `stoppedTaskNotice`).
+/// `<task-id>` values, `__orphan_summary__` markers left out (`stoppedTaskNotice` shares it).
 func taskNotificationIDs(_ text: Substring) -> Set<String> {
     var ids = Set<String>()
     var rest = text[...]

@@ -342,7 +342,8 @@ struct DroughtWatch {
         // the session is on and `candidates` has the pinned account filtered out of it whenever it
         // is quarantined or cannot serve this model, and a pin over a quarantined account is
         // precisely a pin that must go on yielding.
-        pinnedSpent = droughtPinnedRow(pinned, in: reading.0).map {
+        let pinnedRow = droughtPinnedRow(pinned, in: reading.0)
+        pinnedSpent = pinnedRow.map {
             accountIsSpent($0, primaryModel: primaryModel, reserves: reserves, now: now)
         } ?? false
         // Behind `accountIsSpent`'s trust guards: a held-over reading must not release a pin or
@@ -352,7 +353,7 @@ struct DroughtWatch {
                 && !aboveReserve(row, primaryModel: primaryModel, reserves: reserves, now: now)
         }
         underReserve = under(field.current)
-        pinnedUnderReserve = droughtPinnedRow(pinned, in: reading.0).map(under) ?? false
+        pinnedUnderReserve = pinnedRow.map(under) ?? false
         window = binding?.name
         remaining = binding.map { effectiveRemaining(comfortWindow($0), now: now) }
         hasTarget = capHandoffTarget(field.candidates, primaryModel: primaryModel,

@@ -171,10 +171,11 @@ func runRelayChecks() {
                "a day already under way holds back only the accounts it wrote a mark for")
     }
 
-    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all nine reasons (the ninth, B-1213's reserve), listed exhaustively from
-    //    `everyReason` so a reason added later cannot slip past the table. It used to be two axes:
-    //    the second asked what a pass PROVED about the provider's side, which is how an account
-    //    suppressed by the arming stamp was let out early. Nothing is inferred from a pass any more.
+    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all nine reasons (the ninth, B-1213's reserve),
+    //    listed exhaustively from `everyReason` so a reason added later cannot slip past the table.
+    //    It used to be two axes: the second asked what a pass PROVED about the provider's side,
+    //    which is how an account suppressed by the arming stamp was let out early. Nothing is
+    //    inferred from a pass any more.
     do {
         expect(everyReason.count == 9 && Set(everyReason.map(\.rawValue)).count == 9,
                "all nine reasons are named here, once each")

@@ -256,9 +256,15 @@ func reserveDipNotice(_ account: Snapshot.Account, primaryModel: String?,
                       reserves: AccountReserves, now: Date = Date()) -> String? {
     let crossed = crossedReserves(account, primaryModel: primaryModel, reserves: reserves, now: now)
     guard !crossed.isEmpty else { return nil }
-    let reserve = reserves.reserve(for: account)
-    return "dipping into \(account.label)'s \(crossed.map(\.name).joined(separator: " and ")) "
-        + "reserve (\(Int(reserve.rounded()))% kept for web use)"
+    return "dipping into \(account.label)'s "
+        + reservePhrase(crossed, reserves.reserve(for: account))
+}
+
+/// "weekly reserve (30% kept for web use)": the words the dip and the refusal share, so the two
+/// sentences cannot come to name the same crossing differently.
+private func reservePhrase(_ crossed: [RatedWindow], _ reserve: Double) -> String {
+    "\(crossed.map(\.name).joined(separator: " and ")) reserve "
+        + "(\(Int(reserve.rounded()))% kept for web use)"
 }
 
 // MARK: - The hard line (B-1213)
@@ -310,8 +316,9 @@ private func accountRecovery(_ account: Snapshot.Account, primaryModel: String?,
 /// The one line a refused automatic launch prints.
 func reserveHoldNotice(_ hold: ReserveHoldout, providerID: String, now: Date = Date()) -> String {
     let labels = hold.accounts.map(\.label).joined(separator: ", ")
-    let back = hold.recoversAt.map { "the first one back is in \(shortETA($0.timeIntervalSince(now)))" }
-        ?? "no reset time is known yet"
+    let back = hold.recoversAt.map {
+        "the first one back is in \(shortETA($0.timeIntervalSince(now)))"
+    } ?? "no reset time is known yet"
     return "every \(providerID) account Tally may launch on is under its reserve (\(labels)); "
         + "\(back). Run with \(spendReserveFlag) to use the reserve anyway"
 }
@@ -321,7 +328,6 @@ func namedReserveRefusal(_ account: Snapshot.Account, primaryModel: String?,
                          reserves: AccountReserves, now: Date = Date()) -> String? {
     let crossed = crossedReserves(account, primaryModel: primaryModel, reserves: reserves, now: now)
     guard !crossed.isEmpty else { return nil }
-    return "\(account.label) is under its \(crossed.map(\.name).joined(separator: " and ")) "
-        + "reserve (\(Int(reserves.reserve(for: account).rounded()))% kept for web use); "
-        + "pass \(spendReserveFlag) to launch on it anyway"
+    return "\(account.label) is under its \(reservePhrase(crossed, reserves.reserve(for: account)))"
+        + "; pass \(spendReserveFlag) to launch on it anyway"
 }

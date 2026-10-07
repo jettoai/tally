@@ -90,27 +90,27 @@ func runCapLimitResetChecks() {
     check("a WEEKLY wall is refused: the reset explicitly does not clear that window",
           !capLimitResetAllowed(scope: .weekly, enabled: true, state: .available,
                                 weeklyRemaining: 60, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("a model-tier wall is refused: it is a different window entirely",
           !capLimitResetAllowed(scope: .model, enabled: true, state: .available,
                                 weeklyRemaining: 60, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("a wall this build could not name is refused rather than guessed at",
           !capLimitResetAllowed(scope: nil, enabled: true, state: .available,
                                 weeklyRemaining: 60, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("the switch off refuses it",
           !capLimitResetAllowed(scope: .session, enabled: false, state: .available,
                                 weeklyRemaining: 60, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("a reset already spent this week is refused",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .used,
                                 weeklyRemaining: 60, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("a login outside the rollout is refused",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .notEnabled,
                                 weeklyRemaining: 60, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     // THE ONE DELIBERATE EXCEPTION: `unknown` is what every account reads before anything has been
     // observed, so refusing it would mean the feature never fires at all.
     check("an account nothing has been observed about is still tried once",
@@ -122,7 +122,7 @@ func runCapLimitResetChecks() {
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
                                 weeklyRemaining: capLimitResetWeeklyFloor - 1,
                                 alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("…and the floor itself is allowed, so the boundary is not off by one",
           capLimitResetAllowed(scope: .session, enabled: true, state: .available,
                                weeklyRemaining: capLimitResetWeeklyFloor, alreadyAttempted: false,
@@ -130,7 +130,7 @@ func runCapLimitResetChecks() {
     check("a snapshot that cannot say how much of the week is left refuses",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
                                 weeklyRemaining: nil, alreadyAttempted: false,
-                               underReserve: false))
+                                underReserve: false))
     check("and a wall already answered once is never answered twice",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
                                 weeklyRemaining: 60, alreadyAttempted: true,

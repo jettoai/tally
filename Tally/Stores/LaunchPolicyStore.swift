@@ -412,9 +412,8 @@ final class LaunchPolicyStore {
         // a reserve and says so on stderr - and a badge that showed no pick, or a different one,
         // would be predicting a launch that is not the one about to happen. Unreachable on a fleet
         // where nobody marked an account: an eligible account has every window above zero, so it is
-        // above a reserve of zero by definition.
-        // Mirror of `best`: anybody above their line leaves the ones under it out of the field
-        // (B-1213).
+        // above a reserve of zero by definition. And anybody above their line leaves the ones under
+        // it out of the field, as `best` does (B-1213).
         let above = eligibleAccounts.filter {
             Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }

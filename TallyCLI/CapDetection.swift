@@ -404,15 +404,13 @@ func capHandoffPick(_ candidates: [Snapshot.Account], primaryModel: String?,
 /// first loses the least (a remainder that resets before it is reached is gone). Ties fall to
 /// `smartScore`, the launch ranking, which already weighs every counted window by hours to reset.
 ///
-/// Two filters: the reserve, never dropped here (a launch may spend into one, a move may not); and
-/// the 5h window, which must be above the nearly-dry line (a refill inside the grace
+/// Two filters: the reserve, never dropped here (a launch may spend into one, a move may not,
+/// B-1213); and the 5h window, which must be above the nearly-dry line (a refill inside the grace
 /// counts as full). A 5h window at 2% would cap the session within minutes for a restart's cost, so
 /// it is skipped and comes back once that window resets. `candidates` are already `eligible`, so
 /// any account with a window at 0 is not here: an empty answer means wait.
 func capLastResortPick(_ candidates: [Snapshot.Account], primaryModel: String?,
                        reserves: AccountReserves, now: Date) -> Snapshot.Account? {
-    // A move never crosses a reserve, this tier included (B-1213): under-line accounts are out,
-    // and nothing left means wait.
     let pool = aboveReserve(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
         .filter { account in
             account.sessionRemaining.map {

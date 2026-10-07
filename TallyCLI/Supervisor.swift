@@ -45,7 +45,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
     /// under a running supervisor, and the git probe behind the key must not run on every 2s tick.
-    let project = projectPolicy(provider.id)
+    /// Its model and effort are re-read at each relaunch (B-1091); the account it pins keeps this.
+    var project = projectPolicy(provider.id)
 
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
     // foreground process group (which the child shares) receives it.
@@ -70,6 +71,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// Everything the launch-default follow remembers between ticks, seeded from this session's own
     /// command line (FollowAdoption.swift). Held across relaunches, like the fuse and the quarantine.
     var followState = FollowState(launchArgs: launchArgs)
+    // A self-update image re-derives the pair before its first spawn (B-1091; FollowAdoption.swift).
+    if resumed {
+        launchArgs = resumedLaunchArgs(launchArgs, state: &followState,
+                                       following: follow && (sessionModel?.isEmpty ?? true),
+                                       policy: effectivePolicy(launchPolicy(provider.id),
+                                                               project: project),
+                                       target: initial)
+    }
     /// The recovery fuse for THIS session, held across relaunches AND across a self-update exec
     /// (seeded from `recoveries`): at most 3 automatic cross-account recoveries per 10 minutes (a
     /// cap handoff or a degradation rescue). In memory and per session, so a fleet-wide drain never
@@ -1307,6 +1316,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 restartNote = restartNoteForHandoff(reason: plan.reason,
                                                     fresh: plan.fresh || secondHead, roster: roster,
                                                     owed: owedReading.owed)
+                // B-1091: a relaunch naming no pair of its own runs what this directory and the
+                // app declare NOW (FollowAdoption.swift), so it is the only restart that lands it.
+                var plan = plan
+                foldEffectiveFollow(&plan, state: &followState, project: &project,
+                                    following: follow && !sessionModelState.isPinned,
+                                    providerID: provider.id, launchArgs: launchArgs)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child

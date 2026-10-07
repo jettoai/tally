@@ -161,3 +161,63 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
         state.queuedNotice = true
     }
 }
+
+/// A relaunch that names no model or effort of its own runs the pair this session is following
+/// NOW, rather than the pair the previous child happened to be started with (B-1091). Every
+/// relaunch reason (a cap handoff, a switch, a reload, a self-update) used to carry the old child's
+/// args forward untouched, so a profile changed since the launch only landed if a SECOND restart,
+/// the follow's own, came after it. Folding here makes the restart already happening the only one.
+///
+/// Judged against the follow's own baseline, not against the args: the fallback profile and the
+/// safeguard restore rewrite the args on purpose without moving that baseline, and a relaunch must
+/// not quietly undo them. A plan that already names a pair (a `tally model`, a fallback, a rescue)
+/// or releases one (`clearsAxes`) is more specific and is left alone, and so is a session that is
+/// not following at all (a hand-typed flag, `--no-follow`, or a live model pin, which the caller
+/// folds into `following`). Returns whether it folded.
+@discardableResult
+func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState, following: Bool,
+                            policy: LaunchPolicy, launchArgs: [String]) -> Bool {
+    guard following, plan.model == nil, plan.effort == nil, !plan.clearsAxes, !plan.followFolded
+    else { return false }
+    let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
+    if desired == (state.followedModel, state.followedEffort) { return false }
+    if followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
+                              launchArgs: launchArgs) {
+        state.adopt(model: desired.0, effort: desired.1)
+        return false
+    }
+    plan.model = policy.model
+    plan.effort = policy.effort
+    // A nil axis means REMOVE the flag: the effective setting declares none, so the child must not
+    // keep one the old args carried.
+    plan.clearsAxes = true
+    plan.followFolded = true
+    state.adopt(model: desired.0, effort: desired.1)
+    return true
+}
+
+/// The relaunch point's half of the fold, kept here so the poll loop calls it in one line. The
+/// profile's model and effort are re-read first, into the loop's own copy, so every tick after this
+/// one follows the same reading and nothing flips the fold back. The account it pins keeps the
+/// reading the supervisor started with: that decides where the session runs, not what it runs.
+func foldEffectiveFollow(_ plan: inout RelaunchPlan, state: inout FollowState,
+                         project: inout ProjectPolicy, following: Bool, providerID: String,
+                         launchArgs: [String]) {
+    let fresh = projectPolicy(providerID)
+    (project.model, project.effort) = (fresh.model, fresh.effort)
+    foldFollowIntoRelaunch(&plan, state: &state, following: following,
+                           policy: effectivePolicy(launchPolicy(providerID), project: project),
+                           launchArgs: launchArgs)
+}
+
+/// The args the FIRST child of a self-update exec runs with. That image inherits the old child's
+/// args, and a build older than B-1091 passed them through without re-deriving the pair, so the
+/// fold above happens once more here, before the spawn, rather than on the first tick, where the
+/// follow would spend a second restart on it.
+func resumedLaunchArgs(_ args: [String], state: inout FollowState, following: Bool,
+                       policy: LaunchPolicy, target: Snapshot.Account) -> [String] {
+    var plan = RelaunchPlan(target: target, reason: "self-update", countsFuse: false)
+    guard foldFollowIntoRelaunch(&plan, state: &state, following: following, policy: policy,
+                                 launchArgs: args) else { return args }
+    return planLaunchArgs(args, plan: plan)
+}

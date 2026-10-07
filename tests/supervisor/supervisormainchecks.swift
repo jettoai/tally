@@ -432,6 +432,7 @@ func runSupervisorMainChecks() {
     runShimChecks()
     runStableClaudeChecks()
     runFollowChecks()
+    runRelaunchFoldChecks()
     runSwitchChecks()
     runSwitchRequestChecks()
     runSwitchSessionChecks()

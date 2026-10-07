@@ -259,7 +259,7 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?,
 }
 
 /// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
-/// [--fuse <epochs>] [--session-pin <accountID>] [--pin-override <accountID>]
+/// [--hand-opt-out] [--fuse <epochs>] [--session-pin <accountID>] [--pin-override <accountID>]
 /// [--pending-cap <json>] [--session-model <json>] [--last-conversation <id>]
 /// [--cap-resume <json>] -- <args...>`: the
 /// other side of the exec.
@@ -285,7 +285,8 @@ func runResupervise(args: [String]) -> Never {
         resetCreditsAvailable: nil, isStale: false, error: nil)
     // `resumed`: this process replaced a supervisor whose child was already terminated, so the very
     // first spawn below continues a running conversation rather than starting the user's session.
-    runSupervised(provider, account: account, args: parsed.childArgs, follow: parsed.follow,
+    runSupervised(provider, account: account, args: parsed.childArgs,
+                  follow: resupervisedFollow(parsed, project: projectPolicy(provider.id)),
                   recoveries: parsed.recoveries, resumed: true, sessionPin: parsed.sessionPin,
                   pinOverride: parsed.pinOverride, pendingCap: parsed.pendingCap,
                   sessionModel: parsed.sessionModel, lastConversation: parsed.lastConversation,

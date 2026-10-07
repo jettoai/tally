@@ -64,8 +64,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // A running session follows a later Settings change to the default model/effort UNLESS the
     // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice
     // outranks the default, and the follow adopts the pair as a whole - it must never overwrite
-    // a hand-typed flag). Captured before the policy injects its own flags below; the project
-    // profile joins the same condition once it is read (`allowFollow`, further down).
+    // a hand-typed flag). Captured before the policy injects its own flags below. A project
+    // profile does not opt the session out: see `allowFollow` below.
     let followEnabled = autoFollowEnabled(args: passthrough)
         && !optionsOnly(passthrough).contains("--model")
         && !optionsOnly(passthrough).contains("--effort")
@@ -83,10 +83,10 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // and is never passed through.
     let project = projectPolicy(provider.id)
     let policy = effectivePolicy(launchPolicy(provider.id), project: project)
-    // A project profile is as deliberate a choice about this session's pair as a typed flag, and
-    // the follow adopts the Settings pair AS A WHOLE - letting it run would overwrite what the
-    // project declared with the fleet-wide default it was written to escape.
-    let allowFollow = followEnabled && project.model == nil && project.effort == nil
+    // A project profile does NOT opt the session out (B-1091): the supervisor follows the EFFECTIVE
+    // pair, the app's with this profile laid over it, so a project axis is what the follow lands on,
+    // never what it overwrites. Opting out stays reserved for the user's own flags (above).
+    let allowFollow = followEnabled
     let wantsNew = optionsOnly(passthrough).contains("--new") || worktreeFresh
     passthrough = removingOption(passthrough, "--new")
     passthrough = applyLaunchDefaults(passthrough, policy: policy, providerID: provider.id)

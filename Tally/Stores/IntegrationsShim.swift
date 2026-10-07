@@ -114,9 +114,11 @@ extension IntegrationsStore {
         // Claude only (v6, B-1213): a home exported by hand is obeyed UNLESS its account is under
         // its owner's reserve, which `tally launch-reserve` answers with refusal lines or nothing.
         // A marker still set here is a real child following its parent's home, which nobody chose.
+        // The arguments go along behind `--` (as `steerArgs` hands codex's over) because the line
+        // depends on the model this launch runs, and a typed `--model` is that model.
         let reserveCheck = claude ? """
         elif [[ -z "${\(childSessionMarker)+x}" ]] && command -v tally > /dev/null 2>&1; then
-          eval "$(tally launch-reserve \(shim.rawValue) 2> /dev/null)" || true
+          eval "$(tally launch-reserve \(shim.rawValue) -- "$@" 2> /dev/null)" || true
 
         """ : ""
         return """

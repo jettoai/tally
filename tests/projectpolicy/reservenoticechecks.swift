@@ -105,6 +105,32 @@ func runReserveNoticeChecks() {
                               primaryModel: nil, reserves: personalA, now: instant) == nil
               && exportedHomeRefusal("/tmp/notice-A", providerID: "claude", in: nil,
                                      primaryModel: nil, reserves: personalA, now: instant) == nil)
+    // THE MODEL THE LAUNCH RUNS decides whether the flagship window counts (`ratedWindows`), so the
+    // shim hands its arguments over and a typed `--model` beats the policy, as in `runLaunch`.
+    var opusDry = acct("A", weekly: 90)
+    opusDry.modelRemaining = 20
+    opusDry.modelWindowName = "Opus"
+    let opusDrought = fleet([opusDry])
+    func refused(_ args: [String], policy: String?, in snap: Snapshot = opusDrought) -> Bool {
+        exportedHomeRefusal("/tmp/notice-A", providerID: "claude", in: snap,
+                            primaryModel: launchReserveModel(args, providerID: "claude",
+                                                             policyModel: policy),
+                            reserves: personalA, now: instant) != nil
+    }
+    check("a typed --model opus is refused when only the Opus window is under the line",
+          refused(["--", "--model", "opus"], policy: "sonnet"))
+    check("…while a typed --model sonnet launches though the policy says opus",
+          !refused(["--", "--model", "sonnet"], policy: "opus"))
+    check("…and nothing typed falls back to the policy model, both ways",
+          refused(["--"], policy: "opus") && !refused(["--"], policy: "sonnet"))
+    check("…a dangling --model is no model, so the policy decides",
+          refused(["--", "--model", "--verbose"], policy: "opus"))
+    check("…arguments without the marker (an older shim) are not read",
+          launchReserveModel(["--model", "opus"], providerID: "claude", policyModel: "sonnet")
+              == "sonnet")
+    check("…and a weekly crossing is refused whatever the model",
+          refused(["--", "--model", "sonnet"], policy: "sonnet", in: drought)
+              && refused(["--", "--model", "opus"], policy: nil, in: drought))
     check("the bare launch's wording names the flag it cannot carry",
           bareLaunchRefusal("X", claude)
               == "X (bare claude cannot carry it: run tally claude --spend-reserve)")

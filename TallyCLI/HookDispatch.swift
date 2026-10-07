@@ -9,7 +9,7 @@ func runHookSubcommand(_ word: String, _ rest: [String]) -> Int32? {
         return runHookTally(args: rest)
     // internal: the PATH shim's reserve check on a hand-exported home (LaunchDir.swift)
     case "launch-reserve":
-        return runLaunchReserve(rest.first ?? "claude")
+        return runLaunchReserve(rest.first ?? "claude", arguments: Array(rest.dropFirst()))
     case "hook-notify":   // internal: Claude Code's Notification hook (UserNotice.swift)
         return runHookNotify(args: rest)
     // internal: Claude Code's three subagent-facing hooks, which take the event as their argument

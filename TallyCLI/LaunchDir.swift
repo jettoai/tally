@@ -109,7 +109,8 @@ func bareLaunchRefusal(_ refusal: String, _ provider: Provider) -> String {
 /// account is under its owner's line, and nothing otherwise. Its own word rather than a flag on
 /// `launch-dir`, so an older tally answers it with usage on stderr (which the shim discards) instead
 /// of steering the launch away from the home the user chose. Off and a deleted cwd stay silent.
-func runLaunchReserve(_ providerID: String) -> Int32 {
+/// `arguments` is what the shim was typed with, behind `shimArgvMarker` (`launchReserveModel`).
+func runLaunchReserve(_ providerID: String, arguments: [String] = []) -> Int32 {
     guard let provider = providers.first(where: { $0.id == providerID }),
           let exported = getenv(provider.envKey) else { return 0 }
     let here = FileManager.default.currentDirectoryPath
@@ -118,11 +119,23 @@ func runLaunchReserve(_ providerID: String) -> Int32 {
     let (policy, _) = launchSteering(provider, appPolicy: appPolicy,
                                      project: projectPolicy(provider.id, cwd: here))
     if let refusal = exportedHomeRefusal(String(cString: exported), providerID: provider.id,
-                                         in: loadSnapshot().0, primaryModel: policy.model,
+                                         in: loadSnapshot().0,
+                                         primaryModel: launchReserveModel(arguments,
+                                                                          providerID: provider.id,
+                                                                          policyModel: policy.model),
                                          reserves: accountReserves()) {
         launchRefusalLines(bareLaunchRefusal(refusal, provider)).forEach { print($0) }
     }
     return 0
+}
+
+/// The model a hand-exported launch runs, in `runLaunch`'s order: a typed `--model` wins, else the
+/// policy's. It decides whether the flagship window counts against the reserve (`ratedWindows`).
+/// Arguments without the marker come from an older shim, which typed nothing this can see.
+func launchReserveModel(_ arguments: [String], providerID: String,
+                        policyModel: String?) -> String? {
+    let typed = arguments.first == shimArgvMarker ? Array(arguments.dropFirst()) : []
+    return launchPrimaryModel(typed, providerID: providerID) ?? policyModel
 }
 
 /// The script lines a refused shim launch evals: the sentence on the user's own stderr, then

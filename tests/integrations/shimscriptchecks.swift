@@ -33,8 +33,9 @@ import Foundation
 /// because one constant stamps both scripts; the claude script's text is otherwise unchanged.
 ///
 /// v6, 2026-10-08 (B-1213): the claude shim asks `tally launch-reserve` before obeying a home
-/// exported by hand, so an account under its owner's reserve is refused there too.
-let pinnedShimDigest = "4bfb2f4048677208"
+/// exported by hand, so an account under its owner's reserve is refused there too. Re-pinned
+/// without a bump when the check began carrying the typed arguments: v6 had not shipped yet.
+let pinnedShimDigest = "5bd366fa051ed7b6"
 
 /// What a bare `claude` inherited, once the shim was done with it.
 private struct ShimRun {
@@ -108,6 +109,7 @@ func runShimScriptChecks(tmp: URL) throws {
     #!/bin/bash
     printf '%s\\n' "$*" >> "$TALLY_TEST_CONSULTED"
     if [ "$1" = launch-reserve ]; then
+      [ -n "${TALLY_TEST_OLD:-}" ] && { echo usage >&2; exit 2; }
       [ -n "${TALLY_TEST_REFUSE:-}" ] && printf 'echo refused >&2\\nexit 1\\n'
       exit 0
     fi
@@ -197,6 +199,19 @@ func runShimScriptChecks(tmp: URL) throws {
         check("[\(name)] …and one under its reserve is refused: the real CLI never runs",
               underReserve.reserveAsked && underReserve.home.isEmpty
                   && underReserve.args.isEmpty)
+        // The model decides the line (flagship window), so the typed arguments go along.
+        let typedModel = run(.claude, shell: shell, tty: true,
+                             environment: ["CLAUDE_CONFIG_DIR": leakedHome],
+                             argv: ["--model", "opus"])
+        check("[\(name)] …asked with the arguments it was typed with, behind the marker",
+              typedModel.asked == "launch-reserve claude -- --model opus"
+                  && typedModel.home == leakedHome && typedModel.args == "--model opus")
+        let olderTally = run(.claude, shell: shell, tty: true,
+                             environment: ["CLAUDE_CONFIG_DIR": leakedHome, "TALLY_TEST_OLD": "1"],
+                             argv: ["--model", "opus"])
+        check("[\(name)] …and a tally that does not know the question leaves the home alone",
+              olderTally.reserveAsked && olderTally.home == leakedHome
+                  && olderTally.args == "--model opus")
 
         // Row 3: THE ONE THIS MAY NOT BREAK. The same marker with stdout on a pipe is a real child
         // session, spawned by a session's own shell and routed here by this very shim; following

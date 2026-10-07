@@ -404,20 +404,22 @@ func capHandoffPick(_ candidates: [Snapshot.Account], primaryModel: String?,
 /// first loses the least (a remainder that resets before it is reached is gone). Ties fall to
 /// `smartScore`, the launch ranking, which already weighs every counted window by hours to reset.
 ///
-/// Two filters: the reserve, dropped when nobody is above it exactly as `best` drops it for a
-/// launch; and the 5h window, which must be above the nearly-dry line (a refill inside the grace
+/// Two filters: the reserve, never dropped here (a launch may spend into one, a move may not); and
+/// the 5h window, which must be above the nearly-dry line (a refill inside the grace
 /// counts as full). A 5h window at 2% would cap the session within minutes for a restart's cost, so
 /// it is skipped and comes back once that window resets. `candidates` are already `eligible`, so
 /// any account with a window at 0 is not here: an empty answer means wait.
 func capLastResortPick(_ candidates: [Snapshot.Account], primaryModel: String?,
                        reserves: AccountReserves, now: Date) -> Snapshot.Account? {
-    let above = aboveReserve(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
-    let pool = (above.isEmpty ? candidates : above).filter { account in
-        account.sessionRemaining.map {
-            effectiveRemaining(ComfortWindow(remaining: $0, resetsAt: account.sessionResetsAt),
-                               now: now) > nearlyDryPercent
-        } ?? true
-    }
+    // A move never crosses a reserve, this tier included (B-1213): under-line accounts are out,
+    // and nothing left means wait.
+    let pool = aboveReserve(candidates, primaryModel: primaryModel, reserves: reserves, now: now)
+        .filter { account in
+            account.sessionRemaining.map {
+                effectiveRemaining(ComfortWindow(remaining: $0, resetsAt: account.sessionResetsAt),
+                                   now: now) > nearlyDryPercent
+            } ?? true
+        }
     func key(_ account: Snapshot.Account) -> (Date, Double) {
         (account.weeklyResetsAt ?? .distantFuture,
          -smartScore(account, primaryModel: primaryModel, now: now))

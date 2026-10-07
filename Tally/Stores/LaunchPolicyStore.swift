@@ -413,10 +413,14 @@ final class LaunchPolicyStore {
         // would be predicting a launch that is not the one about to happen. Unreachable on a fleet
         // where nobody marked an account: an eligible account has every window above zero, so it is
         // above a reserve of zero by definition.
-        let reserves = eligibleAccounts.contains {
+        // Mirror of `best`: anybody above their line leaves the ones under it out of the field
+        // (B-1213).
+        let above = eligibleAccounts.filter {
             Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
-        } ? reserves : [:]
-        let candidates = preferringComfortable(eligibleAccounts, now: now) {
+        }
+        let reserves = above.isEmpty ? [:] : reserves
+        let candidates = preferringComfortable(above.isEmpty ? eligibleAccounts : above,
+                                               now: now) {
             Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
         guard var leader = candidates.first else { return nil }

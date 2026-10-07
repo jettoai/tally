@@ -359,10 +359,14 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
         $0.provider == providerID && eligible($0, primaryModel: primaryModel)
             && !excluding.contains($0.id)
     }
-    let reserves = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
-                                now: now).isEmpty ? .none : reserves
-    let candidates = preferringComfortable(eligibleAccounts, primaryModel: primaryModel,
-                                           reserves: reserves, now: now)
+    // Anybody above their line leaves the accounts under it out of the field (B-1213): ranked in,
+    // an under-line account's negative rate could hold the lead through the hysteresis gates.
+    let above = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
+                             now: now)
+    let reserves = above.isEmpty ? .none : reserves
+    let candidates = preferringComfortable(above.isEmpty ? eligibleAccounts : above,
+                                           primaryModel: primaryModel, reserves: reserves,
+                                           now: now)
     guard var leader = candidates.first else { return nil }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)
     for candidate in candidates.dropFirst() {

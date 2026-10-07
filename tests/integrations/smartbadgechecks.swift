@@ -26,8 +26,9 @@ func runSmartBadgeChecks() {
     /// that tier, and the primary comes from this machine's own `~/.tally/state.json` (the store is
     /// a singleton reading the real file). A fixture that depended on it would pass or fail by
     /// whichever model the person running these checks happens to launch on.
-    func account(_ id: String, session: Double, weekly: Double, failed: Bool = false,
-                 stale: Bool = false, error: String? = nil) -> AccountUsage {
+    func account(_ id: String, session: Double, weekly: Double, weeklyResetDays: Double = 3,
+                 failed: Bool = false, stale: Bool = false,
+                 error: String? = nil) -> AccountUsage {
         let now = Date()
         var usage = AccountUsage(
             id: id, providerID: "claude", accountLabel: id, planName: "Max 20x",
@@ -38,7 +39,8 @@ func runSmartBadgeChecks() {
                             resetsAt: now.addingTimeInterval(3 * 3600), isActive: false),
                 UsageMetric(id: "weekly_all", kind: .weeklyAll, label: "Weekly", modelName: nil,
                             usedPercent: 100 - weekly, severity: .normal,
-                            resetsAt: now.addingTimeInterval(3 * 86_400), isActive: false),
+                            resetsAt: now.addingTimeInterval(weeklyResetDays * 86_400),
+                            isActive: false),
             ],
             refreshedAt: now)
         usage.error = error
@@ -151,6 +153,17 @@ func runSmartBadgeChecks() {
           pick(field, reserves: ["personal": 30]) == "sibling")
     check("…and a reserve small enough to leave it the fuller account does not",
           pick(field, reserves: ["personal": 5]) == "personal")
+
+    // B-1213 (2026-10-07): personal at 7% of its week with 10 held back, listed first, beside a
+    // sibling that still has quota but is thin itself. Neither is comfortable, so the field stays
+    // whole, and the personal account's slightly negative rate used to hold the badge through the
+    // hysteresis gates. Anybody above their line leaves the ones under it out of the field.
+    let thinField = [account("personal", session: 90, weekly: 7, weeklyResetDays: 6.7),
+                     account("sibling", session: 90, weekly: 4, weeklyResetDays: 6.7)]
+    check("the badge leaves a personal account under its line while a sibling has quota",
+          pick(thinField, reserves: ["personal": 10]) == "sibling")
+    check("…and sits on it on the same field with no reserve (guard the premise)",
+          pick(thinField) == "personal")
 
     // A RESERVE IS NOT AN ELIGIBILITY TEST. When every account still launchable is under its own
     // line, the launcher drops the reserves for that one pick and says whose it is spending

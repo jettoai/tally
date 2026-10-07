@@ -162,4 +162,20 @@ func runCapLastResortChecks() {
     // Only 5h-spent siblings left (above 0, under the line): wait for the 5h reset too.
     check("last resort: only nearly-spent 5h windows left still waits",
           capHandoffPick([c0, c3], primaryModel: "opus", reserves: .none, now: now) == nil)
+
+    // B-1213, 2026-10-07T13:10:53Z: a capped session moved Dorothy -> hyde with hyde, the personal
+    // account, at 6% of its week and 10 held back. A move never crosses a reserve, the last tier
+    // included: hyde alone under its line means wait.
+    let hyde = acct("hyde", session: 90, sessionResets: "2026-10-05T17:00:00Z", weekly: 6,
+                    weeklyResets: "2026-10-08T17:00:00Z")
+    let hydeReserve = AccountReserves(settings: [
+        "/tmp/lastresort-hyde": AccountRoleSetting(role: AccountRoles.personal, reserve: 10),
+    ])
+    check("last resort: a personal account under its line is waited on, not moved onto",
+          capHandoffPick([hyde], primaryModel: "opus", reserves: hydeReserve, now: now) == nil)
+    check("…and is moved onto with no reserve (guard the premise)",
+          capHandoffPick([hyde], primaryModel: "opus", reserves: .none, now: now)?.id == "hyde")
+    check("…and a thin sibling above its line is still spent first",
+          capHandoffPick([hyde, c2], primaryModel: "opus", reserves: hydeReserve, now: now)?
+              .id == "Claude 2")
 }

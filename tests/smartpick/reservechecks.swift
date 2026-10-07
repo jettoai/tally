@@ -287,6 +287,18 @@ func runReserveChecks() {
           best(providerID: "claude", in: launchField, reserves: personalA, now: now)?.id == "B")
     check("…and takes the reserved one when nobody reserved anything (guard the premise)",
           best(providerID: "claude", in: launchField, now: now)?.id == "A")
+    // B-1213 (2026-10-07): the personal account at 7% of its week with 10 held back, beside a
+    // sibling that still has quota but is thin itself. Neither is comfortable, so the field stays
+    // whole, and the personal account's slightly negative rate (-0.019 %/h) used to keep the lead
+    // through the hysteresis gates (the sibling's 0.025 %/h does not clear leader + 0.05). Anybody
+    // above their line leaves the ones under it out of the field.
+    let personal10 = reserves(["/tmp/reserve-A": (AccountRoles.personal, 10)])
+    let thinField = snapshot([acct("A", weekly: 7, weeklyResetHours: 160),
+                              acct("B", weekly: 4, weeklyResetHours: 160)])
+    check("a personal account under its line is not picked while a sibling has quota",
+          best(providerID: "claude", in: thinField, reserves: personal10, now: now)?.id == "B")
+    check("…and is picked on the same field with no reserve (guard the premise)",
+          best(providerID: "claude", in: thinField, now: now)?.id == "A")
     // THE EXPLICIT PATHS PASS `.none`, which is the whole of their exemption. `--account`, a panel
     // pin and `tally account` resolve a NAME and then launch it; nothing in that chain asks a
     // reserve anything, and these are the two functions the chain is made of.

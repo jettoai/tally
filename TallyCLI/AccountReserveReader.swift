@@ -28,21 +28,22 @@ import Foundation
 // that one reading, so nothing here has to teach eight movers about reserves. What it does have to
 // do is hand each of them the reserves to read, which is what `AccountReserves` below is for.
 //
-// WHAT A RESERVE IS NOT ALLOWED TO DO, and both halves are load-bearing:
+// A RESERVE IS A HARD LINE (B-1213, owner's ruling 2026-10-07: "otherwise what is it reserving?"):
 //
-//   - It never stops a person. `tally claude --account X`, a panel pin, `tally account X`, a manual
-//     launch policy: all of those name an account, and naming it is the answer. Those paths simply
-//     do not pass reserves in (`AccountReserves.none` is what a call site says when it means "this
-//     one was asked for by name"), so there is no rule here for them to be exempt from.
-//   - It never leaves the user with no way to launch. When every eligible account is under its own
-//     line, `best` drops the reserves for that one pick and says so on stderr (`reserveDipNotice`),
-//     from every path that makes that pick: `runLaunch` writes it, and the two shim commands put it
-//     in the script they print, their own stderr being read into /dev/null (LaunchDir.swift).
-//     A machine that refuses to start a session because of a preference nobody re-read that morning
-//     is worse than one that spends 3% of a reserve and mentions it.
+//   - A named launch is refused under the line. `tally claude --account X`, a panel pin and a
+//     project pin onto an account under its line exit 1 with the reason, unless `--spend-reserve`
+//     is passed; the shim's bare `claude` cannot carry the flag and is refused outright.
+//   - An automatic launch with nothing above the line refuses and names when the first account is
+//     back (`reserveHoldout`), from every path that makes that pick: `runLaunch` on stderr, the two
+//     shim commands through the script they print (LaunchDir.swift). `--spend-reserve` ranks the
+//     field without reserves and says so (`reserveDipNotice`).
+//   - A running session under the line moves when a target exists; with none it is HELD: nothing
+//     Tally types reaches it (DroughtWatch.swift). `--spend-reserve` lets a session start and stay on
+//     an account under its line while there is nowhere to go; once a sibling above its line exists,
+//     the existing movers still carry it off (an `--account` launch, unsupervised, is never moved).
 //
-// AUTOMATIC MOVES GET NO SUCH FALLBACK, deliberately. A launch has nowhere else to go; a running
-// session already has somewhere to be, so the strict half of the nearly-dry gate
+// AUTOMATIC MOVES NEVER CROSS A LINE EITHER. A running session already has somewhere to be, so the
+// strict half of the nearly-dry gate
 // (`requiringComfortable`) answers "wait" and the session stays where it is - which is exactly what
 // it does today when no sibling has room.
 

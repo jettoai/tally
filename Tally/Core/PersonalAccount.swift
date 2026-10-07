@@ -84,6 +84,15 @@ enum PersonalAccount {
         return LaunchPolicyStore.shared.reserve(home: home)
     }
 
+    /// Whether this account is under its owner's line right now, by the badge's own reading
+    /// (`LaunchPolicyStore.aboveReserve`). Asked by the window relay (B-1213), which must not open
+    /// a window on quota its owner kept for themselves.
+    static func underReserve(_ usage: AccountUsage, home: String?, now: Date) -> Bool {
+        !LaunchPolicyStore.aboveReserve(
+            usage, primaryModel: LaunchPolicyStore.shared.policy(usage.providerID).model,
+            reserve: Double(reserve(accountID: usage.id, home: home)), now: now)
+    }
+
     /// Every account's reserve keyed by ACCOUNT ID, which is what the smart-pick badge ranks the
     /// fleet with (`LaunchPolicyStore.autoPickID`). The join lives here rather than at the badge,
     /// because this is already the file that knows how to answer the question for a fixture as well

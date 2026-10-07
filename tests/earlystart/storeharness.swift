@@ -81,3 +81,12 @@ final class SettingsStore {
     func isEnabled(_ providerID: String) -> Bool { true }
     func isAccountEnabled(_ accountID: String) -> Bool { true }
 }
+
+/// A FIFTH, added with the hard reserve (B-1213): the relay asks whether an account is under its
+/// owner's line, and the real answer lives behind the launch policy store and the state file. No
+/// reserve is the truthful answer for an assertion run, and the rule it feeds is asserted for real
+/// in relaychecks.swift through `EarlyStartCandidate.underReserve`.
+@MainActor
+enum PersonalAccount {
+    static func underReserve(_ usage: AccountUsage, home: String?, now: Date) -> Bool { false }
+}

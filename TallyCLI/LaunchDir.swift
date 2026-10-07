@@ -11,19 +11,19 @@ import Foundation
 // account chosen for a model is only half an answer until that model is handed over too.
 //
 // AND IT IS WHY THE ONE SENTENCE A LAUNCH OWES A PERSON TRAVELS THE SAME WAY. This pair makes the
-// same pick `runLaunch` does, water line and drought fallback included, so it can spend a reserve
-// the owner asked to be left standing - and `warn` cannot tell them, because the shim reads this
-// command with its stderr redirected away. The notice is written into the script instead
-// (`launchExportLines`), where the shell that evals it is the user's own.
+// same pick `runLaunch` does, water line included, so since B-1213 it can REFUSE a launch the
+// reserves emptied - and `warn` cannot tell them, because the shim reads this command with its
+// stderr redirected away. The refusal is written into the script instead (`launchRefusalLines`),
+// where the shell that evals it is the user's own.
 
 /// The launch both commands predict: where it would run, and the one thing it owes the person
 /// running it.
 struct SteeredLaunch {
     /// The config home a launch under `policy` would run in.
     let home: String
-    /// The reserve that pick had to spend, in the launcher's own words (`reserveDipNotice`), or nil
-    /// when it spent none. A PIN CARRIES NONE by construction: naming an account is the answer, so
-    /// that branch passes no reserves and has no line to cross.
+    /// The reserve that pick had to spend, in the launcher's own words (`reserveDipNotice`). Always
+    /// nil since the B-1213 hard reserve (neither the pick nor a pin lands under a line any more);
+    /// kept so the shim keeps one sentence path.
     let dip: String?
 }
 
@@ -43,6 +43,10 @@ func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchP
                    reserves: AccountReserves = accountReserves(),
                    quarantined: Set<String>? = nil, now: Date = Date()) -> SteeredLaunch? {
     if let home = pinnedLaunchHome(snapshot, policy: policy) {
+        // A pin onto an account under its line is refused (B-1213): `steeredRefusal` says why.
+        if pinnedUnderReserve(snapshot, policy: policy, reserves: reserves, now: now) != nil {
+            return nil
+        }
         return SteeredLaunch(home: home, dip: nil)
     }
     // Reserves included for the same reason the quarantine is: this PREDICTS the launch, and a
@@ -58,6 +62,47 @@ func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchP
     return SteeredLaunch(home: home,
                          dip: reserveDipNotice(account, primaryModel: policy.model,
                                                reserves: reserves, now: now))
+}
+
+/// The pinned row when the pin names an account under its owner's line, or nil. A pin whose account
+/// is missing from the snapshot has no reading and is let through (named blind spot).
+private func pinnedUnderReserve(_ snapshot: Snapshot?, policy: LaunchPolicy,
+                                reserves: AccountReserves, now: Date) -> Snapshot.Account? {
+    guard policy.mode == "manual",
+          let row = snapshot?.accounts.first(where: {
+              $0.id == policy.pinnedAccountID && $0.launchHome != nil
+          }),
+          !aboveReserve(row, primaryModel: policy.model, reserves: reserves, now: now)
+    else { return nil }
+    return row
+}
+
+/// Why a launch `steeredLaunch` resolved nothing for must be REFUSED rather than run bare, or nil to
+/// keep the old silent pass-through: a pin onto an account under its line, or an automatic field the
+/// reserves emptied (B-1213).
+func steeredRefusal(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
+                    reserves: AccountReserves = accountReserves(),
+                    quarantined: Set<String>? = nil, now: Date = Date()) -> String? {
+    if let row = pinnedUnderReserve(snapshot, policy: policy, reserves: reserves, now: now),
+       let refusal = namedReserveRefusal(row, primaryModel: policy.model, reserves: reserves,
+                                         now: now) {
+        return "\(refusal) (bare \(provider.cli) cannot carry it: run tally \(provider.id) "
+            + "\(spendReserveFlag))"
+    }
+    guard pinnedLaunchHome(snapshot, policy: policy) == nil, let snapshot,
+          launchPick(providerID: provider.id, in: snapshot, primaryModel: policy.model,
+                     quarantined: quarantined ?? quarantinedAccounts(forPrimary: policy.model),
+                     reserves: reserves, now: now) == nil,
+          let hold = reserveHoldout(providerID: provider.id, in: snapshot,
+                                    primaryModel: policy.model, reserves: reserves, now: now)
+    else { return nil }
+    return reserveHoldNotice(hold, providerID: provider.id, now: now)
+}
+
+/// The script lines a refused shim launch evals: the sentence on the user's own stderr, then
+/// `exit 1`, which ends the whole shim (it evals inside its own script, so `|| true` cannot catch it).
+func launchRefusalLines(_ notice: String) -> [String] {
+    ["printf '%s\\n' \(shellSingleQuoted(warnPrefix + notice)) >&2", "exit 1"]
 }
 
 /// The eval-able answer both shim commands print, so the shim gets the same environment either way.
@@ -184,6 +229,12 @@ func runBestDir(_ providerID: String) {
     if let problem { warn(problem) }
     let (policy, model) = launchSteering(provider, appPolicy: launchPolicy(provider.id),
                                         project: projectPolicy(provider.id))
+    // Printed to stderr and exited, never as script lines: this output is eval'd into a person's own
+    // shell, and an `exit` there would close it.
+    if let refusal = steeredRefusal(provider, in: snapshot, policy: policy) {
+        warn(refusal)
+        exit(1)
+    }
     guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else {
         warn("no eligible \(providerID) account")
         exit(1)
@@ -250,6 +301,11 @@ func runLaunchDir(_ providerID: String, arguments: [String] = []) {
                                         project: projectPolicy(provider.id, cwd: here))
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
+    // A reserve emptied the field, or the pin sits under its line: the script itself refuses.
+    if let refusal = steeredRefusal(provider, in: snapshot, policy: policy) {
+        launchRefusalLines(refusal).forEach { print($0) }
+        return
+    }
     // Nothing eligible - stay silent, the shim runs the bare CLI.
     guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else { return }
     printLaunchExports(provider, home: steered.home, model: model, notice: steered.dip)

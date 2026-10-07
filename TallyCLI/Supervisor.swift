@@ -39,7 +39,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    capResume carriedResume: CapResumeState? = nil,
                    taskList carriedTaskList: TaskListPin? = nil,
                    clearedConversation: String? = nil,
-                   restartNote carriedNote: RestartNote? = nil) -> Never {
+                   restartNote carriedNote: RestartNote? = nil,
+                   spendReserve: Bool = false) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -171,6 +172,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// leaves has been written. Per session on the same terms as the arm above, and re-keyed by the
     /// ACCOUNT rather than aged out, so a relaunch that moves reads the new account at once.
     var drought = DroughtWatch()
+    /// Whether the current reserve hold (B-1213) has left its handoff.log line.
+    var reserveHoldLogged = false
     /// And what it owes the conversation once a wall has actually moved it (CapResume.swift owns the
     /// rules): the one line saying the turn was cut short and asking it to carry on. Per session and
     /// necessarily so - the arm is raised by the tick that ends one child and spent by a tick of the
@@ -608,7 +611,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             /// mode rather than the folded policy: a fleet pin is never released, and the folded
             /// reading cannot tell which scope pinned it.
             let pinYields = pinYieldsToSpentAccount(appMode: appPolicy.mode,
-                                                    pinnedSpent: drought.pinnedSpent)
+                                                    pinnedSpent: drought.pinnedSpent,
+                pinnedUnderReserve: drought.pinnedUnderReserve && !spendReserve)
+            /// B-1213: under its owner's line with nowhere to go, the session is HELD - nothing
+            /// Tally types reaches it - and the hold is written down once per hold.
+            let reserveHeld = reserveHoldsSession(underReserve: drought.underReserve,
+                                                  hasTarget: drought.hasTarget,
+                                                  spendReserve: spendReserve)
+            if reserveHeld, !reserveHoldLogged {
+                appendHandoffLine(reserveHoldLine(pid: supervisorPID, account: account.label,
+                                                  cwd: cwd), to: handoffLog)
+            }
+            reserveHoldLogged = reserveHeld
             /// The fleet's policy as everything that MOVES this session judges it. The pin switch
             /// reads it too, which is the half that matters: released, it stands down instead of
             /// dragging the session straight back onto the account a mover just carried it off.
@@ -673,7 +687,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // wrote when the wall landed, session-local map and shared file both.
                 clearQuarantine: { model in
                     releaseQuarantine(account.id, model: model, sessionLocal: &quarantine)
-                })
+                }, underReserve: drought.underReserve && !spendReserve)
 
             // Model-drift observation: surface a Fable safeguard fallback and gate the
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
@@ -1099,7 +1113,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let resetTyped = applyCapLimitReset(
                 &capLimitReset, pendingCap: pendingCap, pid: supervisorPID,
                 accountLabel: account.label, holding: limitResetHolds,
-                typedAlready: action.typed != nil, session: board.state, quiet: board.quiet,
+                // A reserve hold spends this composer's turn for every writer below: nothing Tally
+                // types may land on an account under its owner's line with nowhere to go.
+                typedAlready: action.typed != nil || reserveHeld, session: board.state,
+                quiet: board.quiet,
                 turnEnded: turnOver, keyboardIdle: composerIdle,
                 relaunchPlanned: replacingChild, draftSuspected: draftSuspected,
                 waitingOnPerson: board.dialogPossible, seen: board.seen)
@@ -1115,7 +1132,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // somebody ASKED for outranks it, and it outranks news about an account, because work
             // this session lost is the more urgent of the two things nobody asked for.
             let resumed = applyCapResume(&capResume, pid: supervisorPID,
-                                         typedAlready: action.typed != nil || resetTyped != nil,
+                                         typedAlready: action.typed != nil || resetTyped != nil
+                                             || reserveHeld,
                                          session: board.state,
                                          quiet: board.quiet, turnEnded: turnOver,
                                          keyboardIdle: composerIdle,
@@ -1150,7 +1168,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     now: tickNow),
                 source: stopped == nil ? "roster" : "notice", launchedAt: launchedAt,
                 noticeUUID: stopped?.uuid, answeredAt: watcher.lastMainChainEventAt,
-                typedAlready: action.typed != nil || resetTyped != nil || resumed != nil,
+                typedAlready: action.typed != nil || resetTyped != nil || resumed != nil
+                    || reserveHeld,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
                 draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
@@ -1165,7 +1184,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let knocked = applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
                                           account: account, primaryModel: effectivePrimary,
                                           typedAlready: action.typed != nil || resumed != nil
-                                              || resetTyped != nil || woke != nil,
+                                              || resetTyped != nil || woke != nil || reserveHeld,
                                           session: board.state,
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
@@ -1192,7 +1211,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let hostKnocked = applyHostHealthKnock(
                 &hostHealthKnock, pid: supervisorPID,
                 typedAlready: action.typed != nil || resumed != nil || knocked != nil
-                    || resetTyped != nil || woke != nil,
+                    || resetTyped != nil || woke != nil || reserveHeld,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
                 draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
@@ -1350,7 +1369,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       sessionModel: sessionModelState.pin,
                                       lastConversation: lastConversation.published,
                                       capResume: capResume, taskList: taskList,
-                                      restartNote: restartNote, args: launchArgs)
+                                      restartNote: restartNote, spendReserve: spendReserve,
+                                      args: launchArgs)
                 return .childReplaced
             }
             maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)

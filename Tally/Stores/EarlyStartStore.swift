@@ -192,7 +192,9 @@ final class EarlyStartStore {
                     && settings.isAccountEnabled(usage.id),
                 readingIsUsable: EarlyStartLogic.readingIsUsable(usage),
                 readingKeepsFailing: EarlyStartLogic.readingKeepsFailing(usage),
-                windowIsOpen: EarlyStartLogic.windowIsOpen(usage, now: now))
+                windowIsOpen: EarlyStartLogic.windowIsOpen(usage, now: now),
+                underReserve: PersonalAccount.underReserve(usage, home: launchHomes[usage.id],
+                                                           now: now))
         }
 
         let state = Self.loadState()

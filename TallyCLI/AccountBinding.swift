@@ -232,6 +232,7 @@ func aboveReserve(_ accounts: [Snapshot.Account], primaryModel: String?,
 }
 
 /// The one line a launch prints when it had to spend somebody's reserve, or nil when it did not.
+/// Since B-1213 that launch is reached only through `--spend-reserve`.
 ///
 /// SAID OUT LOUD, EVERY TIME, because the alternative is the failure this feature exists to prevent
 /// wearing a different hat: a person who set a reserve and is never told it was crossed learns about
@@ -258,4 +259,69 @@ func reserveDipNotice(_ account: Snapshot.Account, primaryModel: String?,
     let reserve = reserves.reserve(for: account)
     return "dipping into \(account.label)'s \(crossed.map(\.name).joined(separator: " and ")) "
         + "reserve (\(Int(reserve.rounded()))% kept for web use)"
+}
+
+// MARK: - The hard line (B-1213)
+
+/// Tally's own flag that lets a launch spend a reserve anyway: the only way onto an account under its
+/// owner's line. Never passed through to the CLI.
+let spendReserveFlag = "--spend-reserve"
+
+/// Why an automatic launch found nobody: every account it could launch on is under its own line.
+struct ReserveHoldout {
+    /// The eligible accounts, every one of them under its line.
+    let accounts: [Snapshot.Account]
+    /// The earliest moment any account of this provider is usable again, or nil when no blocking
+    /// window published a reset.
+    let recoversAt: Date?
+}
+
+/// nil unless the reserve is what emptied the field: something is eligible, and all of it is under
+/// its line. An empty field for any other reason (nothing eligible at all) keeps the old fallback.
+///
+/// `recoversAt` asks EVERY account of the provider, the ineligible ones included: a sibling whose 5h
+/// window is spent but refills in an hour is the first one back, and naming only the reserved account
+/// (days away) would tell the reader to wait far longer than they have to.
+func reserveHoldout(providerID: String, in snapshot: Snapshot, primaryModel: String?,
+                    reserves: AccountReserves, now: Date = Date()) -> ReserveHoldout? {
+    let eligibleAccounts = snapshot.accounts.filter {
+        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
+    }
+    guard !eligibleAccounts.isEmpty,
+          aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
+                       now: now).isEmpty else { return nil }
+    let recoveries = snapshot.accounts.filter { $0.provider == providerID }.compactMap {
+        accountRecovery($0, primaryModel: primaryModel, reserves: reserves, now: now)
+    }
+    return ReserveHoldout(accounts: eligibleAccounts, recoversAt: recoveries.min())
+}
+
+/// When every window that blocks this account (effective remaining at or under zero) has reset, or
+/// nil when nothing blocks it or a blocking window published no reset.
+private func accountRecovery(_ account: Snapshot.Account, primaryModel: String?,
+                             reserves: AccountReserves, now: Date) -> Date? {
+    let blocking = ratedWindows(account, primaryModel: primaryModel, reserves: reserves, now: now)
+        .map(comfortWindow).filter { effectiveRemaining($0, now: now) <= 0 }
+    let resets = blocking.compactMap(\.resetsAt)
+    guard !blocking.isEmpty, resets.count == blocking.count else { return nil }
+    return resets.max()
+}
+
+/// The one line a refused automatic launch prints.
+func reserveHoldNotice(_ hold: ReserveHoldout, providerID: String, now: Date = Date()) -> String {
+    let labels = hold.accounts.map(\.label).joined(separator: ", ")
+    let back = hold.recoversAt.map { "the first one back is in \(shortETA($0.timeIntervalSince(now)))" }
+        ?? "no reset time is known yet"
+    return "every \(providerID) account Tally may launch on is under its reserve (\(labels)); "
+        + "\(back). Run with \(spendReserveFlag) to use the reserve anyway"
+}
+
+/// The refusal for a launch a person pointed at an account under its line, or nil to let it go.
+func namedReserveRefusal(_ account: Snapshot.Account, primaryModel: String?,
+                         reserves: AccountReserves, now: Date = Date()) -> String? {
+    let crossed = crossedReserves(account, primaryModel: primaryModel, reserves: reserves, now: now)
+    guard !crossed.isEmpty else { return nil }
+    return "\(account.label) is under its \(crossed.map(\.name).joined(separator: " and ")) "
+        + "reserve (\(Int(reserves.reserve(for: account).rounded()))% kept for web use); "
+        + "pass \(spendReserveFlag) to launch on it anyway"
 }

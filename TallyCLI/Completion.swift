@@ -368,6 +368,7 @@ _tally() {
             "--new[start a fresh conversation, ignoring a continue-by-default setting]"
             "--no-handoff[run unsupervised, with no automatic move when this account caps]"
             "--no-follow[keep this session on its model when the Settings default changes]"
+            "--spend-reserve[launch on an account under its reserve]"
           )
           _arguments $_tally_specs "*: :_tally_rest"
           ;;

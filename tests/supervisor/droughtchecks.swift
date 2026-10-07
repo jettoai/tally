@@ -46,11 +46,29 @@ func runDroughtChecks() {
     // MARK: - 32a. The rule, on its own
 
     check("a pin over an account with something left is untouched",
-          !pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: false))
+          !pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: false, pinnedUnderReserve: false))
     check("a pin over one with nothing left yields",
-          pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: true))
-    check("but the APP's own pin never does: that mode is the fleet saying Tally never re-picks",
-          !pinYieldsToSpentAccount(appMode: "manual", pinnedSpent: true))
+          pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: true, pinnedUnderReserve: false))
+    check("but the APP's own pin never releases on a spent reading alone: Tally never re-picks it",
+          !pinYieldsToSpentAccount(appMode: "manual", pinnedSpent: true, pinnedUnderReserve: false))
+    // B-1213: A RESERVE IS THE EXCEPTION. The fleet pin yields too once its account is under its
+    // owner's line, which is the hard line the reserve promises.
+    check("the APP's own pin yields once the account it names is under its owner's line",
+          pinYieldsToSpentAccount(appMode: "manual", pinnedSpent: false, pinnedUnderReserve: true))
+    check("…and so does every narrower pin",
+          pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: false, pinnedUnderReserve: true))
+    // THE HOLD: under the line with nowhere to go is the one state in which Tally types nothing.
+    let holdTable: [(Bool, Bool, Bool)] = [(false, false, false), (false, false, true),
+                                          (false, true, false), (false, true, true),
+                                          (true, false, false), (true, false, true),
+                                          (true, true, false), (true, true, true)]
+    check("a reserve holds a session only when it is under the line, stuck, and not told to spend",
+          holdTable.map { reserveHoldsSession(underReserve: $0.0, hasTarget: $0.1,
+                                              spendReserve: $0.2) }
+              == [false, false, false, false, true, false, false, false])
+    check("…and the hold leaves one greppable line naming the account",
+          reserveHoldLine(pid: "42", account: "hyde", cwd: "/w", now: droughtNow)
+              .hasSuffix(" pid=42 hold=reserve account=hyde cwd=/w\n"))
     var pinned = LaunchPolicy()
     pinned.mode = "manual"
     pinned.pinnedAccountID = "D"
@@ -101,7 +119,8 @@ func runDroughtChecks() {
                       pinned: sessionPolicy(declared, sessionPin: sessionPin).pinnedAccountID,
                       loaded: reading, now: droughtNow)
         let yields: Bool = pinYieldsToSpentAccount(appMode: app.mode,
-                                                   pinnedSpent: watch.pinnedSpent)
+                                                   pinnedSpent: watch.pinnedSpent,
+                                                   pinnedUnderReserve: false)
         let moving: LaunchPolicy = pinReleasedPolicy(declared, yielding: yields)
         return (moving, pinReleasedPolicy(sessionPolicy(moving, sessionPin: sessionPin),
                                           yielding: yields), yields)
@@ -391,12 +410,41 @@ func runDroughtChecks() {
         return watch
     }
 
+    // B-1213, THE 21:10 SHAPE: hyde keeps 10% for its owner, has 7% of its week left, is pinned,
+    // the session sits on it, and nothing else exists to move to.
+    func hyde(weekly: Double) -> Snapshot.Account {
+        Snapshot.Account(id: "hyde", provider: "claude", label: "hyde", launchHome: "/tmp/hyde",
+                         sessionRemaining: 90, weeklyRemaining: weekly, modelRemaining: nil,
+                         sessionResetsAt: droughtNow.addingTimeInterval(4 * 3600),
+                         weeklyResetsAt: droughtNow.addingTimeInterval(100 * 3600),
+                         modelResetsAt: nil, modelWindowName: nil, resetCreditsAvailable: nil,
+                         isStale: false, error: nil, lastRefreshFailed: false)
+    }
+    let hydeReserve = AccountReserves(settings: ["/tmp/hyde":
+        AccountRoleSetting(role: AccountRoles.personal, reserve: 10)])
+    func watchedHyde(weekly: Double) -> DroughtWatch {
+        var watch = DroughtWatch()
+        watch.observe(provider: "claude", account: hyde(weekly: weekly), primaryModel: nil,
+                      pinned: "hyde", reserves: hydeReserve,
+                      loaded: (Snapshot(version: 2, generatedAt: droughtNow,
+                                        accounts: [hyde(weekly: weekly)]), nil),
+                      now: droughtNow)
+        return watch
+    }
+    let hydeUnder = watchedHyde(weekly: 7)
+    check("a session on an account under its line, pinned to it, with nowhere to go, reads as such",
+          hydeUnder.underReserve && hydeUnder.pinnedUnderReserve && !hydeUnder.hasTarget)
+    let hydeAbove = watchedHyde(weekly: 50)
+    check("…and the same account above its line reads as neither",
+          !hydeAbove.underReserve && !hydeAbove.pinnedUnderReserve)
+
     let readSpent = watched(pinned: "D")
     check("a spent account is read as spent, off the live snapshot rather than the launch's copy",
           readSpent.spent)
     check("…and a pin naming that account yields, which is the release",
           readSpent.pinnedSpent
-              && pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: readSpent.pinnedSpent))
+              && pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: readSpent.pinnedSpent,
+                                      pinnedUnderReserve: false))
     check("…with the window that binds it named for the audit line",
           readSpent.window == "fable" && readSpent.remaining == 0)
     check("…and whether there is anywhere to move to at all", readSpent.hasTarget)
@@ -615,7 +663,8 @@ func runDroughtChecks() {
         loopWatch.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "D",
                           loaded: reading, now: moment)
         let yields: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
-                                                   pinnedSpent: loopWatch.pinnedSpent)
+                                                   pinnedSpent: loopWatch.pinnedSpent,
+                                                   pinnedUnderReserve: false)
         if yields { released += 1 }
         let dragged: RelaunchPlan? = pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: yields),
                                                    fleet: emptyPin)
@@ -634,7 +683,8 @@ func runDroughtChecks() {
                       loaded: refilledReading,
                       now: droughtNow.addingTimeInterval(10 * droughtWatchInterval))
     let refilled: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
-                                                 pinnedSpent: loopWatch.pinnedSpent)
+                                                 pinnedSpent: loopWatch.pinnedSpent,
+                                                 pinnedUnderReserve: false)
     check("and when that account refills the release lapses on its own",
           !loopWatch.pinnedSpent && !refilled)
     check("…which is the standing instruction taking the session home again",

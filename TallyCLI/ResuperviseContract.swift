@@ -124,6 +124,9 @@ let resuperviseSessionModelFlag = "--session-model"
 /// cap. Optional by construction: a session with nothing to carry writes no flag, which is what
 /// every build predating this one wrote, and an absent flag means an empty state.
 let resuperviseCapResumeFlag = "--cap-resume"
+/// A session launched with `--spend-reserve` (B-1213): a bare flag, carried so an upgrade does not
+/// start holding a session its owner told to spend the reserve. Absent means it was not.
+let resuperviseSpendReserveFlag = "--spend-reserve"
 
 /// The fuse's recoveries as a flag value: absolute epoch seconds, comma separated. Absolute, not
 /// "N seconds ago", because the exec takes real time (and can be delayed by a slow disk mid-install)
@@ -307,9 +310,11 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String, fol
                     pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                     sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                     capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
-                    restartNote: RestartNote? = nil, args: [String]) -> [String] {
+                    restartNote: RestartNote? = nil, spendReserve: Bool = false,
+                    args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow ? "--follow" : "--no-follow"]
+    if spendReserve { argv.append(resuperviseSpendReserveFlag) }
     if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
     if let sessionPin, !sessionPin.isEmpty {
         argv += [resuperviseSessionPinFlag, sessionPin]
@@ -356,6 +361,7 @@ struct ResuperviseArgs {
     var taskListID: String?
     var taskListDir: String?
     var restartNote: RestartNote?
+    var spendReserve = false
     var childArgs: [String] = []
 
     var taskList: TaskListPin? {
@@ -417,6 +423,7 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
             index += 2
         case "--follow": parsed.follow = true; index += 1
         case "--no-follow": parsed.follow = false; index += 1
+        case resuperviseSpendReserveFlag: parsed.spendReserve = true; index += 1
         case "--":
             parsed.childArgs = Array(args[(index + 1)...])
             index = args.count

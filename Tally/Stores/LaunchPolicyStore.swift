@@ -377,7 +377,8 @@ final class LaunchPolicyStore {
     /// panel already knows which card is which (`PersonalAccount.reserves`). Empty is the ordinary
     /// answer and computes exactly what this function computed before the feature existed. A launch
     /// this badge predicts is Tally's OWN choice, so it always weighs them - the paths a person names
-    /// an account on (a pin, `tally claude --account X`) do not come through here at all.
+    /// an account on (a pin, `tally claude --account X`) do not come through here at all, so the
+    /// panel does not show a pin the launcher would refuse under its line (named blind spot).
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
                     reserves: [String: Double] = [:], now: Date = Date()) -> String? {
         let excluded = quarantinedNow(primaryModel: policy(providerID).model, now: now)
@@ -407,19 +408,14 @@ final class LaunchPolicyStore {
                 && launchable.contains($0.id) && !excluding.contains($0.id)
                 && (Self.headroom($0, primaryModel: primary) ?? -1) > 0
         }
-        // WHEN NOBODY IS ABOVE THEIR OWN LINE THE RESERVES GO, exactly as `best` drops them for that
-        // one pick (TallyCLI/AccountPick.swift): a launch has nowhere else to go, so it spends into
-        // a reserve and says so on stderr - and a badge that showed no pick, or a different one,
-        // would be predicting a launch that is not the one about to happen. Unreachable on a fleet
-        // where nobody marked an account: an eligible account has every window above zero, so it is
-        // above a reserve of zero by definition. And anybody above their line leaves the ones under
-        // it out of the field, as `best` does (B-1213).
+        // AN ACCOUNT UNDER ITS OWN LINE NEVER CARRIES THE BADGE, exactly as `best` keeps it out of
+        // the field (TallyCLI/AccountPick.swift, B-1213 hard reserve): when that empties the field
+        // the launcher refuses, so no card is marked. Unreachable on a fleet where nobody marked an
+        // account: an eligible account has every window above zero, so it is above a zero reserve.
         let above = eligibleAccounts.filter {
             Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
-        let reserves = above.isEmpty ? [:] : reserves
-        let candidates = preferringComfortable(above.isEmpty ? eligibleAccounts : above,
-                                               now: now) {
+        let candidates = preferringComfortable(above, now: now) {
             Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
         guard var leader = candidates.first else { return nil }

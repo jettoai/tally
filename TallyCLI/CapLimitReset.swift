@@ -115,9 +115,12 @@ let capLimitResetFailedOutcome = "limit-reset-failed"
 ///    WHICH READING MAY ANSWER THAT is a question of its own, and `capLimitResetWeekly` below is
 ///    the whole of it: this table is handed a number that has already been vouched for.
 ///  - `alreadyAttempted`: one wall, one attempt.
+///  - `underReserve`: the account is under its owner's line (B-1213), so a reset spent here would
+///    only buy more of the reserve.
 func capLimitResetAllowed(scope: CapScope?, enabled: Bool, state: LimitResetState,
-                          weeklyRemaining: Double?, alreadyAttempted: Bool) -> Bool {
-    guard enabled, scope == .session, !alreadyAttempted else { return false }
+                          weeklyRemaining: Double?, alreadyAttempted: Bool,
+                          underReserve: Bool) -> Bool {
+    guard enabled, scope == .session, !alreadyAttempted, !underReserve else { return false }
     guard state == .available || state == .unknown else { return false }
     guard let weeklyRemaining, weeklyRemaining >= capLimitResetWeeklyFloor else { return false }
     return true
@@ -222,6 +225,7 @@ func capLimitResetHold(_ state: inout CapLimitResetState, pendingCap: inout Pend
                        observed: (outcome: LimitResetOutcome, at: Date)?,
                        weeklyRemaining: () -> Double?,
                        clearQuarantine: (String?) -> Void,
+                       underReserve: Bool,
                        settings: () -> LimitResetSettings = { readLimitResetSettings() },
                        now: Date = Date(),
                        announce: (String) -> Void = { warn($0) }) -> Bool {
@@ -259,7 +263,7 @@ func capLimitResetHold(_ state: inout CapLimitResetState, pendingCap: inout Pend
           now.timeIntervalSince(pending.cappedAt) <= capLimitResetHoldWindow else { return false }
     return capLimitResetAllowed(scope: pending.capScope, enabled: settings().autoReset,
                                 state: resetState(), weeklyRemaining: weeklyRemaining(),
-                                alreadyAttempted: false)
+                                alreadyAttempted: false, underReserve: underReserve)
 }
 
 // MARK: - Where the line is typed

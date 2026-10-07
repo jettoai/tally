@@ -339,17 +339,10 @@ let smartPickMargin = 1.15
 let smartPickMinGain = 0.05   // %/h
 
 ///
-/// WHEN NOBODY IS ABOVE THEIR RESERVE, THIS PICK DROPS THE RESERVES ENTIRELY and ranks the fleet as
-/// it did before the feature existed. A launch has nowhere else to go: refusing to start a session
-/// because of a preference set weeks ago is a worse outcome than spending 3% of it, and every path
-/// that makes this pick says so out loud when it happens - `runLaunch` on its own stderr, the two
-/// shim commands through the script they print (`reserveDipNotice`, and LaunchDir.swift for why the
-/// same sentence needs two ways out). Dropped rather than ranked-on-negatives,
-/// because negative rates are not a scale - the hysteresis gates below were written for a quantity
-/// with a floor at zero, and letting them compare -0.06 against -0.05 would decide the fleet's
-/// worst-case launch by an accident of arithmetic. On a fleet with no reserves set this substitution
-/// cannot fire at all: an eligible account has every window above zero, so it is above a reserve of
-/// zero by definition.
+/// AN ACCOUNT UNDER ITS RESERVE NEVER ENTERS THE FIELD (B-1213, a hard line): when that empties it,
+/// this answers nil and `reserveHoldout` says why and when the first account is back. A launch that
+/// passes `--spend-reserve` hands in `.none` to get the old ranking. On a fleet with no reserves set
+/// nothing changes: an eligible account has every window above zero, so it is above a reserve of zero.
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           excluding: Set<String> = [], reserves: AccountReserves = .none,
           now: Date = Date()) -> Snapshot.Account? {
@@ -363,9 +356,7 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     // an under-line account's negative rate could hold the lead through the hysteresis gates.
     let above = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
                              now: now)
-    let reserves = above.isEmpty ? .none : reserves
-    let candidates = preferringComfortable(above.isEmpty ? eligibleAccounts : above,
-                                           primaryModel: primaryModel, reserves: reserves,
+    let candidates = preferringComfortable(above, primaryModel: primaryModel, reserves: reserves,
                                            now: now)
     guard var leader = candidates.first else { return nil }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)

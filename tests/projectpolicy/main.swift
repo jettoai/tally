@@ -375,6 +375,16 @@ let printed = "printLaunchExports(provider, home: steered.home, model: model, no
 check("…and hands the model over with the home it chose", bestDir.contains(printed))
 check("launch-dir does the same, so the two cannot drift apart",
       topLevelFunction("runLaunchDir", in: launchDirSource).contains(printed))
+// B-1213: both commands ask for a refusal BEFORE they steer, and only the shim's prints a script
+// that ends the shell; `best-dir` output is eval'd into a person's own shell, so it exits instead.
+let launchDir = topLevelFunction("runLaunchDir", in: launchDirSource)
+check("launch-dir asks the reserve before it steers",
+      launchDir.range(of: "steeredRefusal(").map { refusal in
+          launchDir.range(of: "guard let steered").map { refusal.lowerBound < $0.lowerBound }
+              ?? false
+      } ?? false)
+check("best-dir asks it too, and never prints the exiting script",
+      bestDir.contains("steeredRefusal(") && !bestDir.contains("launchRefusalLines"))
 
 // The lines above are eval'd by the shim, so every value in them has to be data and not source
 // (shellsafetychecks.swift).

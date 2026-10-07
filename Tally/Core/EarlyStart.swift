@@ -55,6 +55,8 @@ struct EarlyStartCandidate: Equatable {
     var readingKeepsFailing: Bool
     /// Whether the 5-hour window is already counting down (`EarlyStartLogic.windowIsOpen`).
     var windowIsOpen: Bool
+    /// Whether the account is under its owner's reserve line (B-1213).
+    var underReserve: Bool = false
 }
 
 /// Why one account was passed over. A value rather than a bare Bool because two different questions
@@ -80,6 +82,9 @@ enum EarlyStartSkip: String, Equatable {
     case alreadyStarted
     /// The user asked for silence at this hour.
     case quietHours
+    /// The account is under its owner's reserve line (B-1213): opening its window early would only
+    /// spend the reserve.
+    case underReserve
 
     /// Whether this pass belongs in the "N skipped" the Settings row reports.
     ///
@@ -100,7 +105,7 @@ enum EarlyStartSkip: String, Equatable {
     var countsAsSkip: Bool {
         switch self {
         case .otherProvider, .accountOff, .pollMissed, .windowOpen, .alreadyStarted,
-             .quietHours: return false
+             .quietHours, .underReserve: return false
         case .notLaunchable, .unreadable: return true
         }
     }
@@ -257,6 +262,7 @@ enum EarlyStartLogic {
             return candidate.readingKeepsFailing ? .unreadable : .pollMissed
         }
         if candidate.windowIsOpen { return .windowOpen }
+        if candidate.underReserve { return .underReserve }
         if quietHours.contains(now, calendar: calendar) { return .quietHours }
 
         // THE ATTEMPT'S FLOOR, AND NOTHING GETS PAST IT: an account that has had a message owes the

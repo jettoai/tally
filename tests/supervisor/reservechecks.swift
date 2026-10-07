@@ -179,14 +179,46 @@ func runReserveMoverChecks() {
     let field = (try? String(contentsOfFile: "TallyCLI/MoveField.swift", encoding: .utf8)) ?? ""
     check("the move field source is readable from the reserve checks", !field.isEmpty)
     check("…and the field itself asks nothing about reserves", !field.contains("reserves"))
-    // THE PATHS A PERSON NAMED AN ACCOUNT ON PASS NOTHING, which is the whole of their exemption.
-    // The manual-pin branch of the launcher is the one that would be silently wrong.
+    // B-1213: A NAMED ACCOUNT UNDER ITS LINE IS REFUSED TOO, unless `--spend-reserve` says so. So
+    // the reserves are read ABOVE the named branches, and each of them asks before it launches.
     let launcher = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
     check("the launcher source is readable from the reserve checks", !launcher.isEmpty)
-    check("the reserves are read below every branch that launches a named account",
-          launcher.range(of: "let reserves = accountReserves()").map { read in
-              launcher.range(of: "(pinned)").map { $0.upperBound < read.lowerBound } ?? false
+    func position(_ needle: String) -> String.Index? { launcher.range(of: needle)?.lowerBound }
+    check("the reserves are read above every branch that launches a named account",
+          position("let reserves = accountReserves()").map { read in
+              position("(pinned)\")").map { read < $0 } ?? false
           } ?? false)
+    let runLaunch = launcher.components(separatedBy: "func runStatus(").first ?? ""
+    check("…exactly once in the launch path",
+          runLaunch.components(separatedBy: "accountReserves()").count == 2)
+    // AND AN UPGRADE CARRIES THE FLAG, so a session told to spend the reserve is not held by the
+    // build it is upgraded to.
+    let carried = parseResuperviseArgs(Array(selfUpdateArgv(
+        binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h", follow: true,
+        spendReserve: true, args: ["--resume", "x"]).dropFirst(2)))
+    check("an upgrade carries --spend-reserve across the exec",
+          carried.spendReserve && carried.childArgs == ["--resume", "x"])
+    check("…and a session launched without it is not given it",
+          !selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                          follow: true, args: []).contains(resuperviseSpendReserveFlag))
+    check("the flag is Tally's own and never reaches the CLI",
+          launcher.contains("removingOption(passthrough, spendReserveFlag)"))
+    check("both named branches ask the reserve before they launch",
+          launcher.components(separatedBy: "namedReserveRefusal(").count == 3
+              && position("namedReserveRefusal(").map { first in
+                  position("(pinned)\")").map { first < $0 } ?? false
+              } ?? false)
+    check("an automatic launch with nobody above the line refuses before any bare fallback",
+          position("reserveHoldout(").map { hold in
+              launcher.range(of: "account - launching bare", options: .backwards)
+                  .map { hold < $0.lowerBound } ?? false
+          } ?? false)
+    // AND THE SUPERVISOR SIDE: a session under its owner's line with nowhere to go gets nothing
+    // typed into it by Tally, at every one of the five writers, and the app's own pin yields.
+    check("every Tally writer stands down while a reserve holds the session",
+          loop.components(separatedBy: "|| reserveHeld,").count == 6)
+    check("the app's own pin yields once the account it names is under its line",
+          loop.contains("pinnedUnderReserve: drought.pinnedUnderReserve && !spendReserve"))
     check("…and the launch that spends one says so before it names the account",
           launcher.range(of: "reserveDipNotice(account,").map { notice in
               launcher.range(of: "pickReason(account, primaryModel: primaryModel)").map {

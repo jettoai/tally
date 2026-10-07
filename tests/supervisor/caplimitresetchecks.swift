@@ -85,44 +85,65 @@ func runCapLimitResetChecks() {
     // wrong reason would have to be green about a different input as well.
     check("a 5-hour wall on an available reset with weekly headroom is allowed",
           capLimitResetAllowed(scope: .session, enabled: true, state: .available,
-                               weeklyRemaining: 60, alreadyAttempted: false))
+                               weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     check("a WEEKLY wall is refused: the reset explicitly does not clear that window",
           !capLimitResetAllowed(scope: .weekly, enabled: true, state: .available,
-                                weeklyRemaining: 60, alreadyAttempted: false))
+                                weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     check("a model-tier wall is refused: it is a different window entirely",
           !capLimitResetAllowed(scope: .model, enabled: true, state: .available,
-                                weeklyRemaining: 60, alreadyAttempted: false))
+                                weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     check("a wall this build could not name is refused rather than guessed at",
           !capLimitResetAllowed(scope: nil, enabled: true, state: .available,
-                                weeklyRemaining: 60, alreadyAttempted: false))
+                                weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     check("the switch off refuses it",
           !capLimitResetAllowed(scope: .session, enabled: false, state: .available,
-                                weeklyRemaining: 60, alreadyAttempted: false))
+                                weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     check("a reset already spent this week is refused",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .used,
-                                weeklyRemaining: 60, alreadyAttempted: false))
+                                weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     check("a login outside the rollout is refused",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .notEnabled,
-                                weeklyRemaining: 60, alreadyAttempted: false))
+                                weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     // THE ONE DELIBERATE EXCEPTION: `unknown` is what every account reads before anything has been
     // observed, so refusing it would mean the feature never fires at all.
     check("an account nothing has been observed about is still tried once",
           capLimitResetAllowed(scope: .session, enabled: true, state: .unknown,
-                               weeklyRemaining: 60, alreadyAttempted: false))
+                               weeklyRemaining: 60, alreadyAttempted: false,
+                               underReserve: false))
     // A CLEARED SESSION WALL IS WORTH NOTHING BEHIND A WEEKLY ONE.
     check("an account with almost no week left is refused: a cleared 5h wall buys minutes",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
                                 weeklyRemaining: capLimitResetWeeklyFloor - 1,
-                                alreadyAttempted: false))
+                                alreadyAttempted: false,
+                               underReserve: false))
     check("…and the floor itself is allowed, so the boundary is not off by one",
           capLimitResetAllowed(scope: .session, enabled: true, state: .available,
-                               weeklyRemaining: capLimitResetWeeklyFloor, alreadyAttempted: false))
+                               weeklyRemaining: capLimitResetWeeklyFloor, alreadyAttempted: false,
+                               underReserve: false))
     check("a snapshot that cannot say how much of the week is left refuses",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
-                                weeklyRemaining: nil, alreadyAttempted: false))
+                                weeklyRemaining: nil, alreadyAttempted: false,
+                               underReserve: false))
     check("and a wall already answered once is never answered twice",
           !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
-                                weeklyRemaining: 60, alreadyAttempted: true))
+                                weeklyRemaining: 60, alreadyAttempted: true,
+                                underReserve: false))
+
+    // B-1213: AN ACCOUNT UNDER ITS OWNER'S LINE IS NEVER RESET: the reset would only buy more of
+    // the reserve.
+    check("a wall on an account under its reserve is refused",
+          !capLimitResetAllowed(scope: .session, enabled: true, state: .available,
+                                weeklyRemaining: 80, alreadyAttempted: false, underReserve: true))
+    check("…while the same wall above its line is allowed (guard the premise)",
+          capLimitResetAllowed(scope: .session, enabled: true, state: .available,
+                               weeklyRemaining: 80, alreadyAttempted: false, underReserve: false))
 
     // MARK: - 41a2. WHICH READING may answer that floor
 
@@ -173,7 +194,7 @@ func runCapLimitResetChecks() {
             &state, pendingCap: &carried, accountID: "A", accountLabel: "Claude 2",
             resetState: { .available }, observed: nil,
             weeklyRemaining: { reading(row, problem: problem) },
-            clearQuarantine: { _ in },
+            clearQuarantine: { _ in }, underReserve: false,
             settings: { LimitResetSettings(autoReset: true) },
             now: wall.addingTimeInterval(1), announce: { lines.append($0) })
     }
@@ -203,7 +224,7 @@ func runCapLimitResetChecks() {
                                          releaseQuarantine("A", model: model,
                                                            sessionLocal: &localQuarantine,
                                                            dir: quarantineHome)
-                                     },
+                                     }, underReserve: false,
                                      settings: { LimitResetSettings(autoReset: autoReset) },
                                      now: now, announce: { lines.append($0) })
         said = lines

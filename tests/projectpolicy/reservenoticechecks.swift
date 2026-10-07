@@ -2,12 +2,13 @@ import Foundation
 
 // THE WATER LINE ON THE LAUNCH NOBODY TYPED AN ACCOUNT ON.
 //
-// `runLaunch` says out loud when a pick had to spend a reserve the owner asked to be left standing
-// (`reserveDipNotice`), and the two commands in LaunchDir.swift make the very same pick, drought
-// fallback included. The shim's bare `claude` is the one that most needs the sentence and the one
-// that could not receive it: `eval "$(tally launch-dir claude 2> /dev/null)"`
+// A reserve is a hard line (B-1213): the two commands in LaunchDir.swift make the very same pick
+// `runLaunch` does, so a field emptied by reserves resolves nothing and the launch is REFUSED, with
+// one sentence saying why. The shim's bare `claude` is the one that most needs the sentence and the
+// one that could not receive it: `eval "$(tally launch-dir claude 2> /dev/null)"`
 // (IntegrationsStore.shimScript) reads this process's stderr into /dev/null, so a `warn` here is a
-// no-op. The notice travels as a LINE OF THE SCRIPT and is printed by the user's own shell.
+// no-op. The sentence travels as LINES OF THE SCRIPT and is printed by the user's own shell (and
+// a refusal ends that shell's script with `exit 1`).
 //
 // Asserted as behaviour rather than as text: the pick is run against a real drought fixture, and the
 // line is handed to bash exactly as the shim hands it over, so what is pinned is what the user ends
@@ -39,33 +40,51 @@ func runReserveNoticeChecks() {
     let personalA = AccountReserves(settings: ["/tmp/notice-A":
         AccountRoleSetting(role: AccountRoles.personal, reserve: 30)])
     // The real shape of a drought: an account with no reserve is under its own line only when it is
-    // empty, and an empty account is not eligible at all - so the fallback is reached exactly when
-    // every account still launchable carries a reserve.
+    // empty, and an empty account is not eligible at all - so the field empties exactly when every
+    // account still launchable carries a reserve.
     let drought = fleet([acct("A", weekly: 25), acct("B", weekly: 0)])
-    let dipped = steeredLaunch(claude, in: drought, policy: auto, reserves: personalA,
-                               quarantined: [], now: instant)
-    check("a bare launch onto a fleet under its own water lines still resolves an account",
-          dipped?.home == "/tmp/notice-A")
-    check("…and carries the launcher's own sentence about the reserve it just spent",
-          dipped?.dip == reserveDipNotice(acct("A", weekly: 25), primaryModel: nil,
-                                          reserves: personalA, now: instant))
-    check("…which is that sentence itself rather than a second spelling of it",
-          dipped?.dip == "dipping into A's weekly reserve (30% kept for web use)")
+    check("a bare launch onto a fleet under its own water lines resolves no account",
+          steeredLaunch(claude, in: drought, policy: auto, reserves: personalA,
+                        quarantined: [], now: instant) == nil)
+    let refusal = steeredRefusal(claude, in: drought, policy: auto, reserves: personalA,
+                                 quarantined: [], now: instant)
+    check("…and is refused, naming the account the reserve held back",
+          refusal?.hasPrefix("every claude account Tally may launch on is under its reserve (A)")
+              == true)
     let ample = fleet([acct("A", weekly: 60), acct("B", weekly: 55)])
-    check("a launch that stayed above every line says nothing at all",
+    check("a fleet with room refuses nothing",
+          steeredRefusal(claude, in: ample, policy: auto, reserves: personalA, quarantined: [],
+                         now: instant) == nil)
+    check("…nor does a fleet with nothing eligible for a reason other than a reserve",
+          steeredRefusal(claude, in: fleet([acct("B", weekly: 0)]), policy: auto,
+                         reserves: personalA, quarantined: [], now: instant) == nil)
+    check("a launch that stayed above every line resolves, and says nothing at all",
           steeredLaunch(claude, in: ample, policy: auto, reserves: personalA, quarantined: [],
-                        now: instant)?.dip == nil)
+                        now: instant).map { $0.dip == nil } == true)
     check("…and neither does one onto an account nobody reserved anything on",
           steeredLaunch(claude, in: fleet([acct("B", weekly: 25)]), policy: auto,
                         reserves: personalA, quarantined: [], now: instant)?.dip == nil)
-    // A PIN IS A PERSON NAMING AN ACCOUNT, which is the one rule this feature has: those paths pass
-    // no reserves, so there is no line for them to cross and nothing to announce.
+    // A PIN NAMES AN ACCOUNT, and naming one under its line is refused too: the shim cannot carry
+    // `--spend-reserve`, so the only way onto it is `tally claude --spend-reserve`.
     let pinned = LaunchPolicy(mode: "manual", pinnedAccountID: "A")
-    let pin = steeredLaunch(claude, in: drought, policy: pinned, reserves: personalA,
-                            quarantined: [], now: instant)
-    check("a pinned launch resolves to the account the person pinned",
-          pin?.home == "/tmp/notice-A")
-    check("…and says nothing about a reserve, having been asked for by name", pin?.dip == nil)
+    check("a pinned launch onto an account under its line resolves nothing",
+          steeredLaunch(claude, in: drought, policy: pinned, reserves: personalA,
+                        quarantined: [], now: instant) == nil)
+    check("…and is refused with the flag the shim cannot carry",
+          steeredRefusal(claude, in: drought, policy: pinned, reserves: personalA,
+                         quarantined: [], now: instant)
+              == "A is under its weekly reserve (30% kept for web use); pass --spend-reserve to "
+              + "launch on it anyway (bare claude cannot carry it: run tally claude "
+              + "--spend-reserve)")
+    check("…while the same pin above its line is not refused",
+          steeredRefusal(claude, in: fleet([acct("A", weekly: 60), acct("B", weekly: 0)]),
+                         policy: pinned, reserves: personalA, quarantined: [], now: instant)
+              == nil)
+    let pinAbove = steeredLaunch(claude, in: fleet([acct("A", weekly: 60), acct("B", weekly: 0)]),
+                                 policy: pinned, reserves: personalA, quarantined: [], now: instant)
+    check("…while a pin onto the same account above its line resolves to it",
+          pinAbove?.home == "/tmp/notice-A")
+    check("…and says nothing about a reserve, having been asked for by name", pinAbove?.dip == nil)
 
     // MARK: - The line as the shim runs it
 
@@ -90,7 +109,10 @@ func runReserveNoticeChecks() {
                 String(data: warned, encoding: .utf8) ?? "")
     }
 
-    let notice = dipped?.dip ?? ""
+    // `--spend-reserve` still prints the dip sentence on its own stderr; this is the quoting of that
+    // same sentence when it is a line of the script.
+    let notice = reserveDipNotice(acct("A", weekly: 25), primaryModel: nil, reserves: personalA,
+                                  now: instant) ?? ""
     let withNotice = launchExportLines(claude, home: "/tmp/notice-A", model: "opus", notice: notice)
     check("the notice is the first line of the script, as it is the first thing the launcher says",
           withNotice.first?.hasPrefix("printf ") == true)
@@ -108,14 +130,31 @@ func runReserveNoticeChecks() {
     let marker = tmp.appendingPathComponent("notice-injected")
     try? FileManager.default.removeItem(at: marker)
     let hostile = acct("A", weekly: 25, label: "A'; touch \(marker.path); echo '")
-    let attacked = steeredLaunch(claude, in: fleet([hostile, acct("B", weekly: 0)]), policy: auto,
-                                 reserves: personalA, quarantined: [], now: instant)
-    let hostileRun = evaluated(launchExportLines(claude, home: "/tmp/notice-A",
-                                                 notice: attacked?.dip ?? ""))
+    let attacked = reserveDipNotice(hostile, primaryModel: nil, reserves: personalA,
+                                    now: instant) ?? ""
+    let hostileRun = evaluated(launchExportLines(claude, home: "/tmp/notice-A", notice: attacked))
     check("a label carrying a shell of its own reaches the terminal as text",
-          hostileRun.err == "[tally] \(attacked?.dip ?? "")\n")
+          hostileRun.err == "[tally] \(attacked)\n")
     check("…and the shell ran none of it",
           !FileManager.default.fileExists(atPath: marker.path))
+    // THE REFUSAL AS THE SHIM RUNS IT: the sentence on the user's stderr, and the script ends
+    // there, so the bare CLI the shim would exec next never runs.
+    let refusedScript = launchRefusalLines(refusal ?? "")
+    let refusedRun = evaluated(refusedScript + ["echo after"])
+    check("a refused launch prints its sentence on the user's own stderr, marked as ours",
+          refusedRun.err == "[tally] \(refusal ?? "")\n")
+    check("…and runs nothing after it", !refusedRun.out.contains("after"))
+    check("…because the script ends in a failing exit", refusedScript.last == "exit 1")
+    let refusalMarker = tmp.appendingPathComponent("refusal-injected")
+    try? FileManager.default.removeItem(at: refusalMarker)
+    let hostileRefusal = namedReserveRefusal(
+        acct("A", weekly: 25, label: "A'; touch \(refusalMarker.path); echo '"),
+        primaryModel: nil, reserves: personalA, now: instant) ?? ""
+    let hostileRefused = evaluated(launchRefusalLines(hostileRefusal))
+    check("a hostile label in a refusal reaches the terminal as text",
+          hostileRefused.err == "[tally] \(hostileRefusal)\n")
+    check("…and the shell ran none of it",
+          !FileManager.default.fileExists(atPath: refusalMarker.path))
     // The notice must not have disturbed the lines the shim is actually there for.
     check("…while the environment beside it is still the environment",
           evaluated(withNotice, reading: "CLAUDE_CONFIG_DIR").out == "/tmp/notice-A")

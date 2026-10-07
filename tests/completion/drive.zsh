@@ -150,10 +150,10 @@ check "…under a heading of its own" "$([[ $out == *"launch option"* ]] && prin
 check "…and offers no file from the directory" "$([[ $out != *"a-file-here.txt"* ]] && print 1)"
 # ONE LINE PER FLAG. The two spellings of the worktree flag arrive as a spec each and were listed
 # twice, the same sentence under each, in a lesson five lines long (Albert, seeing it, 2026-08-11).
-# Counted over the flag names with duplicates collapsed, because the screen redraws mid-answer and a
-# truncated repeat of a line is not a sixth flag.
+# Six since `--spend-reserve` (B-1213). Counted over the flag names with duplicates collapsed,
+# because the screen redraws mid-answer and a truncated repeat of a line is not a seventh flag.
 lesson=(${(f)"$(print -r -- $out | grep -oE '^--?[a-zA-Z][a-zA-Z-]*(, --[a-zA-Z-]+)?  --  ' | sed 's/  --  $//' | sort -u)"})
-check "…as five lines, one per flag" "$([[ $#lesson == 5 ]] && print 1)"
+check "…as six lines, one per flag" "$([[ $#lesson == 6 ]] && print 1)"
 check "…with the two spellings of one flag on one line" \
   "$([[ $out == *"-w, --worktree  --  "* ]] && print 1)"
 check "…and neither spelling repeating a line of its own" \
@@ -216,7 +216,7 @@ check "with menu turned off, nothing is inserted into the line" \
   "$([[ $out != *"claude --account"* ]] && print 1)"
 out=$(tab full "tally claude " "zstyle ':completion:*' menu no" 2)
 check "…and the options are still all reachable, a press later" \
-  "$([[ $out == *"--worktree"* && $out == *"--account"* && $out == *"--no-handoff"* ]] && print 1)"
+  "$([[ $out == *"--worktree"* && $out == *"--account"* && $out == *"--no-handoff"* && $out == *"--spend-reserve"* ]] && print 1)"
 
 # 8. The same flag where there is nothing to offer: quiet, and quiet WITHOUT spilling a diagnostic
 #    onto the line being typed. The pair matters - check 2 alone passes on a script that offers

@@ -69,7 +69,9 @@ import Foundation
 // different gate (AutoSteering.swift). What IS released is the session's own pin (`tally account`)
 // and the project profile's (`tally project set --account`), which is the layer the incident's
 // sibling case sits in: three projects on this machine pin an account, and until now a cap on one
-// of them could not move the session at all.
+// of them could not move the session at all. A RESERVE IS THE EXCEPTION (B-1213): the fleet pin
+// yields too once the account it names is under its owner's line, unless the session was launched
+// with `--spend-reserve`.
 //
 // AND THE RELEASE HAS TO REACH THE PIN SWITCH TOO, which is the half that would otherwise make this
 // a restart loop rather than a fix. `applyPinSwitch` drags a running session onto the pinned
@@ -115,8 +117,24 @@ let droughtWatchInterval: TimeInterval = quotaKnockInterval
 /// decoration: this argument used to be called `spent`, every caller handed it the reading for the
 /// account the session was sitting on, and nothing in the sentence `pinYieldsToSpentAccount(appMode:
 /// spent:)` asked WHICH account (see the header for what that cost).
-func pinYieldsToSpentAccount(appMode: String, pinnedSpent: Bool) -> Bool {
-    pinnedSpent && appMode != "manual"
+///
+/// `pinnedUnderReserve` releases every scope, the app's own pin included (B-1213): a reserve is a
+/// hard line, and a pin onto an account under it is exactly the session the line exists to move.
+func pinYieldsToSpentAccount(appMode: String, pinnedSpent: Bool, pinnedUnderReserve: Bool) -> Bool {
+    (pinnedSpent && appMode != "manual") || pinnedUnderReserve
+}
+
+/// Whether Tally must stop typing into this session: it sits under its owner's line and there is
+/// nowhere to move it. The session waits there, untouched, until a sibling refills and a mover
+/// carries it off; a session launched with `--spend-reserve` is never held.
+func reserveHoldsSession(underReserve: Bool, hasTarget: Bool, spendReserve: Bool) -> Bool {
+    underReserve && !hasTarget && !spendReserve
+}
+
+/// The handoff.log line a reserve hold leaves, once per hold (grep `hold=reserve`).
+func reserveHoldLine(pid: String, account: String, cwd: String, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) hold=reserve account=\(account) "
+        + "cwd=\(cwd)\n"
 }
 
 /// The same policy as every mover on this tick judges it: with a released pin reading as automatic
@@ -230,6 +248,10 @@ struct DroughtWatch {
     /// difference between a pin that yields for as long as its account is empty and a restart loop
     /// (see the header).
     private(set) var pinnedSpent = false
+    /// Whether the account the session SITS on, and the one the pin NAMES, are under their owners'
+    /// lines (B-1213): the reserve hold's input and the fleet pin's release.
+    private(set) var underReserve = false
+    private(set) var pinnedUnderReserve = false
     /// Its binding window's name and effective remaining, for the audit line.
     private(set) var window: String?
     private(set) var remaining: Double?
@@ -303,6 +325,8 @@ struct DroughtWatch {
                                         loaded: reading, now: now) else {
             spent = false
             pinnedSpent = false
+            underReserve = false
+            pinnedUnderReserve = false
             window = nil
             remaining = nil
             hasTarget = false
@@ -321,6 +345,14 @@ struct DroughtWatch {
         pinnedSpent = droughtPinnedRow(pinned, in: reading.0).map {
             accountIsSpent($0, primaryModel: primaryModel, reserves: reserves, now: now)
         } ?? false
+        // Behind `accountIsSpent`'s trust guards: a held-over reading must not release a pin or
+        // silence a session any more than it may waive the rebalance claim.
+        func under(_ row: Snapshot.Account) -> Bool {
+            row.lastRefreshFailed != true && row.error == nil && !row.isStale
+                && !aboveReserve(row, primaryModel: primaryModel, reserves: reserves, now: now)
+        }
+        underReserve = under(field.current)
+        pinnedUnderReserve = droughtPinnedRow(pinned, in: reading.0).map(under) ?? false
         window = binding?.name
         remaining = binding.map { effectiveRemaining(comfortWindow($0), now: now) }
         hasTarget = capHandoffTarget(field.candidates, primaryModel: primaryModel,

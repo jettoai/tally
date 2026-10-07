@@ -136,8 +136,8 @@ extension LaunchPolicyStore {
     /// the first one found: three carry the number now, and reading one would make which of them
     /// binds depend on the order this array happens to be built in.
     ///
-    /// It answers yes for every account nobody reserved anything on, which is what keeps the drought
-    /// fallback in `autoPickID` unreachable on an unmarked fleet - and yes for an account reporting
+    /// It answers yes for every account nobody reserved anything on, so an unmarked fleet's badge
+    /// is untouched (there is no drought fallback any more, B-1213) - and yes for an account reporting
     /// no reserved window at all, which is the missing-data reading `accountIsSpent` names.
     static func aboveReserve(_ usage: AccountUsage, primaryModel: String?, reserve: Double,
                              now: Date) -> Bool {

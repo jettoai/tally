@@ -69,7 +69,8 @@ let loud = EarlyStartQuietHours()
 /// Every reason there is, so the truth table below can be shown to cover the enum rather than to
 /// cover the cases somebody remembered.
 let everyReason: [EarlyStartSkip] = [.otherProvider, .accountOff, .notLaunchable, .pollMissed,
-                                     .unreadable, .windowOpen, .alreadyStarted, .quietHours]
+                                     .unreadable, .windowOpen, .alreadyStarted, .quietHours,
+                                     .underReserve]
 
 // 1. THE FIRST-RUN GATE. The feature ships on, so the switch alone must not be enough: nothing may
 //    be sent before the one-time notice has been answered. All four rows, because the interesting

@@ -131,6 +131,13 @@ func runRelayChecks() {
                "…and one whose polls keep failing is passed for the reason that gets reported")
         expect(pass(candidate("a", windowOpen: true)) == .windowOpen,
                "an account already working is left alone")
+        // B-1213: a closed window on an account under its owner's line stays closed.
+        var reserved = candidate("a")
+        reserved.underReserve = true
+        expect(pass(reserved) == .underReserve,
+               "an account under its reserve line is not started: that would spend the reserve")
+        expect(!EarlyStartSkip.underReserve.countsAsSkip,
+               "…and it is not reported as something wrong")
 
         let quiet = EarlyStartQuietHours(isEnabled: true, startHour: 23, startMinute: 0,
                                          endHour: 7, endMinute: 0)
@@ -164,13 +171,13 @@ func runRelayChecks() {
                "a day already under way holds back only the accounts it wrote a mark for")
     }
 
-    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all eight reasons, listed exhaustively from
+    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all nine reasons (the ninth, B-1213's reserve), listed exhaustively from
     //    `everyReason` so a reason added later cannot slip past the table. It used to be two axes:
     //    the second asked what a pass PROVED about the provider's side, which is how an account
     //    suppressed by the arming stamp was let out early. Nothing is inferred from a pass any more.
     do {
-        expect(everyReason.count == 8 && Set(everyReason.map(\.rawValue)).count == 8,
-               "all eight reasons are named here, once each")
+        expect(everyReason.count == 9 && Set(everyReason.map(\.rawValue)).count == 9,
+               "all nine reasons are named here, once each")
 
         expect(EarlyStartSkip.notLaunchable.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip,
                "the two that mean an account gets nothing while the switch reads on are reported")

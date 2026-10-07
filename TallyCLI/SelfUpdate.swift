@@ -122,6 +122,7 @@ func execSelfUpdate(to target: String, id: String, label: String, home: String, 
                     pendingCap: PendingCapRecovery? = nil, sessionModel: SessionModelPin? = nil,
                     lastConversation: String? = nil, capResume: CapResumeState? = nil,
                     taskList: TaskListPin? = nil, restartNote: RestartNote? = nil,
+                    spendReserve: Bool = false,
                     args: [String], binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
@@ -131,7 +132,7 @@ func execSelfUpdate(to target: String, id: String, label: String, home: String, 
                               pinOverride: pinOverride, pendingCap: pendingCap,
                               sessionModel: sessionModel, lastConversation: lastConversation,
                               capResume: capResume, taskList: taskList,
-                              restartNote: restartNote, args: args)
+                              restartNote: restartNote, spendReserve: spendReserve, args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -222,14 +223,16 @@ func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: Str
                            pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                            sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                            capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
-                           restartNote: RestartNote? = nil, args: [String]) {
+                           restartNote: RestartNote? = nil, spendReserve: Bool = false,
+                           args: [String]) {
     guard let upgrade else { return }
     attempted = upgrade.target
     execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
                    follow: follow, recoveries: recoveries, sessionPin: sessionPin,
                    pinOverride: pinOverride, pendingCap: pendingCap, sessionModel: sessionModel,
                    lastConversation: lastConversation, capResume: capResume,
-                   taskList: taskList, restartNote: restartNote, args: args,
+                   taskList: taskList, restartNote: restartNote, spendReserve: spendReserve,
+                   args: args,
                    binary: upgrade.binary)
 }
 
@@ -287,5 +290,5 @@ func runResupervise(args: [String]) -> Never {
                   pinOverride: parsed.pinOverride, pendingCap: parsed.pendingCap,
                   sessionModel: parsed.sessionModel, lastConversation: parsed.lastConversation,
                   capResume: parsed.capResume, taskList: parsed.taskList,
-                  restartNote: parsed.restartNote)
+                  restartNote: parsed.restartNote, spendReserve: parsed.spendReserve)
 }

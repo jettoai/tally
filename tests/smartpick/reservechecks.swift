@@ -131,8 +131,8 @@ func runReserveChecks() {
           effectiveRemaining(comfortWindow(bindingWindow(held, primaryModel: nil, now: now)!),
                              now: now) == 50)
     // ELIGIBILITY IS RESERVE-BLIND ON PURPOSE: a reserve says "spend elsewhere if you can", never
-    // "this account does not exist", and that difference is what keeps `tally claude` working when
-    // the whole fleet is under water (R7).
+    // "this account does not exist": the refusal when the whole fleet is under water is a separate,
+    // explained answer (R7), not an account that silently vanished.
     check("a reserve never makes an account ineligible",
           eligible(acct("A", weekly: 20)) && headroom(acct("A", weekly: 20)) == 20)
     // AND NOTHING A PERSON READS IS ADJUSTED. "weekly 50%" has to mean the same thing here, in the
@@ -381,23 +381,56 @@ func runReserveChecks() {
                                         launchHome: "/tmp/reserve-A", isStale: false, error: nil),
                        primaryModel: nil, reserves: personalA, now: now))
 
-    // MARK: - R7. The whole fleet under water still launches, and says so
+    // MARK: - R7. The whole fleet under water refuses, and says when it comes back
 
-    // A launch has nowhere else to go, so the reserves are dropped for that one pick - and the
-    // launcher prints the one line that keeps the preference honest.
+    // B-1213 (2026-10-07): a reserve is a hard line. An automatic launch never lands on an account
+    // under its owner's line, and when every account it could take is under one, it takes none:
+    // `best` answers nil and `reserveHoldout` names why and when the first one is back. Only
+    // `--spend-reserve` (the caller passing `.none`) gets the old behaviour, and its notice.
     //
-    // THE FIXTURE IS THE REAL SHAPE OF THIS SITUATION, which is worth stating because it is not the
-    // one it first looks like: an account with NO reserve is under its own line only when it is
-    // empty, and an empty account is not eligible at all. So the fallback is reached exactly when
-    // every account still launchable carries a reserve - here, the fleet of one that the owner also
-    // browses on, beside a sibling that is genuinely spent.
-    let drought = snapshot([acct("A", weekly: 25), acct("B", weekly: 0)])
-    let dipped = best(providerID: "claude", in: drought, reserves: personalA, now: now)
-    check("a fleet under its own water lines still launches", dipped != nil)
-    check("…on the account the pick would have chosen without any reserve at all",
-          dipped?.id == best(providerID: "claude", in: drought, now: now)?.id)
-    check("…and the launch says whose reserve it is spending, and which window it is",
-          reserveDipNotice(dipped!, primaryModel: nil, reserves: personalA, now: now)
+    // THE FIXTURE IS THE REAL SHAPE OF THIS SITUATION: an account with NO reserve is under its own
+    // line only when it is empty, and an empty account is not eligible at all. So the field is empty
+    // exactly when every account still launchable carries a reserve - here, the fleet of one that
+    // the owner also browses on, beside a sibling that is genuinely spent (and back sooner).
+    let drought = snapshot([acct("A", weekly: 25), acct("B", weekly: 0, weeklyResetHours: 10)])
+    check("a fleet under its own water lines launches on nobody",
+          best(providerID: "claude", in: drought, reserves: personalA, now: now) == nil)
+    check("…while the same fleet without the reserve still picks A (guard the premise)",
+          best(providerID: "claude", in: drought, reserves: .none, now: now)?.id == "A")
+    check("…and the launch pick (quarantine fallback included) agrees",
+          launchPick(providerID: "claude", in: drought, primaryModel: nil, quarantined: [],
+                     reserves: personalA, now: now) == nil)
+    let hold = reserveHoldout(providerID: "claude", in: drought, primaryModel: nil,
+                              reserves: personalA, now: now)
+    check("the refusal names the accounts the reserve held back",
+          hold?.accounts.map(\.id) == ["A"])
+    check("…and the first moment anybody is back, the spent sibling included (10h, not A's 100h)",
+          hold?.recoversAt == inHours(10))
+    check("…and says both in one line, with the way past it",
+          hold.map { reserveHoldNotice($0, providerID: "claude", now: now) }
+              == "every claude account Tally may launch on is under its reserve (A); the first one "
+              + "back is in 10h. Run with --spend-reserve to use the reserve anyway")
+    check("a fleet emptied by something other than a reserve is not a reserve refusal",
+          reserveHoldout(providerID: "claude", in: snapshot([acct("B", weekly: 0)]),
+                         primaryModel: nil, reserves: personalA, now: now) == nil)
+    check("…nor one where somebody is still above the line",
+          reserveHoldout(providerID: "claude",
+                         in: snapshot([acct("A", weekly: 25), acct("B", weekly: 40)]),
+                         primaryModel: nil, reserves: personalA, now: now) == nil)
+    check("a person naming an account under its line is refused, and told the way past it",
+          namedReserveRefusal(acct("A", weekly: 25), primaryModel: nil, reserves: personalA,
+                              now: now)
+              == "A is under its weekly reserve (30% kept for web use); pass --spend-reserve to "
+              + "launch on it anyway")
+    check("…not when it is above the line",
+          namedReserveRefusal(acct("A", weekly: 60), primaryModel: nil, reserves: personalA,
+                              now: now) == nil)
+    check("…nor when nobody reserved anything on it",
+          namedReserveRefusal(acct("B", weekly: 1), primaryModel: nil, reserves: personalA,
+                              now: now) == nil)
+    // `--spend-reserve` still owes the sentence the launch spent the reserve under.
+    check("a launch that spends the reserve says whose it is, and which window",
+          reserveDipNotice(acct("A", weekly: 25), primaryModel: nil, reserves: personalA, now: now)
               == "dipping into A's weekly reserve (30% kept for web use)")
     check("a launch that stayed above the line says nothing",
           reserveDipNotice(acct("A", weekly: 60), primaryModel: nil, reserves: personalA,
@@ -405,11 +438,20 @@ func runReserveChecks() {
     check("…and neither does one onto an account nobody reserved anything on",
           reserveDipNotice(acct("B", weekly: 1), primaryModel: nil, reserves: personalA,
                            now: now) == nil)
-    // A MOVE GETS NO SUCH FALLBACK, which is the asymmetry the whole design turns on: a launch has
-    // no session yet, a move already has one somewhere.
+    // A MOVE NEVER CROSSES A LINE EITHER, as before.
     check("the same drought moves nobody",
           capHandoffTarget(drought.accounts, primaryModel: nil, reserves: personalA, now: now)
               == nil)
+    // AND THE LINE LIFTS ON ITS OWN (#7): past the week's reset the account is full again.
+    let refilled = now.addingTimeInterval(100 * 3600 + 1)
+    check("past its reset the account is back in the field with no action from anyone",
+          best(providerID: "claude",
+               in: snapshot([acct("A", weekly: 25, weeklyResetHours: 100)]),
+               reserves: personalA, now: refilled)?.id == "A")
+    check("…and nothing is refused any more",
+          reserveHoldout(providerID: "claude",
+                         in: snapshot([acct("A", weekly: 25, weeklyResetHours: 100)]),
+                         primaryModel: nil, reserves: personalA, now: refilled) == nil)
 
     // MARK: - R8. A fleet with no reserves set is untouched, end to end
 

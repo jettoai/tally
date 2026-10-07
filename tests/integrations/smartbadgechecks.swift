@@ -165,32 +165,28 @@ func runSmartBadgeChecks() {
     check("…and sits on it on the same field with no reserve (guard the premise)",
           pick(thinField) == "personal")
 
-    // A RESERVE IS NOT AN ELIGIBILITY TEST. When every account still launchable is under its own
-    // line, the launcher drops the reserves for that one pick and says whose it is spending
-    // (`reserveDipNotice`); a badge that showed nobody would be predicting a launch that is not the
-    // one about to happen.
+    // NO BADGE WHEN EVERY LAUNCHABLE ACCOUNT IS UNDER ITS LINE (B-1213, 2026-10-07): the launcher
+    // refuses that launch and says when the first account is back, so a badge on any card would be
+    // predicting a launch that will not happen.
     //
     // The fixture is the real shape of that situation, for the reason the CLI suite states: an
     // account with no reserve is under its own line only when it is empty, and an empty account is
-    // not eligible at all. So the fallback is reached exactly when every account still launchable
+    // not eligible at all. So the field empties exactly when every account still launchable
     // carries a reserve - here, beside a sibling that is genuinely spent.
     let underWater = account("personal", session: 90, weekly: 20)
     let drought = [underWater, account("spent", session: 0, weekly: 0)]
-    check("a fleet under its own water lines still marks the card a launch would take",
-          pick(drought, reserves: ["personal": 30]) == "personal")
-    // AND IT RANKS THAT FIELD AS IF NO RESERVE EXISTED, which is the half a single-card fleet cannot
-    // show: `best` DROPS the reserves for that pick rather than ranking on the negative rates they
-    // leave behind, because the hysteresis gates were written for a quantity with a floor at zero
-    // (1.15x of a negative number is a LOWER bar, so the weaker account wins by arithmetic accident).
+    check("a fleet under its own water lines marks no card",
+          pick(drought, reserves: ["personal": 30]) == nil)
+    check("…while the same fleet with no reserve marks the personal card (guard the premise)",
+          pick(drought) == "personal")
     // Two accounts under a line at once takes a hand-edited document - the stepper only marks one -
-    // and a document the two processes read differently is the one thing this contract may not have.
-    // These two are 0.5 and 0.5625 %/h raw, a gap the multiplicative gate refuses; through a reserve
-    // both go negative and it stops refusing.
+    // and both under their lines is still nobody to launch on.
     let doubleMarked = [account("marked", session: 90, weekly: 36),
                         account("marked2", session: 90, weekly: 40.5)]
-    check("…and ranks such a fleet on the numbers it would have ranked on with no reserve at all",
-          pick(doubleMarked, reserves: ["marked": 60, "marked2": 60]) == pick(doubleMarked)
-              && pick(doubleMarked) == "marked")
+    check("…and neither does a fleet where every card is under its own line",
+          pick(doubleMarked, reserves: ["marked": 60, "marked2": 60]) == nil)
+    check("…which with no reserve ranks as it always did (guard the premise)",
+          pick(doubleMarked) == "marked")
 
     // AND THE LINE IS DRAWN ON EVERY WINDOW THE BROWSER SHARES, here as in the launcher (Albert's
     // ruling, 2026-09-05, which widened it to the flagship window; Tally/Core/AccountReserve.swift).

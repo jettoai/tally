@@ -30,9 +30,16 @@ import Foundation
 //
 // A RESERVE IS A HARD LINE (B-1213, owner's ruling 2026-10-07: "otherwise what is it reserving?"):
 //
-//   - A named launch is refused under the line. `tally claude --account X`, a panel pin and a
-//     project pin onto an account under its line exit 1 with the reason, unless `--spend-reserve`
-//     is passed; the shim's bare `claude` cannot carry the flag and is refused outright.
+//   - A named launch is refused under the line. `tally claude --account X`, a panel pin, a project
+//     pin, a config home exported by hand (to `tally claude` or to the shim's bare `claude`), `tally
+//     resume` falling back to the account the conversation is on, and `tally account X` typed in a
+//     session, onto an account under its line, exit 1 with the reason unless `--spend-reserve` is
+//     passed; the shim's bare `claude` cannot carry the flag and is refused outright. Not asked:
+//     a real child session following its parent's home (the parent is held, DroughtWatch.swift).
+//   - Named blind spots, let through for want of a reading: an exported home or a pin whose account
+//     is missing from the snapshot (refusing it would lock a signed-in account out over a stale
+//     file), the shim with Tally set to Off, and the `/tally-account` hook and native picker, which
+//     cannot carry the flag and are not gated (only the CLI `tally account` is).
 //   - An automatic launch with nothing above the line refuses and names when the first account is
 //     back (`reserveHoldout`), from every path that makes that pick: `runLaunch` on stderr, the two
 //     shim commands through the script they print (LaunchDir.swift). `--spend-reserve` ranks the

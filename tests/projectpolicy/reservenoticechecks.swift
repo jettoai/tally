@@ -86,6 +86,33 @@ func runReserveNoticeChecks() {
           pinAbove?.home == "/tmp/notice-A")
     check("…and says nothing about a reserve, having been asked for by name", pinAbove?.dip == nil)
 
+    // A CONFIG HOME EXPORTED BY HAND names an account as surely as a pin (B-1213): the same refusal,
+    // matched however the path was typed, and let through only where there is no reading.
+    let underA = namedReserveRefusal(acct("A", weekly: 25), primaryModel: nil, reserves: personalA,
+                                     now: instant)
+    check("an exported home under its line is refused in the words `--account` gets",
+          underA != nil && exportedHomeRefusal("/tmp/notice-A", providerID: "claude", in: drought,
+                                               primaryModel: nil, reserves: personalA,
+                                               now: instant) == underA)
+    check("…however the path was typed",
+          exportedHomeRefusal("/tmp//notice-A/", providerID: "claude", in: drought,
+                              primaryModel: nil, reserves: personalA, now: instant) == underA)
+    check("…while the same home above its line launches",
+          exportedHomeRefusal("/tmp/notice-A", providerID: "claude", in: ample, primaryModel: nil,
+                              reserves: personalA, now: instant) == nil)
+    check("a home no account carries has no reading and launches (named blind spot)",
+          exportedHomeRefusal("/tmp/notice-Z", providerID: "claude", in: drought,
+                              primaryModel: nil, reserves: personalA, now: instant) == nil
+              && exportedHomeRefusal("/tmp/notice-A", providerID: "claude", in: nil,
+                                     primaryModel: nil, reserves: personalA, now: instant) == nil)
+    check("the bare launch's wording names the flag it cannot carry",
+          bareLaunchRefusal("X", claude)
+              == "X (bare claude cannot carry it: run tally claude --spend-reserve)")
+    let launchDir = (try? String(contentsOfFile: "TallyCLI/LaunchDir.swift", encoding: .utf8)) ?? ""
+    check("the shim's reserve question answers with that refusal as script lines",
+          launchDir.contains("launchRefusalLines(bareLaunchRefusal(refusal, provider))")
+              && launchDir.contains("if let refusal = exportedHomeRefusal(String(cString: exported),"))
+
     // MARK: - The line as the shim runs it
 
     let script = tmp.appendingPathComponent("notice.sh")

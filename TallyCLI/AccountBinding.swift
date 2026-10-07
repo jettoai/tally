@@ -270,7 +270,8 @@ private func reservePhrase(_ crossed: [RatedWindow], _ reserve: Double) -> Strin
 // MARK: - The hard line (B-1213)
 
 /// Tally's own flag that lets a launch spend a reserve anyway: the only way onto an account under its
-/// owner's line. Never passed through to the CLI.
+/// owner's line, taken by `tally claude`, `tally resume` and `tally account` (every entrance is
+/// listed in AccountReserveReader.swift). Never passed through to the CLI.
 let spendReserveFlag = "--spend-reserve"
 
 /// Why an automatic launch found nobody: every account it could launch on is under its own line.
@@ -330,4 +331,18 @@ func namedReserveRefusal(_ account: Snapshot.Account, primaryModel: String?,
     guard !crossed.isEmpty else { return nil }
     return "\(account.label) is under its \(reservePhrase(crossed, reserves.reserve(for: account)))"
         + "; pass \(spendReserveFlag) to launch on it anyway"
+}
+
+/// The refusal for a config home a person exported by hand (to `tally claude`, or to the shim's
+/// bare `claude`), or nil to let it launch: the home names an account as surely as `--account`
+/// does. Matched under the normalization the reserves are keyed by, because the value was typed. A
+/// home no account of the snapshot carries has no reading and is let through (named blind spot,
+/// AccountReserveReader.swift): refusing it would lock a signed-in account out over a stale file.
+func exportedHomeRefusal(_ home: String, providerID: String, in snapshot: Snapshot?,
+                         primaryModel: String?, reserves: AccountReserves,
+                         now: Date = Date()) -> String? {
+    guard let key = normalizedConfigHome(home), let account = snapshot?.accounts.first(where: {
+        $0.provider == providerID && normalizedConfigHome($0.launchHome) == key
+    }) else { return nil }
+    return namedReserveRefusal(account, primaryModel: primaryModel, reserves: reserves, now: now)
 }

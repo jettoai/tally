@@ -246,7 +246,11 @@ func runSelfSwitchResumeChecks() {
               && switchArm!.lowerBound < exec!.lowerBound)
     let command = (try? String(contentsOfFile: "TallyCLI/SwitchCommand.swift", encoding: .utf8)) ?? ""
     check("`tally account` writes its requests as the session's own",
-          command.contains("attemptSwitch(intent, surface: .session)"))
+          command.contains("attemptSwitch(intent, surface: .session, reserveGate: !spendReserve)"))
+    // B-1213: naming an account under its owner's line is refused, as `--account` is at launch.
+    check("…and refuses a target under its owner's reserve unless --spend-reserve",
+          command.contains("if reserveGate, let target, let refusal = namedReserveRefusal(target,")
+              && command.contains("let args = args.filter { $0 != spendReserveFlag }"))
     let picker = (try? String(contentsOfFile: "TallyCLI/MCPPicker.swift", encoding: .utf8)) ?? ""
     check("the native picker writes its requests as the picker's", picker.contains("surface: .picker"))
 }

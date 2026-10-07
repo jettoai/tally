@@ -152,6 +152,16 @@ func runExportedHomeChecks(launcher: String) {
                               providerID: "codex")
               .filter { $0 == "--dangerously-bypass-approvals-and-sandbox" }.count == 1)
 
+    // B-1213: the home names an account as surely as `--account`, so its reserve refuses it, before
+    // the exec - except for a real child (its marker still set here) and under `--spend-reserve`.
+    let refusalAt = exportedBlock.range(of: "let refusal = exportedHomeRefusal(home,")
+    check("an exported home under its owner's line is refused before the launch",
+          refusalAt != nil && exportedBlock.range(of: launchCall).map {
+              refusalAt!.lowerBound < $0.lowerBound } == true
+              && exportedBlock.contains("warn(refusal); exit(1)"))
+    check("…unless --spend-reserve, and never for a real child following its parent's home",
+          exportedBlock.contains("if !spendReserve, getenv(childSessionMarker) == nil,"))
+
     // MARK: - An environment INHERITED from a session is not a hand pin
 
     // The second half of the same evening's defect: the exit above believes an exported home is the

@@ -86,8 +86,7 @@ func steeredRefusal(_ provider: Provider, in snapshot: Snapshot?, policy: Launch
     if let row = pinnedUnderReserve(snapshot, policy: policy, reserves: reserves, now: now),
        let refusal = namedReserveRefusal(row, primaryModel: policy.model, reserves: reserves,
                                          now: now) {
-        return "\(refusal) (bare \(provider.cli) cannot carry it: run tally \(provider.id) "
-            + "\(spendReserveFlag))"
+        return bareLaunchRefusal(refusal, provider)
     }
     guard pinnedLaunchHome(snapshot, policy: policy) == nil, let snapshot,
           launchPick(providerID: provider.id, in: snapshot, primaryModel: policy.model,
@@ -97,6 +96,33 @@ func steeredRefusal(_ provider: Provider, in snapshot: Snapshot?, policy: Launch
                                     primaryModel: policy.model, reserves: reserves, now: now)
     else { return nil }
     return reserveHoldNotice(hold, providerID: provider.id, now: now)
+}
+
+/// A named refusal as a bare launch has to say it: the flag it names cannot be typed there.
+func bareLaunchRefusal(_ refusal: String, _ provider: Provider) -> String {
+    "\(refusal) (bare \(provider.cli) cannot carry it: run tally \(provider.id) "
+        + "\(spendReserveFlag))"
+}
+
+/// `tally launch-reserve <provider>`: the shim's one question about a config home exported by
+/// hand, which it otherwise obeys without asking (B-1213). Prints the refusal lines when that home's
+/// account is under its owner's line, and nothing otherwise. Its own word rather than a flag on
+/// `launch-dir`, so an older tally answers it with usage on stderr (which the shim discards) instead
+/// of steering the launch away from the home the user chose. Off and a deleted cwd stay silent.
+func runLaunchReserve(_ providerID: String) -> Int32 {
+    guard let provider = providers.first(where: { $0.id == providerID }),
+          let exported = getenv(provider.envKey) else { return 0 }
+    let here = FileManager.default.currentDirectoryPath
+    let appPolicy = launchPolicy(provider.id)
+    guard workingDirectoryURL(here) != nil, appPolicy.mode != "off" else { return 0 }
+    let (policy, _) = launchSteering(provider, appPolicy: appPolicy,
+                                     project: projectPolicy(provider.id, cwd: here))
+    if let refusal = exportedHomeRefusal(String(cString: exported), providerID: provider.id,
+                                         in: loadSnapshot().0, primaryModel: policy.model,
+                                         reserves: accountReserves()) {
+        launchRefusalLines(bareLaunchRefusal(refusal, provider)).forEach { print($0) }
+    }
+    return 0
 }
 
 /// The script lines a refused shim launch evals: the sentence on the user's own stderr, then

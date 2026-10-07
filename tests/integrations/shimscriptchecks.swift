@@ -31,7 +31,10 @@ import Foundation
 /// v5, 2026-09-07: the codex shim hands its own argument vector to `tally launch-dir` and runs what
 /// comes back, which is the only way the permission mode reaches a bare `codex`. BOTH numbers move,
 /// because one constant stamps both scripts; the claude script's text is otherwise unchanged.
-let pinnedShimDigest = "f733e37aa275ed6c"
+///
+/// v6, 2026-10-08 (B-1213): the claude shim asks `tally launch-reserve` before obeying a home
+/// exported by hand, so an account under its owner's reserve is refused there too.
+let pinnedShimDigest = "4bfb2f4048677208"
 
 /// What a bare `claude` inherited, once the shim was done with it.
 private struct ShimRun {
@@ -41,6 +44,8 @@ private struct ShimRun {
     let marker: String
     /// Whether `tally launch-dir` was consulted, which is the steering decision itself.
     let steered: Bool
+    /// Whether `tally launch-reserve` was asked about a hand-exported home (B-1213, v6).
+    let reserveAsked: Bool
     /// The arguments the exec'd CLI was handed, as one line.
     let args: String
     /// How the steering was asked, verbatim: the codex shim hands over its own argument vector and
@@ -96,9 +101,16 @@ func runShimScriptChecks(tmp: URL) throws {
     // the real mapping, which is asserted where it is decided (tests/projectpolicy); what these rows
     // are about is the plumbing - that the shim hands its arguments over, evals what comes back, and
     // execs the real binary with the vector rather than the one it started with.
+    //
+    // `launch-reserve` (v6) is the reserve question about a hand-exported home: nothing back unless
+    // the row asks for a refusal, which is then the two lines the real command prints.
     try writeExecutable(tallyDir.appendingPathComponent("tally"), """
     #!/bin/bash
     printf '%s\\n' "$*" >> "$TALLY_TEST_CONSULTED"
+    if [ "$1" = launch-reserve ]; then
+      [ -n "${TALLY_TEST_REFUSE:-}" ] && printf 'echo refused >&2\\nexit 1\\n'
+      exit 0
+    fi
     [ -n "${TALLY_TEST_SILENT:-}" ] && exit 0
     if [ "${2:-}" = codex ]; then key=CODEX_HOME; else key=CLAUDE_CONFIG_DIR; fi
     printf "export %s='%s'\\n" "$key" "\(steeredHome)"
@@ -156,7 +168,8 @@ func runShimScriptChecks(tmp: URL) throws {
         }
         let asked = ((try? String(contentsOf: consulted, encoding: .utf8)) ?? "")
         return ShimRun(home: field("home"), marker: field("marker"),
-                       steered: asked.contains("launch-dir"), args: field("args"),
+                       steered: asked.contains("launch-dir"),
+                       reserveAsked: asked.contains("launch-reserve"), args: field("args"),
                        asked: asked.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
@@ -172,11 +185,18 @@ func runShimScriptChecks(tmp: URL) throws {
               fresh.steered && fresh.home == steeredHome)
 
         // Row 2: a home the user exported by hand, with nothing contradicting it. Left alone, which
-        // is the whole reason the plain test is "nothing exported" rather than "always steer".
+        // is the whole reason the plain test is "nothing exported" rather than "always steer" -
+        // unless its account is under its owner's reserve (B-1213, v6), which is asked, not steered.
         let handPinned = run(.claude, shell: shell, tty: true,
                              environment: ["CLAUDE_CONFIG_DIR": leakedHome])
-        check("[\(name)] a hand-exported home is obeyed, not steered past",
-              !handPinned.steered && handPinned.home == leakedHome)
+        check("[\(name)] a hand-exported home is obeyed unless under its reserve, not steered past",
+              !handPinned.steered && handPinned.home == leakedHome && handPinned.reserveAsked)
+        let underReserve = run(.claude, shell: shell, tty: true,
+                               environment: ["CLAUDE_CONFIG_DIR": leakedHome,
+                                             "TALLY_TEST_REFUSE": "1"])
+        check("[\(name)] …and one under its reserve is refused: the real CLI never runs",
+              underReserve.reserveAsked && underReserve.home.isEmpty
+                  && underReserve.args.isEmpty)
 
         // Row 3: THE ONE THIS MAY NOT BREAK. The same marker with stdout on a pipe is a real child
         // session, spawned by a session's own shell and routed here by this very shim; following
@@ -186,6 +206,13 @@ func runShimScriptChecks(tmp: URL) throws {
                         environment: ["CLAUDE_CONFIG_DIR": leakedHome, marker: "1"])
         check("[\(name)] a real child session keeps its parent's home",
               !child.steered && child.home == leakedHome)
+        // Not asked about a reserve either: following its parent's home is nobody's choice, and a
+        // parent under its line is held by DroughtWatch rather than by refusing its children.
+        let refusedChild = run(.claude, shell: shell, tty: false,
+                               environment: ["CLAUDE_CONFIG_DIR": leakedHome, marker: "1",
+                                             "TALLY_TEST_REFUSE": "1"])
+        check("[\(name)] …and is never refused for its parent's reserve",
+              !refusedChild.reserveAsked && refusedChild.home == leakedHome)
         check("[\(name)] …and keeps the marker that says it is one", child.marker == "1")
 
         // Row 4: THE FIX. The same environment with stdout on a terminal is a leak, because Claude

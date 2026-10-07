@@ -15,7 +15,7 @@ _ = runCodexPTYChildIfRequested()
 // Selection/launch plumbing lives in Snapshot.swift; auto-handoff in Supervisor.swift.
 // Fail open: a missing/stale snapshot or no eligible account warns on stderr and runs the bare
 // CLI. The one refusal is a reserve (B-1213): every launchable account under its owner's line, or
-// a named one under it, exits 1 with when it comes back, unless `--spend-reserve` says otherwise.
+// a named one under it (`--account`, a pin, an exported home), exits 1 unless `--spend-reserve`.
 
 func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // `--account <name>` pins a specific account (matched against the label or the config-dir
@@ -58,7 +58,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // Tally's own flags, never passed through - and never taken out of the PROMPT, where the
     // same word belongs to the user (Snapshot.swift: `removingOption`).
     passthrough = removingOption(passthrough, "--no-handoff")
-    // `--spend-reserve`: the one way onto an account under its owner's line (B-1213).
+    // `--spend-reserve`: onto an account under its line (B-1213; AccountReserveReader.swift).
     let spendReserve = optionsOnly(passthrough).contains(spendReserveFlag)
     passthrough = removingOption(passthrough, spendReserveFlag)
     // A running session follows a later Settings change to the default model/effort UNLESS the
@@ -118,18 +118,16 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         return next
     }
 
-    // An exported config home is the user choosing the ACCOUNT by hand, and that is the ONLY axis
-    // it settles: permission mode, model, effort and start mode still come from the policy above
-    // (an earlier exit here dropped all of them, owner-reported 2026-08-13).
+    // An exported config home is the user choosing the ACCOUNT by hand (a reserve refuses it), and
+    // the ONLY axis it settles: mode, model, effort and start still come from the policy above.
     //
     // The home comes from the environment rather than from the snapshot because the exported value
     // IS the answer, and `--continue` has to be resolved against that same directory: asking the
     // account we would otherwise have picked would predict a conversation this launch cannot reach.
     //
-    // A plain exec on purpose, never `runSupervised`: the supervisor's job is to move a session to
-    // another account on a cap hit, and a hand-pinned home leaves it nowhere to move to. `--account`
-    // still outranks this (the branch below, which the `pinned == nil` guard falls through to):
-    // that flag names an account, this variable names a config directory.
+    // A plain exec, never `runSupervised`: a hand-pinned home leaves the supervisor nowhere to move
+    // a capped session to. `--account` still outranks this (the `pinned == nil` guard falls through
+    // to it below): that flag names an account, this variable names a config directory.
     //
     // …unless nobody exported it. A terminal started from inside a session inherits that session's
     // whole environment, so every window opened afterwards arrives carrying one account's home and
@@ -158,18 +156,20 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         unsetenv(childSessionMarker)
     }
 
-    if pinned == nil, !inheritedEnvironment, let exported = getenv(provider.envKey) {
-        warn("\(provider.envKey) already set - keeping that account, launch defaults still apply")
-        let home = String(cString: exported)
-        launchProvider(provider, args: startModeArgs(passthrough, home: home), home: home, env: nil)
-    }
-
-    // What the accounts are scored FOR: the model this launch will actually run, read off the args
-    // it will run with (Snapshot.swift), so a hand-typed `--model` reaches the pick as it reaches
-    // the child. And what each account's owner keeps for their own browser use
-    // (AccountReserve.swift), read above the named branches: since B-1213 they refuse one too.
+    // What the accounts are scored FOR, off the args the launch runs with (Snapshot.swift), and
+    // each owner's reserve (AccountReserve.swift): read above every named branch, which refuse too.
     let primaryModel = launchPrimaryModel(passthrough, providerID: provider.id) ?? policy.model
     let reserves = accountReserves()
+    if pinned == nil, !inheritedEnvironment, let exported = getenv(provider.envKey) {
+        let home = String(cString: exported)
+        // A marker still set here is a REAL child following its parent's home: not a choice.
+        if !spendReserve, getenv(childSessionMarker) == nil, let refusal = exportedHomeRefusal(home,
+            providerID: provider.id, in: snapshot, primaryModel: primaryModel, reserves: reserves) {
+            warn(refusal); exit(1)
+        }
+        warn("\(provider.envKey) already set - keeping that account, launch defaults still apply")
+        launchProvider(provider, args: startModeArgs(passthrough, home: home), home: home, env: nil)
+    }
     if let pinned {
         let match: Snapshot.Account
         switch accountMatching(pinned, provider: provider.id, in: snapshot) {

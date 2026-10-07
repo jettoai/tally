@@ -316,6 +316,13 @@ check("…scores off that same vector",
 check("…and execs that same vector, not the raw args",
       resumeSource.contains("args: [\"--resume\", sessionID] + resumeArgs")
           && !resumeSource.contains("args: [\"--resume\", sessionID] + args"))
+// B-1213: falling back to the account the conversation is on is a placement nobody named, so a
+// reserve refuses it; `--spend-reserve` is resume's own flag and is stripped before the args run.
+check("resume strips --spend-reserve before the args pass through",
+      resumeSource.contains("let args = removingOption(args, spendReserveFlag)"))
+check("…and refuses the fallback onto an account under its line without it",
+      resumeSource.contains("if !spendReserve, let refusal = namedReserveRefusal(target,")
+          && resumeSource.contains("warn(hold.map { reserveHoldNotice($0, providerID: provider.id) }"))
 // The behaviour behind those three lines, exercised directly.
 let resumeEffective = effectivePolicy(appDefaults, project: ProjectPolicy(model: "opus"))
 let resumeArgs = applyLaunchDefaults([], policy: resumeEffective, providerID: "claude")

@@ -23,7 +23,7 @@ extension IntegrationsStore {
     /// Bump when the shim script changes; the store flags older installs for reinstall, and the
     /// launch-time upkeep rewrites them. Pinned to the script's own text by the suite, so an edit
     /// that skips the bump goes red (tests/integrations/shimscriptchecks.swift).
-    nonisolated static let shimVersion = 5
+    nonisolated static let shimVersion = 6
 
     /// The header line every script this app writes carries, and the only thing that says a file in
     /// our own bin directory came from us rather than from somebody else.
@@ -111,6 +111,14 @@ extension IntegrationsStore {
         // the window between an app update and the upkeep rewriting this file - prints no `set --`
         // line to a script that would have taken it literally and dropped what the user typed.
         let steerArgs = shim == .codex ? " -- \"$@\"" : ""
+        // Claude only (v6, B-1213): a home exported by hand is obeyed UNLESS its account is under
+        // its owner's reserve, which `tally launch-reserve` answers with refusal lines or nothing.
+        // A marker still set here is a real child following its parent's home, which nobody chose.
+        let reserveCheck = claude ? """
+        elif [[ -z "${\(childSessionMarker)+x}" ]] && command -v tally > /dev/null 2>&1; then
+          eval "$(tally launch-reserve \(shim.rawValue) 2> /dev/null)" || true
+
+        """ : ""
         return """
         #!/bin/bash
         # tally-shim v\(shimVersion): route bare `\(shim.rawValue)` through the Tally launch policy.
@@ -120,7 +128,7 @@ extension IntegrationsStore {
         set -u
         \(leakClause)if \(steered) && command -v tally > /dev/null 2>&1; then
         \(dropLeaked)  eval "$(tally launch-dir \(shim.rawValue)\(steerArgs) 2> /dev/null)" || true
-        fi
+        \(reserveCheck)fi
         # THE CANDIDATE LIST ARRIVES ON FD 3, AND STDIN IS LEFT ALONE. Feeding the loop with
         # `done < <(which -a ...)` makes that pipe the standard input of the whole loop, so the
         # binary exec'd from inside it inherited an exhausted pipe where the caller's own stdin

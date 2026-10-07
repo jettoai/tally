@@ -17,6 +17,9 @@ import Foundation
 /// verified 2026-07-16: account 2 resumed account 1's session and recalled its content.
 func runResume(args: [String]) -> Never {
     let provider = providers[0]   // claude only for now
+    // Tally's own flag, never passed through: the one way to resume under a reserve (B-1213).
+    let spendReserve = optionsOnly(args).contains(spendReserveFlag)
+    let args = removingOption(args, spendReserveFlag)
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     guard let snapshot else { exit(1) }
@@ -75,6 +78,17 @@ func runResume(args: [String]) -> Never {
                 < smartScore($1, primaryModel: primaryModel, reserves: reserves)
         } ?? newest.account
     if target.id == newest.account.id {
+        // That fallback is a placement nobody named, so the line binds it too (B-1213).
+        if !spendReserve, let refusal = namedReserveRefusal(target, primaryModel: primaryModel,
+                                                            reserves: reserves) {
+            let hold = reserveHoldout(providerID: provider.id, in: snapshot,
+                                      primaryModel: primaryModel, reserves: reserves)
+            warn(hold.map { reserveHoldNotice($0, providerID: provider.id) } ?? refusal)
+            exit(1)
+        }
+        if let dip = reserveDipNotice(target, primaryModel: primaryModel, reserves: reserves) {
+            warn(dip)
+        }
         warn("no other eligible account - resuming on \(target.label)")
     }
 

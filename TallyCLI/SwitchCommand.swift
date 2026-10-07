@@ -86,10 +86,13 @@ func attemptSwitch(name: String, cwd: String = FileManager.default.currentDirect
 /// `surface` is which of those surfaces is asking, recorded on the request for the one reader that
 /// needs it (`SwitchOrigin`). The default is the silent one, so a new caller that forgets it can
 /// never make a supervisor type into a conversation.
+///
+/// `reserveGate` refuses a target under its owner's line (B-1213). Only the CLI sets it, as
+/// `--spend-reserve` absent: the prompt hook and the native picker cannot carry that flag.
 func attemptSwitch(_ intent: SwitchIntent,
                    cwd: String = FileManager.default.currentDirectoryPath,
                    marker: SessionMarkerTrust = .trusted(liveSessionMarker()),
-                   surface: SwitchOrigin = .shell) -> SwitchAttempt {
+                   surface: SwitchOrigin = .shell, reserveGate: Bool = false) -> SwitchAttempt {
     let (snapshot, problem) = loadSnapshot()
     var notes: [String] = []
     if let problem { notes.append(problem) }
@@ -127,6 +130,12 @@ func attemptSwitch(_ intent: SwitchIntent,
                                 + "more - try `tally status`", notes: notes)
         }
         target = match
+    }
+    if reserveGate, let target, let refusal = namedReserveRefusal(target,
+        primaryModel: effectivePolicy(launchPolicy(provider.id),
+                                      project: projectPolicy(provider.id, cwd: cwd)).model,
+        reserves: accountReserves()) {
+        return .refusal(refusal, notes: notes)
     }
     let sessionKey: String
     switch marker.resolve(here: supervisorsInDirectory(cwd)) {
@@ -341,6 +350,9 @@ func switchEntry(_ args: [String], interactive: Bool) -> SwitchEntry {
 /// there at the end of the turn that asked for it. `tally switch --auto` releases that pin. Bare, in
 /// a terminal, it asks (SwitchMenu.swift).
 func runSwitch(args: [String]) -> Int32 {
+    // Tally's own flag (B-1213): the one way to pin this session onto an account under its line.
+    let spendReserve = args.contains(spendReserveFlag)
+    let args = args.filter { $0 != spendReserveFlag }
     let chosen: SwitchIntent?
     switch switchEntry(args, interactive: menuIsAvailable(
         stdinIsTTY: isatty(STDIN_FILENO) == 1, stdoutIsTTY: isatty(STDOUT_FILENO) == 1)) {
@@ -381,7 +393,7 @@ func runSwitch(args: [String]) -> Int32 {
     }
     // `.session` as the surface: a command typed or run INSIDE a session is how a conversation
     // moves itself, and `attemptSwitch` downgrades it when the lookup did not land on the marker.
-    let attempt = attemptSwitch(intent, surface: .session)
+    let attempt = attemptSwitch(intent, surface: .session, reserveGate: !spendReserve)
     // The one line that answers the command goes to stdout when it worked, so a script can read it;
     // a refusal is stderr, like every other failure here. The notes are always stderr: they qualify
     // the answer rather than being it.

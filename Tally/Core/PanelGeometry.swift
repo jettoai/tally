@@ -32,6 +32,15 @@ enum PanelGeometry {
     /// same visual language and a second copy of 10.5 is two numbers free to drift apart.
     static let brandLead = contentPadding + brandInkOverhang
 
+    /// How far the dashboard window's traffic lights reach in from its left edge: the zoom button's
+    /// right edge, measured 2026-10-08 on a titled window with a compact toolbar (B-1253). That
+    /// window's header shares its row with the lights, so its brand cluster starts this much later.
+    static let windowControlsWidth: CGFloat = 72
+
+    /// The refresh button's trailing pad on that window, chosen so its arrow ends as far from the
+    /// right edge as the close button starts from the left (B-1253); the panels keep their 12.
+    static let windowRefreshTrail: CGFloat = 4
+
     /// The card width the multi-column panel widths below were laid out from. Nominal: the widths
     /// are rounded to whole points, so a card lands within half a point of this (see `cardWidth`).
     static let cardColumnWidth: CGFloat = 263

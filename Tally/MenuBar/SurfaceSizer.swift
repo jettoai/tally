@@ -84,7 +84,25 @@ final class SurfaceSizer {
         // `.standardBounds`: both install constraints that would fight every frame written below.
         view.sizingOptions = []
         view.autoresizingMask = [.width, .height]
-        window.contentView = view
+        // The dashboard window's content runs under its titlebar (B-1253), and the header there
+        // makes room for the traffic lights itself; a safe-area inset on top would push the whole
+        // surface down a titlebar and clip its bottom. A no-op for the borderless panel.
+        view.safeAreaRegions = []
+        if host == .window {
+            // Under that titlebar the hosting view must NOT be the window's contentView: as the
+            // contentView it resizes the window itself from `windowDidLayout`
+            // (`updateAnimatedWindowSize`), which is a second size authority writing a frame in the
+            // middle of a layout pass, and the scroll views inside then ask for another one and
+            // AppKit aborts (B-1253, crash 2026-10-08). One plain view in between keeps this class
+            // the only thing that sizes the window.
+            let container = NSView()
+            container.autoresizesSubviews = true
+            window.contentView = container
+            view.frame = container.bounds
+            container.addSubview(view)
+        } else {
+            window.contentView = view
+        }
         window.setContentSize(Self.placeholderSize)
         window.setFrameAutosaveName(autosaveName)
         observe(window)

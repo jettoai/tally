@@ -506,6 +506,7 @@ func runLaunchAtLoginChecks() {
         "TallyPanelDragEnded",    // a Notification.Name (PinnedPanelController)
         "TallySettingsTabBenchSelect",  // a Notification.Name (SettingsTabBench)
         "TallyPinnedUsagePanel",  // a window frame autosave name
+        "TallyMainWindowToolbar",  // an NSToolbar identifier (MainWindowController)
         // A stored preference, not a launch argument: the Settings switch for "check for updates"
         // (UpdaterController). It lives in Tally's own defaults because Sparkle's copy of the same
         // question is held at false for the life of the app.

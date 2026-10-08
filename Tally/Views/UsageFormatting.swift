@@ -117,7 +117,19 @@ enum UsageFormat {
         guard let date else { return nil }
         let seconds = Int(date.timeIntervalSince(now).rounded())
         guard seconds > 0 else { return L("refreshing…") }
-        let body = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
-        return String(localized: "refreshes in \(body)", bundle: AppLocale.bundle)
+        return String(localized: "refreshes in \(figure(seconds))", bundle: AppLocale.bundle)
+    }
+
+    /// The bare figure of that countdown ("42s", "3m"), for a header too narrow for the sentence
+    /// (B-1253). The same token every language's sentence already embeds, so it needs no strings of
+    /// its own. Nil once due, where the sentence would say "refreshing…".
+    static func updatesInFigure(_ date: Date?, now: Date = Date()) -> String? {
+        guard let date else { return nil }
+        let seconds = Int(date.timeIntervalSince(now).rounded())
+        return seconds > 0 ? figure(seconds) : nil
+    }
+
+    private static func figure(_ seconds: Int) -> String {
+        seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
     }
 }

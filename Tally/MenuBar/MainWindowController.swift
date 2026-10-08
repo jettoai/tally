@@ -8,8 +8,8 @@ import SwiftUI
 /// else, so card order, drag-to-reorder, the countdown header, the footer and the switch to token
 /// history behave identically in all three surfaces. It wrapped that view in a tab bar of its own
 /// until the switch moved into the header, at which point the wrapper was two tabs for one selection
-/// and went away. The titlebar shows only the traffic lights: the view carries its own branding row,
-/// and a second "Tally" in the frame would double it.
+/// and went away. There is no titlebar strip: the traffic lights sit in the view's own branding row
+/// (which makes room for them), and a second "Tally" in the frame would double it.
 ///
 /// It also sizes itself the same way they do: `sizingOptions = []` on the hosting view, the
 /// content's MEASURED size in (`PopoverRootView.onContentSize`), one frame write out. It used to be
@@ -128,6 +128,16 @@ final class MainWindowController {
                                   backing: .buffered, defer: false)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden
+            // No titlebar strip of its own (B-1253): the content runs up to the window's top edge
+            // and the traffic lights sit in the header row. The empty compact toolbar is what makes
+            // that work: it makes the titlebar 40pt tall with the lights centred at 20pt, which is
+            // exactly the header's height and centre line (measured 2026-10-08; a bare titlebar is
+            // 32pt with the lights at 16pt). Clicks in that band still reach the hosting view, so
+            // the header keeps its controls and its drag surfaces.
+            window.titlebarAppearsTransparent = true
+            window.styleMask.insert(.fullSizeContentView)
+            window.toolbar = NSToolbar(identifier: "TallyMainWindowToolbar")
+            window.toolbarStyle = .unifiedCompact
             window.isReleasedWhenClosed = false
             // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
             // behind them (the popover's vibrancy, the pinned panel's behind-window blur).

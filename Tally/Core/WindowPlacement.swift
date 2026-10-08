@@ -84,7 +84,10 @@ extension NSWindow {
     /// popover, the borderless panel, the titled window), so the content rect is the only anchor
     /// they can all agree on - a frame-to-frame hand-off would slide the view by the chrome.
     @MainActor var contentTopLeft: CGPoint {
-        let onScreen = convertToScreen(contentLayoutRect)
+        // The content VIEW's rect, not `contentLayoutRect`: the dashboard window's content runs
+        // under its transparent titlebar (B-1253), and the layout rect would place the view a
+        // titlebar below where it is actually drawn.
+        let onScreen = convertToScreen(contentRect(forFrameRect: frame))
         return CGPoint(x: onScreen.minX, y: onScreen.maxY)
     }
 

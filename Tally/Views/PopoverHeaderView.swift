@@ -10,7 +10,12 @@ struct HeaderWidths: Equatable {
     var picker: CGFloat = 0
     var refresh: CGFloat = 0
     var counter: CGFloat = 0
+    var shortCounter: CGFloat = 0
 }
+
+/// Which face of the refresh countdown the header has room for: the sentence, the bare figure
+/// ("58s"), or none (`nil`).
+enum CountdownForm { case full, short }
 
 /// The popover's header strip, split out of PopoverRootView for file size: the wordmark and its
 /// badges, the Usage / Tokens switch, the refresh countdown, and the refresh button.
@@ -56,7 +61,8 @@ extension PopoverRootView {
                 // The leading padding is inside the grab area on purpose: the margin that seats the
                 // wordmark on the panel's content line is space nothing else claims, so it may as
                 // well be somewhere to take hold of.
-                .padding(.leading, PanelGeometry.brandLead)
+                .padding(.leading, PanelGeometry.brandLead
+                         + (host == .window ? PanelGeometry.windowControlsWidth : 0))
                 .frame(maxHeight: .infinity)
                 .windowDragSurface()
                 // Docker-style nudge, two states: detected (accent ↑, click walks the install
@@ -149,12 +155,12 @@ extension PopoverRootView {
                 // is dropped when the row is tight. B-879: while another once-a-second redraw drives
                 // `SecondsClock` (a private build's panel section), the countdown ticks on that redraw instead, so
                 // the panel draws once a second rather than twice.
-                if showsCountdown {
+                if let form = countdownForm {
                     if SecondsClock.shared.drivers > 0 {
-                        ClockedCounter { now in counterSlot(countdownText(at: now)) }
+                        ClockedCounter { now in counterSlot(countdownText(at: now, form), form) }
                     } else {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            counterSlot(countdownText(at: context.date))
+                            counterSlot(countdownText(at: context.date, form), form)
                         }
                     }
                 }
@@ -195,7 +201,7 @@ extension PopoverRootView {
             .windowDragOrTap { startRefresh() }
             .accessibilityLabel(L("Refresh"))
             .tallyTooltipAroundControl(L("Refresh"))
-            .padding(.trailing, 12)
+            .padding(.trailing, host == .window ? PanelGeometry.windowRefreshTrail : 12)
             .background { widthProbe { headerWidths.refresh = $0 } }
         }
         .frame(height: 40)
@@ -308,15 +314,29 @@ extension PopoverRootView {
         // way to refuse. The spacers collapse to their minimums and the overflow lands on the only
         // child that can absorb it - the clock, which wrapped onto three lines (seen in the first
         // capture). An off-centre switch is a compromise; a wrapped header is a broken one.
-        let slack = popoverWidth - (leftEnd + parts.picker + rightEnd + Self.gap + Self.clockLead)
+        // The fixed spacing is counted as the row lays it out (`rowGaps`). It once counted one gap
+        // and a second clock lead, 22pt short, so a row whose slack ran out overflowed by exactly
+        // that and the stack centring it cut 11pt off each end (B-1253, the single-column window).
+        let slack = popoverWidth - (leftEnd + parts.picker + rightEnd + rowGaps)
         let owed = min(abs(leftEnd - rightEnd), max(0, slack))
         return (rightEnd > leftEnd ? owed : 0, leftEnd > rightEnd ? owed : 0)
+    }
+
+    /// The spacing the row adds to its measured parts: the four gaps between its five children,
+    /// the switch's leading spacer at its minimum, and inside the clock cluster either its bare
+    /// leading spacer (no countdown) or that spacer, already in `clockZoneWidth`, plus one more gap.
+    private var rowGaps: CGFloat {
+        5 * Self.gap + (countdownForm == nil ? Self.clockLead : Self.gap)
     }
 
     /// How much of the row the countdown cluster is occupying right now, which is what the trimming
     /// below has already decided. Read by the centring above so it measures the row as drawn.
     private var clockZoneWidth: CGFloat {
-        showsCountdown ? Self.clockLead + headerWidths.counter : 0
+        switch countdownForm {
+        case .full: Self.clockLead + headerWidths.counter
+        case .short: Self.clockLead + headerWidths.shortCounter
+        case nil: 0
+        }
     }
 
     /// Whether the refresh countdown fits beside the switch. It is a heartbeat, and everything else
@@ -327,16 +347,22 @@ extension PopoverRootView {
     /// A 380pt single column, an update badge and a language whose two tab words are long
     /// (Japanese) together want more than the row has: unmeasured parts read 0, which trims it,
     /// because a countdown one frame late beats a header wrapped onto two lines.
-    private var showsCountdown: Bool {
+    /// B-1253: a row too tight for the sentence falls back to the bare figure ("58s") before it
+    /// gives the countdown up, which the single-column dashboard window (its wordmark shifted right
+    /// of the traffic lights) needs. Both slots are measured by hidden probes, so this still reads
+    /// none of its own output.
+    private var countdownForm: CountdownForm? {
         let parts = headerWidths
-        guard parts.brand > 0, parts.picker > 0, parts.refresh > 0,
-              parts.counter > 0 else { return false }
+        guard parts.brand > 0, parts.picker > 0, parts.refresh > 0 else { return nil }
         // What the row owes before the countdown: both end clusters (each measured with its own outer
         // padding), the switch, the gaps between the children, and the slack the switch's own
         // leading spacer never gives up (new with the centred switch, and the countdown is measured
         // against the row it is actually in).
         let rigid = parts.brand + parts.picker + parts.refresh + 3 * Self.gap + Self.gap
-        return rigid + Self.clockLead + Self.gap + parts.counter <= popoverWidth
+        // Plus the clock cluster's own spacer and the gap between it and the countdown.
+        let fits = { (slot: CGFloat) in slot > 0 && rigid + Self.clockLead + 2 * Self.gap + slot <= popoverWidth }
+        if fits(parts.counter) { return .full }
+        return fits(parts.shortCounter) ? .short : nil
     }
 
     /// An unrendered, unlaid-out copy of the countdown slot: a background is sized by its
@@ -344,22 +370,31 @@ extension PopoverRootView {
     /// even in the frames where the real ones are trimmed away - measuring the live pair could only
     /// ever confirm the decision it is already the result of.
     private var clockProbes: some View {
-        counterSlot(nil)
-            .background { widthProbe { headerWidths.counter = $0 } }
-            .hidden()
+        ZStack(alignment: .topLeading) {
+            counterSlot(nil, .full)
+                .background { widthProbe { headerWidths.counter = $0 } }
+            counterSlot(nil, .short)
+                .background { widthProbe { headerWidths.shortCounter = $0 } }
+        }
+        .hidden()
     }
 
-    private func countdownText(at now: Date) -> String? {
-        store.isRefreshing ? L("refreshing…") : UsageFormat.updatesIn(store.nextRefreshAt, now: now)
+    /// The short face drops "refreshing…" rather than abbreviating it: the refresh button beside it
+    /// is already spinning.
+    private func countdownText(at now: Date, _ form: CountdownForm) -> String? {
+        if form == .short {
+            return store.isRefreshing ? nil : UsageFormat.updatesInFigure(store.nextRefreshAt, now: now)
+        }
+        return store.isRefreshing ? L("refreshing…") : UsageFormat.updatesIn(store.nextRefreshAt, now: now)
     }
 
     /// The counter's string width changes every second; hidden templates (the widest forms,
     /// localized) reserve a fixed slot so the ticking never pushes the date around. Trailing-aligned
     /// to hug the button. Passing no counter leaves the bare reservation, which is what the probe
     /// above measures.
-    private func counterSlot(_ counter: String?) -> some View {
+    private func counterSlot(_ counter: String?, _ form: CountdownForm) -> some View {
         ZStack(alignment: .trailing) {
-            ForEach(UsageFormat.updatesInTemplates, id: \.self) {
+            ForEach(form == .full ? UsageFormat.updatesInTemplates : ["59m"], id: \.self) {
                 Text($0).hidden()
             }
             if let counter { Text(counter) }

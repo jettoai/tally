@@ -150,6 +150,16 @@ final class MainWindowController {
                                 tokens: .shared, tabState: surfaceTab, host: sizer.host)
             }
             ActivationPolicy.track(window)
+            // A title-bar drag is a carry like the pinned panel's: without this, every frame of it
+            // re-read the height cap and resized the window under the hand (B-1245). Only with the
+            // left button down, so a programmatic move is never mistaken for one.
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willMoveNotification, object: window, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    if NSEvent.pressedMouseButtons & 1 != 0 { PanelDrag.begin() }
+                }
+            }
             NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
             ) { _ in

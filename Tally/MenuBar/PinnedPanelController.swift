@@ -21,6 +21,11 @@ final class PinnedUsagePanel: NSPanel {
 /// So the cap is not re-read during the carry, and is re-read once when it ends. `performDrag` runs
 /// its own event loop and returns when the mouse comes up, which is what makes "the carry" a span
 /// this code can name at all - no timer, no guessing, and no notification AppKit does not have.
+///
+/// The main window is carried too, by its title bar, and that drag never passes through `carry`:
+/// the window server moves it on its own, so every frame of it re-read the cap and resized the
+/// window under the hand (B-1245, worst across displays of different heights). It joins the same
+/// span through `begin`, called from its `willMove` (see `MainWindowController`).
 @MainActor
 enum PanelDrag {
     /// Whether the panel is being carried RIGHT NOW. Both halves are load-bearing: the flag says a
@@ -45,10 +50,17 @@ enum PanelDrag {
     /// the moment a hand lets go either, so the release is watched for directly, at a rate that is
     /// nothing beside the drag it runs during and that stops the moment it answers.
     static func carry(_ drag: () -> Void) {
-        carrying = true
         drag()
+        begin()
+    }
+
+    /// Marks a carry as under way and watches for the hand letting go. For a drag AppKit starts on
+    /// its own (a title bar), where there is no call to wrap. Added in `.common` modes so the watch
+    /// still runs if the drag puts the run loop in event tracking.
+    static func begin() {
+        carrying = true
         release?.invalidate()
-        release = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+        let timer = Timer(timeInterval: 0.05, repeats: true) { _ in
             MainActor.assumeIsolated {
                 guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
                 release?.invalidate()
@@ -57,6 +69,8 @@ enum PanelDrag {
                 NotificationCenter.default.post(name: ended, object: nil)
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        release = timer
     }
 }
 

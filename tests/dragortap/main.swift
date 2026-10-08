@@ -247,6 +247,12 @@ check("the release watcher stops itself rather than running on",
       panelSource.contains("release?.invalidate()") && panelSource.contains("release = nil"))
 check("and the flag itself defers to the pure predicate",
       panelSource.contains("PanelCarry.inProgress(started: carrying,"))
+// The main window is carried by its title bar, which the window server moves without `carry`, so
+// it joins the span from its own willMove (B-1245: it was resized under the hand across displays).
+let mainWindowSource = code(of: "Tally/MenuBar/MainWindowController.swift")
+check("a title-bar drag of the main window announces the carry too",
+      mainWindowSource.contains("forName: NSWindow.willMoveNotification, object: window")
+          && mainWindowSource.contains("if NSEvent.pressedMouseButtons & 1 != 0 { PanelDrag.begin() }"))
 
 // 13. The empty panel, which is the layout with no cards to name regions between: the first-fetch
 //     skeletons, "no accounts" and "all providers off" each draw a screenful of quiet space, and

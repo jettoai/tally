@@ -86,8 +86,10 @@ extension NSWindow {
     @MainActor var contentTopLeft: CGPoint {
         // The content VIEW's rect, not `contentLayoutRect`: the dashboard window's content runs
         // under its transparent titlebar (B-1253), and the layout rect would place the view a
-        // titlebar below where it is actually drawn.
-        let onScreen = convertToScreen(contentRect(forFrameRect: frame))
+        // titlebar below where it is actually drawn. `contentRect(forFrameRect:)` maps a screen
+        // frame to a screen rect, so it is already on screen; converting it again would count the
+        // frame origin twice.
+        let onScreen = contentRect(forFrameRect: frame)
         return CGPoint(x: onScreen.minX, y: onScreen.maxY)
     }
 

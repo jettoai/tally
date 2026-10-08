@@ -458,6 +458,7 @@ check("a surface torn down with its card up takes the card with it",
 checkPopoverAnchor()
 checkPanelSummon()
 checkPaneSwitchOrder()
+MainActor.assumeIsolated { checkContentTopLeft() }
 
 print(failures == 0 ? "\nAll window anchor tests passed." : "\n\(failures) anchor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

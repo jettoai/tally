@@ -48,13 +48,15 @@ extension PopoverRootView {
                 // the footer: trailing the jetto byline it read as the BYLINE's version, and no
                 // amount of reordering that line fixed whose number it was. Beside the product's
                 // own name it can only be read one way. Not localized: a dotted version is a token.
-                if let version = BuildVariant.version {
+                // Demo mode is for screenshots and promo footage: a version or DEV tag in them dates
+                // the shot and names a build the viewer can't download.
+                if let version = BuildVariant.version, !DemoUsage.isActive {
                     Text(version).font(.caption2).foregroundStyle(.tertiary)
                 }
                 overlayHeaderBadge
                 // The dev variant tags every surface (menu bar strip + panel header), so a test
                 // instance can never be mistaken for the installed app.
-                if BuildVariant.isDev {
+                if BuildVariant.isDev, !DemoUsage.isActive {
                     TallyDevTagView()
                 }
                 }

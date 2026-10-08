@@ -213,6 +213,19 @@ func runPickSurfaceChecks() {
     check("…which is the one the popover wears, rather than a second capsule",
           popover.contains("TallyDevTagView()")
               && !popover.contains(#"Text(verbatim: "DEV")"#))
+    // Demo mode is the screenshot and promo build: no version, no DEV tag, and no launch summary
+    // (that strip reads this machine's real ~/.tally/state.json, which no fixture covers).
+    check("demo mode draws no version in the popover header",
+          popover.contains("if let version = BuildVariant.version, !DemoUsage.isActive {"))
+    check("…and no DEV tag",
+          popover.contains("if BuildVariant.isDev, !DemoUsage.isActive {"))
+    let launchViews = (try? String(contentsOfFile: "Tally/Views/PopoverLaunchViews.swift",
+                                   encoding: .utf8)) ?? ""
+    check("…and no launch summary strip",
+          launchViews.contains("private var launchSummaryItems: [(String, [String], String?)] {\n"
+                               + "        // Demo mode exists for screenshots")
+              && launchViews.contains("guard !DemoUsage.isActive else { return [] }\n"
+                                      + "        return ProviderCatalog.descriptors.compactMap"))
     let brand = (try? String(contentsOfFile: "Tally/Views/ProviderIconShape.swift",
                              encoding: .utf8)) ?? ""
     check("…and it is one style in one place",

@@ -11,7 +11,10 @@ extension PopoverRootView {
     /// defaults contribute nothing, so an untouched install never shows the strip at all.
     /// Clicking it opens Settings, where the values are edited.
     private var launchSummaryItems: [(String, [String], String?)] {
-        ProviderCatalog.descriptors.compactMap { descriptor in
+        // Demo mode exists for screenshots and promo footage, and this strip reads this machine's
+        // real ~/.tally/state.json, which no fixture covers: so in demo it draws nothing.
+        guard !DemoUsage.isActive else { return [] }
+        return ProviderCatalog.descriptors.compactMap { descriptor in
             guard settings.isEnabled(descriptor.id) else { return nil }
             let policy = LaunchPolicyStore.shared.policy(descriptor.id)
             var chips: [String] = []

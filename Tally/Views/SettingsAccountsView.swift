@@ -8,7 +8,12 @@ struct SettingsAccountsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
 
-    @State private var renamingAccountID: String?
+    @State private var renamingAccountID: String? = Self.demoRenamingID()
+    /// Drag-to-reorder (B-1033): each row's frame in window space, and the row in hand.
+    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var draggingAccountID: String?
+    /// Each account's sharing against its provider's primary, worked out off the main thread.
+    @State private var sharing: [String: HarnessSharing.Report] = [:]
     @State private var addingAccount = false
     private let flow = AddAccountStore.shared
 
@@ -32,6 +37,9 @@ struct SettingsAccountsView: View {
         // leaving it empty for those seconds. Idempotent in the store, which is what lets it hang
         // off a ForEach that runs it once per provider group.
         .onAppear { store.ensureDiscovered() }
+        // Merged, not assigned: this hangs off the per-provider ForEach, so each group reports only
+        // its own rows.
+        .onPreferenceChange(CardFramePreferenceKey.self) { rowFrames.merge($0) { $1 } }
     }
 
     private var rowDivider: some View {
@@ -52,6 +60,17 @@ struct SettingsAccountsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .padding(.leading, 18)
+    }
+
+    /// `-TallyDemoData YES -TallyDemoRenaming <n>`: row n of the fixtures opens with its rename
+    /// field up, for a capture (the field otherwise needs a click). Debug builds only.
+    private static func demoRenamingID() -> String? {
+        #if DEBUG
+        let row = UserDefaults.standard.integer(forKey: "TallyDemoRenaming")
+        let ids = SettingsStore.shared.orderedAccountIDs(DemoUsage.discoveredAccounts().map(\.id))
+        if DemoUsage.isActive, ids.indices.contains(row - 1) { return ids[row - 1] }
+        #endif
+        return nil
     }
 
     /// This provider's accounts by EXISTENCE (discovery), not by fetched usage - a switched-off
@@ -101,6 +120,10 @@ struct SettingsAccountsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        // Re-asked whenever the list or its order changes: the first account is the primary.
+        .task(id: items.compactMap(\.launchHome)) {
+            sharing.merge(await AccountHomeTag.reports(items, providerID: id)) { $1 }
+        }
 
         if settings.isEnabled(id) {
             let state = AccountListState.resolve(hasDiscovered: store.hasDiscovered,
@@ -122,6 +145,13 @@ struct SettingsAccountsView: View {
                     badge: items.count > 1 ? index + 1 : nil,
                     moveUp: index > 0 ? { swapAccounts(items, index, index - 1) } : nil,
                     moveDown: index < items.count - 1 ? { swapAccounts(items, index, index + 1) } : nil)
+                .background(RoundedRectangle(cornerRadius: 6)
+                    .fill(draggingAccountID == item.id ? Color.primary.opacity(0.06) : .clear))
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: CardFramePreferenceKey.self,
+                                           value: [item.id: proxy.frame(in: .global)])
+                })
+                .gesture(reorderDrag(item.id, siblings: items.map(\.id)))
                 // The reserve belongs to the marked account and appears NOWHERE ELSE - not greyed on
                 // the other rows, not a line the pane always carries. A machine with one account, or
                 // one where nobody has marked theirs, has nothing to reserve quota from, and a
@@ -131,6 +161,13 @@ struct SettingsAccountsView: View {
                     rowDivider
                     reserveRow(home, underBadge: items.count > 1)
                 }
+            }
+            // The add in flight, at the end of the list where its account will land, until that
+            // account is listed as itself (the watcher can adopt it a beat before the flow lands).
+            if flow.runProviderID == id, SettingsPendingAccountRow.content(flow.phase) != nil,
+               !SettingsPendingAccountRow.isListed(flow.phase, homes: items.compactMap(\.launchHome)) {
+                rowDivider
+                SettingsPendingAccountRow(flow: flow)
             }
         }
     }
@@ -187,6 +224,28 @@ struct SettingsAccountsView: View {
             // codex refuses a CODEX_HOME that doesn't exist yet (claude creates its own), so the
             // copyable command must create it or it fails on paste.
             : "mkdir -p ~/\(base)\(suffix) && CODEX_HOME=~/\(base)\(suffix) codex login"
+    }
+
+    /// Drag a row onto a sibling to reorder, the way the panel's cards reorder (CardReorder.swift):
+    /// the order changes live under the pointer and is saved as it goes. Only within the provider
+    /// (`moveAccountWithinProvider` refuses a foreign target, and only siblings are hit-tested); the
+    /// switches, the menu and the name keep their own clicks, and a row being renamed does not move.
+    private func reorderDrag(_ id: String, siblings: [String]) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                guard renamingAccountID != id else { return }
+                draggingAccountID = id
+                guard let target = reorderTarget(at: value.location, frames: rowFrames,
+                                                 excluding: id, orderedIDs: siblings) else { return }
+                var moved = false
+                withAnimation(CardMotion.spring) {
+                    moved = settings.moveAccountWithinProvider(
+                        id, onto: target, siblingIDs: siblings,
+                        allIDs: store.discoveredAccounts.map(\.id))
+                }
+                if moved { Haptics.snap() }
+            }
+            .onEnded { _ in draggingAccountID = nil }
     }
 
     private func swapAccounts(_ items: [ProviderAccount], _ a: Int, _ b: Int) {
@@ -351,20 +410,6 @@ struct SettingsAccountsView: View {
             .menuIndicator(.hidden)
             .frame(width: 16)
             .tallyTooltip(L("Account actions"))
-            // The rename field lives outside the row layout entirely (AccountRenamePopover),
-            // on the button that opens it.
-            .popover(isPresented: Binding(
-                get: { renamingAccountID == item.id },
-                set: { if !$0 { renamingAccountID = nil } }
-            )) {
-                AccountRenamePopover(
-                    defaultLabel: item.label,
-                    override: Binding(
-                        get: { settings.accountLabels[item.id] },
-                        set: { settings.accountLabels[item.id] = $0 }
-                    ),
-                    dismiss: { renamingAccountID = nil })
-            }
         }
         .opacity(enabled ? 1 : 0.6)
         .padding(.horizontal, 14)
@@ -374,8 +419,8 @@ struct SettingsAccountsView: View {
 
     /// The row's name, and beside it the config home this account launches from.
     ///
-    /// Plain Text + a pencil-popover for renaming: an inline TextField can't live in this layout
-    /// sanely (see AccountRenamePopover) and the popover field behaves normally.
+    /// The name renames in place: a click on it opens the field (AccountNameField), and the row's
+    /// menu opens the same one.
     ///
     /// The home shares the NAME's line rather than the address's below it, which is where it started.
     /// The address is what tells two logins apart when both are readable, and it is long enough that
@@ -392,11 +437,19 @@ struct SettingsAccountsView: View {
     private func nameLine(_ item: ProviderAccount, showsHome: Bool,
                           isPersonal: Bool) -> some View {
         HStack(spacing: 6) {
-            Text(settings.displayLabel(accountID: item.id, fallback: item.label))
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
+            AccountNameField(
+                defaultLabel: item.label,
+                displayed: settings.displayLabel(accountID: item.id, fallback: item.label),
+                override: Binding(get: { settings.accountLabels[item.id] },
+                                  set: { settings.accountLabels[item.id] = $0 }),
+                isEditing: Binding(get: { renamingAccountID == item.id },
+                                   set: { on in
+                                       // Closing never closes another row's field.
+                                       if on { renamingAccountID = item.id }
+                                       else if renamingAccountID == item.id { renamingAccountID = nil }
+                                   }))
             // The marking rides the NAME line rather than the status line below it, for the reason
-            // the home does: the status line carries a plan and two percentages inside a 500pt
+            // the home does: the status line carries a plan and two percentages inside a 580pt
             // window and truncates as soon as anything joins it. At most one row in the pane ever
             // wears this, and the word is short.
             if isPersonal { personalBadge }
@@ -404,11 +457,11 @@ struct SettingsAccountsView: View {
                 // Never the part that gives way: it is short, it is fixed, and a half-written path
                 // ("~/.clau…") could name either of the two accounts it is here to separate. A long
                 // nickname truncates instead - the user chose that one and knows what it says.
-                Text(AccountIdentity.homeName(home))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .layoutPriority(1)
+                let primary = discovered(for: item.providerID).first
+                AccountHomeTag(home: home, report: primary?.id == item.id ? nil : sharing[item.id],
+                               primaryName: primary.map {
+                                   settings.displayLabel(accountID: $0.id, fallback: $0.label)
+                               } ?? "")
             }
         }
     }

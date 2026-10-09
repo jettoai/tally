@@ -127,3 +127,12 @@ struct AccountIdentityMemory: Codable, Equatable {
         emails.removeValue(forKey: accountID) != nil
     }
 }
+
+extension AccountIdentity {
+    /// The nickname a rename stores for what was typed: none (the default name shows) for nothing,
+    /// for blanks, or for the default name typed back in (AccountNameField).
+    static func nickname(typed: String, defaultLabel: String) -> String? {
+        let trimmed = typed.trimmingCharacters(in: .whitespaces)
+        return (trimmed.isEmpty || trimmed == defaultLabel) ? nil : trimmed
+    }
+}

@@ -14,5 +14,6 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/accountrow/main.swift tests/accountrow/accountrowchecks.swift \
   Tally/Core/AccountSignIn.swift Tally/Core/AccountIdentity.swift \
   Tally/Core/AccountListState.swift \
-  Tally/Core/AccountReserve.swift Tally/Core/ReserveStrip.swift
+  Tally/Core/AccountReserve.swift Tally/Core/ReserveStrip.swift \
+  Tally/Core/HarnessSharing.swift Tally/Core/PathIdentity.swift
 "$out"

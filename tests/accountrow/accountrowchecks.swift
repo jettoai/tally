@@ -776,6 +776,85 @@ func runAccountRowChecks() {
     check("the retired Artifact strings are gone from the catalogue",
           !catalogueStrings.keys.contains { $0.contains("rtifact") })
 
+    // MARK: - Rename in place and drag to reorder (B-1033)
+
+    // What a rename stores: the empty field, blanks and the default name all mean "no nickname".
+    check("an empty rename restores the default name",
+          AccountIdentity.nickname(typed: "", defaultLabel: "Claude 2") == nil)
+    check("so do blanks", AccountIdentity.nickname(typed: "   ", defaultLabel: "Claude 2") == nil)
+    check("and the default name typed back in",
+          AccountIdentity.nickname(typed: " Claude 2 ", defaultLabel: "Claude 2") == nil)
+    check("anything else is stored trimmed",
+          AccountIdentity.nickname(typed: "  Work ", defaultLabel: "Claude 2") == "Work")
+
+    // The hot-zone table, cell by cell, read off the two views (neither compiles in here).
+    let fieldSource = readSource("Tally/Views/AccountNameField.swift")
+    let pendingSource = readSource("Tally/Views/SettingsPendingAccountRow.swift")
+    check("a click on the name opens the field", fieldSource.contains(".onTapGesture { isEditing = true }"))
+    check("Enter closes it", fieldSource.contains(".onSubmit { isEditing = false }"))
+    check("Esc closes it without saving",
+          fieldSource.contains(".onExitCommand { cancelled = true; isEditing = false }"))
+    check("every close but Esc saves, through the one nickname rule",
+          fieldSource.contains("if !cancelled { override = AccountIdentity.nickname(typed: text, defaultLabel: defaultLabel) }")
+              && fieldSource.components(separatedBy: "override =").count == 2)
+    check("a click anywhere but the field closes it, and still lands where it was aimed",
+          fieldSource.contains("if !Self.isInFieldEditor(event) { isEditing = false }")
+              && fieldSource.contains("return event  // the click still reaches")
+              && fieldSource.contains("NSEvent.removeMonitor(monitor)"))
+    check("one rename field: the menu opens the same one, the popover is gone",
+          !paneSource.contains("AccountRenamePopover") && !paneSource.contains(".popover(")
+              && paneSource.contains("rename: { renamingAccountID = item.id }")
+              && paneSource.contains("AccountNameField("))
+    check("closing one row's field never closes another's",
+          paneSource.contains("else if renamingAccountID == item.id { renamingAccountID = nil }"))
+    check("the stand-in row for an add in flight can be neither renamed nor dragged",
+          !pendingSource.contains("AccountNameField") && !pendingSource.contains("Gesture")
+              && !pendingSource.contains("CardFramePreferenceKey"))
+    let dragBody = memberBody(paneSource, from: "private func reorderDrag(")
+    check("a row being renamed does not move", dragBody.contains("guard renamingAccountID != id else { return }"))
+    check("only siblings are drop targets, and the move stays inside the provider",
+          dragBody.contains("excluding: id, orderedIDs: siblings")
+              && dragBody.contains("settings.moveAccountWithinProvider(")
+              && paneSource.contains(".gesture(reorderDrag(item.id, siblings: items.map(\\.id)))"))
+    let settingsSource = readSource("Tally/Stores/SettingsStore.swift")
+    check("which refuses a target from another provider",
+          settingsSource.contains("guard siblings.contains(dragged), siblings.contains(target) else { return false }"))
+    check("and the order it writes is the one the menu bar redraws from",
+          settingsSource.contains("UsageStore.shared.onChange?()   // keep the AppKit menu-bar order in sync")
+              && settingsSource.contains("UserDefaults.standard.set(accountOrder, forKey: \"accountOrder\")"))
+
+    // MARK: - The sharing mark on the home (B-1033 D), against real directories
+
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("accountrow-sharing-\(UUID().uuidString)")
+    func home(_ name: String) -> String {
+        let dir = root.appendingPathComponent(name)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.path
+    }
+    let main = home(".claude")
+    for item in ["skills", "hooks"] { try? fm.createDirectory(atPath: main + "/" + item, withIntermediateDirectories: true) }
+    let full = home(".claude3"), partial = home(".claude4"), own = home(".claude5")
+    for item in ["skills", "hooks"] { try? fm.createSymbolicLink(atPath: full + "/" + item, withDestinationPath: main + "/" + item) }
+    try? fm.createSymbolicLink(atPath: partial + "/skills", withDestinationPath: main + "/skills")
+    try? fm.createDirectory(atPath: partial + "/hooks", withIntermediateDirectories: true)
+    try? fm.createDirectory(atPath: own + "/skills", withIntermediateDirectories: true)
+    let tagOf = { (secondary: String) in
+        HarnessSharing.report(primaryHome: main, secondaryHome: secondary, providerID: "claude").tag
+    }
+    check("every layer linked to the primary is shared", tagOf(full) == .shared)
+    check("some linked and some its own is partly shared", tagOf(partial) == .partial)
+    check("its own harness carries no mark", tagOf(own) == nil)
+    check("nor does an account with nothing to compare",
+          HarnessSharing.Report().tag == nil)
+    try? fm.removeItem(at: root)
+    let tagSource = readSource("Tally/Views/AccountHomeTag.swift")
+    check("the mark is worked out off the main thread",
+          tagSource.contains("await Task.detached(priority: .utility) {")
+              && !paneSource.contains("HarnessSharing.report("))
+    check("the primary is never marked against itself",
+          paneSource.contains("report: primary?.id == item.id ? nil : sharing[item.id]"))
+
     print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
     exit(failed == 0 ? 0 : 1)
 }

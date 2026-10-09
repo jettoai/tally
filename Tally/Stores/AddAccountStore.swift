@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// Settings' "Add account": prepare the next config home, then hand it to the provider's own login
@@ -36,6 +37,20 @@ final class AddAccountStore {
     var shareHarness = true
 
     var isRunning: Bool { phase.isRunning }
+
+    private init() {
+        #if DEBUG
+        // `-TallyDemoData YES -TallyDemoAddAccount signingIn|pending`: the Settings row an add in
+        // flight stands in with, for a capture. Demo mode refuses a real add, so this is the only
+        // way that row reaches a screenshot; Debug builds only, and never over real accounts.
+        guard DemoUsage.isActive else { return }
+        switch UserDefaults.standard.string(forKey: "TallyDemoAddAccount") {
+        case "signingIn": phase = .signingIn(name: ".claude7")
+        case "pending": phase = .pending(name: ".claude7", reason: Self.reason(.timedOut), handoff: .none)
+        default: break
+        }
+        #endif
+    }
 
     /// Whether Tally can add an account for this provider at all: a login command it knows how to
     /// drive, and the name of the variable that selects a config home.
@@ -189,14 +204,16 @@ final class AddAccountStore {
         // background run succeeds, because a login handed to a Terminal window lands through
         // `recheck()` instead, and it needs the same note.
         markClaudeOnboardingComplete(providerID: providerID, home: prepared.dir.path)
+        // The row before the notice that promises it (B-1033): discovery is local and cheap, so the
+        // new account is adopted into the list now, and the refresh behind fills in its usage. The
+        // refresh alone adopted at the END of a round that polls every Claude account serially, and
+        // queued behind one already running, which put the notice tens of seconds ahead of the row.
+        await UsageStore.shared.adoptFreshDiscovery()
         phase = .added(prepared)
         // The verdict first, the network second: a user who just finished a sign-in should not
         // wait on every other account's usage call to hear whether it worked.
         _ = await SystemAlert.post(title: L("Account added") + " · ~/\(prepared.name)",
                                    body: L("The new account is signed in and showing up now."))
-        // Discovery also notices on its own (AccountDirWatcher sees the new home), but this flow
-        // knows the login just landed, so it asks immediately rather than waiting for the
-        // watcher's debounce.
         await UsageStore.shared.refresh(userInitiated: true)
     }
 

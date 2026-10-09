@@ -189,12 +189,31 @@ expect(knownStoreSource.contains("nonisolated static func clearPendingMarkers(")
         && knownStoreSource.contains("nonisolated static func discoverClearingMarkers(")
         && usageStoreSource.components(separatedBy: "KnownAccountsStore.discoverClearingMarkers(").count == 4
         && usageStoreSource.contains("Task.detached(priority: .utility) {\n"
-            + "                    KnownAccountsStore.discoverClearingMarkers(providers)")
+            + "            KnownAccountsStore.discoverClearingMarkers(providers)")
         && usageStoreSource.contains("Task.detached(priority: .utility) {\n"
             + "                KnownAccountsStore.discoverClearingMarkers([provider])")
         && usageStoreSource.contains(".reconcile(discovered: KnownAccountsStore.discoverClearingMarkers(providers))")
         && !knownStoreSource.contains("cleared:"),
        "all three discovery paths sweep before they reconcile, two of them inside the detached pass")
+
+// THE ROW BEFORE THE NOTICE (B-1033): the add flow adopts the new account through the watcher's own
+// fast path before it posts "Account added", rather than waiting on a refresh round that polls every
+// Claude account first; and a round that started before such an adopt does not overwrite it.
+let addStoreSource = (try? String(contentsOfFile: "Tally/Stores/AddAccountStore.swift", encoding: .utf8)) ?? ""
+if let adopt = addStoreSource.range(of: "await UsageStore.shared.adoptFreshDiscovery()"),
+   let notice = addStoreSource.range(of: "L(\"Account added\")"),
+   let refresh = addStoreSource.range(of: "await UsageStore.shared.refresh(userInitiated: true)") {
+    expect(adopt.lowerBound < notice.lowerBound && notice.lowerBound < refresh.lowerBound,
+           "land adopts the new account, then posts the notice, then refreshes usage")
+} else {
+    expect(false, "land adopts the new account, then posts the notice, then refreshes usage")
+}
+expect(usageStoreSource.contains("discoverChanged: { [weak self] in await self?.adoptFreshDiscovery() ?? false }")
+        && usageStoreSource.components(separatedBy: "func adoptFreshDiscovery()").count == 2,
+       "the watcher and the add flow share one fast path")
+expect(usageStoreSource.contains("let epochAtStart = discoveryEpoch")
+        && usageStoreSource.contains("if discoveryEpoch == epochAtStart { adoptDiscovered(known) }"),
+       "a round that started before a mid-round adopt leaves that adopt standing")
 
 try? fm.removeItem(at: tmp)
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")

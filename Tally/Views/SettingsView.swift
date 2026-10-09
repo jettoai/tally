@@ -87,7 +87,7 @@ struct SettingsView: View {
                 pane
                     .padding(Self.paneInset)
             }
-            .frame(width: 500)
+            .frame(width: 580)
         }
         .controlSize(.small)
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every

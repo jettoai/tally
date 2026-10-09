@@ -58,3 +58,14 @@ enum HarnessSharing {
         return report
     }
 }
+
+extension HarnessSharing.Report {
+    /// How the Settings account row marks an account against its provider's primary: nil for one
+    /// that shares nothing (its own harness, or no item to compare), which is marked by nothing.
+    enum Tag: Equatable { case shared, partial }
+
+    var tag: Tag? {
+        guard !sharedItems.isEmpty else { return nil }
+        return independentItems.isEmpty ? .shared : .partial
+    }
+}

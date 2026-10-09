@@ -821,7 +821,7 @@ expect(renewSource.contains("FileManager.default.fileExists(atPath: file.path)")
 expect(watcherSource.contains("$0.isDormant ? \" (dormant)\" : \"\""),
        "signing back in changes the discovered set, or the watcher would call the login a non-event")
 expect(usageSource.contains("private func adoptDiscovered(_ accounts: [ProviderAccount]) {")
-        && usageSource.contains("self.adoptDiscovered(all)")
+        && usageSource.contains("        adoptDiscovered(all)\n        onChange?()")
         && usageSource.contains("adoptDiscovered(known)"),
        "both passes that discover accounts (the watcher's and the refresh's) adopt them the same "
            + "way, or the one that ran first would swallow the transition")

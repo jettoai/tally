@@ -93,6 +93,10 @@ enum CaptureLaunch {
                                "TallyDemoPastReset",
                                // Qualifies TallyDemoData: one fixture shows a login renewal running.
                                "TallyDemoRenewingLogin",
+                               // Qualifies TallyDemoData: Settings shows an add in flight (Debug).
+                               "TallyDemoAddAccount",
+                               // Qualifies TallyDemoData: one Settings row opens renaming (Debug).
+                               "TallyDemoRenaming",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

@@ -86,31 +86,30 @@ final class UsageStore {
             roots: accountWatchRoots(),
             shallowRoots: [FileManager.default.homeDirectoryForCurrentUser],
             reroot: { accountWatchRoots() },
-            discoverChanged: { [weak self] in
-                guard let self else { return false }
-                // THE LISTING AND THE KEYCHAIN PROBES RUN OFF THE MAIN THREAD (2026-09-26, App
-                // Hanging with ten sessions writing through these homes).
-                let (providers, epoch) = (self.providers, self.discoveryEpoch)
-                let found = await Task.detached(priority: .utility) {
-                    KnownAccountsStore.discoverClearingMarkers(providers)
-                }.value
-                guard epoch == self.discoveryEpoch else { return false }  // a newer adopt wins
-                // A signed-out account is not discoverable - that is what being signed out means
-                // here - so the dormant ones are merged back in BEFORE anything compares sets.
-                // Without this every event on a machine with one would read as "an account
-                // disappeared" and buy a refresh, which is the exact traffic this filter exists
-                // to keep away.
-                let all = KnownAccountsStore.shared.reconcile(discovered: found).all
-                guard accountSetChanged(from: self.discoveredAccounts, to: all) else { return false }
-                // Adopt it here so the Settings list is right even if the refresh below is queued
-                // behind one already running, and so a second event does not report the same news.
-                self.adoptDiscovered(all)
-                self.onChange?()
-                return true
-            },
+            discoverChanged: { [weak self] in await self?.adoptFreshDiscovery() ?? false },
             onChange: { [weak self] in Task { await self?.refresh(userInitiated: false) } })
         watcher.start()
         accountWatcher = watcher
+    }
+
+    /// Discover now and adopt the set if it changed (returned), without waiting for a refresh round:
+    /// the watcher's path, and the add-account flow's once its login lands (AddAccountStore.land).
+    @discardableResult
+    func adoptFreshDiscovery() async -> Bool {
+        // THE LISTING AND THE KEYCHAIN PROBES RUN OFF THE MAIN THREAD (2026-09-26, App Hanging).
+        let (providers, epoch) = (self.providers, discoveryEpoch)
+        let found = await Task.detached(priority: .utility) {
+            KnownAccountsStore.discoverClearingMarkers(providers)
+        }.value
+        guard epoch == discoveryEpoch else { return false }  // a newer adopt wins
+        // A signed-out account is not discoverable, so the dormant ones are merged back in BEFORE
+        // anything compares sets; otherwise every event would read as "an account disappeared".
+        let all = KnownAccountsStore.shared.reconcile(discovered: found).all
+        guard accountSetChanged(from: discoveredAccounts, to: all) else { return false }
+        // Adopted here so Settings is right while a refresh is queued, and news is reported once.
+        adoptDiscovered(all)
+        onChange?()
+        return true
     }
 
     /// Adopt a freshly discovered account set as what this store knows, from either of the two
@@ -279,6 +278,7 @@ final class UsageStore {
         // Everything below is captured BEFORE the awaits, so a removal landing mid-round has to be
         // filtered back out at the commit (AccountRemovals.swift).
         let round = removals.beginRound()
+        let epochAtStart = discoveryEpoch
         onChange?()
 
         let enabled = SettingsStore.shared.enabledProviders
@@ -319,7 +319,9 @@ final class UsageStore {
         // still on disk come back here as dormant ones: listed, probed, renewable. A home that is
         // GONE is a removal instead, and is forgotten (KnownAccounts.swift).
         let (known, dormant) = KnownAccountsStore.shared.reconcile(discovered: allDiscovered)
-        adoptDiscovered(known)
+        // A discovery adopted MID-ROUND (a login just seen) is newer than this round's pass, which
+        // listed Claude before polling it; adopting ours would drop that account again (B-1033).
+        if discoveryEpoch == epochAtStart { adoptDiscovered(known) }
         // A pin on an account that has signed out must stop steering launches: the launch home is
         // denormalized into the policy file the `tally` CLI reads, and nothing there asks whether
         // the login is still good. Every dormant account, not just the enabled ones - a switched-off

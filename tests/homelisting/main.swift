@@ -76,8 +76,8 @@ check("the account watcher streams over accountWatchRoots, the home only as a sh
 // adopt that landed while it was reading wins over its older answer.
 check("discovery lists and probes off the main thread, and a newer adopted set wins",
       watcherUse.contains("let found = await Task.detached(priority: .utility) {\n"
-            + "                    KnownAccountsStore.discoverClearingMarkers(providers)")
-          && watcherUse.contains("guard epoch == self.discoveryEpoch else { return false }")
+            + "            KnownAccountsStore.discoverClearingMarkers(providers)")
+          && watcherUse.contains("guard epoch == discoveryEpoch else { return false }")
           && watcherUse.contains("discoveryEpoch += 1"))
 // The periodic refresh does the same listing and probes; on the main thread they hung the app for
 // 2000 ms (Sentry TALLY-1F, TALLY-2C). Scoped to refresh's discovery loop, up to the fetch round.

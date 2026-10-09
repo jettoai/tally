@@ -1,13 +1,11 @@
 import SwiftUI
 
 /// THE STATUS HALF OF AN ACCOUNTS-PANE ROW, split out of SettingsAccountsView for file size: what
-/// the row says about the account's login, its live quota, and the one switch that is about the menu
-/// bar rather than about the account.
+/// the row says about the account's login, and the two switches.
 ///
-/// They travel together because they occupy ONE strip of the row - the line under the address, where
-/// a login problem replaces the plan and the numbers rather than crowding in beside them - and
-/// because each is a second surface for something the panel already shows. Which state wins, and in
-/// which words, is decided in the files they call (AccountSignIn, UsageFormat), never here.
+/// The login state takes the status column, replacing the plan and the numbers rather than crowding
+/// in beside them, and each piece is a second surface for something the panel already shows. Which
+/// state wins, and in which words, is decided in the files they call (AccountSignIn), never here.
 extension SettingsAccountsView {
     /// The row's login state: an inline "Sign in again" in the severity colour when the account is
     /// signed out, the running renewal while one is in flight, nothing at all otherwise.
@@ -70,49 +68,22 @@ extension SettingsAccountsView {
             ?? settings.displayLabel(accountID: item.id, fallback: item.label)
     }
 
-    /// "● 98% · ● 71%" - session then weekly, dot coloured by the window's severity. Compact
-    /// (no window names): the row also carries reorder arrows and two switches, and the full
-    /// labels truncated; hover explains each value.
-    func liveStatus(_ account: AccountUsage, font: Font = .caption2.monospacedDigit()) -> some View {
-        HStack(spacing: 8) {
-            ForEach(account.metrics.filter { !$0.isModelScoped }.prefix(2)) { metric in
-                let passed = account.resetPassed(metric)
-                HStack(spacing: 3) {
-                    Circle().fill(passed ? Color.secondary : metric.severity.color).frame(width: 5, height: 5)
-                    Text(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))
-                        .font(font)
-                        .foregroundStyle(.secondary)
-                }
-                .tallyTooltip(passed
-                    ? "\(L(metric.label)) ? · \(L("Reset passed, awaiting refresh"))"
-                    : "\(L(metric.label)) \(UsageFormat.percent(metric, mode: settings.displayMode)) \(UsageFormat.modeWord(settings.displayMode))")
-            }
-        }
-    }
-
-    // A labeled mini switch: an icon-only toggle here read as "no idea what this does".
+    // The row's menu-bar switch, unlabelled: the card header names the column.
     //
     // DEAD IN THE POOLED LAYOUT, and said so rather than left looking alive: that segment sums
     // every account (the strip never asks this switch there - UsageStorePresentation), so a live
     // control would be a silent no-op with nothing on screen saying why. The hover carries the way
-    // back; switching Display to Accounts restores it. Unlabelled on the compact rows, whose card
-    // header names the column.
-    func menuBarToggle(_ accountID: String, labelled: Bool = true) -> some View {
+    // back; switching Display to Accounts restores it.
+    func menuBarToggle(_ accountID: String) -> some View {
         let pooled = settings.menuBarLayout == .pooled
-        return HStack(spacing: 6) {
-            if labelled {
-                Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary)
-                    .opacity(pooled ? 0.55 : 1).fixedSize()
-            }
-            Toggle(isOn: Binding(
-                get: { settings.isShownInMenuBar(accountID) },
-                set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }
-            )) { EmptyView() }
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .disabled(pooled)
-        }
+        return Toggle(isOn: Binding(
+            get: { settings.isShownInMenuBar(accountID) },
+            set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }
+        )) { EmptyView() }
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .controlSize(.mini)
+        .disabled(pooled)
         // Around the control, not on it: pooled greys the switch out, and a disabled control stops
         // routing hover, which is precisely the state whose hover carries the way back.
         .tallyTooltipAroundControl(pooled

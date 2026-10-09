@@ -1,48 +1,12 @@
 import SwiftUI
 
-/// The config home on a Settings account row, and whether that account shares the provider's
-/// primary account's setup (B-1033): a link mark and "~/.claude3 · Shared with hyde", or "Partly
-/// shared with" when only some layers are, with the layers on hover. The primary itself and an
-/// account with its own harness show the path alone.
+/// Whether a Settings account shares the provider's primary account's setup (B-1033): the hover
+/// words for the compact row's link mark (SettingsAccountRowCompact.shareMark), and the reports
+/// behind it.
 ///
 /// The verdict is `HarnessSharing.report`, the one the Launch pane's sharing row reads, and the
 /// primary is the same one it compares against: the first account in the user's order.
-struct AccountHomeTag: View {
-    let home: String
-    let report: HarnessSharing.Report?
-    /// The primary account's display name (nickname applied), so a rename shows here too.
-    let primaryName: String
-
-    /// No container of its own: the pieces lay out as siblings of the name in the row's line, so
-    /// the name is the one that gives way. Neither the path nor the "Shared with" words do: the
-    /// primary's name is the point of the mark, and cut to "Shared with C…" it says nothing (owner's
-    /// review, 2026-10-09). The name's full text is in its own hover.
-    @ViewBuilder
-    var body: some View {
-        let path = AccountIdentity.homeName(home)
-        if let report, let tag = report.tag {
-            let detail = Self.detail(report)
-            // The compact rows' mark (SettingsAccountRowCompact.sharedMark): a filled accent disc
-            // for the whole setup, the plain grey link for part of it.
-            if tag == .shared {
-                Image(systemName: "link.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .layoutPriority(1)
-                    .help(detail)
-            } else {
-                Image(systemName: "link").modifier(HomeStyle()).help(detail)
-            }
-            Text(path).modifier(HomeStyle()).help(detail)
-            Text("· " + String(format: L(tag == .shared ? "Shared with %@" : "Partly shared with %@"),
-                               primaryName))
-                .modifier(HomeStyle())
-                .help(detail)
-        } else {
-            Text(path).modifier(HomeStyle())
-        }
-    }
-
+enum AccountHomeTag {
     static func detail(_ report: HarnessSharing.Report) -> String {
         let shared = "\(L("Shared")): " + report.sharedItems.joined(separator: ", ")
         guard !report.independentItems.isEmpty else { return shared }
@@ -79,13 +43,5 @@ struct AccountHomeTag: View {
                 (id, HarnessSharing.report(primaryHome: primary, secondaryHome: home, providerID: providerID))
             }, uniquingKeysWith: { first, _ in first })
         }.value
-    }
-}
-
-/// The home's look, unchanged from when it was a bare path: short, fixed, never the part that gives
-/// way (SettingsAccountsView.nameLine says why).
-private struct HomeStyle: ViewModifier {
-    func body(content: Content) -> some View {
-        content.font(.caption).foregroundStyle(.tertiary).lineLimit(1).layoutPriority(1)
     }
 }

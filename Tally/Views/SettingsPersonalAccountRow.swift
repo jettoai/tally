@@ -38,39 +38,28 @@ extension SettingsAccountsView {
     /// states why). A bare "quota" would promise a line on every bar, and the account's other
     /// per-model windows carry none.
     ///
-    /// The second line is the part somebody will otherwise get wrong in the expensive direction: a
-    /// reserve binds TALLY'S OWN choices and nothing else, so naming this account still launches on
-    /// it. Without that sentence the control reads as a cap on the account, which is a thing people
+    /// The hover is the part somebody will otherwise get wrong in the expensive direction: a reserve
+    /// binds TALLY'S OWN choices and nothing else, so naming this account still launches on it.
+    /// Without that sentence the control reads as a cap on the account, which is a thing people
     /// would rightly be afraid to set.
-    func reserveRow(_ home: String, nameInset: CGFloat, owner: String) -> some View {
+    func reserveRow(_ home: String, owner: String) -> some View {
         // A capture shows the fixture's figure, and its strip writes nothing (the marking itself
         // does not exist on a demo launch - PersonalAccount).
         let shown = DemoUsage.isActive ? DemoUsage.personalReserve
             : LaunchPolicyStore.shared.reserve(home: home)
         let explanation = L("Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone when it picks or moves sessions by itself, because your browser draws on all three. The flagship window holds the same line rather than being emptied under it, and launching on it yourself always works.")
-        // The dense layout keeps the row to one line and moves the explanation into the hover.
-        let compact = density == .compact
         return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                // On the dense rows the line is one of twenty that look alike, so it says whose
-                // setting it is: a turn arrow off the row above and that account's name.
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    if compact {
-                        Image(systemName: "arrow.turn.down.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                        Text(owner).fontWeight(.semibold)
-                    }
-                    Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
-                        .tallyTooltip(compact ? explanation : "")
-                }
-                .font(compact ? .caption : .subheadline)
-                if !compact {
-                    Text(explanation)
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            // One line among twenty that look alike, so it says whose setting it is: a turn arrow
+            // off the row above and that account's name. The explanation rides the hover.
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                Text(owner).fontWeight(.semibold)
+                Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
+                    .tallyTooltip(explanation)
             }
+            .font(.caption)
             Spacer(minLength: 12)
             ReserveCellBar(value: shown) { LaunchPolicyStore.shared.setReserve(home, $0) }
                 .disabled(DemoUsage.isActive)
@@ -82,10 +71,10 @@ extension SettingsAccountsView {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 14)
-        .padding(.vertical, compact ? 5 : 8)
+        .padding(.vertical, 5)
         // ALIGNED WITH THE ACCOUNT'S NAME, not merely indented past it: this row is a property of
-        // the row above and the eye reads that from one shared left edge (the caller knows where
-        // its layout puts the name).
-        .padding(.leading, nameInset)
+        // the row above and the eye reads that from one shared left edge (the row's 12pt inset plus
+        // its 28pt number column and 6pt gap, SettingsAccountRowCompact).
+        .padding(.leading, 46)
     }
 }

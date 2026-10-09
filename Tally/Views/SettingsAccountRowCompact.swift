@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The dense account row (B-1355 direction pack, the default layout): one 28pt line per account
+/// The account row (B-1355, the pane's one layout): one 28pt line per account
 /// in fixed columns, so a long list reads straight down like a table and twenty accounts fit one
 /// screen. Left to right: drag handle (on hover) and number, name (renamed in place), address,
 /// plan, 5-hour and weekly figures with thin bars, sharing mark, menu-bar switch, enabled switch,
@@ -130,7 +130,7 @@ extension SettingsAccountsView {
                 // A fixed slot even when empty: a bare frame on an empty branch collapses, and
                 // took the HStack spacing with it, shifting every column to its left.
                 Color.clear.frame(width: Column.share, height: 14).overlay { shareMark(item) }
-                menuBarToggle(item.id, labelled: false)
+                menuBarToggle(item.id)
                     .disabled(!enabled)
                     .opacity(enabled ? 1 : 0.35)
                     .frame(width: Column.toggle)

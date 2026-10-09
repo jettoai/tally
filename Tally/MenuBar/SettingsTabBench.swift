@@ -97,7 +97,11 @@ private final class Run: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        guard let window, let content = window.contentView?.frame.height else { return }
+        // The layout rect, not the content view: with a full-size content view (no title bar strip
+        // since B-1355) the view spans the whole frame, so chrome read off it was 0. Same measure as
+        // SettingsWindowController.fitHeight.
+        guard let window else { return }
+        let content = window.contentLayoutRect.height
         let now = link.timestamp
         let interval = link.targetTimestamp - link.timestamp
         if lastTick > 0 {
@@ -125,7 +129,7 @@ private final class Run: NSObject {
         let line: [String: Any] = [
             "from": from.rawValue, "to": to.rawValue,
             "toPaneHeight": Double(SettingsTabBench.shown.height),
-            "contentHeight": Double(window?.contentView?.frame.height ?? 0),
+            "contentHeight": Double(window?.contentLayoutRect.height ?? 0),
             "settleMs": Int(((lastChange - start) * 1000).rounded()),
             "frames": frames, "droppedFrames": dropped, "clippedFrames": clipped,
             "maxGapMs": Int((maxGap * 1000).rounded()),

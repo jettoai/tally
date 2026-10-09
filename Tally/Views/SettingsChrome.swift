@@ -19,22 +19,6 @@ enum SettingsChrome {
     }
 }
 
-/// Which account-row layout the Accounts pane draws while the direction is being chosen:
-/// `-TallySettingsDensity loose|compact`, argument domain, demo and dev builds only (gated like
-/// `SettingsCaptureLaunch`). Everything else, release included, draws the compact rows. The losing
-/// layout and this flag go together once one is picked.
-enum SettingsDensity: String {
-    case loose, compact
-
-    static let current: SettingsDensity = {
-        guard DemoUsage.isActive || BuildVariant.isDev,
-              let raw = UserDefaults.standard.string(forKey: "TallySettingsDensity"),
-              let density = SettingsDensity(rawValue: raw.lowercased())
-        else { return .compact }
-        return density
-    }()
-}
-
 /// A grouped card: white on the page in light mode with a faint shadow, a 6% white wash in dark.
 struct SettingsCardSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme

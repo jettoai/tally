@@ -8,7 +8,7 @@ struct SettingsAccountsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
 
-    // Not private: the two row layouts live in their own files (SettingsAccountRowLoose/Compact).
+    // Not private: the row itself lives in its own file (SettingsAccountRowCompact).
     @State var renamingAccountID: String? = Self.demoRenamingID()
     /// The row under the pointer: the compact row shows its drag handle and sharing detail on it.
     @State var hoveredAccountID: String?
@@ -21,11 +21,11 @@ struct SettingsAccountsView: View {
     private let flow = AddAccountStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: density == .compact ? 16 : 24) {
+        VStack(alignment: .leading, spacing: 16) {
             ForEach(ProviderCatalog.descriptors, id: \.id) { descriptor in
                 providerGroup(id: descriptor.id, name: descriptor.name)
             }
-            if density == .compact { compactLegend }
+            compactLegend
         }
         // One sheet for both provider groups: which one opened it is a preselection, not a
         // different flow, and the sheet lets the user change their mind about it anyway.
@@ -45,11 +45,9 @@ struct SettingsAccountsView: View {
         .onPreferenceChange(CardFramePreferenceKey.self) { rowFrames.merge($0) { $1 } }
     }
 
-    var density: SettingsDensity { SettingsDensity.current }
-
     /// Starts under the row's text column, so the number column reads as one unbroken strip.
     private var rowDivider: some View {
-        SettingsCardDivider(leading: density == .compact ? 14 : 56)
+        SettingsCardDivider(leading: 14)
     }
 
     /// The line standing in for a provider's account rows while there are none, saying which of the
@@ -90,7 +88,7 @@ struct SettingsAccountsView: View {
     @ViewBuilder
     private func providerGroup(id: String, name: String) -> some View {
         let items = discovered(for: id)
-        VStack(alignment: .leading, spacing: density == .compact ? 8 : 10) {
+        VStack(alignment: .leading, spacing: 8) {
             // Count only when there is something to count - a "1" badge said nothing.
             SettingsSectionHeader(title: name, count: items.count > 1 ? items.count : nil) {
                 ProviderIconView(providerID: id, size: 14)
@@ -100,8 +98,10 @@ struct SettingsAccountsView: View {
             }
             // Re-asked whenever the list or its order changes: the first account is the primary.
             .task(id: items.map(\.id) + items.compactMap(\.launchHome)) {
+                // Merged like the real reports: each provider group reports only its own rows, and
+                // an assignment would wipe the other group's marks.
                 if let demo = AccountHomeTag.demoReports(items) {
-                    sharing = demo
+                    sharing.merge(demo) { $1 }
                 } else {
                     sharing.merge(await AccountHomeTag.reports(items, providerID: id)) { $1 }
                 }
@@ -141,14 +141,14 @@ struct SettingsAccountsView: View {
                                              accountCount: items.count)
         if state != .populated {
             placeholderRow(state)
-        } else if density == .compact {
+        } else {
             compactHeader()
         }
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-            if index > 0 || state != .populated || density == .compact { rowDivider }
+            rowDivider
             // Same numbering the menu-bar strip uses for same-provider accounts, so the
             // settings row visibly maps to a strip segment.
-            accountRow(
+            compactRow(
                 item,
                 usage: store.accounts.first { $0.id == item.id },
                 badge: items.count > 1 ? index + 1 : nil,
@@ -173,7 +173,7 @@ struct SettingsAccountsView: View {
             if let home = PersonalAccount.home(accountID: item.id, launchHome: item.launchHome),
                PersonalAccount.isPersonal(accountID: item.id, home: home) {
                 rowDivider
-                reserveRow(home, nameInset: density == .compact ? 46 : 56,
+                reserveRow(home,
                            owner: settings.displayLabel(accountID: item.id, fallback: item.label))
             }
         }
@@ -259,51 +259,6 @@ struct SettingsAccountsView: View {
         ids.swapAt(a, b)
         settings.applyProviderOrder(orderedProviderIDs: ids,
                                     allIDs: store.discoveredAccounts.map(\.id))
-    }
-
-    /// One line per account, in the layout this build draws (SettingsDensity).
-    @ViewBuilder
-    private func accountRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,
-                            moveUp: (() -> Void)?, moveDown: (() -> Void)?) -> some View {
-        switch density {
-        case .loose: looseRow(item, usage: usage, badge: badge, moveUp: moveUp, moveDown: moveDown)
-        case .compact: compactRow(item, usage: usage, badge: badge, moveUp: moveUp, moveDown: moveDown)
-        }
-    }
-
-    /// The row's name, and beside it the config home this account launches from.
-    ///
-    /// The name renames in place: a click on it opens the field (AccountNameField), and the row's
-    /// menu opens the same one.
-    ///
-    /// The home shares the NAME's line rather than the address's below it, which is where it started.
-    /// The address is what tells two logins apart when both are readable, and it is long enough that
-    /// anything sharing its line truncates it - measured in the window on 2026-08-04, adding the home
-    /// there cut "dreamerhyde@gmail.com" to "dreame…ail.com", and two addresses that differ in the
-    /// middle would then read as the same string. That is a worse failure than the one this feature
-    /// fixes. The name line has the room: a name is short, and the home is shorter.
-    ///
-    /// It appears only where the provider has more than one account, on the same rule the count badge
-    /// one level up follows: with a single account it can only ever say `~/.codex`, which the
-    /// provider's own name already said. With siblings it is the discriminator that never fails - two
-    /// accounts cannot share a directory - and it is what a nickname takes away, since the default
-    /// name is derived from that very directory ("Codex 2" ← `~/.codex2`, ClaudeAccounts.swift).
-    func nameLine(_ item: ProviderAccount, showsHome: Bool, isPersonal: Bool) -> some View {
-        HStack(spacing: 6) {
-            nameField(item, font: .system(size: 15, weight: .medium), fieldWidth: 180)
-            // The marking rides the NAME line rather than the status line below it, for the reason
-            // the home does: the status line carries an address, a plan and two percentages and
-            // truncates as soon as anything joins it. At most one row in the pane ever wears this.
-            if isPersonal { personalBadge }
-            if showsHome, let home = home(of: item) {
-                // Never the part that gives way: it is short, it is fixed, and a half-written path
-                // ("~/.clau…") could name either of the two accounts it is here to separate. A long
-                // nickname truncates instead - the user chose that one and knows what it says.
-                let primary = discovered(for: item.providerID).first
-                AccountHomeTag(home: home, report: primary?.id == item.id ? nil : sharing[item.id],
-                               primaryName: primaryName(primary))
-            }
-        }
     }
 
     /// The name, renamed in place (AccountNameField): a click on it opens the field, and the row's

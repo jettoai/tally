@@ -364,9 +364,12 @@ func runAccountRowChecks() {
     check("…and says why, with the way back in it",
           rowStatusSource.contains(".tallyTooltipAroundControl(pooled")
               && rowStatusSource.contains("Set Menu bar shows to Accounts in Display to pick which ones appear."))
-    check("the label greys with the control it labels",
-          memberBody(rowStatusSource, from: "func menuBarToggle")
-              .contains(".opacity(pooled ? 0.55 : 1)"))
+    // One row layout since B-1355: the card header names the column, so the switch carries no
+    // label of its own that could stay lit while the switch greys out.
+    check("the switch carries no label of its own: the card header names the column",
+          !memberBody(rowStatusSource, from: "func menuBarToggle").contains("Text(")
+              && readSource("Tally/Views/SettingsAccountRowCompact.swift")
+                  .contains("headerLabel(\"Menu bar\")"))
     // And it is still a live switch in the layout that asks the question.
     check("the per-account layout keeps the switch usable",
           memberBody(rowStatusSource, from: "func menuBarToggle")
@@ -853,7 +856,17 @@ func runAccountRowChecks() {
           tagSource.contains("await Task.detached(priority: .utility) {")
               && !paneSource.contains("HarnessSharing.report("))
     check("the primary is never marked against itself",
-          paneSource.contains("report: primary?.id == item.id ? nil : sharing[item.id]"))
+          readSource("Tally/Views/SettingsAccountRowCompact.swift")
+              .contains("if primary?.id != item.id, let report = sharing[item.id]"))
+    // Each provider group reports only its own rows, the demo fixture included: an assignment let
+    // the second group's report wipe the first group's marks (P2-of 49cba1b).
+    check("each provider group merges its sharing reports rather than replacing the other's",
+          paneSource.contains("sharing.merge(demo) { $1 }")
+              && paneSource.contains("sharing.merge(await AccountHomeTag.reports(")
+              && !paneSource.contains("sharing = "))
+    check("the pane has one row layout",
+          !paneSource.contains("density") && paneSource.contains("compactRow(")
+              && !fm.fileExists(atPath: "Tally/Views/SettingsAccountRowLoose.swift"))
 
     // MARK: - The compact row's two usage columns, matched by kind
 

@@ -60,6 +60,24 @@ func runCapResumeCarryChecks() {
           decodeCapResume(#"{"at":1,"conversation":"abc","line":""}"#) == nil)
     check("a latch that is present and unreadable is no resume",
           decodeCapResume(#"{"lastCapAt":"soon"}"#) == nil)
+    // The budget rides the exec too (B-1360): a self-update in the middle of a ladder of walls
+    // must not hand the next image a fresh three.
+    let budgeted = CapResumeState(lastCapAt: wall, nudgedAt: wall.addingTimeInterval(10),
+                                  nudgedConversation: conversation,
+                                  nudges: [wall.addingTimeInterval(-1200),
+                                           wall.addingTimeInterval(10)])
+    check("B9 the conversation and stamps the budget counts survive the exec",
+          trip(budgeted).capResume == budgeted)
+    check("B10 a value from a build predating the budget reads as a fresh one",
+          decodeCapResume(#"{"lastCapAt":1,"nudgedAt":2}"#)
+              == CapResumeState(lastCapAt: Date(timeIntervalSince1970: 1),
+                                nudgedAt: Date(timeIntervalSince1970: 2)))
+    check("B11 stamps that are not numbers are no resume",
+          decodeCapResume(#"{"nudgedConversation":"abc","nudges":["x"]}"#) == nil)
+    check("…nor are more stamps than the budget holds",
+          decodeCapResume(#"{"nudgedConversation":"abc","nudges":[1,2,3,4]}"#) == nil)
+    check("…nor a budget about something that is not a transcript id",
+          decodeCapResume(#"{"nudgedConversation":"../x","nudges":[1]}"#) == nil)
     check("a line carrying a comma, a newline and a non-ASCII label survives",
           decodeCapResume(encodeCapResume(CapResumeState(offer: .init(
               at: wall, conversation: "abc", line: "a, b\n帳號 (x)")))!)?.offer?.line

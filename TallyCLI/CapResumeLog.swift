@@ -1,7 +1,7 @@
 import Foundation
 
-// The audit lines cap resume leaves in `~/.tally/logs/input.log`, and the sentence it types, split
-// out of CapResume.swift at the size cap. The station decides; this file only spells what it decided.
+// The audit lines cap resume leaves in `~/.tally/logs/input.log`, the sentence it types and the
+// anti-recursion budget, split out of CapResume.swift at the size cap.
 
 /// The word for an arm that was raised (grep `input=cap-resume-armed`). Without it an arm that is
 /// later lost leaves no trace at all: 2026-09-26 had to be reconstructed from a version number.
@@ -43,6 +43,16 @@ func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = session
                                    to: log)
         }
     }
+    // A wall the budget alone refused says so (grep `cap-resume-skipped reason=budget`): until
+    // B-1360 that refusal was silent, and three unresumed walls took a log dig to attribute.
+    if capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
+                            answeredAt: answeredAt),
+       caughtUp,
+       state.refusedByBudget(conversation: conversation, userTurnAt: userTurnAt,
+                             cappedAt: cappedAt) {
+        appendSessionInputLine("\(ISO8601DateFormatter().string(from: now)) pid=\(pid) "
+                                   + "input=\(capResumeSkippedOutcome) reason=budget\n", to: log)
+    }
     state.arm(reason: reason, fresh: fresh, cappedAt: cappedAt, answeredAt: answeredAt,
               conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
               caughtUp: caughtUp, owed: owed, requiresLiveWork: requiresLiveWork)
@@ -53,6 +63,49 @@ func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = session
 
 /// The word for a cap resume the owed rule declined (B-5730, `capResumeRequiresLiveWork`).
 let capResumeSkippedOutcome = "cap-resume-skipped"
+
+// MARK: - The anti-recursion budget (split out of CapResume.swift at the size cap)
+
+/// How many automatic resume lines one conversation may receive inside `capResumeBudgetWindow`
+/// before a person has typed in it. Three, the count the recovery fuse allows per ten minutes
+/// (`RecoveryFuse`), over a longer clock: a ladder of walls across a working afternoon is what the
+/// fuse does not see, and 2026-10-07 showed its honest shape (one conversation walled twice in 59
+/// minutes, B-1360).
+let capResumeBudget = 3
+
+/// The clock that budget runs on.
+let capResumeBudgetWindow: TimeInterval = 2 * 60 * 60
+
+/// Whether this wall may still have its line, the anti-recursion gate.
+///
+/// SCOPED TO THE CONVERSATION, because that is what can recur. Until B-1360 this was "a person has
+/// typed since the last nudge", with the nudge kept per supervisor and the person read per child:
+/// a supervisor that resumed once at 06:19 refused every later wall that day, through four /clears
+/// and a self-update, because a fresh child has seen nobody and a cross-session message is not a
+/// person (2026-10-07: three walls, waits of 8 minutes, 58 minutes and two hours).
+///
+/// A person who typed after the newest nudge resets the budget: the recursion this guards against
+/// is a loop with nobody in it. The margin (`capResumeOwnLineGrace`) is there because the resume
+/// line itself becomes a user turn. Measured at the WALL, not the tick.
+func capResumeWithinBudget(conversation: String, nudgedConversation: String?, nudges: [Date],
+                           userTurnAt: Date?, at wall: Date, budget: Int = capResumeBudget,
+                           window: TimeInterval = capResumeBudgetWindow,
+                           grace: TimeInterval = capResumeOwnLineGrace) -> Bool {
+    guard nudgedConversation == conversation, let last = nudges.last else { return true }
+    if let userTurnAt, userTurnAt.timeIntervalSince(last) > grace { return true }
+    return nudges.filter { wall.timeIntervalSince($0) < window }.count < budget
+}
+
+extension CapResumeState {
+    /// Whether `arm` would refuse this wall ONLY because the budget is spent (for the audit line).
+    func refusedByBudget(conversation: String?, userTurnAt: Date?, cappedAt: Date?) -> Bool {
+        guard let conversation, let cappedAt,
+              capResumeFreshCap(cappedAt: cappedAt, lastCapAt: lastCapAt) else { return false }
+        return !capResumeWithinBudget(conversation: conversation,
+                                      nudgedConversation: nudgedConversation, nudges: nudges,
+                                      userTurnAt: userTurnAt, at: cappedAt)
+    }
+}
 
 /// The line typed into the session that has just been moved off a capped account.
 ///

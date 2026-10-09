@@ -260,6 +260,8 @@ func encodeCapResume(_ state: CapResumeState) -> String? {
     }
     if let last = state.lastCapAt { fields["lastCapAt"] = last.timeIntervalSince1970 }
     if let nudged = state.nudgedAt { fields["nudgedAt"] = nudged.timeIntervalSince1970 }
+    if let conversation = state.nudgedConversation { fields["nudgedConversation"] = conversation }
+    if !state.nudges.isEmpty { fields["nudges"] = state.nudges.map { $0.timeIntervalSince1970 } }
     return fields.isEmpty ? nil : encodeResuperviseFields(fields)
 }
 
@@ -284,7 +286,21 @@ func decodeCapResume(_ raw: String) -> CapResumeState? {
     } else if object["conversation"] != nil || object["line"] != nil {
         return nil
     }
-    return CapResumeState(offer: offer, lastCapAt: last, nudgedAt: nudged)
+    // The budget (B-1360). Absent keys are a build that predates it: a fresh budget, as a resume
+    // into a new conversation would be. Present and unreadable discards the whole value.
+    var nudgedConversation: String?
+    if let raw = object["nudgedConversation"] {
+        guard let id = raw as? String, isTranscriptSessionID(id) else { return nil }
+        nudgedConversation = id
+    }
+    var nudges: [Date] = []
+    if let raw = object["nudges"] {
+        guard let epochs = raw as? [Double], epochs.count <= capResumeBudget,
+              epochs.allSatisfy(\.isFinite) else { return nil }
+        nudges = epochs.map { Date(timeIntervalSince1970: $0) }
+    }
+    return CapResumeState(offer: offer, lastCapAt: last, nudgedAt: nudged,
+                          nudgedConversation: nudgedConversation, nudges: nudges)
 }
 
 /// One JSON object as a single argv token. Keys sorted so a given state always spells the same argv,

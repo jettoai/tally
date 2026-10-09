@@ -42,10 +42,9 @@ import Foundation
 //     relaunch that starts a DIFFERENT conversation - `tally session clear`, run at the end of every
 //     session on this fleet - leaves an offer standing that `arm` will not touch, and a fresh empty
 //     window would otherwise be told to carry on work that was never in it.
-//   - RECUR. The turn this line starts can hit a wall of its own, and the handoff that follows must
-//     not start another one: after a nudge nothing re-arms until a PERSON has typed in the session
-//     (`capResumeFollowedByPerson`). What handles a second wall is what handled the first, bounded
-//     by the recovery fuse the supervisor already keeps (`RecoveryFuse`, three per ten minutes).
+//   - RECUR WITHOUT END. The turn this line starts can wall again and be resumed again, but one
+//     conversation gets at most three lines per two hours until a PERSON types in it
+//     (`capResumeWithinBudget`, CapResumeLog.swift); the recovery fuse catches a faster loop.
 //
 // WHY IT TYPES RATHER THAN FILES. Its reader is a child that has just come up on a resumed
 // conversation with nothing running in it (the opposite of the knock's, QuotaKnock.swift), and a
@@ -231,20 +230,6 @@ func capResumeFreshCap(cappedAt: Date, lastCapAt: Date?) -> Bool {
     lastCapAt.map { cappedAt > $0 } ?? true
 }
 
-/// Whether a PERSON has been in this session since the last line this supervisor typed into it.
-///
-/// The anti-recursion gate, and the whole of it. A session that has never been nudged answers yes,
-/// because there is nothing to recur from. One that has answers yes only for a user turn far enough
-/// past the nudge to be somebody else's (`capResumeOwnLineGrace`): the resume line itself becomes a
-/// user turn in the transcript, so without the margin this feature would read its own output as the
-/// person coming back and arm again on the very next wall.
-func capResumeFollowedByPerson(nudgedAt: Date?, userTurnAt: Date?,
-                               grace: TimeInterval = capResumeOwnLineGrace) -> Bool {
-    guard let nudgedAt else { return true }
-    guard let userTurnAt else { return false }
-    return userTurnAt.timeIntervalSince(nudgedAt) > grace
-}
-
 // MARK: - What the supervisor carries between ticks
 
 /// What one supervised session remembers about resuming after a wall.
@@ -289,16 +274,23 @@ struct CapResumeState: Equatable {
     /// The newest wall this session has armed for, kept after the offer is spent or dropped: it is
     /// what makes one wall worth one line (`capResumeFreshCap`).
     private(set) var lastCapAt: Date?
-    /// When this supervisor last FINISHED typing a resume line into this session, and the
-    /// anti-recursion gate reads it (`capResumeFollowedByPerson`).
+    /// When this supervisor last FINISHED typing a resume line, any conversation (Supervisor.swift).
     private(set) var nudgedAt: Date?
+    /// The conversation `nudges` belong to; a resume into a different one starts the budget over.
+    private(set) var nudgedConversation: String?
+    /// When each recent resume into it finished typing, oldest first (`capResumeWithinBudget`).
+    private(set) var nudges: [Date] = []
+    /// The conversation of the offer being typed, held from `spend` to `noteTyped`.
+    private var spending: String?
 
     /// Whether anything is waiting to be typed, which is the one question the ordinary tick asks.
     var isArmed: Bool { offer != nil }
 
     /// What the supervisor this process replaced was holding (`decodeCapResume`).
-    init(offer: Offer? = nil, lastCapAt: Date? = nil, nudgedAt: Date? = nil) {
+    init(offer: Offer? = nil, lastCapAt: Date? = nil, nudgedAt: Date? = nil,
+         nudgedConversation: String? = nil, nudges: [Date] = []) {
         self.offer = offer; self.lastCapAt = lastCapAt; self.nudgedAt = nudgedAt
+        self.nudgedConversation = nudgedConversation; self.nudges = nudges
     }
 
     /// Raise an arm for a relaunch that has just happened, or leave everything as it was.
@@ -325,7 +317,9 @@ struct CapResumeState: Equatable {
                                    answeredAt: answeredAt),
               let cappedAt,
               capResumeFreshCap(cappedAt: cappedAt, lastCapAt: lastCapAt),
-              capResumeFollowedByPerson(nudgedAt: nudgedAt, userTurnAt: userTurnAt)
+              capResumeWithinBudget(conversation: conversation,
+                                    nudgedConversation: nudgedConversation, nudges: nudges,
+                                    userTurnAt: userTurnAt, at: cappedAt)
         else { return }
         lastCapAt = cappedAt
         offer = Offer(at: cappedAt, conversation: conversation,
@@ -334,13 +328,15 @@ struct CapResumeState: Equatable {
 
     /// Raise an arm for a move this conversation asked for ITSELF: a `tally account` run inside one
     /// of its own turns (SelfSwitchResume.swift decides that it was). The same offer, latch and
-    /// anti-recursion gate as a wall's; `at` is the instant the request was written, which is what
+    /// anti-recursion budget as a wall's; `at` is the instant the request was written, which is what
     /// one line per move is keyed on, and what the offer's life is measured from.
     mutating func armSwitch(at: Date, fresh: Bool, conversation: String?, line: String,
                             userTurnAt: Date?, caughtUp: Bool) {
         guard caughtUp, !fresh, let conversation,
               capResumeFreshCap(cappedAt: at, lastCapAt: lastCapAt),
-              capResumeFollowedByPerson(nudgedAt: nudgedAt, userTurnAt: userTurnAt)
+              capResumeWithinBudget(conversation: conversation,
+                                    nudgedConversation: nudgedConversation, nudges: nudges,
+                                    userTurnAt: userTurnAt, at: at)
         else { return }
         lastCapAt = at
         offer = Offer(at: at, conversation: conversation, line: line)
@@ -400,16 +396,21 @@ struct CapResumeState: Equatable {
     /// IT DOES NOT STAMP `nudgedAt`, which is the other half of the same rule read from the other
     /// end: that stamp dates the moment the bytes STOPPED arriving, and this is called before the
     /// first of them is written (`noteTyped`).
-    mutating func spend() { offer = nil }
+    mutating func spend() { spending = offer?.conversation; offer = nil }
 
-    /// The write is over. Two seconds from here, a user turn is somebody else's
-    /// (`capResumeOwnLineGrace`).
+    /// The write is over. Two seconds on, a user turn is somebody else's (`capResumeOwnLineGrace`).
     ///
     /// A SECOND ENTRY POINT RATHER THAN AN ARGUMENT TO THE ONE ABOVE, because the two moments are
     /// seconds apart and the gap is the whole point: an injection types one byte every 30ms, so a
     /// stamp taken where the arm is spent would fall several seconds before the prompt it is meant
     /// to discount, and this feature would read its own line as the person coming back.
-    mutating func noteTyped(at moment: Date) { nudgedAt = moment }
+    mutating func noteTyped(at moment: Date) {
+        nudgedAt = moment
+        guard let conversation = spending else { return }
+        if conversation != nudgedConversation { nudgedConversation = conversation; nudges = [] }
+        nudges = Array((nudges + [moment]).suffix(capResumeBudget))
+        spending = nil
+    }
 
     /// This wall gets no line. `lastCapAt` stands, so nothing re-arms for it.
     mutating func drop() { offer = nil }

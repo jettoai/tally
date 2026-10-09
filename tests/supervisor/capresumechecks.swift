@@ -99,33 +99,47 @@ func runCapResumeChecks() {
     check("a later wall does",
           capResumeFreshCap(cappedAt: wall.addingTimeInterval(60), lastCapAt: wall))
 
-    check("a session this supervisor has never typed into has nothing to recur from",
-          capResumeFollowedByPerson(nudgedAt: nil, userTurnAt: nil))
-    check("after a line is typed, silence is not somebody coming back",
-          !capResumeFollowedByPerson(nudgedAt: wall, userTurnAt: nil))
-    check("…and neither is the user turn that line itself becomes",
-          !capResumeFollowedByPerson(nudgedAt: wall,
-                                     userTurnAt: wall.addingTimeInterval(0.2)))
-    check("a prompt of their own is",
-          capResumeFollowedByPerson(nudgedAt: wall, userTurnAt: wall.addingTimeInterval(30)))
+    // THE BUDGET (B-1360), per conversation: three lines per two hours until a person types.
+    func within(_ nudges: [Date], in nudgedIn: String? = armedConversation,
+                userTurnAt: Date? = nil, at moment: Date = wall) -> Bool {
+        capResumeWithinBudget(conversation: armedConversation, nudgedConversation: nudgedIn,
+                              nudges: nudges, userTurnAt: userTurnAt, at: moment)
+    }
+    let three = [wall.addingTimeInterval(-1800), wall.addingTimeInterval(-1200),
+                 wall.addingTimeInterval(-600)]
+    check("a conversation this supervisor has never typed into has nothing to recur from",
+          within([], in: nil))
+    check("after one line, silence still leaves two of three",
+          within([wall.addingTimeInterval(-600)]))
+    check("after three inside the window, silence is not somebody coming back", !within(three))
+    check("…and neither is the user turn the newest line itself becomes",
+          !within(three, userTurnAt: three[2].addingTimeInterval(0.2)))
+    check("a prompt of their own after the newest line resets it",
+          within(three, userTurnAt: three[2].addingTimeInterval(30)))
+    check("lines typed into ANOTHER conversation spend nothing of this one's",
+          within(three, in: "another-conversation"))
+    check("the budget and its clock are the ones this file was written against",
+          capResumeBudget == 3 && capResumeBudgetWindow == capResumeTestWindow)
 
     // MARK: - 33d. The grid: two walls by three shapes by two latch states
 
     /// One session as it stands on the tick after a cap handoff.
     ///
-    /// `second` is the anti-recursion case: this supervisor has already typed a resume line into
-    /// this session, nobody has typed since, and a fresh wall has arrived. The state is built the
-    /// way the loop builds it - arm, spend, arm again - rather than by setting a field, so what is
-    /// asserted is the sequence the supervisor actually performs.
+    /// `second` is the anti-recursion case: this supervisor has already typed its whole budget of
+    /// resume lines into this conversation inside the window (B-1360), nobody has typed since, and
+    /// a fresh wall has arrived. The state is built the way the loop builds it - arm, spend, note
+    /// the write, arm again - rather than by setting a field, so what is asserted is the sequence
+    /// the supervisor actually performs.
     func session(interrupted: Bool, second: Bool) -> CapResumeState {
         var state = CapResumeState()
         let answered = interrupted ? wall.addingTimeInterval(-10) : wall.addingTimeInterval(5)
-        if second {
-            state.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(-600),
-                      answeredAt: wall.addingTimeInterval(-610), conversation: armedConversation,
-                      from: capped, to: sibling, userTurnAt: nil, caughtUp: true)
+        for offset: TimeInterval in second ? [-1800, -1200, -600] : [] {
+            state.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(offset),
+                      answeredAt: wall.addingTimeInterval(offset - 10),
+                      conversation: armedConversation, from: capped, to: sibling,
+                      userTurnAt: nil, caughtUp: true)
             state.spend()
-            state.noteTyped(at: wall.addingTimeInterval(-590))
+            state.noteTyped(at: wall.addingTimeInterval(offset + 10))
         }
         state.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: answered,
                   conversation: armedConversation, from: capped, to: sibling,
@@ -148,7 +162,7 @@ func runCapResumeChecks() {
                                     (false, "a wall the conversation answered past")] {
         for shape in shapes {
             for second in [false, true] {
-                let latch = second ? "a line has already been typed for an earlier wall" : "first"
+                let latch = second ? "the conversation's budget is already spent" : "first"
                 let state = session(interrupted: interrupted, second: second)
                 let decision = state.decide(state: shape.state, quiet: .quiet, turnEnded: false,
                                             keyboardIdle: true, relaunchPlanned: false,
@@ -343,9 +357,14 @@ func runCapResumeChecks() {
     // before the transcript event it has to explain.
     check("…dating the line by when its bytes stopped arriving rather than by when it was decided",
           live.nudgedAt == wall.addingTimeInterval(35))
+    check("…and counts it against the conversation it was typed into",
+          live.nudgedConversation == armedConversation
+              && live.nudges == [wall.addingTimeInterval(35)])
     check("…so the user turn that line becomes is not read as the person coming back",
-          !capResumeFollowedByPerson(nudgedAt: live.nudgedAt,
-                                     userTurnAt: wall.addingTimeInterval(35.3)))
+          !capResumeWithinBudget(conversation: armedConversation,
+                                 nudgedConversation: live.nudgedConversation,
+                                 nudges: live.nudges + live.nudges + live.nudges,
+                                 userTurnAt: wall.addingTimeInterval(35.3), at: wall))
 
     typed.removeAll()
     var busy = session(interrupted: true, second: false)
@@ -462,16 +481,27 @@ func runCapResumeChecks() {
           station(&recurring, draftSuspected: false, at: 40) == sentence && typed == [sentence])
     check("…dated by the end of that write rather than by the tick that decided to wait",
           recurring.nudgedAt == wall.addingTimeInterval(45))
-    recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(120),
-                  answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-                  userTurnAt: wall.addingTimeInterval(45.5), caughtUp: true)
-    check("a second wall arms nothing, because the only turn since is this station's own line",
-          !recurring.isArmed)
+    // THE TURN THAT LINE STARTS WALLS AGAIN, and again (B-1360): each wall is fresh, nobody has
+    // typed, and the only user turn since each line is that line itself. The conversation has a
+    // budget of three lines per two hours, so the second and third walls are resumed and the
+    // fourth is not.
+    func wallAgain(_ offset: TimeInterval, userTurnAt: Date?) {
+        recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(offset),
+                      answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
+                      userTurnAt: userTurnAt, caughtUp: true)
+    }
+    wallAgain(120, userTurnAt: wall.addingTimeInterval(45.5))
+    check("a second wall arms again: one line of the conversation's three is spent",
+          recurring.isArmed)
+    check("…and is typed", station(&recurring, at: 130) == sentence)
+    wallAgain(240, userTurnAt: wall.addingTimeInterval(135.5))
+    check("a third wall arms too", recurring.isArmed && station(&recurring, at: 250) == sentence)
+    wallAgain(360, userTurnAt: wall.addingTimeInterval(255.5))
+    check("the fourth wall in two hours arms nothing, because the only turn since is its own line",
+          !recurring.isArmed && recurring.nudges.count == 3)
     // AND A PERSON REALLY COMING BACK STILL RE-ARMS IT, which is the boundary of that refusal:
     // what is discounted is a turn inside `capResumeOwnLineGrace` of the write, not every later one.
-    recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(120),
-                  answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-                  userTurnAt: wall.addingTimeInterval(90), caughtUp: true)
+    wallAgain(360, userTurnAt: wall.addingTimeInterval(300))
     check("…while a prompt somebody typed a minute after that line does re-arm it",
           recurring.isArmed)
     check("…and the second offer waits on its own burst rather than on the first offer's stamps",
@@ -479,13 +509,14 @@ func runCapResumeChecks() {
                            relaunchPlanned: false, dialogPossible: false, draftSuspected: true,
                            caughtUp: true, userTurnAt: nil,
                            conversation: armedConversation,
-                           now: wall.addingTimeInterval(130)) == .hold(.drafting))
+                           now: wall.addingTimeInterval(370)) == .hold(.drafting))
 
     try? FileManager.default.removeItem(at: log)
     runCapResumeCatchUpChecks(armed: session(interrupted: true, second: false),
                               conversation: armedConversation, wall: wall, sentence: sentence)
     runCapResumeArmCatchUpChecks(conversation: armedConversation, wall: wall, from: capped,
                                  to: sibling)
+    runCapResumeBudgetChecks()
 }
 
 // MARK: - 33k. The arm is not raised off a half-read transcript (8292c97 fixup, scope widened)
@@ -589,4 +620,147 @@ func runCapResumeCatchUpChecks(armed: CapResumeState, conversation: String, wall
                                  resumeID: conversation)
     check("an offer whose life runs out mid catch-up is dropped as expired, not held",
           tick(&late, at: capResumeLife + 1) == .drop(.expired) && !late.caughtUp)
+}
+
+// MARK: - 33l. The budget: three resumes per conversation per two hours (B-1360)
+
+/// The window the budget runs on, spelled here so a change to it is a change to this file too.
+let capResumeTestWindow: TimeInterval = 2 * 60 * 60
+
+/// The anti-recursion gate as a budget kept per CONVERSATION. Until B-1360 one nudge per supervisor
+/// refused every later wall until a person typed in the current child, and a PM fleet that rotates
+/// conversations with /clear and is driven by cross-session messages never has one: 2026-10-07 left
+/// three walls unresumed for 8 minutes, 58 minutes and two hours. Every fixture is built the way the
+/// loop builds it (arm, spend, noteTyped), so what is asserted is the sequence the supervisor runs.
+func runCapResumeBudgetChecks() {
+    let iso = ISO8601DateFormatter()
+    func at(_ text: String) -> Date { iso.date(from: text)! }
+    func acct(_ id: String) -> Snapshot.Account {
+        Snapshot.Account(id: id, provider: "claude", label: id, launchHome: "/tmp/\(id)",
+                         sessionRemaining: 40, weeklyRemaining: 40, modelRemaining: nil,
+                         sessionResetsAt: nil, weeklyResetsAt: nil, modelResetsAt: nil,
+                         modelWindowName: nil, resetCreditsAvailable: nil, isStale: false,
+                         error: nil)
+    }
+    let from = acct("A"), to = acct("B")
+    /// One wall that cut a turn short, handed off with nobody typing in the new child.
+    func wall(_ state: inout CapResumeState, _ cappedAt: Date, in conversation: String,
+              userTurnAt: Date? = nil) {
+        state.arm(reason: "cap", fresh: false, cappedAt: cappedAt, answeredAt: nil,
+                  conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
+                  caughtUp: true)
+    }
+    /// A wall whose line was typed, the write ending `typed` seconds after the wall.
+    func resumed(_ state: inout CapResumeState, _ cappedAt: Date, in conversation: String,
+                 typed: TimeInterval = 20) {
+        wall(&state, cappedAt, in: conversation)
+        state.spend()
+        state.noteTyped(at: cappedAt.addingTimeInterval(typed))
+    }
+
+    // B12. The three walls of 2026-10-07, replayed with their own stamps. The previous nudge
+    // belongs to the conversation the supervisor was in that morning; every user event the new
+    // child saw was a cross-session message (`promptSource:"system"`), so none counts as a person.
+    let replays: [(name: String, lastCap: String, nudged: String, nudgedIn: String,
+                   wall: String, conversation: String)] = [
+        ("#1 add635cc 12:11:46Z (waited two hours)", "2026-10-07T06:18:07Z",
+         "2026-10-07T06:19:02Z", "62212a9c", "2026-10-07T12:11:46Z", "add635cc"),
+        ("#2 530e00ca 12:14:00Z (waited 8 minutes)", "2026-10-07T06:42:18Z",
+         "2026-10-07T06:58:03Z", "6f836d11", "2026-10-07T12:14:00Z", "530e00ca"),
+        ("#3 add635cc 13:10:53Z (waited 58 minutes)", "2026-10-07T06:18:07Z",
+         "2026-10-07T06:19:02Z", "62212a9c", "2026-10-07T13:10:53Z", "add635cc"),
+    ]
+    for replay in replays {
+        var state = CapResumeState()
+        wall(&state, at(replay.lastCap), in: replay.nudgedIn)
+        state.spend()
+        state.noteTyped(at: at(replay.nudged))
+        wall(&state, at(replay.wall), in: replay.conversation)
+        check("B12 replay \(replay.name) arms", state.isArmed)
+    }
+
+    // B1. A resume into conversation X, then /clear to Y with nobody typing: Y's wall arms.
+    var cleared = CapResumeState()
+    resumed(&cleared, at("2026-10-07T06:18:07Z"), in: "x-conversation")
+    wall(&cleared, at("2026-10-07T12:11:46Z"), in: "y-conversation")
+    check("B1 a wall in a conversation the supervisor has not resumed into arms", cleared.isArmed)
+
+    // B2. One resume into Y, then Y walls again 59 minutes later with nobody typing (#3's shape).
+    var again = CapResumeState()
+    resumed(&again, at("2026-10-07T12:12:00Z"), in: "y-conversation")
+    wall(&again, at("2026-10-07T13:10:50Z"), in: "y-conversation")
+    check("B2 the second wall in one conversation inside the window arms (one of three spent)",
+          again.isArmed)
+
+    // B3. Three resumes into one conversation inside two hours: the fourth wall is refused, and the
+    // refusal leaves a line saying the budget refused it.
+    let log = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-capresume-budget-\(UUID().uuidString).log")
+    defer { try? FileManager.default.removeItem(at: log) }
+    let start = at("2026-10-07T12:00:00Z")
+    var spent = CapResumeState()
+    for minutes in [0.0, 20, 40] {
+        resumed(&spent, start.addingTimeInterval(minutes * 60), in: "z-conversation")
+    }
+    let fourth = start.addingTimeInterval(60 * 60)
+    var refused = spent
+    armCapResume(&refused, pid: "b1360-test", log: log, now: fourth, reason: "cap", fresh: false,
+                 cappedAt: fourth, answeredAt: nil, conversation: "z-conversation", from: from,
+                 to: to, userTurnAt: nil, caughtUp: true)
+    let audit = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+    check("B3 the fourth wall in one conversation inside two hours arms nothing", !refused.isArmed)
+    check("…and says the budget refused it (\(audit.debugDescription))",
+          audit.hasSuffix("pid=b1360-test input=cap-resume-skipped reason=budget\n")
+              && audit.components(separatedBy: "\n").count == 2)
+    // A wall the budget did NOT refuse leaves no such line: the same call with a stamp short.
+    let quiet = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-capresume-budget-ok-\(UUID().uuidString).log")
+    defer { try? FileManager.default.removeItem(at: quiet) }
+    var allowed = again
+    armCapResume(&allowed, pid: "b1360-test", log: quiet, now: fourth, reason: "cap",
+                 fresh: false, cappedAt: at("2026-10-07T13:30:00Z"), answeredAt: nil,
+                 conversation: "y-conversation", from: from, to: to, userTurnAt: nil,
+                 caughtUp: true)
+    check("…while a wall the budget allows writes the armed line and no skipped one",
+          ((try? String(contentsOf: quiet, encoding: .utf8)) ?? "").contains("cap-resume-armed")
+              && !((try? String(contentsOf: quiet, encoding: .utf8)) ?? "").contains("skipped"))
+
+    // B4. A person typing after the newest resume resets the budget.
+    let newest = start.addingTimeInterval(40 * 60 + 20)
+    var personBack = spent
+    wall(&personBack, fourth, in: "z-conversation", userTurnAt: newest.addingTimeInterval(30))
+    check("B4 a prompt of their own after the newest resume re-arms it", personBack.isArmed)
+    var ownLine = spent
+    wall(&ownLine, fourth, in: "z-conversation", userTurnAt: newest.addingTimeInterval(0.3))
+    check("…while the turn that resume line itself becomes does not", !ownLine.isArmed)
+
+    // B5. The window is measured from the wall: every stamp older than it refills the budget, and
+    // one stamp still inside keeps it spent only while all three are.
+    var refilled = spent
+    wall(&refilled, newest.addingTimeInterval(capResumeTestWindow + 1), in: "z-conversation")
+    check("B5 a wall after every stamp has left the two hour window arms", refilled.isArmed)
+    var partial = spent
+    wall(&partial, start.addingTimeInterval(20 + capResumeTestWindow + 1), in: "z-conversation")
+    check("…and so does one after only the oldest has left it", partial.isArmed)
+    var inside = spent
+    wall(&inside, start.addingTimeInterval(20 + capResumeTestWindow - 1), in: "z-conversation")
+    check("…but not one a second before the oldest leaves it", !inside.isArmed)
+
+    // B6. The same wall handed off twice arms once.
+    var same = CapResumeState()
+    wall(&same, fourth, in: "z-conversation")
+    same.spend()
+    wall(&same, fourth, in: "z-conversation")
+    check("B6 the same wall's second handoff arms nothing", !same.isArmed)
+
+    // B8. A `tally account` the conversation ran itself shares the budget.
+    var switched = spent
+    switched.armSwitch(at: fourth, fresh: false, conversation: "z-conversation", line: "x",
+                       userTurnAt: nil, caughtUp: true)
+    check("B8 a self-switch after three resumes in one conversation arms nothing",
+          !switched.isArmed)
+    var switchedElsewhere = spent
+    switchedElsewhere.armSwitch(at: fourth, fresh: false, conversation: "other-conversation",
+                                line: "x", userTurnAt: nil, caughtUp: true)
+    check("…while one in another conversation does", switchedElsewhere.isArmed)
 }

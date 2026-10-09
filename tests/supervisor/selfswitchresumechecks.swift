@@ -181,9 +181,15 @@ func runSelfSwitchResumeChecks() {
     refuses("a watcher still catching up") { arm(&$0, caughtUp: false) }
     refuses("a window with no conversation id") { arm(&$0, conversation: nil) }
     for (name, held) in untouched { check("no arm: \(name)", held) }
-    var nudged = CapResumeState(nudgedAt: at("2026-09-26T11:04:00.000Z"))
-    check("no arm: a line already typed that nobody has answered since",
-          !arm(&nudged) && nudged == CapResumeState(nudgedAt: at("2026-09-26T11:04:00.000Z")))
+    // The budget a wall's line spends (B-1360): three lines already typed into this conversation
+    // inside two hours, nobody answering since.
+    let spentBudget = CapResumeState(
+        nudgedAt: at("2026-09-26T11:04:00.000Z"), nudgedConversation: conversation,
+        nudges: ["2026-09-26T10:00:00.000Z", "2026-09-26T10:30:00.000Z",
+                 "2026-09-26T11:04:00.000Z"].map(at))
+    var nudged = spentBudget
+    check("no arm: the conversation's budget of lines spent with nobody answering since",
+          !arm(&nudged) && nudged == spentBudget)
     check("…and none of those refusals wrote a line to the log", audit() == linesBefore)
 
     var twice = CapResumeState()

@@ -100,6 +100,7 @@ extension SettingsAccountsView {
         let enabled = settings.isAccountEnabled(item.id)
         let signIn = signInState(of: item)
         let email = identityEmail(item, usage: usage)
+        let homeName = home(of: item).map { AccountIdentity.homeName($0) }
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 HStack(spacing: 2) {
@@ -127,15 +128,14 @@ extension SettingsAccountsView {
                     if let email {
                         Text(email).font(.system(size: 12)).foregroundStyle(.secondary)
                     } else {
-                        Text(home(of: item).map { AccountIdentity.homeName($0) } ?? "")
+                        Text(homeName ?? "")
                             .font(.system(size: 11)).foregroundStyle(.tertiary)
                     }
                 }
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .tallyTooltip([email, home(of: item).map { AccountIdentity.homeName($0) }]
-                        .compactMap { $0 }.joined(separator: "\n"))
+                    .tallyTooltip([email, homeName].compactMap { $0 }.joined(separator: "\n"))
 
                 compactStatus(item, usage: usage, enabled: enabled, signIn: signIn)
                     .frame(width: Column.status, alignment: .leading)

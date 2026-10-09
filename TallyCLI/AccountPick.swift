@@ -338,6 +338,16 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
 let smartPickMargin = 1.15
 let smartPickMinGain = 0.05   // %/h
 
+/// The provider's accounts eligible for the model, minus `excluding`: the field `best`,
+/// `incumbentSeededBest` and `launchPick` start from.
+func pickField(providerID: String, in snapshot: Snapshot, primaryModel: String?,
+               excluding: Set<String>) -> [Snapshot.Account] {
+    snapshot.accounts.filter {
+        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
+            && !excluding.contains($0.id)
+    }
+}
+
 ///
 /// AN ACCOUNT UNDER ITS RESERVE NEVER ENTERS THE FIELD (B-1213, a hard line): when that empties it,
 /// this answers nil and `reserveHoldout` says why and when the first account is back. A launch that
@@ -348,10 +358,8 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
           now: Date = Date()) -> Snapshot.Account? {
     // The nearly-dry gate runs first (AccountComfort.swift): a rate cannot tell "healthy" from
     // "1% left with a close reset", so accounts that are actually dry leave before the ordering.
-    let eligibleAccounts = snapshot.accounts.filter {
-        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
-            && !excluding.contains($0.id)
-    }
+    let eligibleAccounts = pickField(providerID: providerID, in: snapshot,
+                                     primaryModel: primaryModel, excluding: excluding)
     // Anybody above their line leaves the accounts under it out of the field (B-1213): ranked in,
     // an under-line account's negative rate could hold the lead through the hysteresis gates.
     let above = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
@@ -407,10 +415,8 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
                          primaryModel: String?, excluding: Set<String> = [],
                          reserves: AccountReserves = .none,
                          now: Date = Date()) -> Snapshot.Account? {
-    let candidates = snapshot.accounts.filter {
-        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
-            && !excluding.contains($0.id)
-    }
+    let candidates = pickField(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+                               excluding: excluding)
     // The incumbent can't serve the new model (or was quarantined): no incumbent to stabilize, so
     // fall back to the plain best of what remains.
     guard var leader = candidates.first(where: { $0.id == incumbentID }) else {
@@ -464,10 +470,8 @@ func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: Stri
 func launchPick(providerID: String, in snapshot: Snapshot, primaryModel: String?,
                 quarantined: Set<String>, reserves: AccountReserves = .none,
                 now: Date = Date()) -> Snapshot.Account? {
-    let field = snapshot.accounts.filter {
-        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
-            && !quarantined.contains($0.id)
-    }
+    let field = pickField(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+                          excluding: quarantined)
     if let clearance = clearancePick(aboveReserve(field, primaryModel: primaryModel,
                                                   reserves: reserves, now: now),
                                      primaryModel: primaryModel, reserves: reserves, now: now) {

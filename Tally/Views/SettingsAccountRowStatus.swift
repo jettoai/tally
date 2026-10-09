@@ -95,12 +95,15 @@ extension SettingsAccountsView {
     // DEAD IN THE POOLED LAYOUT, and said so rather than left looking alive: that segment sums
     // every account (the strip never asks this switch there - UsageStorePresentation), so a live
     // control would be a silent no-op with nothing on screen saying why. The hover carries the way
-    // back; switching Display to Accounts restores it.
-    func menuBarToggle(_ accountID: String) -> some View {
+    // back; switching Display to Accounts restores it. Unlabelled on the compact rows, whose card
+    // header names the column.
+    func menuBarToggle(_ accountID: String, labelled: Bool = true) -> some View {
         let pooled = settings.menuBarLayout == .pooled
         return HStack(spacing: 6) {
-            Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary)
-                .opacity(pooled ? 0.55 : 1).fixedSize()
+            if labelled {
+                Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary)
+                    .opacity(pooled ? 0.55 : 1).fixedSize()
+            }
             Toggle(isOn: Binding(
                 get: { settings.isShownInMenuBar(accountID) },
                 set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }

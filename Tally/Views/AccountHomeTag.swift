@@ -39,8 +39,9 @@ struct AccountHomeTag: View {
         return shared + "\n\(L("Independent")): " + report.independentItems.joined(separator: ", ")
     }
 
-    /// `-TallyDemoAccounts` (DemoManyAccounts.swift): sharing against each provider's first account, rotating shared, partly shared and own setup
-    /// down the list. Nil off this capture, so the real comparison on disk runs instead.
+    /// `-TallyDemoAccounts` (DemoManyAccounts.swift): sharing against each provider's first
+    /// account, rotating shared, partly shared and own setup down the list. Nil off this capture,
+    /// so the real comparison on disk runs instead.
     static func demoReports(_ items: [ProviderAccount]) -> [String: HarnessSharing.Report]? {
         guard DemoUsage.manyAccountsCount > 0, let first = items.first else { return nil }
         let layers = first.providerID == "claude"

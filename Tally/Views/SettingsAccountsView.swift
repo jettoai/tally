@@ -301,7 +301,7 @@ struct SettingsAccountsView: View {
                 // nickname truncates instead - the user chose that one and knows what it says.
                 let primary = discovered(for: item.providerID).first
                 AccountHomeTag(home: home, report: primary?.id == item.id ? nil : sharing[item.id],
-                               primaryName: primaryName(item.providerID))
+                               primaryName: primaryName(primary))
             }
         }
     }
@@ -362,10 +362,8 @@ struct SettingsAccountsView: View {
     }
 
     /// The provider's primary account's display name (nickname applied), for the sharing mark.
-    func primaryName(_ providerID: String) -> String {
-        discovered(for: providerID).first.map {
-            settings.displayLabel(accountID: $0.id, fallback: $0.label)
-        } ?? ""
+    func primaryName(_ primary: ProviderAccount?) -> String {
+        primary.map { settings.displayLabel(accountID: $0.id, fallback: $0.label) } ?? ""
     }
 
     /// Which account this row actually IS. The panel keeps it in a hover callout (a card has no room

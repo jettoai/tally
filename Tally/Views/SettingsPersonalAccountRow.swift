@@ -49,7 +49,7 @@ extension SettingsAccountsView {
             : LaunchPolicyStore.shared.reserve(home: home)
         let explanation = L("Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone when it picks or moves sessions by itself, because your browser draws on all three. The flagship window holds the same line rather than being emptied under it, and launching on it yourself always works.")
         // The dense layout keeps the row to one line and moves the explanation into the hover.
-        let compact = SettingsDensity.current == .compact
+        let compact = density == .compact
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 // On the dense rows the line is one of twenty that look alike, so it says whose

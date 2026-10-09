@@ -130,7 +130,7 @@ extension SettingsAccountsView {
                 // A fixed slot even when empty: a bare frame on an empty branch collapses, and
                 // took the HStack spacing with it, shifting every column to its left.
                 Color.clear.frame(width: Column.share, height: 14).overlay { shareMark(item) }
-                compactMenuBarToggle(item.id)
+                menuBarToggle(item.id, labelled: false)
                     .disabled(!enabled)
                     .opacity(enabled ? 1 : 0.35)
                     .frame(width: Column.toggle)
@@ -225,25 +225,8 @@ extension SettingsAccountsView {
             sharedMark(full: tag == .shared)
                 .tallyTooltip(AccountIdentity.homeName(home) + " · "
                     + String(format: L(tag == .shared ? "Shared with %@" : "Partly shared with %@"),
-                             primaryName(item.providerID))
+                             primaryName(primary))
                     + "\n" + AccountHomeTag.detail(report))
         }
-    }
-
-    /// The menu-bar switch, unlabelled here because the card's header names the column. Dead in
-    /// the pooled layout, as the labelled one is, with the way back in its hover.
-    private func compactMenuBarToggle(_ accountID: String) -> some View {
-        let pooled = settings.menuBarLayout == .pooled
-        return Toggle(isOn: Binding(
-            get: { settings.isShownInMenuBar(accountID) },
-            set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }
-        )) { EmptyView() }
-        .labelsHidden()
-        .toggleStyle(.switch)
-        .controlSize(.mini)
-        .disabled(pooled)
-        .tallyTooltipAroundControl(pooled
-              ? L("The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.")
-              : L("Show in menu bar"))
     }
 }

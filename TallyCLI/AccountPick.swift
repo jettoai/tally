@@ -464,15 +464,18 @@ func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: Stri
 /// the picker was broken rather than that the badge was. One function, so a display cannot
 /// contradict what launching does.
 ///
-/// A launch is an EMPTY conversation, so a clearance account (leftovers about to be lost to a
-/// reset, AccountComfort.swift) takes it ahead of the ranking. Not inside `best`: the follow
-/// re-pick (`incumbentSeededBest`) falls back to `best`, and that moves a live conversation.
+/// `emptyConversation` is a launch that opens a NEW conversation, and only that one lets a
+/// clearance account (leftovers about to be lost to a reset, AccountComfort.swift) take it ahead of
+/// the ranking: a resumed conversation would sit on that account until the wall. Default false, so a
+/// caller that cannot tell (the shim, `tally status`) never clears; `settleLaunch` decides it. Not
+/// inside `best`: the follow re-pick (`incumbentSeededBest`) falls back to `best`, and that moves a
+/// live conversation.
 func launchPick(providerID: String, in snapshot: Snapshot, primaryModel: String?,
                 quarantined: Set<String>, reserves: AccountReserves = .none,
-                now: Date = Date()) -> Snapshot.Account? {
+                emptyConversation: Bool = false, now: Date = Date()) -> Snapshot.Account? {
     let field = pickField(providerID: providerID, in: snapshot, primaryModel: primaryModel,
                           excluding: quarantined)
-    if let clearance = clearancePick(aboveReserve(field, primaryModel: primaryModel,
+    if emptyConversation, let clearance = clearancePick(aboveReserve(field, primaryModel: primaryModel,
                                                   reserves: reserves, now: now),
                                      primaryModel: primaryModel, reserves: reserves, now: now) {
         return clearance

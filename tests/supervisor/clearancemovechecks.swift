@@ -5,6 +5,10 @@ import Foundation
 // weekly reset) the way a launch may, whatever the account it is leaving holds. A live conversation
 // never may: the idle rebalance and the turn-boundary move still go through `capHandoffTarget`.
 func runClearanceMoveChecks() {
+    // Every clearance account below is empty unless a cell says otherwise (A14).
+    let savedCounter = clearanceSessionCounter
+    defer { clearanceSessionCounter = savedCounter }
+    clearanceSessionCounter = { _ in 0 }
     func acct(_ id: String, session: Double = 90, weekly: Double, weeklyIn hours: Double = 100)
         -> Snapshot.Account {
         Snapshot.Account(id: id, provider: "claude", label: id, launchHome: "/tmp/\(id)",
@@ -32,6 +36,11 @@ func runClearanceMoveChecks() {
           repick(dying, [healthy, clearance]) == "C")
     check("A11 a cleared window on a comfortable account still takes a clearance account",
           repick(roomy, [healthy, clearance]) == "C")
+    clearanceSessionCounter = { $0 == "C" ? 2 : 0 }
+    check("A14 a cleared window does not reopen on a full clearance account",
+          repick(dying, [healthy, clearance]) == "B")
+    check("A14 …nor does a comfortable one leave for it", repick(roomy, [healthy, clearance]) == nil)
+    clearanceSessionCounter = { _ in 0 }
     check("A11 with no clearance account a comfortable account stays put",
           repick(roomy, [healthy]) == nil)
     check("the old path is intact: a dying account with no clearance sibling moves to a healthy one",
@@ -66,15 +75,44 @@ func runClearanceMoveChecks() {
     check("A9 the turn-boundary move does not move a conversation onto a clearance account",
           turnBoundary([clearance]) == nil && turnBoundary([clearance, healthy]) == "B")
 
-    // AND A SESSION ALREADY ON ONE STAYS: neither preventive mover takes it off (round 2). Without
-    // this the empty window a launch put there was moved straight back after 120s of idle, or at
-    // its first turn boundary once the burn forecast (3% left is always minutes) said the wall
-    // was near. The wall itself still moves it, through the cap handoff, which is untouched.
+    // AND A SESSION ALREADY ON ONE STAYS until its wall: the idle rebalance never takes it off,
+    // and the turn-boundary move only once the burn forecast puts the wall within the early line,
+    // so its few sessions leave at a turn end rather than walling mid-turn together.
     let wallIn7 = { (account: Snapshot.Account) -> Double? in account.id == "A" ? 7 : nil }
     check("a clearance account's idle session is not rebalanced away",
           rebalance([healthy], on: onClearance) == nil)
-    check("a clearance account's session is not moved early at a turn boundary",
-          turnBoundary([healthy], on: onClearance, forecast: wallIn7, sessions: 2) == nil)
+    check("a clearance account minutes from its wall moves at a turn boundary",
+          turnBoundary([healthy], on: onClearance, forecast: wallIn7, sessions: 2) == "B")
+    check("a clearance account far from its wall stays at a turn boundary",
+          turnBoundary([healthy], on: onClearance, forecast: { $0.id == "A" ? 30 : nil },
+                       sessions: 2) == nil
+              && turnBoundary([healthy], on: onClearance, sessions: 2) == nil)
+    // The clearance move ignores the target's own forecast: that filter is for an early move only.
+    check("…and takes the cap handoff's target whatever that target's own forecast says",
+          turnBoundary([healthy], on: onClearance,
+                       forecast: { ["A": 7, "B": 30][$0.id] }, sessions: 2) == "B")
+
+    // The station logs it as an early move on the clearance lane.
+    let logDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-clearancemove-\(UUID().uuidString)")
+    let log = logDir.appendingPathComponent("handoff.log")
+    var plan: RelaunchPlan?
+    var state = TurnBoundaryState()
+    applyTurnBoundaryMove(plan: &plan, state: &state, event: SessionTurnEnd(at: launch, sessionID: "s"),
+                          steering: true, provider: "claude", account: onClearance,
+                          primaryModel: nil, mode: "auto", blocked: false, keyboardIdle: true,
+                          draftSuspected: false, carryable: true, fuseAllows: true,
+                          agents: { _, _ in .idle }, turnEnded: true, toolCallOpen: false,
+                          forecast: wallIn7, sessionsOnCurrent: { 2 },
+                          log: log, quarantine: [:],
+                          loaded: (Snapshot(version: 2, generatedAt: launch,
+                                            accounts: [onClearance, healthy]), nil),
+                          now: launch, dir: logDir.appendingPathComponent("claims"))
+    let logged = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+    check("the station moves a clearance session minutes from its wall", plan?.target.id == "B")
+    check("…and its early-move line says lane=clearance",
+          logged.contains("early-move account=A minutes=7.0 sessions=2 lane=clearance"))
+    try? FileManager.default.removeItem(at: logDir)
     // The exemption is the clearance rule and not "any dry account": 3% resetting in 30 hours is
     // not about to be lost, so both movers still carry it off.
     let dryFar = acct("A", weekly: 3, weeklyIn: 30)

@@ -90,13 +90,19 @@ func isClearanceCandidate(_ account: Snapshot.Account, primaryModel: String?,
                                        now: now), now: now) != nil
 }
 
+/// How many live supervised sessions an account has, injected by the CLI's entry point
+/// (main.swift) because the reader lives with the supervisor state files and most of what
+/// compiles this file does not. nil reads as FULL: a caller nobody wired takes no clearance
+/// account, which is the behaviour before the clearance lane existed.
+nonisolated(unsafe) var clearanceSessionCounter: ((String) -> Int)?
+
 /// The clearance account an EMPTY conversation should take, or nil. Only a launch and the window a
 /// `/clear` reopens ask this; every move of a live conversation goes through `capHandoffTarget`.
 func clearancePick(_ accounts: [Snapshot.Account], primaryModel: String?,
                    reserves: AccountReserves = .none, now: Date) -> Snapshot.Account? {
-    clearancePick(accounts, now: now) {
+    clearancePick(accounts, now: now, windows: {
         clearanceWindows($0, primaryModel: primaryModel, reserves: reserves, now: now)
-    }
+    }, sessions: { clearanceSessionCounter?($0.id) ?? clearanceMaxSessions })
 }
 
 /// Whether ONE account still has room to work in, by exactly the gate the picks apply to candidates

@@ -111,27 +111,6 @@ let capResumeDroppedOutcome = "cap-resume-dropped"
 /// offer has stopped being about.
 let capResumeLife: TimeInterval = sessionInputDraftLife * 2
 
-/// How long after this supervisor types a line the user turn it produces keeps arriving.
-///
-/// `sessionInputDraftGrace`, and for the reason that constant was written: the child reads the
-/// injected bytes off the terminal and Claude Code writes the prompt they spell a moment AFTER the
-/// write returned, so the two facts are one instant recorded by two clocks. Without the margin, the
-/// resume line would be read as the person coming back, which would re-arm this feature against its
-/// own output and recur.
-///
-/// IT IS MEASURED FROM THE END OF THE WRITE, which is what makes two seconds enough. An injection is
-/// the stash at `sessionInputByteGap` a key, the payload as one paste into a composer, and the
-/// submit pause, so a line of this length spends about a second on the terminal before its Return
-/// (five, before the payload stopped being typed on 2026-09-05): a margin measured from the
-/// DECISION would have to be longer than the longest injection there is, a number that would stop
-/// tracking the constants it is made of. `lastComposerWrite` is stamped after the write for this.
-///
-/// THE RESIDUAL, stated rather than defended against: a person who types a prompt of their own
-/// inside two seconds of the line landing is not counted as having returned, so a genuinely fresh
-/// cap minutes later does not re-arm. That fails towards silence, which is the direction this whole
-/// station fails in on purpose.
-let capResumeOwnLineGrace: TimeInterval = sessionInputDraftGrace
-
 // MARK: - The decision
 
 /// What is standing between an arm and the terminal this tick. Both rows are a WAIT: the next tick
@@ -305,10 +284,13 @@ struct CapResumeState: Equatable {
     /// one rule for what may go on a terminal's input queue (`quotaKnockName`), and a second
     /// spelling of that rule is how a label with a newline in it gets typed into somebody's
     /// composer.
+    ///
+    /// `personTurnAt` is `lastPersonTurn` (AutomaticInput.swift), not the raw transcript reading.
     mutating func arm(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
                       conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
-                      userTurnAt: Date?, caughtUp: Bool, owed: Bool = true,
+                      personTurnAt: Date?, caughtUp: Bool, owed: Bool = true,
                       requiresLiveWork: Bool = capResumeRequiresLiveWork) {
+        resetBudgetIfPersonReturned(conversation: conversation, personTurnAt: personTurnAt)
         // `caughtUp` FIRST: a watcher mid catch-up may not have read an answer after the wall, so
         // "interrupted" is unknown and no arm costs one line, never a wrong one. And the id the
         // offer is ABOUT: no id is nothing for a later tick to compare the window against.
@@ -319,7 +301,7 @@ struct CapResumeState: Equatable {
               capResumeFreshCap(cappedAt: cappedAt, lastCapAt: lastCapAt),
               capResumeWithinBudget(conversation: conversation,
                                     nudgedConversation: nudgedConversation, nudges: nudges,
-                                    userTurnAt: userTurnAt, at: cappedAt)
+                                    personTurnAt: personTurnAt, at: cappedAt)
         else { return }
         lastCapAt = cappedAt
         offer = Offer(at: cappedAt, conversation: conversation,
@@ -331,12 +313,13 @@ struct CapResumeState: Equatable {
     /// anti-recursion budget as a wall's; `at` is the instant the request was written, which is what
     /// one line per move is keyed on, and what the offer's life is measured from.
     mutating func armSwitch(at: Date, fresh: Bool, conversation: String?, line: String,
-                            userTurnAt: Date?, caughtUp: Bool) {
+                            personTurnAt: Date?, caughtUp: Bool) {
+        resetBudgetIfPersonReturned(conversation: conversation, personTurnAt: personTurnAt)
         guard caughtUp, !fresh, let conversation,
               capResumeFreshCap(cappedAt: at, lastCapAt: lastCapAt),
               capResumeWithinBudget(conversation: conversation,
                                     nudgedConversation: nudgedConversation, nudges: nudges,
-                                    userTurnAt: userTurnAt, at: at)
+                                    personTurnAt: personTurnAt, at: at)
         else { return }
         lastCapAt = at
         offer = Offer(at: at, conversation: conversation, line: line)
@@ -398,7 +381,8 @@ struct CapResumeState: Equatable {
     /// first of them is written (`noteTyped`).
     mutating func spend() { spending = offer?.conversation; offer = nil }
 
-    /// The write is over. Two seconds on, a user turn is somebody else's (`capResumeOwnLineGrace`).
+    /// The write is over. The ledger (AutomaticInput.swift) is what keeps this line's own turn from
+    /// reading as a person.
     ///
     /// A SECOND ENTRY POINT RATHER THAN AN ARGUMENT TO THE ONE ABOVE, because the two moments are
     /// seconds apart and the gap is the whole point: an injection types one byte every 30ms, so a
@@ -414,6 +398,15 @@ struct CapResumeState: Equatable {
 
     /// This wall gets no line. `lastCapAt` stands, so nothing re-arms for it.
     mutating func drop() { offer = nil }
+
+    /// A person who typed after the newest line resets the budget IN THE STATE, not just for this
+    /// wall: the next wall is read by a newer child's watcher, which never saw that turn (B-1360
+    /// line-close review: 12:50 typed, 13:00 resumed, 13:20 refused). Carried by encode/decode.
+    private mutating func resetBudgetIfPersonReturned(conversation: String?, personTurnAt: Date?) {
+        guard let conversation, conversation == nudgedConversation, let last = nudges.last,
+              let personTurnAt, personTurnAt > last else { return }
+        nudges = []
+    }
 }
 
 // MARK: - The tick's station
@@ -436,7 +429,7 @@ struct CapResumeState: Equatable {
 ///
 /// `stamped` is the clock read AFTER the write, and it is separate from `now` because they are
 /// genuinely different instants: `now` is when this tick decided, and an injection spends seconds on
-/// the terminal between the two (`capResumeOwnLineGrace` states what depends on the difference).
+/// the terminal between the two (`automaticTurnLag` states what depends on the difference).
 @discardableResult
 func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bool,
                     session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,

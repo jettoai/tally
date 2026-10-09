@@ -49,9 +49,13 @@ func runSmartBadgeChecks() {
         return usage
     }
 
-    func pick(_ accounts: [AccountUsage], reserves: [String: Double] = [:]) -> String? {
+    // Live session counts go in directly (`occupancy`): every account below is empty unless a cell
+    // says otherwise, and nil is the app before its first background read.
+    func pick(_ accounts: [AccountUsage], reserves: [String: Double] = [:],
+              occupancy: [String: Int]? = [:]) -> String? {
         policy.autoPickID(providerID: "claude", accounts: accounts,
-                          launchable: Set(accounts.map(\.id)), reserves: reserves)
+                          launchable: Set(accounts.map(\.id)), reserves: reserves,
+                          occupancy: occupancy)
     }
 
     let healthy = account("healthy", session: 40, weekly: 40)
@@ -229,6 +233,18 @@ func runSmartBadgeChecks() {
     check("A12 a reset 30 hours out is not about to be lost, so the badge stays put",
           pick([rich, account("clearing", session: 99, weekly: 3, weeklyResetDays: 30.0 / 24)])
               == "rich")
+    // A quarantine that holds out every account leaves the launcher only the ranking (`launchPick`),
+    // so the badge's retry does not reach for the clearance lane either (P2-of: bcca813).
+    check("A12 an all-quarantined fleet badges the ranking's pick, as the launcher does",
+          policy.autoPickID(providerID: "claude", accounts: [rich, clearing],
+                            launchable: ["rich", "clearing"], reserves: [:],
+                            quarantined: ["rich", "clearing"], occupancy: [:], now: Date())
+              == "rich")
+    check("A12 the badge skips a clearance account with two live sessions",
+          pick([rich, clearing], occupancy: [clearing.id: 2]) == "rich")
+    check("A12 …while one live session still takes it",
+          pick([rich, clearing], occupancy: [clearing.id: 1]) == "clearing")
+    check("A12 …and before the first count has been read", pick([rich, clearing], occupancy: nil) == "rich")
     check("A12 a dry 5h window is never cleared",
           pick([rich, account("clearing", session: 2, weekly: 50, weeklyResetDays: 18.4 / 24)])
               == "rich")

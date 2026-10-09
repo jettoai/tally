@@ -3,9 +3,13 @@ import Foundation
 // The clearance lane (B-1360, TallyCLI/AccountComfort.swift): a LAUNCH may take an account whose
 // only dry windows are weekly-cycle ones resetting within a day, because those leftovers are about to
 // be lost; every move of a live conversation still refuses it. Every cell goes through the public
-// picks only, so the same file replays against a tree that predates the lane.
+// picks only; A15 asks `settleLaunch`, which a tree before the line-close review does not have.
 func runClearanceChecks() {
-    // The 2026-10-09T15:33Z snapshot, seven accounts (b1360 findings section 1). albert has 3% of its
+    // Every cell below sees an empty clearance account unless it says otherwise (A13).
+    let savedCounter = clearanceSessionCounter
+    defer { clearanceSessionCounter = savedCounter }
+    clearanceSessionCounter = { _ in 0 }
+    // The 2026-10-09T15:33Z snapshot, seven accounts (the snapshot that motivated this lane). albert has 3% of its
     // week left 18.4h before the reset; albert4 is the comfortable leader at 1.006 %/h; hyde is the
     // personal account holding 30 back.
     let hyde = account("hyde", session: (100, inHours(3.4)), weekly: (70, inHours(145.4)))
@@ -21,7 +25,8 @@ func runClearanceChecks() {
     func launch(_ accounts: [Snapshot.Account]) -> String? {
         launchPick(providerID: "claude",
                    in: Snapshot(version: 2, generatedAt: now, accounts: accounts),
-                   primaryModel: nil, quarantined: [], reserves: reserves, now: now)?.id
+                   primaryModel: nil, quarantined: [], reserves: reserves,
+                   emptyConversation: true, now: now)?.id
     }
 
     // A1: the failure sample. Before the lane this was albert4 and albert's 3% vanished at the reset.
@@ -59,7 +64,7 @@ func runClearanceChecks() {
                      primaryModel: nil, quarantined: [],
                      reserves: AccountReserves(settings: [
                          "/tmp/hyde": AccountRoleSetting(role: AccountRoles.personal, reserve: 3)]),
-                     now: now)?.id == "albert4")
+                     emptyConversation: true, now: now)?.id == "albert4")
 
     // A7: several clearance accounts: the most leftovers first, then the earlier reset.
     let three = account("X", weekly: (3, inHours(18)))
@@ -67,6 +72,55 @@ func runClearanceChecks() {
     let threeSooner = account("Z", weekly: (3, inHours(10)))
     check("A7 the clearance account with more left goes first", launch([three, four, albert4]) == "Y")
     check("A7 on a tie the earlier reset goes first", launch([three, threeSooner, albert4]) == "Z")
+
+    // A13: a clearance account takes at most `clearanceMaxSessions` conversations at once; past
+    // that, a launch goes where the ranking sends it, so a reset's leftovers never gather a crowd.
+    clearanceSessionCounter = { $0 == albert.id ? 2 : 0 }
+    check("A13 a clearance account with two live sessions takes no launch", launch(fleet) == "albert4")
+    clearanceSessionCounter = { $0 == albert.id ? 1 : 0 }
+    check("A13 …one live session still takes it", launch(fleet) == "albert")
+    clearanceSessionCounter = nil
+    check("A13 an unwired counter reads as full", launch(fleet) == "albert4")
+    clearanceSessionCounter = { _ in 0 }
+
+    // A15: only a launch that opens a NEW conversation clears (B-1360 line-close review). The
+    // owner's start mode is "continue", so a directory with a conversation resumes it, and a resumed
+    // conversation on albert would sit there until the wall. One home stands for all of them: the
+    // transcripts are shared across homes.
+    let root = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-clearance-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let cwd = root.appendingPathComponent("project")
+    let home = root.appendingPathComponent("home")
+    try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+    let projectDir = home.appendingPathComponent("projects/\(projectSlug(forCwd: cwd.path))")
+    try? FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    write(turnTranscript(at: "2026-10-09T15:00:00.000Z"),
+          to: projectDir.appendingPathComponent("old.jsonl"))
+    var continuing = LaunchPolicy()
+    continuing.startMode = "continue"
+    let fleetSnapshot = Snapshot(version: 2, generatedAt: now, accounts: fleet)
+    func settled(_ typed: [String] = [], wantsNew: Bool = false) -> (String, [String])? {
+        settleLaunch(providerID: "claude", pick: { empty in
+            launchPick(providerID: "claude", in: fleetSnapshot, primaryModel: nil, quarantined: [],
+                       reserves: reserves, emptyConversation: empty, now: now)
+        }, startArgs: { _ in
+            applyStartMode(typed, policy: continuing, wantsNew: wantsNew, home: home.path,
+                           live: [], cwd: cwd.path,
+                           recordDir: root.appendingPathComponent("records")).args
+        }).map { ($0.account.id, $0.args) }
+    }
+    check("A15 a continue launch that resumes a conversation does not land on the clearance account",
+          settled().map { $0 == ("albert4", ["--resume", "old"]) } ?? false)
+    check("A15 --new in the same directory lands on it",
+          settled(wantsNew: true).map { $0 == ("albert", []) } ?? false)
+    check("A15 a hand-typed --continue is a resume too", settled(["--continue"])?.0 == "albert4")
+    check("A15 a caller that cannot tell the start mode never clears",
+          launchPick(providerID: "claude", in: fleetSnapshot, primaryModel: nil, quarantined: [],
+                     reserves: reserves, now: now)?.id == "albert4")
+    check("A15 a Codex resume is not a new conversation, a bare Codex launch is",
+          !opensNewConversation(["resume", "x"], providerID: "codex")
+              && opensNewConversation([], providerID: "codex"))
 
     // A8/A9: every move of a LIVE conversation still refuses the account (the lane is launch-only).
     check("A8 the cap handoff does not move a conversation onto albert",

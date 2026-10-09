@@ -84,7 +84,7 @@ func runCapResumeChecks() {
     check("and a move that resumes nothing arms nothing, because there is no id to hold", {
         var nothing = CapResumeState()
         nothing.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-                    conversation: nil, from: capped, to: sibling, userTurnAt: nil, caughtUp: true)
+                    conversation: nil, from: capped, to: sibling, personTurnAt: nil, caughtUp: true)
         return !nothing.isArmed
     }())
 
@@ -101,9 +101,15 @@ func runCapResumeChecks() {
 
     // THE BUDGET (B-1360), per conversation: three lines per two hours until a person types.
     func within(_ nudges: [Date], in nudgedIn: String? = armedConversation,
-                userTurnAt: Date? = nil, at moment: Date = wall) -> Bool {
+                personTurnAt: Date? = nil, at moment: Date = wall) -> Bool {
         capResumeWithinBudget(conversation: armedConversation, nudgedConversation: nudgedIn,
-                              nudges: nudges, userTurnAt: userTurnAt, at: moment)
+                              nudges: nudges, personTurnAt: personTurnAt, at: moment)
+    }
+    // The ledger of those three lines, each write ending at its stamp (AutomaticInput.swift).
+    func ownLines(_ nudges: [Date]) -> AutomaticInputLedger {
+        var ledger = AutomaticInputLedger(knownSince: wall.addingTimeInterval(-7200))
+        for nudge in nudges { ledger.note(start: nudge.addingTimeInterval(-1), end: nudge) }
+        return ledger
     }
     let three = [wall.addingTimeInterval(-1800), wall.addingTimeInterval(-1200),
                  wall.addingTimeInterval(-600)]
@@ -113,9 +119,10 @@ func runCapResumeChecks() {
           within([wall.addingTimeInterval(-600)]))
     check("after three inside the window, silence is not somebody coming back", !within(three))
     check("…and neither is the user turn the newest line itself becomes",
-          !within(three, userTurnAt: three[2].addingTimeInterval(0.2)))
+          !within(three, personTurnAt: lastPersonTurn([three[2].addingTimeInterval(0.2)],
+                                                      automatic: ownLines(three))))
     check("a prompt of their own after the newest line resets it",
-          within(three, userTurnAt: three[2].addingTimeInterval(30)))
+          within(three, personTurnAt: three[2].addingTimeInterval(30)))
     check("lines typed into ANOTHER conversation spend nothing of this one's",
           within(three, in: "another-conversation"))
     check("the budget and its clock are the ones this file was written against",
@@ -137,7 +144,7 @@ func runCapResumeChecks() {
             state.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(offset),
                       answeredAt: wall.addingTimeInterval(offset - 10),
                       conversation: armedConversation, from: capped, to: sibling,
-                      userTurnAt: nil, caughtUp: true)
+                      personTurnAt: nil, caughtUp: true)
             state.spend()
             state.noteTyped(at: wall.addingTimeInterval(offset + 10))
         }
@@ -145,7 +152,10 @@ func runCapResumeChecks() {
                   conversation: armedConversation, from: capped, to: sibling,
                   // The only user turn the previous child saw is the resume line this supervisor
                   // typed into it, which is exactly what must not read as somebody coming back.
-                  userTurnAt: second ? wall.addingTimeInterval(-589.8) : nil, caughtUp: true)
+                  personTurnAt: second
+                      ? lastPersonTurn([wall.addingTimeInterval(-589.8)],
+                                       automatic: ownLines(state.nudges)) : nil,
+                  caughtUp: true)
         return state
     }
 
@@ -298,13 +308,13 @@ func runCapResumeChecks() {
     once.noteTyped(at: wall.addingTimeInterval(30))
     check("…and having typed it, says nothing more about that wall", decide(once) == .idle)
     once.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-             conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil,
+             conversation: armedConversation, from: capped, to: sibling, personTurnAt: nil,
              caughtUp: true)
     check("…which a second handoff carrying the SAME wall cannot undo", decide(once) == .idle)
     // And the way back: a person types, so the next genuine wall is armed for again.
     once.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(600),
              answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-             userTurnAt: wall.addingTimeInterval(120), caughtUp: true)
+             personTurnAt: wall.addingTimeInterval(120), caughtUp: true)
     check("but a wall that follows a person coming back is armed for again",
           decide(once, at: 610) == .type(sentence))
 
@@ -312,7 +322,7 @@ func runCapResumeChecks() {
     var dropped = session(interrupted: true, second: false)
     dropped.drop()
     dropped.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-                conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil,
+                conversation: armedConversation, from: capped, to: sibling, personTurnAt: nil,
                 caughtUp: true)
     check("a wall whose offer was dropped does not come back on the next handoff",
           decide(dropped) == .idle)
@@ -364,7 +374,9 @@ func runCapResumeChecks() {
           !capResumeWithinBudget(conversation: armedConversation,
                                  nudgedConversation: live.nudgedConversation,
                                  nudges: live.nudges + live.nudges + live.nudges,
-                                 userTurnAt: wall.addingTimeInterval(35.3), at: wall))
+                                 personTurnAt: lastPersonTurn([wall.addingTimeInterval(35.3)],
+                                                              automatic: ownLines(live.nudges)),
+                                 at: wall))
 
     typed.removeAll()
     var busy = session(interrupted: true, second: false)
@@ -437,7 +449,7 @@ func runCapResumeChecks() {
     check("an armed offer is not disarmed by a fresh relaunch, because arm just returns", {
         carried.arm(reason: "cap", fresh: true, cappedAt: wall.addingTimeInterval(60),
                     answeredAt: nil, conversation: "a-brand-new-window", from: capped, to: sibling,
-                    userTurnAt: nil, caughtUp: true)
+                    personTurnAt: nil, caughtUp: true)
         return carried.isArmed
     }())
     check("…so the window it lands in is what refuses it: another conversation ends the offer",
@@ -484,11 +496,14 @@ func runCapResumeChecks() {
     // THE TURN THAT LINE STARTS WALLS AGAIN, and again (B-1360): each wall is fresh, nobody has
     // typed, and the only user turn since each line is that line itself. The conversation has a
     // budget of three lines per two hours, so the second and third walls are resumed and the
-    // fourth is not.
+    // fourth is not. The turn each wall sees goes through the ledger of the lines typed so far,
+    // which is how the supervisor reads it (`lastPersonTurn`).
     func wallAgain(_ offset: TimeInterval, userTurnAt: Date?) {
         recurring.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(offset),
                       answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
-                      userTurnAt: userTurnAt, caughtUp: true)
+                      personTurnAt: lastPersonTurn(userTurnAt.map { [$0] } ?? [],
+                                                   automatic: ownLines(recurring.nudges)),
+                      caughtUp: true)
     }
     wallAgain(120, userTurnAt: wall.addingTimeInterval(45.5))
     check("a second wall arms again: one line of the conversation's three is spent",
@@ -500,9 +515,9 @@ func runCapResumeChecks() {
     check("the fourth wall in two hours arms nothing, because the only turn since is its own line",
           !recurring.isArmed && recurring.nudges.count == 3)
     // AND A PERSON REALLY COMING BACK STILL RE-ARMS IT, which is the boundary of that refusal:
-    // what is discounted is a turn inside `capResumeOwnLineGrace` of the write, not every later one.
-    wallAgain(360, userTurnAt: wall.addingTimeInterval(300))
-    check("…while a prompt somebody typed a minute after that line does re-arm it",
+    // what is discounted is a turn inside `automaticTurnLag` of a write, not every later one.
+    wallAgain(360, userTurnAt: wall.addingTimeInterval(250 + 120))
+    check("…while a prompt somebody typed two minutes after that line does re-arm it",
           recurring.isArmed)
     check("…and the second offer waits on its own burst rather than on the first offer's stamps",
           recurring.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
@@ -546,7 +561,7 @@ func runCapResumeArmCatchUpChecks(conversation: String, wall: Date, from: Snapsh
         var state = CapResumeState()
         state.arm(reason: "cap", fresh: false, cappedAt: w.capHitAt,
                   answeredAt: w.lastMainChainEventAt, conversation: w.transcriptSessionID,
-                  from: from, to: to, userTurnAt: w.lastUserTurnAt, caughtUp: w.caughtUp)
+                  from: from, to: to, personTurnAt: w.lastUserTurnAt, caughtUp: w.caughtUp)
         return (w, state)
     }
     let cap = catchUpCap(stamp(0), uuid: "a-cap")
@@ -647,7 +662,7 @@ func runCapResumeBudgetChecks() {
     func wall(_ state: inout CapResumeState, _ cappedAt: Date, in conversation: String,
               userTurnAt: Date? = nil) {
         state.arm(reason: "cap", fresh: false, cappedAt: cappedAt, answeredAt: nil,
-                  conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
+                  conversation: conversation, from: from, to: to, personTurnAt: userTurnAt,
                   caughtUp: true)
     }
     /// A wall whose line was typed, the write ending `typed` seconds after the wall.
@@ -706,7 +721,7 @@ func runCapResumeBudgetChecks() {
     var refused = spent
     armCapResume(&refused, pid: "b1360-test", log: log, now: fourth, reason: "cap", fresh: false,
                  cappedAt: fourth, answeredAt: nil, conversation: "z-conversation", from: from,
-                 to: to, userTurnAt: nil, caughtUp: true)
+                 to: to, personTurnAt: nil, caughtUp: true)
     let audit = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("B3 the fourth wall in one conversation inside two hours arms nothing", !refused.isArmed)
     check("…and says the budget refused it (\(audit.debugDescription))",
@@ -719,7 +734,7 @@ func runCapResumeBudgetChecks() {
     var allowed = again
     armCapResume(&allowed, pid: "b1360-test", log: quiet, now: fourth, reason: "cap",
                  fresh: false, cappedAt: at("2026-10-07T13:30:00Z"), answeredAt: nil,
-                 conversation: "y-conversation", from: from, to: to, userTurnAt: nil,
+                 conversation: "y-conversation", from: from, to: to, personTurnAt: nil,
                  caughtUp: true)
     check("…while a wall the budget allows writes the armed line and no skipped one",
           ((try? String(contentsOf: quiet, encoding: .utf8)) ?? "").contains("cap-resume-armed")
@@ -730,9 +745,62 @@ func runCapResumeBudgetChecks() {
     var personBack = spent
     wall(&personBack, fourth, in: "z-conversation", userTurnAt: newest.addingTimeInterval(30))
     check("B4 a prompt of their own after the newest resume re-arms it", personBack.isArmed)
+    // B4b. ...and the reset is WRITTEN, not just read at that one wall: the walls after it are read
+    // by a newer child's watcher, which never saw the person (B-1360 line-close review: 12:50 typed,
+    // 13:00 resumed, 13:20 refused). The fresh budget still stops at three.
+    var back = spent
+    wall(&back, fourth, in: "z-conversation", userTurnAt: start.addingTimeInterval(50 * 60))
+    back.spend()
+    back.noteTyped(at: fourth.addingTimeInterval(20))
+    var later: [Bool] = []
+    for minutes in [80.0, 100] {
+        let cap = start.addingTimeInterval(minutes * 60)
+        wall(&back, cap, in: "z-conversation")
+        later.append(back.isArmed)
+        back.spend()
+        back.noteTyped(at: cap.addingTimeInterval(20))
+    }
+    check("B4b after a person, the 13:20 and 13:40 walls arm too (\(later))", later == [true, true])
+    wall(&back, start.addingTimeInterval(120 * 60), in: "z-conversation")
+    check("B4b …and the fourth line since the person, at 14:00, is refused", !back.isArmed)
+    // The ledger of the three resume lines, the newest write ending at `newest`.
+    var ledger = AutomaticInputLedger(knownSince: start)
+    for nudge in spent.nudges { ledger.note(start: nudge.addingTimeInterval(-1), end: nudge) }
     var ownLine = spent
-    wall(&ownLine, fourth, in: "z-conversation", userTurnAt: newest.addingTimeInterval(0.3))
+    wall(&ownLine, fourth, in: "z-conversation",
+         userTurnAt: lastPersonTurn([newest.addingTimeInterval(0.3)], automatic: ledger))
     check("…while the turn that resume line itself becomes does not", !ownLine.isArmed)
+
+    // B13. Tally's own typing never resets the budget, however late its turn lands (PM review of
+    // 84fe4b2: 7 of 79 resume lines landed more than two seconds after their write).
+    var slow = spent
+    wall(&slow, fourth, in: "z-conversation",
+         userTurnAt: lastPersonTurn([newest.addingTimeInterval(5.2)], automatic: ledger))
+    check("B13 a resume line landing 5.2s after its write does not reset the budget",
+          !slow.isArmed)
+    var sent = ledger
+    sent.note(start: newest.addingTimeInterval(100), end: newest.addingTimeInterval(101))
+    var sendLine = spent
+    wall(&sendLine, fourth, in: "z-conversation",
+         userTurnAt: lastPersonTurn([newest.addingTimeInterval(104)], automatic: sent))
+    check("B13 …nor a `tally session send` line 3s after its write", !sendLine.isArmed)
+    var person = spent
+    wall(&person, fourth, in: "z-conversation",
+         userTurnAt: lastPersonTurn([newest.addingTimeInterval(120)], automatic: ledger))
+    check("B13 …while a person two minutes after the line does", person.isArmed)
+
+    // B14. A wall with no live work behind it was never going to be resumed, so the budget is not
+    // what refused it: no `reason=budget` line, whatever the budget holds.
+    let idleLog = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-capresume-idle-\(UUID().uuidString).log")
+    defer { try? FileManager.default.removeItem(at: idleLog) }
+    var idle = spent
+    armCapResume(&idle, pid: "budget-test", log: idleLog, now: fourth, reason: "cap", fresh: false,
+                 cappedAt: fourth, answeredAt: nil, conversation: "z-conversation", from: from,
+                 to: to, personTurnAt: nil, caughtUp: true, owed: false, requiresLiveWork: true)
+    let idleAudit = (try? String(contentsOf: idleLog, encoding: .utf8)) ?? ""
+    check("B14 a budget refusal is not logged when there was no live work to resume (\(idleAudit.debugDescription))",
+          !idle.isArmed && !idleAudit.contains("reason=budget"))
 
     // B5. The window is measured from the wall: every stamp older than it refills the budget, and
     // one stamp still inside keeps it spent only while all three are.
@@ -756,11 +824,11 @@ func runCapResumeBudgetChecks() {
     // B8. A `tally account` the conversation ran itself shares the budget.
     var switched = spent
     switched.armSwitch(at: fourth, fresh: false, conversation: "z-conversation", line: "x",
-                       userTurnAt: nil, caughtUp: true)
+                       personTurnAt: nil, caughtUp: true)
     check("B8 a self-switch after three resumes in one conversation arms nothing",
           !switched.isArmed)
     var switchedElsewhere = spent
     switchedElsewhere.armSwitch(at: fourth, fresh: false, conversation: "other-conversation",
-                                line: "x", userTurnAt: nil, caughtUp: true)
+                                line: "x", personTurnAt: nil, caughtUp: true)
     check("…while one in another conversation does", switchedElsewhere.isArmed)
 }

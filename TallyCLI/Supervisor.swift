@@ -188,6 +188,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// necessarily so - the arm is raised by the tick that ends one child and spent by a tick of the
     /// next one, which is the one event a per-child value could never carry it across.
     var capResume = carriedResume ?? CapResumeState()
+    // What this supervisor types from here on (AutomaticInput.swift); anything earlier is unknown.
+    automaticInputLedger = AutomaticInputLedger(knownSince: Date())
     /// The first tick an idle self-update was held for background work (`selfUpdateHeldByBackground`).
     var selfUpdateHeldSince: Date?
     /// What this session has tried about answering a 5-hour wall with the account's own weekly
@@ -1298,13 +1300,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // `plan.fresh || secondHead`, on the same terms the publish below reads them: a
                 // relaunch that dropped its resume starts an EMPTY window, and an offer to carry
                 // on with work the wall interrupted belongs to the conversation that holds it.
+                let personTurn = lastPersonTurn(watcher.recentUserTurns,
+                                                automatic: automaticInputLedger)
                 armCapResume(&capResume, pid: supervisorPID, reason: plan.reason,
                              fresh: plan.fresh || secondHead,
                              cappedAt: pendingCap?.cappedAt,
                              answeredAt: watcher.lastMainChainEventAt,
                              conversation: watcher.transcriptSessionID,
                              from: leaving, to: plan.target,
-                             userTurnAt: watcher.lastUserTurnAt,
+                             personTurnAt: personTurn,
                              // The old child's reading covers its whole transcript, or no arm.
                              caughtUp: watcher.caughtUp, owed: owedReading.owed)
                 // AND THE SAME OFFER FOR A MOVE THIS CONVERSATION ASKED FOR ITSELF: a `tally
@@ -1317,7 +1321,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 } },
                                 conversation: watcher.transcriptSessionID,
                                 from: leaving, to: plan.target,
-                                userTurnAt: watcher.lastUserTurnAt, caughtUp: watcher.caughtUp)
+                                userTurnAt: watcher.lastUserTurnAt, personTurnAt: personTurn,
+                                caughtUp: watcher.caughtUp)
                 // AND WHAT THE NEXT CHILD NEEDS TO WAKE ITSELF IF THIS KILLED BACKGROUND WORK
                 // (RestartWake.swift): the reason, the roster's count, and whether it is owed.
                 restartNote = restartNoteForHandoff(reason: plan.reason,

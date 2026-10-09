@@ -444,10 +444,15 @@ enum SessionInputInjection: Equatable {
 ///
 /// `tty` and the two intervals are injectable so a suite can exercise the loop without a terminal
 /// and without waiting six seconds for it.
+///
+/// Every call is recorded in `automaticInputLedger` (AutomaticInput.swift), whatever it returns.
 func injectSessionInput(_ text: String, draft: SessionInputDraftGuard, tty: String = "/dev/tty",
                         gap: TimeInterval = sessionInputByteGap,
                         pause: TimeInterval = sessionInputSubmitPause)
     -> SessionInputInjection {
+    let start = Date()
+    // Declared before the close below so it runs after it: the write's end is the last byte.
+    defer { automaticInputLedger.note(start: start, end: Date()) }
     let fd = open(tty, O_RDWR)
     guard fd >= 0 else { return .failed(errno) }
     defer { close(fd) }

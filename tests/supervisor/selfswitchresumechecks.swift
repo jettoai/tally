@@ -132,7 +132,7 @@ func runSelfSwitchResumeChecks() {
         let before = state
         armSwitchResume(&state, pid: "ss-test", log: log, now: wall, reason: reason, fresh: fresh,
                         served: record, tail: { text }, conversation: id, from: from, to: to,
-                        userTurnAt: userTurnAt, caughtUp: caughtUp)
+                        userTurnAt: userTurnAt, personTurnAt: userTurnAt, caughtUp: caughtUp)
         return state != before
     }
 

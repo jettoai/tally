@@ -366,6 +366,28 @@ final class LaunchPolicyStore {
         return quarantineByModel[primaryModel] ?? []
     }
 
+    /// Live sessions per account for the clearance cap (`clearanceMaxSessions`), nil until the first
+    /// background read lands. Same cache and reasons as the quarantine read above.
+    private var liveSessions: [String: Int]?
+    @ObservationIgnored private var liveSessionsReadAt: Date?
+    @ObservationIgnored private var liveSessionsReading = false
+
+    private func liveSessionsNow(now: Date) -> [String: Int]? {
+        let fresh = liveSessionsReadAt.map {
+            now.timeIntervalSince($0) < Self.quarantineCacheTTL && $0 <= now } ?? false
+        if !fresh, !liveSessionsReading {
+            liveSessionsReading = true
+            Task { [weak self] in
+                let counts = await Task.detached { ProbeCadence.liveAccountCounts() }.value
+                guard let self else { return }
+                self.liveSessionsReading = false
+                self.liveSessionsReadAt = now
+                if self.liveSessions != counts { self.liveSessions = counts }
+            }
+        }
+        return liveSessions
+    }
+
     /// The badge the panel shows. Two steps, exactly as the launcher picks (`launchPick` on the
     /// CLI side): the cap quarantine is applied first, and when it empties the field the
     /// unfiltered pick is shown rather than no badge at all, because that is the account a launch
@@ -381,16 +403,37 @@ final class LaunchPolicyStore {
     /// panel does not show a pin the launcher would refuse under its line (named blind spot).
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
                     reserves: [String: Double] = [:], now: Date = Date()) -> String? {
-        let excluded = quarantinedNow(primaryModel: policy(providerID).model, now: now)
-        return autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                          reserves: reserves, excluding: excluded, now: now)
+        autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
+                   reserves: reserves, occupancy: liveSessionsNow(now: now), now: now)
+    }
+
+    /// The same pick with the live session counts handed in. nil (not read yet) reads every
+    /// clearance account as full, so the badge never names one it cannot vouch for.
+    func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                    reserves: [String: Double] = [:], occupancy: [String: Int]?,
+                    now: Date = Date()) -> String? {
+        autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
+                   reserves: reserves,
+                   quarantined: quarantinedNow(primaryModel: policy(providerID).model, now: now),
+                   occupancy: occupancy, now: now)
+    }
+
+    /// The quarantine step with the quarantine handed in, mirroring `launchPick`: when it empties
+    /// the field the retry only ranks, so the clearance lane gets no second look there either.
+    func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                    reserves: [String: Double], quarantined: Set<String>,
+                    occupancy: [String: Int]?, now: Date) -> String? {
+        autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
+                   reserves: reserves, excluding: quarantined, clearance: true,
+                   occupancy: occupancy, now: now)
             ?? autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                          reserves: reserves, excluding: [], now: now)
+                          reserves: reserves, excluding: [], clearance: false,
+                          occupancy: occupancy, now: now)
     }
 
     private func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
-                            reserves: [String: Double], excluding: Set<String>,
-                            now: Date) -> String? {
+                            reserves: [String: Double], excluding: Set<String>, clearance: Bool,
+                            occupancy: [String: Int]?, now: Date) -> String? {
         let primary = policy(providerID).model
         // The CLI's nearly-dry gate, from the file both targets compile (AccountComfort.swift):
         // the badge has to predict the launch, so the same accounts leave before the ordering.
@@ -416,8 +459,11 @@ final class LaunchPolicyStore {
             Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
         // The launcher's clearance lane comes first (`launchPick`, TallyCLI/AccountPick.swift).
-        if let clearance = clearancePick(above, now: now, windows: {
+        if clearance, let clearance = clearancePick(above, now: now, windows: {
             Self.clearanceWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
+        }, sessions: { account in
+            // Read: an account with no live session has no entry. Not read yet: full.
+            occupancy.map { $0[account.id] ?? 0 } ?? clearanceMaxSessions
         }) { return clearance.id }
         let candidates = preferringComfortable(above, now: now) {
             Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)

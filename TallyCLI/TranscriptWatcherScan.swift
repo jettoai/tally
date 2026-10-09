@@ -310,6 +310,7 @@ extension TranscriptWatcher {
            // the room when a compaction happens; it is the session folding itself up.
            !line.has(.compactSummary), let ts = line.timestamp, ts >= since {
             lastUserTurnAt = ts
+            recentUserTurns = Array((recentUserTurns + [ts]).suffix(16))
         }
         // Background work a relaunch stopped, as the resumed Claude Code reports it. Several
         // notices in one child fold into one reading (RestartWake.swift types one line for them).

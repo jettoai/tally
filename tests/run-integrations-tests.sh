@@ -23,6 +23,8 @@
 # the reserve the Artifact seed now reads before it guesses). PersonalAccount.swift joined them with
 # the flagship water line (2026-09-05): it is the app's translation of that ruling into the meters'
 # own vocabulary, and this is the only suite that can ask it for a value rather than read its text.
+# ProbeCadence.swift (and LiveRates.swift behind it) joined with the clearance lane's session cap
+# (2026-10-10): the badge reads live sessions per account through it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -69,5 +71,6 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/ClaudeStatePath.swift \
   Tally/Core/AccountDirWatcher.swift Tally/Core/CoalescingGate.swift Tally/Core/AccountHomeListing.swift \
   Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreePool.swift Tally/Core/ProcessTreeRates.swift Tally/Core/ProcessTreeLine.swift \
-  Tally/Core/FootprintAlerts.swift Tally/Core/PickContract.swift
+  Tally/Core/FootprintAlerts.swift Tally/Core/PickContract.swift \
+  Tally/Core/ProbeCadence.swift TallyCLI/LiveRates.swift
 "$out"

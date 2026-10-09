@@ -207,7 +207,7 @@ func runRestartOwedChecks() {
         armCapResume(&state, pid: "42", log: log, now: wall.addingTimeInterval(4), reason: "cap",
                      fresh: false, cappedAt: wall, answeredAt: nil,
                      conversation: "0123456789abcdef", from: account("A"), to: account("B"),
-                     userTurnAt: nil, caughtUp: true, owed: owed, requiresLiveWork: gate)
+                     personTurnAt: nil, caughtUp: true, owed: owed, requiresLiveWork: gate)
         return state
     }
     let skipLog = dir.appendingPathComponent("skip.log")

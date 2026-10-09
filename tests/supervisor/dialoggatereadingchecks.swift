@@ -82,7 +82,7 @@ func runDialogGateReadingChecks() {
     var armed = CapResumeState()
     armed.arm(reason: "cap", fresh: false, cappedAt: now, answeredAt: now.addingTimeInterval(-10),
               conversation: "dg-conversation", from: acct("A", label: "Claude"),
-              to: acct("B", label: "Claude 2"), userTurnAt: nil, caughtUp: true)
+              to: acct("B", label: "Claude 2"), personTurnAt: nil, caughtUp: true)
     func resume(_ session: SupervisedState, dialog: Bool) -> CapResumeDecision {
         armed.decide(state: session, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                      relaunchPlanned: false, dialogPossible: dialog, draftSuspected: false,

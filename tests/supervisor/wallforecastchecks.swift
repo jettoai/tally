@@ -33,6 +33,13 @@ func runWallForecastChecks() {
     let reset = [BurnSample(at: tick.addingTimeInterval(-300), remaining: 5),
                  BurnSample(at: tick, remaining: 100)]
     check("C3. a window that came back up (a reset) is no forecast", burnSlope(reset, now: tick) == nil)
+    // Whole-percent readings a minute apart turn one point of rounding into a point a minute.
+    let close = [BurnSample(at: tick.addingTimeInterval(-60), remaining: 11),
+                 BurnSample(at: tick, remaining: 10)]
+    check("C2b. two samples a minute apart are no forecast", burnSlope(close, now: tick) == nil)
+    let fiveApart = [BurnSample(at: tick.addingTimeInterval(-300), remaining: 11),
+                     BurnSample(at: tick, remaining: 10)]
+    check("C2b. …while five minutes apart are", burnSlope(fiveApart, now: tick) != nil)
 
     // The whole forecast, through the rated windows and the history key mapping.
     let albert = Snapshot.Account(
@@ -66,13 +73,14 @@ func runWallForecastChecks() {
     }
     let tenLeft = acct("A", model: 10)
     let healthy = acct("B", model: 77)
-    func target(current: Snapshot.Account = tenLeft, agentsIdle: Bool = true,
+    func target(current: Snapshot.Account = tenLeft, candidates: [Snapshot.Account] = [healthy],
+                agentsIdle: Bool = true,
                 forecast: [String: Double] = ["A": 7.4], sessions: Int = 9,
                 claim: () -> Bool = { false }) -> Snapshot.Account? {
         turnBoundaryTarget(steering: true, mode: "auto", blocked: false, keyboardIdle: true,
                            draftSuspected: false, carryable: true, fuseAllows: true,
                            agentsIdle: agentsIdle, turnEnded: true, toolCallOpen: false,
-                           current: current, candidates: [healthy], primaryModel: "fable",
+                           current: current, candidates: candidates, primaryModel: "fable",
                            now: launch, forecast: { forecast[$0.id] }, sessionsOnCurrent: sessions,
                            claim: claim)
     }
@@ -83,10 +91,19 @@ func runWallForecastChecks() {
     check("C6. …and moves when it does", target(sessions: 1, claim: { true })?.id == "B")
     check("C7. a subagent still working holds it however near the wall",
           target(agentsIdle: false) == nil)
-    check("C8. a target 30 minutes from its own wall is not a refuge",
-          target(current: acct("A", model: 4), forecast: ["B": 30], claim: { true }) == nil)
-    check("C8. …while 41 minutes is", target(current: acct("A", model: 4), forecast: ["B": 41],
-                                            claim: { true })?.id == "B")
+    // C8. The target's own forecast is asked of an EARLY move only. An ordinary move (under the 5%
+    // line) is due now and takes the cap handoff's target; refusing it walls the session mid-turn
+    // and the cap handoff then lands on that same target.
+    check("C8. an ordinary move (4% left) is not refused by the target's own forecast",
+          target(current: acct("A", model: 4), forecast: ["B": 30], claim: { true })?.id == "B")
+    check("C8. …nor is a move off a spent account",
+          target(current: acct("A", model: 0), forecast: ["B": 30])?.id == "B")
+    let lesser = acct("C", model: 50)
+    check("C8. an early move skips a target 30 minutes from its wall and takes the next candidate",
+          target(candidates: [healthy, lesser], forecast: ["A": 7.4, "B": 30])?.id == "C")
+    check("C8. an early move with no refuge among the candidates stays",
+          target(forecast: ["A": 7.4, "B": 30]) == nil)
+    check("C8. …while 41 minutes is a refuge", target(forecast: ["A": 7.4, "B": 41])?.id == "B")
     check("C9. no forecast at all leaves a comfortable account where it is",
           target(forecast: [:], claim: { true }) == nil)
 
@@ -109,7 +126,7 @@ func runWallForecastChecks() {
                           now: launch, dir: logDir.appendingPathComponent("claims"))
     let logged = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("the station plans the early move", plan?.target.id == "B")
-    check("…and logs it for the replay to count",
+    check("…and logs it as an early move in handoff.log",
           logged.contains("early-move account=A minutes=7.4 sessions=9"))
     try? FileManager.default.removeItem(at: logDir)
 

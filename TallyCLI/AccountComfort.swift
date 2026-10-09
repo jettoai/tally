@@ -128,6 +128,11 @@ func preferringComfortable<T>(_ candidates: [T], now: Date,
 /// How close a reported weekly-cycle reset must be for its leftovers to count as about to be lost.
 let clearanceHorizon: TimeInterval = 24 * 60 * 60
 
+/// How many live conversations a clearance account takes at once. Its leftovers are a few
+/// percent, and on 2026-10-07 nine sessions on one thin account walled mid-turn together; two is
+/// the most that one clearance window should have to carry to its wall.
+let clearanceMaxSessions = 2
+
 /// One counted window as the clearance rule sees it. `resetsAt` is the reset the provider REPORTED,
 /// never an inferred anchor: "about to be lost" is a claim about a real reset.
 struct ClearanceWindow {
@@ -153,11 +158,15 @@ func clearanceLeftover(_ windows: [ClearanceWindow], now: Date) -> (remaining: D
     return leftover
 }
 
-/// The clearance account to take, or nil: most leftovers first, the earlier reset on a tie.
-func clearancePick<T>(_ candidates: [T], now: Date, windows: (T) -> [ClearanceWindow]) -> T? {
-    candidates.compactMap { candidate in
+/// The clearance account to take, or nil: most leftovers first, the earlier reset on a tie. One
+/// already carrying `clearanceMaxSessions` live conversations (`sessions`) takes no more; the count
+/// is asked only of accounts that qualify, so a field without one reads no state.
+func clearancePick<T>(_ candidates: [T], now: Date, windows: (T) -> [ClearanceWindow],
+                      sessions: (T) -> Int) -> T? {
+    let qualifying: [(T, (remaining: Double, resetsAt: Date))] = candidates.compactMap { candidate in
         clearanceLeftover(windows(candidate), now: now).map { (candidate, $0) }
-    }.max { lhs, rhs in
+    }
+    return qualifying.filter { sessions($0.0) < clearanceMaxSessions }.max { lhs, rhs in
         lhs.1.remaining != rhs.1.remaining ? lhs.1.remaining < rhs.1.remaining
             : lhs.1.resetsAt > rhs.1.resetsAt
     }?.0

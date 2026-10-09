@@ -13,16 +13,24 @@ let earlyMoveMinutes: Double = 20
 /// How far back the slope looks.
 let wallForecastLookback: TimeInterval = 15 * 60
 
+/// The shortest stretch a slope is read over. History percents are whole numbers, so two samples a
+/// minute apart turn one point of rounding into a point a minute, which reads 10% as ten minutes from
+/// the wall; over five minutes the same rounding is a fifth of that. The app samples every two to
+/// six minutes (p10 and p50 on this machine), so a real burn always spans this inside the lookback.
+let wallForecastMinSpan: TimeInterval = 5 * 60
+
 /// One reading of one (account, window): remaining percent at a moment.
 struct BurnSample: Equatable { let at: Date; let remaining: Double }
 
 /// Slope in percent per minute over the lookback, or nil when it cannot be read (fewer than two
-/// samples, or no fall). nil is "no forecast", which never moves anything.
+/// samples, fewer than `minSpan` between them, or no fall). nil is "no forecast", which never moves anything.
 func burnSlope(_ samples: [BurnSample], now: Date,
-               lookback: TimeInterval = wallForecastLookback) -> Double? {
+               lookback: TimeInterval = wallForecastLookback,
+               minSpan: TimeInterval = wallForecastMinSpan) -> Double? {
     let recent = samples.filter { now.timeIntervalSince($0.at) <= lookback && $0.at <= now }
         .sorted { $0.at < $1.at }
-    guard let first = recent.first, let last = recent.last, last.at > first.at,
+    guard let first = recent.first, let last = recent.last,
+          last.at.timeIntervalSince(first.at) >= minSpan,
           first.remaining > last.remaining else { return nil }
     return (first.remaining - last.remaining) / (last.at.timeIntervalSince(first.at) / 60)
 }

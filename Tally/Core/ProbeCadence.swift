@@ -47,21 +47,28 @@ enum ProbeCadence {
         }
     }
 
-    /// Account ids ("claude:.claude3") that a live supervised session is running on, read from the
+    /// How many live supervised sessions run on each account id ("claude:.claude3"), read from the
     /// supervisors' `.account` sidecars. A crashed supervisor's leftover file does not count.
-    static func liveAccountIDs(dir: URL = supervisorStateDir,
-                               isAlive: (pid_t) -> Bool = { supervisorPresenceIsLive(pid: $0) })
-        -> Set<String> {
+    static func liveAccountCounts(dir: URL = supervisorStateDir,
+                                  isAlive: (pid_t) -> Bool = { supervisorPresenceIsLive(pid: $0) })
+        -> [String: Int] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        var live = Set<String>()
+        var counts: [String: Int] = [:]
         for name in names where name.hasSuffix(".account") {
             guard let pid = pid_t(name.dropLast(".account".count)), pid > 0, isAlive(pid),
                   let raw = try? String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
             else { continue }
             let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !id.isEmpty { live.insert(id) }
+            if !id.isEmpty { counts[id, default: 0] += 1 }
         }
-        return live
+        return counts
+    }
+
+    /// Account ids that a live supervised session is running on (`liveAccountCounts`).
+    static func liveAccountIDs(dir: URL = supervisorStateDir,
+                               isAlive: (pid_t) -> Bool = { supervisorPresenceIsLive(pid: $0) })
+        -> Set<String> {
+        Set(liveAccountCounts(dir: dir, isAlive: isAlive).keys)
     }
 
     /// One provider's accounts for this round. `serial` (Claude) probes one account at a time,

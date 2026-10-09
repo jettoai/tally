@@ -22,12 +22,12 @@ func runCapResumeCarryChecks() {
 
     var armed = CapResumeState()
     armed.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: wall.addingTimeInterval(-10),
-              conversation: conversation, from: capped, to: sibling, userTurnAt: nil,
+              conversation: conversation, from: capped, to: sibling, personTurnAt: nil,
               caughtUp: true)
     var nudged = CapResumeState()
     nudged.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(-600),
                answeredAt: nil, conversation: conversation, from: capped, to: sibling,
-               userTurnAt: nil, caughtUp: true)
+               personTurnAt: nil, caughtUp: true)
     nudged.spend()
     nudged.noteTyped(at: wall.addingTimeInterval(-590))
     check("the fixtures are what they claim: one standing offer, one spent with a stamp",
@@ -119,7 +119,7 @@ func runCapResumeCarryChecks() {
     var spent = restored
     spent.spend()
     spent.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-              conversation: conversation, from: capped, to: sibling, userTurnAt: nil,
+              conversation: conversation, from: capped, to: sibling, personTurnAt: nil,
               caughtUp: true)
     check("the restored latch keeps one wall worth one line", !spent.isArmed)
 
@@ -138,7 +138,7 @@ func runCapResumeCarryChecks() {
     func raise(_ state: inout CapResumeState, caughtUp: Bool) {
         armCapResume(&state, pid: "42", log: log, now: stampNow, reason: "cap", fresh: false,
                      cappedAt: wall, answeredAt: nil, conversation: "0123456789abcdef",
-                     from: capped, to: sibling, userTurnAt: nil, caughtUp: caughtUp)
+                     from: capped, to: sibling, personTurnAt: nil, caughtUp: caughtUp)
     }
     var halfRead = CapResumeState()
     raise(&halfRead, caughtUp: false)
@@ -229,7 +229,7 @@ private func runCapResumeFinanceReplay() {
     state.arm(reason: "cap", fresh: false, cappedAt: cappedAt,
               answeredAt: old.lastMainChainEventAt, conversation: old.transcriptSessionID,
               from: acct("A", "Claude 0"), to: acct("B", "Claude 5"),
-              userTurnAt: old.lastUserTurnAt, caughtUp: old.caughtUp)
+              personTurnAt: old.lastUserTurnAt, caughtUp: old.caughtUp)
     check("finance: the handoff raises an offer", state.isArmed)
     // Across the exec, then the child that relaunch started (10:27:53), which sees the two
     // notifications that landed after it.

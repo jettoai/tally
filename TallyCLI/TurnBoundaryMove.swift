@@ -152,7 +152,8 @@ func turnBoundaryAllowedForSession(steering: Bool, mode: String, blocked: Bool, 
 /// the launch pick, the cap handoff, the idle rebalance and the dry-pool alert all draw), and a
 /// comfortable sibling exists, chosen by the same `capHandoffTarget`. One line across the product
 /// is the point; moving earlier than that is a one-constant change and belongs to whoever owns the
-/// policy, exactly as Rebalance.swift says.
+/// policy, exactly as Rebalance.swift says. An early move (above that line, moved by the
+/// forecast) also skips a candidate whose own forecast is within twice the early line.
 ///
 /// `claim` is last because it is the only gate with a side effect: asked earlier it would spend
 /// this account's one move of the cycle on a tick that then declines to move. It is not asked at
@@ -169,21 +170,31 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
                         sessionsOnCurrent: Int = 1,
                         claim: () -> Bool = { true }) -> Snapshot.Account? {
     func wallNear() -> Bool { forecast(current).map { $0 <= earlyMoveMinutes } ?? false }
+    // EARLY: still above the 5% line, moving only because the forecast says the wall is near
+    // (the same reading the station logs as `early-move`).
+    let early = accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves,
+                                     now: now) && wallNear()
+    // Only an early move may be choosy about where it lands: it has time to wait for a better
+    // turn. An ordinary move is due now, and its target is the one the cap handoff would take.
+    func refuge(_ account: Snapshot.Account) -> Bool {
+        forecast(account).map { $0 > 2 * earlyMoveMinutes } ?? true
+    }
     guard turnBoundaryAllowedForSession(steering: steering, mode: mode, blocked: blocked,
                                         keyboardIdle: keyboardIdle,
                                         draftSuspected: draftSuspected, carryable: carryable,
                                         fuseAllows: fuseAllows),
           agentsIdle, turnEnded, !toolCallOpen,
           // A clearance account (B-1360, AccountComfort.swift) is spending leftovers a reset is
-          // about to take: its sessions stay until the wall, and the cap handoff moves them then.
-          !isClearanceCandidate(current, primaryModel: primaryModel, reserves: reserves, now: now),
+          // about to take: its sessions stay until the wall, unless the wall is minutes away.
+          !isClearanceCandidate(current, primaryModel: primaryModel, reserves: reserves, now: now)
+              || wallNear(),
           // EARLY when the wall is near (WallForecast.swift), not only once under the 5% line.
           !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now)
               || wallNear(),
-          let target = capHandoffTarget(candidates, primaryModel: primaryModel,
-                                        reserves: reserves, now: now),
-          // A target that would itself be walking into a wall soon is not a refuge.
-          (forecast(target).map { $0 > 2 * earlyMoveMinutes } ?? true),
+          // Filtering the field rather than the pick is what makes a refused target fall through
+          // to the next candidate.
+          let target = capHandoffTarget(early ? candidates.filter(refuge) : candidates,
+                                        primaryModel: primaryModel, reserves: reserves, now: now),
           // Short-circuits, so an exempt move does not ignore the claim's answer: it never asks
           // and takes no record (`claimRebalanceCycle` says why that is the property that matters).
           // Several sessions on an account minutes from its wall cannot queue for one claim: on
@@ -426,15 +437,18 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
         claim: { cycle.map { claimRebalanceCycle(account.id, cycle: $0, dir: dir) } ?? false })
     else { return }
     let why = "(\(pickReason(moveTo, primaryModel: primaryModel)))"
-    // Early: the account is still above the 5% line and the forecast alone moved it.
-    if accountIsComfortable(field.current, primaryModel: primaryModel, reserves: reserves, now: now),
-       let minutes = forecast(field.current) {
+    // Early: the account is still above the 5% line and the forecast alone moved it, or it is a
+    // clearance account the gate above only lets go when the wall is minutes away.
+    let clearance = isClearanceCandidate(field.current, primaryModel: primaryModel,
+                                         reserves: reserves, now: now)
+    if accountIsComfortable(field.current, primaryModel: primaryModel, reserves: reserves, now: now)
+        || clearance, let minutes = forecast(field.current) {
         warn("\(account.label) about \(Int(minutes.rounded())) min from its limit, moving to "
             + "\(moveTo.label) at the end of this turn \(why)")
         if let log {
             appendHandoffLine("\(ISO8601DateFormatter().string(from: now)) early-move "
                 + "account=\(account.label) minutes=\(String(format: "%.1f", minutes)) "
-                + "sessions=\(sessions)\n", to: log)
+                + "sessions=\(sessions)" + (clearance ? " lane=clearance" : "") + "\n", to: log)
         }
     } else {
         warn("\(account.label) nearly dry, moving to \(moveTo.label) at the end of this turn \(why)")

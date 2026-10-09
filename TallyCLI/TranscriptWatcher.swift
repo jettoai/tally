@@ -132,6 +132,9 @@ struct TranscriptWatcher {
     /// refusal fails in the safe direction: a prompt that happens to contain one of these words is
     /// simply not counted, and the wait it would have ended lasts until the next prompt.
     var lastUserTurnAt: Date?
+    /// The newest user turns that passed the same tests as `lastUserTurnAt`, oldest first, so a
+    /// person's prompt is not hidden by an automatic line typed after it (AutomaticInput.swift).
+    var recentUserTurns: [Date] = []
     /// The newest post-launch stopped/killed background-work notice (`stoppedTaskNotice`).
     var lastStoppedTasks: StoppedTaskNotice?
     /// What this child still has running, post-launch (RestartLiveWork.swift). Per process: a

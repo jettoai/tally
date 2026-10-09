@@ -1,5 +1,9 @@
 import Foundation
 
+/// Wires the clearance lane's occupancy reader (`clearanceSessionCounter`) for every launch,
+/// prediction and supervisor this process runs. Called once at entry (main.swift).
+func wireClearanceSessionCounter() { clearanceSessionCounter = { liveSessionCount(onAccount: $0) } }
+
 /// How many LIVE supervisors have their child on `accountID` right now, read from the per-pid
 /// account files (`supervisorAccountFile`). A file whose pid is gone is not counted: the sweep that
 /// removes it runs when the supervisor dies (PendingNotice.swift) and can lag.

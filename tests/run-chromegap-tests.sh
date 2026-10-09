@@ -78,7 +78,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/SessionAddressLookup.swift \
   TallyCLI/SessionClear.swift \
   TallyCLI/SessionContext.swift \
-  TallyCLI/SessionInput.swift \
+  TallyCLI/SessionInput.swift TallyCLI/AutomaticInput.swift \
   TallyCLI/SessionInputAutomatic.swift \
   TallyCLI/SessionInputCommand.swift \
   TallyCLI/SessionInputDraft.swift \

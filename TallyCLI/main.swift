@@ -244,17 +244,17 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
     // Skip an account another session just saw cap: the snapshot lags the real cap, so its
     // percentage still reads healthy and picking it would drop a fresh session onto the wall that
-    // just failed. `launchPick` also carries the "quarantine left nothing, launch anyway" fallback,
-    // and is what `tally status` and the app's badge predict this launch with.
+    // just failed. `launchPick` carries the "quarantine left nothing, launch anyway" fallback; the
+    // start mode is settled before its clearance lane may take the launch (`settleLaunch`).
     let quarantined = quarantinedAccounts(forPrimary: primaryModel)
     // A field the reserves emptied is a refusal, said with when it ends (B-1213); only
     // `--spend-reserve` ranks it again without them, and the dip notice below says so.
-    guard let account = launchPick(providerID: provider.id, in: snapshot,
-                                   primaryModel: primaryModel, quarantined: quarantined,
-                                   reserves: reserves)
-        ?? (spendReserve ? launchPick(providerID: provider.id, in: snapshot,
-                                      primaryModel: primaryModel, quarantined: quarantined)
-                         : nil) else {
+    guard case let (account, args)? = settleLaunch(providerID: provider.id, pick: { empty in
+        let pick = { launchPick(providerID: provider.id, in: snapshot,
+                                primaryModel: primaryModel, quarantined: quarantined,
+                                reserves: $0, emptyConversation: empty) }
+        return pick(reserves) ?? (spendReserve ? pick(.none) : nil)
+    }, startArgs: { startModeArgs(passthrough, home: $0) }) else {
         if let hold = reserveHoldout(providerID: provider.id, in: snapshot,
                                      primaryModel: primaryModel, reserves: reserves) {
             warn(reserveHoldNotice(hold, providerID: provider.id)); exit(1)
@@ -267,7 +267,6 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         warn(dip)
     }
     warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
-    let args = startModeArgs(passthrough, home: account.launchHome!)
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
     // `--account` pin or `--no-handoff` opts out. Codex interactive sessions monitor only.
     if provider.id == "claude", wantsHandoff {
@@ -407,6 +406,7 @@ func runStatus(json: Bool = false) {
 
 // MARK: - Entry
 
+wireClearanceSessionCounter()
 let arguments = Array(CommandLine.arguments.dropFirst())
 if let word = arguments.first, let code = runHookSubcommand(word, Array(arguments.dropFirst())) {
     exit(code)

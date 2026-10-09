@@ -27,7 +27,7 @@ func capResumeArmedLine(pid: String, offer: CapResumeState.Offer, now: Date = Da
 func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = sessionInputLog,
                   now: Date = Date(), reason: String, fresh: Bool, cappedAt: Date?,
                   answeredAt: Date?, conversation: String?, from: Snapshot.Account,
-                  to: Snapshot.Account, userTurnAt: Date?, caughtUp: Bool, owed: Bool = true,
+                  to: Snapshot.Account, personTurnAt: Date?, caughtUp: Bool, owed: Bool = true,
                   requiresLiveWork: Bool = capResumeRequiresLiveWork) {
     let before = state.offer
     // An arm the owed gate alone refused says so (grep `cap-resume-skipped`): the same call with
@@ -35,7 +35,7 @@ func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = session
     if !owed, requiresLiveWork {
         var probe = state
         probe.arm(reason: reason, fresh: fresh, cappedAt: cappedAt, answeredAt: answeredAt,
-                  conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
+                  conversation: conversation, from: from, to: to, personTurnAt: personTurnAt,
                   caughtUp: caughtUp)
         if probe.offer != before {
             appendSessionInputLine("\(ISO8601DateFormatter().string(from: now)) pid=\(pid) "
@@ -45,16 +45,19 @@ func armCapResume(_ state: inout CapResumeState, pid: String, log: URL = session
     }
     // A wall the budget alone refused says so (grep `cap-resume-skipped reason=budget`): until
     // B-1360 that refusal was silent, and three unresumed walls took a log dig to attribute.
-    if capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
+    // Only when the owed gate passes, as `arm`'s first guard says: a wall with no live work was
+    // never going to be resumed, and it already left its own `reason=no-live-work` line.
+    if owed || !requiresLiveWork,
+       capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
                             answeredAt: answeredAt),
        caughtUp,
-       state.refusedByBudget(conversation: conversation, userTurnAt: userTurnAt,
+       state.refusedByBudget(conversation: conversation, personTurnAt: personTurnAt,
                              cappedAt: cappedAt) {
         appendSessionInputLine("\(ISO8601DateFormatter().string(from: now)) pid=\(pid) "
                                    + "input=\(capResumeSkippedOutcome) reason=budget\n", to: log)
     }
     state.arm(reason: reason, fresh: fresh, cappedAt: cappedAt, answeredAt: answeredAt,
-              conversation: conversation, from: from, to: to, userTurnAt: userTurnAt,
+              conversation: conversation, from: from, to: to, personTurnAt: personTurnAt,
               caughtUp: caughtUp, owed: owed, requiresLiveWork: requiresLiveWork)
     if let offer = state.offer, offer != before {
         appendSessionInputLine(capResumeArmedLine(pid: pid, offer: offer, now: now), to: log)
@@ -84,26 +87,26 @@ let capResumeBudgetWindow: TimeInterval = 2 * 60 * 60
 /// and a self-update, because a fresh child has seen nobody and a cross-session message is not a
 /// person (2026-10-07: three walls, waits of 8 minutes, 58 minutes and two hours).
 ///
-/// A person who typed after the newest nudge resets the budget: the recursion this guards against
-/// is a loop with nobody in it. The margin (`capResumeOwnLineGrace`) is there because the resume
-/// line itself becomes a user turn. Measured at the WALL, not the tick.
+/// A person's turn after the newest nudge resets the budget: the recursion this guards against is
+/// a loop with nobody in it. `personTurnAt` is `lastPersonTurn` (AutomaticInput.swift): a turn
+/// Tally's own typing accounts for (this line, a knock, a `tally session send`), or one from a
+/// stretch the ledger knows nothing about, is not a person. Measured at the WALL, not the tick.
 func capResumeWithinBudget(conversation: String, nudgedConversation: String?, nudges: [Date],
-                           userTurnAt: Date?, at wall: Date, budget: Int = capResumeBudget,
-                           window: TimeInterval = capResumeBudgetWindow,
-                           grace: TimeInterval = capResumeOwnLineGrace) -> Bool {
+                           personTurnAt: Date?, at wall: Date, budget: Int = capResumeBudget,
+                           window: TimeInterval = capResumeBudgetWindow) -> Bool {
     guard nudgedConversation == conversation, let last = nudges.last else { return true }
-    if let userTurnAt, userTurnAt.timeIntervalSince(last) > grace { return true }
+    if let personTurnAt, personTurnAt > last { return true }
     return nudges.filter { wall.timeIntervalSince($0) < window }.count < budget
 }
 
 extension CapResumeState {
     /// Whether `arm` would refuse this wall ONLY because the budget is spent (for the audit line).
-    func refusedByBudget(conversation: String?, userTurnAt: Date?, cappedAt: Date?) -> Bool {
+    func refusedByBudget(conversation: String?, personTurnAt: Date?, cappedAt: Date?) -> Bool {
         guard let conversation, let cappedAt,
               capResumeFreshCap(cappedAt: cappedAt, lastCapAt: lastCapAt) else { return false }
         return !capResumeWithinBudget(conversation: conversation,
                                       nudgedConversation: nudgedConversation, nudges: nudges,
-                                      userTurnAt: userTurnAt, at: cappedAt)
+                                      personTurnAt: personTurnAt, at: cappedAt)
     }
 }
 

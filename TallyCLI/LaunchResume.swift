@@ -231,6 +231,28 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
     }
 }
 
+/// The account a launch lands on and the args it runs, with the start mode decided FIRST: only a
+/// launch that opens a new conversation may take a clearance account (`launchPick`), because a
+/// resumed one would stay there until the wall (B-1360 line-close review). The start mode is asked
+/// once, against the RANKED pick's home: Claude's transcripts are shared across homes, and an
+/// unshared Codex home that finds nothing there opens a new conversation wherever it lands.
+func settleLaunch(providerID: String, pick: (_ emptyConversation: Bool) -> Snapshot.Account?,
+                  startArgs: (_ home: String) -> [String])
+    -> (account: Snapshot.Account, args: [String])? {
+    guard let ranked = pick(false) else { return nil }
+    let args = startArgs(ranked.launchHome!)
+    guard opensNewConversation(args, providerID: providerID) else { return (ranked, args) }
+    return (pick(true) ?? ranked, args)
+}
+
+/// Whether finished launch args open a new conversation. Anything that names one to resume says no,
+/// and a Codex prompt whose first word is "resume" or "fork" reads as one too: the miss ranks.
+func opensNewConversation(_ args: [String], providerID: String) -> Bool {
+    let options = optionsOnly(args)
+    if providerID == "codex" { return !["resume", "fork"].contains(codexFirstPositional(options) ?? "") }
+    return !options.contains(where: { ["--resume", "-r", "--continue", "-c"].contains($0) })
+}
+
 /// The conversation a hand-typed `--resume <id>` / `-r <id>` or `--continue` / `-c` names, or nil
 /// when there is none or it cannot be told.
 ///

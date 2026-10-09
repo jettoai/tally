@@ -91,6 +91,10 @@ try! "claude:.claude4".write(to: dir.appendingPathComponent("222.account"), atom
 try! "claude:.claude5".write(to: dir.appendingPathComponent("333.state"), atomically: true, encoding: .utf8)
 let live = ProbeCadence.liveAccountIDs(dir: dir, isAlive: { $0 == 111 })
 check("A9 only a live supervisor's .account file names a live account", live == ["claude:.claude3"])
+try! "claude:.claude3".write(to: dir.appendingPathComponent("444.account"), atomically: true, encoding: .utf8)
+check("liveAccountCounts counts two live sessions on one account",
+      ProbeCadence.liveAccountCounts(dir: dir, isAlive: { [111, 222, 444].contains($0) })
+          == ["claude:.claude3": 2, "claude:.claude4": 1])
 try? FileManager.default.removeItem(at: dir)
 
 func account(_ id: String) -> ProviderAccount {

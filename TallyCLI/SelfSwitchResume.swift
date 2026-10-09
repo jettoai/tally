@@ -102,12 +102,13 @@ func switchResumeArmedLine(pid: String, offer: CapResumeState.Offer, now: Date =
 /// relaunch from a `session` writer ever needs it.
 ///
 /// `userTurnAt` is the OLD child's reading: a person who said anything after the command was run
-/// is there, and the move is theirs to follow up.
+/// is there, and the move is theirs to follow up. `personTurnAt` is the budget's reading
+/// (`lastPersonTurn`), which only the anti-recursion budget asks.
 func armSwitchResume(_ state: inout CapResumeState, pid: String, log: URL = sessionInputLog,
                      now: Date = Date(), reason: String, fresh: Bool,
                      served: PendingSwitchConsumption?, tail: () -> String?,
                      conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
-                     userTurnAt: Date?, caughtUp: Bool) {
+                     userTurnAt: Date?, personTurnAt: Date?, caughtUp: Bool) {
     guard reason == "switch", let served, served.origin == .session else { return }
     let requestedAt = Date(timeIntervalSince1970: Double(served.epoch) / 1000)
     guard userTurnAt.map({ $0 <= requestedAt }) ?? true,
@@ -115,7 +116,7 @@ func armSwitchResume(_ state: inout CapResumeState, pid: String, log: URL = sess
     let line = switchResumeMessage(from: from, to: to)
     let before = state.offer
     state.armSwitch(at: requestedAt, fresh: fresh, conversation: conversation, line: line,
-                    userTurnAt: userTurnAt, caughtUp: caughtUp)
+                    personTurnAt: personTurnAt, caughtUp: caughtUp)
     if let offer = state.offer, offer != before {
         appendSessionInputLine(switchResumeArmedLine(pid: pid, offer: offer, now: now), to: log)
     }

@@ -94,7 +94,10 @@ struct SettingsAccountsView: View {
                 ProviderIconView(providerID: id, size: 14)
             } trailing: {
                 if settings.isEnabled(id) { addAccountButton(id) }
-                providerToggle(id)
+                Text(String(format: L("Track %@"), name))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                headerToggleSlot(providerToggle(id))
             }
             // Re-asked whenever the list or its order changes: the first account is the primary.
             .task(id: items.map(\.id) + items.compactMap(\.launchHome)) {

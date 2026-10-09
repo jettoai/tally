@@ -123,12 +123,17 @@ struct SettingsEarlyStartRow: View {
         .padding(.vertical, 8)
     }
 
+    /// Named like every other row, so the day's count reads as a reading of the relay rather
+    /// than a stray caption left under the quiet hours.
     private var tallyRow: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(tallyText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Relay today")).font(.subheadline)
+                Text(tallyText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)

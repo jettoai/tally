@@ -107,16 +107,8 @@ final class SettingsWindowController {
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = Self.makeWindow(hosting)
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
-            // Dev flavour says so in the title bar strip, top right over the pane - visible from
-            // every pane, not just About. Same chip as the panel header, as a titlebar accessory.
-            if BuildVariant.isDev {
-                let badge = NSHostingView(rootView: DevTitlebarBadge())
-                badge.frame.size = badge.fittingSize
-                let accessory = NSTitlebarAccessoryViewController()
-                accessory.view = badge
-                accessory.layoutAttribute = .trailing
-                window.addTitlebarAccessoryViewController(accessory)
-            }
+            // No titlebar DEV chip: the About card already says DEV beside the version, and two
+            // marks for one fact read as two facts (B-1355).
             // No title bar of its own (B-1355, System Settings' shape): the content runs to the top
             // edge, the sidebar colour carries up behind the traffic lights, and the pane names the
             // section, so the window title stays only for the Window menu and Cmd-Tab. The strip
@@ -175,6 +167,10 @@ final class SettingsWindowController {
         } else {
             window?.orderFront(nil)
         }
+        // Nothing starts focused (same rule as `bringToFrontIfVisible`): AppKit hands the first
+        // text field the focus as the window comes up, which put a caret in the Launch pane's
+        // fallback-args field on every open. A turn later, after that hand-off has happened.
+        DispatchQueue.main.async { [weak self] in self?.window?.makeFirstResponder(nil) }
     }
 
     /// Bring the (already open) window along when another Tally window takes the stage - macOS
@@ -260,19 +256,6 @@ final class SettingsWindowController {
             let writer: NSWindow = animated ? window.animator() : window
             writer.setFrame(frame, display: true)
         }, completionHandler: { MainActor.assumeIsolated { completion?() } })   // AppKit calls it on main
-    }
-}
-
-/// The dev chip for the settings titlebar - same mark as the panel header's, so every surface
-/// of a test instance carries the one recognizable tag.
-private struct DevTitlebarBadge: View {
-    var body: some View {
-        Text(verbatim: "DEV")
-            .font(.system(size: 9, weight: .heavy))
-            .foregroundStyle(TallyColor.warning)
-            .padding(.horizontal, 4).padding(.vertical, 1)
-            .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
-            .padding(.trailing, 8)
     }
 }
 

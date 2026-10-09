@@ -8,6 +8,11 @@ enum SettingsChrome {
     static let sidebarWidth: CGFloat = 180
     static let sidebar = adaptive(light: 0xEBEBED, dark: 0x28282A)
     static let page = adaptive(light: 0xF3F3F5, dark: 0x1C1C1E)
+    /// The "Sign in again" chip: a dark red on a pale wash in light mode, a pale red on a deep one in
+    /// dark. 6.4:1 and 7.5:1 (WCAG AA wants 4.5:1); the severity red over its own 15% wash, which
+    /// this replaced, measured 3.3:1 and 3.0:1.
+    static let signInText = adaptive(light: 0xA31F1A, dark: 0xFFB4AE)
+    static let signInFill = adaptive(light: 0xFDE7E5, dark: 0x5C1E1B)
 
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

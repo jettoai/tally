@@ -29,23 +29,18 @@ extension SettingsAccountsView {
             .font(.caption2)
             .foregroundStyle(.secondary)
         case .needsSignIn:
-            Button { renew.renew(accountID: item.id) } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
-                    Text(L("Sign in again")).lineLimit(1)
+            Group {
+                // Where no renewal can start (a demo fixture has no config home behind it) the chip
+                // is a plain label rather than a disabled button: the state still has to read at
+                // full contrast, and the system's disabled dimming took it to 2.4:1.
+                if renew.canRenew(accountID: item.id, providerID: item.providerID,
+                                  home: item.launchHome) {
+                    Button { renew.renew(accountID: item.id) } label: { signInChip }
+                        .buttonStyle(.plain)
+                } else {
+                    signInChip
                 }
-                .fixedSize()
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(TallyColor.critical)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(TallyColor.critical.opacity(0.15)))
-                .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
-            // Greyed where the menu entry is: a demo fixture has no config home behind it, so a
-            // chip must never look more able than the action it starts.
-            .disabled(!renew.canRenew(accountID: item.id, providerID: item.providerID,
-                                      home: item.launchHome))
             // Tally's own callout rather than the system box this row used to hand back: the panel
             // answers every hover in the app's own chip, and one native tooltip in the middle of a
             // pane full of them reads as a different application (owner's report, 2026-08-24). Two
@@ -57,6 +52,20 @@ extension SettingsAccountsView {
             .tallyTooltipAroundControl(rowOwner(item, usage: usage),
                                        detail: L(AccountSignIn.detailKey(isDormant: item.isDormant)))
         }
+    }
+
+    /// The "Sign in again" chip, in colours that hold 4.5:1 in both appearances (SettingsChrome).
+    private var signInChip: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
+            Text(L("Sign in again")).lineLimit(1)
+        }
+        .fixedSize()
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(SettingsChrome.signInText)
+        .padding(.horizontal, 5).padding(.vertical, 1)
+        .background(Capsule().fill(SettingsChrome.signInFill))
+        .contentShape(Capsule())
     }
 
     /// Whose row this is, in the words the row itself shows: the signed-in address when the store

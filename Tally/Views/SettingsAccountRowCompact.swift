@@ -20,6 +20,12 @@ extension SettingsAccountsView {
         static let actions: CGFloat = 16
     }
 
+    /// The provider switch in its section header, placed in the rows' "Enabled" column: the same
+    /// width, and the row's trailing inset, actions column and the spacing before it to its right.
+    func headerToggleSlot(_ toggle: some View) -> some View {
+        toggle.frame(width: Column.toggle).padding(.trailing, 12 + 6 + Column.actions)
+    }
+
     /// The column names over a card's rows, in the row's own grid.
     func compactHeader() -> some View {
         HStack(spacing: 6) {
@@ -115,9 +121,16 @@ extension SettingsAccountsView {
                 }
                 .frame(width: Column.name, alignment: .leading)
 
-                Text(email ?? "")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                // No address: the config home in its place, faint and small, so two rows given the
+                // same nickname can still be told apart without hovering.
+                Group {
+                    if let email {
+                        Text(email).font(.system(size: 12)).foregroundStyle(.secondary)
+                    } else {
+                        Text(home(of: item).map { AccountIdentity.homeName($0) } ?? "")
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
+                }
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)

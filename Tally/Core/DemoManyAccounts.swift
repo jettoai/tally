@@ -42,6 +42,10 @@ extension DemoUsage {
             if !name.hasSuffix(" \(number)") {
                 copy.accountEmail = name.lowercased().filter { $0.isLetter } + "@example.com"
             }
+            // Two shapes the row has to hold: a 32-character address that must not be cut, and a
+            // nicknamed login that never reported one (its row names the config home instead).
+            if name == "Research" { copy.accountEmail = "albert.liu.long.test@example.com" }
+            if name == "Night shift" { copy.accountEmail = nil }
             return copy
         }
 

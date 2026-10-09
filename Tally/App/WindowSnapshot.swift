@@ -108,15 +108,18 @@ enum WindowSnapshot {
 
     /// A background launch can leave a window at its minimum height with its content scrolled out of
     /// sight (the Settings height report never arrived, 2026-10-10, old builds alike). Before the
-    /// shutter, each window with a scroll view is grown to that scroll view's content, capped by
-    /// the screen; the launch quits right after, so nothing else ever sees the frame.
+    /// shutter, each window with a scroll view is grown to that scroll view's content, past the
+    /// screen if the page is taller than it (a capture is of the whole page; the part off screen
+    /// is drawn by `selfDrawn`); the launch quits right after, so nothing else ever sees the frame.
     @MainActor private static func growToContent() {
         for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) {
             guard let scroll = firstScrollView(in: window.contentView),
-                  let content = scroll.documentView,
-                  let screen = window.screen ?? NSScreen.main else { continue }
-            let chrome = window.frame.height - scroll.frame.height
-            let wanted = min(content.frame.height + chrome, screen.visibleFrame.height - 40)
+                  let content = scroll.documentView else { continue }
+            // The titlebar strip as `SettingsWindowController.fitHeight` measures it: with a
+            // full-size content view the scroll view spans the whole frame, so frame minus scroll
+            // read 0 and the shot came out one titlebar short.
+            let chrome = window.frame.height - window.contentLayoutRect.height
+            let wanted = content.frame.height + chrome
             guard wanted > window.frame.height + 1 else { continue }
             var frame = window.frame
             frame.origin.y -= wanted - frame.height

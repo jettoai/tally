@@ -46,19 +46,40 @@ func runClearanceMoveChecks() {
                            now: launch) == nil)
 
     // A9: the movers of a LIVE conversation never take it.
-    func rebalance(_ candidates: [Snapshot.Account]) -> String? {
+    func rebalance(_ candidates: [Snapshot.Account], on current: Snapshot.Account = dying)
+        -> String? {
         rebalanceTarget(steering: true, mode: "auto", blocked: false, agentsWorking: false,
-                        isQuiet: true, carryable: true, fuseAllows: true, current: dying,
+                        isQuiet: true, carryable: true, fuseAllows: true, current: current,
                         candidates: candidates, primaryModel: nil, now: launch)?.id
     }
-    func turnBoundary(_ candidates: [Snapshot.Account]) -> String? {
+    func turnBoundary(_ candidates: [Snapshot.Account], on current: Snapshot.Account = dying,
+                      forecast: @escaping (Snapshot.Account) -> Double? = { _ in nil },
+                      sessions: Int = 1) -> String? {
         turnBoundaryTarget(steering: true, mode: "auto", blocked: false, keyboardIdle: true,
                            draftSuspected: false, carryable: true, fuseAllows: true,
-                           agentsIdle: true, turnEnded: true, toolCallOpen: false, current: dying,
-                           candidates: candidates, primaryModel: nil, now: launch)?.id
+                           agentsIdle: true, turnEnded: true, toolCallOpen: false,
+                           current: current, candidates: candidates, primaryModel: nil,
+                           now: launch, forecast: forecast, sessionsOnCurrent: sessions)?.id
     }
     check("A9 the idle rebalance does not move a conversation onto a clearance account",
           rebalance([clearance]) == nil && rebalance([clearance, healthy]) == "B")
     check("A9 the turn-boundary move does not move a conversation onto a clearance account",
           turnBoundary([clearance]) == nil && turnBoundary([clearance, healthy]) == "B")
+
+    // AND A SESSION ALREADY ON ONE STAYS: neither preventive mover takes it off (round 2). Without
+    // this the empty window a launch put there was moved straight back after 120s of idle, or at
+    // its first turn boundary once the burn forecast (3% left is always minutes) said the wall
+    // was near. The wall itself still moves it, through the cap handoff, which is untouched.
+    let wallIn7 = { (account: Snapshot.Account) -> Double? in account.id == "A" ? 7 : nil }
+    check("a clearance account's idle session is not rebalanced away",
+          rebalance([healthy], on: onClearance) == nil)
+    check("a clearance account's session is not moved early at a turn boundary",
+          turnBoundary([healthy], on: onClearance, forecast: wallIn7, sessions: 2) == nil)
+    // The exemption is the clearance rule and not "any dry account": 3% resetting in 30 hours is
+    // not about to be lost, so both movers still carry it off.
+    let dryFar = acct("A", weekly: 3, weeklyIn: 30)
+    check("a 3% week resetting in 30 hours is still rebalanced away",
+          rebalance([healthy], on: dryFar) == "B")
+    check("…and still moved early at a turn boundary",
+          turnBoundary([healthy], on: dryFar, forecast: wallIn7, sessions: 2) == "B")
 }

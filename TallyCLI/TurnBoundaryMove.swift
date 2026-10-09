@@ -174,6 +174,9 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
                                         draftSuspected: draftSuspected, carryable: carryable,
                                         fuseAllows: fuseAllows),
           agentsIdle, turnEnded, !toolCallOpen,
+          // A clearance account (B-1360, AccountComfort.swift) is spending leftovers a reset is
+          // about to take: its sessions stay until the wall, and the cap handoff moves them then.
+          !isClearanceCandidate(current, primaryModel: primaryModel, reserves: reserves, now: now),
           // EARLY when the wall is near (WallForecast.swift), not only once under the 5% line.
           !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now)
               || wallNear(),

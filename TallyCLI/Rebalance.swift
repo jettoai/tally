@@ -409,6 +409,9 @@ func rebalanceTarget(steering: Bool, mode: String, blocked: Bool, agentsWorking:
     guard rebalanceAllowedForSession(steering: steering, mode: mode, blocked: blocked,
                                      agentsWorking: agentsWorking, isQuiet: isQuiet,
                                      carryable: carryable, fuseAllows: fuseAllows),
+          // A clearance account (B-1360, AccountComfort.swift) is spending leftovers a reset is
+          // about to take: its sessions stay until the wall, and the cap handoff moves them then.
+          !isClearanceCandidate(current, primaryModel: primaryModel, reserves: reserves, now: now),
           !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel,
                                         reserves: reserves, now: now),

@@ -31,7 +31,9 @@ extension SettingsAccountsView {
                     showsExpiry: signIn == .signedIn)
             }
             .layoutPriority(1)
-            Spacer(minLength: 12)
+            // Fills the row instead of sitting beside a Spacer: that spacer's minimum plus its
+            // extra gap cost 24pt the address line needs ("clientacme@example.com" was cut).
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Always laid out (dimmed + inert when the account is off) so toggling never shifts
             // the controls around.

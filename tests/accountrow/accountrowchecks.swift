@@ -855,6 +855,22 @@ func runAccountRowChecks() {
     check("the primary is never marked against itself",
           paneSource.contains("report: primary?.id == item.id ? nil : sharing[item.id]"))
 
+    // MARK: - The compact row's two usage columns, matched by kind
+
+    func metric(_ kind: MetricKind) -> UsageMetric {
+        UsageMetric(id: kind.rawValue, kind: kind, label: kind.rawValue, modelName: nil,
+                    usedPercent: 40, severity: .normal, resetsAt: nil, isActive: false)
+    }
+    let weeklyOnly = UsageMetric.columns([metric(.weeklyAll)])
+    check("a weekly-only plan fills the weekly column and leaves 5h empty",
+          weeklyOnly.session == nil && weeklyOnly.weekly?.kind == .weeklyAll)
+    let both = UsageMetric.columns([metric(.weeklyModel), metric(.weeklyAll), metric(.session)])
+    check("each window lands under its own header whatever the order",
+          both.session?.kind == .session && both.weekly?.kind == .weeklyAll)
+    check("the compact row reads its columns by kind, not by position",
+          readSource("Tally/Views/SettingsAccountRowCompact.swift")
+              .contains("UsageMetric.columns(usage.metrics)"))
+
     print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
     exit(failed == 0 ? 0 : 1)
 }

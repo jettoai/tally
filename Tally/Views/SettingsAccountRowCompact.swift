@@ -171,9 +171,15 @@ extension SettingsAccountsView {
                     Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         .tallyTooltip(error)
                 } else {
+                    let columns = UsageMetric.columns(usage.metrics)
                     HStack(spacing: 6) {
-                        ForEach(usage.metrics.filter { !$0.isModelScoped }.prefix(2)) { metric in
-                            usageCell(metric, usage)
+                        // Each window under its own header; a missing one keeps its width empty.
+                        ForEach([columns.session, columns.weekly].indices, id: \.self) { index in
+                            if let metric = [columns.session, columns.weekly][index] {
+                                usageCell(metric, usage)
+                            } else {
+                                Color.clear.frame(width: Column.cell, height: 1)
+                            }
                         }
                     }
                     .frame(width: Column.usage, alignment: .leading)

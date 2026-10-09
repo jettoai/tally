@@ -48,6 +48,13 @@ struct UsageMetric: Identifiable, Hashable, Sendable, Codable {
 
     var remainingPercent: Double { max(0, 100 - usedPercent) }
     var isModelScoped: Bool { kind == .weeklyModel }
+
+    /// The 5-hour and weekly windows by kind, each nil when the provider did not report it, so a
+    /// column headed "5h" never shows the weekly figure of a plan that has only a weekly limit
+    /// (a ChatGPT Plus account on Codex).
+    static func columns(_ metrics: [UsageMetric]) -> (session: UsageMetric?, weekly: UsageMetric?) {
+        (metrics.first { $0.kind == .session }, metrics.first { $0.kind == .weeklyAll })
+    }
 }
 
 extension Array where Element == UsageMetric {

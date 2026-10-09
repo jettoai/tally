@@ -22,7 +22,17 @@ struct AccountHomeTag: View {
         let path = AccountIdentity.homeName(home)
         if let report, let tag = report.tag {
             let detail = Self.detail(report)
-            Image(systemName: "link").modifier(HomeStyle()).help(detail)
+            // The compact rows' mark (SettingsAccountRowCompact.sharedMark): a filled accent disc
+            // for the whole setup, the plain grey link for part of it.
+            if tag == .shared {
+                Image(systemName: "link.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .layoutPriority(1)
+                    .help(detail)
+            } else {
+                Image(systemName: "link").modifier(HomeStyle()).help(detail)
+            }
             Text(path).modifier(HomeStyle()).help(detail)
             Text("· " + String(format: L(tag == .shared ? "Shared with %@" : "Partly shared with %@"),
                                primaryName))

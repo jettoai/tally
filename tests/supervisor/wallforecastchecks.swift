@@ -33,6 +33,12 @@ func runWallForecastChecks() {
     let reset = [BurnSample(at: tick.addingTimeInterval(-300), remaining: 5),
                  BurnSample(at: tick, remaining: 100)]
     check("C3. a window that came back up (a reset) is no forecast", burnSlope(reset, now: tick) == nil)
+    let sinceReset = [BurnSample(at: tick.addingTimeInterval(-600), remaining: 5),
+                      BurnSample(at: tick.addingTimeInterval(-540), remaining: 100),
+                      BurnSample(at: tick.addingTimeInterval(-240), remaining: 96),
+                      BurnSample(at: tick, remaining: 90)]
+    check("C3b. five minutes after a reset the new cycle's burn is forecast (1.11 points a minute)",
+          burnSlope(sinceReset, now: tick).map { abs($0 - 10.0 / 9) < 0.01 } ?? false)
     // Whole-percent readings a minute apart turn one point of rounding into a point a minute.
     let close = [BurnSample(at: tick.addingTimeInterval(-60), remaining: 11),
                  BurnSample(at: tick, remaining: 10)]
@@ -147,6 +153,19 @@ func runWallForecastChecks() {
           liveSessionCount(onAccount: "claude:.claude3", dir: stateDir) == 2)
     check("C10. …and none on another account",
           liveSessionCount(onAccount: "claude:.claude4", dir: stateDir) == 0)
+    // Every reading that fails is unknown (nil), which every caller reads as full.
+    let ownFile = supervisorAccountFile(pid: String(getpid()), dir: stateDir)
+    chmod(ownFile.path, 0)
+    check("C10. a live supervisor's account file that cannot be read is unknown",
+          liveSessionCount(onAccount: "claude:.claude3", dir: stateDir) == nil)
+    chmod(ownFile.path, 0o644)
+    chmod(stateDir.path, 0)
+    check("C10. a state directory that cannot be listed is unknown",
+          liveSessionCount(onAccount: "claude:.claude3", dir: stateDir) == nil)
+    chmod(stateDir.path, 0o755)
+    check("C10. a state directory nobody has written yet is a real zero",
+          liveSessionCount(onAccount: "claude:.claude3",
+                           dir: stateDir.appendingPathComponent("absent")) == 0)
     try? FileManager.default.removeItem(at: stateDir)
 
     // MARK: - C11. Reading the history tail

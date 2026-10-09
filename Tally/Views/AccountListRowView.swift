@@ -412,6 +412,8 @@ struct AccountListRowView: View {
             }
         }
         .frame(width: Self.badgeWidth)
+        // Air between the last figure and the glyph: without it "61%" and the sparkle touched.
+        .padding(.leading, 3)
     }
 
     private var pinToggle: some View {

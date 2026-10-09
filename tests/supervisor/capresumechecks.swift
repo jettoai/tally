@@ -831,4 +831,14 @@ func runCapResumeBudgetChecks() {
     switchedElsewhere.armSwitch(at: fourth, fresh: false, conversation: "other-conversation",
                                 line: "x", personTurnAt: nil, caughtUp: true)
     check("…while one in another conversation does", switchedElsewhere.isArmed)
+
+    // THE SUPERVISOR'S OWN WIRE (B-1360 R4): the cells above hand `arm` a person turn directly, so
+    // the reading the live loop passes is asserted as source. It must be the person turn the
+    // automatic-input ledger leaves, never the raw last user turn a typed resume line also is.
+    let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    let personArgs = loop.components(separatedBy: "personTurnAt: ").dropFirst()
+        .map { $0.prefix { $0 != "," && $0 != ")" } }
+    check("B1360-R4 the supervisor arms the cap resume with the ledger's person turn",
+          loop.contains("lastPersonTurn(watcher.recentUserTurns,")
+              && !personArgs.isEmpty && personArgs.allSatisfy { $0 == "personTurn" })
 }

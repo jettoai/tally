@@ -6,7 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/statusjson/main.swift tests/statusjson/resetpassedchecks.swift tests/statusjson/capweightchecks.swift tests/statusjson/machinechecks.swift TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift \
+swiftc -o "$out" tests/statusjson/main.swift tests/statusjson/resetpassedchecks.swift tests/statusjson/capweightchecks.swift tests/statusjson/machinechecks.swift \
+  tests/statusjson/clearancemarkerchecks.swift TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift \
   TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift TallyCLI/StatusResetText.swift Tally/Core/HeldOverReset.swift \

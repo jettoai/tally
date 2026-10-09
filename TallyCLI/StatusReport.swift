@@ -286,8 +286,11 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
                    now: Date = Date()) -> (best: String?, pinned: String?) {
     guard providers.contains(where: { $0.id == providerID }) else { return (nil, nil) }
     func headroomPick() -> String? {
+        // Where the next NEW conversation starts, the question the panel's badge answers (B-1360),
+        // so the clearance lane counts; a launch that resumes in place takes the ranking pick.
         launchPick(providerID: providerID, in: snapshot, primaryModel: policy.model,
-                   quarantined: quarantined, reserves: reserves, now: now)?.id
+                   quarantined: quarantined, reserves: reserves, emptyConversation: true,
+                   now: now)?.id
     }
     guard policy.mode == "manual" else { return (headroomPick(), nil) }
     let mine = snapshot.accounts.filter { $0.provider == providerID }

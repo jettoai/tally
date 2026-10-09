@@ -63,7 +63,7 @@ func runClearanceMoveChecks() {
     }
     func turnBoundary(_ candidates: [Snapshot.Account], on current: Snapshot.Account = dying,
                       forecast: @escaping (Snapshot.Account) -> Double? = { _ in nil },
-                      sessions: Int = 1) -> String? {
+                      sessions: Int? = 1) -> String? {
         turnBoundaryTarget(steering: true, mode: "auto", blocked: false, keyboardIdle: true,
                            draftSuspected: false, carryable: true, fuseAllows: true,
                            agentsIdle: true, turnEnded: true, toolCallOpen: false,
@@ -87,6 +87,13 @@ func runClearanceMoveChecks() {
           turnBoundary([healthy], on: onClearance, forecast: { $0.id == "A" ? 30 : nil },
                        sessions: 2) == nil
               && turnBoundary([healthy], on: onClearance, sessions: 2) == nil)
+    // Only as many as the lane would have sent it stay: a crowd of five on a clearance account
+    // (two of them clearance launches) moves like any other at a turn end, forecast or not.
+    check("B1360-R4 five sessions on a clearance account with no forecast move at a turn boundary",
+          turnBoundary([healthy], on: onClearance, sessions: 5) == "B")
+    check("B1360-R4 …while two stay", turnBoundary([healthy], on: onClearance, sessions: 2) == nil)
+    check("B1360-R4 …and a count nobody could read moves like a crowd",
+          turnBoundary([healthy], on: onClearance, sessions: nil) == "B")
     // The clearance move ignores the target's own forecast: that filter is for an early move only.
     check("…and takes the cap handoff's target whatever that target's own forecast says",
           turnBoundary([healthy], on: onClearance,
@@ -120,4 +127,21 @@ func runClearanceMoveChecks() {
           rebalance([healthy], on: dryFar) == "B")
     check("…and still moved early at a turn boundary",
           turnBoundary([healthy], on: dryFar, forecast: wallIn7, sessions: 2) == "B")
+
+    // THE TWO WIRES THE CHECKS ABOVE CANNOT REACH: every cell sets its own counter, so the entry
+    // point that installs the real one and the supervisor's own reading are asserted as source.
+    let entry = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+    let wired = entry.range(of: "\nwireClearanceSessionCounter()\n")
+    check("B1360-R4 the CLI entry installs the clearance counter before it reads any argument",
+          wired.map { $0.lowerBound < (entry.range(of: "\nlet arguments = ")?.lowerBound
+                                         ?? entry.startIndex) } ?? false)
+    let savedWire = clearanceSessionCounter
+    clearanceSessionCounter = nil
+    wireClearanceSessionCounter()
+    check("B1360-R4 …and the installed counter reads the supervisors' state",
+          clearanceSessionCounter != nil)
+    clearanceSessionCounter = savedWire
+    let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("B1360-R4 the supervisor hands the turn-boundary move the live count of its own account",
+          loop.contains("sessionsOnCurrent: { liveSessionCount(onAccount: account.id) }"))
 }

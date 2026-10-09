@@ -4177,6 +4177,35 @@
         }
       }
     },
+    "Smart, clearing leftovers: the next new session starts here to use up what this account has left before its weekly reset.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧選擇（清倉）：下一個新工作階段會在這裡開始，把這個帳號每週重置前剩下的額度用完。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能选择（清仓）：下一个新会话会在这里开始，把这个账号每周重置前剩下的额度用完。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマート選択（使い切り）：次の新しいセッションはここで始まり、週次リセット前にこのアカウントの残りを使い切ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스마트 선택(소진): 다음 새 세션은 여기서 시작해 주간 리셋 전에 이 계정의 남은 쿼터를 모두 씁니다."
+          }
+        }
+      }
+    },
     "Smart: new sessions start on the account whose quota goes furthest right now.": {
       "extractionState": "manual",
       "localizations": {

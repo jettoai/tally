@@ -167,9 +167,11 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
                         primaryModel: String?, reserves: AccountReserves = .none,
                         now: Date = Date(),
                         forecast: (Snapshot.Account) -> Double? = { _ in nil },
-                        sessionsOnCurrent: Int = 1,
+                        sessionsOnCurrent: Int? = 1,
                         claim: () -> Bool = { true }) -> Snapshot.Account? {
     func wallNear() -> Bool { forecast(current).map { $0 <= earlyMoveMinutes } ?? false }
+    // nil is a count nobody could read (LiveSessionCount.swift), and reads as crowded.
+    let crowd = sessionsOnCurrent ?? Int.max
     // EARLY: still above the 5% line, moving only because the forecast says the wall is near
     // (the same reading the station logs as `early-move`).
     let comfortable = accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves,
@@ -186,9 +188,12 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
                                         fuseAllows: fuseAllows),
           agentsIdle, turnEnded, !toolCallOpen,
           // A clearance account (B-1360, AccountComfort.swift) is spending leftovers a reset is
-          // about to take: its sessions stay until the wall, unless the wall is minutes away.
+          // about to take: its sessions stay until the wall, unless the wall is minutes away. Only
+          // as many as the lane would have sent it, though: a crowd it never took (five sessions,
+          // two of them clearance launches) is not the lane's to hold, and with no forecast it
+          // would wall mid-turn together.
           !isClearanceCandidate(current, primaryModel: primaryModel, reserves: reserves, now: now)
-              || wallNear(),
+              || wallNear() || crowd > clearanceMaxSessions,
           // EARLY when the wall is near (WallForecast.swift), not only once under the 5% line.
           !comfortable || wallNear(),
           // Filtering the field rather than the pick is what makes a refused target fall through
@@ -199,7 +204,7 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
           // and takes no record (`claimRebalanceCycle` says why that is the property that matters).
           // Several sessions on an account minutes from its wall cannot queue for one claim: on
           // 2026-10-07 nine did, and the eight that lost it walled mid-turn (B-1360).
-          (sessionsOnCurrent >= 2 && wallNear())
+          (crowd >= 2 && wallNear())
               || accountIsSpent(current, primaryModel: primaryModel, reserves: reserves, now: now)
               || claim()
     else { return nil }
@@ -369,7 +374,7 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
                            turnEnded: @autoclosure () -> Bool,
                            toolCallOpen: @autoclosure () -> Bool,
                            forecast: (Snapshot.Account) -> Double? = { _ in nil },
-                           sessionsOnCurrent: () -> Int = { 1 },
+                           sessionsOnCurrent: () -> Int? = { 1 },
                            log: URL? = nil,
                            quarantine: [String: (model: String?, until: Date)] = [:],
                            reserves: AccountReserves = .none,
@@ -448,7 +453,8 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
         if let log {
             appendHandoffLine("\(ISO8601DateFormatter().string(from: now)) early-move "
                 + "account=\(account.label) minutes=\(String(format: "%.1f", minutes)) "
-                + "sessions=\(sessions)" + (clearance ? " lane=clearance" : "") + "\n", to: log)
+                + "sessions=\(sessions.map(String.init) ?? "unknown")"
+                + (clearance ? " lane=clearance" : "") + "\n", to: log)
         }
     } else {
         warn("\(account.label) nearly dry, moving to \(moveTo.label) at the end of this turn \(why)")

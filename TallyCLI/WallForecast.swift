@@ -27,8 +27,15 @@ struct BurnSample: Equatable { let at: Date; let remaining: Double }
 func burnSlope(_ samples: [BurnSample], now: Date,
                lookback: TimeInterval = wallForecastLookback,
                minSpan: TimeInterval = wallForecastMinSpan) -> Double? {
-    let recent = samples.filter { now.timeIntervalSince($0.at) <= lookback && $0.at <= now }
+    let inWindow = samples.filter { now.timeIntervalSince($0.at) <= lookback && $0.at <= now }
         .sorted { $0.at < $1.at }
+    // A window that reset inside the lookback rose; only the readings since its last rise describe
+    // this cycle, so a fresh window is forecast once it has burned `minSpan`, not once the old
+    // cycle's readings age out of the lookback.
+    let rise = inWindow.indices.last {
+        $0 > 0 && inWindow[$0].remaining > inWindow[$0 - 1].remaining
+    }
+    let recent = rise.map { Array(inWindow[$0...]) } ?? inWindow
     guard let first = recent.first, let last = recent.last,
           last.at.timeIntervalSince(first.at) >= minSpan,
           first.remaining > last.remaining else { return nil }

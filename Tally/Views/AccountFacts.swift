@@ -247,8 +247,14 @@ struct AccountFacts {
     /// The consequence AND the why - the binding quota window and its reset - so the pick never
     /// looks arbitrary.
     var smartPickTooltip: String {
-        let base = L("Smart: new sessions start on the account whose quota goes furthest right now.")
         let primary = LaunchPolicyStore.shared.policy(usage.providerID).model
+        // The clearance lane wears the same glyph, so its hover says which pick this is (B-1360).
+        let now = Date()
+        if clearanceLeftover(LaunchPolicyStore.clearanceWindows(
+            usage, primaryModel: primary, reserve: Double(reservePercent), now: now), now: now) != nil {
+            return L("Smart, clearing leftovers: the next new session starts here to use up what this account has left before its weekly reset.")
+        }
+        let base = L("Smart: new sessions start on the account whose quota goes furthest right now.")
         guard let reason = LaunchPolicyStore.smartReason(usage, primaryModel: primary) else {
             return base
         }

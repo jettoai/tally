@@ -415,6 +415,10 @@ final class LaunchPolicyStore {
         let above = eligibleAccounts.filter {
             Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
+        // The launcher's clearance lane comes first (`launchPick`, TallyCLI/AccountPick.swift).
+        if let clearance = clearancePick(above, now: now, windows: {
+            Self.clearanceWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
+        }) { return clearance.id }
         let candidates = preferringComfortable(above, now: now) {
             Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }

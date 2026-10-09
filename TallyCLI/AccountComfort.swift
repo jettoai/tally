@@ -111,3 +111,54 @@ func preferringComfortable<T>(_ candidates: [T], now: Date,
     let comfortable = requiringComfortable(candidates, now: now, windows: windows)
     return comfortable.isEmpty ? candidates : comfortable
 }
+
+// CLEARANCE: spending the last few percent of a window that is about to refill anyway (B-1360).
+//
+// The gate above keeps every account at or under the line out of a pick while anybody else is above
+// it. That is right for a conversation being MOVED: a long context placed on an account with minutes
+// of runway walls at once and pays a full cache rewrite on the next one. It is wrong for a
+// conversation that does not exist yet. On 2026-10-09 an account sat at 3% of its weekly window 18
+// hours before that window reset; the gate kept every launch off it, and the 3% was going to vanish
+// at the reset. A fresh window carries almost no context, so its own wall costs little.
+//
+// So a LAUNCH (a new process, or the empty window `tally session clear` reopens) may take an account
+// whose only dry windows are weekly-cycle ones resetting within `clearanceHorizon`. Every move of an
+// existing conversation still goes through the strict gate and never sees this.
+
+/// How close a reported weekly-cycle reset must be for its leftovers to count as about to be lost.
+let clearanceHorizon: TimeInterval = 24 * 60 * 60
+
+/// One counted window as the clearance rule sees it. `resetsAt` is the reset the provider REPORTED,
+/// never an inferred anchor: "about to be lost" is a claim about a real reset.
+struct ClearanceWindow {
+    let comfort: ComfortWindow
+    let resetsAt: Date?
+    let isSession: Bool
+}
+
+/// The leftovers a clearance launch would spend (the tightest dry window's effective remaining and
+/// its reported reset), or nil when the account is not a clearance account: it needs at least one
+/// dry window, and every dry one must be a non-session window with something above zero left
+/// (a reserve that eats it all leaves nothing to clear) resetting within the horizon. A dry SESSION
+/// window is a wall minutes away, not leftovers about to be lost.
+func clearanceLeftover(_ windows: [ClearanceWindow], now: Date) -> (remaining: Double, resetsAt: Date)? {
+    var leftover: (remaining: Double, resetsAt: Date)?
+    for window in windows {
+        let effective = effectiveRemaining(window.comfort, now: now)
+        if effective > nearlyDryPercent { continue }
+        guard !window.isSession, effective > 0, let resetsAt = window.resetsAt,
+              resetsAt.timeIntervalSince(now) <= clearanceHorizon else { return nil }
+        if leftover.map({ effective < $0.remaining }) ?? true { leftover = (effective, resetsAt) }
+    }
+    return leftover
+}
+
+/// The clearance account to take, or nil: most leftovers first, the earlier reset on a tie.
+func clearancePick<T>(_ candidates: [T], now: Date, windows: (T) -> [ClearanceWindow]) -> T? {
+    candidates.compactMap { candidate in
+        clearanceLeftover(windows(candidate), now: now).map { (candidate, $0) }
+    }.max { lhs, rhs in
+        lhs.1.remaining != rhs.1.remaining ? lhs.1.remaining < rhs.1.remaining
+            : lhs.1.resetsAt > rhs.1.resetsAt
+    }?.0
+}

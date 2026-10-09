@@ -398,6 +398,7 @@ check("but not for the model whose window it just capped",
       seeded([cappedFable], incumbent: "A", primaryModel: "fable") == nil)
 
 runComfortChecks()
+runClearanceChecks()
 
 // MARK: - launchPick: the pick every PREVIEW has to agree with (quarantine included)
 //

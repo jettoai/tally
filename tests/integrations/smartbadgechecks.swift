@@ -220,6 +220,19 @@ func runSmartBadgeChecks() {
           LaunchPolicyStore.aboveReserve(account("personal", session: 1, weekly: 1),
                                          primaryModel: nil, reserve: 0, now: Date()))
 
+    // A12: THE CLEARANCE LANE (B-1360). The launcher takes an account whose weekly leftovers are about
+    // to be lost to a reset within a day ahead of the ranking (`launchPick`), so the badge has to
+    // name it too, or the panel marks one card and a launch lands on another.
+    let clearing = account("clearing", session: 99, weekly: 3, weeklyResetDays: 18.4 / 24)
+    check("A12 the badge names the account whose 3% resets in 18 hours, as the launcher does",
+          pick([rich, clearing]) == "clearing")
+    check("A12 a reset 30 hours out is not about to be lost, so the badge stays put",
+          pick([rich, account("clearing", session: 99, weekly: 3, weeklyResetDays: 30.0 / 24)])
+              == "rich")
+    check("A12 a dry 5h window is never cleared",
+          pick([rich, account("clearing", session: 2, weekly: 50, weeklyResetDays: 18.4 / 24)])
+              == "rich")
+
     // AND A PINNED CARD NEVER ASKS. Both surfaces draw the pinned badge from the pin itself and
     // only consult the reserve-aware pick in auto mode, which is the app end of "naming an account
     // is the answer" (the CLI end is asserted on values in tests/smartpick/reservechecks.swift).

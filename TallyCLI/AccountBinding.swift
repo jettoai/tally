@@ -73,6 +73,32 @@ func requiringRunway(_ accounts: [Snapshot.Account], floor: Double, primaryModel
     }
 }
 
+/// The windows the clearance rule weighs for a CLI account (AccountComfort.swift): the same counted
+/// windows as the gate, plus the reset the provider reported and which one is the session window.
+private func clearanceWindows(_ account: Snapshot.Account, primaryModel: String?,
+                              reserves: AccountReserves, now: Date) -> [ClearanceWindow] {
+    ratedWindows(account, primaryModel: primaryModel, reserves: reserves, now: now).map {
+        ClearanceWindow(comfort: comfortWindow($0), resetsAt: $0.resetsAt,
+                        isSession: $0.name == AccountRoles.sessionWindowName)
+    }
+}
+
+/// Whether this account's leftovers are about to be lost to a reset (AccountComfort.swift).
+func isClearanceCandidate(_ account: Snapshot.Account, primaryModel: String?,
+                          reserves: AccountReserves = .none, now: Date) -> Bool {
+    clearanceLeftover(clearanceWindows(account, primaryModel: primaryModel, reserves: reserves,
+                                       now: now), now: now) != nil
+}
+
+/// The clearance account an EMPTY conversation should take, or nil. Only a launch and the window a
+/// `/clear` reopens ask this; every move of a live conversation goes through `capHandoffTarget`.
+func clearancePick(_ accounts: [Snapshot.Account], primaryModel: String?,
+                   reserves: AccountReserves = .none, now: Date) -> Snapshot.Account? {
+    clearancePick(accounts, now: now) {
+        clearanceWindows($0, primaryModel: primaryModel, reserves: reserves, now: now)
+    }
+}
+
 /// Whether ONE account still has room to work in, by exactly the gate the picks apply to candidates
 /// (imminent-reset exemption included). Asked of the account a session already RUNS on, which the
 /// filtering helpers above cannot answer: they take a field and return a field.

@@ -420,6 +420,7 @@ func runSupervisorMainChecks() {
     runAppRelaunchChecks()
     runRebalanceChecks()
     runWindowRepickChecks()
+    runClearanceMoveChecks()
     runSafeguardChecks()
     runOpenTurnChecks()
     runKeyboardChecks()

@@ -129,6 +129,17 @@ extension LaunchPolicyStore {
             .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.anchor, reserve: $0.reserve) }
     }
 
+    /// What the clearance rule weighs (TallyCLI/AccountComfort.swift): mirror of the CLI's
+    /// `clearanceWindows` (AccountBinding.swift), the reported reset riding beside the anchor.
+    static func clearanceWindows(_ usage: AccountUsage, primaryModel: String?, reserve: Double = 0,
+                                 now: Date) -> [ClearanceWindow] {
+        ratedWindows(usage, primaryModel: primaryModel, reserve: reserve, now: now).map {
+            ClearanceWindow(comfort: ComfortWindow(remaining: $0.remaining, resetsAt: $0.anchor,
+                                                   reserve: $0.reserve),
+                            resetsAt: $0.resetsAt, isSession: $0.name == AccountRoles.sessionWindowName)
+        }
+    }
+
     /// Whether this account still has quota above the line its owner drew - EVERY reserved window
     /// read through the gate's own scale. Mirror of the CLI's `aboveReserve`, lookup included: the
     /// line is drawn on the weekly all-models window, the 5h session one and the flagship model's,

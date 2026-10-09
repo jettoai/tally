@@ -277,11 +277,10 @@ func windowRepickReadiness(_ state: WindowRepickState, transcript: String?,
 ///    it is asked anyway because a mover that has not thought about it is the bug itself.
 ///  - `fuseAllows`: automatic moves share one budget with cap recoveries, three per ten minutes per
 ///    session. A session being restarted a fourth time has a problem no move will cure.
-///  - the account is not comfortable: the same 5% line the launch pick, the cap handoff, the idle
-///    rebalance and the dry-pool alert all draw (`accountIsComfortable`). Deliberately not a second
-///    threshold of its own, and deliberately not "move to the best account every window" - this is
-///    opportunistic, so a comfortable account is left exactly where it is.
-///  - a comfortable sibling exists, chosen by the same `capHandoffTarget` every other mover uses.
+///  - a CLEARANCE sibling (leftovers about to be lost to a reset, AccountComfort.swift) takes the
+///    empty window whatever the current account holds (B-1360); a session already on one stays.
+///  - else the account is not comfortable (`accountIsComfortable`, the shared 5% line, so a
+///    comfortable account stays put) and `capHandoffTarget` finds a comfortable sibling.
 ///
 /// THE EXCEPTION IS THE CROSS-SUPERVISOR CLAIM, and leaving it out is a decision rather than an
 /// omission. The rebalance takes one move per account per WINDOW CYCLE machine-wide (except off an
@@ -308,9 +307,13 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
           let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
-          !accountIsComfortable(field.current, primaryModel: primaryModel, reserves: reserves,
+          !isClearanceCandidate(field.current, primaryModel: primaryModel, reserves: reserves,
                                 now: now)
     else { return nil }
+    if let clearance = clearancePick(field.candidates, primaryModel: primaryModel,
+                                     reserves: reserves, now: now) { return clearance }
+    guard !accountIsComfortable(field.current, primaryModel: primaryModel, reserves: reserves,
+                                now: now) else { return nil }
     return capHandoffTarget(field.candidates, primaryModel: primaryModel, reserves: reserves,
                             now: now)
 }

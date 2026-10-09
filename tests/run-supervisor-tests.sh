@@ -88,6 +88,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/rebalancechecks.swift tests/supervisor/rebalanceclaimchecks.swift \
   tests/supervisor/reservechecks.swift \
   tests/supervisor/windowrepickchecks.swift \
+  tests/supervisor/clearancemovechecks.swift \
   tests/supervisor/reloadrepickchecks.swift tests/supervisor/relaunchchecks.swift tests/supervisor/positionalchecks.swift \
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \

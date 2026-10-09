@@ -457,10 +457,23 @@ func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: Stri
 /// 2026-07-25 the app's smart-pick badge named a quarantined account, and the reader concluded
 /// the picker was broken rather than that the badge was. One function, so a display cannot
 /// contradict what launching does.
+///
+/// A launch is an EMPTY conversation, so a clearance account (leftovers about to be lost to a
+/// reset, AccountComfort.swift) takes it ahead of the ranking. Not inside `best`: the follow
+/// re-pick (`incumbentSeededBest`) falls back to `best`, and that moves a live conversation.
 func launchPick(providerID: String, in snapshot: Snapshot, primaryModel: String?,
                 quarantined: Set<String>, reserves: AccountReserves = .none,
                 now: Date = Date()) -> Snapshot.Account? {
-    best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+    let field = snapshot.accounts.filter {
+        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
+            && !quarantined.contains($0.id)
+    }
+    if let clearance = clearancePick(aboveReserve(field, primaryModel: primaryModel,
+                                                  reserves: reserves, now: now),
+                                     primaryModel: primaryModel, reserves: reserves, now: now) {
+        return clearance
+    }
+    return best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
          excluding: quarantined, reserves: reserves, now: now)
         ?? best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
                 reserves: reserves, now: now)

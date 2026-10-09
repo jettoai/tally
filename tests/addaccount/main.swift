@@ -215,6 +215,24 @@ expect(usageStoreSource.contains("let epochAtStart = discoveryEpoch")
         && usageStoreSource.contains("if discoveryEpoch == epochAtStart { adoptDiscovered(known) }"),
        "a round that started before a mid-round adopt leaves that adopt standing")
 
+// THE STAND-IN ROW GOES WHEN ITS ACCOUNT IS LISTED (B-1354): a login handed to Terminal or the
+// clipboard leaves the flow on .pending while the user finishes it there; once the watcher lists the
+// home, the "Account not added" row (and its "Try again", a second login into a signed-in home) must
+// not stand beside the real one.
+let listedHomes = ["/Users/x/.claude", "/Users/x/.claude3"]
+for handoff in [AddAccountHandoff.terminal, .clipboard] {
+    expect(AddAccountPhase.pending(name: ".claude3", reason: "r", handoff: handoff).isListed(among: listedHomes),
+           "a handed-off login whose home is listed has no stand-in row (\(handoff))")
+}
+expect(AddAccountPhase.signingIn(name: ".claude3").isListed(among: listedHomes),
+       "a running login whose home is listed has no stand-in row")
+expect(!AddAccountPhase.pending(name: ".claude4", reason: "r", handoff: .terminal).isListed(among: listedHomes)
+        && !AddAccountPhase.signingIn(name: ".claude4").isListed(among: listedHomes),
+       "a login whose home is not listed keeps its row")
+expect(!AddAccountPhase.failed(reason: "r").isListed(among: listedHomes)
+        && !AddAccountPhase.preparing.isListed(among: listedHomes),
+       "phases with no home are never listed")
+
 try? fm.removeItem(at: tmp)
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

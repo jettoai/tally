@@ -23,12 +23,6 @@ struct SettingsPendingAccountRow: View {
         }
     }
 
-    /// Whether the account this login is signing in to is already listed as itself.
-    static func isListed(_ phase: AddAccountPhase, homes: [String]) -> Bool {
-        guard case .signingIn(let name) = phase else { return false }
-        return homes.contains { ($0 as NSString).lastPathComponent == name }
-    }
-
     var body: some View {
         if let content = Self.content(flow.phase) {
             HStack(spacing: 10) {
@@ -36,7 +30,8 @@ struct SettingsPendingAccountRow: View {
                     if content.failed {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     } else {
-                        ProgressView().controlSize(.mini)
+                        // .mini all but vanished on a light background (B-1354 review).
+                        ProgressView().controlSize(.small)
                     }
                 }
                 .frame(width: 22, height: 22)

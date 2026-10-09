@@ -29,6 +29,9 @@ struct AccountNameField: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.subheadline.weight(.semibold))
                 .frame(width: 180)
+                // The bordered field stands 8pt taller than the name it replaces; giving that back
+                // in layout keeps the row (and every row below it) from moving when rename opens.
+                .padding(.vertical, -4)
                 .focused($focused)
                 .onSubmit { isEditing = false }
                 .onExitCommand { cancelled = true; isEditing = false }

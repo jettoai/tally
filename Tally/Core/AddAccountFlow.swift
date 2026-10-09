@@ -72,4 +72,17 @@ extension AddAccountPhase {
     /// Whether the sheet may offer "I finished in Terminal" - the only way out of a live handoff,
     /// and the only thing that can tell Tally the window is done.
     var allowsRecheck: Bool { holdsTerminalLogin }
+
+    /// Whether the home this flow is adding is already listed as an account of its own, so the
+    /// row standing in for it has nothing left to say. A pending login counts too: one handed to
+    /// Terminal or the clipboard finishes there, and the watcher lists the home before (or without)
+    /// the flow hearing about it.
+    func isListed(among homes: [String]) -> Bool {
+        let name: String
+        switch self {
+        case .signingIn(let n), .pending(let n, _, _): name = n
+        default: return false
+        }
+        return homes.contains { ($0 as NSString).lastPathComponent == name }
+    }
 }

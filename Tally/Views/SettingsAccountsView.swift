@@ -77,7 +77,7 @@ struct SettingsAccountsView: View {
     /// account must stay listed or it could never be switched back on.
     private func discovered(for providerID: String) -> [ProviderAccount] {
         let mine = store.discoveredAccounts.filter { $0.providerID == providerID }
-        let order = settings.orderedAccountIDs(mine.map(\.id))
+        let order = AddAccountStore.demoLanding(settings.orderedAccountIDs(mine.map(\.id)), providerID)
         return order.compactMap { id in mine.first { $0.id == id } }
     }
 
@@ -165,7 +165,7 @@ struct SettingsAccountsView: View {
             // The add in flight, at the end of the list where its account will land, until that
             // account is listed as itself (the watcher can adopt it a beat before the flow lands).
             if flow.runProviderID == id, SettingsPendingAccountRow.content(flow.phase) != nil,
-               !SettingsPendingAccountRow.isListed(flow.phase, homes: items.compactMap(\.launchHome)) {
+               !flow.phase.isListed(among: items.compactMap(\.launchHome)) {
                 rowDivider
                 SettingsPendingAccountRow(flow: flow)
             }

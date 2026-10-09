@@ -40,15 +40,39 @@ final class AddAccountStore {
 
     private init() {
         #if DEBUG
-        // `-TallyDemoData YES -TallyDemoAddAccount signingIn|pending`: the Settings row an add in
-        // flight stands in with, for a capture. Demo mode refuses a real add, so this is the only
-        // way that row reaches a screenshot; Debug builds only, and never over real accounts.
+        // `-TallyDemoData YES -TallyDemoAddAccount signingIn|pending|landing`: the Settings row an
+        // add in flight stands in with, for a capture. Demo mode refuses a real add, so this is the
+        // only way that row reaches a screenshot; Debug builds only, and never over real accounts.
+        // `landing` / `landed` are the two sides of the second Claude fixture landing: Settings lists
+        // only the first (plus this row) or the first two, so the row and the account it becomes
+        // sit in the same place on a window short enough for a capture.
         guard DemoUsage.isActive else { return }
         switch UserDefaults.standard.string(forKey: "TallyDemoAddAccount") {
         case "signingIn": phase = .signingIn(name: ".claude7")
+        case "landing":
+            let claude = DemoUsage.discoveredAccounts().filter { $0.providerID == "claude" }.map(\.id)
+            let ordered = SettingsStore.shared.orderedAccountIDs(claude)
+            if ordered.count > 1, let home = DemoUsage.launchHome(accountID: ordered[1]) {
+                phase = .signingIn(name: (home as NSString).lastPathComponent)
+            }
         case "pending": phase = .pending(name: ".claude7", reason: Self.reason(.timedOut), handoff: .none)
         default: break
         }
+        #endif
+    }
+
+    /// `-TallyDemoAddAccount landing|landed` (Debug, demo data): Settings' Claude list before and
+    /// after the second fixture lands (see `init`). Every other launch gets `order` back untouched.
+    static func demoLanding(_ order: [String], _ providerID: String) -> [String] {
+        #if DEBUG
+        guard DemoUsage.isActive, providerID == "claude" else { return order }
+        switch UserDefaults.standard.string(forKey: "TallyDemoAddAccount") {
+        case "landing": return Array(order.prefix(1))
+        case "landed": return Array(order.prefix(2))
+        default: return order
+        }
+        #else
+        return order
         #endif
     }
 

@@ -172,8 +172,9 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
     func wallNear() -> Bool { forecast(current).map { $0 <= earlyMoveMinutes } ?? false }
     // EARLY: still above the 5% line, moving only because the forecast says the wall is near
     // (the same reading the station logs as `early-move`).
-    let early = accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves,
-                                     now: now) && wallNear()
+    let comfortable = accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves,
+                                           now: now)
+    let early = comfortable && wallNear()
     // Only an early move may be choosy about where it lands: it has time to wait for a better
     // turn. An ordinary move is due now, and its target is the one the cap handoff would take.
     func refuge(_ account: Snapshot.Account) -> Bool {
@@ -189,8 +190,7 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
           !isClearanceCandidate(current, primaryModel: primaryModel, reserves: reserves, now: now)
               || wallNear(),
           // EARLY when the wall is near (WallForecast.swift), not only once under the 5% line.
-          !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now)
-              || wallNear(),
+          !comfortable || wallNear(),
           // Filtering the field rather than the pick is what makes a refused target fall through
           // to the next candidate.
           let target = capHandoffTarget(early ? candidates.filter(refuge) : candidates,

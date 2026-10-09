@@ -165,18 +165,28 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
                         current: Snapshot.Account, candidates: [Snapshot.Account],
                         primaryModel: String?, reserves: AccountReserves = .none,
                         now: Date = Date(),
+                        forecast: (Snapshot.Account) -> Double? = { _ in nil },
+                        sessionsOnCurrent: Int = 1,
                         claim: () -> Bool = { true }) -> Snapshot.Account? {
+    func wallNear() -> Bool { forecast(current).map { $0 <= earlyMoveMinutes } ?? false }
     guard turnBoundaryAllowedForSession(steering: steering, mode: mode, blocked: blocked,
                                         keyboardIdle: keyboardIdle,
                                         draftSuspected: draftSuspected, carryable: carryable,
                                         fuseAllows: fuseAllows),
           agentsIdle, turnEnded, !toolCallOpen,
-          !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now),
+          // EARLY when the wall is near (WallForecast.swift), not only once under the 5% line.
+          !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now)
+              || wallNear(),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel,
                                         reserves: reserves, now: now),
+          // A target that would itself be walking into a wall soon is not a refuge.
+          (forecast(target).map { $0 > 2 * earlyMoveMinutes } ?? true),
           // Short-circuits, so an exempt move does not ignore the claim's answer: it never asks
           // and takes no record (`claimRebalanceCycle` says why that is the property that matters).
-          accountIsSpent(current, primaryModel: primaryModel, reserves: reserves, now: now)
+          // Several sessions on an account minutes from its wall cannot queue for one claim: on
+          // 2026-10-07 nine did, and the eight that lost it walled mid-turn (B-1360).
+          (sessionsOnCurrent >= 2 && wallNear())
+              || accountIsSpent(current, primaryModel: primaryModel, reserves: reserves, now: now)
               || claim()
     else { return nil }
     return target
@@ -344,6 +354,9 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
                            agents: (Date, Date) -> TurnBoundaryAgents,
                            turnEnded: @autoclosure () -> Bool,
                            toolCallOpen: @autoclosure () -> Bool,
+                           forecast: (Snapshot.Account) -> Double? = { _ in nil },
+                           sessionsOnCurrent: () -> Int = { 1 },
+                           log: URL? = nil,
                            quarantine: [String: (model: String?, until: Date)] = [:],
                            reserves: AccountReserves = .none,
                            // `@autoclosure` for the reason `rebalanceMove` states in full: the
@@ -400,15 +413,28 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
                                     loaded: loaded(), now: now)
     else { return }
     let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
+    let sessions = sessionsOnCurrent()
     guard let moveTo = turnBoundaryTarget(
         steering: steering, mode: mode, blocked: blocked, keyboardIdle: keyboardIdle,
         draftSuspected: draftSuspected, carryable: carryable, fuseAllows: fuseAllows,
         agentsIdle: true, turnEnded: true, toolCallOpen: false,
         current: field.current, candidates: field.candidates, primaryModel: primaryModel,
-        reserves: reserves, now: now,
+        reserves: reserves, now: now, forecast: forecast, sessionsOnCurrent: sessions,
         claim: { cycle.map { claimRebalanceCycle(account.id, cycle: $0, dir: dir) } ?? false })
     else { return }
-    warn("\(account.label) nearly dry, moving to \(moveTo.label) at the end of this turn "
-        + "(\(pickReason(moveTo, primaryModel: primaryModel)))")
+    let why = "(\(pickReason(moveTo, primaryModel: primaryModel)))"
+    // Early: the account is still above the 5% line and the forecast alone moved it.
+    if accountIsComfortable(field.current, primaryModel: primaryModel, reserves: reserves, now: now),
+       let minutes = forecast(field.current) {
+        warn("\(account.label) about \(Int(minutes.rounded())) min from its limit, moving to "
+            + "\(moveTo.label) at the end of this turn \(why)")
+        if let log {
+            appendHandoffLine("\(ISO8601DateFormatter().string(from: now)) early-move "
+                + "account=\(account.label) minutes=\(String(format: "%.1f", minutes)) "
+                + "sessions=\(sessions)\n", to: log)
+        }
+    } else {
+        warn("\(account.label) nearly dry, moving to \(moveTo.label) at the end of this turn \(why)")
+    }
     plan = RelaunchPlan(target: moveTo, reason: turnBoundaryReason, countsFuse: true)
 }

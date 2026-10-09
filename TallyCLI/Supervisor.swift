@@ -510,6 +510,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         /// swift). Per child on the same terms as the arm above: a relaunch replaces the
         /// conversation, and a boundary recorded against the old one is answered by the restart.
         var turnBoundary = TurnBoundaryState()
+        var burnCache = BurnSampleCache()
         /// Said once per child rather than on every 2s tick a plan is stood down: the planners keep
         /// re-planning while they wait, and the child is drawing on this terminal. Never reset -
         /// the only way out of the hold is a relaunch, and that child gets a fresh one of these.
@@ -1029,6 +1030,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   agents: { turnBoundaryAgents(roster, boundary: $0, now: $1) },
                                   turnEnded: turnOver(),
                                   toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
+                                  forecast: {
+                                      burnCache.forecast($0, primaryModel: effectivePrimary,
+                                                         reserves: reserves, now: tickNow)
+                                  },
+                                  sessionsOnCurrent: { liveSessionCount(onAccount: account.id) },
+                                  log: handoffLog,
                                   quarantine: quarantine, reserves: reserves)
             // AND THE ONE LINE A DROUGHT NOBODY COULD MOVE THIS SESSION OUT OF LEAVES BEHIND
             // (DroughtWatch.swift): once per window cycle, naming the gates that refused. HERE

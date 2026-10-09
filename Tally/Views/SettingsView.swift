@@ -83,7 +83,8 @@ struct SettingsView: View {
             sidebar
                 .frame(width: SettingsChrome.sidebarWidth, alignment: .top)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .background(SettingsChrome.sidebar)
+                // Up behind the transparent titlebar too, so the sidebar runs to the top edge.
+                .background(SettingsChrome.sidebar.ignoresSafeArea())
             // The ScrollView is inert at the natural size; it only actually scrolls when the
             // content outgrows the screen cap applied by the controller.
             ScrollView {
@@ -93,7 +94,7 @@ struct SettingsView: View {
             // 630 rather than 580 (B-1355): the dense account rows need the room for a full
             // address beside the name, plan, both figures and two switches.
             .frame(width: 630)
-            .background(SettingsChrome.page)
+            .background(SettingsChrome.page.ignoresSafeArea())
         }
         .controlSize(.small)
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every

@@ -107,8 +107,8 @@ final class SettingsWindowController {
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = Self.makeWindow(hosting)
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
-            // Dev flavour says so in the title bar - visible from every pane, not just About.
-            // Same chip as the panel header, as a titlebar accessory (titles can't carry style).
+            // Dev flavour says so in the title bar strip, top right over the pane - visible from
+            // every pane, not just About. Same chip as the panel header, as a titlebar accessory.
             if BuildVariant.isDev {
                 let badge = NSHostingView(rootView: DevTitlebarBadge())
                 badge.frame.size = badge.fittingSize
@@ -117,7 +117,13 @@ final class SettingsWindowController {
                 accessory.layoutAttribute = .trailing
                 window.addTitlebarAccessoryViewController(accessory)
             }
-            window.styleMask = [.titled, .closable]
+            // No title bar of its own (B-1355, System Settings' shape): the content runs to the top
+            // edge, the sidebar colour carries up behind the traffic lights, and the pane names the
+            // section, so the window title stays only for the Window menu and Cmd-Tab. The strip
+            // stays draggable: it is still the titlebar, only transparent.
+            window.styleMask = [.titled, .closable, .fullSizeContentView]
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report
             // Autosave carries the POSITION across launches, for the restore path that does not
@@ -230,7 +236,9 @@ final class SettingsWindowController {
     private func fitHeight(on screen: NSScreen?, animate: Bool = false,
                            completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard let window, reportedHeight > 1 else { completion?(); return }
-        let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
+        // The titlebar strip, measured: with a full-size content view the content view spans the
+        // whole frame, and the layout rect is the part below the strip the view lays out in.
+        let chrome = window.frame.height - window.contentLayoutRect.height
         let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
         let target = ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
                                                      visibleHeight: visible)

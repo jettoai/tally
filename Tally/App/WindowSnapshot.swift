@@ -30,7 +30,9 @@ enum WindowSnapshot {
     /// height the view reports after its first full layout, and the panel is drawn from a refresh
     /// round. Photographed at `applicationDidFinishLaunching` both are mid-flight, which is a
     /// picture of the app assembling itself rather than of the thing under review.
-    private static let settleDelay: TimeInterval = 1.5
+    /// 4s rather than 1.5: on a loaded machine (load average 24, 2026-10-10) the Settings window
+    /// was photographed still at its placeholder height, cutting a 22-account pane to five rows.
+    private static let settleDelay: TimeInterval = 4
 
     /// Take the pictures, if this launch asked for them.
     static func captureIfRequested() {
@@ -45,7 +47,16 @@ enum WindowSnapshot {
             for _ in 0..<240 where TokenStatsStore.shared.isScanning {
                 try? await Task.sleep(for: .milliseconds(500))
             }
-            try? await Task.sleep(for: .milliseconds(500))
+            growToContent()
+            // And until no window is still changing size (bounded): a height report that lands
+            // late resizes the window after the delay above.
+            var frames = NSApp.windows.map(\.frame)
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .milliseconds(500))
+                let now = NSApp.windows.map(\.frame)
+                if now == frames { break }
+                frames = now
+            }
             write(into: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath))
         }
     }
@@ -75,7 +86,10 @@ enum WindowSnapshot {
             // off-screen placement). Then the window draws itself instead: no material or rounded
             // corners, but a picture rather than an empty file.
             let rep: NSBitmapImageRep
-            if let composited, !isBlank(composited) {
+            // A window hanging past the screen edge comes back cut to the part on screen (a
+            // 22-account Settings window, 2026-10-10): draw it whole instead.
+            let whole = Int(window.frame.height * window.backingScaleFactor) - 2
+            if let composited, !isBlank(composited), composited.pixelsHigh >= whole {
                 rep = composited
             } else if let drawn = selfDrawn(window) {
                 rep = drawn
@@ -90,6 +104,32 @@ enum WindowSnapshot {
         // The launch existed to take these; nothing else it could do afterwards is wanted, and a
         // capture instance left running is a second Tally in the menu bar the user did not ask for.
         NSApp.terminate(nil)
+    }
+
+    /// A background launch can leave a window at its minimum height with its content scrolled out of
+    /// sight (the Settings height report never arrived, 2026-10-10, old builds alike). Before the
+    /// shutter, each window with a scroll view is grown to that scroll view's content, capped by
+    /// the screen; the launch quits right after, so nothing else ever sees the frame.
+    @MainActor private static func growToContent() {
+        for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) {
+            guard let scroll = firstScrollView(in: window.contentView),
+                  let content = scroll.documentView,
+                  let screen = window.screen ?? NSScreen.main else { continue }
+            let chrome = window.frame.height - scroll.frame.height
+            let wanted = min(content.frame.height + chrome, screen.visibleFrame.height - 40)
+            guard wanted > window.frame.height + 1 else { continue }
+            var frame = window.frame
+            frame.origin.y -= wanted - frame.height
+            frame.size.height = wanted
+            window.setFrame(frame, display: true)
+        }
+    }
+
+    @MainActor private static func firstScrollView(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        if let scroll = view as? NSScrollView { return scroll }
+        for child in view.subviews { if let found = firstScrollView(in: child) { return found } }
+        return nil
     }
 
     /// Every sampled pixel fully transparent. A grid rather than every pixel: a real window has

@@ -105,7 +105,7 @@ final class SettingsWindowController {
                     self.applyPaneSwitch(height, commit: commit)
                 }))
             hosting.sizingOptions = []   // manual sizing only - never a second authority
-            let window = NSWindow(contentViewController: hosting)
+            let window = Self.makeWindow(hosting)
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
             // Dev flavour says so in the title bar - visible from every pane, not just About.
             // Same chip as the panel header, as a titlebar accessory (titles can't carry style).
@@ -267,3 +267,29 @@ private struct DevTitlebarBadge: View {
             .padding(.trailing, 8)
     }
 }
+
+extension SettingsWindowController {
+    /// A capture launch runs in the background, so its window is never key and every switch in it
+    /// draws grey, which on a review shot reads as "all switched off". Debug captures get a window
+    /// that reports itself key and main so the controls draw as they do in front of the user.
+    fileprivate static func makeWindow(_ hosting: NSViewController) -> NSWindow {
+        #if DEBUG
+        if SettingsCaptureLaunch.isActive { return CaptureKeyWindow(contentViewController: hosting) }
+        #endif
+        return NSWindow(contentViewController: hosting)
+    }
+}
+
+#if DEBUG
+private final class CaptureKeyWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
+    override var isMainWindow: Bool { true }
+    // Switches ask AppKit's own active-appearance queries rather than isKeyWindow; these are the
+    // selectors NSWindow answers them with (listed from the runtime, macOS 27).
+    @objc func _hasActiveAppearance() -> Bool { true }
+    @objc func _hasActiveAppearanceIgnoringKeyFocus() -> Bool { true }
+    @objc func _hasActiveControls() -> Bool { true }
+    @objc func _hasKeyAppearance() -> Bool { true }
+    @objc func hasKeyAppearance() -> Bool { true }
+}
+#endif

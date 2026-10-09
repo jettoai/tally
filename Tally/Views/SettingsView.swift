@@ -90,7 +90,9 @@ struct SettingsView: View {
                 pane
                     .padding(Self.paneInset)
             }
-            .frame(width: 580)
+            // 630 rather than 580 (B-1355): the dense account rows need the room for a full
+            // address beside the name, plan, both figures and two switches.
+            .frame(width: 630)
             .background(SettingsChrome.page)
         }
         .controlSize(.small)

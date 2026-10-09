@@ -42,7 +42,7 @@ extension SettingsAccountsView {
     /// reserve binds TALLY'S OWN choices and nothing else, so naming this account still launches on
     /// it. Without that sentence the control reads as a cap on the account, which is a thing people
     /// would rightly be afraid to set.
-    func reserveRow(_ home: String, nameInset: CGFloat) -> some View {
+    func reserveRow(_ home: String, nameInset: CGFloat, owner: String) -> some View {
         // A capture shows the fixture's figure, and its strip writes nothing (the marking itself
         // does not exist on a demo launch - PersonalAccount).
         let shown = DemoUsage.isActive ? DemoUsage.personalReserve
@@ -52,9 +52,19 @@ extension SettingsAccountsView {
         let compact = SettingsDensity.current == .compact
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
-                    .font(compact ? .caption : .subheadline)
-                    .tallyTooltip(compact ? explanation : "")
+                // On the dense rows the line is one of twenty that look alike, so it says whose
+                // setting it is: a turn arrow off the row above and that account's name.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if compact {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        Text(owner).fontWeight(.semibold)
+                    }
+                    Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
+                        .tallyTooltip(compact ? explanation : "")
+                }
+                .font(compact ? .caption : .subheadline)
                 if !compact {
                     Text(explanation)
                         .font(.caption).foregroundStyle(.secondary)
@@ -64,6 +74,7 @@ extension SettingsAccountsView {
             Spacer(minLength: 12)
             ReserveCellBar(value: shown) { LaunchPolicyStore.shared.setReserve(home, $0) }
                 .disabled(DemoUsage.isActive)
+                .tallyTooltipAroundControl(L("Each cell is 10%. The striped cells are the share kept for the web; click a cell to change it."))
                 // CENTRED ON THE SENTENCE'S FIRST LINE. The strip is not text and has no baseline
                 // of its own, so the row's baseline alignment would fall back to its bottom edge
                 // and hang it low against the line it belongs to.

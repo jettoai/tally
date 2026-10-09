@@ -25,6 +25,7 @@ struct SettingsAccountsView: View {
             ForEach(ProviderCatalog.descriptors, id: \.id) { descriptor in
                 providerGroup(id: descriptor.id, name: descriptor.name)
             }
+            if density == .compact { compactLegend }
         }
         // One sheet for both provider groups: which one opened it is a preselection, not a
         // different flow, and the sheet lets the user change their mind about it anyway.
@@ -140,9 +141,11 @@ struct SettingsAccountsView: View {
                                              accountCount: items.count)
         if state != .populated {
             placeholderRow(state)
+        } else if density == .compact {
+            compactHeader()
         }
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-            if index > 0 || state != .populated { rowDivider }
+            if index > 0 || state != .populated || density == .compact { rowDivider }
             // Same numbering the menu-bar strip uses for same-provider accounts, so the
             // settings row visibly maps to a strip segment.
             accountRow(
@@ -170,7 +173,8 @@ struct SettingsAccountsView: View {
             if let home = PersonalAccount.home(accountID: item.id, launchHome: item.launchHome),
                PersonalAccount.isPersonal(accountID: item.id, home: home) {
                 rowDivider
-                reserveRow(home, nameInset: density == .compact ? 46 : 56)
+                reserveRow(home, nameInset: density == .compact ? 46 : 56,
+                           owner: settings.displayLabel(accountID: item.id, fallback: item.label))
             }
         }
         // The add in flight, at the end of the list where its account will land, until that

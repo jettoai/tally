@@ -4,14 +4,89 @@ import SwiftUI
 /// in fixed columns, so a long list reads straight down like a table and twenty accounts fit one
 /// screen. Left to right: drag handle (on hover) and number, name (renamed in place), address,
 /// plan, 5-hour and weekly figures with thin bars, sharing mark, menu-bar switch, enabled switch,
-/// actions.
+/// actions. Each card opens with a header naming those columns, and the pane ends on a legend.
 extension SettingsAccountsView {
-    /// Fixed column widths; only the name flexes, so every other column lines up row to row.
+    /// Fixed column widths; only the address flexes (it is the longest value and the one that must
+    /// not truncate), so every other column lines up row to row and with the header.
     private enum Column {
-        static let email: CGFloat = 128
+        static let lead: CGFloat = 28
+        static let name: CGFloat = 96
         static let plan: CGFloat = 54
-        static let usage: CGFloat = 86
+        static let cell: CGFloat = 32
+        static let usage: CGFloat = cell * 2 + 6
         static let status: CGFloat = plan + 6 + usage
+        static let share: CGFloat = 22
+        static let toggle: CGFloat = 38
+        static let actions: CGFloat = 16
+    }
+
+    /// The column names over a card's rows, in the row's own grid.
+    func compactHeader() -> some View {
+        HStack(spacing: 6) {
+            Color.clear.frame(width: Column.lead, height: 1)
+            headerLabel("Name").frame(width: Column.name, alignment: .leading)
+            headerLabel("Account").frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                headerLabel("Plan").frame(width: Column.plan, alignment: .leading)
+                headerLabel("5 hours").frame(width: Column.cell, alignment: .trailing)
+                headerLabel("Week").frame(width: Column.cell, alignment: .trailing)
+            }
+            .frame(width: Column.status, alignment: .leading)
+            headerLabel("Sharing").frame(width: Column.share)
+            headerLabel("Menu bar").frame(width: Column.toggle)
+            headerLabel("Enabled").frame(width: Column.toggle)
+            Color.clear.frame(width: Column.actions, height: 1)
+        }
+        .frame(height: 22)
+        .padding(.horizontal, 12)
+    }
+
+    private func headerLabel(_ key: String) -> some View {
+        Text(L(key))
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    /// What the marks and colours in the rows mean: the sharing link in its two states and its
+    /// absence, whether a figure is what is left or what is used, and where the bar turns colour
+    /// (the thresholds MetricSeverity.fromUsedPercent applies).
+    var compactLegend: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 14) {
+                legendItem(sharedMark(full: true), L("Shares the first account's whole setup"))
+                legendItem(sharedMark(full: false), L("Shares part of it"))
+                Text(L("No mark: its own setup"))
+            }
+            HStack(spacing: 14) {
+                Text(L(settings.displayMode == .remaining ? "Percentages show what is left"
+                                                          : "Percentages show what is used"))
+                HStack(spacing: 3) {
+                    ForEach([MetricSeverity.normal, .warning, .critical], id: \.self) { severity in
+                        Capsule().fill(severity.color).frame(width: 10, height: 3)
+                    }
+                    Text(L("Bar: green 50% or more left, orange 20 to 49%, red under 20%"))
+                        .padding(.leading, 2)
+                }
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
+    }
+
+    private func legendItem(_ mark: some View, _ text: String) -> some View {
+        HStack(spacing: 4) { mark; Text(text) }
+    }
+
+    /// Two shapes as well as two colours, so the states hold apart on any screen: a filled accent
+    /// disc for the whole setup, a plain grey link for part of it.
+    private func sharedMark(full: Bool) -> some View {
+        Image(systemName: full ? "link.circle.fill" : "link")
+            .font(.system(size: full ? 12 : 10, weight: .semibold))
+            .foregroundStyle(full ? Color.accentColor : Color.secondary)
+            .frame(width: Column.share, height: 14)
     }
 
     func compactRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,
@@ -32,19 +107,20 @@ extension SettingsAccountsView {
                         .foregroundStyle(.tertiary)
                         .frame(width: 16, alignment: .trailing)
                 }
+                .frame(width: Column.lead)
 
                 HStack(spacing: 5) {
-                    nameField(item, font: .system(size: 13, weight: .medium), fieldWidth: 130)
+                    nameField(item, font: .system(size: 13, weight: .medium), fieldWidth: Column.name)
                     if isPersonal(item) { personalBadge }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: Column.name, alignment: .leading)
 
                 Text(email ?? "")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(width: Column.email, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .tallyTooltip([email, home(of: item).map { AccountIdentity.homeName($0) }]
                         .compactMap { $0 }.joined(separator: "\n"))
 
@@ -53,11 +129,12 @@ extension SettingsAccountsView {
 
                 // A fixed slot even when empty: a bare frame on an empty branch collapses, and
                 // took the HStack spacing with it, shifting every column to its left.
-                Color.clear.frame(width: 14, height: 14).overlay { shareMark(item) }
+                Color.clear.frame(width: Column.share, height: 14).overlay { shareMark(item) }
                 compactMenuBarToggle(item.id)
                     .disabled(!enabled)
                     .opacity(enabled ? 1 : 0.35)
-                enabledSwitch(item)
+                    .frame(width: Column.toggle)
+                enabledSwitch(item).frame(width: Column.toggle)
                 actionsMenu(item, moveUp: moveUp, moveDown: moveDown)
             }
             .frame(height: 28)
@@ -100,6 +177,9 @@ extension SettingsAccountsView {
                         }
                     }
                     .frame(width: Column.usage, alignment: .leading)
+                    // Figure plus bar, centred as one block, sat 1.5pt below the name's midline
+                    // (measured on the 2x capture, 2026-10-10): lifted to meet it.
+                    .offset(y: -1.5)
                 }
             }
         } else {
@@ -128,23 +208,21 @@ extension SettingsAccountsView {
                     }
                 }
         }
-        .frame(width: 40)
+        .frame(width: Column.cell)
         .tallyTooltip(passed
             ? "\(L(metric.label)) ? · \(L("Reset passed, awaiting refresh"))"
             : "\(L(metric.label)) \(UsageFormat.percent(metric, mode: mode)) \(UsageFormat.modeWord(mode))")
     }
 
-    /// The link mark alone (the panel's path and words move into its hover): filled accent when
-    /// the account shares the primary's whole setup, plain when only some of it, nothing when it
-    /// keeps its own.
+    /// The link mark alone (the panel's path and words move into its hover): a filled accent disc
+    /// when the account shares the primary's whole setup, a plain grey link when only some of it,
+    /// nothing when it keeps its own (the legend under the cards says which is which).
     @ViewBuilder
     private func shareMark(_ item: ProviderAccount) -> some View {
         let primary = discovered(for: item.providerID).first
         if primary?.id != item.id, let report = sharing[item.id], let tag = report.tag,
            let home = home(of: item) {
-            Image(systemName: "link")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(tag == .shared ? Color.accentColor : Color.secondary)
+            sharedMark(full: tag == .shared)
                 .tallyTooltip(AccountIdentity.homeName(home) + " · "
                     + String(format: L(tag == .shared ? "Shared with %@" : "Partly shared with %@"),
                              primaryName(item.providerID))
@@ -152,22 +230,17 @@ extension SettingsAccountsView {
         }
     }
 
-    /// The menu-bar switch as a glyph, since a labelled one does not fit the line: lit when the
-    /// account has a segment in the menu bar. Dead in the pooled layout, as the labelled one is.
+    /// The menu-bar switch, unlabelled here because the card's header names the column. Dead in
+    /// the pooled layout, as the labelled one is, with the way back in its hover.
     private func compactMenuBarToggle(_ accountID: String) -> some View {
         let pooled = settings.menuBarLayout == .pooled
-        let shown = settings.isShownInMenuBar(accountID)
-        return Button {
-            settings.setShownInMenuBar(accountID, !shown)
-            UsageStore.shared.onChange?()
-        } label: {
-            Image(systemName: "menubar.rectangle")
-                .font(.system(size: 12))
-                .foregroundStyle(shown && !pooled ? Color.accentColor : Color.secondary.opacity(0.5))
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        return Toggle(isOn: Binding(
+            get: { settings.isShownInMenuBar(accountID) },
+            set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }
+        )) { EmptyView() }
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .controlSize(.mini)
         .disabled(pooled)
         .tallyTooltipAroundControl(pooled
               ? L("The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.")

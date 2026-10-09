@@ -95,7 +95,7 @@ for key in newKeys {
 func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
 check("card rows ask usage.resetPassed", source("Tally/Views/AccountCardView.swift").contains("usage.resetPassed("))
 check("list rows ask usage.resetPassed", source("Tally/Views/AccountListRowView.swift").contains("usage.resetPassed("))
-check("settings rows ask account.resetPassed", source("Tally/Views/SettingsAccountRowStatus.swift").contains("account.resetPassed("))
+check("compact settings rows ask account.resetPassed", source("Tally/Views/SettingsAccountRowCompact.swift").contains("account.resetPassed("))
 check("menu-bar hover asks account.resetPassed", source("Tally/Stores/UsageStorePresentation.swift").contains("account.resetPassed("))
 check("an empty /usage says what to do",
       source("Tally/Providers/Claude/ClaudeProvider.swift").contains("L(\"No quota returned: if it persists, run /login\")"))

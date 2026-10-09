@@ -97,6 +97,11 @@ enum CaptureLaunch {
                                "TallyDemoAddAccount",
                                // Qualifies TallyDemoData: one Settings row opens renaming (Debug).
                                "TallyDemoRenaming",
+                               // Qualifies TallyDemoData: the fixture fleet padded to N accounts (Debug).
+                               "TallyDemoAccounts",
+                               // Qualifies TallySettingsCapture: which account-row layout Settings
+                               // draws while the direction is chosen (SettingsDensity).
+                               "TallySettingsDensity",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

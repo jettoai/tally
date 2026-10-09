@@ -166,7 +166,7 @@ enum DemoUsage {
                   sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2,
                   expiresInHours: [220, nil], now: now),
         ]
-        var result = fixtures
+        var result = fixtures + manyAccountsExtras(now: now)
         if showsPastReset {
             result = result.map { usage in
                 guard usage.id == "claude:demo-Claude 4" else { return usage }
@@ -426,7 +426,7 @@ enum DemoUsage {
     /// A Claude account shaped exactly like ClaudeUsageCLI's mapping: a model-scoped weekly window
     /// (the headline), the 5h session, and the all-model weekly. A nil session reset mirrors the
     /// untouched-account case ("5h starts on first use").
-    private static func claude(_ label: String, plan: String, model: Double, session: Double,
+    static func claude(_ label: String, plan: String, model: Double, session: Double,
                                weekly: Double, modelResetDays: Double?, sessionResetHours: Double?,
                                weeklyResetDays: Double?, now: Date) -> AccountUsage {
         // Fixture identity for the header's hover tooltip ("Claude 2" → alex2@example.com), derived
@@ -455,7 +455,7 @@ enum DemoUsage {
     /// A Codex account shaped like CodexAppServerClient's mapping: the 5h primary window plus
     /// the weekly secondary, both with resets (some real plans report only the weekly; the demo
     /// shows the full shape).
-    private static func codex(_ label: String, plan: String, email: String, session: Double,
+    static func codex(_ label: String, plan: String, email: String, session: Double,
                               weekly: Double, sessionResetHours: Double, weeklyResetDays: Double,
                               resets: Int, expiresInHours: [Double?] = [],
                               now: Date) -> AccountUsage {

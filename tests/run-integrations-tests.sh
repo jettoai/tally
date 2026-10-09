@@ -62,7 +62,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Core/PromptHookInput.swift Tally/Core/CLIRunner.swift Tally/Core/ClaudeStableExecutable.swift \
   Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Providers/ProviderModels.swift \
-  Tally/Core/DemoUsage.swift Tally/Core/LimitReset.swift Tally/Core/BuildVariant.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \
+  Tally/Core/DemoUsage.swift Tally/Core/DemoManyAccounts.swift Tally/Core/LimitReset.swift Tally/Core/BuildVariant.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \
   Tally/Core/TokenStats/TokenTotals.swift \
   TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Providers/Claude/ClaudeAccounts.swift Tally/Core/Keychain/KeychainReader.swift \

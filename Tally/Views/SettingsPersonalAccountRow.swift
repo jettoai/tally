@@ -42,18 +42,24 @@ extension SettingsAccountsView {
     /// reserve binds TALLY'S OWN choices and nothing else, so naming this account still launches on
     /// it. Without that sentence the control reads as a cap on the account, which is a thing people
     /// would rightly be afraid to set.
-    func reserveRow(_ home: String, underBadge: Bool) -> some View {
+    func reserveRow(_ home: String, nameInset: CGFloat) -> some View {
         // A capture shows the fixture's figure, and its strip writes nothing (the marking itself
         // does not exist on a demo launch - PersonalAccount).
         let shown = DemoUsage.isActive ? DemoUsage.personalReserve
             : LaunchPolicyStore.shared.reserve(home: home)
+        let explanation = L("Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone when it picks or moves sessions by itself, because your browser draws on all three. The flagship window holds the same line rather than being emptied under it, and launching on it yourself always works.")
+        // The dense layout keeps the row to one line and moves the explanation into the hover.
+        let compact = SettingsDensity.current == .compact
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
-                    .font(.subheadline)
-                Text(L("Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone when it picks or moves sessions by itself, because your browser draws on all three. The flagship window holds the same line rather than being emptied under it, and launching on it yourself always works."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(compact ? .caption : .subheadline)
+                    .tallyTooltip(compact ? explanation : "")
+                if !compact {
+                    Text(explanation)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 12)
             ReserveCellBar(value: shown) { LaunchPolicyStore.shared.setReserve(home, $0) }
@@ -64,13 +70,11 @@ extension SettingsAccountsView {
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.trailing, 14)
+        .padding(.vertical, compact ? 5 : 8)
         // ALIGNED WITH THE ACCOUNT'S NAME, not merely indented past it: this row is a property of
-        // the row above and the eye reads that from one shared left edge. The account row nests at
-        // 18, and where the provider has siblings its number badge (22pt plus the 10pt gap) puts the
-        // name another 32 along - a column that is simply absent on a provider with one account, so
-        // a constant here would sit 32pt adrift on exactly those machines.
-        .padding(.leading, underBadge ? 50 : 18)
+        // the row above and the eye reads that from one shared left edge (the caller knows where
+        // its layout puts the name).
+        .padding(.leading, nameInset)
     }
 }

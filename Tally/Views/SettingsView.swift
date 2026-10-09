@@ -30,6 +30,8 @@ struct SettingsView: View {
     @State private var pendingSection: Section?
     /// Which click is the latest, so a click during a growing switch wins over the one before it.
     @State private var switchToken = 0
+    /// The sidebar row under the pointer, for its hover wash.
+    @State private var hoveredSection: Section?
     /// The pane's inset inside the scroll view, counted into every reported height.
     private static let paneInset: CGFloat = 16
 
@@ -79,8 +81,9 @@ struct SettingsView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             sidebar
-                .frame(width: 150, alignment: .top)
-            Divider()
+                .frame(width: SettingsChrome.sidebarWidth, alignment: .top)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(SettingsChrome.sidebar)
             // The ScrollView is inert at the natural size; it only actually scrolls when the
             // content outgrows the screen cap applied by the controller.
             ScrollView {
@@ -88,6 +91,7 @@ struct SettingsView: View {
                     .padding(Self.paneInset)
             }
             .frame(width: 580)
+            .background(SettingsChrome.page)
         }
         .controlSize(.small)
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every
@@ -123,30 +127,32 @@ struct SettingsView: View {
     }
 
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(Section.allCases, id: \.self) { item in
+                let selected = (pendingSection ?? section) == item
                 Button {
                     select(item)
                 } label: {
-                    HStack(spacing: 7) {
+                    HStack(spacing: 8) {
                         Image(systemName: item.symbol)
-                            .font(.callout)
-                            .frame(width: 18)
-                        Text(item.title).font(.subheadline)
+                            .font(.system(size: 14))
+                            .frame(width: 20)
+                        Text(item.title).font(.system(size: 14, weight: selected ? .medium : .regular))
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill((pendingSection ?? section) == item
-                                  ? Color.accentColor.opacity(0.18) : .clear)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(selected ? 0.08 : hoveredSection == item ? 0.06 : 0))
                     )
-                    .foregroundStyle((pendingSection ?? section) == item
-                                     ? Color.accentColor : Color.primary)
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
                 }
                 .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside { hoveredSection = item } else if hoveredSection == item { hoveredSection = nil }
+                }
             }
         }
     }
@@ -222,7 +228,8 @@ struct SettingsView: View {
     @ViewBuilder
     private func paneContent(_ item: Section) -> some View {
         switch item {
-        case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
+        // Its own cards, one per provider under a section header, rather than one shared card.
+        case .accounts: SettingsAccountsView(store: store, settings: settings)
         // The sharing row reports a state whose switch lives on another pane; it is handed the way
         // there rather than describing it, because a reader who has to be told where a control is
         // has already lost the time this saves them.
@@ -247,8 +254,7 @@ struct SettingsView: View {
 
     private func sectionCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0, content: content)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.quaternary.opacity(0.5)))
+            .modifier(SettingsCardSurface())
     }
 
     /// The row chrome every pane shares. Not private: the Display pane lives in its own file

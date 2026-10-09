@@ -15,6 +15,8 @@ struct AccountNameField: View {
     let displayed: String
     @Binding var override: String?
     @Binding var isEditing: Bool
+    var font: Font = .subheadline.weight(.semibold)
+    var fieldWidth: CGFloat = 180
 
     @State private var text = ""
     @State private var cancelled = false
@@ -27,8 +29,8 @@ struct AccountNameField: View {
                 // A visible field of a fixed width: plain and flexible, it read as a greyed-out name
                 // and pushed the row's badge across to the far side (capture, 2026-10-09).
                 .textFieldStyle(.roundedBorder)
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 180)
+                .font(font)
+                .frame(width: fieldWidth)
                 // The bordered field stands 8pt taller than the name it replaces; giving that back
                 // in layout keeps the row (and every row below it) from moving when rename opens.
                 .padding(.vertical, -4)
@@ -55,7 +57,7 @@ struct AccountNameField: View {
                 }
         } else {
             Text(displayed)
-                .font(.subheadline.weight(.semibold))
+                .font(font)
                 .lineLimit(1)
                 .contentShape(Rectangle())
                 .onTapGesture { isEditing = true }

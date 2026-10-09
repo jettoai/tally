@@ -73,14 +73,14 @@ extension SettingsAccountsView {
     /// "● 98% · ● 71%" - session then weekly, dot coloured by the window's severity. Compact
     /// (no window names): the row also carries reorder arrows and two switches, and the full
     /// labels truncated; hover explains each value.
-    func liveStatus(_ account: AccountUsage) -> some View {
+    func liveStatus(_ account: AccountUsage, font: Font = .caption2.monospacedDigit()) -> some View {
         HStack(spacing: 8) {
             ForEach(account.metrics.filter { !$0.isModelScoped }.prefix(2)) { metric in
                 let passed = account.resetPassed(metric)
                 HStack(spacing: 3) {
                     Circle().fill(passed ? Color.secondary : metric.severity.color).frame(width: 5, height: 5)
                     Text(UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed))
-                        .font(.caption2.monospacedDigit())
+                        .font(font)
                         .foregroundStyle(.secondary)
                 }
                 .tallyTooltip(passed
@@ -115,5 +115,37 @@ extension SettingsAccountsView {
         .tallyTooltipAroundControl(pooled
               ? L("The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.")
               : L("Show in menu bar"))
+    }
+
+    /// The row's login state, both sources of "signed out" plus a renewal in flight folded into one
+    /// answer (AccountSignIn.swift).
+    func signInState(of item: ProviderAccount) -> AccountSignIn.State {
+        AccountSignIn.state(isRenewing: RenewLoginStore.shared.isRenewing(item.id),
+                            isExpired: LoginStatusStore.shared.isExpired(item.id),
+                            isDormant: item.isDormant)
+    }
+
+    /// The account's own switch, mirroring the provider switch one level up: off means not polled,
+    /// no card, no menu-bar segment, and the CLI skips it.
+    func enabledSwitch(_ item: ProviderAccount) -> some View {
+        Toggle(isOn: Binding(
+            get: { settings.isAccountEnabled(item.id) },
+            set: { on in
+                settings.setAccountEnabled(item.id, on)
+                // Optimistic, same as the provider switch.
+                if on { store.showCachedAccounts(providerID: item.providerID) }
+                else { store.hideAccounts { $0.id == item.id } }
+                Task { await store.refresh(userInitiated: false) }
+            }
+        )) { EmptyView() }
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .controlSize(.mini)
+    }
+
+    func isPersonal(_ item: ProviderAccount) -> Bool {
+        PersonalAccount.isPersonal(accountID: item.id,
+                                   home: PersonalAccount.home(accountID: item.id,
+                                                              launchHome: item.launchHome))
     }
 }

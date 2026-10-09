@@ -21,12 +21,13 @@ struct AccountHomeTag: View {
     var body: some View {
         let path = AccountIdentity.homeName(home)
         if let report, let tag = report.tag {
-            Image(systemName: "link").modifier(HomeStyle()).help(Self.detail(report))
-            Text(path).modifier(HomeStyle()).help(Self.detail(report))
+            let detail = Self.detail(report)
+            Image(systemName: "link").modifier(HomeStyle()).help(detail)
+            Text(path).modifier(HomeStyle()).help(detail)
             Text("· " + String(format: L(tag == .shared ? "Shared with %@" : "Partly shared with %@"),
                                primaryName))
                 .modifier(HomeStyle())
-                .help(Self.detail(report))
+                .help(detail)
         } else {
             Text(path).modifier(HomeStyle())
         }

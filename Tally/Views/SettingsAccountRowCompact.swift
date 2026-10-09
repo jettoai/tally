@@ -172,10 +172,11 @@ extension SettingsAccountsView {
                         .tallyTooltip(error)
                 } else {
                     let columns = UsageMetric.columns(usage.metrics)
+                    let cells = [columns.session, columns.weekly]
                     HStack(spacing: 6) {
                         // Each window under its own header; a missing one keeps its width empty.
-                        ForEach([columns.session, columns.weekly].indices, id: \.self) { index in
-                            if let metric = [columns.session, columns.weekly][index] {
+                        ForEach(cells.indices, id: \.self) { index in
+                            if let metric = cells[index] {
                                 usageCell(metric, usage)
                             } else {
                                 Color.clear.frame(width: Column.cell, height: 1)

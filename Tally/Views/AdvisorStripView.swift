@@ -113,8 +113,8 @@ extension PopoverRootView {
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())
-        .tallyTooltip(advisorTooltip(reading, sentence: sentence, conclusion: conclusion,
-                                     dryPools: dryPools, now: now))
+        .tallyTooltip(lazyText: { advisorTooltip(reading, sentence: sentence, conclusion: conclusion,
+                                                 dryPools: dryPools, now: now) })
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence), \(line)")
     }

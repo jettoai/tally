@@ -357,11 +357,14 @@ struct AccountCardView: View {
                 .tallyTooltip(usage.errorDetail == nil ? "" : (usage.error ?? ""),
                               detail: usage.errorDetail)
             Spacer(minLength: 4)
-            Button(L("Retry")) {
-                Task { await UsageStore.shared.refresh(userInitiated: true) }
+            // No retry on a second folder on one login (`AccountListRowView.errorTail`).
+            if usage.sameAccountAs == nil {
+                Button(L("Retry")) {
+                    Task { await UsageStore.shared.refresh(userInitiated: true) }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
             }
-            .buttonStyle(.borderless)
-            .font(.caption)
         }
     }
 }

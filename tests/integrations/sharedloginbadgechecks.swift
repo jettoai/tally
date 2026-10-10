@@ -46,4 +46,11 @@ func runSharedLoginBadgeChecks() {
     check("B2b occupancy not read: full", pick(fleet, nil) == "X")
     check("A2 the advisor's seat rule leaves the duplicate out",
           Set(fleet.filter { SharedLogin.isSeat($0.sameAccountAs) }.map(\.id)) == ["GM", "X"])
+    // A retry on the duplicate only repeats the same sentence, so neither error view offers one.
+    for path in ["Tally/Views/AccountListRowView+Tails.swift", "Tally/Views/AccountCardView.swift"] {
+        let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        let guarded = text.range(of: #"if usage\.sameAccountAs == nil \{\s*Button\(L\("Retry"\)\)"#,
+                                 options: .regularExpression) != nil
+        check("B3 \(path): no Retry on a duplicate row", guarded)
+    }
 }

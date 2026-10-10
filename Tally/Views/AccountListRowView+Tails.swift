@@ -25,11 +25,14 @@ extension AccountListRowView {
                 .foregroundStyle(TallyColor.warning)
                 .lineLimit(1)
                 .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
-            Button(L("Retry")) {
-                Task { await UsageStore.shared.refresh(userInitiated: true) }
+            // A second folder on one login is not a failed fetch: a retry would only say it again.
+            if usage.sameAccountAs == nil {
+                Button(L("Retry")) {
+                    Task { await UsageStore.shared.refresh(userInitiated: true) }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption2)
             }
-            .buttonStyle(.borderless)
-            .font(.caption2)
         }
     }
 }

@@ -259,7 +259,8 @@ struct AccountListRowView: View {
             Image(systemName: "person.2.fill")
                 .font(.system(size: 9))
                 .foregroundStyle(TallyColor.warning)
-                .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail)
+                .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail,
+                              forced: DemoUsage.isActive && TallyTooltip.previewForced(.sharedlogin))
                 .accessibilityLabel(notice)
         }
         AccountLoginHealthView(accountID: usage.id, owner: facts.markOwner, canRenew: facts.canRenewLogin,

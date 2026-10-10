@@ -65,6 +65,8 @@ enum TallyTooltip {
     enum PreviewTarget: String {
         case fleet
         case identity
+        /// The kept account's shared-login mark (#6): one fixture under `-TallyDemoSharedLogin`.
+        case sharedlogin
         /// The session board's update badge (`SessionCardView.supervisorBadge`), which forces itself
         /// only while the FIXTURES are on: exactly one demo session is watched by a build other than
         /// the installed one, so the demo board draws exactly one of these badges and there is

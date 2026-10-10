@@ -21,7 +21,7 @@ extension AccountListRowView {
         HStack(spacing: 6) {
             // One line at this width, so the callout is where the whole sentence lives, reason
             // included: the compact row folds every other word it cannot fit into one too.
-            Text(usage.error ?? "")
+            Text(visibleError)
                 .foregroundStyle(TallyColor.warning)
                 .lineLimit(1)
                 .tallyTooltip(usage.error ?? "", detail: usage.errorDetail)
@@ -34,5 +34,14 @@ extension AccountListRowView {
                 .font(.caption2)
             }
         }
+    }
+
+    /// A second folder on one login (#6) shows a sentence short enough for one line at list width,
+    /// naming the kept account; the callout still carries the full one.
+    private var visibleError: String {
+        guard let kept = usage.sameAccountAs else { return usage.error ?? "" }
+        let fallback = UsageStore.shared.accounts.first { $0.id == kept }?.accountLabel ?? kept
+        return String(format: L("Same login as %@ · not counted"),
+                      settings.displayLabel(accountID: kept, fallback: fallback))
     }
 }

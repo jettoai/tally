@@ -17794,6 +17794,35 @@
         }
       }
     },
+    "Same login as %@ · not counted": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 %@ 同一個登入 · 不另計"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 %@ 同一个登录 · 不另计"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ と同じログイン · 集計対象外"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@와(과) 같은 로그인 · 집계 제외"
+          }
+        }
+      }
+    },
     "Tally counts this login once and launches only on the first of these homes. To use this home's own subscription, run /login in it with that account.": {
       "extractionState": "manual",
       "localizations": {

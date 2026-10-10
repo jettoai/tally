@@ -83,7 +83,8 @@ struct AccountCardView: View {
                     .font(.caption2)
                     .foregroundStyle(TallyColor.warning)
                     .fixedSize(horizontal: false, vertical: true)
-                    .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail)
+                    .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail,
+                                  forced: DemoUsage.isActive && TallyTooltip.previewForced(.sharedlogin))
             }
             AccountLoginHealthView(accountID: usage.id, owner: facts.markOwner, canRenew: facts.canRenewLogin,
                                    showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)

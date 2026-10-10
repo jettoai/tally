@@ -341,7 +341,7 @@ extension IntegrationsStore {
     }
 
     func installNotificationHook() {
-        guard guardNotDev() else { return }
+        guard guardNotDev(), guardCLIDeliverable() else { return }
         lastError = nil
         do {
             let files = Self.claudeSettingsFiles()

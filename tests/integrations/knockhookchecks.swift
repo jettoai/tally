@@ -169,6 +169,40 @@ func runKnockHookChecks(tmp: URL) throws {
           IntegrationsStore.settingsCarryCurrentKnockHooks(settings)
               && commands("PostToolUse") == [IntegrationsStore.knockHookCommand("PostToolUse")])
 
+    // jettoai/tally#5: AN ENTRY IS NOT AN INSTALL. Every hook row and the status line name
+    // /usr/local/bin/tally; with nothing runnable there each one fails on every event, so the row
+    // has to read as broken, and a press may not write the registration at all.
+    let noCLI = quotaKnockCLIDeliverable(at: tmp.appendingPathComponent("knock-no-cli").path)
+    let missing = IntegrationsStore.Status.broken(L("Install the command line tool first."))
+    check("#5 a registration whose command cannot run reads as broken, not installed",
+          !noCLI && IntegrationsStore.requiringCLI(.installed, cliDeliverable: noCLI) == missing)
+    check("#5 ...an older install the same, since the CLI is the repair it needs first",
+          IntegrationsStore.requiringCLI(.broken(L("Older version installed")),
+                                         cliDeliverable: noCLI) == missing)
+    check("#5 ...nothing on disk stays nothing on disk",
+          IntegrationsStore.requiringCLI(.notInstalled, cliDeliverable: noCLI) == .notInstalled)
+    check("#5 ...and with the CLI runnable nothing changes",
+          IntegrationsStore.requiringCLI(.installed, cliDeliverable: true) == .installed)
+    // The install presses and the refresh read machine state this harness cannot fake (the shared
+    // /usr/local/bin path), so their wiring is read, the way autofollowchecks reads its gate.
+    let repo = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    func source(_ name: String) -> String {
+        (try? String(contentsOf: repo.appendingPathComponent("Tally/Stores/\(name).swift"),
+                     encoding: .utf8)) ?? ""
+    }
+    check("#5 every hook row's status is judged through requiringCLI",
+          source("IntegrationsStore").components(separatedBy: "= Self.requiringCLI(Self.detect")
+              .count - 1 == 5)
+    for (file, function) in [("IntegrationsStore", "installStatusLine"),
+                             ("IntegrationsNotificationHook", "installNotificationHook"),
+                             ("IntegrationsAgentHook", "installAgentHooks"),
+                             ("IntegrationsKnockHook", "installKnockHooks")] {
+        check("#5 \(function) refuses before writing while the CLI cannot run",
+              source(file).contains(
+                  "func \(function)() {\n        guard guardNotDev(), guardCLIDeliverable() else"))
+    }
+
     // F7: THE CHROME-GAP FAILURE EVENT is a third registration of the same row, under a matcher,
     // and outside the supervisor's all-of question about the knock channel.
     func entries(_ event: String) -> [[String: Any]] {

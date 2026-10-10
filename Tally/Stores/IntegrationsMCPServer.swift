@@ -25,9 +25,11 @@ extension IntegrationsStore {
 
     /// The registration itself: run this app's bundled CLI with the one subcommand.
     ///
-    /// The absolute path to the bundled helper, exactly as the hook entries use, and for the same
-    /// reason: it works whether or not `/usr/local/bin/tally` was ever installed, and an app that
-    /// moves is repaired by the sync rewriting this value.
+    /// The absolute path to the bundled helper, because it works whether or not
+    /// `/usr/local/bin/tally` was ever installed, and an app that moves is repaired by the sync
+    /// rewriting this value. The hook entries and the status line differ: they name
+    /// `/usr/local/bin/tally`, so their rows refuse to install, and read as broken, while nothing
+    /// runnable is at that path (`guardCLIDeliverable`, `requiringCLI`).
     nonisolated static func mcpServerEntry(_ binary: URL) -> [String: Any] {
         ["type": "stdio", "command": binary.path, "args": [mcpServeCommand], "env": [:]]
     }

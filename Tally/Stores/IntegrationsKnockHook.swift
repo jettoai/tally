@@ -352,7 +352,7 @@ extension IntegrationsStore {
     }
 
     func installKnockHooks() {
-        guard guardNotDev() else { return }
+        guard guardNotDev(), guardCLIDeliverable() else { return }
         lastError = nil
         do {
             let files = Self.claudeSettingsFiles()

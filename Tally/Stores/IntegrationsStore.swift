@@ -115,11 +115,12 @@ final class IntegrationsStore {
         cliToolPresence = Self.detectCLIToolPresence()
         cliToolStatus = Self.detectCLITool(cliToolPresence)
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
-        statusLineStatus = Self.detectStatusLine()
-        notificationHookStatus = Self.detectNotificationHook()
-        codexSessionHookStatus = Self.detectCodexSessionHooks()
-        agentHookStatus = Self.detectAgentHooks()
-        knockHookStatus = Self.detectKnockHooks()
+        let cli = quotaKnockCLIDeliverable()
+        statusLineStatus = Self.requiringCLI(Self.detectStatusLine(), cliDeliverable: cli)
+        notificationHookStatus = Self.requiringCLI(Self.detectNotificationHook(), cliDeliverable: cli)
+        codexSessionHookStatus = Self.requiringCLI(Self.detectCodexSessionHooks(), cliDeliverable: cli)
+        agentHookStatus = Self.requiringCLI(Self.detectAgentHooks(), cliDeliverable: cli)
+        knockHookStatus = Self.requiringCLI(Self.detectKnockHooks(), cliDeliverable: cli)
         skillStatus = Self.detectSkill()
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()
@@ -135,6 +136,23 @@ final class IntegrationsStore {
         guard BuildVariant.isUnshipped else { return true }
         lastError = L("Integrations are managed by the installed release app.")
         return false
+    }
+
+    /// The hooks and the status line name `/usr/local/bin/tally`, so with nothing runnable there
+    /// every one of them fails on every event (jettoai/tally#5). A press is refused rather than
+    /// writing a registration that cannot run; the same test the launch-time auto-follow asks.
+    /// Read live rather than off `cliToolStatus`, so "Install all" sees the link it just made.
+    func guardCLIDeliverable() -> Bool {
+        guard !quotaKnockCLIDeliverable() else { return true }
+        lastError = L("Install the command line tool first.")
+        return false
+    }
+
+    /// A registration whose command cannot run is not installed: it reads as broken, so the row
+    /// says why instead of "Installed" (jettoai/tally#5). Pure for the suite.
+    static func requiringCLI(_ status: Status, cliDeliverable: Bool) -> Status {
+        status == .notInstalled || cliDeliverable
+            ? status : .broken(L("Install the command line tool first."))
     }
 
     // MARK: Claude status line - "account · model" at the bottom of every claude session
@@ -197,7 +215,7 @@ final class IntegrationsStore {
     }
 
     func installStatusLine() {
-        guard guardNotDev() else { return }
+        guard guardNotDev(), guardCLIDeliverable() else { return }
         lastError = nil
         do {
             let files = Self.claudeSettingsFiles()

@@ -12,9 +12,13 @@ struct SettingsAccountsView: View {
     @State var renamingAccountID: String? = Self.demoRenamingID()
     /// The row under the pointer: the compact row shows its drag handle and sharing detail on it.
     @State var hoveredAccountID: String?
-    /// Drag-to-reorder (B-1033): each row's frame in window space, and the row in hand.
+    /// Drag-to-reorder, the panel's own mechanics (CardReorder.swift): each row's frame in the
+    /// pane's reorder space, and the row in hand (not private: the row file reads it for its grip).
+    static let reorderSpace = "tallySettingsAccountReorder"
     @State private var rowFrames: [String: CGRect] = [:]
-    @State private var draggingAccountID: String?
+    @State var rowLift: ReorderLift?
+    /// Resets on cancel as well as on end, the only hook a cancelled gesture guarantees.
+    @GestureState private var isRowDragActive = false
     /// Each account's sharing against its provider's primary, worked out off the main thread.
     @State var sharing: [String: HarnessSharing.Report] = [:]
     @State private var addingAccount = false
@@ -43,6 +47,12 @@ struct SettingsAccountsView: View {
         .onAppear { store.ensureDiscovered() }
         // Merged, not assigned: each provider's card reports only its own rows.
         .onPreferenceChange(CardFramePreferenceKey.self) { rowFrames.merge($0) { $1 } }
+        // The floating copy of the row in hand, above both cards, tracking the pointer.
+        .overlay { if let rowLift { liftedRow(rowLift) } }
+        .coordinateSpace(name: Self.reorderSpace)
+        // Cancellation safety net, mirroring the panel: a cancelled preview vanishes.
+        .onChange(of: isRowDragActive) { _, active in if !active { rowLift = nil } }
+        .onDisappear { rowLift = nil }
     }
 
     /// Starts under the row's text column, so the number column reads as one unbroken strip.
@@ -113,6 +123,11 @@ struct SettingsAccountsView: View {
             if settings.isEnabled(id) {
                 VStack(spacing: 0) { accountList(id, items) }
                     .modifier(SettingsCardSurface())
+                    // On the stable card, never on a row: a live reorder moves the rows, and SwiftUI
+                    // cancels a gesture whose view that diff tears down (the panel's lesson,
+                    // PopoverRootView). High priority after 4pt of travel, so a press that stays put
+                    // is still the switch's, the menu's or the name's own click.
+                    .highPriorityGesture(reorderDrag(siblings: items.map(\.id)))
             }
         }
     }
@@ -158,17 +173,16 @@ struct SettingsAccountsView: View {
                 moveUp: index > 0 ? { swapAccounts(items, index, index - 1) } : nil,
                 moveDown: index < items.count - 1 ? { swapAccounts(items, index, index + 1) } : nil)
             .background(Rectangle()
-                .fill(draggingAccountID == item.id ? Color.primary.opacity(0.06)
-                      : hoveredAccountID == item.id ? Color.primary.opacity(0.03) : .clear))
+                .fill(hoveredAccountID == item.id && rowLift == nil ? Color.primary.opacity(0.03)
+                      : .clear))
+            // The row in hand leaves its seat empty; the floating copy is what moves.
+            .opacity(rowLift?.id == item.id ? 0 : 1)
             .onHover { inside in
                 if inside { hoveredAccountID = item.id }
                 else if hoveredAccountID == item.id { hoveredAccountID = nil }
             }
-            .background(GeometryReader { proxy in
-                Color.clear.preference(key: CardFramePreferenceKey.self,
-                                       value: [item.id: proxy.frame(in: .global)])
-            })
-            .gesture(reorderDrag(item.id, siblings: items.map(\.id)))
+            .contentShape(Rectangle())
+            .cardFrame(id: item.id, in: Self.reorderSpace)
             // The reserve belongs to the marked account and appears NOWHERE ELSE - not greyed on
             // the other rows, not a line the pane always carries. A machine with one account, or
             // one where nobody has marked theirs, has nothing to reserve quota from, and a
@@ -235,26 +249,53 @@ struct SettingsAccountsView: View {
             : "mkdir -p ~/\(base)\(suffix) && CODEX_HOME=~/\(base)\(suffix) codex login"
     }
 
-    /// Drag a row onto a sibling to reorder, the way the panel's cards reorder (CardReorder.swift):
-    /// the order changes live under the pointer and is saved as it goes. Only within the provider
-    /// (`moveAccountWithinProvider` refuses a foreign target, and only siblings are hit-tested); the
-    /// switches, the menu and the name keep their own clicks, and a row being renamed does not move.
-    private func reorderDrag(_ id: String, siblings: [String]) -> some Gesture {
-        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+    /// Drag a row onto a sibling to reorder, exactly the way the panel's rows reorder
+    /// (PopoverCardGrid `reorderGesture`): the row under the drag's start is lifted once, a floating
+    /// copy follows the pointer, and the copy's centre (not the pointer) is what has to reach a
+    /// sibling's core, so a row grabbed by its handle at the far edge still reorders (B-1388). Only
+    /// within the provider (only siblings are hit-tested, and `moveAccountWithinProvider` refuses a
+    /// foreign target); a row being renamed does not lift.
+    private func reorderDrag(siblings: [String]) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.reorderSpace))
+            .updating($isRowDragActive) { _, state, _ in state = true }
             .onChanged { value in
-                guard renamingAccountID != id else { return }
-                draggingAccountID = id
-                guard let target = reorderTarget(at: value.location, frames: rowFrames,
-                                                 excluding: id, orderedIDs: siblings) else { return }
+                if rowLift == nil {
+                    guard let grip = ReorderLift(grabbing: value.startLocation, at: value.location,
+                                                 frames: rowFrames.filter { siblings.contains($0.key) }),
+                          renamingAccountID != grip.id
+                    else { return }
+                    rowLift = grip
+                }
+                guard var lift = rowLift else { return }   // grab began off a row
+                lift.location = value.location
+                rowLift = lift
+                guard let target = reorderTarget(at: lift.previewCentre, frames: rowFrames,
+                                                 excluding: lift.id, orderedIDs: siblings)
+                else { return }
                 var moved = false
                 withAnimation(CardMotion.spring) {
                     moved = settings.moveAccountWithinProvider(
-                        id, onto: target, siblingIDs: siblings,
+                        lift.id, onto: target, siblingIDs: siblings,
                         allIDs: store.discoveredAccounts.map(\.id))
                 }
                 if moved { Haptics.snap() }
             }
-            .onEnded { _ in draggingAccountID = nil }
+            .onEnded { _ in rowLift = nil }
+    }
+
+    /// The row in hand, lifted the way the panel lifts its rows (`liftedCard`), on a card surface of
+    /// its own: a row draws none, and a floating row with nothing behind it would show the pane through.
+    @ViewBuilder
+    private func liftedRow(_ lift: ReorderLift) -> some View {
+        if let item = store.discoveredAccounts.first(where: { $0.id == lift.id }) {
+            let siblings = discovered(for: item.providerID)
+            compactRow(item, usage: store.accounts.first { $0.id == item.id },
+                       badge: siblings.count > 1 ? siblings.firstIndex { $0.id == item.id }.map { $0 + 1 } : nil,
+                       moveUp: nil, moveDown: nil)
+                .modifier(SettingsCardSurface())
+                .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
+                            following: lift.location)
+        }
     }
 
     private func swapAccounts(_ items: [ProviderAccount], _ a: Int, _ b: Int) {

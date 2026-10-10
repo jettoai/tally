@@ -239,14 +239,11 @@ extension PopoverRootView {
             .updating($isReorderDragActive) { _, state, _ in state = true }
             .onChanged { value in
                 if cardLift == nil {
-                    guard let grabbed = cardFrames.first(where: { $0.value.contains(value.startLocation) }),
-                          let usage = store.orderedAccounts.first(where: { $0.id == grabbed.key })
+                    guard let grip = ReorderLift(grabbing: value.startLocation, at: value.location,
+                                                 frames: cardFrames),
+                          let usage = store.orderedAccounts.first(where: { $0.id == grip.id })
                     else { return }
-                    cardLift = CardLift(
-                        id: grabbed.key, usage: usage, sourceFrame: grabbed.value,
-                        touchOffset: CGPoint(x: value.startLocation.x - grabbed.value.minX,
-                                             y: value.startLocation.y - grabbed.value.minY),
-                        location: value.location)
+                    cardLift = CardLift(grip: grip, usage: usage)
                 }
                 guard var lift = cardLift else { return }   // grab began on the gap between cards
                 lift.location = value.location

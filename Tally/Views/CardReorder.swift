@@ -225,21 +225,36 @@ extension View {
     }
 }
 
-/// The card lifted by an in-flight drag: its source frame and where inside it the drag started, so
-/// the floating preview tracks the pointer 1:1 from the exact grab point.
+/// The card lifted by an in-flight drag: the shared drag geometry (`ReorderLift`) plus the account
+/// the floating copy draws.
 struct CardLift {
-    let id: String
+    var grip: ReorderLift
     let usage: AccountUsage
-    let sourceFrame: CGRect
-    let touchOffset: CGPoint
-    var location: CGPoint
 
-    /// Where the floating preview's centre currently sits. The single source for BOTH the preview's
-    /// rendered position and the reorder hit-test probe: the two must never diverge, or reordering
-    /// silently stops matching what the user sees.
-    var previewCentre: CGPoint {
-        CGPoint(x: location.x - touchOffset.x + sourceFrame.width / 2,
-                y: location.y - touchOffset.y + sourceFrame.height / 2)
+    var id: String { grip.id }
+    var sourceFrame: CGRect { grip.sourceFrame }
+    var location: CGPoint {
+        get { grip.location }
+        set { grip.location = newValue }
+    }
+    var previewCentre: CGPoint { grip.previewCentre }
+}
+
+/// The reorder grip every hand-ordered account surface shows (panel card, panel row, Settings row):
+/// resident but dim at rest, full on hover or while lifted. One view so the affordance can never look
+/// different on two surfaces that drag the same way. Font comes from the caller's context.
+struct ReorderHandle: View {
+    let bright: Bool
+
+    var body: some View {
+        Image(systemName: "line.3.horizontal")
+            .foregroundStyle(.tertiary)
+            // Resident but dim: hover-only left a visibly empty slot beside the pin circle (the
+            // space is always reserved so the layout can't jump), which read as imbalance
+            // (2026-07-19). Dim at rest, full on hover.
+            .opacity(bright ? 1 : 0.35)
+            .accessibilityLabel(L("Drag to reorder"))
+            .tallyTooltip(L("Drag to reorder"))
     }
 }
 
@@ -268,17 +283,4 @@ struct CardLiftPreview: View {
         .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
                     following: lift.location)
     }
-}
-
-/// The card the drag should displace, or nil. The probe point (the lifted card's centre) must reach
-/// the target's core (inset 20% per side) rather than merely graze its edge - the grid has horizontal
-/// *and* vertical neighbors, and edge-triggered reordering feels jumpy in both directions.
-func reorderTarget(at location: CGPoint, frames: [String: CGRect],
-                   excluding draggedID: String, orderedIDs: [String]) -> String? {
-    for id in orderedIDs where id != draggedID {
-        guard let frame = frames[id] else { continue }
-        let core = frame.insetBy(dx: frame.width * 0.2, dy: frame.height * 0.2)
-        if core.contains(location) { return id }
-    }
-    return nil
 }

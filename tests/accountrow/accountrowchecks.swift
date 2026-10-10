@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 func runAccountRowChecks() {
@@ -814,11 +815,52 @@ func runAccountRowChecks() {
           !pendingSource.contains("AccountNameField") && !pendingSource.contains("Gesture")
               && !pendingSource.contains("CardFramePreferenceKey"))
     let dragBody = memberBody(paneSource, from: "private func reorderDrag(")
-    check("a row being renamed does not move", dragBody.contains("guard renamingAccountID != id else { return }"))
+    check("a row being renamed does not lift", dragBody.contains("renamingAccountID != grip.id"))
     check("only siblings are drop targets, and the move stays inside the provider",
-          dragBody.contains("excluding: id, orderedIDs: siblings")
+          dragBody.contains("excluding: lift.id, orderedIDs: siblings")
               && dragBody.contains("settings.moveAccountWithinProvider(")
-              && paneSource.contains(".gesture(reorderDrag(item.id, siblings: items.map(\\.id)))"))
+              && paneSource.contains(".highPriorityGesture(reorderDrag(siblings: items.map(\\.id)))"))
+    // B-1388: the Settings rows drag the panel's way, through the same shared pieces.
+    check("the drag lifts the row under its start and probes with the copy's centre, like the panel",
+          dragBody.contains("ReorderLift(grabbing: value.startLocation, at: value.location,")
+              && dragBody.contains("reorderTarget(at: lift.previewCentre, frames: rowFrames,")
+              && readSource("Tally/Views/PopoverCardGrid.swift")
+                  .contains("ReorderLift(grabbing: value.startLocation, at: value.location,"))
+    check("the gesture lives on the card, never on a row it reorders",
+          !paneSource.contains(".gesture(reorderDrag(") && !paneSource.contains("proxy.frame(in: .global)"))
+    check("the row carries the panel's grip on its outer edge",
+          readSource("Tally/Views/SettingsAccountRowCompact.swift").contains("ReorderHandle(bright:")
+              && readSource("Tally/Views/AccountListRowView.swift").contains("ReorderHandle(bright:"))
+    // Frames and pointer from a real drag on the demo Settings list (B-1388): rows 648pt wide from
+    // x 196. Grabbed by the right-edge grip at x 830 on row c5 and pulled up over c4's middle.
+    let rowFrames: [String: CGRect] = [
+        "c1": CGRect(x: 196, y: 97.5, width: 648, height: 28),
+        "c4": CGRect(x: 196, y: 219.5, width: 648, height: 28),
+        "c5": CGRect(x: 196, y: 248, width: 648, height: 28),
+        "x1": CGRect(x: 196, y: 341.5, width: 648, height: 28)]
+    let rowIDs = ["c1", "c4", "c5"]
+    let lift = ReorderLift(grabbing: CGPoint(x: 830, y: 262), at: CGPoint(x: 830, y: 233),
+                           frames: rowFrames)
+    check("the grab locks in the row under the drag's start", lift?.id == "c5")
+    check("the pointer itself sits in every row's side dead zone: probing with it never reorders",
+          reorderTarget(at: CGPoint(x: 830, y: 233), frames: rowFrames, excluding: "c5",
+                        orderedIDs: rowIDs) == nil)
+    check("the lifted copy's centre over the next row's middle takes its place",
+          lift.flatMap { reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5",
+                                       orderedIDs: rowIDs) } == "c4")
+    let graze = ReorderLift(grabbing: CGPoint(x: 830, y: 262), at: CGPoint(x: 830, y: 248),
+                            frames: rowFrames)
+    check("grazing a row's edge is not yet over it",
+          graze.flatMap { reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5",
+                                        orderedIDs: rowIDs) } == nil)
+    let foreign = ReorderLift(grabbing: CGPoint(x: 830, y: 262), at: CGPoint(x: 830, y: 369),
+                              frames: rowFrames)
+    check("a row of another provider is never a target",
+          foreign.flatMap { reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5",
+                                          orderedIDs: rowIDs) } == nil)
+    check("a grab on a gap between rows lifts nothing",
+          ReorderLift(grabbing: CGPoint(x: 830, y: 290), at: CGPoint(x: 830, y: 280),
+                      frames: rowFrames) == nil)
     let settingsSource = readSource("Tally/Stores/SettingsStore.swift")
     check("which refuses a target from another provider",
           settingsSource.contains("guard siblings.contains(dragged), siblings.contains(target) else { return false }"))

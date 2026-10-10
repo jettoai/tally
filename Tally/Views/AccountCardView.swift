@@ -171,15 +171,7 @@ struct AccountCardView: View {
                 pinToggle
             }
             if showsDragHandle {
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    // Resident but dim: hover-only left a visibly empty slot beside the pin
-                    // circle (the space is always reserved so the layout can't jump), which
-                    // read as imbalance (2026-07-19). Dim at rest, full on hover.
-                    .opacity(isHovering || handleProminent ? 1 : 0.35)
-                    .accessibilityLabel(L("Drag to reorder"))
-                    .tallyTooltip(L("Drag to reorder"))
+                ReorderHandle(bright: isHovering || handleProminent).font(.caption)
             }
         }
     }

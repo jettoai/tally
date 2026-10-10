@@ -237,8 +237,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// THE PANEL IS SHOWN, NEVER PINNED, in either build (CaptureLaunch: a capture launch writes no
     /// shared state). Recording the pin made every later click on the menu-bar item summon this
     /// panel, which does not dismiss on a click elsewhere, and the next ordinary launch restored it
-    /// (reported 2026-09-28). Unpinned, its footer button reads "Pin on top", which is true, and the
-    /// first click on the item puts it away in favour of the popover (`togglePopover`).
+    /// (reported 2026-09-28). Unpinned, its footer button reads "Pin on top", which is true, the
+    /// first click on the item puts it away in favour of the popover (`togglePopover`), and it does
+    /// NOT float: the panel's level is the pin setting's answer in every build (`PanelPinLevel`,
+    /// B-1056), so a capture launch stands at the ordinary window level like any unpinned panel.
     private func openPanelForCapture() {
         guard isPanelCaptureLaunch else { return }
         PinnedPanelController.shared.show(atTopLeft: CGPoint(x: 120, y: 160))

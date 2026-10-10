@@ -232,8 +232,8 @@ private struct GlassBackdrop: NSViewRepresentable {
     }
 }
 
-/// Owns the pinned floating panel. Separate from the popover so the transient popover keeps working
-/// untouched; pinning just hands its content off to this always-on-top window.
+/// Owns the usage panel. Separate from the popover so the transient popover keeps working untouched;
+/// pinning hands its content off to this window, which floats only while pinned (`PanelPinLevel`).
 ///
 /// Its size comes from its content and nowhere else - `sizingOptions = []`, the measured size in,
 /// one anchored frame write out. That whole contract lives in `SurfaceSizer`, which the dashboard
@@ -275,6 +275,7 @@ final class PinnedPanelController {
         let panel = panel ?? makePanel()
         self.panel = panel
         if let topLeft { panel.setFrameTopLeftPoint(topLeft) }
+        applyPinLevel()
         panel.clampOnScreen()
         panel.makeKeyAndOrderFront(nil)
         // Nothing should start focused, the same rule `SettingsWindowController.bringToFrontIfVisible`
@@ -308,11 +309,18 @@ final class PinnedPanelController {
                                                     displays: NSScreen.displays) {
             panel.setFrameTopLeftPoint(topLeft)
         }
+        applyPinLevel()
         panel.clampOnScreen()
         panel.makeKeyAndOrderFront(nil)
     }
 
     func hide() { panel?.orderOut(nil) }
+
+    /// Floating while pinned, an ordinary window otherwise; every build and launch flag alike.
+    func applyPinLevel() {
+        guard let panel else { return }
+        PanelPinLevel.apply(to: panel, pinned: SettingsStore.shared.isUsagePanelPinned)
+    }
 
     private func makePanel() -> PinnedUsagePanel {
         let panel = PinnedUsagePanel(
@@ -320,8 +328,8 @@ final class PinnedPanelController {
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false)
-        panel.level = .floating                                    // above normal app windows, below system UI
-        panel.hidesOnDeactivate = false                            // stay put when Tally isn't frontmost
+        // Level is set on every show from the pin (`applyPinLevel`), never fixed here.
+        panel.hidesOnDeactivate = false                            // covered, not hidden, when Tally isn't frontmost
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]  // visible across Spaces + over full-screen apps
         panel.isMovable = true
         // NOT movable-by-background: SwiftUI drag gestures don't opt a region out of AppKit's

@@ -28,6 +28,7 @@ extension StatusItemController {
     static func unpin() {
         guard SettingsStore.shared.isUsagePanelPinned else { return }
         SettingsStore.shared.isUsagePanelPinned = false
+        PinnedPanelController.shared.applyPinLevel()
         PinnedPanelController.shared.hide()
     }
 

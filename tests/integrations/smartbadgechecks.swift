@@ -245,6 +245,22 @@ func runSmartBadgeChecks() {
     check("A12 …while one live session still takes it",
           pick([rich, clearing], occupancy: [clearing.id: 1]) == "clearing")
     check("A12 …and before the first count has been read", pick([rich, clearing], occupancy: nil) == "rich")
+    // The count the panel reads (`ProbeCadence.liveAccountCounts`): one readable session on the
+    // clearance account would let it take this launch, but a second live supervisor's file cannot
+    // be read, so the count is unknown and the badge does what `tally status` does (B-1374).
+    let stateDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-badgecount-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+    try? clearing.id.write(to: stateDir.appendingPathComponent("101.account"), atomically: true,
+                           encoding: .utf8)
+    let blind = stateDir.appendingPathComponent("102.account")
+    try? "rich".write(to: blind, atomically: true, encoding: .utf8)
+    chmod(blind.path, 0)
+    check("A12 an unreadable live session file leaves the clearance account to the CLI's answer",
+          pick([rich, clearing], occupancy: ProbeCadence.liveAccountCounts(
+              dir: stateDir, isAlive: { [101, 102].contains($0) })) == "rich")
+    chmod(blind.path, 0o644)
+    try? FileManager.default.removeItem(at: stateDir)
     check("A12 a dry 5h window is never cleared",
           pick([rich, account("clearing", session: 2, weekly: 50, weeklyResetDays: 18.4 / 24)])
               == "rich")

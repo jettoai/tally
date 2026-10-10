@@ -152,7 +152,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AppRelaunch.swift TallyCLI/AppRelaunchLog.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
-  TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/WallForecast.swift TallyCLI/LiveSessionCount.swift TallyCLI/DroughtWatch.swift \
+  TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/WallForecast.swift TallyCLI/LiveSessionCount.swift Tally/Core/ProbeCadence.swift TallyCLI/LiveRates.swift TallyCLI/DroughtWatch.swift \
   TallyCLI/CapResume.swift TallyCLI/CapResumeLog.swift TallyCLI/SelfSwitchResume.swift TallyCLI/RestartWake.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/FocusEvents.swift TallyCLI/KeyboardTrace.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift TallyCLI/UnmanagedLaunch.swift \

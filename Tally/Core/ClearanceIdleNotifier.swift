@@ -23,8 +23,9 @@ final class ClearanceIdleNotifier {
         guard !candidates.isEmpty else { return }
         reading = true
         Task {
-            // Unreadable is not "no sessions": `liveAccountCounts` answers an empty map for a
-            // missing directory, which would read as every account idle. Off the main thread, both.
+            // Unknown is not "no sessions": `liveAccountCounts` answers nil for an unreadable
+            // directory or sidecar, and an empty map for a missing directory, which here would read
+            // as every account idle, so that one is unknown too. Off the main thread, both.
             let live = await Task.detached { () -> [String: Int]? in
                 FileManager.default.fileExists(atPath: supervisorStateDir.path)
                     ? ProbeCadence.liveAccountCounts() : nil

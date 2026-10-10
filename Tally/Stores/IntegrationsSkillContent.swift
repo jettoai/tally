@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 26
+    nonisolated static let skillVersion = 27
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -50,8 +50,9 @@ extension IntegrationsStore {
           beside each `...ResetsAt`: `true` means the account's polls have been failing since
           before that reset, so the figure is from the previous window; call that window unknown
           rather than quoting the number.
-        - `best: true` marks the account `tally claude` / `tally codex` would launch right
-          now (a manual pin is honoured); `pinned` marks the pin itself. `launchHome` is
+        - `best: true` marks the account the next new conversation starts on through
+          `tally claude` / `tally codex`, the same answer the panel's smart badge gives (a
+          manual pin is honoured); `pinned` marks the pin itself. `launchHome` is
           that account's config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
         - `fleetPools.<provider>[]` is the pooled view across accounts, leading pool first
           (a flagship pool like Fable may lead the weekly pool). Pool units differ from

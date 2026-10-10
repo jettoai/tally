@@ -31,10 +31,10 @@ func textFingerprint(_ text: String) -> String {
 /// `skillVersion`, never on its own: a digest updated while the version stands still is this
 /// check's one blind spot, and the failing run prints the number to paste so that reaching for it
 /// is a deliberate act rather than a convenient one.
-let pinnedSkillDigest = "1b084d963ed2d3d2"
+let pinnedSkillDigest = "f8eca523bcaa8883"
 
 func runSkillVersionChecks() {
-    check("skill is at version 26", IntegrationsStore.skillVersion == 26)
+    check("skill is at version 27", IntegrationsStore.skillVersion == 27)
     let digest = textFingerprint(IntegrationsStore.skillMarkdown())
     check("…and the text that version stands for is the text this build ships",
           digest == pinnedSkillDigest)

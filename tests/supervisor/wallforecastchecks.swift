@@ -158,10 +158,14 @@ func runWallForecastChecks() {
     chmod(ownFile.path, 0)
     check("C10. a live supervisor's account file that cannot be read is unknown",
           liveSessionCount(onAccount: "claude:.claude3", dir: stateDir) == nil)
+    check("C10. …and the panel's count reads the same file as unknown (B-1374)",
+          ProbeCadence.liveAccountCounts(dir: stateDir, isAlive: { supervisorAlive($0) }) == nil)
     chmod(ownFile.path, 0o644)
     chmod(stateDir.path, 0)
     check("C10. a state directory that cannot be listed is unknown",
           liveSessionCount(onAccount: "claude:.claude3", dir: stateDir) == nil)
+    check("C10. …and the panel's count reads it as unknown too",
+          ProbeCadence.liveAccountCounts(dir: stateDir, isAlive: { supervisorAlive($0) }) == nil)
     chmod(stateDir.path, 0o755)
     check("C10. a state directory nobody has written yet is a real zero",
           liveSessionCount(onAccount: "claude:.claude3",

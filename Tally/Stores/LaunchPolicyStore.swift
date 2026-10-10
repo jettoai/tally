@@ -367,7 +367,8 @@ final class LaunchPolicyStore {
     }
 
     /// Live sessions per account for the clearance cap (`clearanceMaxSessions`), nil until the first
-    /// background read lands. Same cache and reasons as the quarantine read above.
+    /// background read lands and whenever that read is unknown (`liveAccountCounts`); both read as
+    /// full. Same cache and reasons as the quarantine read above.
     private var liveSessions: [String: Int]?
     @ObservationIgnored private var liveSessionsReadAt: Date?
     @ObservationIgnored private var liveSessionsReading = false

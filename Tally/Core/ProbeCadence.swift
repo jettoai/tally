@@ -49,26 +49,45 @@ enum ProbeCadence {
 
     /// How many live supervised sessions run on each account id ("claude:.claude3"), read from the
     /// supervisors' `.account` sidecars. A crashed supervisor's leftover file does not count.
+    ///
+    /// nil is "unknown", read the way the CLI reads it (`liveSessionCount`, TallyCLI/
+    /// LiveSessionCount.swift): the directory exists but cannot be listed, or a LIVE supervisor's
+    /// file cannot be read or is empty. The badge reads nil as every clearance account full, which is
+    /// what `tally status` and the launch answer. A directory that does not exist is a real empty map.
     static func liveAccountCounts(dir: URL = supervisorStateDir,
                                   isAlive: (pid_t) -> Bool = { supervisorPresenceIsLive(pid: $0) })
-        -> [String: Int] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        var counts: [String: Int] = [:]
-        for name in names where name.hasSuffix(".account") {
-            guard let pid = pid_t(name.dropLast(".account".count)), pid > 0, isAlive(pid),
-                  let raw = try? String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
-            else { continue }
-            let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !id.isEmpty { counts[id, default: 0] += 1 }
-        }
-        return counts
+        -> [String: Int]? {
+        let read = readLiveAccounts(dir: dir, isAlive: isAlive)
+        return read.unknown ? nil : read.counts
     }
 
-    /// Account ids that a live supervised session is running on (`liveAccountCounts`).
+    /// Account ids that a live supervised session is running on (`liveAccountCounts`). An unknown
+    /// read keeps whatever it could read: this only orders and paces probes, it never fills an account.
     static func liveAccountIDs(dir: URL = supervisorStateDir,
                                isAlive: (pid_t) -> Bool = { supervisorPresenceIsLive(pid: $0) })
         -> Set<String> {
-        Set(liveAccountCounts(dir: dir, isAlive: isAlive).keys)
+        Set(readLiveAccounts(dir: dir, isAlive: isAlive).counts.keys)
+    }
+
+    private static func readLiveAccounts(dir: URL, isAlive: (pid_t) -> Bool)
+        -> (counts: [String: Int], unknown: Bool) {
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return ([:], false)
+        } catch {
+            return ([:], true)
+        }
+        var counts: [String: Int] = [:]
+        var unknown = false
+        for name in names where name.hasSuffix(".account") {
+            guard let pid = pid_t(name.dropLast(".account".count)), pid > 0, isAlive(pid) else { continue }
+            let raw = try? String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
+            let id = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if id.isEmpty { unknown = true } else { counts[id, default: 0] += 1 }
+        }
+        return (counts, unknown)
     }
 
     /// One provider's accounts for this round. `serial` (Claude) probes one account at a time,

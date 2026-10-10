@@ -839,25 +839,23 @@ func runAccountRowChecks() {
         "c5": CGRect(x: 196, y: 248, width: 648, height: 28),
         "x1": CGRect(x: 196, y: 341.5, width: 648, height: 28)]
     let rowIDs = ["c1", "c4", "c5"]
-    let lift = ReorderLift(grabbing: CGPoint(x: 830, y: 262), at: CGPoint(x: 830, y: 233),
-                           frames: rowFrames)
-    check("the grab locks in the row under the drag's start", lift?.id == "c5")
+    let grab = CGPoint(x: 830, y: 262)
+    /// The target when the grip grabbed at `grab` has been pulled to `pointer`, probed the panel's way.
+    func targetWhenPulled(to pointer: CGPoint) -> String? {
+        ReorderLift(grabbing: grab, at: pointer, frames: rowFrames).flatMap {
+            reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5", orderedIDs: rowIDs)
+        }
+    }
+    check("the grab locks in the row under the drag's start",
+          ReorderLift(grabbing: grab, at: CGPoint(x: 830, y: 233), frames: rowFrames)?.id == "c5")
     check("the pointer itself sits in every row's side dead zone: probing with it never reorders",
           reorderTarget(at: CGPoint(x: 830, y: 233), frames: rowFrames, excluding: "c5",
                         orderedIDs: rowIDs) == nil)
     check("the lifted copy's centre over the next row's middle takes its place",
-          lift.flatMap { reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5",
-                                       orderedIDs: rowIDs) } == "c4")
-    let graze = ReorderLift(grabbing: CGPoint(x: 830, y: 262), at: CGPoint(x: 830, y: 248),
-                            frames: rowFrames)
-    check("grazing a row's edge is not yet over it",
-          graze.flatMap { reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5",
-                                        orderedIDs: rowIDs) } == nil)
-    let foreign = ReorderLift(grabbing: CGPoint(x: 830, y: 262), at: CGPoint(x: 830, y: 369),
-                              frames: rowFrames)
+          targetWhenPulled(to: CGPoint(x: 830, y: 233)) == "c4")
+    check("grazing a row's edge is not yet over it", targetWhenPulled(to: CGPoint(x: 830, y: 248)) == nil)
     check("a row of another provider is never a target",
-          foreign.flatMap { reorderTarget(at: $0.previewCentre, frames: rowFrames, excluding: "c5",
-                                          orderedIDs: rowIDs) } == nil)
+          targetWhenPulled(to: CGPoint(x: 830, y: 369)) == nil)
     check("a grab on a gap between rows lifts nothing",
           ReorderLift(grabbing: CGPoint(x: 830, y: 290), at: CGPoint(x: 830, y: 280),
                       frames: rowFrames) == nil)

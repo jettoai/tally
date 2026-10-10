@@ -11,9 +11,7 @@ import AppKit
 /// is covered rather than vanishing, which is what an ordinary window does.
 @MainActor
 enum PanelPinLevel {
-    static func level(pinned: Bool) -> NSWindow.Level { pinned ? .floating : .normal }
-
     static func apply(to window: NSWindow, pinned: Bool) {
-        window.level = level(pinned: pinned)
+        window.level = pinned ? .floating : .normal
     }
 }

@@ -353,6 +353,12 @@ func pickField(providerID: String, in snapshot: Snapshot, primaryModel: String?,
 /// this answers nil and `reserveHoldout` says why and when the first account is back. A launch that
 /// passes `--spend-reserve` hands in `.none` to get the old ranking. On a fleet with no reserves set
 /// nothing changes: an eligible account has every window above zero, so it is above a reserve of zero.
+///
+/// A THIN, CROWDED ACCOUNT TAKES NO LAUNCH WHILE A SIBLING CAN (jettoai/tally#4): after the
+/// nearly-dry gate, an account whose binding window is at or under `runwayPercent` and that already
+/// carries `clearanceMaxSessions` live sessions leaves the field whenever anybody else is left
+/// (`preferringUncrowded`). Its rate assumed one conversation spending the window; nine spending it
+/// wall together. A fleet that is thin and crowded everywhere ranks exactly as before.
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           excluding: Set<String> = [], reserves: AccountReserves = .none,
           now: Date = Date()) -> Snapshot.Account? {
@@ -364,8 +370,12 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     // an under-line account's negative rate could hold the lead through the hysteresis gates.
     let above = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
                              now: now)
-    let candidates = preferringComfortable(above, primaryModel: primaryModel, reserves: reserves,
-                                           now: now)
+    let comfortable = preferringComfortable(above, primaryModel: primaryModel, reserves: reserves,
+                                            now: now)
+    // The load gate (AccountComfort.swift, #4): a thin account already carrying two live
+    // conversations takes no third while somebody else can. After the comfort gate, never before.
+    let candidates = preferringUncrowded(comfortable, primaryModel: primaryModel,
+                                         reserves: reserves, now: now)
     guard var leader = candidates.first else { return nil }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)
     for candidate in candidates.dropFirst() {
@@ -411,6 +421,10 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
 /// being a rule of its own and is the right answer either way: a session already ON the personal
 /// account is not moved by this station (that is the idle rebalance's job, once per drought), and
 /// nothing may be moved onto an account under its line.
+///
+/// A CHALLENGER MUST ALSO NOT BE THIN AND CROWDED (jettoai/tally#4): the strict half of the load
+/// gate (`requiringUncrowded`), with no fallback, because staying on the incumbent costs nothing.
+/// The incumbent is not load-gated for the same reason it is not comfort-gated.
 func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID: String,
                          primaryModel: String?, excluding: Set<String> = [],
                          reserves: AccountReserves = .none,
@@ -424,8 +438,12 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
                     excluding: excluding, reserves: reserves, now: now)
     }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)
-    let challengers = requiringComfortable(candidates.filter { $0.id != incumbentID },
-                                           primaryModel: primaryModel, reserves: reserves, now: now)
+    // A challenger must also not be a thin account already carrying two conversations (#4): the
+    // incumbent is a safe place to stay, so this is the strict half, never a fallback.
+    let challengers = requiringUncrowded(
+        requiringComfortable(candidates.filter { $0.id != incumbentID },
+                             primaryModel: primaryModel, reserves: reserves, now: now),
+        primaryModel: primaryModel, reserves: reserves, now: now)
     for candidate in challengers {
         let score = smartScore(candidate, primaryModel: primaryModel, reserves: reserves, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
@@ -446,10 +464,19 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
 /// THE ONE TARGET-CHOOSER EVERY AUTOMATIC MOVE SHARES (cap handoff, idle rebalance, turn boundary,
 /// window repick), which is also where "a reserve is never crossed by a move" is enforced for all
 /// four at once: the strict gate drops an account under its line, and no target means wait.
+///
+/// The LOAD GATE applies here in its preferring half (jettoai/tally#4, `preferringUncrowded`): among
+/// the comfortable targets, a thin account already carrying `clearanceMaxSessions` live sessions is
+/// passed over while another exists. When it is the only one, the move still goes there: whether
+/// to move or wait stays the strict comfort gate's call, not the load gate's.
 func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: String?,
                       reserves: AccountReserves = .none,
                       now: Date = Date()) -> Snapshot.Account? {
-    requiringComfortable(eligibleAccounts, primaryModel: primaryModel, reserves: reserves, now: now)
+    // The load gate's preferring half (#4): a move avoids a thin crowded target when another
+    // comfortable one exists, and never turns a move into a wait.
+    preferringUncrowded(requiringComfortable(eligibleAccounts, primaryModel: primaryModel,
+                                             reserves: reserves, now: now),
+                        primaryModel: primaryModel, reserves: reserves, now: now)
         .max { smartScore($0, primaryModel: primaryModel, reserves: reserves, now: now)
             < smartScore($1, primaryModel: primaryModel, reserves: reserves, now: now) }
 }

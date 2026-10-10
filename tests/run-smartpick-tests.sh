@@ -6,7 +6,9 @@
 # plumbing a launch runs through once an account is chosen (start-mode injection, resolving a manual
 # pin), reservechecks.swift the personal account's reserve - the state file it is read from and the
 # one subtraction it becomes. Split for file size, and the seams are "which account" versus
-# "launched how" versus "how much of it is Tally's to spend".
+# "launched how" versus "how much of it is Tally's to spend". loadchecks.swift is the load gate
+# (jettoai/tally#4): a thin account already carrying two live sessions takes no new one, nor a moved
+# one, while a sibling can.
 #
 # ResumePrompt is in the source list because the unsupervised launcher in Snapshot.swift asks it
 # what to hand the exec'd child (`resumePromptSuppression`).
@@ -23,6 +25,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/smartpick/main.swift tests/smartpick/launchchecks.swift \
   tests/smartpick/conversationchecks.swift tests/smartpick/reservechecks.swift \
   tests/smartpick/codexstartchecks.swift tests/smartpick/comfortchecks.swift tests/smartpick/clearancechecks.swift \
+  tests/smartpick/loadchecks.swift \
   TallyCLI/CodexStartMode.swift \
   TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift \

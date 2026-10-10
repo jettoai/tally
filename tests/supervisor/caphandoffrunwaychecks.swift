@@ -31,9 +31,14 @@ func runCapHandoffRunwayChecks() {
     let fleet = [c5, c3, c0]
 
     // C0. The fixture reproduces the event, so C1 is about the change and not about the fixture.
+    // The live-session count is pinned to zero: unwired reads as full, and the load gate
+    // (jettoai/tally#4) would then pass a thin "crowded" Claude 5 over, which is not this premise.
+    let savedCounter = clearanceSessionCounter
+    clearanceSessionCounter = { _ in 0 }
     check("runway: the shared chooser still picks the 7% account the event picked",
           capHandoffTarget(fleet, primaryModel: "opus", reserves: reserves, now: now)?.label
               == "Claude 5")
+    clearanceSessionCounter = savedCounter
     // C1.
     check("runway: a cap handoff takes the full sibling instead",
           capHandoffPick(fleet, primaryModel: "opus", reserves: reserves, now: now)?.label

@@ -92,8 +92,9 @@ func isClearanceCandidate(_ account: Snapshot.Account, primaryModel: String?,
 
 /// How many live supervised sessions an account has, injected by the CLI's entry point
 /// (main.swift) because the reader lives with the supervisor state files and most of what
-/// compiles this file does not. nil reads as FULL: a caller nobody wired takes no clearance
-/// account, which is the behaviour before the clearance lane existed.
+/// compiles this file does not. Two gates read it: the clearance lane's cap and the load gate in
+/// `best` (`preferringUncrowded`). nil reads as FULL: a caller nobody wired takes no clearance
+/// account and puts no launch on a thin account it could avoid.
 nonisolated(unsafe) var clearanceSessionCounter: ((String) -> Int)?
 
 /// The clearance account an EMPTY conversation should take, or nil. Only a launch and the window a
@@ -102,7 +103,31 @@ func clearancePick(_ accounts: [Snapshot.Account], primaryModel: String?,
                    reserves: AccountReserves = .none, now: Date) -> Snapshot.Account? {
     clearancePick(accounts, now: now, windows: {
         clearanceWindows($0, primaryModel: primaryModel, reserves: reserves, now: now)
-    }, sessions: { clearanceSessionCounter?($0.id) ?? clearanceMaxSessions })
+    }, sessions: liveSessionCountOrFull)
+}
+
+/// The live-session count both gates read: unwired or unknown is full.
+private func liveSessionCountOrFull(_ account: Snapshot.Account) -> Int {
+    clearanceSessionCounter?(account.id) ?? clearanceMaxSessions
+}
+
+/// The launch-side load gate for CLI accounts (AccountComfort.swift), counted by the same reader
+/// the clearance lane uses: unwired or unknown is full, so a caller nobody wired keeps a thin
+/// account's launch elsewhere whenever it can.
+func preferringUncrowded(_ accounts: [Snapshot.Account], primaryModel: String?,
+                         reserves: AccountReserves = .none, now: Date) -> [Snapshot.Account] {
+    preferringUncrowded(accounts, now: now, windows: {
+        comfortWindows($0, primaryModel: primaryModel, reserves: reserves, now: now)
+    }, sessions: liveSessionCountOrFull)
+}
+
+/// The load gate with no fallback, for the follow re-pick's challengers: the incumbent is a safe
+/// place to stay, so a thin crowded challenger is simply not one.
+func requiringUncrowded(_ accounts: [Snapshot.Account], primaryModel: String?,
+                        reserves: AccountReserves = .none, now: Date) -> [Snapshot.Account] {
+    requiringUncrowded(accounts, now: now, windows: {
+        comfortWindows($0, primaryModel: primaryModel, reserves: reserves, now: now)
+    }, sessions: liveSessionCountOrFull)
 }
 
 /// Whether ONE account still has room to work in, by exactly the gate the picks apply to candidates

@@ -31,7 +31,7 @@ import Foundation
 /// Effective remaining rather than the raw percentage (`effectiveRemaining`), the reading every
 /// other gate here weighs: a window resetting in five minutes is a full window, and telling a
 /// session to wrap up over one would be advice against the user's own interest.
-let quotaKnockPercent = 15.0
+let quotaKnockPercent = runwayPercent
 
 /// Back above this inside the same cycle and the whole ladder below re-arms.
 ///

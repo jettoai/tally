@@ -171,3 +171,36 @@ func clearancePick<T>(_ candidates: [T], now: Date, windows: (T) -> [ClearanceWi
             : lhs.1.resetsAt > rhs.1.resetsAt
     }?.0
 }
+
+// LOAD: how many live conversations a THIN account may carry when a launch could go elsewhere
+// (jettoai/tally#4). The ranking divides a window's remainder by the hours to its reset, as if one
+// conversation were spending it; nine sharing 7% of a week three hours from its reset wall together
+// long before then, which is the pile the clearance cap above was written to stop, rebuilt through
+// the ordinary ranking. So the cap the clearance lane applies reaches every account that is thin.
+
+/// The runway line: an account whose binding window, effective remaining, is at or under this is
+/// one whose sessions are already being told to plan around the wall (`quotaKnockPercent` is this
+/// number). One definition, so "thin" means the same thing to the knock and to the pick.
+let runwayPercent = 15.0
+
+/// The LAUNCH-side load gate. A thin account (`hasRunway` says no at `runwayPercent`) already
+/// carrying `clearanceMaxSessions` live conversations takes no new one while any candidate is
+/// either above the line or below that count; when none is, the field is kept whole, so a fleet
+/// that is thin and crowded everywhere still launches where the ranking says. The count is asked
+/// only of thin accounts, so a healthy field reads no state. Runs AFTER `preferringComfortable`:
+/// the other order hands a crowded 7% account's launch to a 3% one.
+func preferringUncrowded<T>(_ candidates: [T], now: Date, windows: (T) -> [ComfortWindow],
+                            sessions: (T) -> Int) -> [T] {
+    let open = requiringUncrowded(candidates, now: now, windows: windows, sessions: sessions)
+    return open.isEmpty ? candidates : open
+}
+
+/// The same test with no fallback: the candidates that are above the runway line or below the
+/// count. For a pick that has somewhere safe to stay (the follow re-pick's incumbent), where a thin
+/// crowded challenger is simply not a reason to move.
+func requiringUncrowded<T>(_ candidates: [T], now: Date, windows: (T) -> [ComfortWindow],
+                           sessions: (T) -> Int) -> [T] {
+    candidates.filter {
+        hasRunway(windows($0), floor: runwayPercent, now: now) || sessions($0) < clearanceMaxSessions
+    }
+}

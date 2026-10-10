@@ -368,7 +368,8 @@ final class LaunchPolicyStore {
 
     /// Live sessions per account for the clearance cap (`clearanceMaxSessions`), nil until the first
     /// background read lands and whenever that read is unknown (`liveAccountCounts`); both read as
-    /// full. Same cache and reasons as the quarantine read above.
+    /// full. Also the load gate's count (`preferringUncrowded`, jettoai/tally#4). Same cache and
+    /// reasons as the quarantine read above.
     private var liveSessions: [String: Int]?
     @ObservationIgnored private var liveSessionsReadAt: Date?
     @ObservationIgnored private var liveSessionsReading = false
@@ -402,6 +403,10 @@ final class LaunchPolicyStore {
     /// this badge predicts is Tally's OWN choice, so it always weighs them - the paths a person names
     /// an account on (a pin, `tally claude --account X`) do not come through here at all, so the
     /// panel does not show a pin the launcher would refuse under its line (named blind spot).
+    ///
+    /// The badge applies the launcher's LOAD GATE too (jettoai/tally#4): a thin account already
+    /// carrying `clearanceMaxSessions` live sessions is passed over while a sibling can take the
+    /// launch, counted from the same live-session read the clearance lane uses.
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
                     reserves: [String: Double] = [:], now: Date = Date()) -> String? {
         autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
@@ -460,15 +465,19 @@ final class LaunchPolicyStore {
             Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
         // The launcher's clearance lane comes first (`launchPick`, TallyCLI/AccountPick.swift).
-        if clearance, let clearance = clearancePick(above, now: now, windows: {
-            Self.clearanceWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
-        }, sessions: { account in
-            // Read: an account with no live session has no entry. Not read yet: full.
+        // Read: an account with no live session has no entry. Not read yet, or unknown: full.
+        let sessions: (AccountUsage) -> Int = { account in
             occupancy.map { $0[account.id] ?? 0 } ?? clearanceMaxSessions
-        }) { return clearance.id }
-        let candidates = preferringComfortable(above, now: now) {
+        }
+        let windows: (AccountUsage) -> [ComfortWindow] = {
             Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
+        if clearance, let clearance = clearancePick(above, now: now, windows: {
+            Self.clearanceWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
+        }, sessions: sessions) { return clearance.id }
+        // The CLI's load gate, in the order `best` applies it (TallyCLI/AccountPick.swift, #4).
+        let candidates = preferringUncrowded(preferringComfortable(above, now: now, windows: windows),
+                                             now: now, windows: windows, sessions: sessions)
         guard var leader = candidates.first else { return nil }
         var leaderScore = Self.smartScore(leader, primaryModel: primary,
                                           reserve: reserves[leader.id] ?? 0, now: now)

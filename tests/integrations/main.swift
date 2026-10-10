@@ -57,6 +57,7 @@ try MainActor.assumeIsolated {
     try runClaudeJSONFormatChecks(tmp: tmp)
     try runArtifactHookRetirementChecks(tmp: tmp)
     runSmartBadgeChecks()
+    runLoadBadgeChecks()
     // And the one pass that installs one of those without anybody pressing anything: what a machine
     // has to have already said before a new hook may follow (autofollowchecks.swift).
     try runAutoFollowChecks(tmp: tmp)

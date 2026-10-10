@@ -399,6 +399,8 @@ check("but not for the model whose window it just capped",
 
 runComfortChecks()
 runClearanceChecks()
+runLoadChecks()
+runLoadMoveChecks()
 
 // MARK: - launchPick: the pick every PREVIEW has to agree with (quarantine included)
 //

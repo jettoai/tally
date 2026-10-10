@@ -44,6 +44,7 @@ enum CaptureLaunch {
         "TallySessionCardCap",  // how wide a session card may get, the same judgement on the board
         // Surfaces held open so they can be photographed without synthesized input.
         "TallyPanelCapture",    // the pinned usage panel
+        "TallyStatusMenuCapture",  // the status item's secondary-click menu
         "TallyTab",             // which of that surface's pages it opens on (SurfaceTabLaunch)
         // The Settings window, and which pane it opens on: one flag rather than two, because the
         // pane is the value it carries (SettingsCaptureLaunch).

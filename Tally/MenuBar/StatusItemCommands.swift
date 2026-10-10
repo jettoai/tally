@@ -72,12 +72,33 @@ extension StatusItemController {
                                   action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        // Same gate as the Settings update section: hidden while the updater is dormant (no feed).
+        if UpdateAvailability.shared.updaterActive {
+            let check = NSMenuItem(title: String(localized: "Check for Updates…", bundle: AppLocale.bundle),
+                                   action: #selector(checkForUpdates), keyEquivalent: "")
+            check.target = self
+            menu.addItem(check)
+        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: String(localized: "Quit Tally", bundle: AppLocale.bundle),
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.addItem(quit)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    /// `-TallyStatusMenuCapture YES` (demo or dev builds only): pop the secondary-click menu at
+    /// launch so it can be photographed without a synthesized click.
+    func showMenuForCaptureIfAsked() {
+        guard DemoUsage.isActive || BuildVariant.isDev,
+              UserDefaults.standard.bool(forKey: "TallyStatusMenuCapture"),
+              let button = statusItem?.button else { return }
+        // Delayed: the status item's button has no window on screen for the first moments of a launch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.showMenu(from: button) }
+    }
+
+    @objc private func checkForUpdates() {
+        UpdaterController.shared.checkForUpdates()
     }
 
     @objc private func openSettings() {

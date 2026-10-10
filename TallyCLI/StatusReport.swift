@@ -486,3 +486,10 @@ extension Snapshot.Account {
         windowResetPassed(resetsAt, now: now) ? "? (reset passed)" : fmt(remaining)
     }
 }
+
+/// The kept account of a login other homes are signed into too (jettoai/tally#6): their rows print
+/// the app's "AM and GM are signed into the same Claude account", and this names them on this one.
+func sharedLoginSuffix(_ account: Snapshot.Account, in accounts: [Snapshot.Account]) -> String {
+    let others = accounts.filter { $0.sameAccountAs == account.id }.map(\.label)
+    return others.isEmpty ? "" : " (shared with \(others.joined(separator: ", ")))"
+}

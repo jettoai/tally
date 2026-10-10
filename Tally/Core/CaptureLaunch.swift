@@ -94,6 +94,8 @@ enum CaptureLaunch {
                                "TallyDemoHardError",
                                // Qualifies TallyDemoData: Claude 4 held over past its 5h reset.
                                "TallyDemoPastReset",
+                               // Qualifies TallyDemoData: Claude 3 signed into Claude 2's login (#6).
+                               "TallyDemoSharedLogin",
                                // Qualifies TallyDemoData: one fixture shows a login renewal running.
                                "TallyDemoRenewingLogin",
                                // Qualifies TallyDemoData: Settings shows an add in flight (Debug).

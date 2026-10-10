@@ -78,8 +78,11 @@ extension LaunchPolicyStore {
         }
         // The launcher's clearance lane comes first (`launchPick`, TallyCLI/AccountPick.swift).
         // Read: an account with no live session has no entry. Not read yet, or unknown: full.
+        // A home signed into this account's login runs its sessions here too (#6).
         let sessions: (AccountUsage) -> Int = { account in
-            occupancy.map { $0[account.id] ?? 0 } ?? clearanceMaxSessions
+            guard let occupancy else { return clearanceMaxSessions }
+            let members = [account.id] + accounts.filter { $0.sameAccountAs == account.id }.map(\.id)
+            return members.reduce(0) { $0 + (occupancy[$1] ?? 0) }
         }
         let windows: (AccountUsage) -> [ComfortWindow] = {
             Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)

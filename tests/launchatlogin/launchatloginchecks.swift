@@ -521,8 +521,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to forty-seven, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 47 && scanned.count == 47)
+    check("which comes to forty-eight, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 48 && scanned.count == 48)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",

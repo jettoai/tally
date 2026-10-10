@@ -66,6 +66,7 @@ struct Snapshot: Decodable {
         /// succeeded": a reader that must not act on held-over numbers falls back to `isStale` and
         /// `error` there, and accepts that such an app leaves the first failure unannounced.
         var lastRefreshFailed: Bool?
+        var sameAccountAs: String?  // #6: kept account's id on a home sharing its Claude login
     }
 
     var version: Int

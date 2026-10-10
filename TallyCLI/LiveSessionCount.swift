@@ -4,7 +4,10 @@ import Foundation
 /// prediction and supervisor this process runs. Called once at entry (main.swift). A count that
 /// could not be read is FULL, so an unreadable state directory never fills a clearance account.
 func wireClearanceSessionCounter() {
-    clearanceSessionCounter = { liveSessionCount(onAccount: $0) ?? clearanceMaxSessions }
+    // Re-read per ask: a supervisor outlives many refreshes, and only thin accounts are asked (#4).
+    clearanceSessionCounter = { id in
+        sessionsOnLogin(id, in: loadSnapshot().0?.accounts ?? []) { liveSessionCount(onAccount: $0) }
+    }
 }
 
 /// How many LIVE supervisors have their child on `accountID` right now, read from the per-pid

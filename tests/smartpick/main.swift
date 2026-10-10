@@ -401,6 +401,7 @@ runComfortChecks()
 runClearanceChecks()
 runLoadChecks()
 runLoadMoveChecks()
+runSharedLoginChecks()
 
 // MARK: - launchPick: the pick every PREVIEW has to agree with (quarantine included)
 //

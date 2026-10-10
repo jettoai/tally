@@ -394,5 +394,20 @@ do {
 runPlanSplitTests()
 runCapWeightTests()
 
+// F1 (jettoai/tally#6): a home signed into another home's Claude login is published as a failure
+// row with no numbers, so the pool counts that login once without a check of its own.
+do {
+    var duplicate = AccountUsage.failure(
+        account: ProviderAccount(id: "AM", providerID: "claude", label: "AM", locator: [:]),
+        providerID: "claude", message: "AM and GM are signed into the same Claude account")
+    duplicate.sameAccountAs = "GM"
+    let gm = account("GM", metrics: [metric(.weeklyAll, used: 2)])
+    expect(summarize([duplicate, gm]).isEmpty, "F1 one login is no panel pool (a pool needs two accounts)")
+    let pooled = FleetMath.summaries(accounts: [duplicate, gm], now: now, minMembers: 1) { $0.accountLabel }
+    expect(pooled.first?.accountCount == 1, "F1 the pool counts one account, not two")
+    expect(FleetMath.weighted(accounts: [duplicate, gm], codexProMultiple: nil)["claude"]?
+        .remainingPercent == 98, "F1 the weighted remaining is GM's own")
+}
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all fleet tests passed")

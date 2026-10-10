@@ -17764,6 +17764,64 @@
           }
         }
       }
+    },
+    "%@ are signed into the same Claude account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 登入的是同一個 Claude 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 登录的是同一个 Claude 账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は同じ Claude アカウントにサインインしています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 같은 Claude 계정에 로그인되어 있습니다"
+          }
+        }
+      }
+    },
+    "Tally counts this login once and launches only on the first of these homes. To use this home's own subscription, run /login in it with that account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 只把這個登入算一次，也只會從其中第一個 home 啟動。要用這個 home 自己的訂閱，請在這個 home 用那個帳號執行 /login。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 只把这个登录算一次，也只会从其中第一个 home 启动。要使用这个 home 自己的订阅，请在这个 home 用那个账号执行 /login。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はこのログインを 1 回だけ数え、起動するのは最初の home だけです。この home 自身のサブスクリプションを使うには、その home でそのアカウントで /login を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 이 로그인을 한 번만 계산하고 첫 번째 home에서만 실행합니다. 이 home의 자체 구독을 사용하려면 이 home에서 해당 계정으로 /login을 실행하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -68,6 +68,9 @@ struct UsageSnapshot: Codable {
         /// The account's reset state: "available", "used", "notSupported" or "unknown"
         /// (`ResetOffer.stateName`). nil from an app that predates the field.
         var resetState: String?
+        /// The account this home's Claude login is already counted under (jettoai/tally#6): an
+        /// account id, never the login's identity. Absent on every other row and from older apps.
+        var sameAccountAs: String?
     }
 
     var version = 2
@@ -167,7 +170,8 @@ struct UsageSnapshot: Codable {
                     resetCreditsNextExpiry: usage.resetCreditsNextExpiry,
                     resetCreditsExpiryUnknown: usage.resetCredits == nil && usage.resetCreditsAvailable == nil
                         ? nil : usage.resetCreditsExpiryUnknown,
-                    resetState: resetStates[usage.id]
+                    resetState: resetStates[usage.id],
+                    sameAccountAs: usage.sameAccountAs
                 )
             },
             statuslineFullQuota: statuslineFullQuota,

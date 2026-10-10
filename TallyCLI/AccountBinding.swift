@@ -97,6 +97,25 @@ func isClearanceCandidate(_ account: Snapshot.Account, primaryModel: String?,
 /// account and puts no launch on a thin account it could avoid.
 nonisolated(unsafe) var clearanceSessionCounter: ((String) -> Int)?
 
+/// The live sessions on an account's LOGIN: its own plus those of every home the app published as
+/// signed into it (`sameAccountAs`, jettoai/tally#6), which run on this account's quota under their
+/// own id. Any member unknown (`count` nil) is the whole login full.
+func sessionsOnLogin(_ accountID: String, in accounts: [Snapshot.Account],
+                     count: (String) -> Int?) -> Int {
+    var total = 0
+    for member in [accountID] + accounts.filter({ $0.sameAccountAs == accountID }).map(\.id) {
+        guard let sessions = count(member) else { return clearanceMaxSessions }
+        total += sessions
+    }
+    return total
+}
+
+/// The accounts the usage advisor counts as seats: a home on another home's login is not one, and
+/// its history (written before the app noticed) would count that login's quota twice (#6).
+func advisorLiveAccounts(_ snapshot: Snapshot) -> Set<String> {
+    Set(snapshot.accounts.filter { $0.sameAccountAs == nil }.map(\.id))
+}
+
 /// The clearance account an EMPTY conversation should take, or nil. Only a launch and the window a
 /// `/clear` reopens ask this; every move of a live conversation goes through `capHandoffTarget`.
 func clearancePick(_ accounts: [Snapshot.Account], primaryModel: String?,

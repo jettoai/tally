@@ -257,7 +257,7 @@ final class UsageStore {
         // Screenshot fixtures replace the whole poll: no CLI runs, no snapshot write (so a demo
         // instance can't steer the `tally` CLI), no retry ladder.
         if DemoUsage.isActive {
-            accounts = DemoUsage.accounts()
+            accounts = demoSharedLogin(DemoUsage.accounts())
             fleetRates = DemoUsage.fleetRates
             advisorReadings = DemoUsage.advisorReadings
             // This branch REPLACES the discovery pass, so a demo run's answer about which accounts
@@ -285,6 +285,7 @@ final class UsageStore {
         var results: [AccountUsage] = []
         var allDiscovered: [ProviderAccount] = []
         var launchHomes: [String: String] = [:]   // account id → CLI config home, for the snapshot
+        var shared = SharedLoginRound()           // homes on another home's login (#6)
         for provider in providers {
             // Off the main thread: the home listing and Keychain probes hung the app (TALLY-2C).
             let found = await Task.detached(priority: .utility) {
@@ -294,7 +295,9 @@ final class UsageStore {
             guard enabled.contains(provider.id) else { continue }
             // Disabled accounts are discovered (Settings shows them) but never polled - and never
             // reach the snapshot, so the `tally` CLI skips them too.
-            let active = found.filter { SettingsStore.shared.isAccountEnabled($0.id) }
+            var active = found.filter { SettingsStore.shared.isAccountEnabled($0.id) }
+            // Two homes on one Claude login are one account (#6, UsageStore+UnpolledRows.swift).
+            if provider.id == ClaudeAccounts.providerID { (active, shared) = await splitSharedLogins(active) }
             for account in active {
                 // The LAUNCHABLE home: this map is what the `tally` CLI picks and execs from, so a
                 // signed-out account must not reach it even if it kept a home to be renewed at.
@@ -312,6 +315,7 @@ final class UsageStore {
             allDiscovered.removeAll { removed.contains($0.id) }
             results.removeAll { removed.contains($0.id) }
             launchHomes = launchHomes.filter { !removed.contains($0.key) }
+            shared.homes.removeAll { removed.contains($0.account.id) }
         }
         // An account that signed OUT stops being discoverable at all - Claude's logout deletes the
         // Keychain item, Codex's deletes auth.json - so discovery alone drops it from the app at
@@ -337,15 +341,10 @@ final class UsageStore {
         // NOW that this round didn't fetch (the queued follow-up replaces them with live data),
         // and drop rows of providers disabled mid-flight.
         let enabledNow = SettingsStore.shared.enabledProviders
-        // A dormant account gets a row rather than a fetch: there is no credential left to fetch
-        // with, and a card is where its "Login expired" chip lives. Kept out of `results` so an
-        // account that stays signed out cannot hold the failure-retry ladder open for as long as
-        // it does.
-        let dormantRows = dormant
-            .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
-            .map { AccountUsage.failure(account: $0, providerID: $0.providerID,
-                                        message: L("Login expired")) }
-        let merged = (results + dormantRows).map(applyLastGood)
+        // Dormant and shared-login homes get rows rather than fetches (UsageStore+UnpolledRows.swift).
+        for id in shared.kept.keys { lastGood[id] = nil; failureStreak[id] = nil }
+        let merged = (results + dormantRows(dormant, enabledProviders: enabledNow)).map(applyLastGood)
+            + sharedLoginRows(shared, enabledProviders: enabledNow)
         let carried = carriedAccountRows(previous: accounts, fetched: Set(merged.map(\.id)),
                                          known: Set(known.map(\.id)), enabledProviders: enabledNow)
         accounts = (merged + carried)
@@ -447,7 +446,6 @@ final class UsageStore {
     /// the publishing half of the store (UsageStorePublishing.swift), written only here.
     private(set) var lastPublishedAccounts: [AccountUsage] = []
     private(set) var lastLaunchHomes: [String: String] = [:]
-
 
     /// Accounts the user removed, and the rounds that must not resurrect them (AccountRemovals).
     private var removals = AccountRemovals()

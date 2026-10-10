@@ -78,6 +78,13 @@ struct AccountCardView: View {
             } else if facts.isLoginExpired {
                 loginExpiredChip
             }
+            if let notice = facts.sharedLoginNotice {
+                Label(notice, systemImage: "person.2.fill")
+                    .font(.caption2)
+                    .foregroundStyle(TallyColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail)
+            }
             AccountLoginHealthView(accountID: usage.id, owner: facts.markOwner, canRenew: facts.canRenewLogin,
                                    showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)
         }

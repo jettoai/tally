@@ -252,6 +252,13 @@ struct AccountListRowView: View {
                 detail: L(AccountSignIn.detailKey(isDormant: facts.isDormant)))
             .accessibilityLabel(L("Signed out"))
         }
+        if let notice = facts.sharedLoginNotice {
+            Image(systemName: "person.2.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(TallyColor.warning)
+                .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail)
+                .accessibilityLabel(notice)
+        }
         AccountLoginHealthView(accountID: usage.id, owner: facts.markOwner, canRenew: facts.canRenewLogin,
                                compact: true, showsExpiry: !facts.isLoginExpired && !facts.isRenewingLogin)
     }

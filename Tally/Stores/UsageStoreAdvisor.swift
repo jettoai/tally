@@ -50,7 +50,9 @@ extension UsageStore {
         // owns, and a member of the starvation intersection that can never starve - so a fleet that
         // just lost a quarter of itself reads as comfortable. The same rows the strip draws its
         // pips from, so the two surfaces cannot disagree about how many accounts there are.
-        let live = Set(accounts.map(\.id))
+        // A home signed into another's login is not a seat (SharedLogin.swift, #6): its history,
+        // written before the duplicate was noticed, is the kept account's quota counted twice.
+        let live = Set(accounts.filter { SharedLogin.isSeat($0.sameAccountAs) }.map(\.id))
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)) { samples in
             let advisorSamples = samples.map {

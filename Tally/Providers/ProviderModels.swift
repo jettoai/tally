@@ -135,6 +135,10 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// behind it, so it answers "is something wrong with this account" for both kinds at once.
     /// `foldLastGood` sets all three and says why the badge may not be reused for this.
     var pollsKeepFailing: Bool = false
+    /// Set on a config home signed into the same Claude account as another one (SharedLogin.swift):
+    /// the id of the account kept for that login. Such a row is never polled, never launchable and
+    /// carries no numbers; this names where its quota is counted. nil on every other row.
+    var sameAccountAs: String? = nil
     /// Codex reset banking: how many banked rate-limit resets the account can still redeem
     /// (nil = the provider doesn't report the concept).
     var resetCreditsAvailable: Int?

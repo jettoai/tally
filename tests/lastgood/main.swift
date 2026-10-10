@@ -176,6 +176,23 @@ check("…so nil is left to mean cannot tell",
       UsageSnapshot.Account(id: "A", provider: "claude", label: "A", isStale: false)
           .lastRefreshFailed == nil)
 
+// MARK: - sameAccountAs reaches the snapshot (jettoai/tally#6)
+
+var sharedRow = AccountUsage(id: "claude:.claude-am", providerID: "claude", accountLabel: "AM",
+                             metrics: [], refreshedAt: Date(), error: "shared")
+sharedRow.sameAccountAs = "claude:.claude-gm"
+let sharedEncoded = try! JSONEncoder().encode(UsageSnapshot.make(
+    accounts: [sharedRow, AccountUsage(id: "claude:.claude-gm", providerID: "claude", accountLabel: "GM",
+                                       metrics: [], refreshedAt: Date())],
+    launchHomes: ["claude:.claude-gm": "/tmp/gm"]))
+let sharedRows = ((try? JSONSerialization.jsonObject(with: sharedEncoded)) as? [String: Any])?["accounts"]
+    as? [[String: Any]] ?? []
+check("a duplicate home publishes the kept account's id",
+      sharedRows.first?["sameAccountAs"] as? String == "claude:.claude-gm")
+check("…and every other row publishes nothing for it", sharedRows.last?["sameAccountAs"] == nil)
+check("…and no identity rides along: the row's keys are the snapshot's own",
+      !String(decoding: sharedEncoded, as: UTF8.self).lowercased().contains("uuid"))
+
 // MARK: - The store is really wired to this fold
 
 // The streak counters stay in the store, so the wiring cannot be compiled in here; without this

@@ -298,7 +298,7 @@ func runStatus(json: Bool = false) {
     let advisor = loadAdvisorReadings(plans: accountPlans(snapshot),
                                       reserves: accountReserveIDs(snapshot, reserves),
                                       flagship: accountFlagshipModels(snapshot),
-                                      live: Set(snapshot.accounts.map(\.id)))
+                                      live: advisorLiveAccounts(snapshot))
     // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
     // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.
     //
@@ -357,7 +357,7 @@ func runStatus(json: Bool = false) {
             let marker = account.id == bestID ? "→" : " "
             var state = account.error.map { " !\($0)" } ?? (account.isStale ? " (stale)" : "")
             if pinned { state += " (pinned)" }
-            state += resetStatusSuffix(account)
+            state += resetStatusSuffix(account) + sharedLoginSuffix(account, in: accounts)
             print("\(marker) \(account.label): " +
                   "session \(account.statusFigure(account.sessionRemaining, resetsAt: account.sessionResetsAt, now: reportedAt)) · " +
                   "weekly \(account.statusFigure(account.weeklyRemaining, resetsAt: account.weeklyResetsAt, now: reportedAt)) · " +

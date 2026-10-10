@@ -365,6 +365,7 @@ let factsSource = readSource("Tally/Views/AccountFacts.swift")
 let surfaceSource = cardSource + "\n" + rowSource + "\n" + factsSource
 let storeSource = readSource("Tally/Stores/LoginStatusStore.swift")
 let usageSource = readSource("Tally/Stores/UsageStore.swift")
+let unpolledSource = readSource("Tally/Stores/UsageStore+UnpolledRows.swift")
 let routerSource = readSource("Tally/App/NotificationRouter.swift")
 let renewSource = readSource("Tally/Stores/RenewLoginStore.swift")
 let memorySource = readSource("Tally/Stores/KnownAccountsStore.swift")
@@ -595,7 +596,10 @@ expect(usageSource.contains("adoptDiscovered(known)")
 expect(memorySource.contains("return (discovered + revived, revived)"),
        "…because `all` really is discovery WITH the dormant accounts merged back into it, which "
            + "is the only reason the probe (and every list built from it) can see one")
-expect(usageSource.contains("message: L(\"Login expired\")"),
+// The row builder lives beside the refresh (UsageStore+UnpolledRows.swift, split for length), so
+// the call site and the row are pinned separately.
+expect(usageSource.contains("dormantRows(dormant, enabledProviders: enabledNow)")
+        && unpolledSource.contains("message: L(\"Login expired\")"),
        "…and gets a row of its own, because the chip lives on a card")
 expect(usageSource.contains("known: Set(known.map(\\.id))"),
        "the dedup is pruned against every account that exists, not the ones probed this round")

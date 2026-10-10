@@ -61,6 +61,11 @@ enum ClaudeAccounts {
         var plan: String?
         /// The signed-in email, shown only as the card's hover tooltip. Never logged or published.
         var email: String?
+        /// `oauthAccount.accountUuid`: which Claude account this home is signed into. Compared in
+        /// memory only, to tell two homes signed into ONE account apart from two accounts
+        /// (SharedLogin.swift, jettoai/tally#6). An identity, so never logged, printed, written to a
+        /// file or published to the snapshot. nil when the file predates the field or is missing.
+        var accountUUID: String?
     }
 
     /// Both config-derived account facts in one decode: the file runs to six figures of bytes
@@ -74,7 +79,7 @@ enum ClaudeAccounts {
         guard let data = try? Data(contentsOf: url),
               let config = try? JSONDecoder().decode(Config.self, from: data),
               let account = config.oauthAccount else { return Profile() }
-        return Profile(plan: account.planLabel, email: account.email)
+        return Profile(plan: account.planLabel, email: account.email, accountUUID: account.uuid)
     }
 
     private struct Config: Decodable {
@@ -84,6 +89,12 @@ enum ClaudeAccounts {
             var organizationRateLimitTier: String?
             var organizationType: String?
             var emailAddress: String?
+            var accountUuid: String?
+
+            var uuid: String? {
+                guard let value = accountUuid, !value.isEmpty else { return nil }
+                return value
+            }
 
             var email: String? {
                 guard let value = emailAddress, !value.isEmpty else { return nil }

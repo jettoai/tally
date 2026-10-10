@@ -38,6 +38,11 @@ final class LoginStatusStore {
     /// provider derived, while this is a memory of last resort that must never outrank a live one.
     private var identities: AccountIdentityMemory
 
+    /// Homes signed into another home's Claude login this round (SharedLogin.swift, #6). Their
+    /// address is that other account's, so it is never written into their memory: the memory is
+    /// what tells which of the two homes was re-signed into somebody else's account.
+    var sharedLoginDuplicates: Set<String> = []
+
     /// How often the probe may run. Far longer than the usage interval can be set to, because a
     /// login is not a quota: it changes when the user changes it, and the state that matters
     /// (expired) is not one an extra minute of freshness improves.
@@ -67,6 +72,9 @@ final class LoginStatusStore {
     /// to the config-derived one rather than showing nothing.
     func email(_ accountID: String) -> String? { emails[accountID] }
 
+    /// The address this account was last remembered as, before this round wrote anything.
+    func rememberedEmail(_ accountID: String) -> String? { identities.email(accountID) }
+
     /// Who an account is signed in as, for a surface that wants to show it. One chain, asked from
     /// every surface: the card's tooltip and the Settings row are the same question about the same
     /// account, and a second copy of the ordering would eventually answer it differently on one of
@@ -93,7 +101,7 @@ final class LoginStatusStore {
     /// answers whether anything actually moved).
     private func remember(_ named: [(accountID: String, email: String?)]) {
         var changed = false
-        for entry in named {
+        for entry in named where !sharedLoginDuplicates.contains(entry.accountID) {
             changed = identities.remember(accountID: entry.accountID, email: entry.email) || changed
         }
         if changed { persistIdentities() }

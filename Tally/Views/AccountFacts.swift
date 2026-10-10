@@ -274,4 +274,15 @@ struct AccountFacts {
     var loginExpiryState: ClaudeLoginExpiry.State { LoginHealthStore.shared.expiryState(usage.id) }
 
     var isLoginExpired: Bool { LoginStatusStore.shared.isExpired(usage.id) }
+
+    /// The kept account of a login another home is also signed into (#6): the duplicate's own card
+    /// says it in its error line, this says it on the account whose numbers both homes share.
+    var sharedLoginNotice: String? {
+        let rows = UsageStore.shared.accounts
+        let duplicates = rows.filter { $0.sameAccountAs == usage.id }.map(\.id).sorted()
+        guard usage.sameAccountAs == nil, !duplicates.isEmpty else { return nil }
+        return UsageStore.sharedLoginMessage([usage.id] + duplicates) { id in
+            rows.first { $0.id == id }?.accountLabel
+        }
+    }
 }

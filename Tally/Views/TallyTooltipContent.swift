@@ -71,3 +71,21 @@ enum TallyTooltipContent: Equatable {
         }
     }
 }
+
+/// Lays its content out at its own ideal width, held to `cap`, and measures the height at that width.
+/// `frame(maxWidth:)` cannot do this under the chip's `fixedSize()`: the frame sizes itself from the
+/// content's single-line ideal height and only narrows it when placing, so wrapped lines overflowed
+/// the chip's background (B-1057, seen on screen).
+struct TallyTooltipCappedWidth: Layout {
+    let cap: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let width = min(content.sizeThatFits(.unspecified).width, cap, proposal.width ?? .infinity)
+        return content.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: nil))
+    }
+}

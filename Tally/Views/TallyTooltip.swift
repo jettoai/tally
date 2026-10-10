@@ -43,6 +43,10 @@ enum TallyTooltip {
     /// room to spare: the single-column panel is 380pt wide, and this plus the chip's padding and
     /// both margins comes to 268pt there.
     static let blocksWidth: CGFloat = 240
+    /// Widest a plain-text callout's content may grow before its lines wrap. A sentence past this
+    /// reads as one long strip across the panel; the narrowest host (the 380pt panel) still fits it
+    /// with room, and a short line keeps hugging its own text.
+    static let linesMaxWidth: CGFloat = 300
 
     /// Which callout a design capture is holding open (`-TallyTooltipPreview fleet` /
     /// `-TallyTooltipPreview identity`, demo or dev builds only, argument domain so nothing
@@ -365,22 +369,18 @@ private struct TallyTooltipCallout: View {
         case .lines(let lines):
             // Tight leading between them: the second line qualifies the first rather than following
             // it, and a paragraph's worth of gap would read as two separate answers.
-            VStack(alignment: .leading, spacing: 1) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                    Text(line)
-                        .font(.caption)
-                        .foregroundStyle(index == 0 ? primaryInk : secondaryInk)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+            // A ceiling, not a width: a line that fits keeps hugging its own text, and a longer one
+            // wraps onto more lines instead of stretching the chip across the surface or losing its
+            // tail (B-1057). See `TallyTooltipCappedWidth` for why not `frame(maxWidth:)`.
+            TallyTooltipCappedWidth(cap: linesMaxWidth) {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(index == 0 ? primaryInk : secondaryInk)
+                    }
                 }
             }
-            // A ceiling, not a width: a line that fits keeps hugging its own text (measured: a
-            // "Copy" chip stays 41pt under a 200pt cap), and only one too wide for the surface is
-            // held back. Without it the chip is merely MOVED to fit and never shrunk, so on the
-            // 380pt single-column panel a deep project path ran under the window's edge and lost
-            // exactly the tail it was hovered to reveal. Truncating in the middle keeps both ends,
-            // which for a path is the root and the leaf.
-            .frame(maxWidth: linesMaxWidth, alignment: .leading)
         case .blocks(let blocks):
             // A fixed width rather than a fitted one, because the callout has to stay INSIDE the
             // surface (see the type's header) and the narrowest host is the 380pt single-column
@@ -438,7 +438,7 @@ private struct TallyTooltipCallout: View {
     /// held off both edges by, less its own padding. Floored above zero because a surface is
     /// measured at zero for the frame before it is laid out, and a zero cap would collapse the text.
     private var linesMaxWidth: CGFloat {
-        max(40, bounds.width - 2 * TallyTooltip.margin - 2 * Self.insetH)
+        min(TallyTooltip.linesMaxWidth, max(40, bounds.width - 2 * TallyTooltip.margin - 2 * Self.insetH))
     }
 
     /// The chip's own two ink levels. Its surface is dark in BOTH schemes (see `surface`), so these

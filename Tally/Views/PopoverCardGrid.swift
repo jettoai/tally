@@ -100,6 +100,8 @@ extension PopoverRootView {
             .filter { !$0.isHardError }
             .map(\.orderedMetrics.count)
             .max() ?? 0
+        // Once per provider rather than once per row: each pick walks every account (TALLY-7Z).
+        let autoPicks = Set(Set(accounts.map(\.providerID)).compactMap { AccountFacts.autoPickID(providerID: $0) })
         // Row-major, the same chunking the card grid uses, so the reading order is the one the eye
         // already learned here: across, then down.
         return VStack(spacing: 0) {
@@ -111,7 +113,8 @@ extension PopoverRootView {
                             // the columns are separate runs of accounts, and one line through both
                             // would read as a single row cut in half.
                             if band > 0 { Divider() }
-                            listRow(usage, identityWidth: identityWidth, meterSlots: meterSlots)
+                            listRow(usage, identityWidth: identityWidth, meterSlots: meterSlots,
+                                    isAutoPick: autoPicks.contains(usage.id))
                         }
                         .frame(width: width)
                     }
@@ -127,14 +130,14 @@ extension PopoverRootView {
     }
 
     private func listRow(_ usage: AccountUsage, identityWidth: CGFloat?,
-                         meterSlots: Int) -> some View {
+                         meterSlots: Int, isAutoPick: Bool) -> some View {
         AccountListRowView(usage: usage, settings: settings, showsDragHandle: true,
                            identityWidth: identityWidth, meterSlots: meterSlots,
                            onIdentityWidth: { width in
                                if listIdentityWidths[usage.id] != width {
                                    listIdentityWidths[usage.id] = width
                                }
-                           })
+                           }, isAutoPick: isAutoPick)
             .opacity(cardLift?.id == usage.id ? 0 : 1)
             .contentShape(Rectangle())
             // Same frame registration the cards use, so the one drag gesture reorders both

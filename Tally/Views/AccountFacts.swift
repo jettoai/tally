@@ -201,15 +201,19 @@ struct AccountFacts {
     /// would sit on the personal account while `tally` spent a sibling instead, which is the drift
     /// this prediction exists not to have. Only reached in auto mode - a pinned card wears the
     /// pinned badge (`AccountCardView`), and nothing on that path asks a reserve anything.
-    var isAutoPick: Bool {
+    var isAutoPick: Bool { Self.autoPickID(providerID: usage.providerID) == usage.id }
+
+    /// The provider's auto pick, for a surface drawing many accounts at once: it walks every
+    /// account, so asking it once per row made a list O(rows²) on every redraw (Sentry TALLY-7Z).
+    /// The list asks once per provider and hands each row its answer (`PopoverRootView.rowStack`).
+    static func autoPickID(providerID: String) -> String? {
         let store = UsageStore.shared
         let launchable = DemoUsage.isActive
             ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
             : Set(store.discoveredAccounts.compactMap { $0.launchableHome != nil ? $0.id : nil })
         return LaunchPolicyStore.shared.autoPickID(
-            providerID: usage.providerID, accounts: store.accounts, launchable: launchable,
-            reserves: PersonalAccount.reserves(store.accounts,
-                                               discovered: store.discoveredAccounts)) == usage.id
+            providerID: providerID, accounts: store.accounts, launchable: launchable,
+            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
     }
 
     /// The one switch both surfaces offer: hollow circle pins this account, checked releases it back

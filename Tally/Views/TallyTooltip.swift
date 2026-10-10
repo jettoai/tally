@@ -176,7 +176,7 @@ extension View {
         let lines = [text, detail ?? ""]
             .flatMap { $0.components(separatedBy: "\n") }
             .filter { !$0.isEmpty }
-        return modifier(TallyTooltipTarget(payload: .lines(lines), forced: forced))
+        return modifier(TallyTooltipTarget(resolve: { .lines(lines) }, forced: forced))
     }
 
     /// The same callout for a control that can be DISABLED. SwiftUI stops routing interaction into a
@@ -202,16 +202,26 @@ extension View {
     /// - Parameter hugsRow: hug the enclosing `tallyTooltipAnchorRow()` vertically instead of this
     ///   element, so the chip clears the neighbouring rows' text (`TooltipPlacement.rowAnchor`).
     func tallyTooltip(blocks: [TallyTooltipBlock], forced: Bool = false, hugsRow: Bool = false) -> some View {
-        modifier(TallyTooltipTarget(payload: .blocks(blocks), forced: forced, hugsRow: hugsRow))
+        modifier(TallyTooltipTarget(resolve: { .blocks(blocks) }, forced: forced, hugsRow: hugsRow))
+    }
+
+    /// The same callout, with blocks that are built only while somebody can be shown them: under
+    /// the pointer, held open for a capture, outside a layer (the system tooltip needs its text up
+    /// front), or with VoiceOver on (the hint is how it hears them). For a callout whose figures
+    /// cost real work on every redraw of a target nobody is hovering (Sentry TALLY-82).
+    func tallyTooltip(lazyBlocks: @escaping () -> [TallyTooltipBlock], forced: Bool = false) -> some View {
+        modifier(TallyTooltipTarget(resolve: { .blocks(lazyBlocks()) }, lazy: true, forced: forced))
     }
 }
 
 // MARK: - Target
 
 private struct TallyTooltipTarget: ViewModifier {
-    /// Named `payload` rather than `content`: `ViewModifier.body(content:)` binds that word to the
-    /// view being wrapped, and a stored property of the same name is silently shadowed inside it.
-    let payload: TallyTooltipContent
+    /// Builds the callout's content. Named for what it returns, `payload`, rather than `content`:
+    /// `ViewModifier.body(content:)` binds that word to the view being wrapped.
+    let resolve: () -> TallyTooltipContent
+    /// Build only while the content can be seen or heard (`tallyTooltip(lazyBlocks:)`).
+    var lazy = false
     /// Held open with no pointer, for a design capture (`TallyTooltip.previewForced`).
     var forced = false
     var hugsRow = false
@@ -219,8 +229,14 @@ private struct TallyTooltipTarget: ViewModifier {
     @Environment(\.hasTallyTooltipLayer) private var hosted
     @Environment(\.tallyTooltipRowFrame) private var rowFrame
     @Environment(\.tallyTooltipSeams) private var seams
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @State private var isHovering = false
     @State private var isShown = false
+
+    /// Empty while a lazy target has nobody to show it to, which shows and says nothing.
+    private var payload: TallyTooltipContent {
+        !lazy || isHovering || isShown || forced || voiceOver || !hosted ? resolve() : .lines([])
+    }
 
     @ViewBuilder
     func body(content: Content) -> some View {

@@ -116,7 +116,7 @@ extension PopoverRootView {
                     poolBlock(summary, pool, leading: index == 0, showsChevron: showsChevron)
                 }
             }
-            .tallyTooltip(blocks: fleetTooltipBlocks([summary]), forced: forcedTooltip)
+            .tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }, forced: forcedTooltip)
         }
     }
 
@@ -141,7 +141,7 @@ extension PopoverRootView {
             // This column's own hover, for the same reason the rows have theirs (see `fleetGauge`):
             // the two columns stand side by side, so a strip-wide target also answered the wrong
             // half of the strip.
-            .tallyTooltip(blocks: fleetTooltipBlocks([summary]), forced: forcedTooltip)
+            .tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }, forced: forcedTooltip)
         }
     }
 

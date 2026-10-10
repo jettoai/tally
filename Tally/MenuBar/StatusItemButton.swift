@@ -29,6 +29,21 @@ extension StatusItemController {
         ])
     }
 
+    /// `updateButton` on the next run-loop turn, with every request before it folded into one. The
+    /// refresh job calls this from its tail: drawing the strip there (an `ImageRenderer` built and
+    /// torn down) made one main-thread slice of the whole refresh plus the render, which is what
+    /// Sentry TALLY-37 sampled. The strip is a turn late, and only ever the latest state.
+    func updateButtonSoon() {
+        guard !Self.buttonUpdateQueued else { return }
+        Self.buttonUpdateQueued = true
+        DispatchQueue.main.async { [weak self] in
+            Self.buttonUpdateQueued = false
+            self?.updateButton()
+        }
+    }
+
+    private static var buttonUpdateQueued = false
+
     func updateButton() {
         guard let button = statusItem?.button else { return }
         let segments = UsageStore.shared.menuBarSegments

@@ -274,6 +274,7 @@ func runSmartBadgeChecks() {
         let source = (try? String(contentsOfFile: view, encoding: .utf8)) ?? ""
         check("\(view) draws the pinned badge from the pin, not from the pick",
               source.contains("facts.launchMode == .manual, facts.isPinnedActive")
-                  && source.contains("facts.launchMode == .auto, facts.isAutoPick"))
+                  && (source.contains("facts.launchMode == .auto, facts.isAutoPick")
+                      || source.contains("facts.launchMode == .auto, isAutoPick ?? facts.isAutoPick")))
     }
 }

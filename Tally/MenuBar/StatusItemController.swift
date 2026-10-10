@@ -115,7 +115,7 @@ final class StatusItemController: NSObject {
             }
         }
 
-        UsageStore.shared.onChange = { [weak self] in self?.updateButton() }
+        UsageStore.shared.onChange = { [weak self] in self?.updateButtonSoon() }
         // The blocked dot is the one thing on this button that does not come from the quota
         // snapshot, so it needs its own reason to redraw: a session that starts waiting while
         // every window is closed is exactly the case the dot exists for (SessionRosterStore.swift

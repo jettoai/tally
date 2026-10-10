@@ -29,6 +29,9 @@ struct AccountListRowView: View {
     /// Reports this row's identity group width, measured at the group's own size, so the block can
     /// take the widest as its shared column.
     var onIdentityWidth: ((CGFloat) -> Void)? = nil
+    /// Whether this row is the provider's auto pick, answered once for the whole block by its list
+    /// (`AccountFacts.autoPickID`). Nil asks on its own, which is what the floating drag preview does.
+    var isAutoPick: Bool? = nil
 
     @State private var isHovering = false
     @State private var redeemBusy = false
@@ -406,7 +409,7 @@ struct AccountListRowView: View {
                     .foregroundStyle(Color.orange)
                     .tallyTooltip(L("Manual: every new session uses this account."))
                     .accessibilityLabel(L("Pinned"))
-            } else if facts.launchMode == .auto, facts.isAutoPick {
+            } else if facts.launchMode == .auto, isAutoPick ?? facts.isAutoPick {
                 Image(systemName: "sparkles")
                     .font(.system(size: 9))
                     .foregroundStyle(TallyColor.ai)

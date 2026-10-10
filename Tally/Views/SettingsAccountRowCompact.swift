@@ -16,8 +16,12 @@ extension SettingsAccountsView {
         static let cell: CGFloat = 32
         static let usage: CGFloat = cell * 2 + 6
         static let status: CGFloat = plan + 6 + usage
-        static let share: CGFloat = 22
-        static let toggle: CGFloat = 38
+        // Wide enough for the widest name over them in all five languages at the header's 10pt
+        // (Sharing 37.9 en, Enabled 39.6 en, Menu bar 46.3 en; the ja Menu bar, 57.0, spills into
+        // the short names either side), so no two header names touch and each centres on its column.
+        static let share: CGFloat = 40
+        static let mark: CGFloat = 22
+        static let toggle: CGFloat = 48
         static let actions: CGFloat = 16
         static let handle: CGFloat = 12
     }
@@ -96,7 +100,7 @@ extension SettingsAccountsView {
         Image(systemName: full ? "link.circle.fill" : "link")
             .font(.system(size: full ? 12 : 10, weight: .semibold))
             .foregroundStyle(full ? Color.accentColor : Color.secondary)
-            .frame(width: Column.share, height: 14)
+            .frame(width: Column.mark, height: 14)
     }
 
     func compactRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,

@@ -13,7 +13,7 @@ import Foundation
 // (a second copy would leave one surface sharing what the other does not).
 
 /// What a shared add links from the main account into a new one: the HARNESS (instructions,
-/// skills, hooks, agents, settings) plus what sessions leave for each other: the
+/// skills, hooks, agents, output styles, settings) plus what sessions leave for each other: the
 /// conversation record, and `inboxes`, the messages one session drops for the next - one
 /// setup maintained once, and cross-account resume/handoff continues the same history with
 /// no copying. An allowlist on purpose: identity (credentials, .claude.json / auth.json)
@@ -28,7 +28,7 @@ import Foundation
 /// restart.
 let sharedHarnessItems = [
     "CLAUDE.md", "settings.json", "settings.local.json",
-    "agents", "skills", "hooks", "commands", "plugins",
+    "agents", "skills", "hooks", "commands", "output-styles", "plugins",
     "memory", "projects", inboxesItem, taskListsItem,
 ]
 

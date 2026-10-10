@@ -129,7 +129,31 @@ enum IdleInstall {
 
     /// How long busy or unreadable sessions may hold an install off. Past it the install goes ahead,
     /// so a session that never reports (an old supervisor, a stuck dialog) cannot freeze updates.
-    static let busySessionsCap: TimeInterval = 72 * 3600
+    /// The app swapping its bundle does not restart a working session: each supervisor self-updates
+    /// on its own tick only when its conversation is quiet (`selfUpdateTarget`,
+    /// TallyCLI/SelfUpdate.swift) and holds another hour for background work
+    /// (`selfUpdateBackgroundHoldLimit`). So this hold is a second guard, and on a fleet that always
+    /// has something working 72 hours was a 72-hour delay on every fix (B-1395).
+    static let busySessionsCap: TimeInterval = 6 * 3600
+
+    /// One supervised session as the busy count reads it (B-1395). A session sitting at its composer
+    /// after Claude finished speaking publishes `blocked` with a SOFT wait (`idle_prompt`), which is
+    /// the very idle this rule waits for; counting it as busy held 0.85.28 off a machine for a whole
+    /// day (2026-10-10: 415 of 415 minutes had at least one such session). A hard wait (a permission
+    /// dialog) and any other non-idle state still count, and a session that published no state
+    /// counts too, as before.
+    enum SessionActivity: Equatable {
+        case idle
+        case working
+        case waitingSoft
+        case waitingHard
+        case unknown
+    }
+
+    /// Supervised sessions an unattended install should wait on.
+    static func busyCount(_ sessions: [SessionActivity]) -> Int {
+        sessions.filter { $0 != .idle && $0 != .waitingSoft }.count
+    }
 
     /// Whether Sparkle's standard alert should present a SCHEDULED update.
     ///

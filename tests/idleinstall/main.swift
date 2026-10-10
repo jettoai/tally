@@ -188,9 +188,27 @@ expect(spaced(since: 25 * hour, busy: 0), "T-F1 25 hours after it, every session
 expect(!spaced(since: 23 * hour, busy: 0, waiting: 100 * hour),
        "T-F1 the spacing is not lifted by waiting")
 expect(!spaced(since: nil, busy: 1, waiting: hour), "T-F2 a busy session holds it")
-expect(spaced(since: nil, busy: 1, waiting: 73 * hour), "T-F2 …until 72 hours have passed")
+expect(!spaced(since: nil, busy: 1, waiting: 5 * hour), "T-F2 …still at 5 hours")
+expect(spaced(since: nil, busy: 1, waiting: 7 * hour), "T-F2 …until 6 hours have passed")
 expect(!spaced(since: nil, busy: nil, waiting: hour), "T-F2 sessions that cannot be read hold it too")
-expect(spaced(since: nil, busy: nil, waiting: 73 * hour), "T-F2 …on the same cap")
+expect(spaced(since: nil, busy: nil, waiting: 7 * hour), "T-F2 …on the same cap")
+expect(IdleInstall.busySessionsCap == 6 * 3600, "B-1395 the busy hold is six hours, not three days")
+
+// MARK: B-1395 - a session sitting at its composer is idle, not busy
+
+expect(IdleInstall.busyCount([.waitingSoft, .idle]) == 0,
+       "B-1395-1 a soft idle_prompt wait and an idle session hold nothing")
+expect(IdleInstall.busyCount([.waitingHard]) == 1, "B-1395-2 a permission dialog still holds it")
+expect(IdleInstall.busyCount([.working, .waitingSoft]) == 1,
+       "B-1395-3 a working session still holds it beside a soft wait")
+expect(IdleInstall.busyCount([.unknown]) == 1, "B-1395-4 a session with no reading still holds it")
+let updaterDelegate = (try? String(contentsOfFile: "Tally/App/UpdaterDelegate.swift", encoding: .utf8)) ?? ""
+expect(updaterDelegate.contains("IdleInstall.busyCount(")
+        && !updaterDelegate.contains("$0.state != .idle }.count"),
+       "B-1395-5 the app counts busy sessions through busyCount, not the state word")
+let blockedArm = updaterDelegate.components(separatedBy: "case .blocked:").dropFirst().first ?? ""
+expect(blockedArm.prefix(300).contains("userWait(notificationType:"),
+       "B-1395-6 a blocked row is split on its notice type")
 expect(spaced(since: nil, busy: 0), "T-F3 never installed and nothing busy: the old rules decide")
 expect(!IdleInstall.shouldInstall(modalOpen: true, taskWindowOpen: false, pinnedPanelOpen: false,
                                   secondsSinceUserInput: 1_000, waiting: 60,

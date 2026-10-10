@@ -384,6 +384,7 @@ do {
 runUserChoiceChecks()
 runBusyChecks()
 runStallChecks()
+runLagChecks()
 
 // MARK: P1, the half of it that lives in the controller rather than in the table above
 //

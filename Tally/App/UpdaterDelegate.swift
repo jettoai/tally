@@ -13,7 +13,25 @@ extension UpdaterController: SPUUpdaterDelegate {
     /// Supervised sessions that are not idle, from the session board's last scan; nil before any
     /// scan has finished. A session with no published state counts as busy (cannot say, so wait).
     static func busySessions() -> Int? {
-        SessionRosterStore.shared.lastScanned.map { $0.filter { $0.state != .idle }.count }
+        SessionRosterStore.shared.lastScanned.map { rows in
+            IdleInstall.busyCount(rows.map(Self.activity))
+        }
+    }
+
+    /// The roster row in the busy count's terms. `blocked` is split on the notice TYPE, the same
+    /// reading `LimitResetStore.waitingOnPerson` keeps: a blocked row with no type stays hard
+    /// (`userWait` fails open to hard), so nothing that used to hold the install stops holding it
+    /// except the soft wait.
+    private static func activity(_ row: SessionRosterStore.SessionRow) -> IdleInstall.SessionActivity {
+        guard let record = row.record else { return .unknown }
+        switch record.supervised {
+        case .idle: return .idle
+        case .working: return .working
+        case .unknown: return .unknown
+        case .blocked:
+            guard let type = record.noticeType else { return .waitingHard }
+            return userWait(notificationType: type) == .soft ? .waitingSoft : .waitingHard
+        }
     }
 
     /// What Sparkle just fetched, which is a reading of the same feed the poller reads.

@@ -9,7 +9,7 @@ struct SettingsAccountsView: View {
     @Bindable var settings: SettingsStore
 
     // Not private: the row itself lives in its own file (SettingsAccountRowCompact).
-    @State var renamingAccountID: String? = Self.demoRenamingID()
+    @State var renamingAccountID: String? = Self.demoRowID(forKey: "TallyDemoRenaming")
     /// The row under the pointer: the compact row shows its drag handle and sharing detail on it.
     @State var hoveredAccountID: String?
     /// Drag-to-reorder, the panel's own mechanics (CardReorder.swift): each row's frame in the
@@ -76,25 +76,15 @@ struct SettingsAccountsView: View {
         .padding(.leading, 18)
     }
 
-    /// `-TallyDemoData YES -TallyDemoRenaming <n>`: row n of the fixtures opens with its rename
-    /// field up, for a capture (the field otherwise needs a click). Debug builds only.
-    private static func demoRenamingID() -> String? {
-        #if DEBUG
-        let row = UserDefaults.standard.integer(forKey: "TallyDemoRenaming")
-        let ids = SettingsStore.shared.orderedAccountIDs(DemoUsage.discoveredAccounts().map(\.id))
-        if DemoUsage.isActive, ids.indices.contains(row - 1) { return ids[row - 1] }
-        #endif
-        return nil
-    }
-
-    /// `-TallyDemoData YES -TallyDemoMenuOpen <n>` / `-TallyDemoStopSharing <n>`: row n of the
-    /// fixtures, numbered as `-TallyDemoRenaming` numbers them, for the captures of "Stop sharing
-    /// settings" (the row's menu open, and the row after the press). Debug builds only.
+    /// `-TallyDemoData YES` plus `-TallyDemoRenaming <n>` (the row opens with its rename field up),
+    /// `-TallyDemoMenuOpen <n>` (its actions menu open) or `-TallyDemoStopSharing <n>` (the row
+    /// after "Stop sharing settings"): row n of the fixtures, for a capture. Debug builds only.
     static func demoRowID(forKey key: String) -> String? {
         #if DEBUG
+        guard DemoUsage.isActive else { return nil }
         let row = UserDefaults.standard.integer(forKey: key)
         let ids = SettingsStore.shared.orderedAccountIDs(DemoUsage.discoveredAccounts().map(\.id))
-        if DemoUsage.isActive, ids.indices.contains(row - 1) { return ids[row - 1] }
+        if ids.indices.contains(row - 1) { return ids[row - 1] }
         #endif
         return nil
     }

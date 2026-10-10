@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/quotaknock/main.swift \
   TallyCLI/QuotaKnockLogic.swift Tally/Core/KeystrokeText.swift \
-  TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift \
+  TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   TallyCLI/AccountComfort.swift TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/Quarantine.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/ProviderExecutable.swift

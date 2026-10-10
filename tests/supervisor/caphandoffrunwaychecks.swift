@@ -83,7 +83,7 @@ func runCapHandoffRunwayChecks() {
                                  encoding: .utf8)) ?? ""
     check("runway: the cap path chooses through capHandoffPick",
           detection.contains("?? capHandoffPick(candidates"))
-    let pick = (try? String(contentsOfFile: "TallyCLI/AccountPick.swift", encoding: .utf8)) ?? ""
+    let pick = (try? String(contentsOfFile: "TallyCLI/AccountPick+Handoff.swift", encoding: .utf8)) ?? ""
     let shared = pick.range(of: "func capHandoffTarget(").map {
         String(pick[$0.lowerBound...].prefix(600))
     } ?? ""

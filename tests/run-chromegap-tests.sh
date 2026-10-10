@@ -41,7 +41,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/AccountBinding.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/AccountHome.swift \
-  TallyCLI/AccountPick.swift \
+  TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
   TallyCLI/AccountReserveReader.swift \
   TallyCLI/AgentRoster.swift \
   TallyCLI/ChromeReach.swift \

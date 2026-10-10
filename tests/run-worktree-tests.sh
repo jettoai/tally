@@ -41,7 +41,7 @@ swiftc -o "$out" \
   TallyCLI/LaunchFlags.swift \
   TallyCLI/WorktreeMenu.swift \
   TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift \
-  TallyCLI/AccountPick.swift \
+  TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
   TallyCLI/ProviderExecutable.swift \
   TallyCLI/AccountComfort.swift \

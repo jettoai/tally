@@ -303,16 +303,15 @@ func checkPanelSummon() {
           settingsSource.contains("private var reportedHeight: CGFloat = 0")
               && settingsSource.contains("reportedHeight = height"))
     check("…through the one function that writes this window's height, not a second frame write",
-          settingsSource.components(separatedBy: "writer.setFrame(frame, display: true)").count == 2
-              && settingsSource.contains(
-                  "private func fitHeight(on screen: NSScreen?, animate: Bool = false,"))
+          settingsSource.components(separatedBy: "setFrame(").count == 2
+              && settingsSource.contains("private func fitHeight(on screen: NSScreen?) {"))
     check("…and the cap itself is the shared arithmetic rather than numbers inline here",
           settingsSource.contains("ResizeAnchor.fittedWindowHeight(reported: reportedHeight,")
               && !settingsSource.contains("- 40") && !settingsSource.contains("max(200,"))
     // Same-screen summons must not resize either, and the guard that decides that is a comparison
     // against the height the window already has: without it, every summon writes a frame.
     check("…with no write at all when the fitted height is the height it already is",
-          settingsSource.contains("guard abs(target - window.frame.height) > 1 else { completion?(); return }"))
+          settingsSource.contains("guard abs(target - window.frame.height) > 1 else { return }"))
 
     // 9bb. AND THE HEIGHT IT FITS IS THE PANE IN FRONT, not the tallest of the five. All five used
     //      to lay out together so a tab switch never resized the window, which stood every pane in
@@ -358,24 +357,14 @@ func checkPanelSummon() {
           settingsView.contains(".background(heightProbe { sidebarHeight = $0 })\n"
               + "            Spacer(minLength: 0)"))
 
-    // 9bc. THE CHANGE IS ANIMATED, AND ONLY WHEN SOMEBODY IS WATCHING IT. A content report is a
-    //      pane the user clicked to; the first fit of an opening window is a placeholder becoming
-    //      the real thing, and a summon is a window being moved and fitted at once. The last two
-    //      animated would be a window that assembles itself on screen, and one that travels and
-    //      grows in the same breath.
-    check("a content report is what asks for the animation",
-          settingsSource.contains("fitHeight(on: self?.window?.screen, animate: true)"))
-    check("…and the callers that place the window take the default, which is not to animate",
-          settingsSource.contains("animate: Bool = false")
-              && !settingsSource.contains("fitHeight(on: NSScreen.pointerScreen, animate: true)"))
-    check("…with the first fit of a window instant however it was asked for",
-          settingsSource.contains("let animated = animate && hasFitted && window.isVisible"))
-    // Recorded BEFORE the no-op guard: a first measurement that needed no change is still a fit,
-    // and counting it as never having happened animates the next one from a height nobody saw.
-    check("…which is recorded before the guard that can return without writing a frame",
-          precedes("hasFitted = true",
-                   "guard abs(target - window.frame.height) > 1 else { completion?(); return }",
-                   in: settingsSource))
+    // 9bc. THE CHANGE IS NEVER ANIMATED (Albert, 2026-10-10: the growing window read as the pane
+    //      "unrolling" under the click). Asserted as an absence of every way AppKit animates a
+    //      frame, since an animation needs no flag of ours to come back: one `animator()` is enough.
+    check("the settings window's height is written instantly, never through an animation",
+          !settingsSource.contains("animator()")
+              && !settingsSource.contains("NSAnimationContext")
+              && !settingsSource.contains("animate:")
+              && settingsSource.contains("window.setFrame(frame, display: true)"))
     check("…and the resize holds the top edge, so the sidebar row under the cursor does not move",
           settingsSource.contains("frame.origin.y = top - target"))
     // The autosaved frames of the previous name are tallest-pane heights. Restoring one would open
@@ -420,34 +409,42 @@ func checkPanelSummon() {
 }
 
 // A PANE SWITCH NEVER PUTS A PANE IN A WINDOW THE WRONG SIZE FOR IT (Albert, 2026-09-28: the window
-// "unrolled" under a pane that was already there and cut off). Growing, the window arrives first and
-// the pane after it; shrinking, the pane goes in first, since the taller window already fits it.
+// "unrolled" under a pane that was already there and cut off; 2026-10-10: and not by animating
+// between them either). The pane and the window's height change in the same turn as the click.
 func checkPaneSwitchOrder() {
-    check("a switch to a taller pane grows the window before the pane goes in",
-          !ResizeAnchor.paneSwitchSwapsContentFirst(current: 400, target: 600))
-    check("…and a switch to a shorter one puts the pane in first",
-          ResizeAnchor.paneSwitchSwapsContentFirst(current: 600, target: 400))
-    check("…as does one to a pane the same height, rounding included",
-          ResizeAnchor.paneSwitchSwapsContentFirst(current: 400, target: 400)
-              && ResizeAnchor.paneSwitchSwapsContentFirst(current: 400, target: 400.4))
-    // Two panes both over the display's cap land on one window height, so the "grow" there writes
-    // no frame (fitHeight's no-op guard) and the pane goes in on the same turn.
-    check("…and two panes both past the display's cap are one window height, so there is nothing to grow",
+    // Two panes both over the display's cap land on one window height, so the switch writes no
+    // frame (fitHeight's no-op guard) and only the pane changes.
+    check("two panes both past the display's cap are one window height, so there is nothing to resize",
           near(ResizeAnchor.fittedWindowHeight(reported: 1200, chrome: 28, visibleHeight: 900),
                ResizeAnchor.fittedWindowHeight(reported: 1400, chrome: 28, visibleHeight: 900)))
 
-    // Every way a pane changes goes through the one function that keeps that order.
+    // Every way a pane changes goes through the one function that changes both halves together.
     let view = code(of: "Tally/Views/SettingsView.swift")
     let assignments = view.split(separator: "\n").filter {
         $0.trimmingCharacters(in: .whitespaces).hasPrefix("section = ")
     }
-    check("the pane in front is assigned in exactly two places, the two halves of select (\(assignments.count))",
-          assignments.count == 2)
+    check("the pane in front is assigned in exactly one place, select (\(assignments.count))",
+          assignments.count == 1)
     check("…and the sidebar and the Launch pane's link both go through it",
           view.contains("Button {\n                    select(item)\n                }")
               && view.contains("select(.integrations)"))
+    check("…which hands the window the new height in the same turn, with nothing waiting on it",
+          view.contains("        section = item\n        onPaneSwitch(reportedHeight(for: item))")
+              && !view.contains("pendingSection"))
     let controller = code(of: "Tally/MenuBar/SettingsWindowController.swift")
-    check("…with the window's half run to its end before the pane goes in",
-          controller.contains("}, completionHandler: { MainActor.assumeIsolated { completion?() } })")
-              && controller.contains("fitHeight(on: self.window?.screen, animate: true, completion: commit)"))
+    check("…and the window applies it at once rather than a runloop turn later",
+          controller.contains("""
+                  private func applyPaneSwitch(_ height: CGFloat) {
+                      guard height.isFinite, height > 1 else { return }
+                      reportedHeight = height
+                      fitHeight(on: window?.screen)
+                  }
+              """))
+    // A report (an Integrations page, an account added) lands in the same commit too: deferring it a
+    // runloop turn left one frame of a taller page cut by the old height (measured 2026-10-10). Safe
+    // only because this write is the ONE size authority, so both halves are asserted together.
+    check("…and so does a reported height, with the frame write the window's only size authority",
+          controller.contains("abs(height - reportedHeight) > 1 else { return }\n        reportedHeight = height\n        fitHeight(on: window?.screen)\n    }")
+              && !controller.contains("DispatchQueue.main.async { [weak self] in\n            self?.fitHeight")
+              && controller.contains("hosting.sizingOptions = []"))
 }

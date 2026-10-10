@@ -88,18 +88,6 @@ enum ResizeAnchor {
         return max(minimumWindowHeight, min(wanted, visibleHeight - screenMargin))
     }
 
-    /// WHICH HALF OF A PANE SWITCH HAPPENS FIRST: the content or the window.
-    ///
-    /// A pane must never be on screen in a window the wrong size for it. Growing, the old pane
-    /// stays while the window grows and the new one arrives when it is done; shrinking, the new
-    /// pane goes in first, since it already fits the taller window, and the window follows. Same
-    /// order AppKit's toolbar tab view controller keeps between content and window size.
-    ///
-    /// Heights are REPORTED content heights; equal within the tolerance counts as not growing.
-    static func paneSwitchSwapsContentFirst(current: CGFloat, target: CGFloat) -> Bool {
-        target <= current + tolerance
-    }
-
     /// THE SMALLEST CONTENT A SETTINGS WINDOW IS WORTH DRAWING, title bar excluded.
     ///
     /// A window fitted to its content alone has no size of its own, and the shortest pane made

@@ -14,10 +14,9 @@ struct SettingsView: View {
     @Bindable var settings: SettingsStore
     /// Reports the content's full natural height so the host window can fit itself exactly.
     var onContentHeight: (CGFloat) -> Void = { _ in }
-    /// Called on a pane switch that grows the window: the host resizes to `height`, then runs the
-    /// closure that puts the new pane in. The default commits at once (previews, no host).
-    var onPaneSwitch: (_ height: CGFloat, _ commit: @escaping @MainActor @Sendable () -> Void) -> Void =
-        { _, commit in commit() }
+    /// Called on a pane switch, in the click's own turn, with the new pane's height: the host
+    /// resizes at once so the pane and the window arrive on screen together.
+    var onPaneSwitch: (_ height: CGFloat) -> Void = { _ in }
 
     /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER, reported as their maximum. The sidebar is
     /// measured, not guessed at: a constant would go stale on a new section, and go stale silently.
@@ -26,10 +25,6 @@ struct SettingsView: View {
     /// Every pane's own natural height, measured while collapsed too, so a switch knows the height
     /// it is going to BEFORE the pane is on screen.
     @State private var paneHeights: [Section: CGFloat] = [:]
-    /// The pane the sidebar has been clicked to while the window is still growing for it.
-    @State private var pendingSection: Section?
-    /// Which click is the latest, so a click during a growing switch wins over the one before it.
-    @State private var switchToken = 0
     /// The sidebar row under the pointer, for its hover wash.
     @State private var hoveredSection: Section?
     /// The pane's inset inside the scroll view, counted into every reported height.
@@ -133,7 +128,7 @@ struct SettingsView: View {
     private var rows: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Section.allCases, id: \.self) { item in
-                let selected = (pendingSection ?? section) == item
+                let selected = section == item
                 Button {
                     select(item)
                 } label: {
@@ -166,7 +161,7 @@ struct SettingsView: View {
         GeometryReader { proxy in
             Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
                 take(height)
-                onContentHeight(reportedHeight(for: pendingSection ?? section))
+                onContentHeight(reportedHeight(for: section))
             }
         }
     }
@@ -177,32 +172,19 @@ struct SettingsView: View {
     }
 
     /// THE ONE WAY A PANE CHANGES (sidebar click and the Launch pane's link to Integrations).
-    /// Order per `ResizeAnchor.paneSwitchSwapsContentFirst`: never a pane in a window the wrong size.
+    /// The pane and the window's height change in this one turn, so neither is ever on screen
+    /// without the other: no pane in a window the wrong size, and nothing animating between them.
     private func select(_ item: Section) {
-        let shown = pendingSection ?? section
-        guard item != shown else { return }
-        switchToken += 1
-        let token = switchToken
-        let target = reportedHeight(for: item)
-        if ResizeAnchor.paneSwitchSwapsContentFirst(current: reportedHeight(for: section), target: target) {
-            pendingSection = nil
-            section = item
-            onContentHeight(target)
-        } else {
-            pendingSection = item
-            onPaneSwitch(target) {
-                guard token == switchToken else { return }
-                pendingSection = nil
-                section = item
-            }
-        }
+        guard item != section else { return }
+        section = item
+        onPaneSwitch(reportedHeight(for: item))
     }
 
     /// ONLY THE SELECTED PANE HAS A HEIGHT, which is what lets the window follow the sidebar. All
     /// five used to lay out at full height, so every pane stood in the TALLEST one's window
     /// (Albert, 2026-08-23). The objection on record against fitting each pane was that the window
     /// jumped under the cursor mid-click; what answers it is WHERE the change happens - the top
-    /// edge is held (`SettingsWindowController.fitHeight`), and the change is animated.
+    /// edge is held (`SettingsWindowController.fitHeight`), so only the bottom edge moves.
     ///
     /// COLLAPSED RATHER THAN REMOVED. Building only the selected pane measures just as well and
     /// destroys every pane the user leaves - and a pane here can be holding work: the launch
@@ -212,8 +194,7 @@ struct SettingsView: View {
     /// three lines above the frame keep it unseen, unhittable and unread.
     ///
     /// EACH PANE IS MEASURED WHILE COLLAPSED TOO (its natural height, before the frame folds it),
-    /// so a switch knows where it is going before the pane is shown: a taller pane waits for the
-    /// window to grow, a shorter one goes in first (`select`, `ResizeAnchor.paneSwitchSwapsContentFirst`).
+    /// so a switch knows the height it is going to in the same turn it shows the pane (`select`).
     private var pane: some View {
         ZStack(alignment: .top) {
             ForEach(Section.allCases, id: \.self) { item in

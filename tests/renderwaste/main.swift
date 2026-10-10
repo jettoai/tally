@@ -1,9 +1,9 @@
 import Foundation
 
 // Render-path waste the panel and the menu bar used to pay on every redraw (Sentry TALLY-7Z,
-// TALLY-82, TALLY-37, TALLY-23). Source text, because these are SwiftUI bodies and AppKit wiring this suite
-// does not compile: each check names the shape the fix took, so the per-redraw call cannot come
-// back unnoticed.
+// TALLY-82, TALLY-37, TALLY-23). Source text, because these are SwiftUI bodies and AppKit wiring
+// this suite does not compile: each check names the shape the fix took, so the per-redraw call
+// cannot come back unnoticed.
 
 var failures = 0
 func check(_ name: String, _ condition: Bool) {

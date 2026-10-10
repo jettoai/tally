@@ -9,7 +9,8 @@ func runBreakdownChecks() {
     let ws = "/Users/a/workspace"
     let bRoots: Set<String> = ["\(ws)/onemark", "/Users/a/.claude", "\(ws)/geo", "\(ws)/jetto/tally",
                                "\(ws)/web", "\(ws)/baton", "\(ws)/finance", "\(ws)/bigdata"]
-    let bCheckouts: Set<String> = ["\(ws)/voice"]
+    let tempCheckout = "/private/var/folders/x/y/T/tmp.L7a6GXbCl1"
+    let bCheckouts: Set<String> = ["\(ws)/voice", tempCheckout]
     func bIsCheckout(_ dir: String) -> Bool { bCheckouts.contains(dir) || bRoots.contains(dir) }
     func bName(_ path: String) -> String? { (path as NSString).lastPathComponent }
     func work(_ pid: Int32, _ seconds: Double, cwd: String?, path: String? = nil,
@@ -144,6 +145,14 @@ func runBreakdownChecks() {
         expect(own([work(1, 1, cwd: "/tmp", path: "/usr/bin/python3")]) == (.process, "python3"),
                "T21 /usr/bin/python3 outside any project is python3, not the system")
         expect(own([work(1, 1, cwd: nil, path: nil)]) == (.process, "unknown"), "T21 an unreadable process is unknown")
+        expect(own([work(2, 1, cwd: tempCheckout, path: "/opt/homebrew/bin/node", parent: 3),
+                    work(3, 0, cwd: "\(ws)/geo", path: "/usr/bin/git")]) == (.project, "geo"),
+               "T21 a scratch checkout (pre-push hook's git init in mktemp -d) yields to the project up the chain")
+        expect(own([work(2, 1, cwd: tempCheckout, path: "/opt/homebrew/bin/node")]) == (.project, "tmp.L7a6GXbCl1"),
+               "T21 a scratch checkout with no known project above keeps its own name")
+        expect(own([work(2, 1, cwd: "/private/tmp/wt/src", path: "/opt/homebrew/bin/node", parent: 3),
+                    work(3, 0, cwd: "\(ws)/geo", path: "/usr/bin/git")], roots: bRoots.union(["/private/tmp/wt"]))
+               == (.project, "wt"), "T21 a session root under /private/tmp is still that session")
     }
 
     // T22 the system is the largest share: it leads the banner

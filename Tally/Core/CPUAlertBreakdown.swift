@@ -49,6 +49,9 @@ extension CPUAlertLogic {
     static let tallyBundles = ["/Tally.app/", "/Tally Dev.app/"]
     static let systemPrefixes = ["/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/", "/Library/Apple/"]
     static let maxAncestors = 32
+    /// Scratch locations: a checkout made here (a pre-push hook's `git init` in `mktemp -d`) is a
+    /// throwaway, so the process is charged to a known project up its parent chain first.
+    static let tempPrefixes = ["/private/var/folders/", "/var/folders/", "/private/tmp/", "/tmp/"]
 
     /// Seconds each pid worked inside the window. Own time is the difference across the window, or
     /// everything when the pid was born inside it (`windowStart`, microseconds like `startedAt`).
@@ -97,7 +100,9 @@ extension CPUAlertLogic {
 
     /// Who one process's work belongs to, first rule that holds: Tally's own (cwd under `~/.tally`
     /// or running from a Tally bundle); a session root; a checkout; the same three asked of each
-    /// ancestor; the OS by path; an app by its outermost bundle; else the executable's name.
+    /// ancestor; the first checkout under a scratch location (`tempPrefixes`), which yields to any
+    /// of the above up the chain; the OS by path; an app by its outermost bundle; else the
+    /// executable's name.
     static func owner(of pid: Int32, in byPid: [Int32: CPUAlertProcessWork], roots: Set<String>,
                       home: String, isCheckout: (String) -> Bool,
                       displayName: (String) -> String?) -> (kind: CPUAlertKind, name: String) {
@@ -113,14 +118,25 @@ extension CPUAlertLogic {
         guard let work = byPid[pid] else { return (.process, "unknown") }
         let path = work.executablePath ?? ""
         if tallyBundles.contains(where: path.contains) { return (.tally, "Tally") }
-        if let hit = project(work) { return hit }
+        var scratch: (kind: CPUAlertKind, name: String)?
+        func settle(_ work: CPUAlertProcessWork) -> (kind: CPUAlertKind, name: String)? {
+            guard let hit = project(work) else { return nil }
+            let cwd = work.cwd ?? ""
+            let isScratchCheckout = root(of: cwd, roots: roots) == nil
+                && tempPrefixes.contains(where: cwd.hasPrefix)
+            guard isScratchCheckout else { return hit }
+            if scratch == nil { scratch = hit }
+            return nil
+        }
+        if let hit = settle(work) { return hit }
         var cursor = work.parent
         var seen: Set<Int32> = [pid]
         for _ in 0..<maxAncestors {
             guard cursor > 1, seen.insert(cursor).inserted, let up = byPid[cursor] else { break }
-            if let hit = project(up) { return hit }
+            if let hit = settle(up) { return hit }
             cursor = up.parent
         }
+        if let scratch { return scratch }
         if systemPrefixes.contains(where: path.hasPrefix) { return (.system, "System") }
         if let range = path.range(of: ".app/") {
             let name = (String(path[..<range.lowerBound]) as NSString).lastPathComponent

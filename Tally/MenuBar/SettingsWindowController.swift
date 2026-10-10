@@ -94,8 +94,16 @@ final class SettingsWindowController {
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = Self.makeWindow(hosting)
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
-            // No titlebar DEV chip: the About card already says DEV beside the version, and two
-            // marks for one fact read as two facts (B-1355).
+            // Dev flavour says so in the title bar strip, top right over the pane, visible from
+            // every pane and not just About: the panel header's own tag, as a titlebar accessory.
+            if BuildVariant.isDev {
+                let badge = NSHostingView(rootView: TallyDevTagView().padding(.trailing, 8))
+                badge.frame.size = badge.fittingSize
+                let accessory = NSTitlebarAccessoryViewController()
+                accessory.view = badge
+                accessory.layoutAttribute = .trailing
+                window.addTitlebarAccessoryViewController(accessory)
+            }
             // No title bar of its own (B-1355, System Settings' shape): the content runs to the top
             // edge, the sidebar colour carries up behind the traffic lights, and the pane names the
             // section, so the window title stays only for the Window menu and Cmd-Tab. The strip

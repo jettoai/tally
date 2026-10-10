@@ -461,6 +461,7 @@ try MainActor.assumeIsolated {
     // And the row that acts outside this app on somebody else's home: which homes it may offer to
     // share at all (sharedharnesschecks.swift).
     try runSharedHarnessTargetChecks(tmp: tmp)
+    try runStopSharingChecks(tmp: tmp)
 
     try? FileManager.default.removeItem(at: tmp)
 }

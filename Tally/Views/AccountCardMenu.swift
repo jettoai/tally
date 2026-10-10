@@ -54,6 +54,13 @@ struct AccountActionsMenu: View {
     /// the same shape `rename` uses.
     var togglePersonal: (() -> Void)?
     var isPersonal: Bool = false
+    /// Unlink this account from the main account's shared setup, leaving every other account
+    /// shared (IntegrationsStore.stopSharingHarness). Passed by the Settings list alone, which is
+    /// the surface that draws the link mark this entry takes away: on the card, which has no mark,
+    /// the press would change nothing anybody can see. Absent = not offered, the shape `rename`
+    /// uses. The caller decides WHEN to pass it (the account shows the mark and is not the
+    /// provider's main home); this view only draws it.
+    var stopSharing: (() -> Void)?
 
     @ViewBuilder
     var body: some View {
@@ -90,6 +97,13 @@ struct AccountActionsMenu: View {
             NSWorkspace.shared.open(URL(fileURLWithPath: home))
         }
         .disabled(home == nil)
+        if let stopSharing {
+            Button(L("Stop sharing settings")) { stopSharing() }
+                // The dev build never changes a real config home (IntegrationsStore.guardNotDev,
+                // which the store asks again). A demo capture acts on its fixtures' marks only, so
+                // it stays pressable there for the screenshot.
+                .disabled(BuildVariant.isUnshipped && !DemoUsage.isActive)
+        }
         // Absent rather than greyed for the provider's default home (`~/.claude`, `~/.codex`): that
         // one is the user's primary setup and the target of every other account's share links, so
         // "remove" is not a thing it can mean. A greyed entry would only invite the question.

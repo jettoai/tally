@@ -97,6 +97,10 @@ enum CaptureLaunch {
                                "TallyDemoAddAccount",
                                // Qualifies TallyDemoData: one Settings row opens renaming (Debug).
                                "TallyDemoRenaming",
+                               // Qualifies TallyDemoData: one Settings row's actions menu opens (Debug).
+                               "TallyDemoMenuOpen",
+                               // Qualifies TallyDemoData: one Settings row stops sharing (Debug).
+                               "TallyDemoStopSharing",
                                // Qualifies TallyDemoData: the fixture fleet padded to N accounts (Debug).
                                "TallyDemoAccounts",
                                // The pick panel with a row already circled, which is the state its

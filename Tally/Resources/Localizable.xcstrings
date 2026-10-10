@@ -11564,6 +11564,35 @@
         }
       }
     },
+    "Stop sharing settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止共用設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止共享配置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定の共有を停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 공유 중지"
+          }
+        }
+      }
+    },
     "Points your other accounts at the main account's instructions, skills, hooks, agents, settings and conversation record, so one setup serves them all. Nothing is deleted: conversations, inboxes and memory notes merge into the main account, anything else in the way is renamed to <name>.local-<date> beside it, and Remove unlinks without touching those backups. Every account can then read every account's conversations.": {
       "extractionState": "manual",
       "localizations": {

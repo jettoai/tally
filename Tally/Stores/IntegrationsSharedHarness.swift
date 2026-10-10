@@ -152,4 +152,50 @@ extension IntegrationsStore {
         recordManifest("sharedHarness", paths: nil)
         refresh()
     }
+
+    /// Undo the links for ONE account (B-1388): the Settings account row's "Stop sharing settings",
+    /// which is the bulk Remove above narrowed to a single target. Every other account keeps its
+    /// links, and so does the main account, which is never on the list this picks from.
+    ///
+    /// Same depth as the bulk act: only links that lead to the main account's item go, backups stay
+    /// where the share put them, and nothing outside the account's own home is touched. The
+    /// provenance record loses this home; once nothing is left it is dropped, which is exactly the
+    /// record the bulk Remove leaves. A record that was never written (the account was shared by
+    /// `tally add`, not by the Install button) is not created here.
+    func stopSharingHarness(providerID: String, home: URL) {
+        guard guardNotDev() else { return }
+        lastError = nil
+        if let target = Self.stopSharing(providerID: providerID, home: home),
+           Self.manifestDocument()["sharedHarness"] != nil {
+            recordManifest("sharedHarness",
+                           paths: Self.sharedHarnessPaths(Self.manifestPaths("sharedHarness"),
+                                                          removing: target.home))
+        }
+        refresh()
+    }
+
+    /// The act itself, apart from the store so it can be run over a fleet made in a temporary
+    /// directory. Picks the one target that IS this home (as an object, so a second name for the
+    /// same folder finds it too) and unlinks only that one. Nil when there is no such target: the
+    /// main account under any name, a home that is not on disk, a provider with no main account.
+    @discardableResult
+    static func stopSharing(providerID: String, home: URL,
+                            userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                            homes: [(providerID: String, home: URL)]? = nil) -> SharedHarnessTarget? {
+        guard let target = sharedHarnessTargets(userHome: userHome, homes: homes).first(where: {
+            $0.providerID == providerID && harnessHomesAreOne($0.home, home)
+        }) else { return nil }
+        _ = unlinkSharedHarness(from: target.main, to: target.home,
+                                items: harnessItems(for: target.providerID, in: target.main))
+        return target
+    }
+
+    /// The recorded homes with one taken out, by spelling or by object (a recorded path that is no
+    /// longer on disk still matches its own spelling). Nil when nothing is left.
+    static func sharedHarnessPaths(_ recorded: [String], removing home: URL) -> [String]? {
+        let rest = recorded.filter {
+            $0 != home.path && !harnessHomesAreOne(URL(fileURLWithPath: $0), home)
+        }
+        return rest.isEmpty ? nil : rest
+    }
 }

@@ -213,12 +213,19 @@ func runPickSurfaceChecks() {
     check("…which is the one the popover wears, rather than a second capsule",
           popover.contains("TallyDevTagView()")
               && !popover.contains(#"Text(verbatim: "DEV")"#))
-    // Demo mode is the screenshot and promo build: no version, no DEV tag, and no launch summary
-    // (that strip reads this machine's real ~/.tally/state.json, which no fixture covers).
+    // Demo mode is the screenshot and promo build: no version and no launch summary (that strip
+    // reads this machine's real ~/.tally/state.json, which no fixture covers). The DEV tag stays:
+    // a demo launched from a Debug build is still a test instance (B-1388).
     check("demo mode draws no version in the popover header",
           popover.contains("if let version = BuildVariant.version, !DemoUsage.isActive {"))
-    check("…and no DEV tag",
-          popover.contains("if BuildVariant.isDev, !DemoUsage.isActive {"))
+    check("…but a Debug build keeps its DEV tag in demo mode too",
+          popover.contains("if BuildVariant.isDev {\n                    TallyDevTagView()")
+              && !popover.contains("if BuildVariant.isDev, !DemoUsage.isActive {"))
+    let settingsWindow = (try? String(contentsOfFile: "Tally/MenuBar/SettingsWindowController.swift",
+                                      encoding: .utf8)) ?? ""
+    check("the Settings window wears the same DEV tag in its title bar on a Debug build",
+          settingsWindow.contains("if BuildVariant.isDev {\n                let badge = NSHostingView(rootView: TallyDevTagView()")
+              && settingsWindow.contains("window.addTitlebarAccessoryViewController(accessory)"))
     let launchViews = (try? String(contentsOfFile: "Tally/Views/PopoverLaunchViews.swift",
                                    encoding: .utf8)) ?? ""
     check("…and no launch summary strip",

@@ -87,6 +87,18 @@ struct SettingsAccountsView: View {
         return nil
     }
 
+    /// `-TallyDemoData YES -TallyDemoMenuOpen <n>` / `-TallyDemoStopSharing <n>`: row n of the
+    /// fixtures, numbered as `-TallyDemoRenaming` numbers them, for the captures of "Stop sharing
+    /// settings" (the row's menu open, and the row after the press). Debug builds only.
+    static func demoRowID(forKey key: String) -> String? {
+        #if DEBUG
+        let row = UserDefaults.standard.integer(forKey: key)
+        let ids = SettingsStore.shared.orderedAccountIDs(DemoUsage.discoveredAccounts().map(\.id))
+        if DemoUsage.isActive, ids.indices.contains(row - 1) { return ids[row - 1] }
+        #endif
+        return nil
+    }
+
     /// This provider's accounts by EXISTENCE (discovery), not by fetched usage - a switched-off
     /// account must stay listed or it could never be switched back on.
     func discovered(for providerID: String) -> [ProviderAccount] {
@@ -115,6 +127,9 @@ struct SettingsAccountsView: View {
                 // an assignment would wipe the other group's marks.
                 if let demo = AccountHomeTag.demoReports(items) {
                     sharing.merge(demo) { $1 }
+                    // `-TallyDemoStopSharing <n>`: the row after the press, for a capture.
+                    if let id = Self.demoRowID(forKey: "TallyDemoStopSharing"),
+                       let item = items.first(where: { $0.id == id }) { stopSharing(item) }
                 } else {
                     sharing.merge(await AccountHomeTag.reports(items, providerID: id)) { $1 }
                 }
@@ -341,7 +356,8 @@ struct SettingsAccountsView: View {
                                    ? { PersonalAccount.toggle(accountID: item.id, home: personalHome) }
                                    : nil,
                                isPersonal: PersonalAccount.isPersonal(accountID: item.id,
-                                                                      home: personalHome))
+                                                                      home: personalHome),
+                               stopSharing: canStopSharing(item) ? { stopSharing(item) } : nil)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.caption)
@@ -352,12 +368,37 @@ struct SettingsAccountsView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: 16)
+        .background { if Self.demoRowID(forKey: "TallyDemoMenuOpen") == item.id { DemoMenuOpener() } }
         .tallyTooltip(L("Account actions"))
     }
 
     /// The config home a row names: discovery's, or on a many-accounts demo capture the fixture's.
     func home(of item: ProviderAccount) -> String? {
         item.launchHome ?? DemoUsage.manyAccountsHome(accountID: item.id)
+    }
+
+    /// Whether this row offers "Stop sharing settings": exactly when it draws the link mark (the
+    /// same report and the same first-row rule `shareMark` uses), and never on the provider's main
+    /// home, which every other account's links point into (the rule the Remove entry asks).
+    /// `home(of:)` rather than `launchHome`, so a many-accounts demo capture offers it too.
+    func canStopSharing(_ item: ProviderAccount) -> Bool {
+        discovered(for: item.providerID).first?.id != item.id
+            && sharing[item.id]?.tag != nil
+            && accountHomeIsRemovable(providerID: item.providerID, home: home(of: item))
+    }
+
+    /// Unlink one account, then ask the filesystem again so the mark follows what is on disk. A
+    /// demo capture stands for homes that are not on this machine: its mark goes, nothing is touched.
+    func stopSharing(_ item: ProviderAccount) {
+        guard !DemoUsage.isActive else {
+            sharing[item.id] = nil
+            return
+        }
+        guard let home = item.launchHome else { return }
+        IntegrationsStore.shared.stopSharingHarness(providerID: item.providerID,
+                                                    home: URL(fileURLWithPath: home))
+        let items = discovered(for: item.providerID)
+        Task { sharing.merge(await AccountHomeTag.reports(items, providerID: item.providerID)) { $1 } }
     }
 
     /// The provider's primary account's display name (nickname applied), for the sharing mark.
@@ -380,4 +421,30 @@ struct SettingsAccountsView: View {
         LoginStatusStore.shared.identityEmail(accountID: item.id,
                                               polled: usage?.accountEmail)
     }
+}
+
+/// `-TallyDemoMenuOpen` (Debug captures only, see `demoRowID`): opens the menu button it sits
+/// behind, once, from inside the app, so the open menu can be photographed without a synthesized
+/// click on somebody's desktop.
+struct DemoMenuOpener: NSViewRepresentable {
+    final class Probe: NSView {
+        private var fired = false
+        // Transparent to the hit test below, so the point lands on the button this sits behind.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, !fired else { return }
+            fired = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.open() }
+        }
+        private func open() {
+            guard let content = window?.contentView else { return }
+            let center = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
+            var hit = content.hitTest(content.superview?.convert(center, from: nil) ?? center)
+            while let view = hit, !(view is NSControl) { hit = view.superview }
+            (hit as? NSControl)?.performClick(nil)
+        }
+    }
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ nsView: Probe, context: Context) {}
 }

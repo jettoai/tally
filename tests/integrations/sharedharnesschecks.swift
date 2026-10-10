@@ -60,3 +60,90 @@ func runSharedHarnessTargetChecks(tmp: URL) throws {
     check("a provider with no main account offers nothing either",
           targets([".codex2"], "codex").isEmpty)
 }
+
+// One account taken off the shared setup while the rest stay on it (B-1388): the Settings account
+// row's "Stop sharing settings". Asserted on a fleet of real directories, through the same static
+// act the store's press calls, so what is checked is what runs.
+@MainActor
+func runStopSharingChecks(tmp: URL) throws {
+    let fleet = tmp.appendingPathComponent("stop-sharing")
+    let fm = FileManager.default
+    let main = fleet.appendingPathComponent(".claude")
+    for dir in ["skills", "projects"] {
+        try fm.createDirectory(at: main.appendingPathComponent(dir), withIntermediateDirectories: true)
+    }
+    try "main".write(to: main.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+    for name in [".claude3", ".claude4"] {
+        let home = fleet.appendingPathComponent(name)
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        _ = linkSharedHarness(from: main, to: home, items: harnessItems(for: "claude", in: main))
+    }
+    // A second account name for .claude4's folder, and an alias of the main home.
+    try fm.createSymbolicLink(at: fleet.appendingPathComponent(".claude5"),
+                              withDestinationURL: fleet.appendingPathComponent(".claude4"))
+    try fm.createSymbolicLink(at: fleet.appendingPathComponent(".claude2"), withDestinationURL: main)
+    let names = [".claude", ".claude2", ".claude3", ".claude4", ".claude5"]
+    let homes = names.map { ("claude", fleet.appendingPathComponent($0)) }
+    func isLink(_ name: String, _ item: String) -> Bool {
+        (try? fm.destinationOfSymbolicLink(
+            atPath: fleet.appendingPathComponent(name).appendingPathComponent(item).path)) != nil
+    }
+    func stop(_ name: String) -> String? {
+        IntegrationsStore.stopSharing(providerID: "claude", home: fleet.appendingPathComponent(name),
+                                      userHome: fleet, homes: homes)?.home.lastPathComponent
+    }
+
+    check("the premise: both accounts are linked to the main one",
+          ["skills", "projects", "CLAUDE.md"].allSatisfy { isLink(".claude3", $0) && isLink(".claude4", $0) })
+    check("stopping one account acts on that account", stop(".claude3") == ".claude3")
+    check("…which no longer has a single link to the main account",
+          !["skills", "projects", "CLAUDE.md"].contains { isLink(".claude3", $0) })
+    check("…while the other account is still shared, every item of it",
+          ["skills", "projects", "CLAUDE.md"].allSatisfy { isLink(".claude4", $0) })
+    check("…and the main account's own items are where they were",
+          fm.fileExists(atPath: main.appendingPathComponent("skills").path)
+              && (try? String(contentsOf: main.appendingPathComponent("CLAUDE.md"), encoding: .utf8)) == "main")
+    check("the main account is not an account to stop sharing", stop(".claude") == nil)
+    check("…nor is it under a second name", stop(".claude2") == nil)
+    check("…and asking about either left the main account whole",
+          fm.fileExists(atPath: main.appendingPathComponent("projects").path))
+    check("a home that is not on disk finds nothing to act on", stop(".claude9") == nil)
+    check("a second name for an account's folder finds that folder", stop(".claude5") != nil
+          && !isLink(".claude4", "skills"))
+
+    // The provenance record: this home out, the rest kept, nothing left reads as no record at all.
+    let c3 = fleet.appendingPathComponent(".claude3"), c4 = fleet.appendingPathComponent(".claude4")
+    check("the record loses the stopped home and keeps the others",
+          IntegrationsStore.sharedHarnessPaths([c3.path, c4.path], removing: c3) == [c4.path])
+    check("…and once nothing is left it is dropped, as the bulk Remove leaves it",
+          IntegrationsStore.sharedHarnessPaths([c3.path], removing: c3) == nil)
+    check("…matching a second name for the same folder too",
+          IntegrationsStore.sharedHarnessPaths([c4.path],
+                                               removing: fleet.appendingPathComponent(".claude5")) == nil)
+    check("…and a recorded home that is gone from disk still by its spelling",
+          IntegrationsStore.sharedHarnessPaths([fleet.appendingPathComponent(".claude9").path],
+                                               removing: fleet.appendingPathComponent(".claude9")) == nil)
+
+    // The surfaces, read as text (SwiftUI does not compile into this harness).
+    func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
+    let store = source("Tally/Stores/IntegrationsSharedHarness.swift")
+    let pane = source("Tally/Views/SettingsAccountsView.swift")
+    let menu = source("Tally/Views/AccountCardMenu.swift")
+    let card = menu.components(separatedBy: "struct AccountActionsMenu").first ?? ""
+    check("the surfaces are readable from this suite", !store.isEmpty && !pane.isEmpty && !menu.isEmpty)
+    if let body = store.range(of: "func stopSharingHarness(") {
+        let rest = store[body.upperBound...]
+        let gate = rest.range(of: "guard guardNotDev()"), act = rest.range(of: "Self.stopSharing(")
+        check("the press is refused on the dev build before anything is touched",
+              gate != nil && act != nil && gate!.lowerBound < act!.lowerBound)
+    } else {
+        check("the press is refused on the dev build before anything is touched", false)
+    }
+    check("the row offers it only off the main home and only where the mark is drawn",
+          pane.contains("accountHomeIsRemovable(providerID: item.providerID, home: home(of: item))")
+              && pane.contains("sharing[item.id]?.tag != nil")
+              && pane.contains("stopSharing: canStopSharing(item) ? { stopSharing(item) } : nil"))
+    check("the card's right-click does not offer it", !card.contains("stopSharing"))
+    check("the menu greys it on the dev build outside a demo capture",
+          menu.contains(".disabled(BuildVariant.isUnshipped && !DemoUsage.isActive)"))
+}

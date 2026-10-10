@@ -40,17 +40,33 @@ struct ScreenFitStack: Layout {
         var y = bounds.minY
         for (index, subview) in subviews.enumerated() {
             let height = layout.heights[index]
-            // Centred like the `VStack` this replaces, and handed the height it was measured at, so
-            // a stack that fits lays out exactly as it did before there was a cap.
+            // Centred like the `VStack` this replaces, so a stack that fits lays out exactly as it
+            // did before there was a cap.
             subview.place(at: CGPoint(x: bounds.midX, y: y), anchor: .top,
-                          proposal: ProposedViewSize(width: bounds.width, height: height))
+                          proposal: Self.placement(width: bounds.width, height: height,
+                                                   squeezed: index == layout.squeezed))
             y += height
         }
     }
 
-    /// Every child's ideal height, with the excess taken off the flexible one when there is one.
+    /// The proposal a child is placed with: the one it was MEASURED with (height unspecified), so
+    /// the size it takes is the one `resolve` already has and placing it reuses that measurement.
+    /// Only the flexible child of a stack that had to fit is handed a definite height.
+    ///
+    /// Handing every child its measured height as a definite proposal looks equivalent and is not:
+    /// a proposal SwiftUI has not seen is a fresh measurement of the child's whole subtree, and a
+    /// definite height sends every nested stack down its flexibility-probing path
+    /// (`sizeChildrenGenerallyWithConcreteMajorProposal`), which on a full fleet held the main
+    /// thread past 2 s inside `placeSubviews` (Sentry app hang TALLY-Z, 17 events, 0.85.25-0.85.30).
+    /// Not private, so the rule can be asserted directly (`tests/run-screenfit-tests.sh`).
+    static func placement(width: CGFloat, height: CGFloat, squeezed: Bool) -> ProposedViewSize {
+        ProposedViewSize(width: width, height: squeezed ? height : nil)
+    }
+
+    /// Every child's ideal height, with the excess taken off the flexible one when there is one
+    /// (`squeezed` names it, nil when the stack fits).
     private func resolve(proposal: ProposedViewSize,
-                         subviews: Subviews) -> (width: CGFloat, heights: [CGFloat]) {
+                         subviews: Subviews) -> (width: CGFloat, heights: [CGFloat], squeezed: Int?) {
         // Height unspecified on purpose: each child reports what it WANTS to be, never what the
         // host currently offers (see the type's note on feedback).
         let ideals = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
@@ -59,10 +75,10 @@ struct ScreenFitStack: Layout {
         let total = heights.reduce(0, +)
         guard maxHeight.isFinite, total > maxHeight,
               let flexible = subviews.indices.first(where: { subviews[$0][ScreenFitFlexibleKey.self] })
-        else { return (width, heights) }
+        else { return (width, heights, nil) }
         heights[flexible] = Self.flexibleHeight(others: total - heights[flexible],
                                                 maxHeight: maxHeight)
-        return (width, heights)
+        return (width, heights, flexible)
     }
 
     /// What the flexible child gets when the stack has to fit: whatever is left under the cap, in

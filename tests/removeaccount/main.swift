@@ -75,6 +75,28 @@ check("an unnormalised spelling of the default home is still the default home",
           && !accountHomeIsRemovable(providerID: "claude",
                                      home: home.path + "/.claude2/../.claude", userHome: home))
 
+// The menus ask on every render, on the main thread, so the default answer is remembered per
+// spelling and never goes back to disk (Sentry app hang TALLY-7T); the act re-resolves. Proven by
+// swapping the folder for a link to the main home AFTER the first answer: only a call that skips
+// the filesystem can still say "removable".
+let memoRoot = fm.temporaryDirectory.appendingPathComponent("removeaccount-memo-\(UUID().uuidString)")
+let memoHome = memoRoot.appendingPathComponent(".claude7")
+try? fm.createDirectory(at: memoRoot.appendingPathComponent(".claude"),
+                        withIntermediateDirectories: true)
+try? fm.createDirectory(at: memoHome, withIntermediateDirectories: true)
+let memoBefore = accountHomeIsRemovable(providerID: "claude", home: memoHome.path, userHome: memoRoot)
+try? fm.removeItem(at: memoHome)
+try? fm.createSymbolicLink(at: memoHome, withDestinationURL: memoRoot.appendingPathComponent(".claude"))
+check("the render path answers from memory, without asking the filesystem again",
+      memoBefore && accountHomeIsRemovable(providerID: "claude", home: memoHome.path,
+                                           userHome: memoRoot))
+check("…while the act that moves the folder resolves it afresh and refuses the main home",
+      !accountHomeIsRemovable(providerID: "claude", home: memoHome.path, userHome: memoRoot,
+                              fresh: true)
+          && ((try? String(contentsOfFile: "Tally/Views/RemoveAccountAction.swift", encoding: .utf8))
+              ?? "").contains("accountHomeIsRemovable(providerID: providerID, home: home, fresh: true)"))
+try? fm.removeItem(at: memoRoot)
+
 // MARK: - The folder itself
 
 // The Trash, never a delete: this directory holds the account's conversations, and the undo has to

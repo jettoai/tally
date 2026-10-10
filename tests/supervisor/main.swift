@@ -295,6 +295,21 @@ func runLanguageChecks() {
     else { UserDefaults.standard.removeObject(forKey: AppLocale.overrideKey) }
     check("the locale bundle is looked up once per language and reused until the language changes",
           first === again && cacheKey)
+    // The identifier is cached too (TALLY-1R, 2026-10-10: the hang moved into the preferences read
+    // once the lookup was cached). A CFPreferences write posts no defaults notification, so only a
+    // getter that skips the preferences read still answers "en" after it; a defaults write, as the
+    // Settings picker makes, must land at once.
+    UserDefaults.standard.set("en", forKey: AppLocale.overrideKey)
+    _ = AppLocale.bundle
+    CFPreferencesSetAppValue(AppLocale.overrideKey as CFString, "ko" as CFString,
+                             kCFPreferencesCurrentApplication)
+    let cachedRead = AppLocale.identifier
+    UserDefaults.standard.set("ja", forKey: AppLocale.overrideKey)
+    let switched = AppLocale.identifier
+    if let saved { UserDefaults.standard.set(saved, forKey: AppLocale.overrideKey) }
+    else { UserDefaults.standard.removeObject(forKey: AppLocale.overrideKey) }
+    check("L() reads the language from memory, not from preferences, and a switch still lands at once",
+          cachedRead == "en" && switched == "ja")
 }
 
 /// THE SUITE'S OWN FOOTPRINT, asserted last because it is about everything above it: a test that

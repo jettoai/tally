@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 // Assertions for the surface height cap (Tally/Views/ScreenFitStack.swift): how tall a surface may
 // become on a given display AND at a given position on it. The position half exists because the
@@ -211,6 +212,47 @@ check(borderless.frameRect(forContentRect: sample) == sample,
       "…and a borderless one's is the same rectangle, which is why one conversion serves both")
 check(sizer.contains("frameRect(forContentRect:"),
       "so the reported size is converted before it is written as a frame")
+
+section("placing a child reuses the measurement it was sized with")
+
+// Sentry TALLY-Z: 17 main-thread hangs inside `placeSubviews`, each one a fresh measurement of a
+// child's whole subtree under a definite height. Laid out for real in a hosting view, with children
+// that log every proposal they are asked to size for.
+final class ProposalLog { var heights: [CGFloat?] = [] }
+struct ProposalProbe: Layout {
+    let log: ProposalLog
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        log.heights.append(proposal.height)
+        return CGSize(width: 100, height: 300)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {}
+}
+func layOut(maxHeight: CGFloat) -> (fixed: ProposalLog, flexible: ProposalLog) {
+    let fixed = ProposalLog(), flexible = ProposalLog()
+    let host = NSHostingView(rootView: ScreenFitStack(maxHeight: maxHeight) {
+        ProposalProbe(log: fixed) { Color.clear }
+        ProposalProbe(log: flexible) { Color.clear }.screenFitFlexible()
+    })
+    host.frame = CGRect(x: 0, y: 0, width: 100, height: min(maxHeight, 600))
+    host.layoutSubtreeIfNeeded()
+    return (fixed, flexible)
+}
+let fits = layOut(maxHeight: 10_000)
+check(!fits.fixed.heights.isEmpty && !fits.flexible.heights.isEmpty,
+      "both children were measured (the probe is reached at all)")
+check(fits.fixed.heights.allSatisfy { $0 == nil } && fits.flexible.heights.allSatisfy { $0 == nil },
+      "a stack that fits never asks a child to size for a definite height")
+let squeezed = layOut(maxHeight: 400)
+check(squeezed.fixed.heights.allSatisfy { $0 == nil },
+      "a stack that has to fit still places its fixed children as measured")
+check(squeezed.flexible.heights.contains(ScreenFitStack.minFlexibleHeight),
+      "and hands only the flexible child the definite height it must fit")
+check(ScreenFitStack.placement(width: 100, height: 300, squeezed: false)
+        == ProposedViewSize(width: 100, height: nil)
+        && ScreenFitStack.placement(width: 100, height: 120, squeezed: true)
+        == ProposedViewSize(width: 100, height: 120),
+      "the placement rule itself: measured proposal, or the squeezed height")
 
 print(failures == 0 ? "\nAll screen-fit cap tests passed." : "\n\(failures) screen-fit cap test(s) failed.")
 exit(failures == 0 ? 0 : 1)

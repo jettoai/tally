@@ -47,11 +47,14 @@ enum AppLocale {
     /// The bundle to resolve translations from, matching the effective language by progressively
     /// stripping subtags ("zh-Hant-TW" → "zh-Hant" → "zh"), falling back to the main bundle.
     ///
-    /// The identifier is re-read every call so a language switch lands at once, but the lookup is
-    /// cached per identifier: every `L()` used to walk the filesystem, and a popover render calls it
-    /// dozens of times on the main thread (Sentry app hangs TALLY-Y/1Q/31/1Z, 2026-09-29).
+    /// Both halves are cached: the lookup per identifier, because every `L()` used to walk the
+    /// filesystem (Sentry TALLY-Y/1Q/31/1Z, 2026-09-29), and the identifier itself, because reading
+    /// it is a preferences read, and a popover render calls `L()` dozens of times on the main thread
+    /// (TALLY-1R, 2026-10-10, hung in `override` after the first fix). A language switch still lands
+    /// at once: any defaults write in this process, or a system language change, drops the cached
+    /// identifier (`identifier`).
     static var bundle: Bundle {
-        let identifier = override ?? Locale.preferredLanguages.first ?? "en"
+        let identifier = Self.identifier
         bundleLock.lock(); defer { bundleLock.unlock() }
         if let cached = cachedBundle, cached.identifier == identifier { return cached.bundle }
         let resolved = resolveBundle(identifier)
@@ -61,6 +64,40 @@ enum AppLocale {
 
     private static let bundleLock = NSLock()
     nonisolated(unsafe) private static var cachedBundle: (identifier: String, bundle: Bundle)?
+
+    /// The language `bundle` resolves, read once and kept until something may have changed it.
+    static var identifier: String {
+        _ = invalidation
+        identifierLock.lock()
+        let hit = cachedIdentifier, generation = identifierGeneration
+        identifierLock.unlock()
+        if let hit { return hit }
+        // Read outside the lock: a preferences read may post the notification that takes it. The
+        // generation keeps a read that raced an invalidation from being stored as current.
+        let fresh = override ?? Locale.preferredLanguages.first ?? "en"
+        identifierLock.lock()
+        if identifierGeneration == generation { cachedIdentifier = fresh }
+        identifierLock.unlock()
+        return fresh
+    }
+
+    private static let identifierLock = NSLock()
+    nonisolated(unsafe) private static var cachedIdentifier: String?
+    nonisolated(unsafe) private static var identifierGeneration = 0
+
+    /// Registered on the first read. `UserDefaults.didChangeNotification` is posted on the writing
+    /// thread for every write in this process, so the setter above and any direct write of
+    /// `overrideKey` drop the cached identifier before the next read. Named blind spot: a
+    /// `defaults write` from another process is not seen until this process writes a default.
+    private static let invalidation: Void = {
+        for name in [UserDefaults.didChangeNotification, NSLocale.currentLocaleDidChangeNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in
+                identifierLock.lock(); defer { identifierLock.unlock() }
+                cachedIdentifier = nil
+                identifierGeneration += 1
+            }
+        }
+    }()
 
     private static func resolveBundle(_ identifier: String) -> Bundle {
         var components = identifier.split(separator: "-")

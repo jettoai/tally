@@ -37,13 +37,33 @@ func mainAccountHomes(providerID: String,
 /// configuration at all, so removing it is not "removing an account Tally added" but deleting the
 /// user's primary setup - and the numbered homes' whole share (harness links, seeded folder trust)
 /// points INTO it. A home Tally has nothing to act on (nil) is not removable either.
+///
+/// - Parameter fresh: resolve every path on disk now. The menus drawing the entry ask on every
+///   render, on the main thread, so by default each spelling is resolved once and remembered
+///   (Sentry app hang TALLY-7T, 2026-10-10); the act that moves a folder passes `true`, so a
+///   remembered answer can hide or show an entry but never decide what goes to the Trash.
 func accountHomeIsRemovable(providerID: String, home: String?,
-                            userHome: URL = FileManager.default.homeDirectoryForCurrentUser)
-    -> Bool {
+                            userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                            fresh: Bool = false) -> Bool {
     guard let home, !home.isEmpty else { return false }
-    let candidate = normalizedPath(URL(fileURLWithPath: home))
+    let normalize = fresh ? normalizedPath : NormalizedPathMemo.path
+    let candidate = normalize(home)
     return !mainAccountHomes(providerID: providerID, userHome: userHome)
-        .contains { normalizedPath($0) == candidate }
+        .contains { normalize($0.path) == candidate }
+}
+
+/// `normalizedPath` remembered per spelling, for the callers that ask on every render.
+private enum NormalizedPathMemo {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var resolved: [String: String] = [:]
+
+    static func path(_ path: String) -> String {
+        lock.lock(); defer { lock.unlock() }
+        if let hit = resolved[path] { return hit }
+        let answer = normalizedPath(path)
+        resolved[path] = answer
+        return answer
+    }
 }
 
 /// Symlinks resolved and `..`/`.` collapsed on both sides: `/var/…` and `/private/var/…` are the
@@ -56,8 +76,8 @@ func accountHomeIsRemovable(providerID: String, home: String?,
 /// with no answer must read as "this IS the primary setup" here, where in the share family it reads
 /// as "not ours" and the safe side is the other one. An identity that cannot be taken would hand
 /// this rule the wrong default and offer the user's own main home to the Trash.
-private func normalizedPath(_ url: URL) -> String {
-    url.resolvingSymlinksInPath().standardizedFileURL.path
+private func normalizedPath(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
 }
 
 /// Everything the user's settings remember about accounts, all keyed by account id.

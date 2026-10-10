@@ -28,7 +28,7 @@ enum RemoveAccountAction {
     static func present(accountID: String, providerID: String, label: String, home: String) {
         // Re-asked here rather than trusted from the menu: the entry that opened this is drawn from
         // the same rule, and the main home must not be removable down any path at all.
-        guard accountHomeIsRemovable(providerID: providerID, home: home),
+        guard accountHomeIsRemovable(providerID: providerID, home: home, fresh: true),
               CentredAlert.confirm(title: "\(label) · \(L("Remove account"))",
                                    body: confirmMessage(home: home),
                                    confirmTitle: L("Move to Trash"))

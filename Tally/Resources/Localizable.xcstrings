@@ -2060,35 +2060,6 @@
         }
       }
     },
-    "Check for Updates…": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檢查更新…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "检查更新…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデートを確認…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 확인…"
-          }
-        }
-      }
-    },
     "Check Now": {
       "extractionState": "manual",
       "localizations": {

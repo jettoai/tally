@@ -20,11 +20,17 @@ struct SettingsUpdateRows: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Automatically check for updates")).font(.subheadline)
-                    if let last = UpdaterController.shared.lastUpdateCheckDate {
-                        Text(L("Last checked") + ": "
-                             + last.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
-                                 .locale(AppLocale.current)))
-                            .font(.caption).foregroundStyle(.secondary)
+                    // Check Now sits on the "last checked" line rather than on a row of its own,
+                    // and stays enabled while the switch is off: a manual check is not automatic.
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let last = UpdaterController.shared.lastUpdateCheckDate {
+                            Text(L("Last checked") + ": "
+                                 + last.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
+                                     .locale(AppLocale.current)))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
+                            .controlSize(.mini)
                     }
                 }
                 Spacer()
@@ -64,16 +70,6 @@ struct SettingsUpdateRows: View {
             .padding(.vertical, 8)
             .disabled(!autoChecks)
             .opacity(autoChecks ? 1 : 0.5)
-
-            divider
-            HStack {
-                Text(L("Check for Updates…")).font(.subheadline)
-                Spacer()
-                Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
-                    .controlSize(.small)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
             .onAppear { sync() }
         } else {
             HStack(alignment: .firstTextBaseline) {

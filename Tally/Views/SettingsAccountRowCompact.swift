@@ -2,9 +2,10 @@ import SwiftUI
 
 /// The account row (B-1355, the pane's one layout): one 28pt line per account
 /// in fixed columns, so a long list reads straight down like a table and twenty accounts fit one
-/// screen. Left to right: drag handle (on hover) and number, name (renamed in place), address,
+/// screen. Left to right: number, name (renamed in place), address,
 /// plan, 5-hour and weekly figures with thin bars, sharing mark, menu-bar switch, enabled switch,
-/// actions. Each card opens with a header naming those columns, and the pane ends on a legend.
+/// actions, and the reorder grip the panel's rows carry. Each card opens with a header naming
+/// those columns, and the pane ends on a legend.
 extension SettingsAccountsView {
     /// Fixed column widths; only the address flexes (it is the longest value and the one that must
     /// not truncate), so every other column lines up row to row and with the header.
@@ -15,15 +16,21 @@ extension SettingsAccountsView {
         static let cell: CGFloat = 32
         static let usage: CGFloat = cell * 2 + 6
         static let status: CGFloat = plan + 6 + usage
-        static let share: CGFloat = 22
-        static let toggle: CGFloat = 38
+        // Wide enough for the widest name over them in all five languages at the header's 10pt
+        // (Sharing 37.9 en, Enabled 39.6 en, Menu bar 46.3 en; the ja Menu bar, 57.0, spills into
+        // the short names either side), so no two header names touch and each centres on its column.
+        static let share: CGFloat = 40
+        static let mark: CGFloat = 22
+        static let toggle: CGFloat = 48
         static let actions: CGFloat = 16
+        static let handle: CGFloat = 12
     }
 
     /// The provider switch in its section header, placed in the rows' "Enabled" column: the same
     /// width, and the row's trailing inset, actions column and the spacing before it to its right.
     func headerToggleSlot(_ toggle: some View) -> some View {
-        toggle.frame(width: Column.toggle).padding(.trailing, 12 + 6 + Column.actions)
+        toggle.frame(width: Column.toggle)
+            .padding(.trailing, 12 + 6 + Column.actions + 6 + Column.handle)
     }
 
     /// The column names over a card's rows, in the row's own grid.
@@ -42,6 +49,7 @@ extension SettingsAccountsView {
             headerLabel("Menu bar").frame(width: Column.toggle)
             headerLabel("Enabled").frame(width: Column.toggle)
             Color.clear.frame(width: Column.actions, height: 1)
+            Color.clear.frame(width: Column.handle, height: 1)
         }
         .frame(height: 22)
         .padding(.horizontal, 12)
@@ -92,7 +100,7 @@ extension SettingsAccountsView {
         Image(systemName: full ? "link.circle.fill" : "link")
             .font(.system(size: full ? 12 : 10, weight: .semibold))
             .foregroundStyle(full ? Color.accentColor : Color.secondary)
-            .frame(width: Column.share, height: 14)
+            .frame(width: Column.mark, height: 14)
     }
 
     func compactRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,
@@ -103,18 +111,10 @@ extension SettingsAccountsView {
         let homeName = home(of: item).map { AccountIdentity.homeName($0) }
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                HStack(spacing: 2) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 10)
-                        .opacity(hoveredAccountID == item.id ? 1 : 0)
-                    Text(badge.map { "\($0)" } ?? "")
-                        .font(.system(size: 11).monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 16, alignment: .trailing)
-                }
-                .frame(width: Column.lead)
+                Text(badge.map { "\($0)" } ?? "")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .frame(width: Column.lead, alignment: .trailing)
 
                 HStack(spacing: 5) {
                     nameField(item, font: .system(size: 13, weight: .medium), fieldWidth: Column.name)
@@ -149,6 +149,10 @@ extension SettingsAccountsView {
                     .frame(width: Column.toggle)
                 enabledSwitch(item).frame(width: Column.toggle)
                 actionsMenu(item, moveUp: moveUp, moveDown: moveDown)
+                // The panel row's grip, on the same outer edge (ReorderHandle).
+                ReorderHandle(bright: hoveredAccountID == item.id || rowLift?.id == item.id)
+                    .font(.caption)
+                    .frame(width: Column.handle)
             }
             .frame(height: 28)
             .opacity(enabled ? 1 : 0.6)

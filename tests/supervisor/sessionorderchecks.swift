@@ -468,8 +468,11 @@ func runSessionBoardOrderChecks() {
     let cardSource = ["Tally/Views/SessionCardView.swift", "Tally/Views/SessionCardState.swift"]
         .map { (try? String(contentsOfFile: $0, encoding: .utf8)) ?? "" }
         .joined(separator: "\n")
-    let accountCardSource = (try? String(contentsOfFile: "Tally/Views/AccountCardView.swift",
-                                         encoding: .utf8)) ?? ""
+    // The account grip is one shared view now (`ReorderHandle`, B-1388), drawn by the account card,
+    // the panel row and the Settings row alike, so its spelling is read where it lives.
+    let accountCardSource = ["Tally/Views/AccountCardView.swift", "Tally/Views/CardReorder.swift"]
+        .map { (try? String(contentsOfFile: $0, encoding: .utf8)) ?? "" }
+        .joined(separator: "\n")
     check("the two card sources this suite compares are readable",
           !cardSource.isEmpty && !accountCardSource.isEmpty)
     check("…both halves of the session card among them",
@@ -477,12 +480,14 @@ func runSessionBoardOrderChecks() {
               && cardSource.contains("var sessionCardHeadline: some View"))
     // ONE AFFORDANCE ACROSS BOTH BOARDS. The account cards' grip is the pattern; a session card
     // spelling its own glyph, brightness or words would teach two gestures for one gesture.
-    for shared in ["Image(systemName: \"line.3.horizontal\")",
-                   ".opacity(isHovering || handleProminent ? 1 : 0.35)",
-                   "L(\"Drag to reorder\")"] {
+    for shared in ["Image(systemName: \"line.3.horizontal\")", "L(\"Drag to reorder\")"] {
         check("the session card's grip states `\(shared)` exactly as the account card does",
               cardSource.contains(shared) && accountCardSource.contains(shared))
     }
+    check("…and brightens on the same terms: dim at rest, full on hover or in hand",
+          cardSource.contains(".opacity(isHovering || handleProminent ? 1 : 0.35)")
+              && accountCardSource.contains("ReorderHandle(bright: isHovering || handleProminent)")
+              && accountCardSource.contains(".opacity(bright ? 1 : 0.35)"))
     // Resident but dim rather than hover-only, and hover is asked only where a grip is drawn: the
     // account card's own comment says why (an affordance nobody finds, and an empty slot beside it).
     check("hover is tracked on the card, and only where the grip is",

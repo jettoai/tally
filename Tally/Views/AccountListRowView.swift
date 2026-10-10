@@ -380,11 +380,7 @@ struct AccountListRowView: View {
             pinToggle
         }
         if showsDragHandle {
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(.tertiary)
-                .opacity(isHovering || handleProminent ? 1 : 0.35)
-                .accessibilityLabel(L("Drag to reorder"))
-                .tallyTooltip(L("Drag to reorder"))
+            ReorderHandle(bright: isHovering || handleProminent)
         }
     }
 

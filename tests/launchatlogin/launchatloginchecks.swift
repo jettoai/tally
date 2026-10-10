@@ -464,8 +464,9 @@ func runLaunchAtLoginChecks() {
         "TallyStripSnapshot", "TallyWindowSnapshot",
         "TallyDryNotifyTest", "TallyResetHintTest", "TallyResetHintExpiryTest", "TallyLoginExpiryTest",
         "TallyHostHealthTest", "TallyCPUAlertTest", "TallySentryTestEvent",
+        "TallyUpdateLagTest", "TallyClearanceIdleTest",
     ]
-    check("the family is exactly these twenty-four flags",
+    check("the family is exactly these twenty-six flags",
           Set(CaptureLaunch.backgroundKeys) == expectedFamily)
     check("and it carries no duplicates",
           CaptureLaunch.backgroundKeys.count == expectedFamily.count)

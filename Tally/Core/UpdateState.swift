@@ -381,3 +381,22 @@ enum UpdateStall {
         return now.timeIntervalSince(since) >= threshold
     }
 }
+
+/// When an update this app knows about has waited long enough that the person should hear about it
+/// (B-1395). The unattended install has holds that are right on their own (a day between installs,
+/// sessions still working), and together they kept a fix off a machine for seven hours while the
+/// person it was for waited on it. This does not move any hold; it says so, once per stuck version,
+/// and the alert's button is the same press as the header chip.
+enum UpdateLag {
+    static let threshold: TimeInterval = 3 * 3600
+
+    /// The release to announce, or nil. `announcedFor` is the installed build the last announcement
+    /// was about, so one stuck version is announced once.
+    static func due(_ state: UpdateState, now: Date, announcedFor: Int?) -> FeedRelease? {
+        guard state.watching, state.installsAutomatically, !state.installing, state.busy == nil,
+              let since = state.knownSince, now.timeIntervalSince(since) >= threshold,
+              let newest = state.offeredNewest, newest.build > state.installedBuild,
+              announcedFor != state.installedBuild else { return nil }
+        return newest
+    }
+}

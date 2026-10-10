@@ -17590,6 +17590,151 @@
           }
         }
       }
+    },
+    "Install now": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安装"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 설치"
+          }
+        }
+      }
+    },
+    "Tally %@ has not installed yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally %@ 尚未安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally %@ 尚未安装"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally %@ はまだインストールされていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally %@이(가) 아직 설치되지 않았습니다"
+          }
+        }
+      }
+    },
+    "This Mac is still on %1$@; the update has been waiting since %2$@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 仍是 %1$@，更新自 %2$@ 起一直在等待。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 仍是 %1$@，更新自 %2$@ 起一直在等待。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac はまだ %1$@ です。アップデートは %2$@ から待機しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 아직 %1$@입니다. 업데이트가 %2$@부터 대기 중입니다."
+          }
+        }
+      }
+    },
+    "%@ has unused quota about to reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 有即將重置的未用額度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 有即将重置的未用额度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にリセット間近の未使用枠があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 곧 초기화될 미사용 한도가 있습니다"
+          }
+        }
+      }
+    },
+    "%1$@ of its weekly window is left and no session is using it. It resets in %2$@ (%3$@).": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每週額度還剩 %1$@，目前沒有工作階段在用，%2$@ 後（%3$@）重置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每周额度还剩 %1$@，目前没有会话在用，%2$@ 后（%3$@）重置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週間枠が %1$@ 残っていますが、使用中のセッションはありません。%2$@ 後（%3$@）にリセットされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주간 한도가 %1$@ 남았지만 사용 중인 세션이 없습니다. %2$@ 후(%3$@) 초기화됩니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

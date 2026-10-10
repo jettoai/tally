@@ -30,7 +30,8 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     func refreshCategories() {
         UNUserNotificationCenter.current()
             .setNotificationCategories([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category,
-                                         CPUAlertMonitor.category])
+                                         CPUAlertMonitor.category, UpdateLagNotifier.category,
+                                         ClearanceIdleNotifier.category])
     }
 
     /// Show the alert even while Tally is the active app.
@@ -75,6 +76,20 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
                 MainWindowController.shared.show()
                 MainWindowController.shared.surfaceTab.tab = .sessions
             }
+            completionHandler()
+            return
+        }
+        if content.categoryIdentifier == UpdateLagNotifier.categoryID {
+            // The button is the header chip's press; tapping the body opens nothing, so a restart
+            // never happens without the button that says so.
+            if action == UpdateLagNotifier.installActionID {
+                Task { @MainActor in UpdaterController.shared.installNow() }
+            }
+            completionHandler()
+            return
+        }
+        if content.categoryIdentifier == ClearanceIdleNotifier.categoryID {
+            Task { @MainActor in MainWindowController.shared.show() }
             completionHandler()
             return
         }

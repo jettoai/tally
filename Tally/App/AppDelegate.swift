@@ -183,6 +183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let dir = UserDefaults.standard.string(forKey: "TallyResetHintExpiryTest"), !dir.isEmpty {
             ResetHintNotifier.shared.runExpiryDeliveryTest(reportDirectory: dir) { NSApp.terminate(nil) }
         }
+        // And the two B-1395 alerts (-TallyUpdateLagTest, -TallyClearanceIdleTest): a stuck update,
+        // whose "Install now" button is the header chip's press, and leftovers about to reset unused.
+        if UserDefaults.standard.bool(forKey: "TallyUpdateLagTest") {
+            UpdateLagNotifier.shared.postSampleNotification()
+        }
+        if UserDefaults.standard.bool(forKey: "TallyClearanceIdleTest") {
+            ClearanceIdleNotifier.shared.postSampleNotification()
+        }
         // And for the login-expiry alert (-TallyLoginExpiryTest), whose "Renew login" button is the
         // one path into a renewal that no card is involved in.
         if UserDefaults.standard.bool(forKey: "TallyLoginExpiryTest") {

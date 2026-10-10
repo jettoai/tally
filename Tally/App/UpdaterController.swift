@@ -357,6 +357,7 @@ final class UpdaterController: NSObject {
                 busySessions: Self.busySessions())
         } ?? false
         apply(.momentArrived(idle: idle))
+        UpdateLagNotifier.shared.evaluate(state)
     }
 
     /// Hand the update back to Sparkle. Nothing is torn down here: `handler.run()` is a request,

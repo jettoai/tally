@@ -69,15 +69,18 @@ final class CPUAlertMonitor {
             // THE EXPENSIVE READING HAPPENS ONLY HERE: a banner is going out, and it accounts for
             // the whole machine so its names and its "other" add up to the figure in its title.
             // An unreadable scan falls back to the rollup's projects; "other" still fills the gap.
+            // The breakdown stats every ancestor's ".git", so it runs off the main actor too (TALLY-94).
             var groups = projects
-            if announce, let scan = await Task.detached(priority: .utility, operation: {
-                await CPUAlertReaders.scan()
-            }).value {
-                let found = CPUAlertLogic.breakdown(
-                    scan, busy: busy, roots: roots, home: home,
-                    isCheckout: { FileManager.default.fileExists(atPath: $0 + "/.git") },
-                    displayName: { ProcessTree.displayName(forPath: $0) })
-                if !found.isEmpty { groups = found }
+            if announce {
+                let found = await Task.detached(priority: .utility) {
+                    await CPUAlertReaders.scan().map {
+                        CPUAlertLogic.breakdown(
+                            $0, busy: busy, roots: roots, home: home,
+                            isCheckout: { FileManager.default.fileExists(atPath: $0 + "/.git") },
+                            displayName: { ProcessTree.displayName(forPath: $0) })
+                    }
+                }.value
+                if let found, !found.isEmpty { groups = found }
             }
             let banner = CPUAlertLogic.banner(groups, busy: busy)
             let line = CPUAlertLogic.logLine(event, busy: busy, cores: cores, culprits: banner.named,

@@ -336,10 +336,9 @@ do {
     expect(calls == 1, "S3 the machine scan has exactly one caller")
     expect(!monitor.contains("unattributed(") && !readers.contains("unattributed("),
            "S3 the partial scan is gone")
-    if let branch = monitor.range(of: "if announce, let scan = await Task.detached"),
-       let body = monitor.range(of: "}).value {", range: branch.upperBound..<monitor.endIndex),
+    if let branch = monitor.range(of: "if announce {"),
        let call = monitor.range(of: "CPUAlertReaders.scan("),
-       let close = blockEnd(monitor, from: body.upperBound) {
+       let close = blockEnd(monitor, from: branch.upperBound) {
         expect(call.lowerBound > branch.upperBound && call.lowerBound < close,
                "S3 the machine scan sits inside the announcing branch")
     } else {

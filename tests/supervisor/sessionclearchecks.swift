@@ -167,6 +167,22 @@ func runSessionClearChecks() {
     let moved = tick(clearRequest(), key: "9410", agents: 2, boundary: healthy)
     check("the tick that moves a session types nothing and hands the account up",
           moved.typed.isEmpty && moved.action.typed == nil && moved.action.moveTo == healthy)
+    // A MOVE THE PRE-SPAWN CHECK REFUSES IS NOT REPORTED. The landing answers its caller as it
+    // lands, so the check is asked inside the boundary question (Supervisor.swift) and a refusal
+    // clears on this account instead: the caller is told what happened, never "moved" for a move
+    // the execution point then drops (codex review of 858d2ef).
+    var refusedHold = PreSpawnHold()
+    let refusal = dir.appendingPathComponent("prespawn-refusal")
+    try? FileManager.default.createDirectory(at: refusal, withIntermediateDirectories: true)
+    let refusedTarget = preSpawnAdmits(
+        RelaunchPlan(target: healthy, reason: clearBoundaryReason, countsFuse: true, fresh: true),
+        provider: providers[0], from: clearAccount("A", "Claude 1"), hold: &refusedHold,
+        pid: "9411", log: refusal.appendingPathComponent("h.log"), stateDir: refusal,
+        check: { _ in .rejected(status: "exit 1", firstLine: "wrong account") }) ? healthy : nil
+    let refused = tick(clearRequest(), key: "9411", boundary: refusedTarget)
+    check("a clear whose move the pre-spawn check refuses clears here and is not reported moved",
+          refused.action.moveTo == nil && refused.typed == [windowClearCommand]
+              && readSessionInputResult(sessionKey: "9411", dir: dir)?.outcome == "submitted")
     // THE ARM IS FED `typed`, so a move arms nothing: the relaunch IS the move, and a second mover
     // waiting behind it would move the session again once the new child reported its own id.
     var repick = WindowRepickState()

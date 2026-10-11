@@ -226,7 +226,10 @@ func runStandDownChecks() {
     }
     if let capture = at("let committed = TickCommitments("),
        let firstPlanner = at("// Cap recovery has top priority"),
-       let restore = at("committed.restore("),
+       // The LAST restore: the pre-spawn check hands a plan back earlier, before the input gate
+       // reads the tick's answer (StandDown.swift, `preSpawnAdmits`).
+       let restore = loop.range(of: "committed.restore(", options: .backwards)
+           .map({ loop.distance(from: loop.startIndex, to: $0.lowerBound) }),
        let execution = at("// Execute the tick's one relaunch") {
         check("the tick captures its commitments before any planner runs", capture < firstPlanner)
         check("and hands them back at the execution point", execution < restore)

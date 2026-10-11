@@ -63,6 +63,10 @@ func savePreSpawn(_ file: PreSpawnFile, to url: URL = preSpawnConfigURL) throws 
 struct PreSpawnContext {
     let provider: String
     let homePath: String
+    /// The provider's home variable and the value the LAUNCH gives it, nil when the launch unsets
+    /// it (the default home, `launchEnv`). The check gets exactly that: a CLI it runs under any
+    /// other value reads a different login than the one the child will use.
+    let homeVariable: (key: String, value: String?)
     let label: String
     let accountID: String
     /// `launch` for the first start, otherwise the relaunch plan's own tag (`self-update`, `cap`...).
@@ -83,8 +87,29 @@ func preSpawnEnvironment(_ ctx: PreSpawnContext, base: [String: String]) -> [Str
     env["TALLY_ACCOUNT_ID"] = ctx.accountID
     env["TALLY_SPAWN_REASON"] = ctx.reason
     env["TALLY_PROVIDER"] = ctx.provider
-    if ctx.provider == "claude" { env["CLAUDE_CONFIG_DIR"] = ctx.homePath }
+    env[ctx.homeVariable.key] = ctx.homeVariable.value   // nil removes an inherited value too
     return env
+}
+
+/// Relaunch targets the check rejected, each left alone until its date: a planner that re-plans
+/// every 2s tick would otherwise rerun a failing check, and log it, every 2s.
+struct PreSpawnHold {
+    private(set) var until: [String: Date] = [:]
+
+    /// The check's verdict for a relaunch onto `ctx.accountID`, or nil while an earlier rejection
+    /// of that target is still on hold (nothing is run then).
+    mutating func ask(_ ctx: PreSpawnContext, now: Date = Date(),
+                      check: (PreSpawnContext) -> PreSpawnVerdict = { preSpawnVerdict($0).verdict })
+        -> PreSpawnVerdict? {
+        if let date = until[ctx.accountID], date > now { return nil }
+        let verdict = check(ctx)
+        if case .rejected = verdict {
+            until[ctx.accountID] = now.addingTimeInterval(preSpawnHoldSeconds)
+        } else {
+            until[ctx.accountID] = nil
+        }
+        return verdict
+    }
 }
 
 /// Run `/bin/sh -c command` in its own process group with stdin and stdout on /dev/null (the

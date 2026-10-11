@@ -53,9 +53,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // file is written, so a rejection leaves nothing to clean. A self-update image (`resumed`)
     // skips it: the image it replaced ran the check against this home before it exec'd.
     if !resumed {
-        let gate = preSpawnVerdict(PreSpawnContext(
-            provider: provider.id, homePath: initial.launchHome ?? "", label: initial.label,
-            accountID: initial.id, reason: "launch"))
+        let gate = preSpawnVerdict(preSpawnContext(provider, initial, reason: "launch"))
         if gate.unreadable {
             warn("\(preSpawnConfigURL.path) exists but cannot be read; ignoring the pre-spawn check")
         }
@@ -136,10 +134,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
     var relaunching = resumed
-    /// Relaunch targets the user's pre-spawn check rejected, left alone until the date
-    /// (`preSpawnHoldSeconds`). Without it a planner that re-plans every 2s tick would rerun a
-    /// failing check and append a log line every 2s.
-    var preSpawnHold: [String: Date] = [:]
+    /// Relaunch targets the user's pre-spawn check rejected, left alone for `preSpawnHoldSeconds`.
+    var preSpawnHold = PreSpawnHold()
     /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`),
     /// seeded from the supervisor this process replaced in a self-update: that exec is one of the
     /// relaunches which carry it, and the argv is how it arrived (SelfUpdate.swift).
@@ -1086,6 +1082,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // is not a relaunch, because the fork hold can stand it down and leave this child
             // running (StandDown.swift carries the whole reasoning, the regression included).
             var replacingChild = relaunchIsHappening(plan: plan, watcher: &watcher)
+            // THE USER'S PRE-SPAWN CHECK belongs to that same answer (StandDown.swift,
+            // `preSpawnAdmits`), against the home the plan moves TO and before anything reads it: a
+            // rejection hands the plan back now and the tick goes on as one with nothing planned,
+            // so the child keeps the session and its readers keep typing into it.
+            if replacingChild, let planned = plan,
+               !preSpawnAdmits(planned, provider: provider, from: account, hold: &preSpawnHold,
+                               pid: supervisorPID) {
+                committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
+                                  followState: &followState, fallbackApplied: &fallbackApplied)
+                plan = nil
+                replacingChild = false
+            }
             // What it TYPED arms the window repick above: a `/clear` that reached the composer is
             // this session's window closing, and the next tick asks Claude Code itself whether it
             // really did (WindowRepick.swift).
@@ -1106,11 +1114,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // unreadable registry included: its caller asked never to answer one.
                 composerOnlyDialog: board.dialogPossible,
                 clearBoundary: {
-                    windowRepickMove(provider: provider.id, account: account,
-                                     primaryModel: effectivePrimary, mode: policy.mode,
-                                     steering: steering,
-                                     carryable: carryable, fuseAllows: fuse.allows(),
-                                     quarantine: quarantine, reserves: reserves)
+                    guard let target = windowRepickMove(provider: provider.id, account: account,
+                                                        primaryModel: effectivePrimary,
+                                                        mode: policy.mode, steering: steering,
+                                                        carryable: carryable,
+                                                        fuseAllows: fuse.allows(),
+                                                        quarantine: quarantine, reserves: reserves)
+                    else { return nil }
+                    // Asked BEFORE the caller is told its window moved: a move the pre-spawn check
+                    // refuses clears on this account instead (StandDown.swift, `preSpawnAdmits`).
+                    let move = RelaunchPlan(target: target, reason: clearBoundaryReason,
+                                            countsFuse: true, fresh: true)
+                    return preSpawnAdmits(move, provider: provider, from: account,
+                                          hold: &preSpawnHold, pid: supervisorPID) ? target : nil
                 })
             // `action.repick` RATHER THAN `action.typed`, which is not a rename: the repick is a
             // relaunch, and a session that may be holding an unsent draft is not restarted away from
@@ -1284,40 +1300,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                         unresolvedHoldWarned = true
                     }
                     return .keepPolling   // the child keeps running; the next tick decides afresh
-                }
-                // THE USER'S PRE-SPAWN CHECK, against the home this plan moves TO and BEFORE the
-                // child is torn down (PreSpawnHook.swift): a rejection stands the relaunch down as
-                // the hold above does, so the running child keeps the session rather than the
-                // session ending (a self-update is most handoffs; a failing check must cost one
-                // upgrade, never the conversation). The terminal belongs to the child, so the
-                // reason goes to the handoff log and the notice track.
-                if let until = preSpawnHold[plan.target.id], until > Date() {
-                    committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
-                                      followState: &followState, fallbackApplied: &fallbackApplied)
-                    return .keepPolling
-                }
-                let preSpawn = preSpawnVerdict(PreSpawnContext(
-                    provider: provider.id, homePath: plan.target.launchHome ?? "",
-                    label: plan.target.label, accountID: plan.target.id, reason: plan.reason))
-                if let line = preSpawnLogLine(preSpawn.verdict, pid: supervisorPID, from: account.label,
-                                              to: plan.target.label, reason: plan.reason) {
-                    appendHandoffLine(line, to: handoffLog)
-                }
-                if case .rejected(_, let firstLine) = preSpawn.verdict {
-                    preSpawnHold[plan.target.id] = Date().addingTimeInterval(preSpawnHoldSeconds)
-                    if readPendingNotice(pid: supervisorPID) == nil {   // one badge at a time
-                        writePendingNotice(PendingNotice(
-                            badge: "pre-spawn check held \(plan.target.label)",
-                            detail: firstLine.isEmpty ? nil : firstLine, since: Date(),
-                            kind: preSpawnNoticeKind), pid: supervisorPID)
-                    }
-                    committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
-                                      followState: &followState, fallbackApplied: &fallbackApplied)
-                    return .keepPolling
-                }
-                preSpawnHold[plan.target.id] = nil
-                if readPendingNotice(pid: supervisorPID)?.kind == preSpawnNoticeKind {
-                    clearPendingNotice(pid: supervisorPID)
                 }
                 // Past the hold, so this relaunch is happening: the safeguard restore's record can
                 // be written now, before the child goes, which is what the supervisor behind the

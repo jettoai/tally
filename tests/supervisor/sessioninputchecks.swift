@@ -542,6 +542,45 @@ func runSessionInputChecks() {
           typed == ["resolve-the-fork"]
               && readSessionInputResult(sessionKey: "9209", dir: dir)?.outcome == "submitted")
 
+    // THE USER'S PRE-SPAWN CHECK IS PART OF THE SAME ANSWER. A rejection leaves the child running
+    // just as the fork hold does, so the tick it stood down types; asked after the input gate, it
+    // held every send for a restart that never came until the line expired (codex review of
+    // 858d2ef). Driven through the supervisor's own gate with the check injected.
+    let gateDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-prespawn-gate-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: gateDir, withIntermediateDirectories: true)
+    var gateWatcher = forkedWatcher
+    let capPlan = RelaunchPlan(target: sessionInputAccount, reason: "cap", countsFuse: true)
+    var gateHold = PreSpawnHold()
+    var rejectedTick = relaunchIsHappening(plan: capPlan, watcher: &gateWatcher)
+    rejectedTick = rejectedTick
+        && preSpawnAdmits(capPlan, provider: providers[0], from: sessionInputAccount,
+                          hold: &gateHold, pid: "9210", log: gateDir.appendingPathComponent("h.log"),
+                          stateDir: gateDir,
+                          check: { _ in .rejected(status: "exit 1", firstLine: "wrong account") })
+    var preSpawnStoodDown = SessionInputState(sessionKey: "9210", servedEpoch: 0)
+    try? writeSessionInputRequest(request("past-the-check"), sessionKey: "9210", dir: dir)
+    typed = tick(state: .idle, relaunchPlanned: rejectedTick, input: &preSpawnStoodDown)
+    check("a tick whose relaunch the pre-spawn check rejected types the pending line",
+          !rejectedTick && typed == ["past-the-check"]
+              && readSessionInputResult(sessionKey: "9210", dir: dir)?.outcome == "submitted")
+    check("…and the rejection is logged and badged",
+          readPendingNotice(pid: "9210", dir: gateDir)?.kind == preSpawnNoticeKind
+              && ((try? String(contentsOf: gateDir.appendingPathComponent("h.log"), encoding: .utf8))
+                  ?? "").contains("prespawn-rejected"))
+    // The env the check runs with is the LAUNCH's: the default home unsets the variable, an
+    // inherited value included, any other home sets it.
+    func checkEnv(_ home: String) -> String? {
+        var account = sessionInputAccount
+        account.launchHome = home
+        return preSpawnEnvironment(preSpawnContext(providers[0], account, reason: "cap"),
+                                   base: ["CLAUDE_CONFIG_DIR": "/wrong"])["CLAUDE_CONFIG_DIR"]
+    }
+    check("the default home is checked with CLAUDE_CONFIG_DIR unset, as it launches",
+          checkEnv(defaultHome(providers[0])) == nil)
+    check("…and any other home with it set to that home", checkEnv("/tmp/A") == "/tmp/A")
+    try? FileManager.default.removeItem(at: gateDir)
+
     // Expiry, through the tick rather than the pure function, so the consuming half is covered too.
     var expired = SessionInputState(sessionKey: "9203", servedEpoch: 0)
     try? writeSessionInputRequest(request("late"), sessionKey: "9203", dir: dir)
@@ -659,8 +698,8 @@ func runSessionInputChecks() {
     // than merely greppable, because the number is what says no branch here writes a line nobody
     // accounted for.
     let audited = written.components(separatedBy: "\n").filter { $0.contains("input=") }
-    check("every served request left a line", audited.count == 37)
-    // THE DRAFT LINE: seventeen landings reached the writer in this suite, and all seventeen moved
+    check("every served request left a line", audited.count == 39)
+    // THE DRAFT LINE: eighteen landings reached the writer in this suite, and all eighteen moved
     // whatever was in that composer into its kill buffer, the one into a session the board calls
     // blocked included: since 2026-09-05 that state is a composer unless a PERSON is being waited
     // for, and this suite waits on nobody (SessionInputDraft.swift carries the correction). A build
@@ -669,7 +708,7 @@ func runSessionInputChecks() {
     // absence, since a build that brought the restore back would write one of these words and
     // change nothing else this suite reads.
     check("…and every line that reached a terminal said where the draft under it went",
-          audited.filter { $0.contains("input=draft-stashed rounds=12") }.count == 17
+          audited.filter { $0.contains("input=draft-stashed rounds=12") }.count == 18
               && !written.contains("input=draft-restore"))
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))

@@ -14,7 +14,8 @@ func check(_ name: String, _ ok: Bool) {
 let work = FileManager.default.temporaryDirectory.appendingPathComponent("prespawn-\(UUID().uuidString)")
 try! FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: work) }
-let ctx = PreSpawnContext(provider: "claude", homePath: "/x", label: "L", accountID: "acct", reason: "cap")
+let ctx = PreSpawnContext(provider: "claude", homePath: "/x", homeVariable: ("CLAUDE_CONFIG_DIR", "/x"),
+                          label: "L", accountID: "acct", reason: "cap")
 
 func config(_ text: String?) -> URL {
     let url = work.appendingPathComponent("\(UUID().uuidString).json")
@@ -38,8 +39,9 @@ check("2 a blank command is unset",
 let broken = preSpawnVerdict(ctx, url: config("not json"))
 check("3 an unparsable file is unset, flagged unreadable", broken.verdict == .unset && broken.unreadable)
 check("3b another provider's entry is unset for this one",
-      preSpawnVerdict(PreSpawnContext(provider: "codex", homePath: "/x", label: "L", accountID: "a",
-                                      reason: "launch"), url: entry("exit 1")).verdict == .unset)
+      preSpawnVerdict(PreSpawnContext(provider: "codex", homePath: "/x",
+                                      homeVariable: ("CODEX_HOME", "/x"), label: "L",
+                                      accountID: "a", reason: "launch"), url: entry("exit 1")).verdict == .unset)
 
 // 4-5. Pass and reject.
 check("4 exit 0 passes", run("exit 0").0 == .passed)
@@ -76,6 +78,17 @@ if case .rejected(let status, let line) = run("definitely-not-a-command-xyz").0 
 // 9-12. Environment, stdin, stdout, a flood on stderr.
 check("9 the target home reaches the command",
       run("[ \"$TALLY_HOME_PATH\" = /x ] && [ \"$TALLY_HOME_LABEL\" = L ] && [ \"$TALLY_ACCOUNT_ID\" = acct ] && [ \"$TALLY_SPAWN_REASON\" = cap ] && [ \"$TALLY_PROVIDER\" = claude ] && [ \"$CLAUDE_CONFIG_DIR\" = /x ]").0 == .passed)
+// 9b. The home variable follows the launch, not the path: the default home launches with it UNSET
+// (`launchEnv`), so the check must too, an inherited value included, or a CLI it runs reads
+// another login (codex review of 858d2ef).
+let inherited = ["CLAUDE_CONFIG_DIR": "/wrong", "PATH": "/usr/bin:/bin"]
+let defaultCtx = PreSpawnContext(provider: "claude", homePath: "/d", homeVariable: ("CLAUDE_CONFIG_DIR", nil),
+                                 label: "L", accountID: "acct", reason: "launch")
+check("9b a home launched with the variable unset is checked with it unset, inherited value too",
+      preSpawnEnvironment(defaultCtx, base: inherited)["CLAUDE_CONFIG_DIR"] == nil
+          && preSpawnEnvironment(defaultCtx, base: inherited)["TALLY_HOME_PATH"] == "/d")
+check("9c a home launched with the variable set is checked with that value over an inherited one",
+      preSpawnEnvironment(ctx, base: inherited)["CLAUDE_CONFIG_DIR"] == "/x")
 check("10 stdin is not a terminal (and not readable input)",
       run("[ -t 0 ] && exit 3; read x && exit 4; exit 0").0 == .passed)
 let capture = work.appendingPathComponent("stdout.txt")
@@ -118,6 +131,19 @@ try! savePreSpawn([:], to: saved)
 check("14b clearing the last entry removes the file",
       !FileManager.default.fileExists(atPath: saved.path))
 
+// 14c. The relaunch hold: a rejection is not asked again until it lapses, anything else is.
+var hold = PreSpawnHold()
+var runs = 0
+let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+let reject: (PreSpawnContext) -> PreSpawnVerdict = { _ in runs += 1; return .rejected(status: "exit 1", firstLine: "no") }
+let first = hold.ask(ctx, now: t0, check: reject)
+let again = hold.ask(ctx, now: t0.addingTimeInterval(preSpawnHoldSeconds - 1), check: reject)
+check("14c a rejected target is held without running the check again",
+      first == .rejected(status: "exit 1", firstLine: "no") && again == nil && runs == 1)
+let lapsed = hold.ask(ctx, now: t0.addingTimeInterval(preSpawnHoldSeconds + 1), check: { _ in runs += 1; return .passed })
+check("14d once the hold lapses it asks again, and a pass clears the hold",
+      lapsed == .passed && runs == 2 && hold.until[ctx.accountID] == nil)
+
 // 15. Where the supervisor calls it.
 let source = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
 check("15 the supervisor source is readable", !source.isEmpty)
@@ -125,14 +151,31 @@ let gateA = source.range(of: "preSpawnVerdict(")
 let signals = source.range(of: "signal(SIGINT, SIG_IGN)")
 check("15a the first-launch gate runs before the signal dispositions",
       gateA != nil && signals != nil && gateA!.lowerBound < signals!.lowerBound)
-let gateB = gateA.flatMap { source.range(of: "preSpawnVerdict(", range: $0.upperBound ..< source.endIndex) }
-let hold = source.range(of: "if !replacingChild {")
+// The relaunch gate is part of the tick's one "is this child being replaced" answer: asked after the
+// fork hold and BEFORE the input gate reads it, and a rejection turns that answer to false. Asked
+// after the input gate, a rejected tick held every `tally session send` until it expired (codex
+// review of 858d2ef).
+let forkHold = source.range(of: "var replacingChild = relaunchIsHappening(")
+let gateB = forkHold.flatMap { source.range(of: "!preSpawnAdmits(", range: $0.upperBound ..< source.endIndex) }
+let inputGate = source.range(of: "let action = applySessionInput(")
 let commit = source.range(of: "safeguardRecord?.commit()")
 let handoff = source.range(of: "performHandoff(to: plan.target")
-check("15b the relaunch gate runs after the fork hold and before any teardown",
-      gateB != nil && hold != nil && commit != nil && handoff != nil
-          && hold!.lowerBound < gateB!.lowerBound && gateB!.lowerBound < commit!.lowerBound
+check("15b the relaunch gate runs after the fork hold, before the input gate and before any teardown",
+      forkHold != nil && gateB != nil && inputGate != nil && commit != nil && handoff != nil
+          && gateB!.lowerBound < inputGate!.lowerBound && gateB!.lowerBound < commit!.lowerBound
           && gateB!.lowerBound < handoff!.lowerBound)
+let standDown = gateB.flatMap { source[$0.upperBound ..< inputGate!.lowerBound].range(of: "replacingChild = false") }
+check("15b2 a rejection stands the tick down as one with nothing planned",
+      standDown != nil && source[gateB!.upperBound ..< inputGate!.lowerBound].contains("plan = nil"))
+check("15b3 nothing asks the check a second time at the execution point",
+      source.components(separatedBy: "preSpawnVerdict(").count == 2)
+// A `tally session clear` landing answers its caller as it lands, so the move is asked about there.
+let boundary = source.range(of: "clearBoundary: {")
+let boundaryEnd = boundary.flatMap { source.range(of: "windowRepick.apply(action.repick", range: $0.upperBound ..< source.endIndex) }
+check("15d a clear's move is asked of the check before the caller is told it moved",
+      boundary != nil && boundaryEnd != nil
+          && source[boundary!.upperBound ..< boundaryEnd!.lowerBound].contains("preSpawnAdmits(move,")
+          && source[boundary!.upperBound ..< boundaryEnd!.lowerBound].contains("? target : nil"))
 check("15c there is still exactly one place a child is spawned",
       source.components(separatedBy: "spawnChild([provider.cli]").count == 2)
 

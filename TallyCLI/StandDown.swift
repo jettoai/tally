@@ -104,3 +104,50 @@ func relaunchIsHappening(plan: RelaunchPlan?, watcher: inout TranscriptWatcher) 
     return !relaunchHeldByUnresolvedFork(reason: plan.reason,
                                          unresolvedFork: watcher.hasUnresolvedFork)
 }
+
+// MARK: - The user's pre-spawn check (issue #7)
+
+/// The check's context for a spawn onto `account`, its home variable exactly as the launch sets it:
+/// `launchEnv`'s rule (the default home UNSETS it), without the `unsetenv` that would change this
+/// process's own environment for a spawn the check may still refuse.
+func preSpawnContext(_ provider: Provider, _ account: Snapshot.Account,
+                     reason: String) -> PreSpawnContext {
+    let home = account.launchHome ?? ""
+    return PreSpawnContext(provider: provider.id, homePath: home,
+                           homeVariable: (provider.envKey, home == defaultHome(provider) ? nil : home),
+                           label: account.label, accountID: account.id, reason: reason)
+}
+
+/// Whether the user's check lets a relaunch onto `plan.target` happen. Part of the tick's ONE
+/// answer above, and asked before anything reads it, for the reason the fork hold is: a rejection
+/// leaves the child running, and a reader told "replacing" holds a `tally session send` for a
+/// restart that never comes until it expires (codex review of 858d2ef). A `tally session clear`
+/// landing asks it too, before it tells its caller the window moved.
+///
+/// A verdict is logged; a rejection holds the target and puts a badge up, a pass takes this check's
+/// badge down. Nothing goes to the terminal, which belongs to the child.
+func preSpawnAdmits(_ plan: RelaunchPlan, provider: Provider, from: Snapshot.Account,
+                    hold: inout PreSpawnHold, pid: String, log: URL = handoffLog,
+                    stateDir: URL = supervisorStateDir,
+                    check: (PreSpawnContext) -> PreSpawnVerdict = { preSpawnVerdict($0).verdict })
+    -> Bool {
+    guard let verdict = hold.ask(preSpawnContext(provider, plan.target, reason: plan.reason),
+                                 check: check) else { return false }
+    if let line = preSpawnLogLine(verdict, pid: pid, from: from.label, to: plan.target.label,
+                                  reason: plan.reason) {
+        appendHandoffLine(line, to: log)
+    }
+    if case .rejected(_, let firstLine) = verdict {
+        if readPendingNotice(pid: pid, dir: stateDir) == nil {   // one badge at a time
+            writePendingNotice(PendingNotice(
+                badge: "pre-spawn check held \(plan.target.label)",
+                detail: firstLine.isEmpty ? nil : firstLine, since: Date(),
+                kind: preSpawnNoticeKind), pid: pid, dir: stateDir)
+        }
+        return false
+    }
+    if readPendingNotice(pid: pid, dir: stateDir)?.kind == preSpawnNoticeKind {
+        clearPendingNotice(pid: pid, dir: stateDir)
+    }
+    return true
+}

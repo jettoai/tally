@@ -68,6 +68,9 @@
 # folder's trust into the home it is launching onto (2026-09-03): the act itself is asserted next
 # to its neighbours in tests/addshare, and what this suite compiles them for is the audit line and
 # the fact that Supervisor.swift will not build without them.
+#
+# PreSpawnHook.swift is here for the same reason: both spawn gates call it (issue #7). Its own
+# behaviour is asserted in tests/prespawn against a real /bin/sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # Legacy presence fixtures use this process as a real tally owner.
@@ -194,7 +197,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/KeychainPartitionRepair.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift Tally/Core/PathIdentity.swift \
-  Tally/Core/TrustSeed.swift TallyCLI/TrustSeedRelaunch.swift \
+  Tally/Core/TrustSeed.swift TallyCLI/TrustSeedRelaunch.swift TallyCLI/PreSpawnHook.swift \
   TallyCLI/StatusReport.swift Tally/Core/HeldOverReset.swift TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Stores/SessionRosterScan.swift Tally/Stores/SessionRosterArrangement.swift Tally/Stores/ReloadReadinessStore.swift Tally/Core/CoalescingGate.swift \

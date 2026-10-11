@@ -48,6 +48,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// Its model and effort are re-read at each relaunch (B-1091); the account it pins keeps this.
     var project = projectPolicy(provider.id)
 
+    // THE USER'S PRE-SPAWN CHECK, first launch only (PreSpawnHook.swift). Before the signal
+    // dispositions below, so Ctrl+C still ends tally while the check runs, and before any state
+    // file is written, so a rejection leaves nothing to clean. A self-update image (`resumed`)
+    // skips it: the image it replaced ran the check against this home before it exec'd.
+    if !resumed {
+        let gate = preSpawnVerdict(PreSpawnContext(
+            provider: provider.id, homePath: initial.launchHome ?? "", label: initial.label,
+            accountID: initial.id, reason: "launch"))
+        if gate.unreadable {
+            warn("\(preSpawnConfigURL.path) exists but cannot be read; ignoring the pre-spawn check")
+        }
+        if let line = preSpawnTerminalLine(gate.verdict, label: initial.label) { warn(line) }
+        if case .rejected = gate.verdict { exit(1) }
+    }
+
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
     // foreground process group (which the child shares) receives it.
     signal(SIGINT, SIG_IGN)
@@ -121,6 +136,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
     var relaunching = resumed
+    /// Relaunch targets the user's pre-spawn check rejected, left alone until the date
+    /// (`preSpawnHoldSeconds`). Without it a planner that re-plans every 2s tick would rerun a
+    /// failing check and append a log line every 2s.
+    var preSpawnHold: [String: Date] = [:]
     /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`),
     /// seeded from the supervisor this process replaced in a self-update: that exec is one of the
     /// relaunches which carry it, and the argv is how it arrived (SelfUpdate.swift).
@@ -1265,6 +1284,40 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                         unresolvedHoldWarned = true
                     }
                     return .keepPolling   // the child keeps running; the next tick decides afresh
+                }
+                // THE USER'S PRE-SPAWN CHECK, against the home this plan moves TO and BEFORE the
+                // child is torn down (PreSpawnHook.swift): a rejection stands the relaunch down as
+                // the hold above does, so the running child keeps the session rather than the
+                // session ending (a self-update is most handoffs; a failing check must cost one
+                // upgrade, never the conversation). The terminal belongs to the child, so the
+                // reason goes to the handoff log and the notice track.
+                if let until = preSpawnHold[plan.target.id], until > Date() {
+                    committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
+                                      followState: &followState, fallbackApplied: &fallbackApplied)
+                    return .keepPolling
+                }
+                let preSpawn = preSpawnVerdict(PreSpawnContext(
+                    provider: provider.id, homePath: plan.target.launchHome ?? "",
+                    label: plan.target.label, accountID: plan.target.id, reason: plan.reason))
+                if let line = preSpawnLogLine(preSpawn.verdict, pid: supervisorPID, from: account.label,
+                                              to: plan.target.label, reason: plan.reason) {
+                    appendHandoffLine(line, to: handoffLog)
+                }
+                if case .rejected(_, let firstLine) = preSpawn.verdict {
+                    preSpawnHold[plan.target.id] = Date().addingTimeInterval(preSpawnHoldSeconds)
+                    if readPendingNotice(pid: supervisorPID) == nil {   // one badge at a time
+                        writePendingNotice(PendingNotice(
+                            badge: "pre-spawn check held \(plan.target.label)",
+                            detail: firstLine.isEmpty ? nil : firstLine, since: Date(),
+                            kind: preSpawnNoticeKind), pid: supervisorPID)
+                    }
+                    committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
+                                      followState: &followState, fallbackApplied: &fallbackApplied)
+                    return .keepPolling
+                }
+                preSpawnHold[plan.target.id] = nil
+                if readPendingNotice(pid: supervisorPID)?.kind == preSpawnNoticeKind {
+                    clearPendingNotice(pid: supervisorPID)
                 }
                 // Past the hold, so this relaunch is happening: the safeguard restore's record can
                 // be written now, before the child goes, which is what the supervisor behind the

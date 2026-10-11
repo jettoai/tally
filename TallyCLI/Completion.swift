@@ -316,6 +316,7 @@ _tally() {
     "resume:continue this directory's latest Claude session on the best account"
     "worktree:the main repo and its worktrees, and the teardown of a merged one"
     "project:declare what this project launches, overriding the app defaults"
+    "prespawn:run your own check before every supervised claude start or restart"
     "status:every account's remaining windows, with --json for scripts"
     "cost:what each project's tokens cost, with --json for scripts"
     "reap:reclaim idle build folders, worktrees and sessions under the scratch root"
@@ -386,6 +387,8 @@ _tally() {
         (resume) ;;
         (worktree) _tally_worktree_command ;;
         (project) _tally_project_command ;;
+        # The command itself is free text, so nothing is offered for it (no file names).
+        (prespawn) _arguments '1:subcommand:(set show clear)' '*:command: ' ;;
         (harness) _tally_harness_command ;;
         (inbox) _tally_inbox_command ;;
         (status) _arguments "--json[versioned machine-readable report for scripts and hooks]" ;;

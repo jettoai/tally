@@ -35,6 +35,10 @@ usage:
                             you type, and steers the account pick too - a project on opus
                             stops letting a drained flagship window rule an account out.
                             `show` / `list` / `clear` round it out
+  tally prespawn set '<command>' [--timeout <seconds>]
+                            run your own check before every supervised claude start or
+                            restart (env: TALLY_HOME_PATH, TALLY_HOME_LABEL, TALLY_SPAWN_REASON);
+                            nonzero stops that start. `show` / `clear` round it out
   tally status [--json]     show every account's remaining windows (--json: versioned
                             machine-readable report for scripts, hooks, agent skills)
   tally cost [--json] [--days N | --range today|7d|30d|all]

@@ -84,9 +84,9 @@ check("9 the target home reaches the command",
 let inherited = ["CLAUDE_CONFIG_DIR": "/wrong", "PATH": "/usr/bin:/bin"]
 let defaultCtx = PreSpawnContext(provider: "claude", homePath: "/d", homeVariable: ("CLAUDE_CONFIG_DIR", nil),
                                  label: "L", accountID: "acct", reason: "launch")
+let defaultEnv = preSpawnEnvironment(defaultCtx, base: inherited)
 check("9b a home launched with the variable unset is checked with it unset, inherited value too",
-      preSpawnEnvironment(defaultCtx, base: inherited)["CLAUDE_CONFIG_DIR"] == nil
-          && preSpawnEnvironment(defaultCtx, base: inherited)["TALLY_HOME_PATH"] == "/d")
+      defaultEnv["CLAUDE_CONFIG_DIR"] == nil && defaultEnv["TALLY_HOME_PATH"] == "/d")
 check("9c a home launched with the variable set is checked with that value over an inherited one",
       preSpawnEnvironment(ctx, base: inherited)["CLAUDE_CONFIG_DIR"] == "/x")
 check("10 stdin is not a terminal (and not readable input)",

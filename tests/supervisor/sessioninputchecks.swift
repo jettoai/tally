@@ -552,8 +552,7 @@ func runSessionInputChecks() {
     var gateWatcher = forkedWatcher
     let capPlan = RelaunchPlan(target: sessionInputAccount, reason: "cap", countsFuse: true)
     var gateHold = PreSpawnHold()
-    var rejectedTick = relaunchIsHappening(plan: capPlan, watcher: &gateWatcher)
-    rejectedTick = rejectedTick
+    let rejectedTick = relaunchIsHappening(plan: capPlan, watcher: &gateWatcher)
         && preSpawnAdmits(capPlan, provider: providers[0], from: sessionInputAccount,
                           hold: &gateHold, pid: "9210", log: gateDir.appendingPathComponent("h.log"),
                           stateDir: gateDir,

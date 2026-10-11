@@ -48,15 +48,7 @@ private func runPreSpawnSet(_ args: [String]) -> Int32 {
         warn(preSpawnUsage)
         return 2
     }
-    guard var file = loadPreSpawnFile() else {
-        warn("\(preSpawnConfigURL.path) exists but cannot be read; fix or remove it first")
-        return 1
-    }
-    file[preSpawnProvider] = PreSpawnEntry(command: command, timeoutSeconds: timeout)
-    do { try savePreSpawn(file) } catch {
-        warn("could not write \(preSpawnConfigURL.path): \(error.localizedDescription)")
-        return 1
-    }
+    guard updatePreSpawnEntry(PreSpawnEntry(command: command, timeoutSeconds: timeout)) else { return 1 }
     warn("pre-spawn check set: \(command) (timeout \(timeout)s)")
     return 0
 }
@@ -77,15 +69,22 @@ private func runPreSpawnShow() -> Int32 {
 }
 
 private func runPreSpawnClear() -> Int32 {
-    guard var file = loadPreSpawnFile() else {
-        warn("\(preSpawnConfigURL.path) exists but cannot be read; fix or remove it first")
-        return 1
-    }
-    file[preSpawnProvider] = nil
-    do { try savePreSpawn(file) } catch {
-        warn("could not write \(preSpawnConfigURL.path): \(error.localizedDescription)")
-        return 1
-    }
+    guard updatePreSpawnEntry(nil) else { return 1 }
     warn("pre-spawn check cleared")
     return 0
+}
+
+/// Set (or with nil, remove) this provider's entry, keeping every other provider's. False after
+/// saying why: a file that is there but unreadable is never overwritten.
+private func updatePreSpawnEntry(_ entry: PreSpawnEntry?) -> Bool {
+    guard var file = loadPreSpawnFile() else {
+        warn("\(preSpawnConfigURL.path) exists but cannot be read; fix or remove it first")
+        return false
+    }
+    file[preSpawnProvider] = entry
+    do { try savePreSpawn(file) } catch {
+        warn("could not write \(preSpawnConfigURL.path): \(error.localizedDescription)")
+        return false
+    }
+    return true
 }

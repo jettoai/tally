@@ -153,9 +153,9 @@ func runPreSpawnCommand(_ command: String, timeout: Int, environment: [String: S
         usleep(pollInterval)
     }
 
-    let signal = status & 0x7f
-    if signal == 0 && (status >> 8) & 0xff == 0 { return .passed }
-    return .rejected(status: signal == 0 ? "exit \((status >> 8) & 0xff)" : "signal \(signal)",
+    let signal = status & 0x7f, code = (status >> 8) & 0xff
+    if signal == 0 && code == 0 { return .passed }
+    return .rejected(status: signal == 0 ? "exit \(code)" : "signal \(signal)",
                      firstLine: preSpawnFirstLine(errURL))
 }
 

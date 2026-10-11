@@ -420,8 +420,10 @@ case "resume":
     runResume(args: Array(arguments.dropFirst()))
 case "worktree":
     runWorktree(args: Array(arguments.dropFirst()))
-case "project": runProject(args: Array(arguments.dropFirst()))
-case "prespawn": exit(runPreSpawn(args: Array(arguments.dropFirst())))
+case "project":
+    runProject(args: Array(arguments.dropFirst()))
+case "prespawn":
+    exit(runPreSpawn(args: Array(arguments.dropFirst())))
 case "status", nil:
     runStatus(json: arguments.contains("--json"))
 case "best-dir":

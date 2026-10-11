@@ -245,7 +245,7 @@ func runSmartBadgeChecks() {
     check("A12 …while one live session still takes it",
           pick([rich, clearing], occupancy: [clearing.id: 1]) == "clearing")
     check("A12 …and before the first count has been read", pick([rich, clearing], occupancy: nil) == "rich")
-    // The count the panel reads (`ProbeCadence.liveAccountCounts`): one readable session on the
+    // The count the panel reads (`liveSessionCounts`): one readable session on the
     // clearance account would let it take this launch, but a second live supervisor's file cannot
     // be read, so the count is unknown and the badge does what `tally status` does (B-1374).
     let stateDir = FileManager.default.temporaryDirectory
@@ -257,9 +257,24 @@ func runSmartBadgeChecks() {
     try? "rich".write(to: blind, atomically: true, encoding: .utf8)
     chmod(blind.path, 0)
     check("A12 an unreadable live session file leaves the clearance account to the CLI's answer",
-          pick([rich, clearing], occupancy: ProbeCadence.liveAccountCounts(
+          pick([rich, clearing], occupancy: liveSessionCounts(
               dir: stateDir, isAlive: { [101, 102].contains($0) })) == "rich")
     chmod(blind.path, 0o644)
+    // Read the way the panel reads it, with no liveness injected: a live pid that is not a tally
+    // process (this test) with an unreadable file. The launch's `liveSessionCount` counts it live and
+    // calls the account unknown, so the badge must too; a badge reader of its own skipped it, read
+    // 0 sessions and named the clearance account the launch refuses (B-1374).
+    try? FileManager.default.removeItem(at: blind)
+    try? FileManager.default.removeItem(at: stateDir.appendingPathComponent("101.account"))
+    let foreign = stateDir.appendingPathComponent("\(getpid()).account")
+    try? clearing.id.write(to: foreign, atomically: true, encoding: .utf8)
+    chmod(foreign.path, 0)
+    let badgeCount = liveSessionCounts(dir: stateDir)
+    check("B1374 the badge reads a live pid's unreadable file as unknown, as the launch does",
+          badgeCount == nil)
+    check("B1374 …so the badge names the account the launch takes, not the clearance account",
+          pick([rich, clearing], occupancy: badgeCount) == "rich")
+    chmod(foreign.path, 0o644)
     try? FileManager.default.removeItem(at: stateDir)
     check("A12 a dry 5h window is never cleared",
           pick([rich, account("clearing", session: 2, weekly: 50, weeklyResetDays: 18.4 / 24)])

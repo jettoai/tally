@@ -367,9 +367,9 @@ final class LaunchPolicyStore {
     }
 
     /// Live sessions per account for the clearance cap (`clearanceMaxSessions`), nil until the first
-    /// background read lands and whenever that read is unknown (`liveAccountCounts`); both read as
-    /// full. Also the load gate's count (`preferringUncrowded`, jettoai/tally#4). Same cache and
-    /// reasons as the quarantine read above.
+    /// background read lands and whenever that read is unknown (`liveSessionCounts`, the reader the
+    /// launch's clearance cap uses); both read as full. Also the load gate's count
+    /// (`preferringUncrowded`, jettoai/tally#4). Same cache and reasons as the quarantine read above.
     private var liveSessions: [String: Int]?
     @ObservationIgnored private var liveSessionsReadAt: Date?
     @ObservationIgnored private var liveSessionsReading = false
@@ -380,7 +380,7 @@ final class LaunchPolicyStore {
         if !fresh, !liveSessionsReading {
             liveSessionsReading = true
             Task { [weak self] in
-                let counts = await Task.detached { ProbeCadence.liveAccountCounts() }.value
+                let counts = await Task.detached { liveSessionCounts() }.value
                 guard let self else { return }
                 self.liveSessionsReading = false
                 self.liveSessionsReadAt = now

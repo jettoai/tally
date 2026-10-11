@@ -83,6 +83,71 @@ func liveSupervisorPids(dir: URL = supervisorStateDir) -> [pid_t] {
     }
 }
 
+/// One line a supervisor published beside its presence entry, or nil when there is none - and when
+/// there is an empty one, which reads the same way: a write that got as far as the file and no
+/// further said nothing.
+func supervisorStateLine(_ file: URL) -> String? {
+    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+    let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return line.isEmpty ? nil : line
+}
+
+/// The suffix of the file naming the account a supervisor spawned its child on.
+let supervisorAccountSuffix = ".account"
+
+func supervisorAccountFile(pid: String, dir: URL = supervisorStateDir) -> URL {
+    dir.appendingPathComponent(pid + supervisorAccountSuffix)
+}
+
+/// The account that supervisor's child was launched on, or nil when nothing was published (a
+/// supervisor from a build before this file existed, which reads as "cannot say" rather than as "no
+/// account").
+func readSupervisorAccount(pid: String, dir: URL = supervisorStateDir) -> String? {
+    supervisorStateLine(supervisorAccountFile(pid: pid, dir: dir))
+}
+
+/// How many LIVE supervisors have their child on each account id ("claude:.claude3"), read from the
+/// per-pid account files. The one reader behind the launch's clearance cap (`liveSessionCount`) and
+/// the panel's smart badge, so a failed read cannot send the two to different accounts (B-1374).
+/// A file whose pid is gone is not counted: the sweep that removes it runs when the supervisor dies
+/// (PendingNotice.swift) and can lag.
+///
+/// nil is "unknown", and every caller reads it as full: the directory exists but cannot be listed,
+/// or a LIVE supervisor's file cannot be read (unreadable, empty, mid-write). Reading those as 0 is
+/// what used to let a clearance account take sessions it already had. A directory that does not
+/// exist yet is a real empty map: no supervisor has ever written one.
+func liveSessionCounts(dir: URL = supervisorStateDir,
+                       isAlive: (pid_t) -> Bool = { supervisorAlive($0) }) -> [String: Int]? {
+    let read = readLiveSessions(dir: dir, isAlive: isAlive)
+    return read.unknown ? nil : read.counts
+}
+
+/// `liveSessionCounts` before the unknown verdict: what could be read, and whether anything could
+/// not. Only the probe order reads the partial counts; it never fills an account.
+func readLiveSessions(dir: URL = supervisorStateDir, isAlive: (pid_t) -> Bool)
+    -> (counts: [String: Int], unknown: Bool) {
+    let names: [String]
+    do {
+        names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+        return ([:], false)
+    } catch {
+        return ([:], true)
+    }
+    var counts: [String: Int] = [:]
+    var unknown = false
+    for name in names where name.hasSuffix(supervisorAccountSuffix) {
+        let pid = String(name.dropLast(supervisorAccountSuffix.count))
+        guard let value = pid_t(pid), value > 0, isAlive(value) else { continue }
+        if let account = readSupervisorAccount(pid: pid, dir: dir) {
+            counts[account, default: 0] += 1
+        } else {
+            unknown = true
+        }
+    }
+    return (counts, unknown)
+}
+
 // MARK: - Legacy supervisors (running, but from a build with no reload support)
 
 // A supervisor started before this feature shipped registers nothing and polls no request file, so

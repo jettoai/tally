@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 27
+    nonisolated static let skillVersion = 28
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -50,9 +50,9 @@ extension IntegrationsStore {
           beside each `...ResetsAt`: `true` means the account's polls have been failing since
           before that reset, so the figure is from the previous window; call that window unknown
           rather than quoting the number.
-        - `best: true` marks the account the next new conversation starts on through
-          `tally claude` / `tally codex`, the same answer the panel's smart badge gives (a
-          manual pin is honoured); `pinned` marks the pin itself. `launchHome` is
+        - `best: true` marks the account the next NEW conversation starts on through
+          `tally claude` / `tally codex` (a manual pin is honoured); `pinned` marks the pin
+          itself. Continuing an existing conversation does not follow `best`. `launchHome` is
           that account's config directory (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
         - `fleetPools.<provider>[]` is the pooled view across accounts, leading pool first
           (a flagship pool like Fable may lead the weekly pool). Pool units differ from
@@ -96,9 +96,12 @@ extension IntegrationsStore {
 
         - Answer quota questions from this data directly; include reset times when a
           window is low.
-        - For "which account should I use", prefer the account with `best: true`;
-          launching through `tally claude` / `tally codex` applies the same choice
-          automatically.
+        - `best` answers where a new conversation goes, and that can be a nearly spent
+          account whose leftover weekly quota is about to reset (it takes a few new
+          conversations so the leftovers are not lost). Do not use it to pick an account for
+          a conversation that is already running or being resumed, and do not move one onto
+          it: for those, prefer the account with the most left in its smallest window
+          (session, weekly, model).
         - For "is my quota enough", "should I add an account", or "how is my usage
           trending", answer from `advisor` and quote its `headline`: the account
           percentages describe only this moment, the advisor is the trend. When the verdict

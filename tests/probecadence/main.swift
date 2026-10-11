@@ -92,28 +92,28 @@ try! "claude:.claude5".write(to: dir.appendingPathComponent("333.state"), atomic
 let live = ProbeCadence.liveAccountIDs(dir: dir, isAlive: { $0 == 111 })
 check("A9 only a live supervisor's .account file names a live account", live == ["claude:.claude3"])
 try! "claude:.claude3".write(to: dir.appendingPathComponent("444.account"), atomically: true, encoding: .utf8)
-check("liveAccountCounts counts two live sessions on one account",
-      ProbeCadence.liveAccountCounts(dir: dir, isAlive: { [111, 222, 444].contains($0) })
+check("liveSessionCounts counts two live sessions on one account",
+      liveSessionCounts(dir: dir, isAlive: { [111, 222, 444].contains($0) })
           == ["claude:.claude3": 2, "claude:.claude4": 1])
 // Unknown is nil, as the CLI's liveSessionCount reads it, and the badge reads nil as full.
 let file111 = dir.appendingPathComponent("111.account")
 chmod(file111.path, 0)
 check("A9b a live supervisor's account file that cannot be read is unknown",
-      ProbeCadence.liveAccountCounts(dir: dir, isAlive: { [111, 222].contains($0) }) == nil)
+      liveSessionCounts(dir: dir, isAlive: { [111, 222].contains($0) }) == nil)
 check("A9b …a dead supervisor's unreadable file is still skipped",
-      ProbeCadence.liveAccountCounts(dir: dir, isAlive: { $0 == 222 }) == ["claude:.claude4": 1])
+      liveSessionCounts(dir: dir, isAlive: { $0 == 222 }) == ["claude:.claude4": 1])
 check("A9b …and liveAccountIDs keeps the accounts it could read, for probe order only",
       ProbeCadence.liveAccountIDs(dir: dir, isAlive: { [111, 222].contains($0) }) == ["claude:.claude4"])
 chmod(file111.path, 0o644)
 try! "".write(to: dir.appendingPathComponent("555.account"), atomically: true, encoding: .utf8)
 check("A9b a live supervisor's empty account file is unknown",
-      ProbeCadence.liveAccountCounts(dir: dir, isAlive: { $0 == 555 }) == nil)
+      liveSessionCounts(dir: dir, isAlive: { $0 == 555 }) == nil)
 chmod(dir.path, 0)
 check("A9b a state directory that cannot be listed is unknown",
-      ProbeCadence.liveAccountCounts(dir: dir, isAlive: { _ in true }) == nil)
+      liveSessionCounts(dir: dir, isAlive: { _ in true }) == nil)
 chmod(dir.path, 0o755)
 check("A9b a state directory nobody has written yet is a real zero",
-      ProbeCadence.liveAccountCounts(dir: dir.appendingPathComponent("absent")) == [:])
+      liveSessionCounts(dir: dir.appendingPathComponent("absent")) == [:])
 try? FileManager.default.removeItem(at: dir)
 
 func account(_ id: String) -> ProviderAccount {

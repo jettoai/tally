@@ -255,24 +255,8 @@ func readSupervisorChild(pid: String, dir: URL = supervisorStateDir) -> Int? {
     return child
 }
 
-/// One line a supervisor published beside its presence entry, or nil when there is none - and when
-/// there is an empty one, which reads the same way: a write that got as far as the file and no
-/// further said nothing.
-private func supervisorStateLine(_ file: URL) -> String? {
-    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
-    let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    return line.isEmpty ? nil : line
-}
-
 func readSupervisorCwd(pid: String, dir: URL = supervisorStateDir) -> String? {
     supervisorStateLine(supervisorCwdFile(pid: pid, dir: dir))
-}
-
-/// The suffix of the file naming the account a supervisor spawned its child on.
-let supervisorAccountSuffix = ".account"
-
-func supervisorAccountFile(pid: String, dir: URL = supervisorStateDir) -> URL {
-    dir.appendingPathComponent(pid + supervisorAccountSuffix)
 }
 
 /// Publish the account this supervisor just launched its child on.
@@ -314,13 +298,6 @@ func writeSupervisorAccount(_ accountID: String, pid: String, dir: URL = supervi
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     try? accountID.write(to: supervisorAccountFile(pid: pid, dir: dir), atomically: true,
                          encoding: .utf8)
-}
-
-/// The account that supervisor's child was launched on, or nil when nothing was published (a
-/// supervisor from a build before this file existed, which reads as "cannot say" rather than as "no
-/// account").
-func readSupervisorAccount(pid: String, dir: URL = supervisorStateDir) -> String? {
-    supervisorStateLine(supervisorAccountFile(pid: pid, dir: dir))
 }
 
 /// The live supervisors running in `cwd`, sorted so the answer is stable. Fully resolved on both

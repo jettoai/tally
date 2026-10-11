@@ -15213,7 +15213,7 @@
         }
       }
     },
-    "Send anonymous usage ping": {
+    "Send anonymous usage data": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
@@ -15242,31 +15242,31 @@
         }
       }
     },
-    "Once a day, sends a random device ID and the app version to jetto.ai so we can count installs and active users. Never your accounts, usage numbers or file contents.": {
+    "On by default. When Tally starts and about once a day, sends a random device ID and the app version to jetto.ai so we can count installs and active users. Never your accounts, usage numbers or file contents. Turning it off stops this and does not change how Tally works.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每天一次，把隨機產生的裝置碼與 App 版本送到 jetto.ai，用來計算安裝與使用人數。絕不含你的帳號、用量數字或檔案內容。"
+            "value": "預設開啟。Tally 啟動時與之後約每天一次，把隨機產生的裝置碼與 App 版本送到 jetto.ai，用來計算安裝與使用人數。絕不含你的帳號、用量數字或檔案內容。關閉後就不再傳送，Tally 其他功能照常運作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每天一次，把随机生成的设备码与 App 版本发送到 jetto.ai，用于统计安装与使用人数。绝不包含你的账号、用量数字或文件内容。"
+            "value": "默认开启。Tally 启动时与之后约每天一次，把随机生成的设备码与 App 版本发送到 jetto.ai，用于统计安装与使用人数。绝不包含你的账号、用量数字或文件内容。关闭后就不再发送，Tally 其他功能照常运作。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 日 1 回、ランダムに生成したデバイス ID とアプリのバージョンを jetto.ai に送信し、インストール数と利用者数の集計に使います。アカウント、使用量の数値、ファイルの内容は送りません。"
+            "value": "既定でオン。Tally の起動時と、その後およそ 1 日 1 回、ランダムに生成したデバイス ID とアプリのバージョンを jetto.ai に送信し、インストール数と利用者数の集計に使います。アカウント、使用量の数値、ファイルの内容は送りません。オフにすると送信が止まり、Tally の動作は変わりません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "하루에 한 번, 무작위로 생성한 기기 ID와 앱 버전을 jetto.ai로 보내 설치 수와 사용자 수를 집계합니다. 계정, 사용량 수치, 파일 내용은 절대 보내지 않습니다."
+            "value": "기본값은 켜짐. Tally를 시작할 때와 그 후 약 하루에 한 번, 무작위로 생성한 기기 ID와 앱 버전을 jetto.ai로 보내 설치 수와 사용자 수를 집계합니다. 계정, 사용량 수치, 파일 내용은 절대 보내지 않습니다. 끄면 전송이 멈추며 Tally의 동작은 바뀌지 않습니다."
           }
         }
       }

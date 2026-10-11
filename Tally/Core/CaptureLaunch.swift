@@ -164,8 +164,11 @@ enum CaptureLaunch {
     /// The first two were missed by a scan for `forKey:`, because both reach the defaults through a
     /// named constant instead. That is why the completeness check now scans for the LITERALS rather
     /// than for any particular way of looking one up.
+    ///
+    /// `TallyPingURL` is a stand-in of the same kind: it points the anonymous usage ping at a local
+    /// server (`UsagePing.urlOverrideKey`, tests/usageping), and a Debug build sends nothing without it.
     static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI",
-                                  pickClaimOverride, "TallyRenewLoginTest"]
+                                  pickClaimOverride, "TallyRenewLoginTest", "TallyPingURL"]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without

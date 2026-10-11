@@ -313,6 +313,10 @@ struct SettingsView: View {
         rowDivider
 
         SettingsErrorReportingRow()
+
+        rowDivider
+
+        SettingsUsagePingRow()
     }
 
 }

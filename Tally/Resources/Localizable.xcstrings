@@ -15213,6 +15213,64 @@
         }
       }
     },
+    "Send anonymous usage ping": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送匿名使用統計"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送匿名使用统计"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の利用状況を送信"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 사용 통계 보내기"
+          }
+        }
+      }
+    },
+    "Once a day, sends a random device ID and the app version to jetto.ai so we can count installs and active users. Never your accounts, usage numbers or file contents.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天一次，把隨機產生的裝置碼與 App 版本送到 jetto.ai，用來計算安裝與使用人數。絕不含你的帳號、用量數字或檔案內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天一次，把随机生成的设备码与 App 版本发送到 jetto.ai，用于统计安装与使用人数。绝不包含你的账号、用量数字或文件内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 日 1 回、ランダムに生成したデバイス ID とアプリのバージョンを jetto.ai に送信し、インストール数と利用者数の集計に使います。アカウント、使用量の数値、ファイルの内容は送りません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하루에 한 번, 무작위로 생성한 기기 ID와 앱 버전을 jetto.ai로 보내 설치 수와 사용자 수를 집계합니다. 계정, 사용량 수치, 파일 내용은 절대 보내지 않습니다."
+          }
+        }
+      }
+    },
     "Off by default. When on, crash and error reports go to Sentry: the stack trace, app and macOS versions, Mac model, language and time zone, and the rough region Sentry infers from the connection. Never your IP address, accounts, usage numbers or file contents.": {
       "extractionState": "manual",
       "localizations": {

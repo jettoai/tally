@@ -341,12 +341,14 @@ subscriptions at once:
 - **Your own accounts only.** Multi-account means *your* paid subscriptions on *your* machine.
   Tally does not proxy, pool, share, or resell access, and account switching just launches the
   official CLI with the config directory you already own.
-- **Local first, error reports optional and off by default.** No telemetry, no server. Nothing
-  leaves your machine except the provider usage reads themselves and, only if you turn on
+- **Local first, error reports optional and off by default.** No server. Nothing leaves your
+  machine except the provider usage reads themselves, one anonymous ping a day and, only if you turn on
   **Send crash and error reports** in Settings, crash and error reports to Sentry. Those carry the
   stack trace, the app and macOS versions, the Mac model, language and time zone, and the rough
   region Sentry infers from the connection; never your IP address, accounts, usage numbers or file
-  contents. Turn it off again in the same place.
+  contents. Turn it off again in the same place. The daily ping sends a random device ID and the app
+  version to jetto.ai so we can count installs and active users; turn it off with **Send anonymous
+  usage ping** in Settings.
 - **A small API for integrations.** Dashboards and scripts talk to Tally through the `tally` CLI;
   there is no socket or server to connect to.
   - `tally status --json` is the read side: every account's remaining windows and resets, plus

@@ -69,7 +69,7 @@ The Cost tab's Tokens page totals input, cache and output tokens for today, 7 da
 The Spend page, the one the tab opens on, turns those tokens into money: each project's Claude usage priced at Anthropic's list prices, with the total broken into input, cache write, cache read and output. Codex tokens are counted but left unpriced, since Tally has no price list it trusts for them. `tally cost --json` hands the same figures to your scripts.
 
 <p align="center">
-  <img src="assets/screenshot-cost-spend.png" alt="The Spend page of the Cost tab: total cost for the selected range with the subagent share, the cost split into input, cache write, cache read and output, and a per-project table with each project's cost, share, tokens, cost per million tokens and change from the previous period" width="504">
+  <img src="assets/screenshot-cost-spend.png" alt="The Spend page of the Cost tab: total cost for the selected range with the subagent share, the cost split into input, cache write, cache read and output, and a per-project table with each project's cost, share, tokens, cost per million tokens and change from the previous period" width="720">
 </p>
 
 ### 5. Read-only, on your own paid subscriptions

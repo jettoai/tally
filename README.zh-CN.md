@@ -69,7 +69,7 @@ Tally 启动的每一段对话都会成为一张卡片：账号、模型、conte
 花费页（分页默认打开的那页）把这些 Token 换算成金额：按 Anthropic 牌价计算每个项目的 Claude 用量，总额再拆成输入、缓存写入、缓存读取与输出。Codex 的 Token 会计入，但没有换算金额，因为 Tally 没有一份可信的 Codex 价目表。运行 `tally cost --json` 就能让脚本拿到同一份数字。
 
 <p align="center">
-  <img src="assets/screenshot-cost-spend.png" alt="“成本”分页的花费页：所选区间的总花费与 subagent 占比，花费拆成输入、缓存写入、缓存读取与输出，以及项目表，列出每个项目的花费、占比、Token 数、每百万 Token 花费与相对上一期的变化" width="504">
+  <img src="assets/screenshot-cost-spend.png" alt="“成本”分页的花费页：所选区间的总花费与 subagent 占比，花费拆成输入、缓存写入、缓存读取与输出，以及项目表，列出每个项目的花费、占比、Token 数、每百万 Token 花费与相对上一期的变化" width="720">
 </p>
 
 ### 5. 只读，只用于你自己付费的订阅

@@ -33,6 +33,8 @@ enum ErrorReporting {
         let bundleID = Bundle.main.bundleIdentifier ?? "ai.jetto.tally"
         let version = info["CFBundleShortVersionString"] as? String ?? "0"
         let build = info["CFBundleVersion"] as? String ?? "0"
+        // Every caller runs on main (launch, the Settings switch); off main the tag reads "unknown".
+        let mainPort = Thread.isMainThread ? pthread_mach_thread_np(pthread_self()) : nil
         SentrySDK.start { options in
             options.dsn = dsn
             options.sendDefaultPii = false
@@ -51,7 +53,8 @@ enum ErrorReporting {
                 contextualizeHang(event,
                                   displayAsleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0,
                                   hostAlarmed: HostAlarmMirror.isAlarmed.withLock { $0 },
-                                  surfaceTab: surfaceTab.withLock { $0 })
+                                  surfaceTab: surfaceTab.withLock { $0 },
+                                  mainPriority: threadPriority(mainPort))
                     .map { scrub($0) }
             }
         }
@@ -89,17 +92,42 @@ enum ErrorReporting {
     /// alarm). Hangs with the display awake carry both readings as tags, and the page the surface
     /// last showed (`surface_tab`, "none" before any surface has appeared), so a layout hang says
     /// which page it was laying out (Sentry TALLY-8Z). Non-hang events pass untouched.
+    ///
+    /// Hangs raised while the main thread runs below the default QoS priority (31) are dropped
+    /// too: that is App Nap throttling a hidden app, and the main thread was queued for a CPU,
+    /// not doing slow work (Sentry TALLY-2; on 2026-10-12, 40 hangs in 43 minutes at priority 4,
+    /// none after App Nap lifted and the priority returned to 46). Kept hangs carry the reading as
+    /// `main_pri`; when it could not be read (nil) the hang is kept and tagged "unknown".
     static func contextualizeHang(_ event: Event, displayAsleep: Bool, hostAlarmed: Bool,
-                                  surfaceTab: String? = nil) -> Event? {
+                                  surfaceTab: String? = nil, mainPriority: Int32? = nil) -> Event? {
         guard event.exceptions?.contains(where: { $0.mechanism?.type == "AppHang" }) == true
         else { return event }
         if displayAsleep { return nil }
+        if let mainPriority, mainPriority < 31 { return nil }
         var tags = event.tags ?? [:]
+        tags["main_pri"] = mainPriority.map(String.init) ?? "unknown"
         tags["display_asleep"] = String(displayAsleep)
         tags["host_alarmed"] = String(hostAlarmed)
         tags["surface_tab"] = surfaceTab ?? "none"
         event.tags = tags
         return event
+    }
+
+    /// The current scheduling priority of the thread behind `port`, read from any thread.
+    /// `beforeSend` runs on the SDK's queue, so the main thread's port is captured on main at start
+    /// (`mach_thread_self()` there would read the SDK's thread, and `pthread_main_thread_np` is not
+    /// in the public SDK). nil when there is no port or the read fails.
+    static func threadPriority(_ port: mach_port_t?) -> Int32? {
+        guard let port else { return nil }
+        var info = thread_extended_info()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<thread_extended_info>.size / MemoryLayout<integer_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_info(port, thread_flavor_t(THREAD_EXTENDED_INFO), $0, &count)
+            }
+        }
+        return status == KERN_SUCCESS ? info.pth_curpri : nil
     }
 
     /// Folds the home directory to `~` in every field a path lands in. The crash converter writes

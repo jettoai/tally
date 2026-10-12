@@ -75,12 +75,34 @@ check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed
 check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed: false)?
           .tags?["surface_tab"] == "none",
       "hang before any surface appeared says so")
+// App Nap (Sentry TALLY-2): a main thread below priority 31 is throttled, so the hang is dropped.
+check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed: false,
+                                       mainPriority: 4) == nil,
+      "hang with the main thread throttled to priority 4 is dropped")
+check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed: false,
+                                       mainPriority: 46)?.tags?["main_pri"] == "46",
+      "hang at normal priority 46 is kept and tagged main_pri=46")
+check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed: false,
+                                       mainPriority: nil)?.tags?["main_pri"] == "unknown",
+      "hang with an unreadable priority is kept and tagged main_pri=unknown")
+var offMain: Int32?
+let read = DispatchSemaphore(value: 0)
+let mainPort = pthread_mach_thread_np(pthread_self())
+DispatchQueue.global().async { offMain = ErrorReporting.threadPriority(mainPort); read.signal() }
+read.wait()
+check((offMain ?? 0) > 0, "main thread priority read from a background queue: \(String(describing: offMain))")
+
 let crash = Event(level: .fatal)
 let crashException = Exception(value: "boom", type: "EXC_BAD_ACCESS")
 crashException.mechanism = Mechanism(type: "mach")
 crash.exceptions = [crashException]
 let passed = ErrorReporting.contextualizeHang(crash, displayAsleep: true, hostAlarmed: true)
 check(passed === crash && passed?.tags == nil, "non-hang event passes untouched while asleep and alarmed")
+let crash2 = Event(level: .fatal)
+crash2.exceptions = [crashException]
+let passed2 = ErrorReporting.contextualizeHang(crash2, displayAsleep: false, hostAlarmed: false,
+                                               mainPriority: 4)
+check(passed2 === crash2 && passed2?.tags == nil, "non-hang event passes untouched at priority 4")
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("all passed")

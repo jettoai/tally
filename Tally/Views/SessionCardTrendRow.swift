@@ -101,7 +101,7 @@ extension SessionCardView {
     /// that reached 40% and one that reached 400% - so the ceiling is printed, and the line's own
     /// dot points at the moment it happened.
     ///
-    /// AND IT IS WHAT GIVES WAY WHEN THE CARD IS TOO NARROW, in the order below. Re-measured at
+    /// AND IT IS WHAT GIVES WAY WHEN THE CARD IS TOO NARROW, in the order `trendRungs` lists (SessionCardTrendLadder.swift). Re-measured at
     /// 10pt (2026-08-17, this app's own font) now that the memory figure carries a culprit's name:
     /// three shapes, three figures and the process word are 208pt, which fits the 236pt a 264pt
     /// card gives its content; the memory's `(claude)` takes it to 244 and the first ceiling column
@@ -150,24 +150,26 @@ extension SessionCardView {
         // checkout's leftovers are a reading about the DIRECTORY and are known either way, so a row
         // gated on the session's own figures would take them off the board for that tick.
         if !trends.isEmpty || leftovers != nil {
-            ViewThatFits(in: .horizontal) {
-                trendRow(trends, peaks: 3, asides: .all)
-                trendRow(trends, peaks: 2, asides: .all)
-                trendRow(trends, peaks: 1, asides: .all)
-                trendRow(trends, peaks: 0, asides: .all)
-                trendRow(trends, peaks: 0, asides: .culpritsOnly)
-                trendRow(trends, peaks: 0, asides: .memoryCulpritOnly)
-                trendRow(trends, peaks: 0, asides: .none)
-            }
-            .accessibilityElement(children: .ignore)
-            // THE ROW IS ONE ELEMENT AND THEREFORE SAYS EVERYTHING ON IT. `children: .ignore` is
-            // what stops a listener being read nine unlabelled fragments, and it also swallows the
-            // leftovers mark's own callout text - so what a hover would have shown is appended here
-            // rather than left to a child nothing can land on. A listener has no width to run out
-            // of and no pointer to hover with, which is the same rule this row already keeps about
-            // the ceilings and culprit names a narrow card drops (`spokenTrends`).
-            .accessibilityLabel([Self.spokenTrends(trends), leftoversSpoken]
-                .filter { !$0.isEmpty }.joined(separator: ", "))
+            // THE LADDER IS MEASURED ON THE ROW'S WIDTHS AND THE ROW IS DRAWN ONCE (TALLY-8Z). The
+            // seven candidates used to be seven full rows, rebuilt and re-measured with their
+            // sparklines on every two-second reading; the ladder now decides on a shape that only
+            // changes when a width can (`SessionCardTrendLadder`), and the row below is the one
+            // candidate it chose, laid over the hidden ladder at the size the ladder took.
+            SessionCardTrendLadder(shape: trendShape(trends))
+                .equatable()
+                .overlayPreferenceValue(SessionCardTrendLadder.Chosen.self, alignment: .leading) {
+                    chosen in
+                    trendRow(trends, rung: Self.trendRungs[chosen ?? Self.trendRungs.count - 1])
+                }
+                .accessibilityElement(children: .ignore)
+                // THE ROW IS ONE ELEMENT AND THEREFORE SAYS EVERYTHING ON IT. `children: .ignore` is
+                // what stops a listener being read nine unlabelled fragments, and it also swallows the
+                // leftovers mark's own callout text - so what a hover would have shown is appended here
+                // rather than left to a child nothing can land on. A listener has no width to run out
+                // of and no pointer to hover with, which is the same rule this row already keeps about
+                // the ceilings and culprit names a narrow card drops (`spokenTrends`).
+                .accessibilityLabel([Self.spokenTrends(trends), leftoversSpoken]
+                    .filter { !$0.isEmpty }.joined(separator: ", "))
         }
     }
 
@@ -192,6 +194,21 @@ extension SessionCardView {
     /// What the mark's callout would have said, for the reader who gets no pointer.
     private var leftoversSpoken: String {
         leftovers.map { SessionUnclaimedFootnote.callout($0).spoken } ?? ""
+    }
+
+    /// What the ladder decides on (`SessionCardView.TrendShape`): this row's widths and nothing
+    /// that only changes what is drawn.
+    private func trendShape(_ trends: [Trend]) -> TrendShape {
+        TrendShape(
+            groups: trends.map { trend in
+                TrendShape.Group(metric: trend.metric, drawsLine: !trend.values.isEmpty,
+                                 figure: FootprintTrendMetric.widthClass(trend.figure),
+                                 aside: trend.aside,
+                                 peak: FootprintTrendMetric.widthClass(
+                                     FootprintPeak.spelled(trend.peak)))
+            },
+            leftovers: leftovers.map { FootprintTrendMetric.widthClass("\($0.strayProcesses)") },
+            leftoversFlamed: unclaimedMarked)
     }
 
     /// WHETHER THIS FIGURE IS THE ONE THE MACHINE'S FLAME IS ABOUT.
@@ -235,8 +252,8 @@ extension SessionCardView {
         }
     }
 
-    /// One candidate layout of that row: every group's shape and figure, and the ceilings of the
-    /// first `peaks` metrics that are entitled to one.
+    /// The row as drawn, for the rung the ladder chose (`SessionCardTrendLadder`): every group's
+    /// shape and figure, and the ceilings of the first `rung.peaks` metrics that are entitled to one.
     ///
     /// THE NUMBER IS BRIGHT AND EVERY WORD AROUND IT IS NOT, which is the second half of the same
     /// correction. Reported as one string of equal parts - `2 procs · 1% CPU (claude) · 459 MB` -
@@ -249,8 +266,8 @@ extension SessionCardView {
     /// AND NO SEPARATOR BETWEEN GROUPS. A dot between them would put the three heterogeneous facts
     /// back in one string; the gutter is what says these are three things (`trendGap`, wider than
     /// the space inside a group). The dot is still what separates the plain fields on the row above.
-    private func trendRow(_ trends: [Trend], peaks: Int, asides: TrendAsides) -> some View {
-        let named = Set(Self.peakOrder.prefix(peaks))
+    private func trendRow(_ trends: [Trend], rung: TrendRung) -> some View {
+        let named = Set(Self.peakOrder.prefix(rung.peaks))
         return HStack(spacing: Self.trendGap) {
             ForEach(trends) { trend in
                 HStack(spacing: Self.trendSpacing) {
@@ -290,7 +307,7 @@ extension SessionCardView {
                     .figureMotion(trend.figure, value: trend.value, still: reduceMotion,
                                   tone: flamesTheFigure(trend) ? .tinted(SessionCardView.flameTint)
                                       : .tint(trend.segment.level.tint))
-                    if let aside = trend.aside, asides.keeps(trend.metric) {
+                    if let aside = trend.aside, rung.asides.keeps(trend.metric) {
                         // WHETHER THIS WORD IS HERE AT ALL IS THE CANDIDATE LIST'S DECISION AND
                         // NOTHING ELSE'S, which is what a `layoutPriority(-1)` here used to claim
                         // to be a second line of defence against and could not be: `ViewThatFits`
@@ -330,8 +347,8 @@ extension SessionCardView {
             // AND WHAT NOBODY IS ANSWERING FOR IN THIS CHECKOUT, at the end of the same row, on the
             // last card of the project and on no other (`SessionLeftoversMark`, which carries why
             // the reading is a mark here and a whole line on the project's own card). INSIDE the
-            // candidate rather than after it: `ViewThatFits` measures what is in the candidate, so a
-            // fourth group laid out beyond the row would be a group the ladder never knew to make
+            // row rather than after it, and in the ladder's copy of it as well: the ladder measures
+            // what is in its candidates (`SessionCardTrendLadder`), so a fourth group laid out beyond the row would be a group the ladder never knew to make
             // room for, and the card would give up its width instead of a ceiling.
             leftoversMark
         }

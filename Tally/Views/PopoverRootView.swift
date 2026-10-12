@@ -236,6 +236,9 @@ struct PopoverRootView: View {
         .onAppear { SessionRosterStore.shared.beginViewing() }
         .onDisappear { SessionRosterStore.shared.endViewing() }
         .onAppear { OverlayApp.panelAppeared() }
+        // Which page a hang report names (`ErrorReporting.contextualizeHang`): the last one shown.
+        .onAppear { ErrorReporting.noteSurfaceTab(tab.rawValue) }
+        .onChange(of: tab) { _, page in ErrorReporting.noteSurfaceTab(page.rawValue) }
         .onDisappear { OverlayApp.panelDisappeared() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
         // A host can go away with its card still up (the popover closes on a click outside, the

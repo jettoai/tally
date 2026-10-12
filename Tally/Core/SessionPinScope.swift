@@ -105,11 +105,17 @@ func sessionPinReleaseKey(_ scope: SessionPinScope) -> String {
 /// account ran out of quota, Tally moved the session to the smart pick, and it moves back when the
 /// pinned account refills (B-1540). Without it the mark reads "pinned to this account" over an
 /// account the pin does not name, which looks like Tally ignoring the pin.
-let sessionPinAwayWord = "away"
+let sessionPinAwayWord = "swap"
 /// The hover for that state, as catalogue keys (the app localizes them; the terminal never shows
 /// them).
 let sessionPinAwayOwnerKey = "The pinned account is out of quota, so this session is running here for now"
 let sessionPinAwayReturnKey = "Tally moves it back when the pinned account has quota again."
+/// The same two lines when the board can name the pinned account: its name, and the minutes from
+/// its refill to the move home (the app's refresh interval plus one, SessionCardView `pinMark`). A
+/// condition rather than a deadline: the move waits for the turn to end and the keyboard to rest, and
+/// never lands inside the cap quarantine (`capQuarantineTTL`, ten minutes from the wall).
+let sessionPinAwayNamedOwnerKey = "Pinned to %@, which is out of quota, so this session is running here for now"
+let sessionPinAwayNamedReturnKey = "Once %1$@ has quota again, Tally moves it back when this turn ends and nobody is typing (usually within %2$lld minutes, and never sooner than 10 minutes after the limit hit)."
 
 /// The status line's whole rendering: the account's name with the pin that holds it there, or the
 /// name alone. Kept beside the vocabulary rather than inside Statusline.swift so the assertion about

@@ -51,11 +51,24 @@ extension PopoverRootView {
     /// Amber text: the tag here and the pool forecast line. The shared amber reads about 2:1 on a
     /// pale capsule or white in light mode, so light mode darkens the text only; dark mode keeps
     /// the shared tint (B-1524).
-    static let amberTagInk = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(TallyColor.warning)
-            : NSColor(srgbRed: 0.55, green: 0.33, blue: 0.0, alpha: 1)
-    })
+    static let amberTagInk = textInk(dark: TallyColor.warning, light: (0.55, 0.33, 0.0))
+    /// The pool forecast's green ("won't run dry") and red (under a day) as text. On the light
+    /// panel the shared tints read 3.3:1 and about 4.5:1, so light mode darkens them (6.4:1 and
+    /// 7.1:1 measured); on the dark panel the shared red reads 3.6:1, so dark mode lightens the
+    /// red only, and the green keeps its shared tint (5.0:1) (B-1543).
+    static let sustainableInk = textInk(dark: TallyColor.normal, light: (0.18, 0.47, 0.25))
+    static let criticalInk = textInk(dark: Color(red: 0.97, green: 0.45, blue: 0.42),
+                                     light: (0.72, 0.16, 0.14))
+
+    /// Text in a meter tint: `dark` on the dark appearance, the given sRGB on the light one, where
+    /// the meter tints are too pale to read as text.
+    private static func textInk(dark: Color, light: (r: CGFloat, g: CGFloat, b: CGFloat)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(dark)
+                : NSColor(srgbRed: light.r, green: light.g, blue: light.b, alpha: 1)
+        })
+    }
 
     /// The tag's words: short enough for a heading. Near capacity drops its four-week figure (the
     /// hover's first line carries it); "add" and "not enough" are already short.

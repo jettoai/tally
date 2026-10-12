@@ -536,7 +536,7 @@ func runSessionBoardOrderChecks() {
     // undone, and those are three different places (`SessionPinScope`). That is the exception this
     // budget was always written for: a sentence too long to stand on a card.
     check("…and the pin mark, which says which scope holds this session and how to release it",
-          cardCode.contains(".tallyTooltip(owner, detail: release)"))
+          cardCode.contains(".tallyTooltip(owner, detail: release,"))
     // A session that published no directory cannot be lifted at all (`orderKey`), so offering it a
     // grip would promise a gesture that does nothing. One answer, asked at the grab and at the draw.
     check("only a card there is something to arrange by carries a grip",

@@ -362,7 +362,7 @@ func runSessionPinChecks() {
           sessionPinnedLabel("Claude 3", scope: nil) == "Claude 3")
     // B-1540: a session running off the account its pin names says so, and only then.
     check("a session away from its pinned account carries the word",
-          sessionPinnedLabel("Claude 3", scope: .fleet, away: true) == "Claude 3 ◉fleet away")
+          sessionPinnedLabel("Claude 3", scope: .fleet, away: true) == "Claude 3 ◉fleet swap")
     check("…and a session on it reads byte for byte as before",
           sessionPinnedLabel("Claude 3", scope: .fleet) == "Claude 3 ◉fleet"
               && sessionPinnedLabel("Claude 3", scope: nil, away: true) == "Claude 3")

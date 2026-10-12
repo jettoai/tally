@@ -305,7 +305,8 @@ func runProcessTreeLineChecks() {
     // (SessionCardTrendRow.swift). Read as one string, so a line moving between them does not
     // silently stop being asserted.
     let cardSource = ["Tally/Views/SessionCardFootprint.swift",
-                      "Tally/Views/SessionCardTrendRow.swift"]
+                      "Tally/Views/SessionCardTrendRow.swift",
+                      "Tally/Views/SessionCardTrendLadder.swift"]
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     let boardCardSource = (try? String(contentsOfFile: "Tally/Views/SessionCardView.swift",
                                        encoding: .utf8)) ?? ""
@@ -505,14 +506,27 @@ func runProcessTreeLineChecks() {
     // Read off the row itself: the headline above keeps a `Spacer(minLength: 6)` of its own.
     let identityRow = boardCardSource.components(separatedBy: "private var sessionIdentityRow")
         .dropFirst().first?.components(separatedBy: "private var sessionIdentityLine").first ?? ""
+    let portsView = ((try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
+                                  encoding: .utf8)) ?? "")
+        .components(separatedBy: "struct SessionCardPorts: View {").dropFirst().first ?? ""
     check("…the ports giving way for the identity rather than the other way round",
           identityRow.contains(".lineLimit(1).truncationMode(.tail).layoutPriority(1)")
-              && identityRow.contains("ViewThatFits(in: .horizontal)")
-              && identityRow.contains("ForEach(spellings, id: \\.self)")
-              && identityRow.contains("Color.clear.frame(width: 0, height: 0)")
-              && identityRow.contains(".lineLimit(1).fixedSize()")
+              && portsView.contains(".frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)")
+              && portsView.contains("spellings.first { (widths[$0] ?? .infinity) <= room }")
+              && portsView.contains("if let chosen { Self.label(chosen) }")
+              && portsView.contains(".lineLimit(1).fixedSize()")
               && !boardCardSource.contains("layoutPriority(-1)")
               && !identityRow.contains("Spacer(minLength: 6)"))
+    // TALLY-8Z: the card is laid out on every reading, and a `ViewThatFits` measures every
+    // candidate on every pass. The candidates are hidden texts measured for their widths, and the
+    // one spelling drawn is the first that fits.
+    check("…and the candidates are measured for their widths, with one spelling drawn",
+          identityRow.contains("SessionCardPorts(spellings: spellings)")
+              && !(identityRow + portsView).contains("ViewThatFits {")
+              && !(identityRow + portsView).contains("ViewThatFits(")
+              && portsView.contains("Self.label(spelling).hidden()")
+              && portsView.contains(".onGeometryChange(for: CGFloat.self, of: \\.size.width) { widths[spelling] = $0 }")
+              && portsView.contains(".onGeometryChange(for: CGFloat.self, of: \\.size.width) { room = $0 }"))
     check("…and no candidate list is left on this row to choose between them",
           !boardCardSource.contains("identityRow(ports:"))
     check("…and a listener told every name and every port the row had no room for",

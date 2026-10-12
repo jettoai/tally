@@ -96,6 +96,18 @@ extension DemoUsage {
         #endif
     }
 
+    /// `-TallyDemoBurnScale 4` (Debug builds only): every fabricated burn rate multiplied, so a capture
+    /// can put a pool that runs dry within a day (the red forecast) on screen; no fixture burns
+    /// that fast on its own (B-1543). 1 without it, and always 1 outside demo.
+    static var burnScale: Double {
+        #if DEBUG
+        let scale = UserDefaults.standard.double(forKey: "TallyDemoBurnScale")
+        return isActive && scale > 0 ? scale : 1
+        #else
+        return 1
+        #endif
+    }
+
     /// `-TallyDemoProviders codex` and `-TallyDemoAccountLimit claude=1,codex=2` (Debug builds only):
     /// the fixture fleet cut to the providers named and to the first N fixtures of each, so a
     /// capture can show a Codex-only panel or a single account. Applied after every other fixture

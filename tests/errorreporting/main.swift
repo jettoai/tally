@@ -69,6 +69,12 @@ for (asleep, alarmed) in [(false, true), (false, false)] {
     check(tags?["display_asleep"] == String(asleep) && tags?["host_alarmed"] == String(alarmed),
           "hang kept and tagged (asleep \(asleep), alarmed \(alarmed))")
 }
+check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed: false,
+                                       surfaceTab: "sessions")?.tags?["surface_tab"] == "sessions",
+      "hang tagged with the page the surface last showed")
+check(ErrorReporting.contextualizeHang(hang(), displayAsleep: false, hostAlarmed: false)?
+          .tags?["surface_tab"] == "none",
+      "hang before any surface appeared says so")
 let crash = Event(level: .fatal)
 let crashException = Exception(value: "boom", type: "EXC_BAD_ACCESS")
 crashException.mechanism = Mechanism(type: "mach")

@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import os
 import Sentry
 
 /// Opt-in crash and error reporting through Sentry.
@@ -18,6 +19,13 @@ enum ErrorReporting {
         "https://068b51b0ddcf7de408a8729c79856a11@o4508371539263488.ingest.us.sentry.io/4512147651297280"
 
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+
+    /// The page the surface last put on screen (`SurfaceTab.rawValue`), for the hang tag below. Kept
+    /// here for the reason `HostAlarmMirror` is: the surface writes it on the main thread, and
+    /// `beforeSend` reads it on the SDK's queue, where it must not wait on main.
+    private static let surfaceTab = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    static func noteSurfaceTab(_ tab: String) { surfaceTab.withLock { $0 = tab } }
 
     static func startIfEnabled() {
         guard isEnabled, !SentrySDK.isEnabled else { return }
@@ -42,7 +50,8 @@ enum ErrorReporting {
             options.beforeSend = { event in
                 contextualizeHang(event,
                                   displayAsleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0,
-                                  hostAlarmed: HostAlarmMirror.isAlarmed.withLock { $0 })
+                                  hostAlarmed: HostAlarmMirror.isAlarmed.withLock { $0 },
+                                  surfaceTab: surfaceTab.withLock { $0 })
                     .map { scrub($0) }
             }
         }
@@ -77,15 +86,18 @@ enum ErrorReporting {
     /// raised while the display sleeps are dropped, whatever the host load: nobody could see the
     /// stall, and sending it only reopens resolved issues (Sentry TALLY-6, 64 such events in 40
     /// minutes; eight issues from TALLY-59 on 2026-10-04, all asleep with the host below its
-    /// alarm). Hangs with the display awake carry both readings as tags. Non-hang events pass
-    /// untouched.
-    static func contextualizeHang(_ event: Event, displayAsleep: Bool, hostAlarmed: Bool) -> Event? {
+    /// alarm). Hangs with the display awake carry both readings as tags, and the page the surface
+    /// last showed (`surface_tab`, "none" before any surface has appeared), so a layout hang says
+    /// which page it was laying out (Sentry TALLY-8Z). Non-hang events pass untouched.
+    static func contextualizeHang(_ event: Event, displayAsleep: Bool, hostAlarmed: Bool,
+                                  surfaceTab: String? = nil) -> Event? {
         guard event.exceptions?.contains(where: { $0.mechanism?.type == "AppHang" }) == true
         else { return event }
         if displayAsleep { return nil }
         var tags = event.tags ?? [:]
         tags["display_asleep"] = String(displayAsleep)
         tags["host_alarmed"] = String(hostAlarmed)
+        tags["surface_tab"] = surfaceTab ?? "none"
         event.tags = tags
         return event
     }

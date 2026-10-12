@@ -261,7 +261,8 @@ func runGhostBoardChecks() {
     // Both halves of the card's footprint, split at the repo's line cap along the seam its own
     // header names: the value line stayed and the trend row - where the leftovers are now stated -
     // became a file of its own. Read as one string so a line moving between them stays asserted.
-    let card = ["Tally/Views/SessionCardFootprint.swift", "Tally/Views/SessionCardTrendRow.swift"]
+    let card = ["Tally/Views/SessionCardFootprint.swift", "Tally/Views/SessionCardTrendRow.swift",
+                "Tally/Views/SessionCardTrendLadder.swift"]
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     // The card's first line and the mark that rides on it (`sessionCardHeadline`, `flameMark`).
     let state = (try? String(contentsOfFile: "Tally/Views/SessionCardState.swift",
@@ -312,13 +313,20 @@ func runGhostBoardChecks() {
               // one of them being on this same surface (Albert, 2026-09-03, twice).
               && footnote.contains("Image(systemName: \"circle.dashed\")")
               && !footnote.contains("Image(systemName: \"arrow.counterclockwise\")"))
-    // AND IT IS LAID OUT INSIDE THE ROW'S CANDIDATE LIST, not after it: `ViewThatFits` measures what
+    // AND IT IS LAID OUT INSIDE THE ROW'S CANDIDATE LIST, not after it: the ladder measures what
     // is in a candidate, so a fourth group beyond the row is a group the ladder never made room for
     // - the card would give up its width instead of a ceiling (`sessionFootprintTrends`).
     let candidate = (card.components(separatedBy: "private func trendRow(").last ?? "")
         .components(separatedBy: "\n    }").first ?? ""
     check("…inside the candidates, so a narrow card drops a ceiling rather than truncating it",
-          candidate.contains("ForEach(trends) { trend in") && candidate.contains("leftoversMark"))
+          candidate.contains("ForEach(trends) { trend in") && candidate.contains("leftoversMark")
+              && card.contains("if let count = shape.leftovers {"))
+    check("…and the ladder's copy of the mark is the mark's own pieces in its own order",
+          footnote.contains("HStack(spacing: SessionCardView.trendSpacing) {\n            Image(systemName: \"circle.dashed\")")
+              && card.contains("HStack(spacing: SessionCardView.trendSpacing) {\n                    Image(systemName: \"circle.dashed\")")
+              && card.contains("if shape.leftoversFlamed { SessionCardView.flameMark }")
+              && footnote.contains(".lineLimit(1).fixedSize()")
+              && card.contains(".lineLimit(1).fixedSize()"))
     // AND THE ROW IS DRAWN FOR THE LEFTOVERS ALONE. The groups are built from a footprint the store
     // has read, and a project's last session can be one whose tree could not be read on this tick;
     // the checkout's leftovers are a reading about the DIRECTORY and are known either way.

@@ -94,6 +94,8 @@ enum CaptureLaunch {
                                "TallyDemoHardError",
                                // Qualifies TallyDemoData: Claude 4 held over past its 5h reset.
                                "TallyDemoPastReset",
+                               // Qualifies TallyDemoData: one session card away from its pin (B-1540).
+                               "TallyDemoPinAway",
                                // Qualifies TallyDemoData: Claude 3 signed into Claude 2's login (#6).
                                "TallyDemoSharedLogin",
                                // Qualifies TallyDemoData: one fixture shows a login renewal running.
@@ -118,6 +120,8 @@ enum CaptureLaunch {
                                "TallyDemoProviders",
                                // Qualifies TallyDemoData: the launch model the gauge focuses (Debug).
                                "TallyDemoLaunchModel",
+                               // Qualifies TallyDemoData: the fixture burn rates multiplied (Debug).
+                               "TallyDemoBurnScale",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

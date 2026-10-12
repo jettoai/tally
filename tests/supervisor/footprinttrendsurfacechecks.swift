@@ -23,7 +23,8 @@ func runFootprintTrendSurfaceChecks() {
     // (SessionCardTrendRow.swift), along the seam the header of the other one already named, and a
     // suite that read only the first would have gone quietly green on every assertion about the
     // row. Read as one string, so a line moving between them cannot stop being asserted.
-    let card = ["Tally/Views/SessionCardFootprint.swift", "Tally/Views/SessionCardTrendRow.swift"]
+    let card = ["Tally/Views/SessionCardFootprint.swift", "Tally/Views/SessionCardTrendRow.swift",
+                "Tally/Views/SessionCardTrendLadder.swift"]
         .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.joined()
     let spark = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineView.swift",
                              encoding: .utf8)) ?? ""
@@ -287,9 +288,9 @@ func runFootprintTrendSurfaceChecks() {
     // WHAT GIVES WAY WHEN THE CARD IS TOO NARROW, in a stated order: the figures and their lines
     // are never dropped, and the ceilings go one at a time.
     check("the row degrades by dropping ceilings rather than figures",
-          card.contains("ViewThatFits(in: .horizontal)")
-              && card.contains("trendRow(trends, peaks: 3, asides: .all)")
-              && card.contains("trendRow(trends, peaks: 0, asides: .all)"))
+          card.contains("SessionCardView.trendRungs.indices.first { (widths[$0] ?? .infinity) <= room }")
+              && card.contains("TrendRung(peaks: 3, asides: .all)")
+              && card.contains("TrendRung(peaks: 0, asides: .all)"))
     // AND THE CULPRITS OUTLIVE THE CEILINGS, which is the order that moved when the memory figure
     // gained a name. Attribution is what this row was asked for - a memory reading with no name
     // cannot say whether those gigabytes are the session's own Claude Code or the thing it started
@@ -300,8 +301,9 @@ func runFootprintTrendSurfaceChecks() {
     // that has dropped the unit word and kept BOTH names is 240 - all of them against the 236pt a
     // 264pt card gives its content, so a narrow card DOES reach these rungs rather than them being
     // decoration.
-    let chain = card.components(separatedBy: "trendRow(trends, peaks:").dropFirst()
+    let chain = card.components(separatedBy: "TrendRung(peaks:").dropFirst()
         .map { "peaks:" + ($0.components(separatedBy: ")").first ?? "") }
+    check("…seven rungs, one list", chain.count == 7)
     check("every candidate keeps its culprits until all three ceilings are gone",
           chain.prefix(4).allSatisfy { $0.contains("asides: .all") }
               && chain.prefix(4).allSatisfy { !$0.contains("peaks: 0, asides: .culpritsOnly") })
@@ -353,6 +355,48 @@ func runFootprintTrendSurfaceChecks() {
     check("the card draws the trend row it builds",
           ((try? String(contentsOfFile: "Tally/Views/SessionCardView.swift", encoding: .utf8)) ?? "")
               .contains("sessionCardLine { sessionFootprintTrends }"))
+    // TALLY-8Z: THE LADDER IS MEASURED ON WIDTHS AND THE ROW IS DRAWN ONCE. Seven full candidates,
+    // each with three sparklines, were rebuilt and re-measured on every two-second reading.
+    let ladder = (try? String(contentsOfFile: "Tally/Views/SessionCardTrendLadder.swift",
+                              encoding: .utf8)) ?? ""
+    check("the ladder's candidates hold widths, not readings",
+          ladder.contains("struct SessionCardTrendLadder: View, Equatable")
+              && ladder.contains("struct TrendShape: Equatable")
+              && !ladder.contains("FootprintSparklineView(")
+              && !ladder.contains("figureMotion(")
+              && !ladder.contains("SessionLeftoversMark("))
+    check("…the ladder is skipped while its shape is unchanged, and the row is drawn once",
+          card.contains("SessionCardTrendLadder(shape: trendShape(trends))\n                .equatable()")
+              && card.contains(".overlayPreferenceValue(SessionCardTrendLadder.Chosen.self")
+              && card.components(separatedBy: "FootprintSparklineView(").count == 2)
+    // A `ViewThatFits` measured all seven candidates on every layout pass, and the card is laid
+    // out on every reading. The ladder reads each candidate's width when it changes and publishes
+    // the first rung that fits, or the last when none does: the choice `ViewThatFits` made.
+    check("…and the rung is chosen from measured widths, not by measuring the ladder every pass",
+          !ladder.contains("ViewThatFits(")
+              && ladder.contains("candidate(index).fixedSize(horizontal: true, vertical: false)\n                            .onGeometryChange(for: CGFloat.self, of: \\.size.width) { widths[index] = $0 }")
+              && ladder.contains("candidate(chosen)\n            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)\n            .onGeometryChange(for: CGFloat.self, of: \\.size.width) { room = $0 }\n            .background(alignment: .leading) {")
+              && ladder.contains("SessionCardView.trendRungs.indices.first { (widths[$0] ?? .infinity) <= room }\n            ?? SessionCardView.trendRungs.count - 1")
+              && ladder.contains(".preference(key: Chosen.self, value: chosen)")
+              && ladder.components(separatedBy: ".preference(key: Chosen.self").count == 2)
+    // The two copies of the row are held to the same pieces, or the ladder chooses for a row that
+    // is not the one drawn.
+    check("…built piece for piece like the row it measures",
+          ladder.contains("HStack(spacing: SessionCardView.trendGap)")
+              && ladder.contains("HStack(spacing: SessionCardView.trendSpacing)")
+              && ladder.contains("Color.clear.frame(width: FootprintSparklineView.size.width,")
+              && ladder.contains("SessionCardView.column(group.metric.widestFigure)")
+              && ladder.contains("SessionCardView.column(FootprintPeak.mark + group.metric.widestFigure)")
+              && ladder.contains(".font(.caption2.monospacedDigit())")
+              && card.contains("Self.column(trend.metric.widestFigure)")
+              && card.contains("Self.column(FootprintPeak.mark + trend.metric.widestFigure)"))
+    // A DIGIT IS A DIGIT under `.monospacedDigit()`, so the mask is as wide as the reading.
+    check("…measured on the figure with its digits masked and everything else kept",
+          FootprintTrendMetric.widthClass("9.4%") == "0.0%"
+              && FootprintTrendMetric.widthClass("1180%") == "0000%"
+              && FootprintTrendMetric.widthClass("1.2 GB") == "0.0 GB"
+              && FootprintTrendMetric.widthClass("\u{2191}459 MB") == "\u{2191}000 MB"
+              && FootprintTrendMetric.widthClass("") == "")
 
     // A ROW OF LIVE NUMBERS LAID OUT TO ITS OWN CONTENT IS A ROW IN MOTION: every figure is re-read
     // every two seconds, so a CPU going from 9% to 10% pushed the memory figure along with it.

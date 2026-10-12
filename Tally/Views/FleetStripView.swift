@@ -231,12 +231,12 @@ extension PopoverRootView {
         // never runs out at this pace, and the amber time is when it does with refills included.
         // Neither is about the next refill, which is the row's own label on the right.
         guard let dry = outlook else {
-            return ("\(L("won't run dry at this pace")) ✓", TallyColor.normal)
+            return ("\(L("won't run dry at this pace")) ✓", Self.sustainableInk)
         }
         let seconds = dry.timeIntervalSince(now)
         let body = UsageFormat.durationBody(seconds)
         return (String(localized: "runs dry in about \(body)", bundle: AppLocale.bundle),
-                seconds < 86_400 ? TallyColor.critical : Self.amberTagInk)
+                seconds < 86_400 ? Self.criticalInk : Self.amberTagInk)
     }
 
     /// "refill in 4d 6h" on the row (the full "next refill Claude in 4d 6h" with `compact: false`):

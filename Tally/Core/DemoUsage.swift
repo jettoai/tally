@@ -346,7 +346,7 @@ enum DemoUsage {
          "claude|weeklyAll": FleetRate(perHour: 4.6, sampledHours: 72),
          "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72),
          "codex|weeklyAll|plan=pro": FleetRate(perHour: 1.0, sampledHours: 72),
-         "codex|weeklyAll|plan=team": FleetRate(perHour: 0.9, sampledHours: 72)]
+         "codex|weeklyAll|plan=team": FleetRate(perHour: 0.9, sampledHours: 72)].mapValues { FleetRate(perHour: $0.perHour * burnScale, sampledHours: $0.sampledHours) }
     }
 
     /// Fabricated advisor readings so the advisor strip renders in screenshots too. Real instances

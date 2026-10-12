@@ -159,3 +159,40 @@ extension SessionCardView {
         }
     }
 }
+
+/// The identity row's ports, as the widest spelling that fits whole in the room the identity left
+/// (`SessionCardView.sessionIdentityRow`), or nothing when none does.
+///
+/// NOT A `ViewThatFits` (TALLY-8Z): the card is laid out again on every reading, and a
+/// `ViewThatFits` measures every candidate on every pass, on every card holding a port. The
+/// candidates' widths only change with the spellings, so they are measured here as hidden texts,
+/// the room as this view's own width, and one spelling is drawn: the first that fits, as before.
+struct SessionCardPorts: View {
+    let spellings: [String]
+    @State private var widths: [String: CGFloat] = [:]
+    @State private var room: CGFloat = 0
+
+    private var chosen: String? { spellings.first { (widths[$0] ?? .infinity) <= room } }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Unique by construction (`ProcessTree.portsSpellings`).
+            ForEach(spellings, id: \.self) { spelling in
+                Self.label(spelling).hidden()
+                    .onGeometryChange(for: CGFloat.self, of: \.size.width) { widths[spelling] = $0 }
+            }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
+        .onGeometryChange(for: CGFloat.self, of: \.size.width) { room = $0 }
+        .overlay(alignment: .trailing) {
+            if let chosen { Self.label(chosen) }
+        }
+    }
+
+    private static func label(_ spelling: String) -> some View {
+        Text(verbatim: spelling)
+            .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+            .lineLimit(1).fixedSize()
+            .padding(.leading, 2)
+    }
+}

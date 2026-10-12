@@ -13420,6 +13420,151 @@
         }
       }
     },
+    "swap": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫換"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂换"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "임시 이동"
+          }
+        }
+      }
+    },
+    "The pinned account is out of quota, so this session is running here for now": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘選帳號額度用完，這個工作階段暫時在這裡跑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "钉选账号额度用完，这个会话暂时在这里运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定アカウントのクォータが尽きたため、このセッションは一時的にここで実行中です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 계정의 할당량이 소진되어 이 세션은 잠시 여기서 실행 중입니다"
+          }
+        }
+      }
+    },
+    "Tally moves it back when the pinned account has quota again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘選帳號恢復額度後，Tally 會自動換回。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "钉选账号恢复额度后，Tally 会自动换回。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定アカウントのクォータが戻ると、Tally が自動で戻します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 계정의 할당량이 돌아오면 Tally가 자동으로 되돌립니다."
+          }
+        }
+      }
+    },
+    "Pinned to %@, which is out of quota, so this session is running here for now": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘選帳號 %@ 額度用完，這個工作階段暫時在這裡跑"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "钉选账号 %@ 额度用完，这个会话暂时在这里运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定アカウント %@ のクォータが尽きたため、このセッションは一時的にここで実行中です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 계정 %@의 할당량이 소진되어 이 세션은 잠시 여기서 실행 중입니다"
+          }
+        }
+      }
+    },
+    "Once %1$@ has quota again, Tally moves it back when this turn ends and nobody is typing (usually within %2$lld minutes, and never sooner than 10 minutes after the limit hit).": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 恢復額度後，Tally 會等這個回合結束、沒人在打字時自動換回（通常 %2$lld 分鐘內，最快也要撞牆後 10 分鐘）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 恢复额度后，Tally 会等这个回合结束、没人在打字时自动换回（通常 %2$lld 分钟内，最快也要撞墙后 10 分钟）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のクォータが戻ると、このターンが終わって誰も入力していないときに Tally が自動で戻します（通常 %2$lld 分以内、上限到達から最短でも 10 分後）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 할당량이 돌아오면 이번 턴이 끝나고 아무도 입력하지 않을 때 Tally가 자동으로 되돌립니다(보통 %2$lld분 안, 한도 도달 후 최소 10분 뒤)."
+          }
+        }
+      }
+    },
     "Run `tally account --auto` in it to follow automatic selection again.": {
       "extractionState": "manual",
       "localizations": {

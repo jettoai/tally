@@ -22,6 +22,13 @@ enum TallyMetrics {
 enum TallyColor {
     static let normal = Color(red: 0.36, green: 0.66, blue: 0.42)    // calm sage green
     static let warning = Color(red: 0.93, green: 0.66, blue: 0.20)   // amber (legible light + dark)
+    /// Text on a `warning.opacity(0.15)` capsule. The amber itself reads 1.86:1 on that capsule in
+    /// light mode, so light mode darkens the text; dark mode keeps the amber (B-1524's advisor tag).
+    static let warningInk = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(TallyColor.warning)
+            : NSColor(srgbRed: 0.55, green: 0.33, blue: 0.0, alpha: 1)
+    })
     /// Electric purple, the industry's AI accent (Copilot / Gemini / Notion AI vocabulary) -
     /// marks the smart pick as "the machine chose this", distinct from the human's orange pin.
     static let ai = Color(red: 0.55, green: 0.36, blue: 0.96)

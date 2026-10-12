@@ -211,7 +211,13 @@ extension DemoUsage {
         sidecar.updatedAt = moved
         sidecar.observedModel = fixture.model
         sidecar.runningEffort = fixture.effort
-        sidecar.pinScope = fixture.pin?.rawValue
+        // `-TallyDemoPinAway` draws the project-pinned card away from an APP pin (B-1540): the state
+        // only a pinned account running dry can reach, under the scope the owner asked about (the
+        // panel's own pin, which before B-1540 never stepped aside). Off by default, so the README
+        // shot is unchanged.
+        let away = fixture.pin == .project && UserDefaults.standard.bool(forKey: "TallyDemoPinAway")
+        sidecar.pinScope = away ? SessionPinScope.fleet.rawValue : fixture.pin?.rawValue
+        sidecar.pinAway = away ? "claude:demo-Claude" : nil
         let record = fixture.state.map { state in
             SessionStateRecord(state: state.rawValue,
                                since: captureStarted.addingTimeInterval(-fixture.since),

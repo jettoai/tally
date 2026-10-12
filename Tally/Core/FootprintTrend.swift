@@ -200,6 +200,12 @@ enum FootprintTrendMetric: Hashable, CaseIterable {
         }
     }
 
+    /// Every ASCII digit written as `0`, as wide as the spelling under `.monospacedDigit()`: what
+    /// the trend row's ladder is measured on, so 9.1% to 9.4% is no change of width and 9% to 10% is.
+    static func widthClass(_ text: String) -> String {
+        String(text.map { $0.isASCII && $0.isWholeNumber ? "0" : $0 })
+    }
+
     /// The peak, or nothing when it is too small to be worth saying.
     ///
     /// THE FLOOR IS THE PEAK'S OWN AND THE VALUE LINE HAS NONE, which this used to claim the

@@ -81,6 +81,8 @@ enum TallyTooltip {
         /// slot. The demo board carries leftovers in exactly ONE project by construction
         /// (`DemoSessions.strayReadings`), so under the fixtures there is nothing to race with.
         case leftovers
+        /// The session board's away badge (B-1540): `-TallyDemoPinAway` puts exactly one on the board.
+        case pinaway
         /// The machine table's lid switch (a private build's pool strip). Shows on every MacBook row
         /// at once, so a capture wants a pool with exactly one MacBook in it.
         case lid

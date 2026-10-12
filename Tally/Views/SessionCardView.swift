@@ -258,8 +258,9 @@ struct SessionCardView: View {
     /// THE IDENTITY IS NEVER SHORTENED FOR THE PORTS (Albert, 2026-09-28, reversing 2026-08-16):
     /// the account, model and effort ask for room first (`layoutPriority(1)`), and the ports take
     /// what is left, as the widest spelling that fits whole (`ProcessTree.portsSpellings`). This is
-    /// a `ViewThatFits` over non-truncating texts, so each candidate's ideal width is its real one;
-    /// the last candidate is empty, which is what a card whose identity alone fills the line draws.
+    /// measured on non-truncating texts, so each candidate's width is its real one; when none fits,
+    /// nothing is drawn, which is what a card whose identity alone fills the line shows
+    /// (`SessionCardPorts`).
     /// A port number is never cut, and VoiceOver still hears every port by name.
     ///
     /// Its own view rather than a segment of `sessionIdentityLine`: that string being nil is how
@@ -268,26 +269,15 @@ struct SessionCardView: View {
         HStack(spacing: 4) {
             if let identity = sessionIdentityLine {
                 ProviderIconView(providerID: row.providerID ?? "", size: 11, usesProviderColor: true)
-                if let scope = row.pinScope { pinMark(scope, away: row.session?.pinAway != nil) }
+                if let scope = row.pinScope { pinMark(scope, awayFrom: row.session?.pinAway) }
                 Text(identity).font(.caption2).foregroundStyle(ProviderIdentityStyle.color(for: row.providerID ?? ""))
                     .lineLimit(1).truncationMode(.tail).layoutPriority(1)
             }
             let spellings = sessionPortsSpellings
             if !spellings.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    // Unique by construction (`ProcessTree.portsSpellings`); ViewThatFits traps on
-                    // a repeated id.
-                    ForEach(spellings, id: \.self) { spelling in
-                        Text(verbatim: spelling)
-                            .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-                            .lineLimit(1).fixedSize()
-                            .padding(.leading, 2)
-                    }
-                    Color.clear.frame(width: 0, height: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(sessionPortsSpoken ?? spellings[0])
+                SessionCardPorts(spellings: spellings)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(sessionPortsSpoken ?? spellings[0])
             }
         }
     }
@@ -330,15 +320,32 @@ struct SessionCardView: View {
     /// reason the supervisor badge states in full: the whole card is one `Button`, so a child's
     /// hint reaches nobody and only what composes into the card's label is spoken.
     /// Away: the pinned account ran out and the session is on the smart pick until it refills (B-1540).
-    private func pinMark(_ scope: SessionPinScope, away: Bool) -> some View {
-        let owner = L(away ? sessionPinAwayOwnerKey : sessionPinOwnerKey(scope))
-        let release = L(away ? sessionPinAwayReturnKey : sessionPinReleaseKey(scope))
-        let word = L(sessionPinScopeWord(scope)) + (away ? " " + L(sessionPinAwayWord) : "")
-        return Text(verbatim: "\(sessionPinMark)\(word)")
-            .font(.caption2).foregroundStyle(.secondary)
+    /// The mark is then an amber capsule reading "swap" (no ◉: the capsule takes that width, which
+    /// a Japanese or Korean card cannot spare), so it is not taken for the plain scope mark. The
+    /// hover names the pinned account and how soon it comes back: the snapshot republishes every
+    /// refresh interval, the drought watch rereads it every 30s (`droughtWatchInterval`) and the move
+    /// waits for a 5s quiet gap (`manualMoveIdleSeconds`), so a refill is acted on within interval + 1.
+    private func pinMark(_ scope: SessionPinScope, awayFrom pinnedID: String?) -> some View {
+        let scopeWord = L(sessionPinScopeWord(scope))
+        let pinned = pinnedID.flatMap { id in
+            store.orderedAccounts.first { $0.id == id }
+                .map { settings.displayLabel(accountID: id, fallback: $0.accountLabel) }
+        }
+        let away = pinnedID != nil
+        let owner = !away ? L(sessionPinOwnerKey(scope)) : "\(sessionPinMark)\(scopeWord) · "
+            + (pinned.map { String(format: L(sessionPinAwayNamedOwnerKey), $0) } ?? L(sessionPinAwayOwnerKey))
+        let release = !away ? L(sessionPinReleaseKey(scope)) : pinned.map {
+            String(format: L(sessionPinAwayNamedReturnKey), $0, settings.refreshIntervalMinutes + 1)
+        } ?? L(sessionPinAwayReturnKey)
+        return Text(verbatim: away ? L(sessionPinAwayWord) : "\(sessionPinMark)\(scopeWord)")
+            .font(away ? .caption2.weight(.semibold) : .caption2)
+            .foregroundStyle(away ? AnyShapeStyle(TallyColor.warningInk) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, away ? 4 : 0)
+            .background(Capsule().fill(TallyColor.warning.opacity(away ? 0.15 : 0)))
             .lineLimit(1).fixedSize()
             .accessibilityLabel(Text(TallyTooltipContent.lines([owner, release]).spoken))
-            .tallyTooltip(owner, detail: release)
+            .tallyTooltip(owner, detail: release,
+                          forced: away && DemoUsage.isActive && TallyTooltip.previewForced(.pinaway))
     }
 
     /// The stats slot: what this session has spent, and - on the one card that has it - which build

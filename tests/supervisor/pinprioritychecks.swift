@@ -64,9 +64,10 @@ func runPinPriorityChecks() {
     /// The pin switch on a tick where the session sits on `on`.
     func pinTick(_ policy: LaunchPolicy, on current: Snapshot.Account, rows: [Snapshot.Account],
                  sessionPin: String? = nil,
-                 quarantine: [String: (model: String?, until: Date)] = [:])
+                 quarantine: [String: (model: String?, until: Date)] = [:],
+                 watcher busy: TranscriptWatcher? = nil, typing: Bool = false)
         -> (plan: RelaunchPlan?, waiting: PendingBadge?) {
-        var watcher = idleWatcher("pinpriority")
+        var watcher = busy ?? idleWatcher("pinpriority")
         var plan: RelaunchPlan?
         var state = ManualMoveState(sessionKey: "4242", servedEpoch: 100, sessionPin: sessionPin,
                                     dir: switchDir)
@@ -75,7 +76,7 @@ func runPinPriorityChecks() {
         applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
                          account: current, providerID: "claude", primaryModel: "fable",
                          quarantine: quarantine, watcher: &watcher,
-                         childAge: 9999, keyboardIdle: { _ in true }, dir: switchDir,
+                         childAge: 9999, keyboardIdle: { _ in !typing }, dir: switchDir,
                          request: { _ in nil }, accounts: { rows },
                          loaded: { switchFleetReading(rows) },
                          quarantineIn: switchQuarantineDir)
@@ -178,6 +179,37 @@ func runPinPriorityChecks() {
           pinTick(pinReleasedPolicy(appPinned, yielding: backHome), on: sibling,
                   rows: [fullP, sibling]).plan?.target.id == "P")
 
+    // Every cell here runs under `appPinned`, the panel's own pin: the ◉fleet scope the owner asked
+    // about, not the project pin that already stepped aside before B-1540.
+    check("the pin these cells follow is the app's own, drawn as ◉fleet",
+          sessionPinScope(appMode: appPinned.mode, appPinnedAccountID: appPinned.pinnedAccountID,
+                          projectAccountID: nil, sessionPin: nil) == .fleet)
+
+    // T25. P refills while the session is mid-turn on the sibling: the pin switch waits for the
+    // turn to end (and for the keyboard), so the move never cuts a turn and nothing needs resuming.
+    check("a refill mid-turn does not move the session",
+          pinTick(refilled.moving, on: sibling, rows: [fullP, sibling],
+                  watcher: midTurnWatcher("pinpriority-busy")).plan == nil)
+    check("…nor while somebody is typing in it",
+          pinTick(refilled.moving, on: sibling, rows: [fullP, sibling], typing: true).plan == nil)
+    check("…and the first quiet tick after the turn takes it home",
+          pinTick(refilled.moving, on: sibling, rows: [fullP, sibling]).plan?.target.id == "P")
+
+    // T26. The account it stepped aside to runs out too, while P is still empty: the cap hands on
+    // to whichever account still has quota (never back onto the empty pin), and with none left it
+    // stays where it is and waits. The card still reads away from P on the third account.
+    let emptyS = pinAccount("S", model: 0, label: "Claude 3")
+    let third = pinAccount("X", model: 70, label: "Claude 2")
+    let bothEmpty = released(appPinned, on: emptyS, rows: [emptyP, emptyS, third])
+    check("an empty stand-in hands the session on to a third account, not back to the empty pin",
+          capTick(bothEmpty.moving, on: emptyS, rows: [emptyP, emptyS, third]).plan?.target.id == "X")
+    check("…and is still drawn away from the pinned account there",
+          pinAwayAccount(appPinned, sessionPin: nil, on: "X") == "P")
+    let nowhere = capTick(released(appPinned, on: emptyS, rows: [emptyP, emptyS]).moving, on: emptyS,
+                          rows: [emptyP, emptyS])
+    check("with every account empty the session stays put and the cap keeps waiting",
+          nowhere.plan == nil && nowhere.pending != nil)
+
     // MARK: - T8. The surfaces: which sessions are away from their pin
 
     var project = ProjectPolicy()
@@ -216,6 +248,12 @@ func runPinPriorityChecks() {
     check("…unless the launch spends the reserve",
           stepAside([emptyP, sibling], reserves: reserved, spend: true) == "P")
     check("a healthy pin launches the pin, as it always has", stepAside([healthyP, sibling]) == nil)
+    // T27. Where the stepped-aside launch lands: `tally claude` skips the pin branch and falls to
+    // the smart pick (`launchPick`, main.swift), which is the sibling, not the empty pin.
+    check("a new session under an empty pin starts on the smart pick", stepAside([emptyP, sibling]) == "P"
+          && launchPick(providerID: "claude", in: Snapshot(version: 2, generatedAt: pNow,
+                                                             accounts: [emptyP, sibling]),
+                        primaryModel: "fable", quarantined: [], now: pNow)?.id == "S")
 
     // MARK: - T24. The wiring this cannot reach without a child, read off the source
 

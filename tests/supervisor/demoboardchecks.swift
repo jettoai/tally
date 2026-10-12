@@ -197,6 +197,17 @@ func runDemoSessionBoardChecks() {
           DemoUsage.sessions([scan[0], scan[0], scan[1]])
               .allSatisfy { row in drawn(row).allSatisfy { !$0.contains(sentinel) } })
 
+    // MARK: the card away from its pin (B-1540)
+
+    check("without -TallyDemoPinAway no card is away from its pin",
+          board.allSatisfy { $0.session?.pinAway == nil })
+    UserDefaults.standard.register(defaults: ["TallyDemoPinAway": true])
+    let away = DemoUsage.sessions(scan).filter { $0.session?.pinAway != nil }
+    check("…and with it exactly the project-pinned card is, under the app's own pin, naming a fixture account",
+          away.count == 1 && away.first?.pinScope == .fleet
+              && away.first?.session?.pinAway == "claude:demo-Claude")
+    UserDefaults.standard.register(defaults: ["TallyDemoPinAway": false])
+
     // MARK: how many fixtures there are, and what a bigger board does
 
     let wide = DemoUsage.sessions((1 ... 16).map { realRow(String(format: "%02d", $0)) })
@@ -242,7 +253,9 @@ func runDemoSessionBoardChecks() {
     let covered: Set<String> = ["title", "state", "since", "reason", "model", "effort",
                                 "contextTokens", "lastActivity", "directory", "accountName",
                                 "providerID", "isReporting", "accountID", "id", "childPid",
-                                "outdatedSupervisorVersion", "pinScope"]
+                                "outdatedSupervisorVersion", "pinScope",
+                                // Read only for `session?.pinAway`, which the fixture builds (B-1540).
+                                "session"]
     check("every field the cards read off a row is one this file replaces or keeps on purpose",
           asked.subtracting(covered).isEmpty)
 }

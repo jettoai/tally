@@ -53,9 +53,13 @@ pub fn age(p: &Path, hours: f64) {
     let t = now() - hours * 3600.0;
     let ts = || Timespec { tv_sec: t.floor() as i64, tv_nsec: ((t - t.floor()) * 1e9) as i64 };
     let c = CString::new(p.to_str().unwrap()).unwrap();
-    // AT_FDCWD = -2, AT_SYMLINK_NOFOLLOW = 0x20 on macOS; atime and mtime both set to t.
+    // atime and mtime both set to t; AT_FDCWD and AT_SYMLINK_NOFOLLOW differ per OS.
+    #[cfg(target_os = "macos")]
+    let (at_fdcwd, nofollow) = (-2, 0x20);
+    #[cfg(target_os = "linux")]
+    let (at_fdcwd, nofollow) = (-100, 0x100);
     let both = [ts(), ts()];
-    assert_eq!(unsafe { utimensat(-2, c.as_ptr(), both.as_ptr(), 0x20) }, 0, "utimensat {}", p.display());
+    assert_eq!(unsafe { utimensat(at_fdcwd, c.as_ptr(), both.as_ptr(), nofollow) }, 0, "utimensat {}", p.display());
 }
 
 pub fn git(cwd: &Path, a: &[&str]) {

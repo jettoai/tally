@@ -1,6 +1,8 @@
 //! The scratch reaper's contract (B-5700): the 29 labels of the Python version's section 110,
 //! one test each, against `tally_core::reap`. Every "kept" case also asserts that the run wrote
 //! its `run` record and no `delete` for the path, so a reaper that does nothing cannot pass it.
+//! The DerivedData cases run on macOS only: the reaper finds a DerivedData root with
+//! /usr/bin/plutil, so elsewhere none is ever found and the "kept" cases would pass vacuously.
 mod reap_support;
 
 use reap_support::{age, git, Case};
@@ -15,6 +17,7 @@ fn t00_entry_runs_and_writes_run_record() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t01_offline_idle_dd_deleted() {
     let c = Case::new();
     let p = c.sp.join("pk1-dd");
@@ -24,6 +27,7 @@ fn t01_offline_idle_dd_deleted() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t02_recent_file_kept() {
     let c = Case::new();
     let p = c.sp.join("pk2-dd");
@@ -46,6 +50,7 @@ fn t03a_fixture_alias_differs() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t03b_argv_tmp_alias_kept() {
     let c = Case::new();
     let p = c.sp.join("pk3-dd");
@@ -56,6 +61,7 @@ fn t03b_argv_tmp_alias_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t04_lastaccessed_recent_kept() {
     let c = Case::new();
     let p = c.sp.join("pk4-dd");
@@ -65,6 +71,7 @@ fn t04_lastaccessed_recent_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t05a_live_4h_kept() {
     let c = Case::new();
     c.set_status(&c.sid, 0, false);
@@ -75,6 +82,7 @@ fn t05a_live_4h_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t05b_live_7h_deleted() {
     let c = Case::new();
     c.set_status(&c.sid, 0, false);
@@ -174,6 +182,7 @@ fn t10a_no_tally_worktree_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t10b_no_tally_dd4h_kept() {
     let (c, _, a, _) = case10();
     let (rc, _) = c.run(false);
@@ -181,6 +190,7 @@ fn t10b_no_tally_dd4h_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t10c_no_tally_dd7h_deleted() {
     let (c, _, _, b) = case10();
     let (rc, _) = c.run(false);
@@ -206,6 +216,7 @@ fn t11a_stale_worktree_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t11b_stale_dd4h_kept() {
     let (c, _, d) = case11(0, true);
     let (rc, _) = c.run(false);
@@ -220,6 +231,7 @@ fn t11c_old_status_worktree_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t11d_old_status_dd4h_kept() {
     let (c, _, d) = case11(1200, false);
     let (rc, _) = c.run(false);
@@ -250,6 +262,7 @@ fn case13() -> (Case, std::path::PathBuf, std::path::PathBuf) {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t13a_symlink_target_intact() {
     let (c, target, link) = case13();
     let (rc, _) = c.run(false);
@@ -260,6 +273,7 @@ fn t13a_symlink_target_intact() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t13b_symlink_kept() {
     let (c, _, link) = case13();
     let (rc, _) = c.run(false);
@@ -267,6 +281,7 @@ fn t13b_symlink_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t14_no_workspacepath_kept() {
     let c = Case::new();
     let p = c.sp.join("nows14");
@@ -313,6 +328,7 @@ fn t16_subagent_transcript_live_kept() {
 }
 
 #[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "DerivedData is found with /usr/bin/plutil, macOS only")]
 fn t17_dry_run_no_delete() {
     let c = Case::new();
     let p = c.sp.join("pk17-dd");

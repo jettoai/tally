@@ -6,32 +6,11 @@ import Foundation
 /// handle their own credentials and vendor requests. This runner does not read credentials
 /// or call vendor endpoints.
 enum CLIRunner {
-    /// GUI apps get a minimal PATH (`/usr/bin:/bin:…`), so resolve the binary from the places
-    /// CLIs actually install to, falling back to PATH lookup for good measure.
-    static func resolve(_ name: String) -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let candidates = [
-            "\(home)/.local/bin/\(name)",
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)",
-            "\(home)/.claude/local/\(name)",
-        ]
-        if let hit = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return hit
-        }
-        // PATH fallback (covers a shell-managed install in an unusual prefix).
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", name]
-        let pipe = Pipe()
-        which.standardOutput = pipe
-        which.standardError = Pipe()
-        guard (try? which.run()) != nil else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        which.waitUntilExit()
-        let path = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return path.isEmpty ? nil : path
+    /// GUI apps get a minimal PATH (`/usr/bin:/bin:…`), so the binary is looked for where CLIs
+    /// install to, on the user's login-shell PATH, and on the app's own PATH, never in Tally's
+    /// shim directory (`CLISearchPath`).
+    static func resolve(_ name: String, searchPath: CLISearchPath = .shared) -> String? {
+        searchPath.resolve(name)
     }
 
     struct Output: Sendable {
@@ -62,7 +41,8 @@ enum CLIRunner {
         currentDirectory: URL? = nil,
         input: String? = nil,
         timeout: TimeInterval = 30,
-        claudeInstall: ClaudeNativeInstall = .current
+        claudeInstall: ClaudeNativeInstall = .current,
+        searchPath: CLISearchPath = .shared
     ) async -> Output? {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
@@ -70,7 +50,9 @@ enum CLIRunner {
                 // Off the main actor: the mapping may re-link the bundle (ClaudeStableExecutable.swift).
                 process.executableURL = URL(fileURLWithPath: claudeStableExecutable(executable, install: claudeInstall))
                 process.arguments = arguments
-                var env = ProcessInfo.processInfo.environment
+                // The CLI's own directory and the login shell's PATH: an npm CLI starts with
+                // `#!/usr/bin/env node`, which the app's PATH cannot satisfy (issue #8).
+                var env = searchPath.environment(for: executable)
                 for (key, value) in environment {
                     if let value { env[key] = value } else { env.removeValue(forKey: key) }
                 }

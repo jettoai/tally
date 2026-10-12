@@ -239,7 +239,7 @@ final class RPCSession {
     init?(binary: String, codexHome: String) {
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = ["app-server"]
-        var env = ProcessInfo.processInfo.environment
+        var env = CLISearchPath.shared.environment(for: binary)
         env["CODEX_HOME"] = codexHome
         process.environment = env
         process.standardInput = stdinPipe

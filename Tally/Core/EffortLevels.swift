@@ -35,6 +35,7 @@ final class EffortLevels {
             guard let binary = CLIRunner.resolve("claude") else { return nil }
             let process = Process()
             process.executableURL = URL(fileURLWithPath: claudeStableExecutable(binary))
+            process.environment = CLISearchPath.shared.environment(for: binary)
             process.arguments = ["--help"]
             let stdout = Pipe()
             process.standardOutput = stdout

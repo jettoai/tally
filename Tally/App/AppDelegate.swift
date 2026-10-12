@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationRouter.shared.install()
         // `tally redeem` requests: answered with notReady until the first refresh lands.
         RedeemRequestStore.shared.install()
+        // The login shell's PATH, read in the background before the first refresh asks for a
+        // CLI that only that PATH can find (CLISearchPath).
+        CLISearchPath.shared.warm()
         // Menu-bar accessory app: install the status item, then start the refresh loop.
         statusItemController.install()
         // The session footprints, which sample slowly for the life of the process rather than only

@@ -61,7 +61,7 @@ enum RenewLoginRunner {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: claudeStableExecutable(executable))
         process.arguments = plan.arguments
-        var env = ProcessInfo.processInfo.environment
+        var env = CLISearchPath.shared.environment(for: executable)
         for (key, value) in environment {
             if let value { env[key] = value } else { env.removeValue(forKey: key) }
         }

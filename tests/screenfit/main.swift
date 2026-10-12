@@ -254,5 +254,59 @@ check(ScreenFitStack.placement(width: 100, height: 300, squeezed: false)
         == ProposedViewSize(width: 100, height: 120),
       "the placement rule itself: measured proposal, or the squeezed height")
 
+section("what sits above the account region keeps its height across a fold (B-1570)")
+
+// Folding a provider is what carries a fleet back under the cap. While it was over, the tab's stack
+// was handed a definite height and a VStack shares that among ALL its children, so the machine strip
+// above the cards gave way (its table rows are `frame(minHeight:)`, which yields under a definite
+// height) and sprang back when the fold let the surface fit. Laid out for real, as above.
+final class HeightLog { var placed: [CGFloat] = [] }
+/// Yields under a definite height down to `floor`, the way the machine table's rows do.
+struct Compressible: Layout {
+    let log: HeightLog
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: 100, height: proposal.height.map { max(100, min($0, 200)) } ?? 200)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) { log.placed.append(bounds.height) }
+}
+/// The card region: its content's height when asked for an ideal, whatever it is given otherwise.
+struct CardRegion: Layout {
+    let ideal: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: 100, height: proposal.height ?? ideal)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {}
+}
+func stripHeight(cards: CGFloat, held: Bool) -> CGFloat? {
+    let log = HeightLog()
+    let host = NSHostingView(rootView: ScreenFitStack(maxHeight: 300) {
+        VStack(spacing: 0) {
+            if held {
+                VStack(spacing: 0) { Compressible(log: log) { Color.clear } }
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Compressible(log: log) { Color.clear }
+            }
+            CardRegion(ideal: cards) { Color.clear }
+        }
+        .screenFitFlexible()
+    })
+    host.frame = CGRect(x: 0, y: 0, width: 100, height: 300)
+    host.layoutSubtreeIfNeeded()
+    return log.placed.last
+}
+let bareFolded = stripHeight(cards: 50, held: false), bareOpen = stripHeight(cards: 2_000, held: false)
+check(bareFolded == 200 && (bareOpen ?? 200) < 200,
+      "control: a bare strip gives way while the cards overflow (\(String(describing: bareFolded)) folded, \(String(describing: bareOpen)) open)")
+let heldFolded = stripHeight(cards: 50, held: true), heldOpen = stripHeight(cards: 2_000, held: true)
+check(heldFolded == 200 && heldOpen == 200,
+      "a strip held at its own height is the same folded and open (\(String(describing: heldFolded)), \(String(describing: heldOpen)))")
+let aboveCards = rootSource.components(separatedBy: "overlayStrip").dropFirst().first?
+    .components(separatedBy: "accountPoolTitle").first ?? ""
+check(aboveCards.contains(".fixedSize(horizontal: false, vertical: true)"),
+      "the panel holds its notices and machine strip at their own height")
+
 print(failures == 0 ? "\nAll screen-fit cap tests passed." : "\n\(failures) screen-fit cap test(s) failed.")
 exit(failures == 0 ? 0 : 1)

@@ -98,24 +98,22 @@ struct FleetSummary: Hashable {
         return headline
     }
 
-    /// The pools the strip renders, in display order: the focused model's pool leads, the
-    /// account-wide weekly closes - both runways visible at once (the primary budget a rationing
-    /// user spends first AND the total the fallback keeps burning after it). A model pool is drawn
-    /// only when it IS the focus: a launch model that no reported window carries (opus while the
-    /// only model window is Fable) burns the account-wide weekly, so the Fable pool would be a
-    /// budget nobody is spending leading the strip (reported 2026-09-28). An undeclared launch model
-    /// focuses the flagship (`FleetFocus`), so its pool still shows. Session-only fleets keep their
-    /// session pool, and a fleet whose only weekly-cycle pools are model pools keeps them, so the
-    /// strip never goes empty.
+    /// The pools "All pools" renders, in display order: every window the fleet has a pool for, one
+    /// row each (B-1544, owner ruling 2026-10-12: the mode is named "all", so it draws all). The
+    /// focused model's pool leads, the account-wide weekly follows, any other model pool after it,
+    /// and the 5-hour session pool closes. The leading pool is the same one the old rule led with
+    /// for every input, so the menu-bar number and the advisor's next-refill line, which both follow
+    /// the leading pool, do not move; the session pool goes last because it paces work rather than
+    /// capping it. This replaces the 2026-09-28 rule that hid a model pool unless it was the focus.
     func displayPools(focusedModel: String?) -> [FleetPool] {
-        let weeklyCycle = pools.filter { $0.kind != .session }
-        guard !weeklyCycle.isEmpty else { return headline.map { [$0] } ?? [] }
         func isFocus(_ pool: FleetPool) -> Bool {
             pool.kind == .weeklyModel && (pool.modelName ?? pool.label) == focusedModel
         }
-        let shown = weeklyCycle.filter { $0.kind != .weeklyModel || isFocus($0) }
-        guard !shown.isEmpty else { return weeklyCycle }
-        return shown.filter(isFocus) + shown.filter { !isFocus($0) }
+        let focus = pools.filter(isFocus)
+        let weekly = pools.filter { $0.kind == .weeklyAll }
+        let otherModels = pools.filter { $0.kind == .weeklyModel && !isFocus($0) }
+        let session = pools.filter { $0.kind == .session }
+        return focus + weekly + otherModels + session
     }
 }
 

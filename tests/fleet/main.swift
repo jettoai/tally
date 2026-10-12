@@ -177,6 +177,22 @@ do {
     expect(dries == now.addingTimeInterval(200 * 3_600), "net overspend dries at remaining/net")
 }
 
+// 13b. B-1544 r6: the dry time already counts every listed refill, and a refill is ONE member's
+// window (its used percent), so "runs dry" after the row's next refill is the forecast, not a
+// contradiction. The demo Claude x5 weekly pool: +82 back in 19.2h, still dry at 4d 10h.
+do {
+    let refills = [(0.8, 82.0), (1.2, 39.0), (2.6, 59.0), (4.2, 20.0), (6.4, 8.0)]
+        .map { (at: now.addingTimeInterval($0.0 * 86_400), gain: $0.1) }
+    let dry = FleetForecast.depletion(remaining: 292, refills: refills, perHour: 4.6,
+                                      steadyRefillPerHour: 500.0 / 168, now: now)
+    expect(dry.map { Int($0.timeIntervalSince(now) / 3_600) } == 106,
+           "demo Claude x5 runs dry at 4d 10h, refills counted (2d 15h without them)")
+    let beforeRefill = FleetForecast.depletion(
+        remaining: 30, refills: [(at: now.addingTimeInterval(5 * 3_600), gain: 100)],
+        perHour: 10, steadyRefillPerHour: 0, now: now)
+    expect(beforeRefill == now.addingTimeInterval(3 * 3_600), "dry before the refill stays dry")
+}
+
 // MARK: FleetFocus (gauge focus resolution)
 
 // 14. The primary-following modes lead with the declared primary: a flagship primary focuses
@@ -213,8 +229,8 @@ do {
            "weekly focus pins the account-wide budget")
 }
 
-// 15b. displayPools: focused model pool leads, weekly total closes; session never mixes in;
-// a session-only fleet keeps its session pool.
+// 15b. displayPools ("All pools") draws every window: focused model pool leads, weekly total
+// follows, the 5-hour session closes (B-1544); a session-only fleet keeps its session pool.
 do {
     let s = summarize([
         account("c1", metrics: [metric(.session, used: 10), metric(.weeklyAll, used: 10),
@@ -223,8 +239,8 @@ do {
                                 metric(.weeklyModel, used: 60, model: "Fable 5")]),
     ])
     let pools = s.first?.displayPools(focusedModel: "Fable 5") ?? []
-    expect(pools.map(\.kind) == [.weeklyModel, .weeklyAll],
-           "all-mode order is model pool then weekly total")
+    expect(pools.map(\.kind) == [.weeklyModel, .weeklyAll, .session],
+           "all-mode order is model pool, weekly total, then session")
     let sessionOnly = summarize([
         account("x1", provider: "codex", metrics: [metric(.session, used: 10)]),
         account("x2", provider: "codex", metrics: [metric(.session, used: 10)]),
@@ -233,8 +249,8 @@ do {
            "session-only fleet keeps its session pool")
 }
 
-// 15c. displayPools draws a model pool only when it IS the focus: a launch model no reported
-// window carries (opus while the only model window is Fable) leaves the strip with the weekly total;
+// 15c. displayPools draws every model pool, focused or not (B-1544): with no focus the weekly total
+// leads and the model pools follow it; a focused pool leads and the other model pools still show;
 // a fleet with only model pools still shows them; an undeclared primary keeps the flagship's pool.
 do {
     let order = ["fable", "opus", "sonnet"]
@@ -244,8 +260,8 @@ do {
         account("c2", metrics: [metric(.weeklyAll, used: 20),
                                 metric(.weeklyModel, used: 60, model: "Fable 5")]),
     ])
-    expect(s.first?.displayPools(focusedModel: nil).map(\.kind) == [.weeklyAll],
-           "no focus draws the weekly total alone")
+    expect(s.first?.displayPools(focusedModel: nil).map(\.kind) == [.weeklyAll, .weeklyModel],
+           "no focus leads with the weekly total and still draws the model pool")
     let twoModels = summarize([
         account("c1", metrics: [metric(.weeklyAll, used: 10),
                                 metric(.weeklyModel, used: 40, model: "Fable 5"),
@@ -255,9 +271,9 @@ do {
                                 metric(.weeklyModel, used: 30, model: "Sonnet 5")]),
     ])
     let focusedFable = twoModels.first?.displayPools(focusedModel: "Fable 5") ?? []
-    expect(focusedFable.compactMap(\.modelName) == ["Fable 5"]
-               && focusedFable.map(\.kind) == [.weeklyModel, .weeklyAll],
-           "a focused pool leads the weekly total and hides the other model pool")
+    expect(focusedFable.compactMap(\.modelName) == ["Fable 5", "Sonnet 5"]
+               && focusedFable.map(\.kind) == [.weeklyModel, .weeklyAll, .weeklyModel],
+           "a focused pool leads the weekly total and the other model pool follows")
     let modelOnly = summarize([
         account("c1", metrics: [metric(.weeklyModel, used: 40, model: "Fable 5")]),
         account("c2", metrics: [metric(.weeklyModel, used: 60, model: "Fable 5")]),
@@ -266,15 +282,42 @@ do {
            "a fleet with only model pools never draws an empty strip")
     let opus = FleetFocus.focusedModel(.all, primaryModel: "opus",
                                        available: s.first?.modelPoolNames ?? [], flagshipOrder: order)
-    expect(opus == nil && s.first?.displayPools(focusedModel: opus)
-               .contains { $0.kind == .weeklyModel } == false,
-           "an opus launch model with only a Fable window draws no Fable pool")
+    expect(opus == nil
+               && s.first?.displayPools(focusedModel: opus).contains { $0.modelName == "Fable 5" } == true
+               && s.first?.displayPools(focusedModel: opus).first?.kind == .weeklyAll,
+           "an opus launch model with only a Fable window still draws it, after the weekly total")
     let undeclared = FleetFocus.focusedModel(.all, primaryModel: nil,
                                              available: s.first?.modelPoolNames ?? [],
                                              flagshipOrder: order)
     expect(undeclared == "Fable 5" && s.first?.displayPools(focusedModel: undeclared)
                .contains { $0.modelName == "Fable 5" } == true,
            "an unreadable launch model keeps the flagship's pool")
+}
+
+// 15f. Drawing every pool does not move the leading pool: for each fleet shape the first row is the
+// focus-resolved headline (the menu-bar number and the next-refill line follow it), so the session
+// pool never leads unless it is the only pool (B-1544).
+do {
+    let threeWindows = summarize([
+        account("c1", metrics: [metric(.session, used: 10), metric(.weeklyAll, used: 10),
+                                metric(.weeklyModel, used: 40, model: "Fable 5"),
+                                metric(.weeklyModel, used: 20, model: "Sonnet 5")]),
+        account("c2", metrics: [metric(.session, used: 10), metric(.weeklyAll, used: 20),
+                                metric(.weeklyModel, used: 60, model: "Fable 5"),
+                                metric(.weeklyModel, used: 30, model: "Sonnet 5")]),
+    ]).first
+    let sessionOnly = summarize([
+        account("x1", provider: "codex", metrics: [metric(.session, used: 10)]),
+        account("x2", provider: "codex", metrics: [metric(.session, used: 10)]),
+    ]).first
+    var leads = true
+    for focus in ["Fable 5", "Sonnet 5", nil] as [String?] {
+        leads = leads && threeWindows?.displayPools(focusedModel: focus).first
+            == threeWindows?.headline(focusedModel: focus)
+    }
+    leads = leads && sessionOnly?.displayPools(focusedModel: nil).first == sessionOnly?.headline
+    expect(leads && threeWindows?.displayPools(focusedModel: nil).count == 4,
+           "every pool is drawn and the leading pool is still the resolved headline")
 }
 
 // 16. headline(focusedModel:) returns the named model pool, and degrades to the weekly budget

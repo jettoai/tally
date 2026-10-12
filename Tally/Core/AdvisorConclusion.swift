@@ -41,6 +41,8 @@ enum AdvisorConclusion: Equatable {
         var accountCount: Int
         /// The fleet gauge forecasts at least one of this tier's pools running dry.
         var runsDry: Bool
+        /// When the soonest of those pools runs dry (refills already counted), when known.
+        var dryAt: Date? = nil
     }
 
     /// Accounts short of a weekly demand, never fewer than one: the verdict can also fire on a
@@ -76,7 +78,7 @@ enum AdvisorConclusion: Equatable {
             // the tier order, which is largest demand first.
             let candidates = dry.isEmpty ? tiers : dry
             var pick = candidates[0]
-            for tier in candidates.dropFirst() where ratio(tier) > ratio(pick) { pick = tier }
+            for tier in candidates.dropFirst() where picks(tier, over: pick) { pick = tier }
             guard backed else {
                 return nearCapacityReading(pick.demandPerWeek, owned: pick.accountCount, plan: pick.plan)
             }
@@ -111,6 +113,8 @@ enum AdvisorConclusion: Equatable {
         /// The pool's plan when `byPlan`; nil there is a plan this machine cannot name.
         var plan: String?
         var accountCount: Int
+        /// When the gauge forecasts it dry, refills counted (`FleetForecast.depletion`).
+        var dryAt: Date? = nil
     }
 
     /// The tiers worth splitting the figure into: none unless the provider's accounts actually sit
@@ -133,18 +137,24 @@ enum AdvisorConclusion: Equatable {
         let planPools = dryPools.filter(\.byPlan)
         let wholeProviderDry = planPools.count < dryPools.count
         let dryKeys = Set(planPools.map { planKey($0.plan) })
+        // The soonest dry date among `plan`'s pools; an unsplit pool is every plan's.
+        func soonest(_ plan: String?) -> Date? {
+            dryPools.filter { !$0.byPlan || planKey($0.plan) == planKey(plan) }.compactMap(\.dryAt).min()
+        }
         var tiers = splitTiers(tierDemands).map { tier in
             Tier(plan: tier.plan, demandPerWeek: tier.demandPerWeek, accountCount: tier.accountCount,
-                 runsDry: wholeProviderDry || dryKeys.contains(planKey(tier.plan)))
+                 runsDry: wholeProviderDry || dryKeys.contains(planKey(tier.plan)),
+                 dryAt: soonest(tier.plan))
         }
         if tiers.isEmpty {
             // Unsplit: one tier for the whole provider, dry when any of its pools is.
             tiers = [Tier(plan: nil, demandPerWeek: pooledDemandPerWeek,
-                          accountCount: max(1, ownedAccounts), runsDry: !dryPools.isEmpty)]
+                          accountCount: max(1, ownedAccounts), runsDry: !dryPools.isEmpty,
+                          dryAt: dryPools.compactMap(\.dryAt).min())]
         } else {
             for pool in planPools where !tiers.contains(where: { planKey($0.plan) == planKey(pool.plan) }) {
                 tiers.append(Tier(plan: pool.plan, demandPerWeek: 0, accountCount: pool.accountCount,
-                                  runsDry: true))
+                                  runsDry: true, dryAt: soonest(pool.plan)))
             }
         }
         let split = Set(tiers.compactMap(\.plan)).count >= 2
@@ -155,6 +165,13 @@ enum AdvisorConclusion: Equatable {
 
     /// A plan's join key: case-insensitive, "?" for an unnamed plan (`FleetSummary.Tier.key`'s rule).
     private static func planKey(_ plan: String?) -> String { plan?.lowercased() ?? "?" }
+
+    /// One tag per provider, on the pool that runs dry first (B-1544 r6); without two dry dates
+    /// to compare, the tier most over its own capacity.
+    private static func picks(_ tier: Tier, over current: Tier) -> Bool {
+        if let a = tier.dryAt, let b = current.dryAt, a != b { return a < b }
+        return ratio(tier) > ratio(current)
+    }
 
     private static func ratio(_ tier: Tier) -> Double {
         tier.demandPerWeek / Double(max(1, tier.accountCount))
@@ -228,5 +245,34 @@ extension AdvisorConclusion {
                 : (window.tierDemands.first { planKey($0.plan) == planKey(tier.plan) }?.demandPerWeek ?? 0)
             return WindowFigure(plan: tier.plan, demandPerWeek: figure)
         })
+    }
+}
+
+/// The heading tag and the hover's first line (B-1544 r4: a figure-only tag, "avg 7.1/wk of 7",
+/// sat beside "won't run dry" and read as short and fine at once).
+extension AdvisorConclusion {
+    /// What the tag asks for: accounts to add, or nil for no tag. One rule for every provider
+    /// (B-1544 r5): a tag only when four-week use is past the accounts owned AND this week's pace
+    /// runs the plan dry, read from the same forecast the pool rows draw; either one missing, no
+    /// tag. `fourWeek` is the plan's figures for "add" (near capacity carries its own).
+    func tagAdd(fourWeek: (demand: Double, owned: Int)?, dryPools: [DryPool]) -> (count: Int, plan: String?)? {
+        let figures: (demand: Double, owned: Int)?
+        let plan: String?
+        switch self {
+        case .add(_, let named): (figures, plan) = (fourWeek, named)
+        case .nearCapacity(let demand, let owned, let named): (figures, plan) = (demand.map { ($0, owned) }, named)
+        default: return nil
+        }
+        guard let figures, figures.demand > Double(figures.owned),
+              Self.runsDryThisWeek(plan: plan, dryPools: dryPools) else { return nil }
+        if case .add(let count, _) = self { return (count, plan) }
+        return (Self.shortfall(demandPerWeek: figures.demand, owned: figures.owned), plan)
+    }
+
+    /// The hover's this-week half: true when the pool rows forecast `plan`'s pools (every pool
+    /// when nil) running dry before the refill. An unsplit dry pool is every plan's.
+    static func runsDryThisWeek(plan: String?, dryPools: [DryPool]) -> Bool {
+        guard let plan else { return !dryPools.isEmpty }
+        return dryPools.contains { !$0.byPlan || planKey($0.plan) == planKey(plan) }
     }
 }

@@ -405,7 +405,10 @@ private struct TallyTooltipCallout: View {
                         Text(block.title)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(primaryInk)
-                            .lineLimit(1)
+                            // Up to three lines: the advisor's title is its whole conclusion, and
+                            // the English sentence needs a third at the fixed width (B-1570).
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
                         ForEach(Array(block.rows.enumerated()), id: \.offset) { index, row in
                             if index > 0, [.strong, .quiet, .note].contains(row.style) {
                                 Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1).padding(.vertical, 2)

@@ -122,17 +122,27 @@ struct PopoverRootView: View {
                 ZStack(alignment: .topLeading) {
                     if tab == .usage {
                         VStack(spacing: 0) {
-                            // Above everything, and only once: the gate in front of the very first
-                            // morning message (EarlyStartNoticeStrip.swift).
-                            earlyStartNotice
-                            // Below it when both are due: the one-time crash-report question
-                            // (ErrorReportingNoticeStrip.swift). Both stay visible.
-                            ErrorReportingNoticeStrip()
-                            // The private build's machine strip, then this region's own title:
-                            // the two regions stand one over the other under matching titles.
-                            // Each provider's summary is the heading of its own section below
-                            // (ProviderSectionHeader.swift), not a strip of its own up here.
-                            overlayStrip
+                            // Everything above the account region at its own height, always
+                            // (B-1570). Once a fleet outgrows the display this stack is handed a
+                            // definite height (`screenFitFlexible` below), and a VStack shares a
+                            // definite height among ALL its children: the machine strip was
+                            // offered a slice and its rows gave way, then folding a provider let
+                            // the surface fit again and the strip sprang back. Only the scroll
+                            // view below may give or take height.
+                            VStack(spacing: 0) {
+                                // Above everything, and only once: the gate in front of the very
+                                // first morning message (EarlyStartNoticeStrip.swift).
+                                earlyStartNotice
+                                // Below it when both are due: the one-time crash-report question
+                                // (ErrorReportingNoticeStrip.swift). Both stay visible.
+                                ErrorReportingNoticeStrip()
+                                // The private build's machine strip, then this region's own title:
+                                // the two regions stand one over the other under matching titles.
+                                // Each provider's summary is the heading of its own section below
+                                // (ProviderSectionHeader.swift), not a strip of its own up here.
+                                overlayStrip
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
                             accountPoolTitle
                             // Nothing at all to show skips the card container entirely: its 12pt
                             // padding read as a hollow band (see `showsAccountRegion`).

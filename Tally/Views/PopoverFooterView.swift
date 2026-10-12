@@ -304,8 +304,8 @@ extension PopoverRootView {
             // all, which is the one state the panel must never reach (see `visibleAccounts`).
             .disabled(pooledProviderIDs.isEmpty || !settings.showFleetGauge)
             Divider()
-            // What the gauges render: all pooled windows (primary budget + weekly total, both
-            // runways at once - the default), or collapsed to a single pool for people who only
+            // What the gauges render: every pooled window, one row each (5-hour, weekly,
+            // each model window; the default), or collapsed to a single pool for people who only
             // ration one budget. The menu-bar number follows the leading pool.
             VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
                 Text(L("Gauges show")).font(.caption).foregroundStyle(.secondary)

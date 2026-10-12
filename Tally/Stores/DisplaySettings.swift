@@ -11,8 +11,8 @@ enum DisplayMode: String, Sendable, CaseIterable {
 }
 
 /// What the fleet gauge shows and which number the menu-bar strip leads with. `all` (default)
-/// renders EVERY pooled weekly-cycle window - the primary-model budget first, the account-wide
-/// weekly after it, because a fallback user needs both runways at once; `primary` collapses the
+/// renders EVERY pooled window, one row each: the primary-model budget first, the account-wide
+/// weekly after it, any other model window, then the 5-hour session (B-1544); `primary` collapses the
 /// strip to just the primary-model pool (flagship-first when no primary is declared, the smart
 /// launcher's rule); `weekly` pins the account-wide weekly budget alone. The menu bar always
 /// carries one number per window class, so it follows the leading pool. Persisted in

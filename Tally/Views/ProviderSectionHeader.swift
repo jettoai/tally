@@ -61,8 +61,11 @@ extension PopoverRootView {
                     // the source stays English) because CJK is the tallest line the tag can carry.
                     Text(verbatim: "\u{5EFA}").font(.caption2.weight(.medium)).padding(.vertical, 1).hidden()
                     HStack(spacing: 5) {
+                        // No tag on this heading: the advisor's hover answers on the name instead
+                        // (B-1570). Beside the chevron, not around it, so the two hovers never nest.
                         providerLabel(providerID, count: count)
                             .font(.footnote)
+                            .tallyTooltip(lazyBlocks: { advisorHeadingTooltip(providerID) })
                         if foldable { foldChevron(providerID) }
                     }
                 }

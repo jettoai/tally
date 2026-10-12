@@ -18,13 +18,12 @@ extension PopoverRootView {
     static let fleetRowSpacing: CGFloat = 8
     /// The pool rows' own label column, narrower than the heading's: it carries at most a plan
     /// name with its count or a pool name, never the provider. This is its floor, the longest
-    /// English pool name ("Session pool", 61pt at footnote); `poolLabelColumnWidth` widens it to
+    /// English pool name (61pt at footnote); `poolLabelColumnWidth` widens it to
     /// the widest label actually on the panel.
     private static let poolLabelWidth: CGFloat = 62
     /// Fixed, so every bar starts and ends on the same two vertical lines whatever the forecast and
-    /// refill beside it say. At the default panel width this leaves the longest English row
-    /// ("won't run dry at this pace" plus a refill) whole; when a row cannot fit, the forecast
-    /// truncates first (its tooltip has the full sentence).
+    /// refill beside it say. A row too narrow for both on one line puts the refill under the
+    /// forecast (`forecastAndRefill`) rather than truncating either.
     private static let fleetBarWidth: CGFloat = 100
     private static let fleetChevronWidth: CGFloat = 12
 
@@ -64,8 +63,28 @@ extension PopoverRootView {
         if !pools.isEmpty {
             let labelWidth = poolLabelColumnWidth
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
-                    poolRow(summary, pool, index: index, labelWidth: labelWidth)
+                // A split provider's plan gets a title line of its own, so every row under it names
+                // its window: the plan name used to stand in the first row's label, and a Codex plan
+                // with only a weekly reading showed no pool name at all (B-1544).
+                if let tier = summary.planTier {
+                    (Text(planName(tier)).foregroundStyle(Color.secondary)
+                     + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
+                        .font(.footnote)
+                        .lineLimit(1)
+                }
+                ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
+                    poolRow(summary, pool, labelWidth: labelWidth)
+                }
+                // "All pools" with no 5-hour reading says so, rather than drawing one row fewer
+                // than the plan above it, which read as a row left out.
+                if settings.gaugeFocus == .all, !pools.contains(where: { $0.kind == .session }) {
+                    HStack(spacing: Self.fleetRowSpacing) {
+                        Text(L("5-hour pool")).foregroundStyle(Color.secondary)
+                            .frame(width: labelWidth, alignment: .leading)
+                        Text(L("No reading")).foregroundStyle(.tertiary)
+                    }
+                    .font(.footnote)
+                    .lineLimit(1)
                 }
             }
             .tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }, forced: forcedTooltip)
@@ -106,13 +125,13 @@ extension PopoverRootView {
 
     /// One pool on one line: label, bar, level, pace forecast, then the short refill on the right
     /// (the full sentence, with the account and the clock time, is its tooltip). The pool name
-    /// sits in the label column (`poolLabel`), not in front of the forecast, and the forecast's
+    /// sits in the label column, not in front of the forecast, and the forecast's
     /// tooltip repeats it.
-    private func poolRow(_ summary: FleetSummary, _ pool: FleetPool, index: Int,
+    private func poolRow(_ summary: FleetSummary, _ pool: FleetPool,
                          labelWidth: CGFloat) -> some View {
         let phrase = forecastPhrase(summary, pool)
         return HStack(spacing: Self.fleetRowSpacing) {
-            poolLabel(summary, pool, index: index)
+            Text(poolDisplayName(pool)).foregroundStyle(Color.secondary)
                 .font(.footnote)
                 .lineLimit(1)
                 .frame(width: labelWidth, alignment: .leading)
@@ -121,54 +140,50 @@ extension PopoverRootView {
                 .font(.footnote.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.primary)
                 .frame(width: Self.fleetValueWidth, alignment: .trailing)
-            Text(phrase.text)
-                .foregroundStyle(phrase.tint)
-                .font(.caption2)
-                .lineLimit(1)
-                .tallyTooltip("\(poolDisplayName(pool)) · \(phrase.text)")
-            Spacer(minLength: 6)
-            // Every pool shows its own refill, even when it repeats the row above: Anthropic resets
-            // the model and weekly windows at the same moment, and a same-moment dedupe left the
-            // weekly slot permanently empty, which read as missing data (2026-07-23).
-            if let refill = pool.refills.first {
-                refillLabel(refill, compact: true).layoutPriority(1)
-            }
+            forecastAndRefill(pool, phrase)
         }
     }
 
-    /// What the label column says: a split provider's plan and count on its first pool, the pool's
-    /// name on every other row. A single pool is named too: an empty column read as a missing label,
-    /// and the name is the one thing the heading above does not say.
-    private func poolLabel(_ summary: FleetSummary, _ pool: FleetPool, index: Int) -> Text {
-        if index == 0, let tier = summary.planTier {
-            return Text(planName(tier)).foregroundStyle(Color.secondary)
-                + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary)
+    /// The forecast with the refill at the far right, or, when the panel is too narrow for both
+    /// (the 380pt single column cannot seat a forecast and a refill beside a bar in any language),
+    /// the refill on a second line under the forecast. Neither sentence is ever cut (B-1544).
+    /// Every pool shows its own refill, even when it repeats the row above: Anthropic resets the
+    /// model and weekly windows at the same moment, and a same-moment dedupe left the weekly slot
+    /// permanently empty, which read as missing data (2026-07-23).
+    private func forecastAndRefill(_ pool: FleetPool, _ phrase: (text: String, tint: Color)) -> some View {
+        let forecast = Text(phrase.text)
+            .foregroundStyle(phrase.tint)
+            .font(.caption2)
+            .lineLimit(1)
+            .tallyTooltip("\(poolDisplayName(pool)) · \(phrase.text)")
+        let refill = pool.refills.first.map { refillLabel($0, compact: true) }
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: Self.fleetRowSpacing) {
+                forecast
+                Spacer(minLength: 6)
+                refill
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                forecast
+                refill
+            }
         }
-        return Text(poolDisplayName(pool)).foregroundStyle(Color.secondary)
     }
 
     /// The label column's width for the whole panel: the widest label any pool row on it carries,
     /// never under the English floor. One width for every provider, so every bar still starts on
-    /// one vertical line, and a longer translation (Japanese "Session pool", 76pt) widens the column
+    /// one vertical line, and a longer translation widens the column
     /// instead of truncating (B-1524). The font and size stay put: shrinking one row's text would
     /// leave the column in two sizes.
     private var poolLabelColumnWidth: CGFloat {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.preferredFont(forTextStyle: .footnote)]
-        let widest = fleetSummaries.flatMap { summary in
-            displayedPools(summary).enumerated().map { index, pool in
-                (poolLabelString(summary, pool, index: index) as NSString).size(withAttributes: attributes).width
-            }
-        }.max() ?? 0
+        let names = fleetSummaries.flatMap { displayedPools($0).map(poolDisplayName) }
+            + (settings.gaugeFocus == .all ? [L("5-hour pool")] : [])
+        let widest = names.map { ($0 as NSString).size(withAttributes: attributes).width }.max() ?? 0
         return max(Self.poolLabelWidth, ceil(widest))
     }
 
-    /// `poolLabel`'s words without its styling, for measuring.
-    private func poolLabelString(_ summary: FleetSummary, _ pool: FleetPool, index: Int) -> String {
-        if index == 0, let tier = summary.planTier { return planName(tier) + " ×\(summary.accountCount)" }
-        return poolDisplayName(pool)
-    }
-
-    private func poolDisplayName(_ pool: FleetPool) -> String {
+    func poolDisplayName(_ pool: FleetPool) -> String {
         poolDisplayName(kind: pool.kind, modelName: pool.modelName, label: pool.label)
     }
 
@@ -181,7 +196,7 @@ extension PopoverRootView {
             let model = modelName ?? label
             return String(localized: "\(model) pool", bundle: AppLocale.bundle)
         case .session:
-            return L("Session pool")
+            return L("5-hour pool")
         default:
             return L("Weekly pool")
         }
@@ -231,7 +246,7 @@ extension PopoverRootView {
         // never runs out at this pace, and the amber time is when it does with refills included.
         // Neither is about the next refill, which is the row's own label on the right.
         guard let dry = outlook else {
-            return ("\(L("won't run dry at this pace")) ✓", Self.sustainableInk)
+            return ("\(L("lasts at this pace")) ✓", Self.sustainableInk)
         }
         let seconds = dry.timeIntervalSince(now)
         let body = UsageFormat.durationBody(seconds)
@@ -259,12 +274,15 @@ extension PopoverRootView {
 
     /// Internal: the advisor tooltip lists the same refills in the same words, so the two surfaces
     /// can never phrase one schedule two ways.
+    /// Always says how much comes back: a bare "refill in 19h" read as the whole pool refilling,
+    /// right beside a "runs dry" forecast that already counts it (B-1544 r7).
     func refillText(_ refill: FleetPool.Refill, now: Date, compact: Bool = false) -> String {
         let account = refill.accountLabel
         let body = UsageFormat.countdownBody(refill.at, now: now)
+        let gain = "\(Int(refill.gain.rounded()))%"
         return compact
-            ? String(localized: "refill in \(body)", bundle: AppLocale.bundle)
-            : String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)
+            ? String(localized: "refill +\(gain) in \(body)", bundle: AppLocale.bundle)
+            : String(localized: "next refill \(account) +\(gain) in \(body)", bundle: AppLocale.bundle)
     }
 
     /// One continuous fill anchored like every meter (used grows left, remaining hugs right),

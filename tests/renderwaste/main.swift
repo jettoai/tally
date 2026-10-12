@@ -33,9 +33,10 @@ check("82 the fleet rows build them lazily",
       fleet.components(separatedBy: "tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }").count == 2)
 
 // TALLY-23: the advisor row's callout text is built on hover, not on every body.
-check("23 the advisor tag builds its callout text lazily",
+check("23 the advisor tag builds its callout lazily",
       !advisor.contains(".tallyTooltip(advisorTooltip(")
-          && advisor.contains(".tallyTooltip(lazyText: { advisorTooltip(reading,"))
+          && !advisor.contains(".tallyTooltip(blocks: advisorTooltip(")
+          && advisor.contains(".tallyTooltip(lazyBlocks: { advisorTooltip(state) })"))
 
 // TALLY-37: the refresh job's tail queues the strip for the next run-loop turn.
 check("37 the refresh hook queues the redraw",

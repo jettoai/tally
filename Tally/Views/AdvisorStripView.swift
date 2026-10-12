@@ -27,25 +27,51 @@ extension PopoverRootView {
     /// The provider's advice as a heading tag, or nothing when there is no advice to give.
     @ViewBuilder
     func advisorTag(_ providerID: String) -> some View {
-        if let reading = visibleAdvisorReadings.first(where: { $0.provider == providerID }) {
-            let now = Date()
-            let dryPools = advisorDryPools(providerID, now: now)
-            let conclusion = advisorConclusion(reading, dryPools: dryPools)
-            if let tag = tagText(conclusion) {
-                let sentence = conclusionSentence(conclusion)
-                let tint = conclusionTint(conclusion)
-                Text(tag)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(tint == TallyColor.warning ? Self.amberTagInk : tint)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(tint.opacity(0.15)))
-                    .tallyTooltip(lazyText: { advisorTooltip(reading, sentence: sentence, conclusion: conclusion,
-                                                             dryPools: dryPools, now: now) })
-                    .accessibilityLabel(sentence)
-            }
+        if let state = advisorState(providerID), let tag = state.tag {
+            let tint = conclusionTint(state.conclusion)
+            Text(tag)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(tint == TallyColor.warning ? Self.amberTagInk : tint)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(tint.opacity(0.15)))
+                .tallyTooltip(lazyBlocks: { advisorTooltip(state) })
+                .accessibilityLabel(state.sentence)
         }
+    }
+
+    /// The same hover for a heading that carries no tag (B-1570): a provider with nothing to act on
+    /// this week still has its four-week figures and its next refills, so the provider's name answers
+    /// with them. Empty while the tag is showing, which keeps the hover on the tag alone.
+    func advisorHeadingTooltip(_ providerID: String) -> [TallyTooltipBlock] {
+        guard let state = advisorState(providerID), state.tag == nil else { return [] }
+        return advisorTooltip(state)
+    }
+
+    /// One provider's advice, read once for both the tag and the heading's hover.
+    private struct AdvisorState {
+        let reading: UsageAdvisor.Reading
+        let conclusion: AdvisorConclusion
+        let sentence: String
+        let dryPools: [DryPool]
+        let now: Date
+        let tag: String?
+    }
+
+    private func advisorState(_ providerID: String) -> AdvisorState? {
+        guard let reading = visibleAdvisorReadings.first(where: { $0.provider == providerID }) else { return nil }
+        let now = Date()
+        let dryPools = advisorDryPools(providerID, now: now)
+        let conclusion = advisorConclusion(reading, dryPools: dryPools)
+        let sentence = conclusionSentence(conclusion, reading: reading, dryPools: dryPools)
+        return AdvisorState(reading: reading, conclusion: conclusion, sentence: sentence, dryPools: dryPools, now: now,
+                            tag: tagText(conclusion, sentence: sentence, reading: reading, dryPools: dryPools))
+    }
+
+    private func advisorTooltip(_ state: AdvisorState) -> [TallyTooltipBlock] {
+        advisorTooltip(state.reading, sentence: state.sentence, conclusion: state.conclusion,
+                       dryPools: state.dryPools, now: state.now)
     }
 
     /// Amber text: the tag here and the pool forecast line. The shared amber reads about 2:1 on a
@@ -70,13 +96,18 @@ extension PopoverRootView {
         })
     }
 
-    /// The tag's words: short enough for a heading. Near capacity drops its four-week figure (the
-    /// hover's first line carries it); "add" and "not enough" are already short.
-    private func tagText(_ conclusion: AdvisorConclusion) -> String? {
+    /// The tag's words: what to do, or nothing. It shows only when it asks for something: accounts
+    /// to add (`AdvisorConclusion.tagAdd`, which also needs the pool rows to run dry, so "add 1"
+    /// never sits beside "won't run dry"), or the plans short at this pace (B-1544).
+    private func tagText(_ conclusion: AdvisorConclusion, sentence: String, reading: UsageAdvisor.Reading,
+                         dryPools: [DryPool]) -> String? {
         switch conclusion {
         case .enough, .collecting: return nil
-        case .nearCapacity: return L("near limit over 4 wks")
-        case .add, .shortAtPace: return conclusionSentence(conclusion)
+        case .shortAtPace: return sentence
+        case .add(_, let plan), .nearCapacity(_, _, let plan):
+            return conclusion.tagAdd(fourWeek: fourWeekFigures(plan: plan, reading: reading),
+                                     dryPools: joinPools(dryPools))
+                .map { addText(count: $0.count, plan: $0.plan) }
         }
     }
 
@@ -101,23 +132,28 @@ extension PopoverRootView {
 
     /// The conclusion. The join with the gauge's dry pools and the decision both live in
     /// `AdvisorConclusion.join`, so they are tested together.
+    private func joinPools(_ dryPools: [DryPool]) -> [AdvisorConclusion.DryPool] {
+        dryPools.map { entry in
+            .init(byPlan: entry.summary.planTier != nil, plan: entry.summary.planTier?.name,
+                  accountCount: entry.summary.accountCount, dryAt: entry.dry)
+        }
+    }
+
     private func advisorConclusion(_ reading: UsageAdvisor.Reading,
                                    dryPools: [DryPool]) -> AdvisorConclusion {
         AdvisorConclusion.join(
             verdict: reading.verdict, daysOfData: reading.daysOfData,
             pooledDemandPerWeek: reading.demandPerWeek, tierDemands: reading.tierDemands,
             ownedAccounts: store.orderedAccounts.filter { $0.providerID == reading.provider }.count,
-            dryPools: dryPools.map { entry in
-                .init(byPlan: entry.summary.planTier != nil, plan: entry.summary.planTier?.name,
-                      accountCount: entry.summary.accountCount)
-            },
+            dryPools: joinPools(dryPools),
             starvedHoursPerWeek: reading.starvedHoursPerWeek)
     }
 
     /// The conclusion in words: the row's text, the hover's first line, and VoiceOver's label.
     /// Counts and plan names go in as STRINGS, like every figure this app catalogues: an
     /// interpolated Int keys the entry on `%lld` and misses the `%@` catalogue entry (2026-08-04).
-    private func conclusionSentence(_ conclusion: AdvisorConclusion) -> String {
+    private func conclusionSentence(_ conclusion: AdvisorConclusion, reading: UsageAdvisor.Reading,
+                                    dryPools: [DryPool]) -> String {
         switch conclusion {
         case .enough:
             return L("enough accounts")
@@ -126,24 +162,13 @@ extension PopoverRootView {
             let count = "\(days)"
             return String(localized: "account advice in \(count) days", bundle: AppLocale.bundle)
         case .add(let count, let plan):
-            let number = "\(count)"
-            switch (plan, count) {
-            case (nil, 1): return L("add 1 account")
-            case (nil, _): return String(localized: "add \(number) accounts", bundle: AppLocale.bundle)
-            case (let plan?, 1): return String(localized: "add 1 \(plan) account", bundle: AppLocale.bundle)
-            case (let plan?, _):
-                return String(localized: "add \(number) \(plan) accounts", bundle: AppLocale.bundle)
+            guard let figures = fourWeekFigures(plan: plan, reading: reading) else {
+                return addText(count: count, plan: plan)
             }
+            return twoScaleSentence(figures.demand, owned: figures.owned, plan: plan, dryPools: dryPools)
         case .nearCapacity(let demand, let owned, let plan):
             guard let demand else { return L("near limit over 4 wks") }
-            let figure = String(format: "%.1f", demand)
-            let count = "\(owned)"
-            guard let plan else {
-                return String(localized: "near limit over 4 wks: \(figure) accounts a week, \(count) owned",
-                              bundle: AppLocale.bundle)
-            }
-            return String(localized: "near limit over 4 wks: \(plan) \(figure) accounts a week, \(count) owned",
-                          bundle: AppLocale.bundle)
+            return twoScaleSentence(demand, owned: owned, plan: plan, dryPools: dryPools)
         case .shortAtPace(let plans):
             guard !plans.isEmpty else { return L("short at this pace") }
             let names = plans.map { $0 ?? L("Unknown plan") }.joined(separator: " · ")
@@ -151,14 +176,51 @@ extension PopoverRootView {
         }
     }
 
+    private func addText(count: Int, plan: String?) -> String {
+        let number = "\(count)"
+        switch (plan, count) {
+        case (nil, 1): return L("add 1 account")
+        case (nil, _): return String(localized: "add \(number) accounts", bundle: AppLocale.bundle)
+        case (let plan?, 1): return String(localized: "add 1 \(plan) account", bundle: AppLocale.bundle)
+        case (let plan?, _): return String(localized: "add \(number) \(plan) accounts", bundle: AppLocale.bundle)
+        }
+    }
+
+    /// The four-week use and the accounts it is measured against, for the plan when named.
+    private func fourWeekFigures(plan: String?, reading: UsageAdvisor.Reading) -> (demand: Double, owned: Int)? {
+        guard let plan else {
+            return (reading.demandPerWeek,
+                    max(1, store.orderedAccounts.filter { $0.providerID == reading.provider }.count))
+        }
+        return reading.tierDemands.first { $0.plan?.lowercased() == plan.lowercased() }
+            .map { ($0.demandPerWeek, max(1, $0.accountCount)) }
+    }
+
+    /// Both time scales in one line: the four-week average against the accounts owned, then this
+    /// week's pace, read from the pool rows' own dry forecast so it never contradicts them.
+    private func twoScaleSentence(_ demand: Double, owned: Int, plan: String?, dryPools: [DryPool]) -> String {
+        let figure = String(format: "%.1f", demand)
+        let count = "\(owned)"
+        let dry = joinPools(dryPools)
+        let runsDry = AdvisorConclusion.runsDryThisWeek(plan: plan, dryPools: dry)
+        switch (plan, runsDry) {
+        case (nil, false):
+            return String(localized: "Past 4 weeks averaged \(figure) accounts a week, you have \(count); at this week's pace it lasts until the refill", bundle: AppLocale.bundle)
+        case (nil, true):
+            return String(localized: "Past 4 weeks averaged \(figure) accounts a week, you have \(count); at this week's pace it runs dry before the refill", bundle: AppLocale.bundle)
+        case (let plan?, false):
+            return String(localized: "\(plan): past 4 weeks averaged \(figure) accounts a week, you have \(count); at this week's pace it lasts until the refill", bundle: AppLocale.bundle)
+        case (let plan?, true):
+            return String(localized: "\(plan): past 4 weeks averaged \(figure) accounts a week, you have \(count); at this week's pace it runs dry before the refill", bundle: AppLocale.bundle)
+        }
+    }
+
     private func conclusionTint(_ conclusion: AdvisorConclusion) -> Color {
         switch conclusion {
         case .enough, .collecting: return .secondary
-        // One step under "add": the calm level of the three-step ramp, drawn the way
-        // FootprintSparklineView's `.calm` is (no tint, the primary label colour), so it stands out
-        // from the grey "enough" without borrowing the amber that asks for a purchase.
-        case .nearCapacity: return .primary
-        case .add, .shortAtPace: return TallyColor.warning
+        // Near capacity only draws a tag when it asks to add (`tagAdd`), the same action in the
+        // same words as "add", so it takes the same amber (B-1544).
+        case .add, .nearCapacity, .shortAtPace: return TallyColor.warning
         }
     }
 
@@ -192,27 +254,18 @@ extension PopoverRootView {
             .joined(separator: " · ")
     }
 
-    /// Every window side by side for the hover: one line for a provider on one plan, one line per
-    /// plan for a split one (the same split and order as the row), because a ladder that pooled Pro
-    /// and Team would contradict the "counted separately" line right above it.
-    private func ladderLines(_ reading: UsageAdvisor.Reading) -> [String] {
+    /// Every window in one column under a "By window | acct/wk" heading, shortest first: the unit
+    /// once in the heading, the figures right-aligned beneath it so the four read at a glance
+    /// (B-1570). A split provider's rung lists its plans in the row's order, because a ladder that
+    /// pooled Pro and Team would contradict the per-plan rows above it.
+    private func ladderLines(_ reading: UsageAdvisor.Reading) -> [TallyTooltipRow] {
         let order = gaugePlanOrder(reading.provider)
-        let perWindow = reading.windowDemands.map {
-            AdvisorConclusion.windowFigures($0, readingTiers: reading.tierDemands, planOrder: order)
+        let rungs = reading.windowDemands.map { window in
+            TallyTooltipRow(windowLabel(window.days), figuresText(AdvisorConclusion.windowFigures(
+                window, readingTiers: reading.tierDemands, planOrder: order)), style: .sub)
         }
-        guard let first = perWindow.first, first.split else {
-            let rungs = zip(reading.windowDemands, perWindow)
-                .map { "\(windowLabel($0.days)) \(figuresText($1))" }
-                .joined(separator: " · ")
-            return [String(localized: "by window: \(rungs) acct/wk", bundle: AppLocale.bundle)]
-        }
-        return first.figures.indices.map { index in
-            let plan = first.figures[index].plan ?? L("Unknown plan")
-            let rungs = zip(reading.windowDemands, perWindow)
-                .map { "\(windowLabel($0.days)) \(figureText($1.figures[index].demandPerWeek))" }
-                .joined(separator: " · ")
-            return String(localized: "\(plan) by window: \(rungs) acct/wk", bundle: AppLocale.bundle)
-        }
+        guard !rungs.isEmpty else { return [] }
+        return [TallyTooltipRow(L("By window"), L("acct/wk"), style: .strong)] + rungs
     }
 
     private func tierName(_ tier: UsageAdvisor.TierDemand) -> String {
@@ -234,61 +287,60 @@ extension PopoverRootView {
         }
     }
 
-    /// The numbers behind the verdict, for the hover tooltip - the "why" the one-liner elides -
-    /// followed by when the provider next gets quota back, because "do I need another account"
-    /// is really "can I wait for the refill". Same wording as the gauge's refill label and the
-    /// same +gain the fleet tooltip lists, so one schedule never reads two ways.
+    /// The numbers behind the verdict, for the hover - the "why" the tag elides - then when the
+    /// provider next gets quota back, because "do I need another account" is really "can I wait
+    /// for the refill". One block, one fact per row, figures in the right-hand column (B-1570).
+    /// The conclusion is the title, word for word the tag's sentence. There is no "weekly need"
+    /// row: it is the 28-day rung itself (`UsageAdvisor.Reading.windowDemands`), and printing it
+    /// twice was the hover's loudest repetition.
     private func advisorTooltip(_ reading: UsageAdvisor.Reading, sentence: String,
                                 conclusion: AdvisorConclusion,
-                                dryPools: [DryPool], now: Date) -> String {
-        let demand = String(format: "%.1f", reading.demandPerWeek)
-        let burn = "\(Int(reading.activeBurnPerHour.rounded()))%"
-        let starved = String(format: "%.1fh", reading.starvedHoursPerWeek)
-        var lines = [sentence]
+                                dryPools: [DryPool], now: Date) -> [TallyTooltipBlock] {
+        var rows: [TallyTooltipRow] = []
         // This week's reading, in the gauge's own words, for each pool that runs dry: the reason
-        // the row can say "not enough" while the four-week average below says otherwise.
+        // the tag can say "not enough" while the four-week average below says otherwise. Named
+        // with the gauge's pool name too, so a provider's weekly and model pools never read alike.
         for entry in dryPools {
-            let name = entry.summary.planTier.map { $0.name ?? L("Unknown plan") }
+            let owner = entry.summary.planTier.map { $0.name ?? L("Unknown plan") }
                 ?? ProviderCatalog.displayName(for: reading.provider)
+            let name = owner + " " + poolDisplayName(entry.pool)
             let body = UsageFormat.durationBody(entry.dry.timeIntervalSince(now))
-            lines.append(name + " · " + String(localized: "runs dry in about \(body)", bundle: AppLocale.bundle))
+            rows.append(TallyTooltipRow(name, String(localized: "runs dry in about \(body)", bundle: AppLocale.bundle)))
         }
-        // Near capacity IS the four-week reading, already on the first line with its figure;
-        // "4-week average: add 1 account" under it would bring the contradiction back.
+        // Near capacity IS the four-week reading, already the title with its figure; "4-week
+        // average: add 1 account" under it would bring the contradiction back.
         if case .nearCapacity = conclusion {} else {
-            let verdict = verdictSentence(reading)
-            lines.append(String(localized: "4-week average: \(verdict)", bundle: AppLocale.bundle))
+            rows.append(TallyTooltipRow(L("4-week average"), verdictSentence(reading)))
         }
-        // Each tier's four-week figure spelled out in full, with the reason they are not added
-        // up. The pooled line below stays: it is still the honest total percent-points, and
-        // dropping it would make the tooltip disagree with `demandPerWeek` everywhere else this
-        // app publishes it.
+        // Each tier's four-week figure, named the way the gauge names a plan (plan ×N), with the
+        // reason they are not added up closing the block.
         let tiers = AdvisorConclusion.splitTiers(reading.tierDemands)
         for tier in tiers {
             let figure = String(format: "%.1f", tier.demandPerWeek)
-            // The count goes in as a STRING: an interpolated Int would key the entry on `%lld`,
-            // and every catalogued figure in this app is keyed on `%@`.
-            let count = "\(tier.accountCount)"
-            lines.append(tier.accountCount == 1
-                ? String(localized: "\(tierName(tier)): \(figure) acct/wk (1 account)",
-                         bundle: AppLocale.bundle)
-                : String(localized: "\(tierName(tier)): \(figure) acct/wk (\(count) accounts)",
-                         bundle: AppLocale.bundle))
+            rows.append(TallyTooltipRow("\(tierName(tier)) ×\(tier.accountCount)",
+                                        String(localized: "\(figure) acct/wk", bundle: AppLocale.bundle)))
+        }
+        let starved = String(format: "%.1fh", reading.starvedHoursPerWeek)
+        rows.append(TallyTooltipRow(L("Active burn"), "\(Int(reading.activeBurnPerHour.rounded()))%/h"))
+        rows.append(TallyTooltipRow(L("Starved"), String(localized: "\(starved)/wk", bundle: AppLocale.bundle)))
+        // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
+        // last month's average?), so every rung sits in one column.
+        rows.append(contentsOf: ladderLines(reading))
+        let refills = upcomingRefills(reading.provider, now: now)
+        if !refills.isEmpty {
+            rows.append(TallyTooltipRow(L("Next refill"), "", style: .strong))
+            for refill in refills {
+                rows.append(TallyTooltipRow(
+                    refill.accountLabel,
+                    UsageFormat.countdownBody(refill.at, now: now) + " · " + UsageFormat.absoluteBody(refill.at)
+                        + " · +\(Int(refill.gain.rounded()))%",
+                    style: .sub))
+            }
         }
         if !tiers.isEmpty {
-            lines.append(L("Plan quotas differ, so tiers are counted separately."))
+            rows.append(TallyTooltipRow(L("Plan quotas differ, so tiers are counted separately."), "", style: .note))
         }
-        lines.append(
-            String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
-                   bundle: AppLocale.bundle))
-        // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
-        // last month's average?), so every rung is side by side, per plan when the provider splits.
-        lines.append(contentsOf: ladderLines(reading))
-        for refill in upcomingRefills(reading.provider, now: now) {
-            lines.append(refillText(refill, now: now) + " · " + UsageFormat.absoluteBody(refill.at)
-                         + " (+\(Int(refill.gain.rounded()))%)")
-        }
-        return lines.joined(separator: "\n")
+        return [TallyTooltipBlock(title: sentence, rows: rows)]
     }
 
     /// The provider's next two quota refills. Pooled straight from FleetMath rather than through

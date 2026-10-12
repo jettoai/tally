@@ -375,7 +375,7 @@ hook，以及帶著 `/tally` 指令的 Claude Code skill。每一列 hook 都給
 「全部安裝」：那一項會在 config home 之間搬動對話，而一個意思是「全部打開」的按鍵，
 未必也代表那件事。
 
-shim 和 `tally claude` 的差別：裝了設定頁的 shim，而且 Claude 的啟動模式沒有設成「關閉」，直接打 `claude` 也會先幫你挑帳號。`tally claude`（也就是下面的 `c` 和 `cc`）多做兩件 shim 做不到的事：撞到用量上限時，對話自動接到別的帳號繼續，暫時沒有別的帳號有額度就停在原處、每 15 秒重試一次；`--continue` 照對話 id 接回你在這個目錄上次用 `tally claude` 開的那段對話，用 shim 或直接打 `claude` 開的對話不會被記錄，也就不在接回範圍內。
+shim 和 `tally claude` 的差別：裝了設定頁的 shim，而且 Claude 那列的「啟動帳號」沒有選「關閉」，直接打 `claude` 也會先幫你挑帳號。`tally claude`（也就是下面的 `c` 和 `cc`）多做兩件 shim 做不到的事：撞到用量上限時，對話自動接到別的帳號繼續，暫時沒有別的帳號有額度就停在原處、每 15 秒重試一次；`--continue` 照對話 id 接回 Tally 在這個目錄最後看著的那段對話，也就是最近一次用 `tally claude` 跑的那段；這個目錄沒有這筆紀錄、或那段對話已經不在時，才改接回目錄裡最新的一段，不管它是怎麼開的。
 
 可選的 shell 捷徑：
 

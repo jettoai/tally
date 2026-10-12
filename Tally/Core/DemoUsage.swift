@@ -427,7 +427,8 @@ enum DemoUsage {
                 return TokenSample(
                     day: today - offset, project: project.path, providerID: project.provider,
                     totals: TokenTotals(input: output, cacheWrite: output * 8,
-                                        cacheRead: output * 330, output: output))
+                                        cacheRead: output * 330, output: output),
+                    model: project.provider == "claude" ? "claude-opus-5-5" : "")  // priced on Spend
             }
         }
     }

@@ -66,6 +66,12 @@ The Cost tab's Tokens page totals input, cache and output tokens for today, 7 da
   <img src="assets/screenshot-cost-tokens.png" alt="The Tokens page of the Cost tab: total tokens for the selected range with input, cache write, cache read and output, a Claude and Codex split, and a per-project table with one project expanded into a year-long daily activity heatmap" width="720">
 </p>
 
+The Spend page, the one the tab opens on, turns those tokens into money: each project's Claude usage priced at Anthropic's list prices, with the total broken into input, cache write, cache read and output. Codex tokens are counted but left unpriced, since Tally has no price list it trusts for them. `tally cost --json` hands the same figures to your scripts.
+
+<p align="center">
+  <img src="assets/screenshot-cost-spend.png" alt="The Spend page of the Cost tab: total cost for the selected range with the subagent share, the cost split into input, cache write, cache read and output, and a per-project table with each project's cost, share, tokens, cost per million tokens and change from the previous period" width="504">
+</p>
+
 ### 5. Read-only, on your own paid subscriptions
 
 Usage is read through the providers' own official CLIs (`claude -p "/usage"` and `codex app-server`). Tally never proxies, shares or resells access, never logs or sends a token, and runs as one native Swift app with no Electron, with the core that reads conversation transcripts written in Rust. [What it reads, and the few things it writes](#how-it-works-and-what-it-never-does).

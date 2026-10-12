@@ -66,6 +66,12 @@ Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 
   <img src="assets/screenshot-cost-tokens.png" alt="「成本」分頁的 Token 頁：所選區間的 Token 總計，附輸入、快取寫入、快取讀取與輸出，Claude 與 Codex 的拆分，以及一張專案表，其中一個專案展開成一整年的每日活動熱力圖" width="720">
 </p>
 
+花費頁（分頁預設打開的那頁）把這些 Token 換算成金額：依 Anthropic 牌價計算每個專案的 Claude 用量，總額再拆成輸入、快取寫入、快取讀取與輸出。Codex 的 Token 會計入，但沒有換算金額，因為 Tally 沒有一份可信的 Codex 價目表。跑 `tally cost --json` 就能讓腳本拿到同一份數字。
+
+<p align="center">
+  <img src="assets/screenshot-cost-spend.png" alt="「成本」分頁的花費頁：所選區間的總花費與 subagent 佔比，花費拆成輸入、快取寫入、快取讀取與輸出，以及一張專案表，列出每個專案的花費、佔比、Token 數、每百萬 Token 花費與跟前一期的變化" width="504">
+</p>
+
 ### 5. 唯讀，只用你自己付費的訂閱
 
 用量透過各家自己的官方 CLI 讀取（`claude -p "/usage"` 與 `codex app-server`）。Tally 從不代理、共享或轉售存取權，從不記錄或傳送任何 token，而且是一個原生 Swift app、沒有 Electron，讀對話紀錄的核心用 Rust 寫。[它讀什麼，以及它會寫入的少數幾樣東西](#運作方式以及它絕不做的事)。

@@ -21,7 +21,7 @@
 <p align="center"><b>English</b> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
 <p align="center">
-  <img src="assets/screenshot-hero.png" alt="Tally's dashboard on demo data: nine accounts (five Claude Max, four Codex) as cards side by side, each with its 5-hour session, weekly and top-model quota windows and their reset times; above them, an account pool per provider pools the accounts into one budget with a forecast of how long it lasts at your pace, and an advisor line says whether your pace calls for one more account" width="834">
+  <img src="assets/screenshot-list.png" alt="Tally's dashboard on demo data: nine accounts (five Claude Max, four Codex) in the compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the round select button and drag handle at the end of each row; above them, an account pool per provider with a forecast of how long it lasts at your pace, and an advisor line that says whether your pace calls for one more account" width="900">
 </p>
 
 https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
@@ -159,9 +159,6 @@ Your other Macs and Linux boxes are sitting idle while this one grinds through a
   account's weekly quota is used up, Tally can redeem the soonest-expiring credit on its own and
   tell you it did (a switch in Settings, on by default).
 
-<p align="center">
-  <img src="assets/screenshot-list.png" alt="The same nine accounts in Tally's compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the round select button and drag handle at the end of each row; above them the same account pools and advisor line the card density shows" width="900">
-</p>
 
 ### The session board
 

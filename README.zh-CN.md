@@ -21,7 +21,7 @@
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <b>简体中文</b> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
 <p align="center">
-  <img src="assets/screenshot-hero.png" alt="Tally 仪表盘（演示数据）：九个账号（五个 Claude Max、四个 Codex）以卡片并排，每张卡显示 5 小时会话、每周与旗舰模型额度窗及各自的重置时间；上方每个 provider 一个账号池，把账号合并成一份预算，并预测照你的节奏能撑多久；顾问行告诉你照目前节奏是否该再加一个账号" width="834">
+  <img src="assets/screenshot-list.png" alt="Tally 仪表盘（演示数据）：九个账号（五个 Claude Max、四个 Codex）在精简列表密度下、两栏并排：每个账号一行，带 provider 标记、账号名称与方案，接着每个额度窗都是一条附百分比的小 bar，登录失效的账号有警告三角形，有额度重置存量的 Codex 行显示存量数字，启动器当前选择的账号有紫色智选标记，每行末尾是圆形选取钮与拖拽把手；上方是每家的账号池（按当前速度能撑多久的预测）与顾问行" width="900">
 </p>
 
 https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
@@ -144,9 +144,6 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   窗口，指名账号、列清楚成本，并在兑换多半会浪费时给出警告；最快到期的额度优先花。账号的每周额度
   用完时，Tally 也能自动兑换最快到期的那一枚并通知你（设置里的开关，默认开启）。
 
-<p align="center">
-  <img src="assets/screenshot-list.png" alt="同样九个账号在 Tally 的精简列表密度下、两栏并排：每个账号一行，带 provider 标记、账号名称与方案，接着每个额度窗都是一条附百分比的小 bar，登录失效的账号有警告三角形，有额度重置存量的 Codex 行显示存量数字，启动器当前选择的账号有紫色智选标记，每行末尾是圆形选取钮与拖拽把手；上方是与卡片密度相同的账号池与顾问行" width="900">
-</p>
 
 ### 会话看板
 

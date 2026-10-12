@@ -21,7 +21,7 @@
 <p align="center"><a href="README.md">English</a> · <b>繁體中文</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
 <p align="center">
-  <img src="assets/screenshot-hero.png" alt="Tally 儀表板（示範資料）：九個帳號（五個 Claude Max、四個 Codex）以卡片並排，每張卡片顯示 5 小時工作階段、每週與旗艦模型額度窗及各自的重置時間；上方每個服務各有一個帳號池，把帳號合成一份預算，並預測照你的節奏還能撐多久，顧問列則說明你的節奏是否需要再加一個帳號" width="834">
+  <img src="assets/screenshot-list.png" alt="Tally 儀表板（示範資料）：九個帳號（五個 Claude Max、四個 Codex）在精簡清單密度下、兩欄並排：每個帳號一行，帶 provider 標記、帳號名稱與方案，接著每個額度窗都是一條附百分比的小 bar，登入失效的帳號有警告三角形，有額度重置存量的 Codex 行顯示存量數字，啟動器目前選擇的帳號有紫色智選標記，每行尾端是圓形選取鈕與拖曳把手；上方是每家的帳號池（照目前速度可撐多久的預測）與顧問列" width="900">
 </p>
 
 https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
@@ -143,9 +143,6 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   視窗，指名帳號、列清楚成本，並在兌換多半會浪費時提出警告；最快到期的額度優先花。帳號的每週額度
   用完時，Tally 也能自動兌換最快到期的那一枚並通知你（設定裡的開關，預設開啟）。
 
-<p align="center">
-  <img src="assets/screenshot-list.png" alt="同樣九個帳號在 Tally 的精簡清單密度下、兩欄並排：每個帳號一行，帶 provider 標記、帳號名稱與方案，接著每個額度窗都是一條附百分比的小 bar，登入失效的帳號有警告三角形，有額度重置存量的 Codex 行顯示存量數字，啟動器目前選擇的帳號有紫色智選標記，每行尾端是圓形選取鈕與拖曳把手；上方是與卡片密度相同的帳號池與顧問列" width="900">
-</p>
 
 ### session 看板
 

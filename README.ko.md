@@ -21,7 +21,7 @@
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <b>한국어</b></p>
 
 <p align="center">
-  <img src="assets/screenshot-hero.png" alt="데모 데이터로 표시한 Tally 대시보드: 아홉 개의 계정(Claude Max 다섯, Codex 넷)이 카드로 나란히 놓이고, 각 카드에는 5시간 세션, 주간, 최상위 모델 쿼터 창과 리셋 시각이 표시됩니다. 그 위에서는 프로바이더별 계정 풀이 계정들을 하나의 예산으로 모아 현재 속도로 얼마나 버틸지 예측하고, 어드바이저 행은 지금 속도라면 계정이 하나 더 필요한지 알려 줍니다" width="834">
+  <img src="assets/screenshot-list.png" alt="데모 데이터로 표시한 Tally 대시보드: 아홉 개의 계정(Claude Max 다섯 개, Codex 네 개)을 컴팩트한 목록 밀도로, 두 열 너비로 표시: 계정마다 한 줄에 프로바이더 마크, 계정 이름과 플랜이 담기고, 이어서 모든 쿼터 창이 퍼센트가 붙은 작은 막대로 표시되며, 로그인이 만료된 계정에는 경고 삼각형, 리셋 뱅킹이 있는 Codex 행에는 적립 횟수, 런처가 현재 선택한 계정에는 보라색 스마트 표시, 각 줄 끝에는 둥근 선택 버튼과 드래그 핸들이 있습니다. 그 위에는 프로바이더별 계정 풀(지금 속도로 얼마나 버티는지 예측)과 어드바이저 행이 있습니다" width="900">
 </p>
 
 https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
@@ -160,9 +160,6 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   만료되는 크레딧부터 사용됩니다. 계정의 주간 쿼터를 모두 쓰면 Tally가 가장 먼저 만료되는
   크레딧을 자동으로 사용하고 알려 줍니다(설정의 스위치, 기본값 켜짐).
 
-<p align="center">
-  <img src="assets/screenshot-list.png" alt="같은 아홉 개 계정을 Tally의 컴팩트한 목록 밀도로, 두 열 너비로 표시: 계정마다 한 줄에 프로바이더 마크, 계정 이름과 플랜이 담기고, 이어서 모든 쿼터 창이 퍼센트가 붙은 작은 막대로 표시되며, 로그인이 만료된 계정에는 경고 삼각형, 리셋 뱅킹이 있는 Codex 행에는 적립 횟수, 런처가 현재 선택한 계정에는 보라색 스마트 표시, 각 줄 끝에는 둥근 선택 버튼과 드래그 핸들이 있습니다. 그 위에는 카드 밀도와 같은 계정 풀과 어드바이저 행이 있습니다" width="900">
-</p>
 
 ### 세션 보드
 

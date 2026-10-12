@@ -1,64 +1,92 @@
 <p align="center">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="120" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
-<p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
-<p align="center">Every AI subscription you own, at a glance, in your macOS menu bar,<br>plus a launcher that puts every session on the account whose quota goes furthest,<br>and a board that watches every session it started.</p>
+<p align="center"><b>For people running more than one AI subscription.</b></p>
+
+<h3 align="center">Every Claude and Codex subscription you pay for, in one glance from your menu bar.<br>Every new session starts on the account with the most room left.</h3>
 
 <p align="center">
-  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple&logoColor=white">
-  <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=download&color=22c55e"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><img alt="Download for macOS" src="assets/download-macos.svg" width="300"></a>
 </p>
 
-<p align="center"><a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><b>⬇ Download for macOS 14+</b></a></p>
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=release&color=22c55e"></a>
+  <img alt="Native SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
+  <img alt="Read-only" src="https://img.shields.io/badge/usage_reads-read--only-6366f1?style=flat-square">
+</p>
 
 <p align="center"><b>English</b> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
-Tally is a native **macOS menu bar AI usage monitor for Claude and Codex rate limits**, built for
-people who run **multiple Claude (Max/Pro) and Codex subscriptions** and are tired of guessing
-which account still has room: every account's 5-hour session, weekly, and top-model quota windows
-sit side by side under a fleet gauge that pools them into one combined budget and forecasts how
-long it lasts at your measured pace, and the Smart pick starts every new session on the account
-whose quota goes furthest right now, weighing reset times, not just remaining percent, then follows through
-mid-conversation: rate-limit handoff, flagship-model rescue, a fresh account pick at every
-`/clear`, a typed heads-up in every session on an account that is running low, and a status-line
-signal that shows which account is burning. A session board rounds it out: every conversation
-Tally launched as a card, with who is blocked waiting on you and what each one is costing the
-machine.
-
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip: five Claude accounts with index badges and stacked session/Fable percentages, followed by four Codex accounts with session/weekly" width="445">
+  <img src="assets/screenshot-hero.png" alt="Tally's dashboard on demo data: nine accounts (five Claude Max, four Codex) as cards side by side, each with its 5-hour session, weekly and top-model quota windows and their reset times; above them, an account pool per provider pools the accounts into one budget with a forecast of how long it lasts at your pace, and an advisor line says whether your pace calls for one more account" width="834">
 </p>
 
-<p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand, pooled for Claude's single plan (5.8 acct/wk) and split per plan for Codex (Pro 1.7 · Team 0.9), marking when the pace calls for one more account; below, every account's frosted-glass card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks; the header carries a Usage / Cost / Sessions switch" width="834">
-</p>
+https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
 
-<p align="center">
-  <img src="assets/screenshot-tokens.png" alt="The Tokens page of Tally's Cost tab: total tokens over the selected range (today / 7 days / 30 days / all time) with the input, cache write, cache read and output breakdown, a per-provider split between Claude and Codex, and a per-project table with share bars showing where the tokens went; one project row is expanded into a year of daily activity as a contribution-style heatmap with its past-year total" width="834">
-</p>
+<p align="center"><sub>A 30-second tour of Tally.</sub></p>
+
+<p align="center"><sub>Free and open source · by <a href="https://jetto.ai">Jetto</a> · a macOS menu bar AI usage monitor for Claude and Codex rate limits</sub></p>
 
 ## Why Tally
 
-Menu bar usage meters already exist; what did not exist is one built for people who own several
-subscriptions at once:
+If you pay for two Claude Max seats and a Codex plan, the question all day is "which account still has room?" Single-account meters answer it for one account at a time. Tally answers it for all of them at once, then acts on the answer.
 
-- **Per-account cards, not a fallback chain.** Every account renders as its own card, side by
-  side, because "which account still has room" is exactly the question a multi-subscription user
-  is asking.
-- **Quota first, spend on its own tab.** Tally leads with the same 5-hour / weekly / top-model
-  windows the vendors themselves enforce. What your tokens would cost at list prices is an
-  estimate, and it has its own place on the Cost tab.
-- **A launcher that acts on the answer.** A dashboard's whole point is deciding where to work
-  next, so Tally makes that decision for you, every time, automatically, and keeps making it
-  while the session runs (cap handoff, model-degradation rescue, a free re-pick at every
-  `/clear`, a typed heads-up when the account runs low).
-- **The sessions themselves, on a board.** No other usage tool sees the session level at all:
-  Tally shows every conversation it launched as a card, which one is blocked waiting on you,
-  and what each one is costing the machine, down to the process that is eating the memory.
+### 1. Every account, side by side
+
+Each Claude and Codex login is its own card with its 5-hour, weekly and top-model windows, plus an account pool that pools them into one budget and forecasts when it runs dry at your pace ("runs dry in about 4d 10h"). The menu bar shows the same pools without opening anything: one segment per provider (or per plan), session on top and weekly below, with a small corner mark for how many accounts it sums or which plan it is. Switch it to one mark per account in Settings when you want them apart.
+
+<p align="center">
+  <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip in its default pooled layout: one Claude segment for five accounts and one Codex segment each for the Pro and Team plans, each stacking the pooled session percentage over the pooled weekly percentage" width="160">
+</p>
+
+### 2. Every session lands on the account with the most room
+
+`tally claude` (or `tally codex`) starts each new session on the account whose quota goes furthest right now, weighing reset times and not just remaining percent. When an account hits its cap mid-conversation, Tally resumes the *same conversation* on the next-best account; every `/clear` is a free chance to move; and an account running low types one heads-up line into the sessions using it. You, or an AI agent, can also clear a session from outside with `tally session clear`: the empty window reopens on the account with the most room.
+
+```sh
+tally claude          # starts on the best account right now
+```
+
+### 3. Every running session on one board
+
+Every conversation Tally launched becomes a card: account, model, context size, and whether it is working, idle, or **blocked waiting on you**. A red dot in the menu bar tells you when one is asking for permission, and each card shows what that session is costing the machine (CPU, memory, ports held). Those numbers are read straight from the macOS kernel; Tally does not start a `ps` or `top` process to get them.
+
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally's session board on demo data: eight cards, one per supervised conversation, each with its project, account, model and effort, context size, last activity and ports; one card is outlined in red as blocked, a summary line counts working, blocked, idle and not reporting sessions, and each card's footer reads the session's processes, CPU and memory" width="834">
+</p>
+
+### 4. See where your tokens went
+
+The Cost tab's Tokens page totals input, cache and output tokens for today, 7 days, 30 days or all time, split by provider and by project, with a year of daily activity per project. It reads the CLIs' own local transcripts and never leaves your Mac.
+
+<p align="center">
+  <img src="assets/screenshot-cost-tokens.png" alt="The Tokens page of the Cost tab: total tokens for the selected range with input, cache write, cache read and output, a Claude and Codex split, and a per-project table with one project expanded into a year-long daily activity heatmap" width="720">
+</p>
+
+### 5. Read-only, on your own paid subscriptions
+
+Usage is read through the providers' own official CLIs (`claude -p "/usage"` and `codex app-server`). Tally never proxies, shares or resells access, never logs or sends a token, and runs as one native Swift app with no Electron, with the core that reads conversation transcripts written in Rust. [What it reads, and the few things it writes](#how-it-works-and-what-it-never-does).
+
+## Install
+
+```sh
+curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
+```
+
+Or [download the DMG](https://github.com/jettoai/tally/releases/latest/download/Tally.dmg) directly, drag **Tally.app** into Applications, and launch it. It is notarized and updates itself in-app. Then **Settings → Integrations → Install all** adds the `tally` CLI, the status line signal and the Claude Code skill in one click. [More install options](#install-options).
+
+## Coming soon: Tally Pro compute pool
+
+Your other Macs and Linux boxes are sitting idle while this one grinds through a test suite. Tally Pro will send heavy work (full test suites, release builds, training jobs) to your own other machines automatically and stream the output back, so the Mac you are typing on stays fast.
+
+<p align="center">
+  <img src="assets/pro-compute-pool.svg" alt="Illustration: a heavy job started on your Mac is sent to one of your own other machines in a compute pool (a Mac Studio for release builds, a Linux box with a GPU for training, a spare MacBook for test suites), and the output streams back" width="760">
+</p>
+
+<p align="center"><sub>Watch this repo to hear when it ships.</sub></p>
 
 ## Features
 
@@ -67,11 +95,11 @@ subscriptions at once:
 - **Multi-account first.** Every `~/.claude*` login and Codex install is its own card: N accounts
   side by side, not a single-account fallback chain. Drag cards to reorder; the order applies
   everywhere.
-- **The fleet gauge.** Each provider's accounts pooled into ONE meter: a continuous bar for the
+- **The account pool.** Each provider's accounts pooled into ONE meter: a continuous bar for the
   combined weekly budget, the total in accounts' worth ("2.9/5 left"), and the next staggered
   refill. A forecast estimates how long the pool lasts at your recently measured pace, counting
-  the quota each reset brings back: "lasts about 4d 10h" when you are outspending the refill
-  cycle, "sustainable at this pace" when you are not. No other usage meter pools accounts at all.
+  the quota each reset brings back: "runs dry in about 4d 10h" when you are outspending the refill
+  cycle, "won't run dry at this pace ✓" when you are not. Single-account meters have nothing to pool.
 - **The usage advisor.** Do you need another account? One line per provider under the gauges: a
   filled pip per account you own, a hollow one when your measured pace asks for another, and the
   running weekly demand as the figure to read ("5.8 acct/wk"). A fleet on two plans reads per tier
@@ -80,7 +108,7 @@ subscriptions at once:
   carries the breakdown per tier, the active burn rate, the starved hours, and the next refills;
   `tally status --json` publishes the same split as `tierDemands`.
 - **Menu bar strip.** One segment per provider by default, summing that provider's accounts into
-  the same pool the fleet gauge draws, badged with how many accounts it stands for; switch it to one
+  the same pool the account pool draws, badged with how many accounts it stands for; switch it to one
   mark per account when you want them apart. Either way the segment stacks session over weekly, and
   hover spells out the accounts, their numbers, and anyone missing from the pool.
 - **Pinnable glass panel.** Pin the dashboard as an always-on-top frosted-glass panel; drag the
@@ -95,8 +123,8 @@ subscriptions at once:
   remembers its own column count behind the one picker, and the list's Auto keeps one column, its
   bars stretching to fill each row.
 - **Your layout, one card at a time.** A view-options card in the footer sets the density and the
-  column count with layout tiles (each tile drawing the layout it produces), switches the fleet
-  gauge and the advisor on or off, folds providers behind their gauges, and can seat the cards in a
+  column count with layout tiles (each tile drawing the layout it produces), switches the account
+  pool and the advisor on or off, folds providers behind their gauges, and can seat the cards in a
   section per provider; drag cards to reorder within it. A folded provider keeps its heading, which
   is how it comes back. A fleet too tall for the screen scrolls instead of falling off it.
 - **Token usage, by project.** A Tokens page inside the Cost tab on every surface: total
@@ -132,7 +160,7 @@ subscriptions at once:
   tell you it did (a switch in Settings, on by default).
 
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="The same nine accounts in Tally's compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the pin and drag controls at the end of each row; above them the same fleet gauges and advisor line the card density shows, with Codex reading Pro 1.7 · Team 0.9" width="900">
+  <img src="assets/screenshot-list.png" alt="The same nine accounts in Tally's compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the round select button and drag handle at the end of each row; above them the same account pools and advisor line the card density shows" width="900">
 </p>
 
 ### The session board
@@ -163,17 +191,14 @@ subscriptions at once:
   turn ended is residue and gets an amber note; a session holding most of the machine's memory
   gets a red one, and memory needs two witnesses (the tree's own figure plus the kernel's
   pressure reading) before Tally says so. A reading must hold for seconds before a warning
-  appears, so one GC pause never flashes red. No other usage tool reads at the session level at
-  all, let alone the process level.
+  appears, so one GC pause never flashes red. Usage meters read quota, not what each running
+  session is costing the machine.
 - **A board you can learn.** Sort by status seats the cards the moment the board opens and
   freezes them there (a board that re-sorted itself twice a second is a board nobody can learn);
   drag one card and the order becomes yours. A filter narrows to connected sessions or shows
   everything, dimming what is not reporting but keeping it clickable, and the board remembers a
   column count of its own, separate from the dashboard's.
 
-<p align="center">
-  <img src="assets/screenshot-sessions.png" alt="Tally's session board in dark mode, three columns of session cards, one per supervised conversation: each card names the project or worktree it runs in (atlas, atlas feat-search, dune, ledger, beacon, relay, cinder), the account, model and effort it is on (Claude fable-5 high, Codex 2 gpt-5.6-sol high, Claude 3 sonnet-5 medium), the conversation's context size and how long since it last moved; the atlas card is outlined in red and labeled blocked, the summary line counts 4 working, 1 blocked, 2 idle, 1 not reporting, and the Sessions tab in the header carries a red dot; each card's bottom line reads the session's machine footprint (subagent count, CPU percentage, memory, the biggest eater named: node, bun), and a dev-server card lists the ports it is holding (:3000 next-server, :5173)" width="834">
-</p>
 
 ### The launch control plane
 
@@ -235,7 +260,7 @@ subscriptions at once:
   and does not promise zero tool execution:
   the prompt instruction is not enforcement. Caller prompts and every other resume shape are unchanged.
   Human input during startup remains draft-held. This path still needs a trusted native binding, exact
-  terminal, completed native turn, and matching receipt before Codex advertises `send`; it never bypasses
+  terminal, completed native turn, and matching receipt before Codex advertises `send`; it never skips
   native trust. Requests are limited to 200 UTF-8 bytes; served or refused outcomes are logged in
   `~/.tally/logs/input.log`. `tally session clear` remains the distinct Claude control that may reopen a
   cleared session on a healthier account.
@@ -339,7 +364,7 @@ subscriptions at once:
   (`~/.tally/snapshot.json`: percentages and paths, never tokens), so opening ten terminals
   costs zero extra reads.
 - **Your own accounts only.** Multi-account means *your* paid subscriptions on *your* machine.
-  Tally does not proxy, pool, share, or resell access, and account switching just launches the
+  Tally does not proxy, share, or resell access, and account switching just launches the
   official CLI with the config directory you already own.
 - **Local first, error reports optional and off by default.** Nothing leaves your machine except
   the provider usage reads themselves, the anonymous usage ping below and, only if you turn on
@@ -370,7 +395,7 @@ subscriptions at once:
   config dirs (`CLAUDE_CONFIG_DIR=~/.claude2 claude` and log in), and/or
 - Codex CLI signed in (`~/.codex`)
 
-## Install
+## Install options
 
 Download the latest notarized DMG from [Releases](https://github.com/jettoai/tally/releases/latest),
 drag **Tally.app** into Applications, and launch it. Updates arrive automatically in-app.
@@ -446,7 +471,7 @@ that shows the quota windows the vendors actually enforce (5-hour, weekly, top-m
 multiple Claude and Codex accounts at once, and adds a launcher that acts on those numbers. The
 Tokens view covers the "how much did I burn, and on what" question too, per project, straight
 from the local transcripts, with no dollar guessing. And the session board goes a level deeper
-than any of them: every running session as a card, who is blocked waiting on you, and what each
+than ccusage and single-account meters: every running session as a card, who is blocked waiting on you, and what each
 one is costing the machine, down to the process holding the memory. Read-only, on your own paid
 subscriptions.
 

@@ -1,62 +1,92 @@
 <p align="center">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="120" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
-<p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
-<p align="center">보유한 모든 AI 구독의 잔여 한도를 macOS 메뉴 막대에서 한눈에.<br>게다가 모든 세션을 「한도가 가장 오래 버티는 계정」에 태워 주는 런처와,<br>그렇게 띄운 세션을 전부 지켜보는 보드까지.</p>
+<p align="center"><b>AI 구독을 두 개 이상 운용하는 사람을 위해.</b></p>
+
+<h3 align="center">결제 중인 모든 Claude와 Codex 구독을 메뉴 막대에서 한눈에.<br>새 세션은 매번 여유가 가장 많은 계정에서 시작됩니다.</h3>
 
 <p align="center">
-  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple&logoColor=white">
-  <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=download&color=22c55e"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><img alt="macOS용 다운로드" src="assets/download-macos.svg" width="300"></a>
 </p>
 
-<p align="center"><a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><b>⬇ macOS용 다운로드 (macOS 14+)</b></a></p>
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=release&color=22c55e"></a>
+  <img alt="Native SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
+  <img alt="Read-only" src="https://img.shields.io/badge/usage_reads-read--only-6366f1?style=flat-square">
+</p>
 
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <b>한국어</b></p>
 
-Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 네이티브 macOS 메뉴
-막대 앱**입니다. **여러 개의 Claude(Max/Pro)와 Codex 구독**을 운용하면서 「어느 계정에
-아직 여유가 있지?」를 추측하는 데 지친 사람을 위해 만들어졌습니다. 각 계정의 5시간
-세션, 주간, 최상위 모델 쿼터 창은 이를 하나의 합산 예산으로 모아 실측 속도로 얼마나
-버틸지 예측하는 플릿 게이지 아래 나란히 표시되고, 스마트 선택은 남은 퍼센트뿐 아니라
-리셋 시각까지 고려해 지금 여유가 가장 많은 계정으로 매번 새 세션을 시작합니다. 그리고
-대화 도중에도 계속 작동합니다: 한도에 걸렸을 때의 핸드오프, 플래그십 모델이 다운그레이드
-됐을 때의 구조, `/clear`마다 다시 하는 계정 선택, 한도가 얼마 남지 않은 계정에서 도는
-모든 세션에 적어 넣는 한 줄 알림, 그리고 어느 계정이 소모되고 있는지 보여 주는 status
-line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대화가 저마다 카드가 되어, 어느
-것이 당신을 기다리며 막혀 있는지, 각각이 기기를 얼마나 쓰고 있는지를 보여 줍니다.
-
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally 메뉴 막대: 번호 배지가 붙은 다섯 개의 Claude 계정과 세션/Fable 퍼센트, 이어서 네 개의 Codex 계정의 세션/주간" width="445">
+  <img src="assets/screenshot-hero.png" alt="데모 데이터로 표시한 Tally 대시보드: 아홉 개의 계정(Claude Max 다섯, Codex 넷)이 카드로 나란히 놓이고, 각 카드에는 5시간 세션, 주간, 최상위 모델 쿼터 창과 리셋 시각이 표시됩니다. 그 위에서는 프로바이더별 계정 풀이 계정들을 하나의 예산으로 모아 현재 속도로 얼마나 버틸지 예측하고, 어드바이저 행은 지금 속도라면 계정이 하나 더 필요한지 알려 줍니다" width="834">
 </p>
 
-<p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 패널: 프로바이더별 플릿 게이지가 아홉 개의 계정(Claude Max 다섯, Codex 넷)을 모아, Claude는 두 개의 잔량(Fable 풀과 주간 풀 막대, 각각 페이스 예측 '약 4d 12h 사용 가능'과 다음 시차 충전 포함), Codex는 주간 풀 하나(이 속도면 지속 가능)를 보여 줍니다. 어드바이저 행은 계정 점으로 프로바이더별 주간 실수요를 표시하며, Claude는 단일 플랜으로 합산(5.8 acct/wk), Codex는 플랜별로 나누어 표시(Pro 1.7 · Team 0.9)하고, 페이스가 초과되면 계정 추가가 필요함을 알려 줍니다. 그 아래에는 각 계정 고유의 반투명 유리 카드가 5시간 세션, 주간, 최상위 모델 창을 리셋 시각, 한도 임박 경고, 그리고 런처가 현재 선택한 계정을 나타내는 보라색 스마트 선택 배지와 함께 보여 줍니다. 헤더에는 사용량 / 비용 / 세션 전환이 있습니다" width="834">
-</p>
+https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
 
-<p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally 비용 탭의 토큰 페이지: 선택한 기간(오늘 / 7일 / 30일 / 전체)의 전체 토큰과 입력, 캐시 쓰기, 캐시 읽기, 출력 내역, Claude와 Codex의 프로바이더별 분할, 그리고 토큰이 어디로 갔는지 보여 주는 비율 막대가 있는 프로젝트별 표. 프로젝트 행 하나를 펼치면 지난 1년간의 일별 활동이 컨트리뷰션 스타일의 히트맵으로 열리며, 지난 1년 합계도 함께 표시됩니다" width="834">
-</p>
+<p align="center"><sub>30초 만에 둘러보는 Tally.</sub></p>
+
+<p align="center"><sub>무료 오픈 소스 · by <a href="https://jetto.ai">Jetto</a> · Claude와 Codex의 사용 한도를 보여 주는 macOS 메뉴 막대 AI 사용량 모니터</sub></p>
 
 ## 왜 Tally인가
 
-메뉴 막대 사용량 미터는 이미 존재합니다. 없었던 것은 「여러 구독을 동시에 운용하는
-사람」을 위한 것입니다:
+Claude Max 자리 두 개와 Codex 플랜 하나를 결제하고 있다면, 하루 종일 떠오르는 질문은 「어느 계정에 아직 여유가 있지?」입니다. 단일 계정 미터는 한 번에 한 계정씩만 답합니다. Tally는 모든 계정에 대해 한꺼번에 답하고, 그 답에 따라 움직입니다.
 
-- **계정마다 카드 하나, 폴백 체인이 아님.** 각 계정이 독립된 카드로 나란히 표시됩니다.
-  멀티 구독 사용자가 정말 알고 싶은 것은 「어느 계정에 아직 여유가 있는가」이기 때문입니다.
-- **쿼터가 중심, 비용은 별도 탭에.** Tally가 먼저 보여 주는 것은 벤더가 실제로 적용하는
-  5시간/주간/최상위 모델 쿼터 창입니다. 정가로 환산한 토큰 비용은 추정치로, 비용 탭에 따로 표시합니다.
-- **답에 따라 움직이는 런처.** 대시보드의 존재 이유는 「다음에 어느 계정으로 일할지」를
-  정하는 것입니다. Tally가 그 결정을 매번 자동으로 내리고, 세션이 실행되는 동안에도
-  계속 그 판단을 이어 갑니다(한도 도달 시 핸드오프, 모델 다운그레이드 시 구조,
-  `/clear`마다 공짜로 다시 고르기, 계정 한도가 얼마 남지 않았을 때의 한 줄 알림).
-- **세션 자체를 한 보드 위에.** 세션 수준까지 들여다보는 사용량 도구는 어디에도 없습니다.
-  Tally는 자기가 띄운 모든 대화를 카드로 보여 주고, 어느 것이 당신을 기다리며 막혀 있는지,
-  그리고 각각이 기기를 얼마나 쓰고 있는지를 메모리를 붙잡고 있는 프로세스까지 짚어 줍니다.
+### 1. 모든 계정을 나란히
+
+Claude와 Codex의 로그인마다 5시간, 주간, 최상위 모델 창을 담은 카드가 하나씩 생기고, 계정 풀이 이를 하나의 예산으로 모아 현재 속도로 언제 소진될지 예측합니다(「약 4d 10h 후 소진」). 메뉴 막대는 아무것도 열지 않아도 같은 풀을 보여 줍니다: 프로바이더(또는 플랜)마다 한 구간씩, 위에는 세션, 아래에는 주간을 쌓고, 모서리의 작은 표시로 몇 개의 계정을 합산했는지 또는 어떤 플랜인지 알려 줍니다. 계정을 따로 보고 싶다면 설정에서 계정마다 하나의 마크로 바꾸세요.
+
+<p align="center">
+  <img src="assets/screenshot-menubar.png" alt="기본 합산 배치의 Tally 메뉴 막대: 다섯 계정을 합산한 Claude 구간 하나와, Pro와 Team 플랜별 Codex 구간 하나씩이 각각 합산된 세션 퍼센트 위에 합산된 주간 퍼센트를 쌓아 표시합니다" width="160">
+</p>
+
+### 2. 모든 세션이 여유가 가장 많은 계정에서
+
+`tally claude`(또는 `tally codex`)는 남은 퍼센트뿐 아니라 리셋 시각까지 고려해, 지금 쿼터를 가장 오래 쓸 수 있는 계정에서 새 세션을 시작합니다. 대화 도중 계정이 한도에 걸리면 Tally는 다음으로 좋은 계정에서 *같은 대화*를 이어 갑니다. `/clear`할 때마다 계정을 옮길 기회가 공짜로 생기고, 한도가 얼마 남지 않은 계정은 그 계정을 쓰는 세션에 한 줄 알림을 적어 넣습니다. 사용자나 AI 에이전트가 바깥에서 `tally session clear`로 세션을 비울 수도 있으며, 새 빈 창은 여유가 가장 많은 계정에서 열립니다.
+
+```sh
+tally claude          # starts on the best account right now
+```
+
+### 3. 실행 중인 모든 세션을 한 보드에
+
+Tally가 띄운 대화는 저마다 카드가 됩니다: 계정, 모델, 컨텍스트 크기, 그리고 작업 중인지, 대기 중인지, **당신을 기다리며 막혀 있는지**. 어느 세션이 권한을 요청하고 있으면 메뉴 막대의 빨간 점이 알려 주고, 각 카드는 그 세션이 기기를 얼마나 쓰고 있는지(CPU, 메모리, 점유 중인 포트) 보여 줍니다. 이 수치는 macOS 커널에서 직접 읽으며, 이를 위해 `ps`나 `top` 프로세스를 따로 띄우지 않습니다.
+
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="데모 데이터로 표시한 Tally 세션 보드: 감독 중인 대화마다 한 장씩 여덟 장의 카드가 있고, 각 카드에는 프로젝트, 계정, 모델과 추론 강도, 컨텍스트 크기, 마지막 활동, 포트가 적혀 있습니다. 카드 하나는 막힌 상태라 빨간 테두리로 표시되고, 요약 줄은 작업 중, 막힘, 대기, 보고 없음 세션 수를 세며, 각 카드 하단 줄은 그 세션의 프로세스, CPU, 메모리를 읽습니다" width="834">
+</p>
+
+### 4. 토큰이 어디로 갔는지 확인
+
+비용 탭의 토큰 페이지는 오늘, 7일, 30일, 전체 기간의 입력, 캐시, 출력 토큰을 합산해 프로바이더별, 프로젝트별로 나누고, 프로젝트마다 1년간의 일별 활동을 보여 줍니다. 각 CLI가 로컬에 남긴 트랜스크립트를 읽으며, 데이터는 Mac 밖으로 나가지 않습니다.
+
+<p align="center">
+  <img src="assets/screenshot-cost-tokens.png" alt="비용 탭의 토큰 페이지: 선택한 기간의 전체 토큰과 입력, 캐시 쓰기, 캐시 읽기, 출력, Claude와 Codex 분할, 그리고 프로젝트 하나를 펼쳐 1년간의 일별 활동 히트맵을 보여 주는 프로젝트별 표" width="720">
+</p>
+
+### 5. 읽기 전용, 본인이 결제한 구독으로
+
+사용량은 각 프로바이더의 공식 CLI(`claude -p "/usage"`와 `codex app-server`)를 통해 읽습니다. Tally는 접근 권한을 프록시하거나 공유하거나 재판매하지 않고, 토큰을 기록하거나 전송하지 않으며, Electron 없이 하나의 네이티브 Swift 앱으로 동작하며, 대화 기록을 읽는 핵심은 Rust로 작성되어 있습니다. [무엇을 읽고, 무엇을 조금 쓰는지](#동작-방식-그리고-절대-하지-않는-것).
+
+## 설치
+
+```sh
+curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
+```
+
+또는 [DMG를 직접 다운로드](https://github.com/jettoai/tally/releases/latest/download/Tally.dmg)해 **Tally.app**을 응용 프로그램 폴더로 드래그한 뒤 실행하세요. 공증된 앱이며 앱 안에서 스스로 업데이트됩니다. 그다음 **설정 → 통합 → 모두 설치**를 누르면 `tally` CLI, status line 시그널, Claude Code skill이 한 번에 추가됩니다. [다른 설치 방법](#설치-옵션).
+
+## 출시 예정: Tally Pro 컴퓨트 풀
+
+이 Mac이 테스트 스위트를 돌리느라 바쁜 동안, 다른 Mac과 Linux 머신은 놀고 있습니다. Tally Pro는 무거운 작업(전체 테스트 스위트, 릴리스 빌드, 학습 작업)을 당신이 가진 다른 머신으로 자동으로 보내고 출력을 다시 스트리밍해 주므로, 지금 타이핑하는 Mac은 계속 빠르게 유지됩니다.
+
+<p align="center">
+  <img src="assets/pro-compute-pool.svg" alt="그림: Mac에서 시작한 무거운 작업이 컴퓨트 풀 안의 당신 소유 다른 머신(릴리스 빌드용 Mac Studio, 학습용 GPU Linux 머신, 테스트 스위트용 여분의 MacBook) 중 하나로 보내지고, 출력이 다시 스트리밍되어 돌아옵니다" width="760">
+</p>
+
+<p align="center"><sub>출시 소식을 받으려면 이 저장소를 Watch하세요.</sub></p>
 
 ## 기능
 
@@ -65,12 +95,12 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
 - **멀티 계정 우선.** `~/.claude*`의 각 로그인과 Codex 설치가 각각의 카드가 되어 N개의
   계정을 나란히 표시합니다. 카드는 드래그로 순서를 바꿀 수 있고, 그 순서는 모든 화면에
   적용됩니다.
-- **플릿 게이지.** 각 프로바이더의 계정을 하나의 게이지로 모읍니다: 연속된 막대가 합산된
+- **계정 풀.** 각 프로바이더의 계정을 하나의 게이지로 모읍니다: 연속된 막대가 합산된
   주간 예산을 나타내고, 총량은 계정 단위로 표시되며(「2.9/5 남음」), 다음 시차 충전도
   함께 보여 줍니다. 예측은 최근 실측 속도를 바탕으로 이 풀이 얼마나 버틸지 추정하며,
   리셋마다 돌아오는 한도도 함께 계산합니다: 충전 주기보다 빠르게 소비 중이면
-  「약 4d 10h 사용 가능」, 그렇지 않으면 「이 속도면 지속 가능」이 표시됩니다. 계정을
-  모아 풀링하는 사용량 게이지는 다른 어디에도 없습니다.
+  「약 4d 10h 후 소진」, 그렇지 않으면 「현재 속도면 소진 안 됨 ✓」이 표시됩니다. 단일 계정
+  미터에는 모을 계정이 없습니다.
 - **사용량 어드바이저.** 계정을 하나 더 열어야 할까요? 게이지 아래 프로바이더별로 한
   줄씩: 보유한 계정마다 채워진 점 하나, 실측 페이스가 하나 더 필요하다고 할 때는 빈 점을
   표시하고, 읽어야 할 숫자로 주간 실수요(「5.8 acct/wk」)를 보여 줍니다. 두 가지 플랜에
@@ -78,7 +108,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   20달러짜리 자리의 계정-주는 같은 양이 아니기 때문이며, 이를 합치면 어떤 구독으로도 살
   수 없는 숫자가 나옵니다. 호버하면 플랜별 내역, 현재 소비 속도, 부족했던 시간, 다음
   충전이 표시되고, `tally status --json`은 같은 내역을 `tierDemands`로 공개합니다.
-- **메뉴 막대 표시.** 기본값은 프로바이더당 한 구간으로, 해당 계정을 플릿 게이지와 같은
+- **메뉴 막대 표시.** 기본값은 프로바이더당 한 구간으로, 해당 계정을 계정 풀과 같은
   풀로 합산하고 몇 개의 계정을 대표하는지 배지로 알려 줍니다. 계정마다 하나의 마크로
   바꿀 수도 있습니다. 어느 쪽이든 세션 아래에 주간을 쌓아 보여 주며, 호버하면 계정과
   전체 수치, 그리고 풀에 들어가지 않은 계정까지 확인할 수 있습니다.
@@ -93,7 +123,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   자기 열 수를 기억하며, 목록 밀도의 「자동」은 한 열로 고정되고
   막대가 행 너비만큼 늘어납니다.
 - **레이아웃을 카드 한 장씩 원하는 대로.** 푸터의 보기 옵션 카드에서 레이아웃 타일(각
-  타일이 만들어지는 배치를 그대로 그려 줍니다)로 밀도와 열 수를 정하고, 플릿 게이지와
+  타일이 만들어지는 배치를 그대로 그려 줍니다)로 밀도와 열 수를 정하고, 계정 풀과
   어드바이저를 켜고 끄며, 프로바이더를 게이지 아래로 접고, 카드를 프로바이더별 섹션에
   앉힐 수도 있습니다. 섹션 안에서도 드래그로 순서를 바꿀 수 있습니다. 접힌 프로바이더는
   제목을 남겨 두는데, 그것이 다시 펼쳐지는 방법입니다. 화면보다 커진 플릿은 밖으로 밀려나는
@@ -131,7 +161,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   크레딧을 자동으로 사용하고 알려 줍니다(설정의 스위치, 기본값 켜짐).
 
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="같은 아홉 개 계정을 Tally의 컴팩트한 목록 밀도로, 두 열 너비로 표시: 계정마다 한 줄에 프로바이더 마크, 계정 이름과 플랜이 담기고, 이어서 모든 쿼터 창이 퍼센트가 붙은 작은 막대로 표시되며, 로그인이 만료된 계정에는 경고 삼각형, 리셋 뱅킹이 있는 Codex 행에는 적립 횟수, 런처가 현재 선택한 계정에는 보라색 스마트 표시, 각 줄 끝에는 고정과 드래그 컨트롤이 있습니다. 그 위에는 카드 밀도와 같은 플릿 게이지와 어드바이저 행이 있으며, Codex는 Pro 1.7 · Team 0.9로 표시됩니다" width="900">
+  <img src="assets/screenshot-list.png" alt="같은 아홉 개 계정을 Tally의 컴팩트한 목록 밀도로, 두 열 너비로 표시: 계정마다 한 줄에 프로바이더 마크, 계정 이름과 플랜이 담기고, 이어서 모든 쿼터 창이 퍼센트가 붙은 작은 막대로 표시되며, 로그인이 만료된 계정에는 경고 삼각형, 리셋 뱅킹이 있는 Codex 행에는 적립 횟수, 런처가 현재 선택한 계정에는 보라색 스마트 표시, 각 줄 끝에는 둥근 선택 버튼과 드래그 핸들이 있습니다. 그 위에는 카드 밀도와 같은 계정 풀과 어드바이저 행이 있습니다" width="900">
 </p>
 
 ### 세션 보드
@@ -163,17 +193,13 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   끝나고 20초 뒤의 같은 소모는 찌꺼기라 호박색 메모가 붙습니다. 기기 메모리의 대부분을 쥐고
   있는 세션에는 빨간 메모가 붙는데, 메모리는 증인이 둘(트리 자체의 수치와 커널이 보고하는
   압력) 있어야 Tally가 그렇게 말합니다. 경고가 뜨려면 같은 값이 몇 초간 이어져야 하므로,
-  GC 일시 정지 한 번으로 빨갛게 번쩍이는 일은 없습니다. 세션 수준까지 읽는 사용량 도구는
-  어디에도 없고, 프로세스 수준이라면 더더욱 없습니다.
+  GC 일시 정지 한 번으로 빨갛게 번쩍이는 일은 없습니다. 사용량 미터가 읽는 것은 쿼터이며,
+  실행 중인 각 세션이 기기에 주는 부담은 읽지 않습니다.
 - **익힐 수 있는 보드.** 상태순 정렬은 보드가 열리는 순간에 자리를 정하고 거기서
   고정됩니다(1초에 두 번씩 다시 정렬되는 보드는 아무도 익힐 수 없습니다). 카드 하나를
   끌면 순서는 당신의 것이 됩니다. 필터로 연결된 세션만 좁혀 보거나 전부 표시할 수 있고,
   보고가 없는 세션은 흐려지지만 여전히 클릭됩니다. 보드는 대시보드와 별개로 자기 열 수도
   기억합니다.
-
-<p align="center">
-  <img src="assets/screenshot-sessions.png" alt="Tally의 세션 보드 다크 모드, 세 열의 세션 카드, 감독 중인 대화마다 한 장: 각 카드에는 실행 중인 프로젝트 또는 worktree(atlas, atlas feat-search, dune, ledger, beacon, relay, cinder), 사용 중인 계정과 모델, 추론 강도(Claude fable-5 high, Codex 2 gpt-5.6-sol high, Claude 3 sonnet-5 medium), 대화의 컨텍스트 크기와 마지막 움직임 이후 경과 시간이 적혀 있습니다. atlas 카드는 빨간 테두리에 blocked로 표시되고, 요약 줄은 4 working, 1 blocked, 2 idle, 1 not reporting을 세며, 헤더의 Sessions 탭에는 빨간 점이 있습니다. 각 카드 하단 줄은 그 세션의 머신 풋프린트(하위 에이전트 수, CPU 백분율, 메모리, 최대 소비자 지목: node, bun)를 읽고, dev 서버 카드는 점유 중인 포트(:3000 next-server, :5173)를 나열합니다" width="834">
-</p>
 
 ### 실행 컨트롤 플레인
 
@@ -234,7 +260,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   또한 prompt 지시는 강제가 아니므로 도구 실행이 전혀 없다고 보장하지 않습니다. 호출자가 준 prompt와
   다른 모든 resume 형태는 그대로입니다. 시작 중 사람이 입력한 내용은 draft-held로 유지됩니다. 이 경로도
   Codex가 `send`를 표시하기 전에 신뢰된 네이티브 연결, 정확한 터미널, 완료된 네이티브 turn, 일치하는
-  receipt가 필요하며 네이티브 신뢰를 우회하지 않습니다. 요청은 200 UTF-8 bytes로 제한됩니다. 처리하거나 거절한 결과는 `~/.tally/logs/input.log`에 기록됩니다.
+  receipt가 필요하며 네이티브 신뢰 확인을 건너뛰지 않습니다. 요청은 200 UTF-8 bytes로 제한됩니다. 처리하거나 거절한 결과는 `~/.tally/logs/input.log`에 기록됩니다.
   `tally session clear`는 비운 세션을 더 여유 있는 계정으로 다시 열 수 있는 Claude 전용의 별도
   제어로 남습니다.
   `tally message claude "<텍스트>" --project <프로젝트명>`은 대신 네이티브 메시지를 그 대화에
@@ -335,7 +361,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   완화 가능). `tally` 런처는 로컬 스냅숏(`~/.tally/snapshot.json`: 퍼센트와 경로만, 토큰은
   절대 없음)만 읽으므로 터미널을 열 개 열어도 추가 읽기는 없습니다.
 - **오직 당신의 계정만.** 멀티 계정이란 *당신이* 결제하고 *당신의* 기기에 있는 구독을
-  말합니다. Tally는 프록시도, 계정 풀 공유도, 재판매도 하지 않습니다. 계정 전환은 이미
+  말합니다. Tally는 접근 권한을 프록시하거나 공유하거나 재판매하지 않습니다. 계정 전환은 이미
   소유한 config 디렉터리로 공식 CLI를 실행하는 것뿐입니다.
 - **로컬 중심, 오류 보고는 선택 사항이며 기본값은 꺼짐.** 사용량 읽기, 아래의 익명 사용 통계,
   그리고 설정에서 「충돌 및 오류 보고서 보내기」를 켠 경우 Sentry로 보내는 오류 보고 외에는
@@ -365,7 +391,7 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   하나 더 만들면 됩니다(`CLAUDE_CONFIG_DIR=~/.claude2 claude`로 로그인). 그리고/또는
 - 로그인된 Codex CLI (`~/.codex`)
 
-## 설치
+## 설치 옵션
 
 [Releases](https://github.com/jettoai/tally/releases/latest)에서 최신 공증 DMG를
 다운로드하고 **Tally.app**을 응용 프로그램 폴더로 드래그한 뒤 실행하세요. 이후
@@ -442,7 +468,7 @@ PR은 하나의 의도로 좁히고, 「왜」를 설명에 적어 주세요.
 실제로 적용하는 쿼터 윈도우(5시간, 주간, 플래그십 모델)를 여러 Claude / Codex 계정에 걸쳐
 동시에 보여주는 네이티브 GUI이며, 그 숫자에 따라 동작하는 런처도 제공합니다. 토큰 뷰는
 「얼마나 썼고 어디에 썼는가」라는 질문까지 프로젝트 단위로, 로컬 트랜스크립트에서 곧바로
-다룹니다. 금액 추정은 하지 않습니다. 그리고 세션 보드는 그 어느 것보다 한 단계 더
+다룹니다. 금액 추정은 하지 않습니다. 그리고 세션 보드는 ccusage나 단일 계정 미터보다 한 단계 더
 들어갑니다: 실행 중인 모든 세션이 카드가 되어, 어느 것이 당신을 기다리며 막혀 있는지,
 각각이 기기를 얼마나 쓰고 있는지를 메모리를 붙잡고 있는 프로세스까지 보여 줍니다. 읽기
 전용이며, 본인이 결제한 구독만 대상으로 합니다.

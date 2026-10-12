@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="360" viewBox="0 0 880 360" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1f26"/>
+      <stop offset="1" stop-color="#14161b"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b7cf6"/>
+    </marker>
+  </defs>
+  <rect width="880" height="360" rx="20" fill="url(#bg)"/>
+
+  <!-- This Mac -->
+  <g transform="translate(48,96)">
+    <rect width="240" height="168" rx="14" fill="#23262e" stroke="#3a3f4b"/>
+    <text x="20" y="34" fill="#f4f4f5" font-size="17" font-weight="600">Your Mac</text>
+    <text x="20" y="56" fill="#9ca3af" font-size="13">stays fast and quiet</text>
+    <rect x="20" y="74" width="200" height="30" rx="7" fill="#15171c"/>
+    <text x="32" y="94" fill="#a5b4fc" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">$ pnpm test:e2e</text>
+    <rect x="20" y="114" width="200" height="30" rx="7" fill="#15171c"/>
+    <text x="32" y="134" fill="#86efac" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">✓ output streams back</text>
+  </g>
+
+  <!-- Pool -->
+  <g transform="translate(400,24)">
+    <text x="0" y="22" fill="#c4b5fd" font-size="14" font-weight="600" letter-spacing="0.5">YOUR COMPUTE POOL</text>
+  </g>
+  <g font-size="15">
+    <g transform="translate(400,52)">
+      <rect width="432" height="76" rx="12" fill="#23262e" stroke="#3a3f4b"/>
+      <circle cx="26" cy="38" r="6" fill="#22c55e"/>
+      <text x="44" y="33" fill="#f4f4f5" font-weight="600">Mac Studio</text>
+      <text x="44" y="54" fill="#9ca3af" font-size="13">release builds · Xcode</text>
+      <text x="410" y="44" fill="#9ca3af" font-size="13" text-anchor="end">busy 1 job</text>
+    </g>
+    <g transform="translate(400,142)">
+      <rect width="432" height="76" rx="12" fill="#23262e" stroke="#3a3f4b"/>
+      <circle cx="26" cy="38" r="6" fill="#22c55e"/>
+      <text x="44" y="33" fill="#f4f4f5" font-weight="600">Linux box with GPU</text>
+      <text x="44" y="54" fill="#9ca3af" font-size="13">training runs · Docker</text>
+      <text x="410" y="44" fill="#9ca3af" font-size="13" text-anchor="end">idle</text>
+    </g>
+    <g transform="translate(400,232)">
+      <rect width="432" height="76" rx="12" fill="#23262e" stroke="#3a3f4b"/>
+      <circle cx="26" cy="38" r="6" fill="#22c55e"/>
+      <text x="44" y="33" fill="#f4f4f5" font-weight="600">Spare MacBook</text>
+      <text x="44" y="54" fill="#9ca3af" font-size="13">full test suites</text>
+      <text x="410" y="44" fill="#9ca3af" font-size="13" text-anchor="end">idle</text>
+    </g>
+  </g>
+
+  <!-- Arrows -->
+  <g stroke="#8b7cf6" stroke-width="2.5" fill="none" marker-end="url(#arrow)">
+    <path d="M292,170 C340,170 340,90 394,90"/>
+    <path d="M292,180 L394,180"/>
+    <path d="M292,190 C340,190 340,270 394,270"/>
+  </g>
+  <text x="48" y="330" fill="#6b7280" font-size="12">Illustration. Machines and jobs are examples.</text>
+</svg>

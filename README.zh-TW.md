@@ -1,57 +1,92 @@
 <p align="center">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="120" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
-<p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
-<p align="center">你所有的 AI 訂閱額度，一眼看盡，就在 macOS 選單列，<br>還有一個啟動器，讓每個 session 都跑在餘量撐最久的帳號上，<br>以及一塊看板，盯著它啟動過的每一段 session。</p>
+<p align="center"><b>為同時使用多個 AI 訂閱的人打造。</b></p>
+
+<h3 align="center">你付費的每個 Claude 與 Codex 訂閱，在選單列一眼看完。<br>每個新 session 都從餘量最多的帳號開始。</h3>
 
 <p align="center">
-  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple&logoColor=white">
-  <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=download&color=22c55e"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><img alt="下載 macOS 版" src="assets/download-macos.svg" width="300"></a>
 </p>
 
-<p align="center"><a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><b>⬇ 下載 macOS 版（macOS 14+）</b></a></p>
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=release&color=22c55e"></a>
+  <img alt="Native SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
+  <img alt="Read-only" src="https://img.shields.io/badge/usage_reads-read--only-6366f1?style=flat-square">
+</p>
 
 <p align="center"><a href="README.md">English</a> · <b>繁體中文</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
-Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額度）**，為同時養著**多個 Claude
-（Max/Pro）與 Codex 訂閱**、厭倦了猜「哪個帳號還有餘量」的重度使用者而生：每個帳號的 5 小時
-工作階段、每週、旗艦模型額度窗並排呈現在艦隊儀表下，艦隊儀表把它們合池成一條總預算，並
-依你實測的節奏預測還能撐多久；智選會在每次開新 session 時，依重置時間（不只看剩餘百分比）
-挑出當下餘量撐最久的帳號，並在對話進行中持續接手：額度撞牆時自動換帳號、旗艦模型被降級時
-搶救回來、每次 `/clear` 都重新挑一次帳號、帳號快見底時在它底下每個 session 裡打上一行提醒，
-還有一條 status line 訊號隨時顯示哪個帳號正在燃燒額度。最後由 session 看板收尾：Tally 啟動過
-的每一段對話都是一張卡片，誰卡住在等你、每一段又佔了機器多少資源，一目了然。
-
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally 選單列 strip：五個 Claude 帳號帶編號徽章與工作階段／Fable 百分比堆疊，後接四個 Codex 帳號的工作階段／每週" width="445">
+  <img src="assets/screenshot-hero.png" alt="Tally 儀表板（示範資料）：九個帳號（五個 Claude Max、四個 Codex）以卡片並排，每張卡片顯示 5 小時工作階段、每週與旗艦模型額度窗及各自的重置時間；上方每個服務各有一個帳號池，把帳號合成一份預算，並預測照你的節奏還能撐多久，顧問列則說明你的節奏是否需要再加一個帳號" width="834">
 </p>
 
-<p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；顧問列以帳號圓點顯示各 provider 的每週實際需求，Claude 單一方案合併計算（5.8 acct/wk）、Codex 依方案拆分（Pro 1.7・Team 0.9），節奏超出時標示該加開一個帳號；下方每個帳號各自的毛玻璃卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章；標題列帶有「用量／成本／工作階段」切換" width="834">
-</p>
+https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
 
-<p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally「成本」分頁的 Token 頁：所選區間（今天／7 天／30 天／全部）的 Token 總計，附輸入、快取寫入、快取讀取、輸出的分項，Claude 與 Codex 的服務別拆分，以及帶佔比長條的專案表，顯示 Token 花到哪裡去了；點一列專案會展開成一整年的每日活動，呈現為貢獻紀錄風格的熱力圖，並附上過去一年的總計" width="834">
-</p>
+<p align="center"><sub>30 秒看懂 Tally。</sub></p>
+
+<p align="center"><sub>免費開源 · by <a href="https://jetto.ai">Jetto</a> · Claude 與 Codex 額度的 macOS 選單列 AI 用量監控工具</sub></p>
 
 ## 為什麼是 Tally
 
-選單列用量儀表早就存在，缺的是為「同時養好幾個訂閱」的人打造的那一個：
+如果你同時付費訂閱兩個 Claude Max 和一個 Codex 方案，你整天都在問：「哪個帳號還有餘量？」單帳號儀表一次只能回答一個帳號。Tally 一次回答所有帳號，接著依答案採取行動。
 
-- **每帳號一張卡，不是 fallback 鏈。** 每個帳號都是自己的卡片、並排呈現，因為多訂閱使用者
-  真正想問的就是「哪個帳號還有餘量」。
-- **額度為主，花費另有分頁。** Tally 的主畫面是原廠實際執行的 5 小時／每週／旗艦模型額度窗；
-  依牌價推算的 Token 花費是估算值，放在「成本」分頁供參考。
-- **儀表看完直接行動。** 儀表板存在的意義就是決定「下一步用哪個帳號」，所以 Tally 每次都
-  自動幫你做完這個決定，並在 session 執行期間持續做下去（額度撞牆自動接手、模型被降級時
-  搶救、每次 `/clear` 免費重挑一次、帳號快見底時打上一行提醒）。
-- **session 本身，攤在一塊看板上。** 沒有任何同類用量工具看得到 session 這一層：Tally 把它
-  啟動過的每一段對話畫成一張卡片，指出哪一段卡住在等你，以及每一段正在吃掉機器多少資源，
-  細到是哪個行程在吃記憶體。
+### 1. 每個帳號，並排呈現
+
+每個 Claude 與 Codex 登入都是一張自己的卡片，帶著 5 小時、每週與旗艦模型額度窗；帳號池再把它們合成一份總預算，並預測照你的節奏何時用光（「約 4d 10h 後用光」）。選單列不用打開任何東西就顯示同樣的池：每個服務（或每種方案）一段，上面是工作階段、下面是每週，角落的小標記寫著它合計了幾個帳號、或是哪一種方案。想把帳號分開看時，到設定切換成一帳號一個標記。
+
+<p align="center">
+  <img src="assets/screenshot-menubar.png" alt="Tally 選單列 strip 的預設合池版面：五個帳號合成一段 Claude，Codex 的 Pro 與 Team 方案各一段，每段都把合池後的工作階段百分比疊在合池後的每週百分比之上" width="160">
+</p>
+
+### 2. 每個 session 都落在餘量最多的帳號上
+
+`tally claude`（或 `tally codex`）會把每個新 session 啟動在當下額度撐最久的帳號上，同時考量重置時間與剩餘百分比。帳號在對話中途撞到上限時，Tally 會在次佳帳號上續跑*同一段對話*；每次 `/clear` 都是一次免費搬家的機會；帳號快見底時，會在用它的每個 session 裡打上一行提醒。你或 AI agent 也可以從外面用 `tally session clear` 清空某個 session，新的空白視窗會直接開在餘量最多的帳號上。
+
+```sh
+tally claude          # starts on the best account right now
+```
+
+### 3. 所有執行中的 session，攤在同一塊看板上
+
+Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 大小，以及它是工作中、閒置，還是**卡住在等你**。有 session 在要求權限時，選單列的紅點會提醒你；每張卡片也顯示那個 session 佔了機器多少資源（CPU、記憶體、佔住的 port）。這些數字直接向 macOS 核心讀取，不另外開 `ps` 或 `top` 行程。
+
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally 的 session 看板（示範資料）：八張卡片，每段受監督的對話一張，各自寫著專案、帳號、模型與 effort、context 大小、最近活動與 port；其中一張以紅框標示為卡住，摘要列統計工作中、卡住、閒置與未回報的 session，每張卡片底部讀出該 session 的行程數、CPU 與記憶體" width="834">
+</p>
+
+### 4. 看清 Token 花到哪裡
+
+「成本」分頁的 Token 頁會統計今天、7 天、30 天或全部區間的輸入、快取與輸出 Token，依服務與專案拆分，每個專案附一整年的每日活動。資料讀自 CLI 自己的本機 transcript，永遠不離開你的 Mac。
+
+<p align="center">
+  <img src="assets/screenshot-cost-tokens.png" alt="「成本」分頁的 Token 頁：所選區間的 Token 總計，附輸入、快取寫入、快取讀取與輸出，Claude 與 Codex 的拆分，以及一張專案表，其中一個專案展開成一整年的每日活動熱力圖" width="720">
+</p>
+
+### 5. 唯讀，只用你自己付費的訂閱
+
+用量透過各家自己的官方 CLI 讀取（`claude -p "/usage"` 與 `codex app-server`）。Tally 從不代理、共享或轉售存取權，從不記錄或傳送任何 token，而且是一個原生 Swift app、沒有 Electron，讀對話紀錄的核心用 Rust 寫。[它讀什麼，以及它會寫入的少數幾樣東西](#運作方式以及它絕不做的事)。
+
+## 安裝
+
+```sh
+curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
+```
+
+也可以直接[下載 DMG](https://github.com/jettoai/tally/releases/latest/download/Tally.dmg)，把 **Tally.app** 拖進「應用程式」後啟動。它經過 Apple 公證，並在 app 內自動更新。接著在**設定 → 整合 → 全部安裝**一鍵加入 `tally` CLI、status line 訊號與 Claude Code skill。[更多安裝方式](#安裝選項)。
+
+## 即將推出：Tally Pro 算力池
+
+這台 Mac 埋頭跑測試套件的時候，你其他的 Mac 與 Linux 主機都閒在一旁。Tally Pro 會自動把重活（完整測試套件、release 建置、訓練工作）送到你自己的其他機器上，再把輸出串流回來，讓你正在打字的這台 Mac 保持流暢。
+
+<p align="center">
+  <img src="assets/pro-compute-pool.svg" alt="示意圖：在你的 Mac 上啟動的一件重活，被送到算力池裡你自己的另一台機器（Mac Studio 跑 release 建置、帶 GPU 的 Linux 主機跑訓練、閒置的 MacBook 跑測試套件），輸出再串流回來" width="760">
+</p>
+
+<p align="center"><sub>Watch 這個 repo，上線時就會收到通知。</sub></p>
 
 ## 功能
 
@@ -59,17 +94,17 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
 
 - **多帳號優先。** 每個 `~/.claude*` 登入與 Codex 安裝各自一張卡，N 個帳號並排呈現，
   不是單帳號 fallback。卡片可拖曳排序，順序套用到所有介面。
-- **艦隊儀表。** 每個 provider 的帳號合併成一條量表：連續 bar 代表合併後的每週預算，總量
+- **帳號池。** 每個 provider 的帳號合併成一條量表：連續 bar 代表合併後的每週預算，總量
   用帳號份數表達（「剩 2.9/5」），加上下一筆錯開回充。預測會依你近期實測的節奏估算這個
-  池子還能撐多久，並把每次重置補回的額度算進去：超支時顯示「約可再用 4d 10h」，沒超支時
-  顯示「此節奏可持續」。沒有任何同類量表做過跨帳號合池。
+  池子還能撐多久，並把每次重置補回的額度算進去：超支時顯示「約 4d 10h 後用光」，沒超支時
+  顯示「照目前速度不會用光 ✓」。單帳號儀表沒有東西可以合池。
 - **用量顧問。** 需要再多開一個帳號嗎？儀表下方每個 provider 各一行：每個你擁有的帳號
   對應一個實心圓點，實測節奏要求再開一個時顯示空心圓點，並標出可直接讀出的每週實際需求
   數字（「5.8 acct/wk」）。橫跨兩種方案的艦隊會依方案分開顯示（「Pro 1.7・Team 0.9」），
   因為一個 200 美元方案帳號週和一個 20 美元方案帳號週不是同一種量，合併計算只會產生一個
   對不上任何訂閱方案的數字。滑鼠懸停可看依方案拆分的明細、目前燃燒速率、斷糧時數與下一批
   回充；`tally status --json` 會用 `tierDemands` 發布同一份拆分。
-- **選單列 strip。** 預設每個服務一段，把該服務的帳號合計成機隊量表畫的同一個池，徽章標示
+- **選單列 strip。** 預設每個服務一段，把該服務的帳號合計成帳號池畫的同一個池，徽章標示
   這一段代表幾個帳號；想把帳號分開看，可切換成一帳號一個標記。兩種模式都是工作階段疊在
   每週之上，滑鼠懸停會列出帳號、完整數字，以及沒進池的帳號是誰。
 - **可釘選的毛玻璃面板。** 把儀表釘成永遠置頂的毛玻璃視窗，拖曳標題列放到任何位置。帳號卡片
@@ -80,7 +115,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   提示（Tally 自己畫在面板的玻璃上，不等系統 tooltip）。每種密度各自記住自己的欄數，清單
   密度的「自動」固定一欄，額度條拉長填滿整列。
 - **版面隨你安排，一次一張卡。** 頁尾的檢視選項卡用版面圖磚設定密度與欄數（每個圖磚直接
-  畫出它產生的版面）、開關艦隊儀表與用量顧問，把 provider 收折到自己的儀表底下，也能開啟
+  畫出它產生的版面）、開關帳號池與用量顧問，把 provider 收折到自己的儀表底下，也能開啟
   「依服務分組」讓卡片各自落在所屬 provider 的區塊裡，區塊內一樣可拖曳排序。收折的
   provider 會留著標題，這也是它回來的辦法。艦隊高過螢幕時會改成捲動，而不是掉出畫面外。
 - **Token 用量，依專案拆分。** 每個介面的「成本」分頁裡都有一頁 Token：今天／7 天／
@@ -109,7 +144,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   用完時，Tally 也能自動兌換最快到期的那一枚並通知你（設定裡的開關，預設開啟）。
 
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="同樣九個帳號在 Tally 的精簡清單密度下、兩欄並排：每個帳號一行，帶 provider 標記、帳號名稱與方案，接著每個額度窗都是一條附百分比的小 bar，登入失效的帳號有警告三角形，有額度重置存量的 Codex 行顯示存量數字，啟動器目前選擇的帳號有紫色智選標記，每行尾端是釘選與拖曳控制；上方是與卡片密度相同的艦隊儀表與顧問列，Codex 顯示 Pro 1.7・Team 0.9" width="900">
+  <img src="assets/screenshot-list.png" alt="同樣九個帳號在 Tally 的精簡清單密度下、兩欄並排：每個帳號一行，帶 provider 標記、帳號名稱與方案，接著每個額度窗都是一條附百分比的小 bar，登入失效的帳號有警告三角形，有額度重置存量的 Codex 行顯示存量數字，啟動器目前選擇的帳號有紫色智選標記，每行尾端是圓形選取鈕與拖曳把手；上方是與卡片密度相同的帳號池與顧問列" width="900">
 </p>
 
 ### session 看板
@@ -134,16 +169,13 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   而不是「大不大」：build 到一半的 session 吃掉 300% 的核心就只是在 build，同樣的燃燒發生在
   回合結束二十秒後就是殘留，會拿到一個琥珀色註記；吃掉機器大半記憶體的 session 會拿到紅色
   註記，而記憶體要有兩個證人（行程樹自己的數字，加上核心回報的壓力值）Tally 才敢這樣說。
-  任何讀數都要持續好幾秒才會變成警示，所以一次 GC 停頓永遠不會閃紅。沒有任何同類用量工具
-  讀到 session 這一層，更別說行程層。
+  任何讀數都要持續好幾秒才會變成警示，所以一次 GC 停頓永遠不會閃紅。用量儀表讀的是額度，
+  看不到每個執行中的 session 佔了機器多少資源。
 - **一塊你學得會的看板。** 依狀態排序只在看板打開的那一刻決定座位，之後就定在那裡（一塊
   每秒重排兩次的看板，沒有人學得會）；拖動任何一張卡，順序就變成你的。篩選可以只看已連線
   的 session、也可以全部顯示，未回報的會變暗但仍然點得動；看板還記住自己的欄數，與儀表板
   的分開算。
 
-<p align="center">
-  <img src="assets/screenshot-sessions.png" alt="Tally 的 session 看板深色模式、三欄 session 卡，每張對應一個受監管的對話：卡上寫著它跑在哪個專案或 worktree（atlas、atlas feat-search、dune、ledger、beacon、relay、cinder）、用哪個帳號、模型與推理檔位（Claude fable-5 high、Codex 2 gpt-5.6-sol high、Claude 3 sonnet-5 medium）、對話的 context 大小與距上次動作多久；atlas 卡有紅框並標示 blocked，統計列數著 4 working、1 blocked、2 idle、1 not reporting，頁首的 Sessions 頁籤帶紅點；每張卡底部一行是該 session 的機器足跡（子 agent 數、CPU 百分比、記憶體、點名最大食客：node、bun），一張 dev server 卡列出它佔用的 port（:3000 next-server、:5173）" width="834">
-</p>
 
 ### 啟動控制平面
 
@@ -192,7 +224,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   status hook，且由 Tally 透過私有 TTY 啟動時，Tally 會送出一則可見的原生初始化 prompt，不需要人工
   bootstrap prompt。它會用掉一個 model turn 和訂閱額度，不會自動重試，也不保證零工具執行，因為 prompt 指令不是強制機制。呼叫端提供的
   prompt 與所有其他 resume 形式都維持原樣。啟動期間的人為輸入仍會保留為 draft-held。這條路徑仍須有受信任
-  的原生綁定、確切終端機、完成的原生回合與相符 receipt，Codex 才會宣告 `send`，不會繞過原生信任。
+  的原生綁定、確切終端機、完成的原生回合與相符 receipt，Codex 才會宣告 `send`，不會略過原生信任。
   請求上限為 200 UTF-8 bytes，已處理或拒絕的結果會記錄在本機 `~/.tally/logs/input.log`。`tally session
   clear` 仍是 Claude 專用的獨立控制，可將清空的 session 改開到較健康的帳號。
   `tally message claude "<文字>" --project <專案名>` 則是把一則原生訊息送進那段對話，全程不碰鍵盤；
@@ -277,7 +309,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   `tally` 啟動器只讀本機快照（`~/.tally/snapshot.json`，只有百分比和路徑、絕無 token），
   開十個終端也不多讀一次。
 - **只碰你自己的帳號。** 多帳號指的是*你自己*付費、在*你自己*機器上的訂閱。Tally 不代理、
-  不共享帳號池、不轉售；切換帳號只是用你本來就擁有的 config 目錄啟動官方 CLI。
+  不共享、不轉售存取權；切換帳號只是用你本來就擁有的 config 目錄啟動官方 CLI。
 - **本機為主，錯誤回報可選、預設關閉。** 除了用量讀取本身、下面的匿名使用統計，以及你在設定裡
   打開「傳送當機與錯誤回報」後送到 Sentry 的錯誤回報，沒有任何東西離開你的機器。錯誤回報含
   錯誤堆疊、App 與 macOS 版本、Mac 機型、語系與時區，以及 Sentry 由連線推得的大致地區；
@@ -302,7 +334,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   （`CLAUDE_CONFIG_DIR=~/.claude2 claude` 登入即可），與／或
 - 已登入的 Codex CLI（`~/.codex`）
 
-## 安裝
+## 安裝選項
 
 從 [Releases](https://github.com/jettoai/tally/releases/latest) 下載最新的公證 DMG，
 把 **Tally.app** 拖進「應用程式」後啟動即可，之後的更新會在 app 內自動送達。
@@ -332,7 +364,7 @@ ln -s <build-products>/tally /usr/local/bin/tally
 
 </details>
 
-或者完全跳過符號連結和別名：**設定 → Integrations** 裡每一項都是一鍵安裝、一鍵乾淨移除，
+或者完全跳過符號連結和別名：**設定 → 整合** 裡每一項都是一鍵安裝、一鍵乾淨移除，
 上方還有一個「全部安裝」開關管住整組：CLI 工具、shell shim（讓裸的 `claude` / `codex`
 也遵循你的策略）、status line 訊號、session 看板的通知 hook、subagent 計數 hook、額度警示
 hook，以及帶著 `/tally` 指令的 Claude Code skill。每一列 hook 都給同一個承諾：你原本註冊在那個事件上的東西照常執行，
@@ -371,7 +403,7 @@ Tally 內建 English、繁體中文、简体中文、日本語、한국어，設
 花費；多數 menu bar 儀表也只看單一帳號。Tally 是原生 GUI，顯示的是廠商實際強制的額度視窗
 （5 小時、每週、旗艦模型），同時涵蓋多個 Claude 與 Codex 帳號，還附一個依這些數字行動的
 啟動器。Token 視圖也把「我到底燒了多少、燒在哪」這題一併涵蓋，依專案拆分，直接讀本機
-transcript，不做金額猜測。而 session 看板又比它們都再深一層：每一段執行中的 session 都是
+transcript，不做金額猜測。而 session 看板又比 ccusage 與單帳號儀表再深一層：每一段執行中的 session 都是
 一張卡片，誰卡住在等你、每一段又佔了機器多少資源，細到是哪個行程佔著記憶體。唯讀，
 只用於你自己付費的訂閱。
 

@@ -115,6 +115,11 @@ enum AdvisorConclusion: Equatable {
         var accountCount: Int
         /// When the gauge forecasts it dry, refills counted (`FleetForecast.depletion`).
         var dryAt: Date? = nil
+
+        /// True when this pool is `plan`'s: an unsplit pool is every plan's.
+        func covers(_ plan: String?) -> Bool {
+            !byPlan || AdvisorConclusion.planKey(self.plan) == AdvisorConclusion.planKey(plan)
+        }
     }
 
     /// The tiers worth splitting the figure into: none unless the provider's accounts actually sit
@@ -135,15 +140,13 @@ enum AdvisorConclusion: Equatable {
                      tierDemands: [UsageAdvisor.TierDemand], ownedAccounts: Int,
                      dryPools: [DryPool], starvedHoursPerWeek: Double) -> AdvisorConclusion {
         let planPools = dryPools.filter(\.byPlan)
-        let wholeProviderDry = planPools.count < dryPools.count
-        let dryKeys = Set(planPools.map { planKey($0.plan) })
-        // The soonest dry date among `plan`'s pools; an unsplit pool is every plan's.
+        // The soonest dry date among `plan`'s pools.
         func soonest(_ plan: String?) -> Date? {
-            dryPools.filter { !$0.byPlan || planKey($0.plan) == planKey(plan) }.compactMap(\.dryAt).min()
+            dryPools.filter { $0.covers(plan) }.compactMap(\.dryAt).min()
         }
         var tiers = splitTiers(tierDemands).map { tier in
             Tier(plan: tier.plan, demandPerWeek: tier.demandPerWeek, accountCount: tier.accountCount,
-                 runsDry: wholeProviderDry || dryKeys.contains(planKey(tier.plan)),
+                 runsDry: dryPools.contains { $0.covers(tier.plan) },
                  dryAt: soonest(tier.plan))
         }
         if tiers.isEmpty {
@@ -273,6 +276,6 @@ extension AdvisorConclusion {
     /// when nil) running dry before the refill. An unsplit dry pool is every plan's.
     static func runsDryThisWeek(plan: String?, dryPools: [DryPool]) -> Bool {
         guard let plan else { return !dryPools.isEmpty }
-        return dryPools.contains { !$0.byPlan || planKey($0.plan) == planKey(plan) }
+        return dryPools.contains { $0.covers(plan) }
     }
 }

@@ -72,8 +72,8 @@ extension PopoverRootView {
                         .font(.footnote)
                         .lineLimit(1)
                 }
-                ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
-                    poolRow(summary, pool, labelWidth: labelWidth)
+                ForEach(pools.indices, id: \.self) { index in
+                    poolRow(summary, pools[index], labelWidth: labelWidth)
                 }
                 // "All pools" with no 5-hour reading says so, rather than drawing one row fewer
                 // than the plan above it, which read as a row left out.

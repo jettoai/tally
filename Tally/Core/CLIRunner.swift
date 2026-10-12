@@ -9,8 +9,8 @@ enum CLIRunner {
     /// GUI apps get a minimal PATH (`/usr/bin:/bin:…`), so the binary is looked for where CLIs
     /// install to, on the user's login-shell PATH, and on the app's own PATH, never in Tally's
     /// shim directory (`CLISearchPath`).
-    static func resolve(_ name: String, searchPath: CLISearchPath = .shared) -> String? {
-        searchPath.resolve(name)
+    static func resolve(_ name: String) -> String? {
+        CLISearchPath.shared.resolve(name)
     }
 
     struct Output: Sendable {

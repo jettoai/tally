@@ -83,12 +83,11 @@ final class CLISearchPath: @unchecked Sendable {
             .joined(separator: ":")
     }
 
-    /// `base` with PATH replaced by `childPATH`. Every spawn of a resolved provider CLI goes
-    /// through here.
-    func environment(for executable: String,
-                     base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var env = base
-        env["PATH"] = childPATH(for: executable, inherited: base["PATH"])
+    /// The app's environment with PATH replaced by `childPATH`. Every spawn of a resolved provider
+    /// CLI goes through here.
+    func environment(for executable: String) -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = childPATH(for: executable, inherited: env["PATH"])
         return env
     }
 

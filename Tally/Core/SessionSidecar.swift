@@ -24,6 +24,8 @@ struct SessionSidecar: Equatable, Decodable, Sendable {
     /// "no mark", which is deliberate: the card cannot tell them apart and neither can it lie about
     /// one, and the reading is republished within a poll of the supervisor updating.
     var pinScope: String?
+    /// The pinned account this session is away from while it is out of quota (B-1540), or nil.
+    var pinAway: String?
     var sessionModel: String?
     var sessionEffort: String?
     var observedModel: String?

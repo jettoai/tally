@@ -634,11 +634,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             /// the release one line down is asked the app's own mode. `manualMoves.sessionPin` is
             /// this tick's pin only after `applySessionDirectives` has run; the publish that reads
             /// this happens after it, and the value is re-derived there.
-            /// Whether the pins over this session yield this tick. Asked ONCE, off the app's own
-            /// mode rather than the folded policy: a fleet pin is never released, and the folded
-            /// reading cannot tell which scope pinned it.
-            let pinYields = pinYieldsToSpentAccount(appMode: appPolicy.mode,
-                                                    pinnedSpent: drought.pinnedSpent,
+            /// Whether the pins over this session yield this tick, whichever scope set them: the
+            /// account they name is out of quota or under its owner's line (DroughtWatch.swift).
+            let pinYields = pinYieldsToSpentAccount(pinnedSpent: drought.pinnedSpent,
                 pinnedUnderReserve: drought.pinnedUnderReserve && !spendReserve)
             /// B-1213: under its owner's line with nowhere to go, the session is HELD - nothing
             /// Tally types reaches it - and the hold is written down once per hold.
@@ -746,10 +744,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // MOVE (the pin switch above still wins), and it is the only mover a session pin does
             // not stop - though a hand-pinned session is first offered the fallback pairing on the
             // account it is on. CapDetection.swift; rescue/fallback stay gated by `plan == nil`.
-            // `moving` rather than `fleetPolicy`: a project profile that pins an account answered
-            // `.waitPinned` here for ever, so a session in one of those repos could not even be
-            // rescued by a cap (2026-08-21). Released once the account is spent, it is the fleet's
-            // own reading in every other respect, the app's own pin included.
+            // `moving` rather than `fleetPolicy`: a pin over an account that is out of quota reads
+            // as `auto` here whichever scope set it, so a cap can carry the session off it
+            // (2026-08-21 for project pins, B-1540 for the app's own). In every other respect it
+            // is the fleet's own reading.
             applyCapHandoff(plan: &plan, pendingCap: &pendingCap, account: account,
                             providerID: provider.id, fleet: moving, steering: steering,
                             sessionPin: manualMoves.sessionPin,
@@ -1006,6 +1004,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                     appPinnedAccountID: appPolicy.pinnedAccountID,
                                     projectAccountID: project.accountID,
                                     sessionPin: manualMoves.sessionPin),
+                                pinAway: pinAwayAccount(fleetPolicy, sessionPin: manualMoves.sessionPin, on: account.id),
                                 axes: axes,
                                 transcript: watcher.transcriptSessionID, pid: supervisorPID)
             // AND THE SAME ANSWER FILED BY DIRECTORY, which is what the NEXT launch here reads
@@ -1408,6 +1407,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                       appPinnedAccountID: appPolicy.pinnedAccountID,
                                                       projectAccountID: project.accountID,
                                                       sessionPin: manualMoves.sessionPin),
+                                                  pinAway: pinAwayAccount(fleetPolicy, sessionPin: manualMoves.sessionPin, on: account.id),
                                                   axes: nextAxes,
                                                   transcript: watcher.transcriptSessionID,
                                                   pid: supervisorPID)

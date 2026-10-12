@@ -178,6 +178,51 @@ func pinnedLaunchHome(_ snapshot: Snapshot?, policy: LaunchPolicy) -> String? {
     return pinnedAccountIsSignedOut(snapshot, policy: policy) ? nil : policy.pinnedHome
 }
 
+/// Whether a pinned row says, on a reading Tally may act on, that it has nothing left for this
+/// model: the window `headroom` reads at zero, behind the trust guards `accountIsSpent` applies.
+///
+/// THE COMPLEMENT OF THE BAR THE PIN SWITCH TAKES A SESSION HOME ON (`eligible`: headroom above
+/// zero), which is the reason it exists beside `accountIsSpent` rather than inside it (B-1540).
+/// `accountIsSpent` reads a window minutes from resetting as full (`imminentResetGrace`), so a
+/// release keyed on it alone lapsed up to ten minutes before the pinned account could take the
+/// session back, and in that window nothing could move the session at all. A row with no counted
+/// window (`headroom` answers -1) is evidence of nothing and reads false.
+func pinnedOutOfQuota(_ row: Snapshot.Account, primaryModel: String?) -> Bool {
+    guard row.lastRefreshFailed != true, row.error == nil, !row.isStale else { return false }
+    return headroom(row, primaryModel: primaryModel) == 0
+}
+
+/// The pinned row a NEW launch steps aside from, or nil to launch the pin as it always has (B-1540,
+/// Albert 2026-10-12: a pin is a preference, not the only account a session may run on).
+///
+/// While the account the pin names is out of quota or has just capped for this model, the launch
+/// takes the smart pick instead, and a supervised session is carried home by the pin switch once
+/// that account refills. The pin keeps the launch in four cells: a reading Tally cannot trust, an
+/// account under its owner's line (that launch is REFUSED, B-1213, and the refusal has to stay the
+/// answer), no other account the smart pick could land on (stepping aside into nothing launches
+/// bare), and a policy that is not a pin at all.
+func pinStepAsideRow(_ snapshot: Snapshot?, policy: LaunchPolicy, primaryModel: String?,
+                     quarantined: Set<String>, reserves: AccountReserves, spendReserve: Bool,
+                     now: Date = Date()) -> Snapshot.Account? {
+    guard policy.mode == "manual", let snapshot,
+          let row = snapshot.accounts.first(where: {
+              $0.id == policy.pinnedAccountID && $0.launchHome != nil
+          }),
+          pinnedOutOfQuota(row, primaryModel: primaryModel) || quarantined.contains(row.id),
+          spendReserve || aboveReserve(row, primaryModel: primaryModel, reserves: reserves, now: now)
+    else { return nil }
+    guard best(providerID: row.provider, in: snapshot, primaryModel: primaryModel,
+               excluding: quarantined.union([row.id]),
+               reserves: spendReserve ? .none : reserves, now: now) != nil else { return nil }
+    return row
+}
+
+/// What a launch that stepped aside says, on every surface that launches (`tally claude`'s stderr,
+/// the shim's script).
+func pinStepAsideNotice(_ row: Snapshot.Account, pinnedBy: String) -> String {
+    "\(row.label) is out of quota - launching on Smart until it refills (\(pinnedBy))"
+}
+
 /// One usage window with its sustainable burn rate: how much quota per hour it can spend until
 /// it refreshes. A window about to reset stops being a constraint (its rate soars, and its
 /// leftover quota would evaporate unused) - the "burn the dying quota first" intuition; a window

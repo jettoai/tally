@@ -29,7 +29,9 @@ private struct MenuBarStripView: View {
                 if index > 0 {
                     Color.clear.frame(width: gap(before: index), height: 0)
                 }
-                HStack(spacing: 4) {
+                // 6, not 4: the corner badge hangs 3.5pt past the mark's trailing edge, so a
+                // tighter gap glues it to the number ("5" + "58%" reads as "558%").
+                HStack(spacing: 6) {
                     icon(segment.providerID)
                         .overlay(alignment: .bottomTrailing) {
                             // Identical marks share one glyph - a tiny corner digit is the only

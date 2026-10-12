@@ -128,20 +128,19 @@ struct PopoverRootView: View {
                             // Below it when both are due: the one-time crash-report question
                             // (ErrorReportingNoticeStrip.swift). Both stay visible.
                             ErrorReportingNoticeStrip()
-                            launchSummaryStrip
-                            fleetStrip
-                            advisorStrip
+                            // The private build's machine strip, then this region's own title:
+                            // the two regions stand one over the other under matching titles.
+                            // Each provider's summary is the heading of its own section below
+                            // (ProviderSectionHeader.swift), not a strip of its own up here.
                             overlayStrip
-                            // Fully folded WITH nothing left to head the sections skips the card
-                            // container entirely: its 12pt padding read as a hollow band between
-                            // two dividers (see `showsAccountRegion` - folded sections keep their
-                            // headings, and those headings are the way back).
+                            accountPoolTitle
+                            // Nothing at all to show skips the card container entirely: its 12pt
+                            // padding read as a hollow band (see `showsAccountRegion`).
                             if store.contentState != .hasAccounts || showsAccountRegion {
                                 // The cards are what gives way when the surface hits the screen's
                                 // height, and only then: at any height that fits, a scroll view is
                                 // laid out at its content's ideal size and shows no scroller, so
                                 // this is invisible until a fleet actually outgrows the display.
-                                // The strips above stay put - they summarize what is scrolling.
                                 // Pinned to the surface's width, leading edge first: what a scroll
                                 // view reports is its content plus whatever scroller is in the
                                 // layout, so left to itself the region sits centred and the cards
@@ -300,11 +299,6 @@ struct PopoverRootView: View {
                    PanelGeometry.seats(columnWidth: AccountListRowView.minComfortableWidth,
                                        in: usableScreenWidth))
     }
-
-    /// The two-column panel width, named because two other surfaces gate on reaching it (the fleet
-    /// strip's and the advisor strip's side-by-side pairs). Adjusting the case-2 width below without
-    /// this constant would silently strand those gates.
-    static let twoColumnPanelWidth: CGFloat = PanelGeometry.cardPanelWidth(columns: 2)
 
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
     /// Internal: the strip and footer extensions lay themselves out against it. The arithmetic

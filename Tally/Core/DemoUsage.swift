@@ -129,6 +129,10 @@ enum DemoUsage {
     }
 
     static func accounts(now: Date = Date()) -> [AccountUsage] {
+        scoped(unscopedAccounts(now: now))
+    }
+
+    private static func unscopedAccounts(now: Date) -> [AccountUsage] {
         let fixtures = [
             // Every remaining percentage stays double-digit (10-99): a mixed column of "8%" and
             // "100%" reads ragged in the right-aligned figures, and this grid IS the README shot.
@@ -250,6 +254,7 @@ enum DemoUsage {
     static func footprint(_ real: ProcessFootprint, at index: Int) -> ProcessFootprint {
         var one = real
         one.agents = 0
+        one.backgroundProcesses = 0
         one.cpuLeader = nil
         one.diskWriteBytesPerSecond = nil
         one.diskLeader = nil
@@ -311,9 +316,9 @@ enum DemoUsage {
             // this fixture set demonstrates are therefore adjacent - fixture 0 sits on
             // `culpritsOnly` at 226.2pt - which is what a capture of the ladder needs.
             one.processes = 6
-            one.cpuPercent = 1180
+            one.cpuPercent = 540
             one.cpuLeader = "Google Chrome Helper"
-            one.memoryBytes = 68_000_000_000
+            one.memoryBytes = 18_000_000_000
             one.memoryLeader = "node"
             one.alerts = FootprintAlerts(cpu: .saturation, memory: .saturation)
             // Eight ports: the narrowest spelling is the first port and a count.
@@ -337,6 +342,7 @@ enum DemoUsage {
         // Keys cover every window the gauge focus can headline, so the forecast renders in demo
         // whichever focus is active (Fable pool by default, weekly when switched).
         ["claude|weeklyModel|fable": FleetRate(perHour: 4.6, sampledHours: 72),
+         "claude|weeklyModel|sonnet": FleetRate(perHour: 3.1, sampledHours: 72),
          "claude|weeklyAll": FleetRate(perHour: 4.6, sampledHours: 72),
          "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72),
          "codex|weeklyAll|plan=pro": FleetRate(perHour: 1.0, sampledHours: 72),
@@ -379,6 +385,8 @@ enum DemoUsage {
                     minimumDays: min(window, UsageAdvisor.minimumDays))
             }
         }
+        // These figures are the full fleet's; `rescoped` reads them again for a scoped one.
+        let shown = accounts()
         return [UsageAdvisor.Reading(provider: "claude", verdict: .addAccount, demandPerWeek: 5.8,
                                      activeBurnPerHour: 11, starvedHoursPerWeek: 3.4,
                                      daysOfData: 14, accountCount: 5,
@@ -389,6 +397,7 @@ enum DemoUsage {
                                      daysOfData: 14, accountCount: 4,
                                      tierDemands: codexTiers,
                                      windowDemands: ladder([3.0, 2.8, 2.7, 2.6], tiers: codexTiers))]
+            .compactMap { rescoped($0, shown: shown) }
     }
 
     /// Fixture token history for the Tokens tab, so the screenshot shows a plausible year of work
@@ -434,12 +443,15 @@ enum DemoUsage {
         AccountUsage(
             id: "claude:demo-\(label)", providerID: "claude", accountLabel: label, planName: plan,
             accountEmail: "alex\(label.filter(\.isNumber))@example.com",
-            metrics: [
-                UsageMetric(id: "weekly_model:Fable", kind: .weeklyModel, label: "Fable",
-                            modelName: "Fable", usedPercent: model,
-                            severity: .fromUsedPercent(model),
-                            resetsAt: modelResetDays.map { now.addingTimeInterval($0 * 86_400) },
-                            isActive: false),
+            metrics: modelWindows.enumerated().map { index, name in
+                // Windows past the first get their own figure off the first's, still 10-94.
+                let used = index == 0 ? model : Double((Int(model) * 7 + 23 * index) % 85 + 10)
+                return UsageMetric(id: "weekly_model:\(name)", kind: .weeklyModel, label: name,
+                                   modelName: name, usedPercent: used,
+                                   severity: .fromUsedPercent(used),
+                                   resetsAt: modelResetDays.map { now.addingTimeInterval($0 * 86_400) },
+                                   isActive: false)
+            } + [
                 UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
                             usedPercent: session, severity: .fromUsedPercent(session),
                             resetsAt: sessionResetHours.map { now.addingTimeInterval($0 * 3_600) },

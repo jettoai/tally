@@ -29,11 +29,11 @@ check("7Z the row uses the answer it is handed", row.contains("isAutoPick ?? fac
 
 // TALLY-82: the fleet callout's blocks are built on hover, not on every body.
 check("82 no fleet target builds its blocks eagerly", !fleet.contains("tallyTooltip(blocks: fleetTooltipBlocks"))
-check("82 both fleet targets build them lazily",
-      fleet.components(separatedBy: "tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }").count == 3)
+check("82 the fleet rows build them lazily",
+      fleet.components(separatedBy: "tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }").count == 2)
 
 // TALLY-23: the advisor row's callout text is built on hover, not on every body.
-check("23 the advisor row builds its callout text lazily",
+check("23 the advisor tag builds its callout text lazily",
       !advisor.contains(".tallyTooltip(advisorTooltip(")
           && advisor.contains(".tallyTooltip(lazyText: { advisorTooltip(reading,"))
 

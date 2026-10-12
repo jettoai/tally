@@ -214,13 +214,15 @@ func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primary
 ///
 /// The three answers, in the order they are decided:
 ///
-///  - No session pin: nothing here applies, and the fleet's own mode decides exactly as it always
-///    has (a fleet-pinned session waits; staying put is what pinning means). What arrives as
-///    `fleet` is the RELEASED reading, so a project profile's pin over an account with nothing left
-///    reads as `auto` here and the cap can rescue the session (DroughtWatch.swift, 2026-08-21).
+///  - A pin naming the account that capped: the cap goes ahead and picks for itself, whichever
+///    scope set the pin (B-1540). Until then a fleet pin answered `.waitPinned` here for ever, and
+///    only a project pin was rescued, and only once the snapshot caught up (2026-08-21).
+///  - No session pin otherwise: the fleet's own mode decides. What arrives as `fleet` is the
+///    RELEASED reading, so a pin over an account with nothing left reads as `auto` here.
 ///  - A session pin, and no fleet pin under it: the cap goes ahead and picks for itself, which is
 ///    what would have decided for this session if it had never been pinned.
-///  - A session pin over a FLEET pin: the cap goes ahead only if the fleet's account is one of the
+///  - A session pin over a FLEET pin (unless the fleet's account is the one that capped, which is
+///    answered like the first case): the cap goes ahead only if the fleet's account is one of the
 ///    candidates this cap already judged usable, and lands THERE rather than on a pick of its own -
 ///    that account is where the underlying instruction says this session belongs, and it is checked
 ///    against the candidates because a pin naming a dead end (signed out, drained, quarantined, or
@@ -233,10 +235,16 @@ func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primary
 /// A preferred account skips the comfort bar the cap normally insists on, and that is the pin being
 /// honoured rather than an oversight: `tally claude` launches a pinned account that is nearly out
 /// too. It is still `eligible`, so it has SOME headroom.
-func capReading(fleet: LaunchPolicy, sessionPin: String?, candidates: [Snapshot.Account])
-    -> (mode: String, preferred: Snapshot.Account?) {
-    guard sessionPin != nil else { return (fleet.mode, nil) }
-    guard fleet.mode == "manual", let pin = fleet.pinnedAccountID else { return ("auto", nil) }
+func capReading(fleet: LaunchPolicy, sessionPin: String?, candidates: [Snapshot.Account],
+                capped: String) -> (mode: String, preferred: Snapshot.Account?) {
+    // A pin naming the account that just capped yields to the cap, whichever scope set it: the wall
+    // is the evidence the snapshot has not caught up with yet (B-1540). The pin switch cannot drag
+    // the session back into it, because the quarantine this cap writes holds that move.
+    let pinsTheWall = fleet.mode == "manual" && fleet.pinnedAccountID == capped
+    guard sessionPin != nil else { return (pinsTheWall ? "auto" : fleet.mode, nil) }
+    guard fleet.mode == "manual", let pin = fleet.pinnedAccountID, !pinsTheWall else {
+        return ("auto", nil)
+    }
     guard let pinned = candidates.first(where: { $0.id == pin }) else { return (fleet.mode, nil) }
     return ("auto", pinned)
 }
@@ -363,7 +371,8 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     // Comfortable siblings first, then the thin ones spent down in reset order, and a wait only
     // when nothing usable is left (`capHandoffPick`). A fleet pin the session pin is being cleared
     // in favour of overrides that, because a pin is an instruction rather than a quota opinion.
-    let reading = capReading(fleet: fleet, sessionPin: sessionPin, candidates: candidates)
+    let reading = capReading(fleet: fleet, sessionPin: sessionPin, candidates: candidates,
+                             capped: account.id)
     let target = reading.preferred
         ?? capHandoffPick(candidates, primaryModel: primary, reserves: reserves, now: now)
     let action = capRecoveryAction(steering: steering, mode: reading.mode, fuseAllows: fuseAllows,

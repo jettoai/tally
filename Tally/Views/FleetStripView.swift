@@ -4,20 +4,29 @@ import SwiftUI
 /// ONE meter, in the storage-bar grammar (one continuous fill = the whole fleet's remaining,
 /// hairlines inside the fill marking each account's contribution) - chosen over per-account
 /// segments, which read as several broken little meters instead of a pool. Laid out in the
-/// cards' metric-row grammar: provider + fleet size as the label column, the pooled bar, and
-/// the total as "accounts' worth" (1.8/2) in the value column; the context line carries the
-/// pace forecast and the next refill. Who exactly is running dry stays on the cards below and
+/// cards' metric-row grammar, ONE line per pool: a narrow label column (plan or pool name, when
+/// the heading above does not already say it), the pooled bar, the level, the pace forecast and
+/// the next refill in its short form. Who exactly is running dry stays on the cards below and
 /// in the tooltip - the gauge answers "how much does the whole fleet have and does it last",
 /// and only that. Providers with a single account contribute nothing: a pool of one is just
 /// that account's card.
 extension PopoverRootView {
-    private static let fleetLabelWidth: CGFloat = 88
-    /// The gauge row's trailing geometry: the value column, the gap before it, and the slot the
-    /// fold chevron occupies. Internal because the advisor strip reuses all three to land its
-    /// demand figure in exactly this column.
-    static let fleetValueWidth: CGFloat = 46
+    /// Internal because the section heading lays its label block in this same column, so every
+    /// bar on the panel starts on one vertical line (`providerSection`).
+    static let fleetLabelWidth: CGFloat = 96
+    private static let fleetValueWidth: CGFloat = 34
     static let fleetRowSpacing: CGFloat = 8
-    static let fleetChevronWidth: CGFloat = 12
+    /// The pool rows' own label column, narrower than the heading's: it carries at most a plan
+    /// name with its count or a pool name, never the provider. This is its floor, the longest
+    /// English pool name ("Session pool", 61pt at footnote); `poolLabelColumnWidth` widens it to
+    /// the widest label actually on the panel.
+    private static let poolLabelWidth: CGFloat = 62
+    /// Fixed, so every bar starts and ends on the same two vertical lines whatever the forecast and
+    /// refill beside it say. At the default panel width this leaves the longest English row
+    /// ("won't run dry at this pace" plus a refill) whole; when a row cannot fit, the forecast
+    /// truncates first (its tooltip has the full sentence).
+    private static let fleetBarWidth: CGFloat = 100
+    private static let fleetChevronWidth: CGFloat = 12
 
     /// Providers whose gauge is actually rendered right now - the only providers a collapse
     /// (hidden cards) may apply to.
@@ -45,128 +54,22 @@ extension PopoverRootView {
             : []
     }
 
+    /// One summary's pool rows, under its provider's section heading (`providerSection`). The hover
+    /// belongs to this block rather than to the whole section: a callout is placed against the rect
+    /// its target reports (`TooltipPlacement`), so a wider target put the chip far from the row the
+    /// pointer was on. One target, one subject, one gap.
     @ViewBuilder
-    var fleetStrip: some View {
-        let summaries = fleetSummaries
-        if !summaries.isEmpty {
-            let gauged = summaries.filter { !displayedPools($0).isEmpty }
-            // A provider split by plan is still ONE provider: the side-by-side layout counts
-            // providers, and each column stacks that provider's plans, so splitting Codex never
-            // pushes Claude out of its column.
-            let columns = Self.providerRuns(gauged)
-            // A design capture forces ONE callout (they all publish into a single preference slot),
-            // so it forces the leading provider's - see `tallyTooltip(blocks:forced:)`.
-            let forcedID = TallyTooltip.previewForced(.fleet) ? gauged.first?.id : nil
-            // Only a provider's first summary heads its fold; a split provider's later plans do not.
-            let chevronOwners = Set(Self.providerRuns(summaries).compactMap { $0.first?.id })
-            Group {
-                // Exactly two PROVIDERS stand side by side: the panel is wide enough for both, and
-                // one glance then covers the whole fleet instead of two stacked bands. Any other
-                // count keeps the label-column rows - a lone column would leave half the strip
-                // empty, and three or more would squeeze the bars past reading. The width guard
-                // covers the single-column panel (380pt, what a one-card-per-provider or fully
-                // folded view sizes to): half of it leaves the context lines shredded, and the
-                // full-width rows read better there than a split ever could.
-                if columns.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(columns, id: \.first!.id) { run in
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(run, id: \.id) { summary in
-                                    fleetColumn(summary,
-                                                showsChevron: chevronOwners.contains(summary.id),
-                                                forcedTooltip: summary.id == forcedID)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(summaries, id: \.id) { summary in
-                            fleetGauge(summary, showsChevron: chevronOwners.contains(summary.id),
-                                       forcedTooltip: summary.id == forcedID)
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // The strip's own divider separates it from the cards; with every card folded away
-            // AND nothing left to head them, the footer's divider is next and two adjacent
-            // dividers drew as a doubled line.
-            if showsAccountRegion {
-                Divider()
-            }
-        }
-    }
-
-    /// One provider's rows, and the hover that explains THEM. The hover belongs to the provider's
-    /// own block rather than to the whole strip: a callout is placed against the rect its target
-    /// reports (`TooltipPlacement`), so a strip-wide target put the chip a whole band's height below
-    /// the row the pointer was on, over the cards - and answered a hover on Claude's bar with
-    /// Codex's figures stacked under it. One target, one subject, one gap.
-    @ViewBuilder
-    private func fleetGauge(_ summary: FleetSummary, showsChevron: Bool,
-                            forcedTooltip: Bool = false) -> some View {
+    func fleetGauge(_ summary: FleetSummary, forcedTooltip: Bool = false) -> some View {
         let pools = displayedPools(summary)
         if !pools.isEmpty {
-            VStack(alignment: .leading, spacing: 5) {
+            let labelWidth = poolLabelColumnWidth
+            VStack(alignment: .leading, spacing: 3) {
                 ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
-                    poolBlock(summary, pool, leading: index == 0, showsChevron: showsChevron)
+                    poolRow(summary, pool, index: index, labelWidth: labelWidth)
                 }
             }
             .tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }, forced: forcedTooltip)
         }
-    }
-
-    /// The side-by-side column: identity, level and the fold chevron on ONE header line, then every
-    /// pool as a full-width bar over its own context line. Half the strip has no room for the rows'
-    /// 88pt label column, so the identity moves above the bars instead of beside them - which is
-    /// what buys the bar the column's whole width and makes the split worth taking.
-    @ViewBuilder
-    private func fleetColumn(_ summary: FleetSummary, showsChevron: Bool,
-                             forcedTooltip: Bool = false) -> some View {
-        let pools = displayedPools(summary)
-        if let leading = pools.first {
-            VStack(alignment: .leading, spacing: 5) {
-                columnHeader(summary, leading, showsChevron: showsChevron)
-                ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
-                    VStack(alignment: .leading, spacing: 3) {
-                        pooledBar(pool)
-                        contextLine(summary, pool, compactRefill: true)
-                    }
-                }
-            }
-            // This column's own hover, for the same reason the rows have theirs (see `fleetGauge`):
-            // the two columns stand side by side, so a strip-wide target also answered the wrong
-            // half of the strip.
-            .tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }, forced: forcedTooltip)
-        }
-    }
-
-    /// The column's disclosure header. The level shown is the LEADING pool's - the same number the
-    /// menu bar leads with - and the bar directly under it is that pool's, so
-    /// the pairing reads in the normal top-down order; every other pool is named on its own context
-    /// line. Whole row is the fold target, exactly like the rows' leading line.
-    private func columnHeader(_ summary: FleetSummary, _ leading: FleetPool,
-                              showsChevron: Bool) -> some View {
-        HStack(spacing: Self.fleetRowSpacing) {
-            providerLabel(summary.providerID, count: summary.accountCount, plan: summary.planTier)
-                .font(.footnote)
-            Spacer(minLength: 6)
-            Text(worthValue(leading))
-                .font(.footnote.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.primary)
-                .layoutPriority(1)
-            if showsChevron {
-                foldChevron(summary.providerID)
-            } else {
-                Color.clear.frame(width: Self.fleetChevronWidth, height: 1)
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { if showsChevron { settings.toggleCollapsed(summary.providerID) } }
     }
 
     /// Provider identity and fleet size on one line: mark, display name, ×N. The one label form the
@@ -189,20 +92,6 @@ extension PopoverRootView {
     /// A split provider's plan as shown: the vendor's name, or "Unknown plan".
     private func planName(_ tier: FleetSummary.Tier) -> String { tier.name ?? L("Unknown plan") }
 
-    /// Consecutive summaries of one provider, in order: a provider split by plan arrives as
-    /// adjacent summaries (FleetMath keeps the provider order), so runs are providers.
-    static func providerRuns(_ summaries: [FleetSummary]) -> [[FleetSummary]] {
-        var runs: [[FleetSummary]] = []
-        for summary in summaries {
-            if runs.last?.first?.providerID == summary.providerID {
-                runs[runs.count - 1].append(summary)
-            } else {
-                runs.append([summary])
-            }
-        }
-        return runs
-    }
-
     /// The disclosure affordance, shared by both gauge layouts and by the grouped cards' section
     /// headings: click folds this provider's cards away (the pools stay - they ARE the summary),
     /// click again brings them back.
@@ -215,43 +104,68 @@ extension PopoverRootView {
             .tallyTooltip(L("Show or hide this provider's account cards"))
     }
 
-    /// One pool's two lines: the meter row and its context line. The FIRST pool's label column
-    /// carries the provider identity and the fold chevron (the disclosure header for the whole
-    /// provider); follow-up pools leave it empty - a continuation indent, so every bar sits in
-    /// the same column and ONE grammar names the pools: always the context line under the bar.
-    @ViewBuilder
-    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool,
-                           showsChevron: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: Self.fleetRowSpacing) {
-                if leading {
-                    providerLabel(summary.providerID, count: summary.accountCount,
-                                  plan: summary.planTier)
-                        .font(.footnote)
-                        .frame(width: Self.fleetLabelWidth, alignment: .leading)
-                } else {
-                    Color.clear.frame(width: Self.fleetLabelWidth, height: 1)
-                }
-                pooledBar(pool)
-                Text(worthValue(pool))
-                    .font(.footnote.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
-                    .frame(width: Self.fleetValueWidth, alignment: .trailing)
-                // The leading row doubles as a disclosure header: the chevron is the affordance,
-                // the whole row is the target. Follow-up rows keep an equal-width spacer so every
-                // bar column aligns.
-                if leading && showsChevron {
-                    foldChevron(summary.providerID)
-                } else {
-                    Color.clear.frame(width: Self.fleetChevronWidth, height: 1)
-                }
+    /// One pool on one line: label, bar, level, pace forecast, then the short refill on the right
+    /// (the full sentence, with the account and the clock time, is its tooltip). The pool name
+    /// sits in the label column (`poolLabel`), not in front of the forecast, and the forecast's
+    /// tooltip repeats it.
+    private func poolRow(_ summary: FleetSummary, _ pool: FleetPool, index: Int,
+                         labelWidth: CGFloat) -> some View {
+        let phrase = forecastPhrase(summary, pool)
+        return HStack(spacing: Self.fleetRowSpacing) {
+            poolLabel(summary, pool, index: index)
+                .font(.footnote)
+                .lineLimit(1)
+                .frame(width: labelWidth, alignment: .leading)
+            pooledBar(pool).frame(width: Self.fleetBarWidth)
+            Text(worthValue(pool))
+                .font(.footnote.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .frame(width: Self.fleetValueWidth, alignment: .trailing)
+            Text(phrase.text)
+                .foregroundStyle(phrase.tint)
+                .font(.caption2)
+                .lineLimit(1)
+                .tallyTooltip("\(poolDisplayName(pool)) · \(phrase.text)")
+            Spacer(minLength: 6)
+            // Every pool shows its own refill, even when it repeats the row above: Anthropic resets
+            // the model and weekly windows at the same moment, and a same-moment dedupe left the
+            // weekly slot permanently empty, which read as missing data (2026-07-23).
+            if let refill = pool.refills.first {
+                refillLabel(refill, compact: true).layoutPriority(1)
             }
-            .contentShape(Rectangle())
-            // Instant, not animated: the surrounding window resize can't be synchronized with
-            // a SwiftUI layout animation, and the half-animated combination read as a bounce.
-            .onTapGesture { if leading && showsChevron { settings.toggleCollapsed(summary.providerID) } }
-            contextLine(summary, pool)
         }
+    }
+
+    /// What the label column says: a split provider's plan and count on its first pool, the pool's
+    /// name on every other row. A single pool is named too: an empty column read as a missing label,
+    /// and the name is the one thing the heading above does not say.
+    private func poolLabel(_ summary: FleetSummary, _ pool: FleetPool, index: Int) -> Text {
+        if index == 0, let tier = summary.planTier {
+            return Text(planName(tier)).foregroundStyle(Color.secondary)
+                + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary)
+        }
+        return Text(poolDisplayName(pool)).foregroundStyle(Color.secondary)
+    }
+
+    /// The label column's width for the whole panel: the widest label any pool row on it carries,
+    /// never under the English floor. One width for every provider, so every bar still starts on
+    /// one vertical line, and a longer translation (Japanese "Session pool", 76pt) widens the column
+    /// instead of truncating (B-1524). The font and size stay put: shrinking one row's text would
+    /// leave the column in two sizes.
+    private var poolLabelColumnWidth: CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.preferredFont(forTextStyle: .footnote)]
+        let widest = fleetSummaries.flatMap { summary in
+            displayedPools(summary).enumerated().map { index, pool in
+                (poolLabelString(summary, pool, index: index) as NSString).size(withAttributes: attributes).width
+            }
+        }.max() ?? 0
+        return max(Self.poolLabelWidth, ceil(widest))
+    }
+
+    /// `poolLabel`'s words without its styling, for measuring.
+    private func poolLabelString(_ summary: FleetSummary, _ pool: FleetPool, index: Int) -> String {
+        if index == 0, let tier = summary.planTier { return planName(tier) + " ×\(summary.accountCount)" }
+        return poolDisplayName(pool)
     }
 
     private func poolDisplayName(_ pool: FleetPool) -> String {
@@ -259,7 +173,7 @@ extension PopoverRootView {
     }
 
     /// The same name from the parts alone, for a caller holding a pool's identity rather than the
-    /// pool (the hover's model). ONE implementation, so the gauge's context line and its hover can
+    /// pool (the hover's model). ONE implementation, so the gauge's rows and its hover can
     /// never name the same pool two ways.
     private func poolDisplayName(kind: MetricKind, modelName: String?, label: String) -> String {
         switch kind {
@@ -270,41 +184,6 @@ extension PopoverRootView {
             return L("Session pool")
         default:
             return L("Weekly pool")
-        }
-    }
-
-    /// Mirrors the card rows' context line: which window this pool sums (one word - without it
-    /// nothing says whose budget the bar is) and the pace verdict on the left, the next refill
-    /// on the right (click toggles countdown/exact time, like every reset label). Every pool
-    /// shows its own refill, even when it repeats the line above: Anthropic resets the model
-    /// and weekly windows at the same moment, so a same-moment dedupe left the weekly pool's
-    /// slot PERMANENTLY empty, and the absence read as missing data, not as "same as above"
-    /// (owner-confirmed confusion, 2026-07-23). A fixed slot beats a clever blank.
-    /// The pool's context: which window it sums plus the pace verdict, and the next refill. Full
-    /// width keeps them on one line. Half width (`stacked`, the side-by-side columns) gives the
-    /// refill its own line instead of shortening it: which account refills and when are both real
-    /// information, a column is short so vertical space is the cheap axis, and the alternative was
-    /// a clock truncated to "07/25 2...".
-    /// The pool's context: which window it sums plus the pace verdict on the left, the next refill
-    /// on the right. One line, and at half width (`compactRefill`, the side-by-side columns) the two
-    /// together do not fit: 262pt cannot hold both sentences whole. The refill gives up the account
-    /// name rather than the verb, because "refill" is deliberately not "reset" (the cards below use
-    /// that word for something else) and a bare timestamp would blur the two; the account is named
-    /// in the hover, in the fleet tooltip, and on the cards themselves. Both halves carry their own
-    /// hover, so whichever one clips still answers when asked.
-    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool,
-                             compactRefill: Bool = false) -> some View {
-        let phrase = forecastPhrase(summary, pool)
-        return HStack(spacing: 6) {
-            (Text("\(poolDisplayName(pool)) · ").foregroundStyle(Color.secondary)
-             + forecastText(summary, pool))
-                .font(.caption2)
-                .lineLimit(1)
-                .tallyTooltip("\(poolDisplayName(pool)) · \(phrase.text)")
-            Spacer(minLength: 6)
-            if let refill = pool.refills.first {
-                refillLabel(refill, compact: compactRefill).layoutPriority(1)
-            }
         }
     }
 
@@ -321,18 +200,11 @@ extension PopoverRootView {
             ? 100 - pool.averageRemaining : pool.averageRemaining)
     }
 
-    /// The "does it last" verdict from the measured pace: dry-run date (amber, red inside a day),
-    /// sustainable check, or "measuring" while the history is still too young to trust.
-    private func forecastText(_ summary: FleetSummary, _ pool: FleetPool) -> Text {
-        let phrase = forecastPhrase(summary, pool)
-        return Text(phrase.text).foregroundStyle(phrase.tint)
-    }
-
     /// When this pool runs dry at its measured pace, `.some(nil)` when it outlasts the forecast
     /// horizon, and nil when there is no pace yet (still measuring) or the pool is a session pool,
     /// which paces work rather than capping it. Internal because the advisor row asks the same
-    /// question and must get the same answer: its "not enough at this pace" is exactly this
-    /// line's amber "lasts about", never a second threshold.
+    /// question and must get the same answer: its "short at this pace" is exactly this
+    /// line's amber "runs dry in about", never a second threshold.
     func poolDryDate(_ summary: FleetSummary, _ pool: FleetPool, now: Date) -> Date?? {
         guard pool.kind != .session else { return nil }
         guard let rate = store.fleetRates[FleetForecast.rateKey(
@@ -355,17 +227,21 @@ extension PopoverRootView {
         guard let outlook = poolDryDate(summary, pool, now: now) else {
             return (L("measuring pace…"), Color.secondary.opacity(0.7))
         }
+        // Both branches already count every refill the forecast sees: the check means the pool
+        // never runs out at this pace, and the amber time is when it does with refills included.
+        // Neither is about the next refill, which is the row's own label on the right.
         guard let dry = outlook else {
-            return ("\(L("sustainable at this pace")) ✓", TallyColor.normal)
+            return ("\(L("won't run dry at this pace")) ✓", TallyColor.normal)
         }
         let seconds = dry.timeIntervalSince(now)
         let body = UsageFormat.durationBody(seconds)
-        return (String(localized: "lasts about \(body)", bundle: AppLocale.bundle),
-                seconds < 86_400 ? TallyColor.critical : TallyColor.warning)
+        return (String(localized: "runs dry in about \(body)", bundle: AppLocale.bundle),
+                seconds < 86_400 ? TallyColor.critical : Self.amberTagInk)
     }
 
-    /// "next refill Claude in 4d 6h" - refill wording, not "resets", so it can't be confused
-    /// with the per-window reset labels on the cards. The exact time is in the hover.
+    /// "refill in 4d 6h" on the row (the full "next refill Claude in 4d 6h" with `compact: false`):
+    /// refill wording, not "resets", so it can't be confused with the per-window reset labels on
+    /// the cards. Which account and the exact time are in the hover.
     private func refillLabel(_ refill: FleetPool.Refill, compact: Bool = false) -> some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             Text(refillText(refill, now: context.date, compact: compact))

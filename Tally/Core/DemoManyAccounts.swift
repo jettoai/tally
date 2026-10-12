@@ -69,6 +69,96 @@ extension DemoUsage {
         return claudes + codexes
     }
 
+    /// `-TallyDemoModelWindows Fable,Sonnet` (Debug builds only): the model-scoped weekly windows
+    /// every Claude fixture reports, in order, so a capture can show a model pool other than Fable.
+    /// Fable alone without it, which is what the README shots are.
+    static var modelWindows: [String] {
+        #if DEBUG
+        if isActive, let list = UserDefaults.standard.string(forKey: "TallyDemoModelWindows") {
+            let names = list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if !names.isEmpty { return names }
+        }
+        #endif
+        return ["Fable"]
+    }
+
+    /// `-TallyDemoLaunchModel sonnet` (Debug builds only): the launch model the gauge focuses on,
+    /// in place of this Mac's own launch policy, so a capture can put a given model pool on screen
+    /// whatever the machine running it has declared. Nil without it, and always nil outside demo.
+    static var launchModelOverride: String? {
+        #if DEBUG
+        guard isActive, let model = UserDefaults.standard.string(forKey: "TallyDemoLaunchModel"),
+              !model.isEmpty else { return nil }
+        return model
+        #else
+        return nil
+        #endif
+    }
+
+    /// `-TallyDemoProviders codex` and `-TallyDemoAccountLimit claude=1,codex=2` (Debug builds only):
+    /// the fixture fleet cut to the providers named and to the first N fixtures of each, so a
+    /// capture can show a Codex-only panel or a single account. Applied after every other fixture
+    /// flag; a provider the limit does not name keeps all of its fixtures.
+    static func scoped(_ all: [AccountUsage]) -> [AccountUsage] {
+        #if DEBUG
+        guard isActive else { return all }
+        let defaults = UserDefaults.standard
+        func list(_ key: String) -> [String] {
+            (defaults.string(forKey: key) ?? "").split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+        }
+        let providers = Set(list("TallyDemoProviders"))
+        var limits: [String: Int] = [:]
+        for pair in list("TallyDemoAccountLimit") {
+            let parts = pair.split(separator: "=")
+            if parts.count == 2, let count = Int(parts[1]) { limits[String(parts[0])] = count }
+        }
+        var kept: [String: Int] = [:]
+        return all.filter { usage in
+            guard providers.isEmpty || providers.contains(usage.providerID) else { return false }
+            kept[usage.providerID, default: 0] += 1
+            return kept[usage.providerID]! <= limits[usage.providerID] ?? .max
+        }
+        #else
+        return all
+        #endif
+    }
+
+    /// A fixture reading read again for the accounts `scoped` kept, so a single-account capture
+    /// shows what a real one-account owner sees rather than no advice at all (B-1524). Each plan
+    /// tier keeps its own per-account load over the seats still shown, which is what a smaller
+    /// fleet working the same way would read: the ratio behind the verdict is unchanged, so the
+    /// verdict and the starved hours (per pool, not per seat) stand. Nil for a provider with no
+    /// fixture left; the reading itself, untouched, while nothing was cut.
+    static func rescoped(_ reading: UsageAdvisor.Reading, shown: [AccountUsage]) -> UsageAdvisor.Reading? {
+        let mine = shown.filter { $0.providerID == reading.provider }
+        guard !mine.isEmpty else { return nil }
+        guard mine.count != reading.accountCount else { return reading }
+        func cut(_ tiers: [UsageAdvisor.TierDemand]) -> [UsageAdvisor.TierDemand] {
+            tiers.compactMap { tier in
+                let kept = mine.filter { $0.planName == tier.plan }.count
+                guard kept > 0 else { return nil }
+                return .init(plan: tier.plan,
+                             demandPerWeek: tier.demandPerWeek * Double(kept) / Double(max(1, tier.accountCount)),
+                             accountCount: kept)
+            }
+        }
+        var out = reading
+        out.tierDemands = cut(reading.tierDemands)
+        let pooled = out.tierDemands.reduce(0) { $0 + $1.demandPerWeek }
+        let scale = reading.demandPerWeek > 0 ? pooled / reading.demandPerWeek : 0
+        out.demandPerWeek = pooled
+        out.accountCount = mine.count
+        out.windowDemands = reading.windowDemands.map { window in
+            var window = window
+            window.demandPerWeek = window.demandPerWeek.map { $0 * scale }
+            window.tierDemands = cut(window.tierDemands)
+            return window
+        }
+        return out
+    }
+
     /// The config home a fixture stands for, shown in the Settings rows only on this capture (the
     /// plain demo keeps that list without homes, as it always has).
     static func manyAccountsHome(accountID: String) -> String? {

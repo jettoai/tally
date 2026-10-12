@@ -360,6 +360,12 @@ func runSessionPinChecks() {
           sessionPinnedLabel("Claude 3", scope: .project) == "Claude 3 ◉project")
     check("…and an unpinned one is the bare name, exactly as before",
           sessionPinnedLabel("Claude 3", scope: nil) == "Claude 3")
+    // B-1540: a session running off the account its pin names says so, and only then.
+    check("a session away from its pinned account carries the word",
+          sessionPinnedLabel("Claude 3", scope: .fleet, away: true) == "Claude 3 ◉fleet away")
+    check("…and a session on it reads byte for byte as before",
+          sessionPinnedLabel("Claude 3", scope: .fleet) == "Claude 3 ◉fleet"
+              && sessionPinnedLabel("Claude 3", scope: nil, away: true) == "Claude 3")
     let statusline = (try? String(contentsOfFile: "TallyCLI/Statusline.swift",
                                   encoding: .utf8)) ?? ""
     // ASKED OF WHAT IS DRAWN, not of what is computed, which is what the first version of this
@@ -374,7 +380,8 @@ func runSessionPinChecks() {
         .joined(separator: "\n")
     check("the status line renders it through that one rule rather than spelling it again",
           !statusline.isEmpty
-              && statuslineCode.contains("let pinned = sessionPinnedLabel(label, scope: pinScope)")
+              && statuslineCode.contains("let pinned = sessionPinnedLabel(label, scope: pinScope, away: pinAway)")
+              && statuslineCode.contains("pinAway = context?.pinAway != nil")
               && statuslineCode.contains("pinScope = context?.pinScope"))
     check("…and BOTH identity zones draw the marked name, neither of them the bare one",
           statuslineCode.components(separatedBy: #"\(dim)\(pinned)\(reset)"#).count - 1 == 2
@@ -393,6 +400,18 @@ func runSessionPinChecks() {
                 pid: String(getpid()), dir: tickDir, now: published.updatedAt)
     check("…and unpinning is written at once, under the write delta, exactly as a release is",
           readSessionContext(pid: String(getpid()), dir: tickDir)?.pinScope == nil)
+    // B-1540: `pinAway` moves on its own tick too (the pinned account runs out, or refills).
+    scoped.sync(tokens: 20_100, accountID: "claude:.claude4", pin: nil, pinScope: .fleet,
+                pid: String(getpid()), dir: tickDir, now: published.updatedAt)
+    scoped.sync(tokens: 20_100, accountID: "claude:.claude4", pin: nil, pinScope: .fleet,
+                pinAway: "claude:.claude2", pid: String(getpid()), dir: tickDir,
+                now: published.updatedAt)
+    check("going away from the pinned account is written with nothing else moving",
+          readSessionContext(pid: String(getpid()), dir: tickDir)?.pinAway == "claude:.claude2")
+    scoped.sync(tokens: 20_100, accountID: "claude:.claude4", pin: nil, pinScope: .fleet,
+                pid: String(getpid()), dir: tickDir, now: published.updatedAt)
+    check("…and so is coming home",
+          readSessionContext(pid: String(getpid()), dir: tickDir)?.pinAway == nil)
     check("a document from before the field decodes as no mark at all",
           (try? decoder.decode(SupervisedSession.self, from: Data(older.utf8)))?.pinScope == nil)
     // A word this build does not know is no mark either, never a wrong one: the app's own reader is

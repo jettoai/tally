@@ -106,9 +106,9 @@ func switchWaitBadge(_ target: SwitchTargetState, staying: String) -> PendingBad
 ///
 /// The pin switch narrows on three cells (`applyPinSwitch`) and only the last of them ends on a
 /// clock: a quarantine expires on its TTL, while a snapshot nothing can read and an account with
-/// nothing left to serve last exactly as long as they last. Under a FLEET pin nobody else ends that
-/// wait either, and that is the whole of why it needs a badge: every preventive mover stands down on
-/// `mode == "manual"`, the cap handoff answers `.waitPinned`, and this arm is the one station left,
+/// nothing left to serve last exactly as long as they last. Nothing else ends that wait while the
+/// pin stands unreleased (a pin over an out-of-quota account is released, DroughtWatch.swift, and
+/// then this arm stands down instead), which is why it needs a badge: it is the one station left,
 /// so the session simply stays where it is while the board and the status line both draw it as
 /// pinned to the account it is not on (`SessionPinScope`). A typed `tally switch` held by the same
 /// fleet says why (`switchWaitBadge`); moving the pin in the panel said nothing.

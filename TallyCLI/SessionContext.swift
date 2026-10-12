@@ -111,6 +111,10 @@ struct SupervisedSession: Equatable, Codable {
     /// absent, which is what an unpinned session looks like too. That collapse is deliberate and
     /// cheap: the reading is republished within a poll of the supervisor updating.
     var pinScope: String?
+    /// The account a fleet or project pin names while this session runs somewhere else, or nil
+    /// (`pinAwayAccount`, B-1540): the pinned account ran out, Tally moved the session to the smart
+    /// pick, and it comes back when that account refills. Additive like everything on this track.
+    var pinAway: String?
     /// The model and effort a `tally model` pinned this session to, or nil for an axis it follows
     /// the project profile and the fleet default on (SessionModel.swift). Additive on the same
     /// terms as `sessionPin`.
@@ -196,9 +200,10 @@ extension SupervisedSession {
     /// The axis fields and the conversation id, spelled once, so a new publish cannot fill three of
     /// them.
     init(accountID: String, contextTokens: Int, updatedAt: Date, sessionPin: String?,
-         pinScope: SessionPinScope? = nil, axes: SessionAxes, transcript: String?) {
+         pinScope: SessionPinScope? = nil, pinAway: String? = nil, axes: SessionAxes,
+         transcript: String?) {
         self.init(accountID: accountID, contextTokens: contextTokens, updatedAt: updatedAt,
-                  sessionPin: sessionPin, pinScope: pinScope?.rawValue,
+                  sessionPin: sessionPin, pinScope: pinScope?.rawValue, pinAway: pinAway,
                   sessionModel: axes.pinnedModel,
                   sessionEffort: axes.pinnedEffort, observedModel: axes.observedModel,
                   runningModel: axes.runningModel, runningEffort: axes.runningEffort,
@@ -264,15 +269,16 @@ struct SessionContextWriter {
     /// has no file, and inventing one with a token count nobody measured would be worse than the
     /// silence the reader already handles.
     mutating func accountChanged(to accountID: String, pin: String?,
-                                 pinScope: SessionPinScope? = nil,
+                                 pinScope: SessionPinScope? = nil, pinAway: String? = nil,
                                  axes: SessionAxes = SessionAxes(), transcript: String? = nil,
                                  pid: String,
                                  dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let current, current.accountID != accountID || current.sessionPin != pin
-            || current.pinScope != pinScope?.rawValue
+            || current.pinScope != pinScope?.rawValue || current.pinAway != pinAway
             || !current.matches(axes, transcript: transcript) else { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
-                                  updatedAt: now, sessionPin: pin, pinScope: pinScope, axes: axes,
+                                  updatedAt: now, sessionPin: pin, pinScope: pinScope,
+                                  pinAway: pinAway, axes: axes,
                                   transcript: transcript), pid: pid, dir: dir)
     }
 
@@ -304,18 +310,20 @@ struct SessionContextWriter {
     /// the scope from `session` to `project` while the account stays exactly where it is.
     /// The axes join it on identical terms - `tally model --auto` also moves nothing, and a quota
     /// fallback changes what is RUNNING without changing anything the user asked for.
+    /// `pinAway` joins on the same terms: it changes when the session moves and when the pinned
+    /// account refills, with the token count standing still.
     mutating func sync(tokens: Int?, accountID: String, pin: String?,
-                       pinScope: SessionPinScope? = nil,
+                       pinScope: SessionPinScope? = nil, pinAway: String? = nil,
                        axes: SessionAxes = SessionAxes(), transcript: String? = nil, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID, current.sessionPin == pin,
-           current.pinScope == pinScope?.rawValue,
+           current.pinScope == pinScope?.rawValue, current.pinAway == pinAway,
            current.matches(axes, transcript: transcript),
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
-                                  sessionPin: pin, pinScope: pinScope, axes: axes,
-                                  transcript: transcript),
+                                  sessionPin: pin, pinScope: pinScope, pinAway: pinAway,
+                                  axes: axes, transcript: transcript),
                 pid: pid, dir: dir)
     }
 

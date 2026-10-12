@@ -46,17 +46,17 @@ func runDroughtChecks() {
     // MARK: - 32a. The rule, on its own
 
     check("a pin over an account with something left is untouched",
-          !pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: false, pinnedUnderReserve: false))
+          !pinYieldsToSpentAccount(pinnedSpent: false, pinnedUnderReserve: false))
     check("a pin over one with nothing left yields",
-          pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: true, pinnedUnderReserve: false))
-    check("but the APP's own pin never releases on a spent reading alone: Tally never re-picks it",
-          !pinYieldsToSpentAccount(appMode: "manual", pinnedSpent: true, pinnedUnderReserve: false))
+          pinYieldsToSpentAccount(pinnedSpent: true, pinnedUnderReserve: false))
+    check("and the APP's own pin yields too once the account it names has nothing left (B-1540)",
+          pinYieldsToSpentAccount(pinnedSpent: true, pinnedUnderReserve: false))
     // B-1213: A RESERVE IS THE EXCEPTION. The fleet pin yields too once its account is under its
     // owner's line, which is the hard line the reserve promises.
     check("the APP's own pin yields once the account it names is under its owner's line",
-          pinYieldsToSpentAccount(appMode: "manual", pinnedSpent: false, pinnedUnderReserve: true))
+          pinYieldsToSpentAccount(pinnedSpent: false, pinnedUnderReserve: true))
     check("…and so does every narrower pin",
-          pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: false, pinnedUnderReserve: true))
+          pinYieldsToSpentAccount(pinnedSpent: false, pinnedUnderReserve: true))
     // THE HOLD: under the line with nowhere to go is the one state in which Tally types nothing.
     let holdTable: [(Bool, Bool, Bool)] = [(false, false, false), (false, false, true),
                                           (false, true, false), (false, true, true),
@@ -118,8 +118,7 @@ func runDroughtChecks() {
         watch.observe(provider: "claude", account: current, primaryModel: "fable",
                       pinned: sessionPolicy(declared, sessionPin: sessionPin).pinnedAccountID,
                       loaded: reading, now: droughtNow)
-        let yields: Bool = pinYieldsToSpentAccount(appMode: app.mode,
-                                                   pinnedSpent: watch.pinnedSpent,
+        let yields: Bool = pinYieldsToSpentAccount(pinnedSpent: watch.pinnedSpent,
                                                    pinnedUnderReserve: false)
         let moving: LaunchPolicy = pinReleasedPolicy(declared, yielding: yields)
         return (moving, pinReleasedPolicy(sessionPolicy(moving, sessionPin: sessionPin),
@@ -148,8 +147,9 @@ func runDroughtChecks() {
     /// And whether a cap could hand the session on, which is the second half of every cell: the
     /// reading the handoff is judged by comes from the FLEET's policy (`capReading`), never the
     /// session's.
-    func capMoves(_ moving: LaunchPolicy, sessionPin: String?) -> CapAction {
-        let reading = capReading(fleet: moving, sessionPin: sessionPin, candidates: [sibling])
+    func capMoves(_ moving: LaunchPolicy, sessionPin: String?, capped: String) -> CapAction {
+        let reading = capReading(fleet: moving, sessionPin: sessionPin, candidates: [sibling],
+                                 capped: capped)
         return capRecoveryAction(steering: true, mode: reading.mode, fuseAllows: true,
                                  snapshotStale: false, hasTarget: true)
     }
@@ -171,31 +171,34 @@ func runDroughtChecks() {
         check("a session pin on a \(state) account moves \(spent ? "" : "no")where",
               moves(session.session, current: current) == spent)
         check("…and a cap on it hands the session on either way",
-              capMoves(session.moving, sessionPin: "D") == .handoff)
+              capMoves(session.moving, sessionPin: "D", capped: current.id) == .handoff)
 
         // A PROJECT PROFILE (`tally project set --account`), which three repos on this machine set.
         let project = policies(app: appAuto, projectAccount: "D", sessionPin: nil,
                                sittingOn: current)
         check("a project pin on a \(state) account moves \(spent ? "" : "no")where",
               moves(project.session, current: current) == spent)
-        check("…and its cap \(spent ? "hands the session on" : "waits, as pinning means")",
-              capMoves(project.moving, sessionPin: nil) == (spent ? .handoff : .waitPinned))
+        // A cap on the account the pin names is the evidence itself (B-1540): it hands on whatever
+        // the snapshot says, rather than waiting for the reading to catch up.
+        check("…and its cap hands the session on, whatever the numbers say",
+              capMoves(project.moving, sessionPin: nil, capped: current.id) == .handoff)
 
-        // THE APP'S OWN PIN, untouched by any of this: one scope above a single session.
+        // THE APP'S OWN PIN, now on the same terms (B-1540): a pin is a priority, not a cage.
         let fleet = policies(app: appPinned, projectAccount: nil, sessionPin: nil,
                              sittingOn: current)
-        check("the fleet's own pin holds a \(state) account", !moves(fleet.session, current: current))
-        check("…and its cap waits, whatever the numbers say",
-              capMoves(fleet.moving, sessionPin: nil) == .waitPinned)
+        check("the fleet's own pin on a \(state) account moves \(spent ? "" : "no")where",
+              moves(fleet.session, current: current) == spent)
+        check("…and its cap hands the session on, whatever the numbers say",
+              capMoves(fleet.moving, sessionPin: nil, capped: current.id) == .handoff)
     }
 
     // The two cells the composition above exists to keep honest, stated on their own.
     check("the release reaches a pin folded in AFTER it, which is where a session pin arrives",
           policies(app: appAuto, projectAccount: nil, sessionPin: "D",
                    sittingOn: spentNow).session.mode == "auto")
-    check("and a session pin over the APP's pin is not released either: that scope is never",
+    check("and a session pin over the APP's pin is released too (B-1540)",
           policies(app: appPinned, projectAccount: nil, sessionPin: "D",
-                   sittingOn: spentNow).session.mode == "manual")
+                   sittingOn: spentNow).session.mode == "auto")
 
     // MARK: - 32c. The pin switch stands down with the movers, and STAYS down after the move
 
@@ -339,9 +342,18 @@ func runDroughtChecks() {
     // one left). Both surfaces draw such a session as pinned to the account it is not on
     // (SessionPinScope.swift), and until this existed the status line said nothing about why: a
     // typed `tally switch` held by the same fleet has had its own badge all along.
-    let spentWait = pinSwitchTick(afterTheMove(pinnedRow: spentNow, app: appPinned,
-                                               projectAccount: nil).moving, fleet: spentFleet)
-    check("a fleet pin held by an empty account says so rather than waiting in silence",
+    // B-1540: an empty account RELEASES the fleet pin now, so the station stands down instead of
+    // waiting. The badge is still reachable on a row the release cannot trust (a failed poll).
+    let releasedWait = pinSwitchTick(afterTheMove(pinnedRow: spentNow, app: appPinned,
+                                                  projectAccount: nil).moving, fleet: spentFleet)
+    check("a fleet pin over an empty account is released, so the pin switch stands down silently",
+          releasedWait.plan == nil && releasedWait.waiting == nil)
+    var failedRow = spentNow
+    failedRow.lastRefreshFailed = true
+    let spentWait = pinSwitchTick(afterTheMove(pinnedRow: failedRow, app: appPinned,
+                                               projectAccount: nil).moving,
+                                  fleet: [failedRow, sibling])
+    check("a fleet pin held by an account it cannot use says so rather than waiting in silence",
           spentWait.plan == nil && spentWait.waiting?.badge == "pin: nothing left")
     check("…and names the account the session is staying on meanwhile",
           spentWait.waiting?.detail?.contains(sibling.label) == true)
@@ -443,7 +455,7 @@ func runDroughtChecks() {
           readSpent.spent)
     check("…and a pin naming that account yields, which is the release",
           readSpent.pinnedSpent
-              && pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: readSpent.pinnedSpent,
+              && pinYieldsToSpentAccount(pinnedSpent: readSpent.pinnedSpent,
                                       pinnedUnderReserve: false))
     check("…with the window that binds it named for the audit line",
           readSpent.window == "fable" && readSpent.remaining == 0)
@@ -662,8 +674,7 @@ func runDroughtChecks() {
             = (Snapshot(version: 2, generatedAt: moment, accounts: emptyPin), nil)
         loopWatch.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "D",
                           loaded: reading, now: moment)
-        let yields: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
-                                                   pinnedSpent: loopWatch.pinnedSpent,
+        let yields: Bool = pinYieldsToSpentAccount(pinnedSpent: loopWatch.pinnedSpent,
                                                    pinnedUnderReserve: false)
         if yields { released += 1 }
         let dragged: RelaunchPlan? = pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: yields),
@@ -682,8 +693,7 @@ func runDroughtChecks() {
     loopWatch.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "D",
                       loaded: refilledReading,
                       now: droughtNow.addingTimeInterval(10 * droughtWatchInterval))
-    let refilled: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
-                                                 pinnedSpent: loopWatch.pinnedSpent,
+    let refilled: Bool = pinYieldsToSpentAccount(pinnedSpent: loopWatch.pinnedSpent,
                                                  pinnedUnderReserve: false)
     check("and when that account refills the release lapses on its own",
           !loopWatch.pinnedSpent && !refilled)

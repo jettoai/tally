@@ -211,13 +211,8 @@ check("quarantine: an all-held provider still names the unfiltered pick",
 check("quarantine: codex keeps its own pick",
       account(quarantined, "codex:.codex")["best"] as? Bool == true)
 
-// A manual pin outranks the quarantine, exactly as runLaunch launches it ("launching anyway").
-let pinnedHeld = parse(encodeStatusReport(statusReport(
-    snapshot,
-    policies: ["claude": LaunchPolicy(mode: "manual", pinnedAccountID: "claude:.claude2")],
-    quarantined: ["claude": ["claude:.claude2"]], now: now)))
-check("quarantine: a manual pin still launches, so it keeps the marker",
-      account(pinnedHeld, "claude:.claude2")["best"] as? Bool == true)
+// A pin over a just-capped account steps aside to the smart pick (B-1540, pinstepasidechecks.swift).
+pinStepAsideMarkerChecks()
 
 // MARK: live sessions - the context a resume would reload, per account (SessionContext.swift)
 let sessions = parse(encodeStatusReport(statusReport(

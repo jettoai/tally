@@ -23,15 +23,15 @@ struct SteeredLaunch {
     let home: String
     /// The reserve that pick had to spend, in the launcher's own words (`reserveDipNotice`). Always
     /// nil since the B-1213 hard reserve (neither the pick nor a pin lands under a line any more);
-    /// kept so the shim keeps one sentence path.
+    /// kept so the shim keeps one sentence path, or the pin it stepped aside from (B-1540).
     let dip: String?
 }
 
 /// The pick itself: its manual pin - in Tally or from `tally project set --account` - when that
 /// resolves to a launchable account, and otherwise the same headroom pick `runLaunch` makes, this
-/// project's model and the live cap quarantine included. A pin resolves regardless of headroom (the
-/// user chose by hand) except when its account has signed out, which is not launchable by anyone
-/// (AccountPick.swift).
+/// project's model and the live cap quarantine included. A pin resolves unless its account is out of
+/// quota and another can take the launch (`pinStepAsideRow`), or it has signed out, which is not
+/// launchable by anyone (AccountPick.swift).
 ///
 /// Shared by `best-dir` and `launch-dir` so neither can print an export line naming an account the
 /// launch itself would skip, which is a wrong answer to the only question either command asks - and
@@ -42,7 +42,12 @@ struct SteeredLaunch {
 func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                    reserves: AccountReserves = accountReserves(),
                    quarantined: Set<String>? = nil, now: Date = Date()) -> SteeredLaunch? {
-    if let home = pinnedLaunchHome(snapshot, policy: policy) {
+    let held = quarantined ?? quarantinedAccounts(forPrimary: policy.model)
+    // A pin over an account that is out of quota steps aside to the smart pick (B-1540); the shim
+    // cannot bring the session back later, but it no longer launches it onto the wall either.
+    let aside = pinStepAsideRow(snapshot, policy: policy, primaryModel: policy.model,
+                                quarantined: held, reserves: reserves, spendReserve: false, now: now)
+    if aside == nil, let home = pinnedLaunchHome(snapshot, policy: policy) {
         // A pin onto an account under its line is refused (B-1213): `steeredRefusal` says why.
         if pinnedUnderReserve(snapshot, policy: policy, reserves: reserves, now: now) != nil {
             return nil
@@ -54,14 +59,38 @@ func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchP
     // bare `claude` is the launch that most needs it - nobody typed an account there.
     guard let snapshot,
           let account = launchPick(providerID: provider.id, in: snapshot,
-                                   primaryModel: policy.model,
-                                   quarantined: quarantined
-                                       ?? quarantinedAccounts(forPrimary: policy.model),
+                                   primaryModel: policy.model, quarantined: held,
                                    reserves: reserves, now: now),
           let home = account.launchHome else { return nil }
     return SteeredLaunch(home: home,
-                         dip: reserveDipNotice(account, primaryModel: policy.model,
-                                               reserves: reserves, now: now))
+                         dip: aside.map { pinStepAsideNotice($0, pinnedBy: "pinned") }
+                             ?? reserveDipNotice(account, primaryModel: policy.model,
+                                                 reserves: reserves, now: now))
+}
+
+/// `tally claude`'s half of `pinStepAsideRow`: say why and answer true when the launch steps aside
+/// from its pin, so the caller falls through to the smart pick (B-1540). When the pinned account is
+/// out of quota and nothing else can take the launch, the pin still launches, and says so.
+func pinStepsAside(_ snapshot: Snapshot?, policy: LaunchPolicy, project: ProjectPolicy,
+                   model: String?, reserves: AccountReserves, spend: Bool) -> Bool {
+    let pinnedBy = project.accountID != nil ? "pinned for this project" : "pinned in Tally"
+    if let row = pinStepAsideRow(snapshot, policy: policy, primaryModel: model,
+                                 quarantined: quarantinedAccounts(forPrimary: model),
+                                 reserves: reserves, spendReserve: spend) {
+        warn(pinStepAsideNotice(row, pinnedBy: pinnedBy))
+        return true
+    }
+    // The sentence the launch used to say every time, kept for the one cell where it is still true.
+    // Not under the owner's line: that launch is about to be refused, and "launching anyway" first
+    // would contradict it.
+    if let row = snapshot?.accounts.first(where: {
+           policy.mode == "manual" && $0.id == policy.pinnedAccountID && $0.launchHome != nil
+       }), pinnedOutOfQuota(row, primaryModel: model),
+       spend || aboveReserve(row, primaryModel: model, reserves: reserves) {
+        warn("\(row.label) is out of quota and no other account can take this launch - "
+            + "launching it anyway (\(pinnedBy))")
+    }
+    return false
 }
 
 /// The pinned row when the pin names an account under its owner's line, or nil. A pin whose account

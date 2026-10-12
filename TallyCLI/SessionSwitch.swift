@@ -385,9 +385,9 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 ///
 /// AND ONLY THE THIRD OF THEM ENDS ON A CLOCK, which is why the wait is now said out loud. Cells 1
 /// and 2 have no upper bound at all: a poll that keeps failing, a held-over row, a window at zero
-/// last as long as they last. Under a fleet pin nothing else is going to end that wait either
-/// (every preventive mover stands down on `mode == "manual"`, the cap handoff answers
-/// `.waitPinned`), so the session stays where it is while both surfaces draw it as pinned to the
+/// last as long as they last. Nothing else ends that wait while the pin stands unreleased (a pin
+/// over an out-of-quota account is released, DroughtWatch.swift, and then this station stands down
+/// instead), so the session stays where it is while both surfaces draw it as pinned to the
 /// account it is not on. It said nothing while doing so; it raises a badge now
 /// (`PinSwitchWait`, SwitchBadges.swift), and never over the one a typed `tally switch` just
 /// raised, which is the more specific news about the same fleet.

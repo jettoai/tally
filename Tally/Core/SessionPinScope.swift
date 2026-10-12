@@ -101,10 +101,21 @@ func sessionPinReleaseKey(_ scope: SessionPinScope) -> String {
     }
 }
 
+/// The word a pin's mark carries while the session runs AWAY from the account the pin names: that
+/// account ran out of quota, Tally moved the session to the smart pick, and it moves back when the
+/// pinned account refills (B-1540). Without it the mark reads "pinned to this account" over an
+/// account the pin does not name, which looks like Tally ignoring the pin.
+let sessionPinAwayWord = "away"
+/// The hover for that state, as catalogue keys (the app localizes them; the terminal never shows
+/// them).
+let sessionPinAwayOwnerKey = "The pinned account is out of quota, so this session is running here for now"
+let sessionPinAwayReturnKey = "Tally moves it back when the pinned account has quota again."
+
 /// The status line's whole rendering: the account's name with the pin that holds it there, or the
 /// name alone. Kept beside the vocabulary rather than inside Statusline.swift so the assertion about
 /// what a pinned line reads like does not have to reach into that file's rendering.
-func sessionPinnedLabel(_ label: String, scope: SessionPinScope?) -> String {
+func sessionPinnedLabel(_ label: String, scope: SessionPinScope?, away: Bool = false) -> String {
     guard let scope else { return label }
-    return "\(label) \(sessionPinMark)\(sessionPinScopeWord(scope))"
+    let mark = "\(label) \(sessionPinMark)\(sessionPinScopeWord(scope))"
+    return away ? "\(mark) \(sessionPinAwayWord)" : mark
 }

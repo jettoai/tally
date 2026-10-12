@@ -62,16 +62,13 @@ import Foundation
 // SessionSwitch.swift); a project profile naming a removed account can, and nothing validates one
 // today.
 //
-// WHAT IT DOES NOT REACH, deliberately. The APP's own pin (`mode == "manual"` in Settings) is the
-// fleet saying Tally does not re-pick for it, one scope above any single session, so
-// `pinYieldsToSpentAccount` refuses to release it and `capRecoveryAction` answers `.waitPinned` for
-// such a session exactly as before. Observe-only is untouched for the same reason and by a
-// different gate (AutoSteering.swift). What IS released is the session's own pin (`tally account`)
-// and the project profile's (`tally project set --account`), which is the layer the incident's
-// sibling case sits in: three projects on this machine pin an account, and until now a cap on one
-// of them could not move the session at all. A RESERVE IS THE EXCEPTION (B-1213): the fleet pin
-// yields too once the account it names is under its owner's line, unless the session was launched
-// with `--spend-reserve`.
+// WHAT IT REACHES: every scope. The APP's own pin (`mode == "manual"` in Settings) was left out on
+// purpose until B-1540, read as the fleet saying Tally does not re-pick for it; the owner read it
+// the other way (2026-10-12: a pin is a priority, and running out is the moment to step aside
+// and come back). It now yields on the same reading as the session's own pin (`tally account`) and
+// the project profile's (`tally project set --account`), and comes home the same way. Observe-only
+// is untouched, by a different gate (AutoSteering.swift). A RESERVE yields every scope as before
+// (B-1213), unless the session was launched with `--spend-reserve`.
 //
 // AND THE RELEASE HAS TO REACH THE PIN SWITCH TOO, which is the half that would otherwise make this
 // a restart loop rather than a fix. `applyPinSwitch` drags a running session onto the pinned
@@ -105,23 +102,22 @@ import Foundation
 /// its window resets, which is hours rather than seconds.
 let droughtWatchInterval: TimeInterval = quotaKnockInterval
 
-/// Whether the pins standing over a session yield, given that the account they NAME is spent.
+/// Whether the pins standing over a session yield, given what the account they NAME has left.
 ///
-/// `appMode` is the APP's own mode, read before either overlay (`launchPolicy`, never
-/// `effectivePolicy`): a project profile and a session pin both present themselves to the rest of
-/// the loop AS a manual pin, so the folded policy cannot tell which scope pinned it, and this is
-/// the one question where the scopes differ. The fleet's own pin is never released; the two below
-/// it are, once there is nothing left to protect.
+/// EVERY SCOPE YIELDS since B-1540, the app's own pin included (Albert 2026-10-12: "a pin is a
+/// priority, not the only account this may run on"). Until then the fleet's pin never released on
+/// a spent reading, so a session under it sat on the wall for up to five hours while every other
+/// account's quota stood idle; the release, the pin switch's stand-down and the way home were
+/// already built and shipped for the two narrower scopes, and this is them reaching the third.
 ///
 /// `pinnedSpent` IS SPELLED OUT AT EVERY CALL SITE, and the label is the fix rather than a
 /// decoration: this argument used to be called `spent`, every caller handed it the reading for the
-/// account the session was sitting on, and nothing in the sentence `pinYieldsToSpentAccount(appMode:
-/// spent:)` asked WHICH account (see the header for what that cost).
+/// account the session was sitting on, and nothing in the sentence asked WHICH account (see the
+/// header for what that cost).
 ///
-/// `pinnedUnderReserve` releases every scope, the app's own pin included (B-1213): a reserve is a
-/// hard line, and a pin onto an account under it is exactly the session the line exists to move.
-func pinYieldsToSpentAccount(appMode: String, pinnedSpent: Bool, pinnedUnderReserve: Bool) -> Bool {
-    (pinnedSpent && appMode != "manual") || pinnedUnderReserve
+/// `pinnedUnderReserve` is the owner's line (B-1213), a reason of its own to yield.
+func pinYieldsToSpentAccount(pinnedSpent: Bool, pinnedUnderReserve: Bool) -> Bool {
+    pinnedSpent || pinnedUnderReserve
 }
 
 /// Whether Tally must stop typing into this session: it sits under its owner's line and there is
@@ -247,6 +243,8 @@ struct DroughtWatch {
     /// Whether the account the PIN names had none. THE RELEASE's input, and the whole of the
     /// difference between a pin that yields for as long as its account is empty and a restart loop
     /// (see the header).
+    /// Or its counted window reads zero inside the imminent-reset grace (`pinnedOutOfQuota`), so
+    /// the release lasts until the pin switch's own bar says the account can serve again (B-1540).
     private(set) var pinnedSpent = false
     /// Whether the account the session SITS on, and the one the pin NAMES, are under their owners'
     /// lines (B-1213): the reserve hold's input and the fleet pin's release.
@@ -345,6 +343,7 @@ struct DroughtWatch {
         let pinnedRow = droughtPinnedRow(pinned, in: reading.0)
         pinnedSpent = pinnedRow.map {
             accountIsSpent($0, primaryModel: primaryModel, reserves: reserves, now: now)
+                || pinnedOutOfQuota($0, primaryModel: primaryModel)
         } ?? false
         // Behind `accountIsSpent`'s trust guards: a held-over reading must not release a pin or
         // silence a session any more than it may waive the rebalance claim.
@@ -435,4 +434,14 @@ func applyDroughtAudit(_ watch: inout DroughtWatch, relaunchPlanned: Bool, accou
                                  }, now: now)
     else { return }
     appendHandoffLine(line, to: log)
+}
+
+/// The account a FLEET or PROJECT pin names while this session runs somewhere else, or nil: what the
+/// status line and the board draw as "away" (B-1540). `fleet` is the policy before any release
+/// (`effectivePolicy`), so the answer stays the pinned account for as long as the session is off it,
+/// released or held. A session pin is never away: the move that carries it off clears it.
+func pinAwayAccount(_ fleet: LaunchPolicy, sessionPin: String?, on accountID: String) -> String? {
+    guard sessionPin == nil, fleet.mode == "manual", let pinned = fleet.pinnedAccountID,
+          pinned != accountID else { return nil }
+    return pinned
 }

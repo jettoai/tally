@@ -1,7 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "%@ not enough at this pace": {
+    "%@ short at this pace": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
@@ -19,7 +19,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ は今のペースでは足りません"
+            "value": "%@ は今のペースでは不足"
           }
         },
         "ko": {
@@ -113,6 +113,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "최근 4주 평균: %@"
+          }
+        }
+      }
+    },
+    "Account Pool": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳號池"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账号池"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントプール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 풀"
           }
         }
       }
@@ -726,7 +755,7 @@
         }
       }
     },
-    "not enough at this pace": {
+    "short at this pace": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
@@ -744,7 +773,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "今のペースでは足りません"
+            "value": "今のペースでは不足"
           }
         },
         "ko": {
@@ -5044,59 +5073,59 @@
         }
       }
     },
-    "lasts about %@": {
+    "runs dry in about %@": {
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "残り約 %@"
+            "value": "約 %@ で尽きる"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "약 %@ 사용 가능"
+            "value": "약 %@ 후 소진"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "约可再用 %@"
+            "value": "约 %@ 后用光"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "約可再用 %@"
+            "value": "約 %@ 後用光"
           }
         }
       }
     },
-    "sustainable at this pace": {
+    "won't run dry at this pace": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このペースなら持続可能"
+            "value": "今のペースなら尽きない"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 속도면 지속 가능"
+            "value": "현재 속도면 소진 안 됨"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此节奏可持续"
+            "value": "照目前速度不会用光"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此節奏可持續"
+            "value": "照目前速度不會用光"
           }
         }
       }
@@ -15909,89 +15938,89 @@
         }
       }
     },
-    "near capacity": {
+    "near limit over 4 wks": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "接近上限"
+            "value": "近 4 週接近上限"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "接近上限"
+            "value": "近 4 周接近上限"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "上限に近い"
+            "value": "直近 4 週で上限間近"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한도에 근접"
+            "value": "최근 4주 한도 근접"
           }
         }
       }
     },
-    "near capacity: %@ accounts a week over 4 weeks, %@ owned": {
+    "near limit over 4 wks: %@ accounts a week, %@ owned": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "接近上限：近 4 週平均每週用掉 %1$@ 個帳號，現有 %2$@ 個"
+            "value": "近 4 週接近上限：平均每週用掉 %1$@ 個帳號，現有 %2$@ 個"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "接近上限：近 4 周平均每周用掉 %1$@ 个账号，现有 %2$@ 个"
+            "value": "近 4 周接近上限：平均每周用掉 %1$@ 个账号，现有 %2$@ 个"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "上限に近い：直近 4 週は週 %1$@ アカウント分を消費、保有 %2$@"
+            "value": "直近 4 週で上限間近：週 %1$@ アカウント分を消費、保有 %2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한도에 근접: 최근 4주 주당 %1$@ 계정분 사용, 보유 %2$@개"
+            "value": "최근 4주 한도 근접: 주당 %1$@ 계정분 사용, 보유 %2$@개"
           }
         }
       }
     },
-    "near capacity: %@ %@ accounts a week over 4 weeks, %@ owned": {
+    "near limit over 4 wks: %@ %@ accounts a week, %@ owned": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "接近上限：%1$@ 近 4 週平均每週用掉 %2$@ 個帳號，現有 %3$@ 個"
+            "value": "近 4 週接近上限：%1$@ 平均每週用掉 %2$@ 個帳號，現有 %3$@ 個"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "接近上限：%1$@ 近 4 周平均每周用掉 %2$@ 个账号，现有 %3$@ 个"
+            "value": "近 4 周接近上限：%1$@ 平均每周用掉 %2$@ 个账号，现有 %3$@ 个"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "上限に近い：%1$@ は直近 4 週で週 %2$@ アカウント分を消費、保有 %3$@"
+            "value": "直近 4 週で上限間近：%1$@ は週 %2$@ アカウント分を消費、保有 %3$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한도에 근접: %1$@ 최근 4주 주당 %2$@ 계정분 사용, 보유 %3$@개"
+            "value": "최근 4주 한도 근접: %1$@ 주당 %2$@ 계정분 사용, 보유 %3$@개"
           }
         }
       }

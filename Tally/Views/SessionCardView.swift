@@ -268,7 +268,7 @@ struct SessionCardView: View {
         HStack(spacing: 4) {
             if let identity = sessionIdentityLine {
                 ProviderIconView(providerID: row.providerID ?? "", size: 11, usesProviderColor: true)
-                if let scope = row.pinScope { pinMark(scope) }
+                if let scope = row.pinScope { pinMark(scope, away: row.session?.pinAway != nil) }
                 Text(identity).font(.caption2).foregroundStyle(ProviderIdentityStyle.color(for: row.providerID ?? ""))
                     .lineLimit(1).truncationMode(.tail).layoutPriority(1)
             }
@@ -329,10 +329,12 @@ struct SessionCardView: View {
     /// and the hover is where that answer fits. On the LABEL as well as in the callout, for the
     /// reason the supervisor badge states in full: the whole card is one `Button`, so a child's
     /// hint reaches nobody and only what composes into the card's label is spoken.
-    private func pinMark(_ scope: SessionPinScope) -> some View {
-        let owner = L(sessionPinOwnerKey(scope))
-        let release = L(sessionPinReleaseKey(scope))
-        return Text(verbatim: "\(sessionPinMark)\(L(sessionPinScopeWord(scope)))")
+    /// Away: the pinned account ran out and the session is on the smart pick until it refills (B-1540).
+    private func pinMark(_ scope: SessionPinScope, away: Bool) -> some View {
+        let owner = L(away ? sessionPinAwayOwnerKey : sessionPinOwnerKey(scope))
+        let release = L(away ? sessionPinAwayReturnKey : sessionPinReleaseKey(scope))
+        let word = L(sessionPinScopeWord(scope)) + (away ? " " + L(sessionPinAwayWord) : "")
+        return Text(verbatim: "\(sessionPinMark)\(word)")
             .font(.caption2).foregroundStyle(.secondary)
             .lineLimit(1).fixedSize()
             .accessibilityLabel(Text(TallyTooltipContent.lines([owner, release]).spoken))

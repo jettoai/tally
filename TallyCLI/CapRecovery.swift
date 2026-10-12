@@ -143,7 +143,7 @@ func capRecoveredByReset(_ pending: PendingCapRecovery, now: Date = Date()) -> B
 enum CapAction: Equatable {
     case handoff          // fuse has room, a fresh snapshot, and an eligible sibling: move now
     case waitSteeringOff  // the fleet is set to observe only: Tally may not pick an account at all
-    case waitPinned       // manual pin on the capped account: staying put is what pinning means
+    case waitPinned       // a pin naming another account that cannot take this session yet
     case waitFuse         // too many recent handoffs: cool down before burning another login
     case waitStale        // snapshot too old to trust a target pick
     case waitNoTarget     // no other account worth moving to right now
@@ -158,7 +158,8 @@ enum CapAction: Equatable {
         // have left it.
         case .waitSteeringOff:
             return "staying put (launches are set to observe only; move it with `tally account`)"
-        case .waitPinned: return "staying put (pinned in Tally; unpin to allow handoff)"
+        case .waitPinned:
+            return "staying put (pinned in Tally; the pinned account cannot take this session yet)"
         case .waitFuse: return "too many handoffs recently, cooling down before another"
         case .waitStale: return "waiting for a fresh snapshot before handing off"
         // Since the handoff started requiring a comfortable target, the usual reason is not that

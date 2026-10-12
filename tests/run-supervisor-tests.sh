@@ -116,7 +116,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/turnendchecks.swift \
   tests/supervisor/steeringoffchecks.swift tests/supervisor/turnboundarychecks.swift \
   tests/supervisor/wallforecastchecks.swift tests/supervisor/automaticinputchecks.swift \
-  tests/supervisor/droughtchecks.swift \
+  tests/supervisor/droughtchecks.swift tests/supervisor/pinprioritychecks.swift \
   tests/supervisor/capresumechecks.swift tests/supervisor/selfswitchresumechecks.swift tests/supervisor/restartwakechecks.swift tests/supervisor/restartowedchecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \

@@ -127,12 +127,14 @@ check("an unset groupByProvider reads as grouped",
 check("groupByProvider is no longer read as a bare bool (unset = false)",
       !settingsLines.contains { $0.hasPrefix("groupByProvider = defaults.bool(forKey: \"groupByProvider\")") })
 
-// 5. The advice strip pairs its two providers on the one-column LIST panel too, not only from the
-// card grid's two-column width up (that stacked both lines down the left half of the list panel).
+// 5. The advice is a tag on its provider's section heading, not a strip of its own above the
+// cards (B-1524): no pair layout to gate, and nothing renders when there is no advice to give.
 let advisorLines = sourceLines("Tally/Views/AdvisorStripView.swift")
-let pairLine = advisorLines.first { $0.hasPrefix("if readings.count == 2, popoverWidth >=") } ?? ""
-check("the advice pair gates on the list panel width",
-      pairLine.contains("advisorPairPanelWidth") && !pairLine.contains("twoColumnPanelWidth"))
+check("the advice strip is gone", !advisorLines.contains { $0.hasPrefix("var advisorStrip") })
+check("enough and collecting draw no tag",
+      advisorLines.contains("case .enough, .collecting: return nil"))
+let sectionLines = sourceLines("Tally/Views/ProviderSectionHeader.swift")
+check("the section heading carries the advice tag", sectionLines.contains("advisorTag(providerID)"))
 
 print(failures == 0 ? "\nAll panel section assertions passed."
                     : "\n\(failures) assertion(s) failed.")

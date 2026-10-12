@@ -179,15 +179,14 @@ check("T13 advisor source readable", !advisor.isEmpty)
 check("T13 row decides through AdvisorConclusion.join", advisor.contains("AdvisorConclusion.join("))
 check("T13 no pips", !advisor.contains("demandPips("))
 var rowBody = ""
-if let start = advisor.range(of: "private func advisorRow") {
+if let start = advisor.range(of: "func advisorTag") {
     let rest = advisor[start.upperBound...]
     rowBody = String(rest[..<(rest.range(of: "    private ")?.lowerBound ?? rest.endIndex)])
 }
-check("T13 advisorRow found", !rowBody.isEmpty)
-// One window's figure is on the panel and the line itself cycles the window (2026-09-28).
-check("T13 row line is the cycle button",
-      rowBody.contains("Button(action: cycleAdvisorWindow)") && rowBody.contains("windowLine(reading)"))
-check("T13 row no longer lists every window", !rowBody.contains("ladderLine"))
+check("T13 advisorTag found", !rowBody.isEmpty)
+// The panel shows a heading tag only; every window's figure lives in the hover (B-1524).
+check("T13 tag hovers the full advice", rowBody.contains("advisorTooltip(reading, sentence: sentence"))
+check("T13 tag no longer lists every window", !rowBody.contains("ladderLine"))
 check("T13 row splits through windowFigures", advisor.contains("AdvisorConclusion.windowFigures("))
 check("T13 hover ladder is per plan", advisor.contains("ladderLines(reading)"))
 
@@ -201,7 +200,7 @@ check("T20 advisor window persisted", settingsSource.contains("forKey: \"advisor
 let catalog = (try? Data(contentsOf: root.appendingPathComponent("Tally/Resources/Localizable.xcstrings")))
     .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
 let strings = catalog?["strings"] as? [String: Any] ?? [:]
-for key in ["%@: %@ acct/wk", "%@ by window: %@ acct/wk", "Click the figures to change the window."] {
+for key in ["%@ by window: %@ acct/wk", "Account Pool"] {
     let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
     let complete = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
         let value = ((locs[lang] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
@@ -263,8 +262,9 @@ for starved in [0.0, 2.0, 3.0] {
 check("T27 add iff dry or starved (\(t27Cases) cases)", t27Bad == 0 && t27Cases == 18)
 
 // T28: the near-capacity strings exist in every shipped language, and the tint is one step under add.
-for key in ["near capacity", "near capacity: %@ accounts a week over 4 weeks, %@ owned",
-            "near capacity: %@ %@ accounts a week over 4 weeks, %@ owned"] {
+for key in ["near limit over 4 wks", "near limit over 4 wks: %@ accounts a week, %@ owned",
+            "near limit over 4 wks: %@ %@ accounts a week, %@ owned",
+            "won't run dry at this pace", "runs dry in about %@"] {
     let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
     let complete = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
         let value = ((locs[lang] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String

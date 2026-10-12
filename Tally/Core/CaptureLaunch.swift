@@ -108,6 +108,16 @@ enum CaptureLaunch {
                                "TallyDemoStopSharing",
                                // Qualifies TallyDemoData: the fixture fleet padded to N accounts (Debug).
                                "TallyDemoAccounts",
+                               // Qualifies TallyDemoData: headings draw this Mac's real launch chip (Debug).
+                               "TallyDemoLaunchChip",
+                               // Qualifies TallyDemoData: the Claude fixtures' model windows (Debug).
+                               "TallyDemoModelWindows",
+                               // Qualifies TallyDemoData: fixtures kept per provider (Debug).
+                               "TallyDemoAccountLimit",
+                               // Qualifies TallyDemoData: only the named providers' fixtures (Debug).
+                               "TallyDemoProviders",
+                               // Qualifies TallyDemoData: the launch model the gauge focuses (Debug).
+                               "TallyDemoLaunchModel",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

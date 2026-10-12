@@ -794,8 +794,8 @@ func runFootprintTrendSurfaceChecks() {
           saturated.contains("one.cpuLeader = \"Google Chrome Helper\"")
               && saturated.contains("one.memoryLeader ="))
     check("…with readings a machine-level card would actually be showing",
-          saturated.contains("one.cpuPercent = 1180")
-              && saturated.contains("one.memoryBytes = 68_000_000_000"))
+          saturated.contains("one.cpuPercent = 540")
+              && saturated.contains("one.memoryBytes = 18_000_000_000"))
     // AND IT CLAIMS THE CARD RATHER THAN THE VERDICT. The tier flags are set, not earned: what the
     // rule wants is a share of THIS machine's own memory and cores (`MachineCapacity`), which no
     // number written into a fixture can promise on hardware it has never seen.

@@ -27,46 +27,42 @@ extension PopoverRootView {
     /// panel was showing → index out of range).
     @ViewBuilder
     var accountLayout: some View {
+        let groups = accountGroups
         if settings.groupByProvider {
-            let groups = accountGroups
             let headed = PanelSections.showsHeadings(sectionCount: groups.count)
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(groups) { group in
                     VStack(alignment: .leading, spacing: 6) {
-                        // One provider needs no heading: a label over the only section names what
-                        // nothing else could be, so it is pure noise.
-                        // A folded section keeps its heading exactly where it was and drops only
-                        // its cards - that heading IS the way back, and taking it away with the
-                        // cards once left the fleet strip's chevron as the only way to unfold.
-                        //
-                        // EXCEPT IN GAUGES-ONLY, where the same heading is two things it should not
-                        // be. The pool it is folded behind already says `Claude x5`, so the row
-                        // repeats it verbatim; and the mode's whole promise is that the account
-                        // list is not on screen, so a chevron offering to unfold one section is an
-                        // affordance against the mode the user just chose. A section still showing
-                        // cards keeps its heading - it has no pool saying its name for it, which is
-                        // why it is not folded in the first place.
-                        if headed, !(isGaugesOnly && group.isFolded) { groupHeader(group) }
+                        // A folded section keeps its heading exactly where it was and drops only its
+                        // cards: the heading carries the provider's pools, so it IS the summary of
+                        // what is folded and the way back - gauges-only included.
+                        if showsSectionHeading(group.providerID, headed: headed) {
+                            providerSection(group.providerID, count: group.items.count)
+                        }
                         if !group.isFolded { accountBlock(group.items) }
                     }
                 }
             }
         } else {
-            accountBlock(visibleAccounts)
+            // Flat: each provider's heading (where it has pools, advice or a launch chip to carry),
+            // then one run of cards in the user's own order.
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(groups) { group in
+                    if showsSectionHeading(group.providerID, headed: false) {
+                        providerSection(group.providerID, count: group.items.count)
+                    }
+                }
+                if !visibleAccounts.isEmpty { accountBlock(visibleAccounts) }
+            }
         }
     }
 
-    /// Whether the card region is drawn at all. Not simply "are there visible cards": a grouped
-    /// layout with every provider folded still shows its headings, and those are what the region
-    /// exists for then. When there is nothing at all it is skipped entirely - its 12pt padding read
-    /// as a hollow band between two dividers.
+    /// Whether the card region is drawn at all. Not simply "are there visible cards": a pooled
+    /// provider's heading carries its pools, and it stays when its cards are folded away. Folding
+    /// needs a pool, so a region with nothing visible but a pooled provider still has a heading to
+    /// draw; with neither it is skipped entirely - its 12pt padding read as a hollow band.
     var showsAccountRegion: Bool {
-        // Gauges-only suppresses the folded sections' headings, so a region holding nothing else
-        // would draw its 12pt padding around nothing at all - the hollow band between two dividers
-        // this rule exists to prevent, reached by the one route that used to be safe.
-        if isGaugesOnly { return !visibleAccounts.isEmpty }
-        return !visibleAccounts.isEmpty || (settings.groupByProvider
-            && PanelSections.showsHeadings(sectionCount: accountGroups.count))
+        !visibleAccounts.isEmpty || !pooledProviderIDs.isEmpty
     }
 
     /// One run of accounts, at whichever density the panel is set to. Both layouts hang off this one
@@ -183,33 +179,6 @@ extension PopoverRootView {
                 }
             }
         }
-    }
-
-    /// A section's label line: who these cards belong to and how many there are, in the fleet
-    /// column header's vocabulary but lighter - this names a section, it does not meter anything.
-    /// The fold chevron appears only while this provider's pooled gauge is on screen to summarize
-    /// the cards it would hide (the invariant the fleet strip's own chevron keeps).
-    ///
-    /// It is drawn for a folded section too, and then it is that section's only line: the chevron
-    /// turns, the count says how many cards are behind it, and a click on the line brings them
-    /// back. Both this and the gauge row's chevron toggle one set and read their state back out of
-    /// it (`PanelSections`), so the two entry points cannot drift.
-    private func groupHeader(_ group: AccountGroup) -> some View {
-        let foldable = pooledProviderIDs.contains(group.providerID)
-        let toggle = { if foldable { settings.toggleCollapsed(group.providerID) } }
-        return HStack(spacing: 5) {
-            providerLabel(group.providerID, count: group.items.count)
-                .font(.caption)
-            if foldable { foldChevron(group.providerID) }
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
-        // The widest run of empty space below the header strip, and on the pinned panel it moves
-        // the window: this row is mostly the space after a provider's name, and the cards under it
-        // cannot be grab areas without sitting on their own reorder gesture. Same action either
-        // way, so a press that stays put still folds the section exactly as a click does.
-        .windowDragOrTap(toggle)
-        .onTapGesture(perform: toggle)
     }
 
     private struct AccountRow: Identifiable {

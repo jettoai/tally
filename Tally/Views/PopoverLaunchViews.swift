@@ -1,39 +1,54 @@
 import SwiftUI
 import AppKit
 
-/// The popover's launch-control chrome, split out of PopoverRootView for file size: the header
-/// summary strip (what the next launch will do) and the "?" help popover (how to launch, live
+/// The popover's launch-control chrome, split out of PopoverRootView for file size: the launch
+/// chip on each provider heading (what the next launch will do) and the "?" help popover (how to launch, live
 /// shell-integration state). Both render from LaunchPolicyStore so they can never teach or
 /// summarize a stale contract.
 extension PopoverRootView {
-    /// One caption chip-set per provider with NON-DEFAULT launch settings (continue, permission
-    /// mode, model, effort) - "what will I get when I launch" at a glance. Providers on all
-    /// defaults contribute nothing, so an untouched install never shows the strip at all.
-    /// Clicking it opens Settings, where the values are edited.
+    /// One chip-set per provider with NON-DEFAULT launch settings (continue, permission mode,
+    /// model, effort) - "what will I get when I launch". Providers on all defaults contribute
+    /// nothing, so an untouched install never shows a launch chip at all.
     private var launchSummaryItems: [(String, [String], String?)] {
-        // Demo mode exists for screenshots and promo footage, and this strip reads this machine's
+        // Demo mode exists for screenshots and promo footage, and the chip reads this machine's
         // real ~/.tally/state.json, which no fixture covers: so in demo it draws nothing.
         guard !DemoUsage.isActive else { return [] }
-        return ProviderCatalog.descriptors.compactMap { descriptor in
-            guard settings.isEnabled(descriptor.id) else { return nil }
-            let policy = LaunchPolicyStore.shared.policy(descriptor.id)
-            var chips: [String] = []
-            if policy.startMode == "continue" { chips.append("continue") }
-            // In the provider's own words, the way Settings offers them (`PermissionMode.label`):
-            // a chip reading "bypass" over codex would name a mode whose flag is spelled somewhere
-            // else entirely. The default mode is not a setting, so it is not a chip.
-            if let mode = policy.permissionMode, mode != .standard {
-                chips.append(mode.label(descriptor.id))
-            }
-            if let model = policy.model { chips.append(model) }
-            if let effort = policy.effort { chips.append(effort) }
-            // Fallback is a conditional path, so it enriches the tooltip only - a chip here
-            // would read as "the next launch uses opus", which it doesn't.
-            let fallback = policy.fallbackModel.map { model in
-                ([model] + [policy.fallbackEffort].compactMap { $0 }).joined(separator: " ")
-            }
-            return chips.isEmpty ? nil : (descriptor.id, chips, fallback)
+        return ProviderCatalog.descriptors.compactMap(launchItem)
+    }
+
+    /// The chip set a heading shows. Debug captures can pass `-TallyDemoLaunchChip YES` with demo
+    /// data to draw this machine's real chip anyway, so a capture shows the heading's trailing end;
+    /// a shipped build ignores the flag.
+    private var headingLaunchItems: [(String, [String], String?)] {
+        guard BuildVariant.isDev, DemoUsage.isActive,
+              UserDefaults.standard.bool(forKey: "TallyDemoLaunchChip") else { return launchSummaryItems }
+        return ProviderCatalog.descriptors.compactMap(launchItem)
+    }
+
+    private func launchItem(_ descriptor: (id: String, name: String)) -> (String, [String], String?)? {
+        guard settings.isEnabled(descriptor.id) else { return nil }
+        let policy = LaunchPolicyStore.shared.policy(descriptor.id)
+        var chips: [String] = []
+        if policy.startMode == "continue" { chips.append("continue") }
+        // In the provider's own words, the way Settings offers them (`PermissionMode.label`):
+        // a chip reading "bypass" over codex would name a mode whose flag is spelled somewhere
+        // else entirely. The default mode is not a setting, so it is not a chip.
+        if let mode = policy.permissionMode, mode != .standard {
+            chips.append(mode.label(descriptor.id))
         }
+        if let model = policy.model { chips.append(model) }
+        if let effort = policy.effort { chips.append(effort) }
+        // Fallback is a conditional path, so it enriches the tooltip only - a chip here
+        // would read as "the next launch uses opus", which it doesn't.
+        let fallback = policy.fallbackModel.map { model in
+            ([model] + [policy.fallbackEffort].compactMap { $0 }).joined(separator: " ")
+        }
+        return chips.isEmpty ? nil : (descriptor.id, chips, fallback)
+    }
+
+    /// Whether this provider has a launch chip to show (its section heading needs one to exist).
+    func hasLaunchChip(_ providerID: String) -> Bool {
+        headingLaunchItems.contains { $0.0 == providerID }
     }
 
     private func launchSummaryTooltip(_ items: [(String, [String], String?)]) -> String {
@@ -45,49 +60,33 @@ extension PopoverRootView {
         }.joined(separator: "\n")
     }
 
+    /// The provider's non-default launch settings at the trailing end of its section heading:
+    /// model and effort only, in the tertiary grey of a footnote, so the heading stays about quota.
+    /// The rest (continue, permission mode, fallback) is in the hover, and a click opens Settings,
+    /// where the values are edited - the same entry the old strip above the gauges was. A provider
+    /// whose only non-default is the start or permission mode shows the settings glyph instead.
     @ViewBuilder
-    var launchSummaryStrip: some View {
-        let items = launchSummaryItems
-        if !items.isEmpty {
-            // THE STRIP IS NOT A LABEL. It reads like one - chips, no chrome - but the whole row is
-            // a button onto Settings, so it cannot simply become a drag handle: `performDrag`
-            // consumes the mouseDown and the click that opens Settings would stop working. What it
-            // does have is a long empty run after the chips, and on this panel that run is the
-            // widest uninterrupted surface there is. So the button is sized to its chips and the
-            // remainder is drag, which costs the strip nothing and hands the pinned panel a grab
-            // area wider than the header's.
-            HStack(spacing: 0) {
-                Button {
-                    StatusItemController.openSettingsWindow()
-                } label: {
-                    HStack(spacing: 12) {
-                        ForEach(items, id: \.0) { provider, chips, _ in
-                            HStack(spacing: 5) {
-                                ProviderIconView(providerID: provider, size: 11)
-                                Text(chips.joined(separator: " · "))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
+    func launchChip(_ providerID: String) -> some View {
+        if let item = headingLaunchItems.first(where: { $0.0 == providerID }) {
+            let policy = LaunchPolicyStore.shared.policy(providerID)
+            let shown = [policy.model, policy.effort].compactMap { $0 }
+            Button {
+                StatusItemController.openSettingsWindow()
+            } label: {
+                Group {
+                    if shown.isEmpty {
+                        Image(systemName: "slider.horizontal.3")
+                    } else {
+                        Text(shown.joined(separator: " · "))
                     }
-                    .padding(.leading, 12)
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .tallyTooltip(launchSummaryTooltip(items))
-                // The chips are served first and the drag surface takes what is left. Without the
-                // priority the greedy filler wins the split and the chips truncate mid-word - which
-                // is what the first build did ("continue · bypass ·…", seen in the capture): a drag
-                // area bought at the price of the text it was supposed to sit beside.
-                .layoutPriority(1)
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .windowDragSurface()
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .contentShape(Rectangle())
             }
-            .fixedSize(horizontal: false, vertical: true)
-            Divider()
+            .buttonStyle(.plain)
+            .tallyTooltip(launchSummaryTooltip([item]))
         }
     }
 

@@ -66,7 +66,8 @@ extension UsageStore {
     /// the fleet gauge, the menu-bar strip and the CLI's own fleet line.
     static func focusedModel(providerID: String, available: [String]) -> String? {
         FleetFocus.focusedModel(SettingsStore.shared.gaugeFocus,
-                                primaryModel: LaunchPolicyStore.shared.policy(providerID).model,
+                                primaryModel: DemoUsage.launchModelOverride
+                                    ?? LaunchPolicyStore.shared.policy(providerID).model,
                                 available: available,
                                 flagshipOrder: ModelCatalog.claudeAliases)
     }

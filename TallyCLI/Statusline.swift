@@ -82,6 +82,7 @@ func runStatusline(args: [String]) -> Never {
     /// knows nothing about. The supervisor publishes it beside the depth, so this costs no extra
     /// read at all.
     var pinScope: SessionPinScope?
+    var pinAway = false
     if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
        let pid = pid_t(pidStr), supervisorAlive(pid) {
         // One read, both fields: this is a file, and the two answers have to come from one moment
@@ -89,6 +90,7 @@ func runStatusline(args: [String]) -> Never {
         let context = readSessionContext(pid: pidStr)
         depth = context?.sessionEffort ?? context?.runningEffort
         pinScope = context?.pinScope.flatMap(SessionPinScope.init(rawValue:))
+        pinAway = context?.pinAway != nil
         if let drift = readDriftState(pid: pidStr) {
             // While a restore is queued the badge says what is about to happen, in the same
             // already-under-way voice as the supervisor's own update note: the session keeps working
@@ -118,7 +120,7 @@ func runStatusline(args: [String]) -> Never {
     // Under the same one-account rule as the name it marks: with nothing to choose between, where
     // the session runs was never a question, so there is nothing for a pin to answer.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let pinned = sessionPinnedLabel(label, scope: pinScope)
+    let pinned = sessionPinnedLabel(label, scope: pinScope, away: pinAway)
     let identity = [statusPiece, supervisionPiece, driftPiece, noticePiece,
                     siblings > 1 ? "\(dim)\(pinned)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")

@@ -152,12 +152,8 @@ func runDemoSessionBoardChecks() {
     let updating = DemoUsage.sessions(scan, installed: "9.9.9")
     let badges = updating.compactMap { outdatedSupervisorBuild($0.supervisorVersion,
                                                               installed: "9.9.9") }
-    check("exactly one fixture card is watched by a build other than the installed one",
-          badges.count == 1)
-    check("…and it is the one the badge names, by ITS version rather than the app's",
-          badges.first == "9.9.8")
-    check("…while every other card says nothing at all, which is the ordinary board",
-          updating.filter { $0.supervisorVersion == nil }.count == updating.count - 1)
+    check("no fixture card prints a version, so a README shot carries no version number",
+          badges.isEmpty && updating.allSatisfy { $0.supervisorVersion == nil })
     check("…and no field of the machine's own session reached that board either",
           updating.flatMap { drawn($0) }.allSatisfy { !$0.contains(sentinel) })
 
@@ -204,9 +200,8 @@ func runDemoSessionBoardChecks() {
     // MARK: how many fixtures there are, and what a bigger board does
 
     let wide = DemoUsage.sessions((1 ... 16).map { realRow(String(format: "%02d", $0)) })
-    check("there are eight of them, and a wider board cycles rather than running out",
-          Set(wide.prefix(8).map(\.title)).count == 8
-              && wide.prefix(8).map(\.title) == wide.suffix(8).map(\.title))
+    check("there are eight of them, and a wider board shows each one once",
+          wide.count == 8 && Set(wide.map(\.title)).count == 8)
 
     // MARK: what lays them over the board, and what counts the result
 

@@ -99,13 +99,10 @@ extension DemoUsage {
         SessionFixture(project: "atlas", worktree: "feat-search",
                        directory: "/Users/you/workspace/atlas-feat-search",
                        account: "claude:demo-Claude 2", model: "claude-opus-5-5", effort: "high",
-                       context: 61_000, state: .working, since: 12 * 60, activity: 20,
-                       // AND THE CARD THAT IS A BUILD BEHIND, which is the badge's own fixture: a
-                       // real board only has one for the few minutes after an update lands, and a
-                       // capture cannot sit and wait for that any more than it can wait for the
-                       // blocked card. Second rather than first, so the single-card shot stays the
-                       // waiting one (`sessionFixtures` states why that one leads).
-                       lagging: true),
+                       // No card is a build behind: the badge prints a version number, and the
+                       // README shot must not carry one (it dates the picture). Set `lagging` on a
+                       // fixture to capture the badge itself.
+                       context: 61_000, state: .working, since: 12 * 60, activity: 20),
         // The one on the other provider, and the one with no effort to report: the identity line
         // drops the segment rather than drawing a placeholder (`sessionIdentityLine`), and this is
         // the card that shows it doing so.
@@ -166,7 +163,15 @@ extension DemoUsage {
         -> [SessionRosterStore.SessionRow] {
         guard isActive else { return rows }
         let order = fixtureOrder(of: rows.map(\.id))
-        return rows.map { session($0, at: order[$0.id] ?? 0, installed: installed) }
+        // A board wider than the fixtures shows each fixture once: cycling would draw the same
+        // project twice in one shot, which reads as a bug in a README picture.
+        // Only fixtures whose account the (possibly scoped, `-TallyDemoAccountLimit`) fleet still
+        // has: a card names its account by asking the account list, so one naming a dropped
+        // fixture would draw a blank where its identity line starts.
+        let known = Set(accounts().map(\.id))
+        let fixtures = sessionFixtures.filter { known.contains($0.account) }
+        return rows.filter { (order[$0.id] ?? 0) < fixtures.count }
+            .map { session($0, fixture: fixtures[order[$0.id] ?? 0], installed: installed) }
     }
 
     /// The build a LAGGING supervisor is drawn with: this bundle's own version with its last moving
@@ -189,7 +194,7 @@ extension DemoUsage {
         return parts.joined(separator: ".")
     }
 
-    /// One card's identity, state and figures replaced by the fixture at this index.
+    /// One card's identity, state and figures replaced by this fixture.
     ///
     /// EVERY FIELD A CARD DRAWS IS STATED HERE, which is the same rule `DemoUsage.footprint`
     /// keeps and for the same reason: a field left alone keeps whatever the real session held, and
@@ -197,9 +202,8 @@ extension DemoUsage {
     /// whoever is running the capture. The record and the sidecar are therefore BUILT rather than
     /// edited - a copy with some fields overwritten would carry every field this table forgot.
     private static func session(_ real: SessionRosterStore.SessionRow,
-                                at index: Int,
+                                fixture: SessionFixture,
                                 installed: String?) -> SessionRosterStore.SessionRow {
-        let fixture = sessionFixtures[index % sessionFixtures.count]
         let moved = captureStarted.addingTimeInterval(-fixture.activity)
         var sidecar = SessionSidecar()
         sidecar.accountID = fixture.account

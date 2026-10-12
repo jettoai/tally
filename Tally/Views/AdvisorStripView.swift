@@ -1,64 +1,16 @@
 import SwiftUI
 
-/// The usage advisor strip: one line per provider under the fleet gauge answering "do I need
-/// another account?" as a conclusion, not a figure to convert: enough accounts, add how many of
-/// which plan, not enough at this pace, or how many days until advice. The provider's own icon and
-/// name on the left, the same identity the gauge above uses. Under the conclusion, a second small
-/// line shows the acct/wk figure over one window (1, 3, 7 or 28 days, clicked to cycle and
-/// remembered in `advisorWindowDays`), split by plan when the provider's accounts sit on two or
-/// more plans. The rest
-/// of the figures (the per-plan split, burn, starved hours, the next refills) and the two horizons
-/// behind the conclusion live in the hover tooltip. The rule that keeps this line consistent with the pool
-/// lines above it is `AdvisorConclusion`. It has its own visibility switch (`showAdvisor`),
-/// independent of the fleet gauge.
+/// The usage advisor: per provider, "do I need another account?" as a conclusion, not a figure to
+/// convert. On the panel it is a short tag on the provider's section heading (`providerSection`),
+/// and only when there is something to act on (near capacity, add an account, not enough at this
+/// pace); "enough" and "still collecting" take no room. The full sentence, the per-plan split, burn,
+/// starved hours, every window's acct/wk figure and the next refills live in the tag's hover. The
+/// rule that keeps the tag consistent with the pool lines beside it is `AdvisorConclusion`. It has
+/// its own visibility switch (`showAdvisor`), independent of the fleet gauge.
 extension PopoverRootView {
     /// What a figure reads while its window is still collecting. The repo's one sanctioned em dash:
     /// a no-data glyph, not prose (Tally/CLAUDE.md), spelled the same way the menu bar spells it.
     private static let noFigure = "—"
-
-    /// The narrowest panel the two providers' advice stands side by side on: the one-column list,
-    /// 504pt, where each half is 234pt. Not the card grid's two-column width (560) the fleet strip
-    /// gates on: that one left the list panel's two advice lines stacked down its left half with the
-    /// right half empty (reported 2026-09-28). The one-column CARD panel (380) stays stacked.
-    static let advisorPairPanelWidth: CGFloat =
-        PanelGeometry.listPanelWidth(columns: 1, rowWidth: AccountListRowView.minComfortableWidth)
-
-    @ViewBuilder
-    var advisorStrip: some View {
-        let readings = visibleAdvisorReadings
-        if !readings.isEmpty {
-            Group {
-                // Two providers stand side by side on a wide enough panel, under the fleet gauges
-                // that already split the same way: stacking two short rows down the left half left
-                // the right half empty and the advisor reading as a separate, lesser strip.
-                if readings.count == 2, popoverWidth >= Self.advisorPairPanelWidth {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(readings, id: \.provider) { reading in
-                            advisorRow(reading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 5) {
-                        ForEach(readings, id: \.provider) { reading in
-                            advisorRow(reading)
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // The same question the fleet strip's own divider asks (FleetStripView): not "are there
-            // visible cards" but "is the account region drawn at all". A grouped layout with every
-            // provider folded still draws its headings, and this strip has to be separated from them
-            // exactly as it is from the cards; only when nothing follows would this divider land
-            // against the footer's and draw as a doubled line.
-            if showsAccountRegion {
-                Divider()
-            }
-        }
-    }
 
     /// Readings for providers with accounts currently on screen, in the panel's account order, and
     /// only while the advisor switch is on. History can outlive a removed provider, so a reading
@@ -72,51 +24,47 @@ extension PopoverRootView {
             .sorted { (order.firstIndex(of: $0.provider) ?? 0) < (order.firstIndex(of: $1.provider) ?? 0) }
     }
 
-    private func advisorRow(_ reading: UsageAdvisor.Reading) -> some View {
-        let now = Date()
-        let dryPools = advisorDryPools(reading.provider, now: now)
-        let conclusion = advisorConclusion(reading, dryPools: dryPools)
-        let sentence = conclusionSentence(conclusion)
-        let line = windowLine(reading)
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                // The same identity the gauge above uses, so the row reads as its sibling.
-                ProviderIconView(providerID: reading.provider, size: 11)
-                Text(ProviderCatalog.displayName(for: reading.provider))
-                    .foregroundStyle(Color.secondary)
-                // The conclusion, nothing to convert: whether the accounts are enough and, if not,
-                // how many of which plan to add.
-                Text(sentence)
-                    .foregroundStyle(conclusionTint(conclusion))
-                    // Two lines, not one: "near capacity" carries its four-week figure, which
-                    // overruns a 234pt half-column in every locale.
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+    /// The provider's advice as a heading tag, or nothing when there is no advice to give.
+    @ViewBuilder
+    func advisorTag(_ providerID: String) -> some View {
+        if let reading = visibleAdvisorReadings.first(where: { $0.provider == providerID }) {
+            let now = Date()
+            let dryPools = advisorDryPools(providerID, now: now)
+            let conclusion = advisorConclusion(reading, dryPools: dryPools)
+            if let tag = tagText(conclusion) {
+                let sentence = conclusionSentence(conclusion)
+                let tint = conclusionTint(conclusion)
+                Text(tag)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(tint == TallyColor.warning ? Self.amberTagInk : tint)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(tint.opacity(0.15)))
+                    .tallyTooltip(lazyText: { advisorTooltip(reading, sentence: sentence, conclusion: conclusion,
+                                                             dryPools: dryPools, now: now) })
+                    .accessibilityLabel(sentence)
             }
-            // One window's acct/wk figure on the panel itself, split by plan like the pool rows
-            // above it. The line is the control: clicking it cycles the window (one setting for
-            // every provider row, so two rows never show figures over different spans). The
-            // conclusion above does not move with it. Wraps instead of truncating: a split figure
-            // overruns a 262pt column in most locales. fixedSize keeps the second line when a short
-            // panel squeezes the header vertically.
-            Button(action: cycleAdvisorWindow) {
-                Text(line)
-                    .foregroundStyle(Color.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
         }
-        .font(.caption2)
-        .lineLimit(1)
-        .contentShape(Rectangle())
-        .tallyTooltip(lazyText: { advisorTooltip(reading, sentence: sentence, conclusion: conclusion,
-                                                 dryPools: dryPools, now: now) })
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), \(sentence), \(line)")
+    }
+
+    /// Amber text: the tag here and the pool forecast line. The shared amber reads about 2:1 on a
+    /// pale capsule or white in light mode, so light mode darkens the text only; dark mode keeps
+    /// the shared tint (B-1524).
+    static let amberTagInk = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(TallyColor.warning)
+            : NSColor(srgbRed: 0.55, green: 0.33, blue: 0.0, alpha: 1)
+    })
+
+    /// The tag's words: short enough for a heading. Near capacity drops its four-week figure (the
+    /// hover's first line carries it); "add" and "not enough" are already short.
+    private func tagText(_ conclusion: AdvisorConclusion) -> String? {
+        switch conclusion {
+        case .enough, .collecting: return nil
+        case .nearCapacity: return L("near limit over 4 wks")
+        case .add, .shortAtPace: return conclusionSentence(conclusion)
+        }
     }
 
     private typealias DryPool = (summary: FleetSummary, pool: FleetPool, dry: Date)
@@ -138,7 +86,7 @@ extension PopoverRootView {
         }
     }
 
-    /// The row's conclusion. The join with the gauge's dry pools and the decision both live in
+    /// The conclusion. The join with the gauge's dry pools and the decision both live in
     /// `AdvisorConclusion.join`, so they are tested together.
     private func advisorConclusion(_ reading: UsageAdvisor.Reading,
                                    dryPools: [DryPool]) -> AdvisorConclusion {
@@ -174,19 +122,19 @@ extension PopoverRootView {
                 return String(localized: "add \(number) \(plan) accounts", bundle: AppLocale.bundle)
             }
         case .nearCapacity(let demand, let owned, let plan):
-            guard let demand else { return L("near capacity") }
+            guard let demand else { return L("near limit over 4 wks") }
             let figure = String(format: "%.1f", demand)
             let count = "\(owned)"
             guard let plan else {
-                return String(localized: "near capacity: \(figure) accounts a week over 4 weeks, \(count) owned",
+                return String(localized: "near limit over 4 wks: \(figure) accounts a week, \(count) owned",
                               bundle: AppLocale.bundle)
             }
-            return String(localized: "near capacity: \(plan) \(figure) accounts a week over 4 weeks, \(count) owned",
+            return String(localized: "near limit over 4 wks: \(plan) \(figure) accounts a week, \(count) owned",
                           bundle: AppLocale.bundle)
         case .shortAtPace(let plans):
-            guard !plans.isEmpty else { return L("not enough at this pace") }
+            guard !plans.isEmpty else { return L("short at this pace") }
             let names = plans.map { $0 ?? L("Unknown plan") }.joined(separator: " · ")
-            return String(localized: "\(names) not enough at this pace", bundle: AppLocale.bundle)
+            return String(localized: "\(names) short at this pace", bundle: AppLocale.bundle)
         }
     }
 
@@ -229,22 +177,6 @@ extension PopoverRootView {
         return figures.figures
             .map { "\($0.plan ?? L("Unknown plan")) \(figureText($0.demandPerWeek))" }
             .joined(separator: " · ")
-    }
-
-    /// The row's second line: "7d: 5.8 acct/wk", or "7d: Pro 2.1 · Team 1.4 acct/wk".
-    private func windowLine(_ reading: UsageAdvisor.Reading) -> String {
-        let window = AdvisorConclusion.window(settings.advisorWindowDays, in: reading)
-        let figures = figuresText(AdvisorConclusion.windowFigures(
-            window, readingTiers: reading.tierDemands, planOrder: gaugePlanOrder(reading.provider)))
-        let label = windowLabel(window.days)
-        return String(localized: "\(label): \(figures) acct/wk", bundle: AppLocale.bundle)
-    }
-
-    /// Next window along, wrapping. ONE setting for every provider row, deliberately: the question
-    /// ("is last month still what I am doing this week") is about the reader's own week, and two
-    /// rows answering it over different spans would put two numbers on screen that cannot be compared.
-    private func cycleAdvisorWindow() {
-        settings.advisorWindowDays = AdvisorConclusion.nextWindow(after: settings.advisorWindowDays)
     }
 
     /// Every window side by side for the hover: one line for a provider on one plan, one line per
@@ -306,7 +238,7 @@ extension PopoverRootView {
             let name = entry.summary.planTier.map { $0.name ?? L("Unknown plan") }
                 ?? ProviderCatalog.displayName(for: reading.provider)
             let body = UsageFormat.durationBody(entry.dry.timeIntervalSince(now))
-            lines.append(name + " · " + String(localized: "lasts about \(body)", bundle: AppLocale.bundle))
+            lines.append(name + " · " + String(localized: "runs dry in about \(body)", bundle: AppLocale.bundle))
         }
         // Near capacity IS the four-week reading, already on the first line with its figure;
         // "4-week average: add 1 account" under it would bring the contradiction back.
@@ -339,7 +271,6 @@ extension PopoverRootView {
         // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
         // last month's average?), so every rung is side by side, per plan when the provider splits.
         lines.append(contentsOf: ladderLines(reading))
-        lines.append(L("Click the figures to change the window."))
         for refill in upcomingRefills(reading.provider, now: now) {
             lines.append(refillText(refill, now: now) + " · " + UsageFormat.absoluteBody(refill.at)
                          + " (+\(Int(refill.gain.rounded()))%)")

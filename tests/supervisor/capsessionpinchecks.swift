@@ -165,17 +165,28 @@ func runCapSessionPinChecks() {
     // The rule those four cases come from, on its own.
     let candidates = [fleetPinned, sibling]
     check("no session pin leaves the fleet's own mode alone",
-          capReading(fleet: pinnedToP, sessionPin: nil, candidates: candidates).mode == "manual")
+          capReading(fleet: pinnedToP, sessionPin: nil, candidates: candidates,
+                     capped: "D").mode == "manual")
     check("a session pin alone lets the cap decide",
-          capReading(fleet: auto0, sessionPin: "D", candidates: candidates).mode == "auto")
+          capReading(fleet: auto0, sessionPin: "D", candidates: candidates,
+                     capped: "D").mode == "auto")
     check("a session pin over a fleet pin lands on the fleet's account", {
-        let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: candidates)
+        let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: candidates,
+                                 capped: "D")
         return reading.mode == "auto" && reading.preferred?.id == "P"
     }())
     check("a fleet pin outside the candidates is a wait, not a free pick", {
-        let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: [sibling])
+        let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: [sibling],
+                                 capped: "D")
         return reading.mode == "manual" && reading.preferred == nil
     }())
+    // B-1540: a fleet pin naming the account that capped yields to the cap itself.
+    var pinnedToD = LaunchPolicy()
+    pinnedToD.mode = "manual"
+    pinnedToD.pinnedAccountID = "D"
+    check("a fleet pin naming the capped account lets the cap decide",
+          capReading(fleet: pinnedToD, sessionPin: nil, candidates: candidates,
+                     capped: "D").mode == "auto")
 
     // MARK: - 31k2. A cap on a hand-pinned session tries to stay before it moves
 

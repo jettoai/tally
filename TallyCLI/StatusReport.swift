@@ -272,11 +272,11 @@ struct StatusReport: Encodable {
 /// `→ … (pinned)` on a signed-out account long after `runLaunch` had stopped honouring that pin,
 /// because the text path compared `pinnedAccountID` on its own while the JSON asked the shared
 /// resolver (2026-08-03). Mirrors runLaunch's chain exactly: pinned account id (the launch target
-/// even when capped, "launching anyway") → the denormalized home (a pin whose account transiently
-/// vanished from the snapshot still launches by home; when a listed account owns that home it IS
-/// the target, otherwise the launch lands outside this list and nobody gets the marker) → the
-/// headroom pick. A provider this CLI cannot launch gets no pick at all: `best` means "would
-/// launch".
+/// unless it is out of quota and another account can take the launch, B-1540) → the denormalized
+/// home (a pin whose account transiently vanished from the snapshot still launches by home; when a
+/// listed account owns that home it IS the target, otherwise the launch lands outside this list and
+/// nobody gets the marker) → the headroom pick. A provider this CLI cannot launch gets no pick at
+/// all: `best` means "would launch".
 ///
 /// `reserves` is on the same terms as `quarantined`: a parameter rather than a file read so the
 /// report stays pure, and one the caller must pass, because `best` promises "would launch" and a
@@ -293,6 +293,8 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
                    now: now)?.id
     }
     guard policy.mode == "manual" else { return (headroomPick(), nil) }
+    if let aside = pinStepAsideRow(snapshot, policy: policy, primaryModel: policy.model, quarantined: quarantined,
+                                   reserves: reserves, spendReserve: false, now: now) { return (headroomPick(), aside.id) }
     let mine = snapshot.accounts.filter { $0.provider == providerID }
     // Asked through the launcher's own resolver, so a pin it has stopped honouring (the account
     // signed out) falls through to the headroom pick here exactly as it does there.

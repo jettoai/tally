@@ -199,7 +199,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // `--account` flag outranks both (handled above).
     // "off" still auto-picks HERE: invoking `tally claude` is itself an explicit ask to pick -
     // off only means Tally must not steer launches it wasn't asked into (the PATH shim).
-    if policy.mode == "manual" {
+    if policy.mode == "manual", !pinStepsAside(snapshot, policy: policy, project: project,
+                                               model: primaryModel, reserves: reserves, spend: spendReserve) {
         let pinnedBy = project.accountID != nil ? "pinned for this project" : "pinned in Tally"
         if let match = snapshot?.accounts.first(where: {
             $0.id == policy.pinnedAccountID && $0.launchHome != nil
@@ -208,13 +209,10 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
                                                                 reserves: reserves) {
                 warn("\(refusal) (\(pinnedBy))"); exit(1)
             }
-            if headroom(match) <= 0 {
-                warn("\(match.label) is out of quota - launching anyway (\(pinnedBy))")
-            }
             warn("→ \(match.label) (\(pinnedBy))")
             let args = startModeArgs(passthrough, home: match.launchHome!)
-            // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin
-            // switch), so the supervisor stays resident; it won't cap-handoff while pinned.
+            // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin switch),
+            // and it hands off on a cap and brings the session back when the account refills (B-1540).
             // A CLI --account pin remains a plain exec - that flag opts out of supervision.
             if provider.id == "claude", wantsHandoff {
                 runSupervised(provider, account: match, args: args, follow: allowFollow,

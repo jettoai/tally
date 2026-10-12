@@ -361,7 +361,7 @@ ln -s <build-products>/tally /usr/local/bin/tally
 
 </details>
 
-或者完全跳過符號連結和別名：**設定 → 整合** 裡每一項都是一鍵安裝、一鍵乾淨移除，
+或者跳過符號連結：**設定 → 整合** 裡每一項都是一鍵安裝、一鍵乾淨移除，
 上方還有一個「全部安裝」開關管住整組：CLI 工具、shell shim（讓裸的 `claude` / `codex`
 也遵循你的策略）、status line 訊號、session 看板的通知 hook、subagent 計數 hook、額度警示
 hook，以及帶著 `/tally` 指令的 Claude Code skill。每一列 hook 都給同一個承諾：你原本註冊在那個事件上的東西照常執行，
@@ -369,7 +369,7 @@ hook，以及帶著 `/tally` 指令的 Claude Code skill。每一列 hook 都給
 「全部安裝」：那一項會在 config home 之間搬動對話，而一個意思是「全部打開」的按鍵，
 未必也代表那件事。
 
-shim 和 `tally claude` 的差別：裝了設定頁的 shim，直接打 `claude` 也會先幫你挑帳號。`tally claude`（也就是下面的 `c` 和 `cc`）多做兩件 shim 做不到的事：撞到用量上限時，對話自動接到別的帳號繼續；`--continue` 照對話 id 接回你上次那段對話，不會接到較舊的對話。
+shim 和 `tally claude` 的差別：裝了設定頁的 shim，而且 Claude 的啟動模式沒有設成「關閉」，直接打 `claude` 也會先幫你挑帳號。`tally claude`（也就是下面的 `c` 和 `cc`）多做兩件 shim 做不到的事：撞到用量上限時，對話自動接到別的帳號繼續，暫時沒有別的帳號有額度就停在原處、每 15 秒重試一次；`--continue` 照對話 id 接回你在這個目錄上次用 `tally claude` 開的那段對話，用 shim 或直接打 `claude` 開的對話不會被記錄，也就不在接回範圍內。
 
 可選的 shell 捷徑：
 

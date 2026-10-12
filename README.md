@@ -36,7 +36,7 @@ If you pay for two Claude Max seats and a Codex plan, the question all day is "w
 
 ### 1. Every account, side by side
 
-Each Claude and Codex login is its own card with its 5-hour, weekly and top-model windows, plus an account pool that pools them into one budget and forecasts when it runs dry at your pace ("runs dry in about 4d 10h"). The menu bar shows the same pools without opening anything: one segment per provider (or per plan), session on top and weekly below, with a small corner mark for how many accounts it sums or which plan it is. Switch it to one mark per account in Settings when you want them apart.
+Each Claude and Codex login gets its own row with its 5-hour, weekly and top-model windows, plus an account pool that pools them into one budget and forecasts when it runs dry at your pace ("runs dry in about 4d 10h"). The menu bar shows the same pools without opening anything: one segment per provider (or per plan), session on top and weekly below, with a small corner mark for how many accounts it sums or which plan it is. Switch it to one mark per account in Settings when you want them apart.
 
 <p align="center">
   <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip in its default pooled layout: one Claude segment for five accounts and one Codex segment each for the Pro and Team plans, each stacking the pooled session percentage over the pooled weekly percentage" width="160">

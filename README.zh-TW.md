@@ -369,6 +369,8 @@ hook，以及帶著 `/tally` 指令的 Claude Code skill。每一列 hook 都給
 「全部安裝」：那一項會在 config home 之間搬動對話，而一個意思是「全部打開」的按鍵，
 未必也代表那件事。
 
+shim 和 `tally claude` 的差別：裝了設定頁的 shim，直接打 `claude` 也會先幫你挑帳號。`tally claude`（也就是下面的 `c` 和 `cc`）多做兩件 shim 做不到的事：撞到用量上限時，對話自動接到別的帳號繼續；`--continue` 照對話 id 接回你上次那段對話，不會接到較舊的對話。
+
 可選的 shell 捷徑：
 
 ```sh

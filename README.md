@@ -432,7 +432,13 @@ only Tally's own entry. Sharing an existing account's harness has a row here too
 left out of Install all: that one moves conversations between config homes, and a press meaning
 "turn everything on" may not also mean that.
 
-Optional shell sugar:
+How the shims differ from `tally claude`: with the shims installed, typing plain `claude`
+already picks an account before it starts. `tally claude` (the `c` and `cc` aliases below) does
+two more things a shim cannot: when an account hits its usage limit, the conversation moves to
+another account on its own, and `--continue` reopens the conversation you were last in by its id,
+so it never lands on an older one.
+
+Optional shell aliases:
 
 ```sh
 alias c='tally claude'

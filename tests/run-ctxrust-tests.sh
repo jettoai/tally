@@ -81,6 +81,8 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/PendingNotice.swift \
   TallyCLI/ProjectPolicy.swift \
   TallyCLI/ProviderExecutable.swift \
+  TallyCLI/ProviderReopen.swift \
+  TallyCLI/LaunchDir.swift tests/shared/selfupdatebinary.swift \
   TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \
   TallyCLI/QuotaKnockNotice.swift \

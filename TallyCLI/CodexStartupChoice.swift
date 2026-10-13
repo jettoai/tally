@@ -2,7 +2,8 @@ import Foundation
 
 // One answer to codex's startup update menu, asked from outside the window (a Baton button) and
 // carried out by the supervisor that owns the window's PTY. Deliberately narrow: one screen (the
-// update menu), one answer (Skip), and only on the exact drawing the asker saw (`screenID`).
+// update menu), one answer (Skip, sent as Esc so the selected row does not matter), and only while
+// the drawing the asker saw is still up (`screenID`).
 // Whether a person asked is not decidable here; the caller gates that. The request and receipt
 // files sit in the supervisor state directory (`startupChoiceSuffix`, PendingNotice.swift).
 

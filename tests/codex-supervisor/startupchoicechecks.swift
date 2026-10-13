@@ -12,14 +12,23 @@ func runCodexStartupChoiceChecks() throws {
           lines.first?.hasPrefix("Update available") == true && lines.count <= 12
               && lines.contains("2. Skip") && lines.contains("3. Skip until next version")
               && lines.contains { $0.hasPrefix("› 1. Update now") })
-    check("C2 Skip is one row below the selection: one down arrow, then Return",
-          CodexStartupScreen.skipKeys(lines) == [0x1B, 0x5B, 0x42, 0x0D])
-    check("C3 Skip already selected is Return alone", CodexStartupScreen.skipKeys(["1. Update now", "› 2. Skip"]) == [0x0D])
-    check("C3 Skip above the selection is one up arrow, then Return",
-          CodexStartupScreen.skipKeys(["1. Update now", "2. Skip", "› 3. Skip until next version"]) == [0x1B, 0x5B, 0x41, 0x0D])
+    check("C2 Skip on the 0.162.1 menu is Esc alone", CodexStartupScreen.skipKeys(lines) == [0x1B])
+    check("C3 Skip already selected is still Esc", CodexStartupScreen.skipKeys(["1. Update now", "› 2. Skip"]) == [0x1B])
+    check("C3 Skip above the selection is still Esc",
+          CodexStartupScreen.skipKeys(["1. Update now", "2. Skip", "› 3. Skip until next version"]) == [0x1B])
     check("C4 no row labelled exactly Skip types nothing",
           CodexStartupScreen.skipKeys(["› 1. Update now", "2. Skip until next version"]) == nil)
-    check("C4 no selected row types nothing", CodexStartupScreen.skipKeys(["1. Update now", "2. Skip"]) == nil)
+    check("C4 no selected row is still Esc (the selection is not read)",
+          CodexStartupScreen.skipKeys(["1. Update now", "2. Skip"]) == [0x1B])
+
+    // codex redraws only the two rows a move touches, so the published rows stop following the
+    // selection after a few moves (bytes recorded from codex-cli 0.162.1). Esc is Skip
+    // whichever row is selected.
+    for path in ["1-2-3-2-1", "1-2-3-2-1-2-3", "1-2-3-2-1-3"] {
+        var moved = menu
+        moved.observe(Array(try Data(contentsOf: fixtures.appendingPathComponent("update-menu-moves-\(path)-0.162.1.bin"))))
+        check("C8 after moves \(path) Skip is Esc alone", CodexStartupScreen.skipKeys(moved.menuLines ?? []) == [0x1B])
+    }
 
     var signIn = CodexStartupScreen()
     signIn.observe(Array("\u{1B}[2;3HSign in with ChatGPT\u{1B}[4;3Hhttps://auth.example/device?code=ABCD-1234\u{1B}[6;1H› 1. Sign in".utf8))
@@ -68,7 +77,7 @@ func runCodexStartupChoiceChecks() throws {
     check("D1 a person typing a second ago holds it", decide(typed: start) == "typing")
     let sent = decideStartupChoice(request, record: record, humanInputAt: start.addingTimeInterval(-10),
                                    now: start.addingTimeInterval(1))
-    check("D1 the shown menu, nobody typing: sent with the C2 keys", sent.result == "sent" && sent.keys == [0x1B, 0x5B, 0x42, 0x0D])
+    check("D1 the shown menu, nobody typing: sent with the C2 keys", sent.result == "sent" && sent.keys == [0x1B])
 
     let encoded = try startupChoiceEncoder().encode(request)
     check("D2 a request reads back equal through the shared coder pair",

@@ -98,21 +98,17 @@ struct CodexStartupScreen {
         return "scr_" + String(format: "%016llx", hash)
     }
 
-    /// Arrow keys then Return that move the selection to the row labelled exactly `Skip`, or nil when
-    /// the rows cannot be read (nothing is typed on a guess).
+    /// Esc, which codex-cli 0.162.1 takes as Skip on the update menu whichever row is selected and
+    /// without writing `dismissed_version`. The selected row is not read: codex redraws only the rows
+    /// a move touches, so after a few moves `lines` no longer shows it. Nil when no row is labelled
+    /// exactly `Skip` (a menu of another shape, where Esc may mean something else).
     static func skipKeys(_ lines: [String]) -> [UInt8]? {
-        var selected: Int?, target: Int?
-        for line in lines {
-            let marked = line.hasPrefix("› ")
-            let body = marked ? String(line.dropFirst(2)) : line
-            guard let dot = body.firstIndex(of: "."), let number = Int(body[..<dot]) else { continue }
-            let label = body[body.index(after: dot)...].trimmingCharacters(in: .whitespaces)
-            if marked { selected = number }
-            if label == "Skip" { target = number }
+        let hasSkip = lines.contains { line in
+            let body = line.hasPrefix("› ") ? line.dropFirst(2) : Substring(line)
+            guard let dot = body.firstIndex(of: "."), Int(body[..<dot]) != nil else { return false }
+            return body[body.index(after: dot)...].trimmingCharacters(in: .whitespaces) == "Skip"
         }
-        guard let selected, let target else { return nil }
-        let step: [UInt8] = target > selected ? [0x1B, 0x5B, 0x42] : [0x1B, 0x5B, 0x41]
-        return Array(repeating: step, count: abs(target - selected)).flatMap { $0 } + [0x0D]
+        return hasSkip ? [0x1B] : nil
     }
 
     /// Named screens first, then the picker row, each at its last position in `text`.

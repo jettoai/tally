@@ -52,8 +52,8 @@ try:
         assert os.waitpid(pid, 0)[1] == 0, 'fixture exited non-zero'
     (result, receipt, spawned, leftover), typed = parse(outputs['target'])
     assert (result, receipt, spawned, leftover) == ('sent', 'sent', 'true', 'false'), (result, receipt, spawned, leftover)
-    assert typed == b'\x1b[B\r', typed
-    print('PASS: P1 skip-update types one down arrow and Return into its own PTY child, receipts sent, starts the update')
+    assert typed == b'\x1b', typed
+    print("PASS: P1 skip-update types Esc alone (codex's Skip, whichever row is selected) into its own PTY child, receipts sent, starts Tally's background update")
     (result, _, _, _), typed = parse(outputs['sibling'])
     assert result == 'none' and typed == b'', typed
     print('PASS: P1 the sibling PTY receives no byte')

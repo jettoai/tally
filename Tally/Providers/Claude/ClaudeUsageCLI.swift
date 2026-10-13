@@ -45,6 +45,12 @@ enum ClaudeUsageCLI {
     /// How long an account whose isolated read proved unusable goes straight to the old read.
     static let legacyHold: TimeInterval = 60 * 60
 
+    /// How long an account whose old read also failed skips the old read after an isolated miss
+    /// (B-1745): the old read costs 17 to 35 seconds on a large home, and while the account itself
+    /// cannot be read (a vendor-side outage, a sign-out) it fails again every round. The isolated
+    /// read still runs each round, so a recovery shows on the next one.
+    static let legacySkip: TimeInterval = 10 * 60
+
     /// `configDir` nil = the default `~/.claude` account, which must run with CLAUDE_CONFIG_DIR
     /// UNSET on the old read (the CLI namespaces its Keychain item by the exact env value; explicitly
     /// passing the default path makes it look up a hashed item that doesn't exist - "Not logged in").
@@ -77,6 +83,10 @@ enum ClaudeUsageCLI {
             if isolated.timedOut {
                 log.notice("probe timed out account=\(probeHomeName(configDir: configDir), privacy: .public) legacy=skipped")
                 return nil
+            }
+            if await routes.legacySkipped(key, now: now) {
+                log.notice("probe failed account=\(probeHomeName(configDir: configDir), privacy: .public) legacy=skipped-recent-failure")
+                return isolated.text
             }
             let legacy = await legacyRead(binary: binary, configDir: configDir, timeout: timeout)
             await routes.apply(memoryUpdate(reason: reason, legacy: legacy), key: key, now: now)
@@ -176,14 +186,15 @@ enum ClaudeUsageCLI {
                 ids.contains { $0.hasPrefix("weekly_model:") })
     }
 
-    enum MemoryUpdate: Equatable { case none, holdLegacy, shapeVerified }
+    enum MemoryUpdate: Equatable { case none, holdLegacy, shapeVerified, skipLegacy }
 
     /// What one fallback teaches about the account. Only an old read that DID produce both main
-    /// windows can convict the isolated read; a transient failure convicts nothing.
+    /// windows can convict the isolated read; a transient failure convicts nothing. An old read that
+    /// failed as well says the account itself cannot be read right now, so the next rounds skip it.
     static func memoryUpdate(reason: FallbackReason, legacy: String?) -> MemoryUpdate {
-        guard let legacy, !authenticationRejected(legacy) else { return .none }
+        guard let legacy, !authenticationRejected(legacy) else { return .skipLegacy }
         let found = windows(in: legacy)
-        guard found.main else { return .none }
+        guard found.main else { return .skipLegacy }
         switch reason {
         case .noOutput: return .none
         case .notLoggedIn, .incomplete: return .holdLegacy
@@ -227,7 +238,7 @@ enum ClaudeUsageCLI {
     private static let routes = ProbeRoutes()
 
     private actor ProbeRoutes {
-        struct Entry { var legacyUntil: Date?; var shapeVerified = false }
+        struct Entry { var legacyUntil: Date?; var shapeVerified = false; var legacySkipUntil: Date? }
         var entries: [String: Entry] = [:]
 
         func isolatedAllowed(_ key: String, now: Date) -> Bool {
@@ -235,11 +246,16 @@ enum ClaudeUsageCLI {
             return now >= until
         }
         func shapeVerified(_ key: String) -> Bool { entries[key]?.shapeVerified ?? false }
+        func legacySkipped(_ key: String, now: Date) -> Bool {
+            guard let until = entries[key]?.legacySkipUntil else { return false }
+            return now < until
+        }
         func apply(_ update: MemoryUpdate, key: String, now: Date) {
             switch update {
             case .none: break
             case .holdLegacy: entries[key, default: Entry()].legacyUntil = now.addingTimeInterval(legacyHold)
             case .shapeVerified: entries[key, default: Entry()].shapeVerified = true
+            case .skipLegacy: entries[key, default: Entry()].legacySkipUntil = now.addingTimeInterval(legacySkip)
             }
         }
     }

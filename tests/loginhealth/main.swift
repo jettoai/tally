@@ -176,15 +176,32 @@ _ = await ClaudeUsageCLI.fetchUsageText(configDir: t3, executable: stub.path, pr
                                         now: t0.addingTimeInterval(ClaudeUsageCLI.legacyHold))
 expect(runs().first == "\(probeRoot.path)/claudeT3|\(t3)", "after the hold the isolated read is tried again")
 
-// T4: a genuinely signed-out account still reports signed out, and convicts nothing.
+// T4: a genuinely signed-out account still reports signed out and convicts nothing, and the
+// old read that failed with it is skipped for a while (B-1745: it cost 17 to 35 s every round).
 resetLog()
 let t4 = dir.appendingPathComponent(".claudeT4").path
 try routedStub(isolated: notLoggedIn, legacy: notLoggedIn)
-let t4Text = await ClaudeUsageCLI.fetchUsageText(configDir: t4, executable: stub.path, probeHomeRoot: probeRoot)
+let t4Text = await ClaudeUsageCLI.fetchUsageText(configDir: t4, executable: stub.path, probeHomeRoot: probeRoot, now: t0)
 expect(t4Text.map(ClaudeUsageCLI.authenticationRejected) == true, "signed out on both reads stays signed out")
 resetLog()
-_ = await ClaudeUsageCLI.fetchUsageText(configDir: t4, executable: stub.path, probeHomeRoot: probeRoot)
-expect(runs().count == 2, "no hold was recorded, so the isolated read is tried again")
+let t4Again = await ClaudeUsageCLI.fetchUsageText(configDir: t4, executable: stub.path, probeHomeRoot: probeRoot,
+                                                  now: t0.addingTimeInterval(60))
+expect(runs() == ["\(probeRoot.path)/claudeT4|\(t4)"] && t4Again.map(ClaudeUsageCLI.authenticationRejected) == true,
+       "no hold: the isolated read runs again, the failed old read is skipped, signed out is still said (\(runs()))")
+resetLog()
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: t4, executable: stub.path, probeHomeRoot: probeRoot,
+                                        now: t0.addingTimeInterval(ClaudeUsageCLI.legacySkip))
+expect(runs().count == 2, "after the skip the old read is tried again (\(runs()))")
+
+// T4b: an isolated miss whose old read also fails (a vendor-side outage) skips the old read next round.
+resetLog()
+let t4b = dir.appendingPathComponent(".claudeT4b").path
+try routedStub(isolated: "exit 1", legacy: "exit 1")
+_ = await ClaudeUsageCLI.fetchUsageText(configDir: t4b, executable: stub.path, probeHomeRoot: probeRoot, now: t0)
+resetLog()
+let t4bText = await ClaudeUsageCLI.fetchUsageText(configDir: t4b, executable: stub.path, probeHomeRoot: probeRoot,
+                                                  now: t0.addingTimeInterval(60))
+expect(runs().count == 1 && t4bText == nil, "a failed old read is not repeated next round (\(runs()))")
 
 // T5: the isolated home drops the model window the old read has: take the old read, hold.
 resetLog()
@@ -315,8 +332,12 @@ unsetenv("CLAUDE_SECURESTORAGE_CONFIG_DIR")
 
 // Pure verdicts, no process.
 expect(ClaudeUsageCLI.isolatedVerdict(nil, shapeVerified: true) == .fallBack(.noOutput), "nil is a transient fallback")
-expect(ClaudeUsageCLI.memoryUpdate(reason: .noOutput, legacy: "Current session: 1% used") == .none,
+expect(ClaudeUsageCLI.memoryUpdate(reason: .noOutput, legacy: "Current session: 1% used\nCurrent week (all models): 2% used") == .none,
        "a transient failure never holds")
+expect(ClaudeUsageCLI.memoryUpdate(reason: .noOutput, legacy: nil) == .skipLegacy
+       && ClaudeUsageCLI.memoryUpdate(reason: .notLoggedIn, legacy: "Not logged in") == .skipLegacy
+       && ClaudeUsageCLI.memoryUpdate(reason: .incomplete, legacy: "Current session: 1% used") == .skipLegacy,
+       "an old read that failed too skips the old read")
 expect(ClaudeUsageCLI.probeHomeName(configDir: nil) == "claude"
        && ClaudeUsageCLI.probeHomeName(configDir: "/Users/x/.claude-work") == "claude-work",
        "probe home names drop the leading dot")

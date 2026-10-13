@@ -113,19 +113,20 @@ extension SettingsView {
     private func integrationsGroupPages(_ integrations: IntegrationsStore) -> some View {
         ZStack(alignment: .top) {
             ForEach(IntegrationsGroup.allCases, id: \.self) { group in
+                let front = integrationsGroup == group
                 VStack(alignment: .leading, spacing: 0) {
                     switch group {
                     case .commandLine: commandLineRows(integrations)
                     case .sessions: sessionRows(integrations)
                     case .claudeCode: claudeCodeRows(integrations)
-                    case .codexHarness: SettingsCodexHarness(active: integrationsGroup == group)
+                    case .codexHarness: SettingsCodexHarness(active: front)
                     }
                 }
                 .disabled(BuildVariant.isUnshipped && group != .codexHarness)
-                .opacity(integrationsGroup == group ? 1 : 0)
-                .allowsHitTesting(integrationsGroup == group)
-                .accessibilityHidden(integrationsGroup != group)
-                .frame(height: integrationsGroup == group ? nil : 0, alignment: .top)
+                .opacity(front ? 1 : 0)
+                .allowsHitTesting(front)
+                .accessibilityHidden(!front)
+                .frame(height: front ? nil : 0, alignment: .top)
                 .clipped()
             }
         }

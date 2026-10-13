@@ -80,10 +80,27 @@ func codexUpdateFailureLine(latest: String, reason: String) -> String {
     "Codex \(latest) is available; automatic update failed (\(reason)). Opening without the update menu."
 }
 
-/// A failed attempt at `latest` within `window` of `now` suppresses another try.
-func codexUpdateBackedOff(attempt: (version: String, failedAt: Date)?, latest: String,
+/// One failed update, as `~/.tally/codex-update-attempt.json` keeps it. `timedOutAfter` is the limit
+/// a timeout ran out of: nil for any other failure, and in a file written before the field existed.
+struct CodexUpdateAttempt: Codable {
+    var version: String
+    var failedAt: Date
+    var timedOutAfter: TimeInterval?
+}
+
+func decodeCodexUpdateAttempt(_ data: Data) -> CodexUpdateAttempt? {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try? decoder.decode(CodexUpdateAttempt.self, from: data)
+}
+
+/// A failed attempt at `latest` within `window` of `now` suppresses another try, except a timeout
+/// under a shorter limit than this caller's `timeout`: the 180 s pre-launch update running out must
+/// not hold the 900 s background update off the same version.
+func codexUpdateBackedOff(attempt: CodexUpdateAttempt?, latest: String, timeout: TimeInterval,
                           now: Date, window: TimeInterval = 6 * 3600) -> Bool {
     guard let attempt, attempt.version == latest else { return false }
+    if let limit = attempt.timedOutAfter, limit < timeout { return false }
     return now.timeIntervalSince(attempt.failedAt) < window
 }
 

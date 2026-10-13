@@ -37,9 +37,12 @@ func runCodexUpdateChecks() {
     check("U8 a trailing comment still disables", codexConfigDisablesUpdateCheck("check_for_update_on_startup = false # x\n"))
     check("U9 fields compare as integers", codexIsNewer("0.162.10", than: "0.162.9") && !codexIsNewer("0.162.9", than: "0.162.10"))
     check("U10 the same version failed 5h ago backs off",
-          codexUpdateBackedOff(attempt: ("0.162.1", start.addingTimeInterval(-5 * 3600)), latest: "0.162.1", now: start))
+          codexUpdateBackedOff(attempt: CodexUpdateAttempt(version: "0.162.1", failedAt: start.addingTimeInterval(-5 * 3600)), latest: "0.162.1",
+                               timeout: 180, now: start))
     check("U10 the same version failed 7h ago is tried again",
-          !codexUpdateBackedOff(attempt: ("0.162.1", start.addingTimeInterval(-7 * 3600)), latest: "0.162.1", now: start))
+          !codexUpdateBackedOff(attempt: CodexUpdateAttempt(version: "0.162.1", failedAt: start.addingTimeInterval(-7 * 3600)), latest: "0.162.1",
+                               timeout: 180, now: start))
     check("U10 a different version is tried at once",
-          !codexUpdateBackedOff(attempt: ("0.162.0", start.addingTimeInterval(-60)), latest: "0.162.1", now: start))
+          !codexUpdateBackedOff(attempt: CodexUpdateAttempt(version: "0.162.0", failedAt: start.addingTimeInterval(-60)), latest: "0.162.1",
+                               timeout: 180, now: start))
 }

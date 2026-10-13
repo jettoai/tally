@@ -268,4 +268,23 @@ func runPinPriorityChecks() {
     check("`tally claude` no longer launches an empty pin unconditionally",
           !mainCode.isEmpty && !mainCode.contains(#"launching anyway (\(pinnedBy))"#)
               && mainCode.contains("!pinStepsAside("))
+
+    // B-1736: a `--account` Codex window is monitored like any other, so a startup menu it stalls
+    // on reaches `tally status`; a `--account` Claude launch stays a plain exec.
+    let pinnedBranch: String = {
+        guard let open = mainCode.range(of: "    if let pinned {\n") else { return "" }
+        let rest = mainCode[open.upperBound...]
+        return String(rest[..<(rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex)])
+    }()
+    let codexCode = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
+    let helper = codexCode.components(separatedBy: "func launchOnAccount(").dropFirst().first ?? ""
+    check("a --account Codex launch goes through the monitored launch",
+          pinnedBranch.contains("(pinned)") && pinnedBranch.contains("monitorCodex: wantsCodexMonitoring"))
+    check("…which monitors before it would exec",
+          helper.range(of: "runCodexSupervised(").map { monitor in
+              helper.range(of: "launchProvider(").map { monitor.lowerBound < $0.lowerBound } ?? false
+          } ?? false)
+    check("…while a --account Claude launch stays a plain exec",
+          !pinnedBranch.isEmpty && !pinnedBranch.contains("runSupervised(")
+              && mainCode.contains("let wantsCodexMonitoring = provider.id == \"codex\""))
 }

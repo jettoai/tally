@@ -32,6 +32,15 @@ func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
 
 nonisolated(unsafe) private var codexSupervisorSignal: Int32 = 0
 
+/// A launch on one named account: a monitored Codex window when `monitorCodex` holds (an
+/// interactive Codex launch, main.swift), otherwise a plain exec.
+func launchOnAccount(_ provider: Provider, account: Snapshot.Account, args: [String],
+                     monitorCodex: Bool) -> Never {
+    if monitorCodex { runCodexSupervised(provider, account: account, args: args) }
+    launchProvider(provider, args: args, home: account.launchHome!,
+                   env: launchEnv(provider, home: account.launchHome!))
+}
+
 /// A supervised Codex resident with an owned PTY for guarded direct input.
 /// No recovery policy runs here: the child exits once and its exit status is preserved. The one
 /// exception is a `tally session clear` that reopens the window, which execs `tally <provider>`.

@@ -12,11 +12,6 @@ let codexUpdateStateDir = FileManager.default.homeDirectoryForCurrentUser.append
 /// Once per process: true when the launch must open with the menu switched off.
 nonisolated(unsafe) private var codexUpdateSkipMenu: Bool?
 
-private struct CodexUpdateAttempt: Codable {
-    var version: String
-    var failedAt: Date
-}
-
 func prepareCodexLaunch(_ args: [String], home: String, interactive: Bool) -> [String] {
     let typed = optionsOnly(args)
     guard interactive, !typed.contains(where: { ["--help", "-h", "--version", "-V"].contains($0) }),
@@ -50,19 +45,19 @@ private func runCodexUpdatePreflight(home: String) -> Bool {
 func updateCodex(_ codex: String, to latest: String, home: String,
                  timeout: TimeInterval = codexUpdateTimeout, announce: String? = nil) -> Bool {
     let attemptURL = codexUpdateStateDir.appendingPathComponent("codex-update-attempt.json")
-    let decoder = JSONDecoder(), encoder = JSONEncoder()
-    decoder.dateDecodingStrategy = .iso8601
+    let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let attempt = (try? Data(contentsOf: attemptURL)).flatMap { try? decoder.decode(CodexUpdateAttempt.self, from: $0) }
-    if let attempt, codexUpdateBackedOff(attempt: (attempt.version, attempt.failedAt), latest: latest, now: Date()) {
+    let attempt = (try? Data(contentsOf: attemptURL)).flatMap(decodeCodexUpdateAttempt)
+    if let attempt, codexUpdateBackedOff(attempt: attempt, latest: latest, timeout: timeout, now: Date()) {
         let minutes = Int(Date().timeIntervalSince(attempt.failedAt) / 60)
         warn(codexUpdateFailureLine(latest: latest, reason: "last attempt failed \(minutes)m ago"))
         return false
     }
     warn(announce ?? "Codex \(latest) is available; running `codex update` before opening (up to 3 min)...")
     let deadline = Date().addingTimeInterval(timeout)
-    func fail(_ reason: String) -> Bool {
-        if let data = try? encoder.encode(CodexUpdateAttempt(version: latest, failedAt: Date())) {
+    func fail(_ reason: String, timedOut: Bool = false) -> Bool {
+        let record = CodexUpdateAttempt(version: latest, failedAt: Date(), timedOutAfter: timedOut ? timeout : nil)
+        if let data = try? encoder.encode(record) {
             try? data.write(to: attemptURL, options: .atomic)
         }
         warn(codexUpdateFailureLine(latest: latest, reason: reason))
@@ -74,13 +69,13 @@ func updateCodex(_ codex: String, to latest: String, home: String,
     let lock = open(codexUpdateStateDir.appendingPathComponent("codex-update.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
     defer { if lock >= 0 { close(lock) } }
     while lock >= 0, flock(lock, LOCK_EX | LOCK_NB) != 0 {
-        guard Date() < deadline else { return fail("timed out after \(Int(timeout))s") }
+        guard Date() < deadline else { return fail("timed out after \(Int(timeout))s", timedOut: true) }
         usleep(200_000)
     }
     if let installed = codexInstalledVersion(codex), !codexIsNewer(latest, than: installed) { return true }
 
     let run = codexRunInherited([codex, "update"], home: home, deadline: deadline)
-    if run.timedOut { return fail("timed out after \(Int(timeout))s") }
+    if run.timedOut { return fail("timed out after \(Int(timeout))s", timedOut: true) }
     guard let status = run.status else { return fail("codex update could not start") }
     guard status == 0 else { return fail("codex update exited with status \(status)") }
     // rc 0 alone is not proof: a package manager that finds nothing to do also exits 0.

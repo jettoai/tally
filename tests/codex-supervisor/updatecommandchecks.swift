@@ -26,4 +26,27 @@ func runCodexUpdateCommandChecks() {
                   && fields?["seconds"] as? Int == 42 && fields?["codex"] as? String == "/opt/x/bin/codex"
                   && fields?["at"] as? String != nil && line.hasSuffix("}\n") && !line.contains("\u{2014}"))
     }
+
+    // UC4: the 180 s pre-launch update timing out must not hold the 900 s background one off the
+    // same version for six hours; every other failure still backs both off.
+    let failedAt = start.addingTimeInterval(-60)
+    func backedOff(_ attempt: CodexUpdateAttempt?, timeout: TimeInterval) -> Bool {
+        codexUpdateBackedOff(attempt: attempt, latest: "0.162.1", timeout: timeout, now: start)
+    }
+    let shortTimeout = CodexUpdateAttempt(version: "0.162.1", failedAt: failedAt, timedOutAfter: 180)
+    check("UC4 a 180 s timeout does not back off a 900 s update", !backedOff(shortTimeout, timeout: 900))
+    check("UC4 a 180 s timeout still backs off the next 180 s update", backedOff(shortTimeout, timeout: 180))
+    let longTimeout = CodexUpdateAttempt(version: "0.162.1", failedAt: failedAt, timedOutAfter: 900)
+    check("UC4 a 900 s timeout backs off a 180 s update", backedOff(longTimeout, timeout: 180))
+    let other = CodexUpdateAttempt(version: "0.162.1", failedAt: failedAt, timedOutAfter: nil)
+    check("UC4 a failure that is not a timeout backs off both",
+          backedOff(other, timeout: 900) && backedOff(other, timeout: 180))
+    let legacy = decodeCodexUpdateAttempt(Data(#"{"version":"0.162.1","failedAt":"2027-01-15T07:59:00Z"}"#.utf8))
+    check("UC4 an attempt file without the timeout field still reads, and backs off both",
+          legacy != nil && legacy?.timedOutAfter == nil
+              && backedOff(legacy, timeout: 900) && backedOff(legacy, timeout: 180))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let roundTrip = (try? encoder.encode(shortTimeout)).flatMap(decodeCodexUpdateAttempt)
+    check("UC4 the timeout limit survives the attempt file", roundTrip?.timedOutAfter == 180)
 }

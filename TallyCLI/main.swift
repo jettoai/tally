@@ -189,9 +189,10 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             warn(refusal); exit(1)
         }
         warn("→ \(match.label) (pinned)")
-        launchProvider(provider, args: startModeArgs(passthrough, home: match.launchHome!),
-                       home: match.launchHome!,
-                       env: launchEnv(provider, home: match.launchHome!))
+        // Claude stays a plain exec: the flag opts out of the handoff supervisor. A Codex window is
+        // still monitored, which never moves it off this account (CodexSupervisor.swift, B-1736).
+        launchOnAccount(provider, account: match, args: startModeArgs(passthrough, home: match.launchHome!),
+                        monitorCodex: wantsCodexMonitoring)
     }
 
     // The pinned account: the app's launch policy (Settings → Launch account) or this project's own
@@ -213,14 +214,12 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             let args = startModeArgs(passthrough, home: match.launchHome!)
             // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin switch),
             // and it hands off on a cap and brings the session back when the account refills (B-1540).
-            // A CLI --account pin remains a plain exec - that flag opts out of supervision.
+            // A Claude CLI --account pin remains a plain exec - that flag opts out of supervision.
             if provider.id == "claude", wantsHandoff {
                 runSupervised(provider, account: match, args: args, follow: allowFollow,
                               clearedConversation: clearedConversation, spendReserve: spendReserve)
             }
-            if wantsCodexMonitoring { runCodexSupervised(provider, account: match, args: args) }
-            launchProvider(provider, args: args, home: match.launchHome!,
-                           env: launchEnv(provider, home: match.launchHome!))
+            launchOnAccount(provider, account: match, args: args, monitorCodex: wantsCodexMonitoring)
         }
         // The denormalized home, for a pin whose account is missing from this snapshot. NOT for one
         // the snapshot lists WITHOUT a launch home: that is Tally saying the login is gone, and

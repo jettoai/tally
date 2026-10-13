@@ -23,8 +23,9 @@ final class CodexInputRelay {
     private var submissionUncertain = false
     private var outputTail: [UInt8] = []
     private var inputClassifier = CodexTerminalInputClassifier()
-    /// What Codex drew before its composer, for the startup-screen wait (CodexStartupScreen.swift).
-    private(set) var startupScreen = CodexStartupScreen()
+    /// What Codex drew before its composer, for the startup-screen wait (CodexStartupScreen.swift),
+    /// sized to the PTY.
+    private(set) var startupScreen: CodexStartupScreen
 
     /// A real keyboard edit observed while relaying. Terminal replies, focus changes and mouse
     /// reports deliberately do not become a draft stamp.
@@ -96,6 +97,7 @@ final class CodexInputRelay {
         path = String(cString: childName)
         savedOuterMode = mode
         savedWindowSize = size
+        startupScreen = CodexStartupScreen(rows: Int(size.ws_row), cols: Int(size.ws_col))
     }
 
     deinit { close() }
@@ -269,6 +271,7 @@ final class CodexInputRelay {
             || size.ws_xpixel != savedWindowSize.ws_xpixel || size.ws_ypixel != savedWindowSize.ws_ypixel {
             guard ioctl(master, TIOCSWINSZ, &size) == 0 else { return false }
             savedWindowSize = size
+            startupScreen.resize(rows: Int(size.ws_row), cols: Int(size.ws_col))
         }
         return true
     }

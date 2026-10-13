@@ -5,7 +5,7 @@ import Foundation
 // `check` and `start` come from main.swift.
 func runCodexStartupChoiceChecks() throws {
     let fixtures = URL(fileURLWithPath: "tests/codex-supervisor/fixtures")
-    var menu = CodexStartupScreen()
+    var menu = CodexStartupScreen(rows: 40, cols: 120)
     menu.observe(Array(try Data(contentsOf: fixtures.appendingPathComponent("update-menu-0.162.1.bin"))))
     let lines = menu.menuLines ?? []
     check("C1 the 0.162.1 menu publishes its rows from the title down",
@@ -21,16 +21,17 @@ func runCodexStartupChoiceChecks() throws {
     check("C4 no selected row is still Esc (the selection is not read)",
           CodexStartupScreen.skipKeys(["1. Update now", "2. Skip"]) == [0x1B])
 
-    // codex redraws only the two rows a move touches, so the published rows stop following the
-    // selection after a few moves (bytes recorded from codex-cli 0.162.1). Esc is Skip
-    // whichever row is selected.
-    for path in ["1-2-3-2-1", "1-2-3-2-1-2-3", "1-2-3-2-1-3"] {
+    // codex redraws only the two rows a move touches; the grid keeps the rest, so the rows follow
+    // the selection (bytes recorded from codex-cli 0.162.1). Esc is Skip whichever row is selected.
+    for (path, selected) in [("1-2-3-2-1", "1. Update now (runs `brew upgrade --cask codex`)"),
+                             ("1-2-3-2-1-2-3", "3. Skip until next version"), ("1-2-3-2-1-3", "3. Skip until next version")] {
         var moved = menu
         moved.observe(Array(try Data(contentsOf: fixtures.appendingPathComponent("update-menu-moves-\(path)-0.162.1.bin"))))
         check("C8 after moves \(path) Skip is Esc alone", CodexStartupScreen.skipKeys(moved.menuLines ?? []) == [0x1B])
+        check("C8 after moves \(path) the selected row is where the moves ended", (moved.menuLines ?? []).contains("› " + selected))
     }
 
-    var signIn = CodexStartupScreen()
+    var signIn = CodexStartupScreen(rows: 24, cols: 80)
     signIn.observe(Array("\u{1B}[2;3HSign in with ChatGPT\u{1B}[4;3Hhttps://auth.example/device?code=ABCD-1234\u{1B}[6;1H› 1. Sign in".utf8))
     check("C5 a sign-in screen publishes no rows (it can carry a login link and code)", signIn.menuLines == nil)
     var menuThenSignIn = menu

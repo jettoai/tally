@@ -141,7 +141,14 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             provider: session.monitoring ? "codex" : "claude",
             // The same answer `tally session send` refuses or accepts on (SessionMonitoring.swift),
             // so the inventory cannot advertise a control the send path would then turn down.
-            supportedActions: sessionSupportedActions(pid: session.supervisorPid, dir: dir),
+            // A Codex clear is the reopen `tally session clear` would accept: a target from the
+            // project default, on a supervisor new enough to perform it (SessionSendWait.swift).
+            supportedActions: sessionSupportedActions(pid: session.supervisorPid, dir: dir, codexClears: {
+                guard let cwd = session.state?.directory ?? session.cwd,
+                      let target = clearReopenTarget(current: "codex", cwd: cwd) else { return false }
+                return sessionClearReopenUnsupported(supervisorVersion: session.state?.supervisorVersion,
+                                                     reopenTarget: target) == nil
+            }),
             model: session.context?.observedModel ?? session.context?.runningModel,
             effort: session.context?.runningEffort,
             taskList: readTaskListPin(pid: session.supervisorPid, dir: dir)

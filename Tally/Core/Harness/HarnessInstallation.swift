@@ -27,7 +27,7 @@ enum HarnessInstallation {
         }
         let manifest = try HarnessIO.loadManifest(location.manifestPath)
         let changes = try HarnessObservation.changes(manifest)
-        return ["state": manifest.phase != "installed" ? "incomplete" : changes.isEmpty ? "installed" : "drift",
+        var report: [String: Any] = ["state": manifest.phase != "installed" ? "incomplete" : changes.isEmpty ? "installed" : "drift",
                 "manifest": location.manifestPath, "scope": location.scope,
                 "source": location.sourceRoot, "target": location.targetRoot,
                 "protocolCandidates": manifest.hooks.filter { $0.disposition == "protocol-candidate" }.count,
@@ -38,6 +38,24 @@ enum HarnessInstallation {
                 "migration": "Use harness migrate to inspect or retire individual receipt-owned entries without reinstalling retained hooks.",
                 "changes": changes, "nativeTrust": manifest.registrations.isEmpty ? "not-required" : "verify-in-codex-hooks",
                 "meaning": "Registration and observation only; not a behavioral certificate."]
+        let drifted = manifest.hooks.filter { manifest.enabledHookIDs.contains($0.id) }
+            .filter { HarnessInventory.definitionDrifted(manifest, $0) }.map(\.id)
+        if !drifted.isEmpty {
+            report["driftedHookIDs"] = drifted
+            report["driftAction"] = "These hooks' source definitions changed, so the bridge skips them (or blocks, for "
+                + "PreToolUse, Stop, UserPromptSubmit and SubagentStop). Retire them with `" + migrateCommand(location, drop: drifted)
+                + "` (preview, then add --apply), or remove and reinstall to adopt the new definitions."
+        }
+        return report
+    }
+
+    static func migrateCommand(_ location: HarnessLocation, drop: [String]) -> String {
+        var options = [("--scope", location.scope)]
+        if let project = location.project { options.append(("--project", project)) }
+        else { options += [("--source-home", location.sourceHome), ("--target-home", location.targetHome)] }
+        options += [("--skills-root", location.sharedSkills), ("--state-root", location.stateRoot)]
+        options += drop.map { ("--drop-hook", $0) }
+        return (["tally harness migrate"] + options.map { $0.0 + " " + HarnessIO.quote($0.1) }).joined(separator: " ")
     }
 
     static func install(_ plan: HarnessPlan, executable: String, confirmGitVisible: Bool = false) throws -> HarnessManifest {

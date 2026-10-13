@@ -116,6 +116,38 @@ class BridgeChecks(Fixture):
         self.hook_source(command="echo changed")
         self.assertIn("definition changed", self.bridge(code=2))
 
+    def test_changed_definition_abstains_only_on_non_blocking_events(self):
+        # A changed source definition must not fail every PostToolUse call (B-1706); gates stay closed.
+        for name, code in (("PostToolUse", 0), ("SessionStart", 0), ("PreToolUse", 2), ("Stop", 2),
+                           ("UserPromptSubmit", 2), ("SubagentStop", 2)):
+            with self.subTest(event=name):
+                self.hook_source(event=name)
+                self.install()
+                self.hook_source(command="echo changed", event=name)
+                event = {"hook_event_name": name, "cwd": str(self.project), "tool_name": "Bash", "tool_input": {"command": "true"}}
+                try:
+                    result = self.bridge(event, code=code)
+                    if code == 0:
+                        self.assertEqual(list(result), ["systemMessage"])
+                        self.assertIn("definition changed", result["systemMessage"])
+                    else:
+                        self.assertIn("definition changed", result)
+                finally:
+                    self.harness("remove")
+
+    def test_status_names_drifted_hooks_with_a_retirement_command(self):
+        self.hook_source(event="PostToolUse")
+        self.install()
+        clean = self.harness("status")
+        self.assertNotIn("driftedHookIDs", clean)
+        self.assertNotIn("driftAction", clean)
+        entry = self.manifest["hooks"][0]["id"]
+        self.hook_source(command="echo changed", event="PostToolUse")
+        status = self.harness("status")
+        self.assertEqual(status["driftedHookIDs"], [entry])
+        self.assertIn("tally harness migrate", status["driftAction"])
+        self.assertIn("--drop-hook '" + entry + "'", status["driftAction"])
+
     def test_changed_script_body_runs_and_status_reports_drift(self):
         self.hook_source()
         self.install()

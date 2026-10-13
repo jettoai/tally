@@ -329,8 +329,13 @@ func runSessionSendChecks() {
           SessionMonitoring.supportsDirectSend(pid: ownPid, dir: registry)
               && sessionSupportedActions(pid: ownPid, dir: registry) == ["send"]
               && sessionSendRefusal(pid: ownPid, dir: registry) == nil)
-    check("Codex direct send never opens Claude account, model, clear, or reload controls",
+    check("Codex direct send never opens Claude account, model, or reload controls",
           sessionControlRefusal(pid: ownPid, dir: registry) != nil)
+    // B-1706: a clear reopens a Codex window when the project default allows it, so status lists
+    // clear exactly when the clear path would accept it, and never without a direct-send terminal.
+    check("a Codex registration lists clear only when a clear would reopen it",
+          sessionSupportedActions(pid: ownPid, dir: registry, codexClears: { true }) == ["send", "clear"]
+              && sessionSupportedActions(pid: ownPid, dir: registry, codexClears: { false }) == ["send"])
 
     // Missing terminal metadata is the expected shape of an already-running monitoring-only Codex
     // session. It must fail closed before a request file exists, with an actionable restart path.
@@ -340,7 +345,21 @@ func runSessionSendChecks() {
     check("a legacy Codex monitor is refused with a restart-required direct-input message",
           namedSession(ownPid, dir: registry) == .monitoringOnly(ownPid)
               && legacyRefusal?.contains("restart with the current `tally codex resume <thread-id>`") == true
-              && sessionSupportedActions(pid: ownPid, dir: registry).isEmpty)
+              && legacyRefusal?.contains("first turn") == false
+              && sessionSupportedActions(pid: ownPid, dir: registry).isEmpty
+              && sessionSupportedActions(pid: ownPid, dir: registry, codexClears: { true }).isEmpty)
+    // B-1706: a bound session in its first native turn already trusts its hooks; restarting loops.
+    let bindingFile = registry.appendingPathComponent(ownPid + ".codex-binding")
+    let stateFile = registry.appendingPathComponent(ownPid + ".state")
+    try? "{}".write(to: bindingFile, atomically: true, encoding: .utf8)
+    try? #"{"state":"working","since":"2026-10-13T15:21:48Z"}"#.write(to: stateFile, atomically: true, encoding: .utf8)
+    let firstTurn = sessionSendRefusal(pid: ownPid, dir: registry)
+    check("a bound Codex session in its first turn is told to wait, not to trust hooks and restart",
+          firstTurn == "This Codex session's first turn is still running; direct input becomes available once it finishes. Nothing was queued.")
+    try? #"{"state":"idle","since":"2026-10-13T15:21:48Z"}"#.write(to: stateFile, atomically: true, encoding: .utf8)
+    check("…a bound session that is not working keeps the restart guidance",
+          sessionSendRefusal(pid: ownPid, dir: registry)?.contains("Trust the installed session hooks") == true)
+    [bindingFile, stateFile].forEach { try? FileManager.default.removeItem(at: $0) }
     // A malformed or stale registration stays in the same fail-closed family. It cannot be
     // relabelled as Claude merely because the presence marker still belongs to a live process.
     try? Data("broken".utf8).write(to: registry.appendingPathComponent(ownPid + SessionMonitoring.suffix))

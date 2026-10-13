@@ -107,7 +107,23 @@ enum HarnessInventory {
             return handlers[selected.handler]
         }
         if matches.isEmpty && Set(current.map(\.definitionHash)).isSubset(of: knownDefinitions) { return nil }
-        throw HarnessError("Source hook definition changed. Review the harness plan before reinstalling.")
+        throw HarnessError(definitionChanged)
+    }
+
+    static let definitionChanged = "Source hook definition changed. Review the harness plan before reinstalling."
+
+    /// Every definition hash this installation (or a tool registration) owns at the entry's source.
+    static func knownDefinitions(_ manifest: HarnessManifest, _ entry: HarnessHook) throws -> Set<String> {
+        Set(manifest.hooks.filter { $0.source == entry.source }.map(\.definitionHash)
+            + manifest.registrations.filter { $0.path == entry.source }.map(\.definitionHash)
+            + (try HarnessTools.registrations(in: manifest.location.stateRoot))
+                .filter { $0.path == entry.source }.map(\.definitionHash))
+    }
+
+    /// Whether the entry's source definition changed since installation (not merely removed).
+    static func definitionDrifted(_ manifest: HarnessManifest, _ entry: HarnessHook) -> Bool {
+        do { _ = try resolveHandler(entry, knownDefinitions: knownDefinitions(manifest, entry)); return false }
+        catch { return (error as? HarnessError)?.message == definitionChanged }
     }
 
     static func plan(_ location: HarnessLocation, hookIDs: [String]? = nil, skillNames: [String]? = nil) throws -> HarnessPlan {

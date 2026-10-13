@@ -428,9 +428,9 @@ and everything below is true of both.
 
 Updated supervised Codex sessions support nonempty direct prompts when status lists `send`.
 Codex requires trusted native lifecycle reporting and a completed turn before advertising this
-capability. Monitoring-only sessions must restart with the current `tally codex`. Account, model,
-clear and reload controls remain Claude-only. Use the native Codex UI for slash commands, shell
-mode and empty Return.
+capability. Monitoring-only sessions must restart with the current `tally codex`. Account, model and
+reload controls remain Claude-only; status lists `clear` when the project default would reopen the
+window (`tally session clear`). Use the native Codex UI for slash commands, shell mode and empty Return.
 Codex waits while working, asking permission, unknown, or while a human is typing. Once quiet,
 unexplained terminal input causes an explicit refusal because the composer may contain a draft;
 submit an actual prompt in that session, wait for its turn to finish, then retry. Codex reports

@@ -107,27 +107,43 @@ struct SessionMonitoring: Codable, Equatable {
 func sessionControlRefusal(pid: String, dir: URL) -> String? {
     guard SessionMonitoring.isMarked(pid: pid, dir: dir) else { return nil }
     if SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) {
-        return "This Codex session supports monitoring and direct input, not account, model, clear, or reload controls. Restart with the desired launch settings. Nothing was queued."
+        return "This Codex session supports monitoring and direct input, not account, model, or reload controls; `tally session clear` reopens it only when this project's default provider is set. Restart with the desired launch settings. Nothing was queued."
     }
     return "This session supports monitoring only. Restart it to change its account, model, or supervisor version. Nothing was queued."
 }
 
-/// The one control a current Codex supervisor may advertise. Account, model, clear and reload keep
-/// their existing monitoring-only refusal; this check is used solely by `tally session send`.
+/// The direct-input gate for a Codex supervisor, used by `tally session send` and by `tally session
+/// clear` (whose Codex answer is a reopen as the project's default provider, ProviderReopen.swift).
+/// Account, model and reload keep the monitoring-only refusal in `sessionControlRefusal`.
 func sessionSendRefusal(pid: String, dir: URL) -> String? {
     guard SessionMonitoring.isMarked(pid: pid, dir: dir) else { return nil }
     guard SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) else {
+        // The session hook already bound this child, so trust is not the problem: the terminal is
+        // published only after the first native turn completes (CodexSupervisor.swift).
+        if codexFirstTurnRunning(pid: pid, dir: dir) {
+            return "This Codex session's first turn is still running; direct input becomes available once it finishes. Nothing was queued."
+        }
         return "This Codex session cannot accept direct input because it has no verified terminal "
             + "target and native turn lifecycle. Trust the installed session hooks, then restart with the current `tally codex resume <thread-id>`. A supervised exact-thread resume without a prompt initializes with one native turn; wait for it to finish. Nothing was queued."
     }
     return nil
 }
 
+private func codexFirstTurnRunning(pid: String, dir: URL) -> Bool {
+    guard FileManager.default.fileExists(atPath: dir.appendingPathComponent(pid + ".codex-binding").path),
+          let data = try? Data(contentsOf: dir.appendingPathComponent(pid + ".state")),
+          let state = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+    return state["state"] as? String == "working"
+}
+
 /// The status contract is capability-specific. A live Codex registration may receive a direct
-/// prompt, but it must never inherit Claude's account, model, clear, or reload controls.
-func sessionSupportedActions(pid: String, dir: URL) -> [String] {
+/// prompt, but it must never inherit Claude's account, model, or reload controls. It lists clear
+/// only when `codexClears` says a clear would reopen it (the caller reads the project default and
+/// the supervisor version, as `tally session clear` does); otherwise a clear is refused unread.
+func sessionSupportedActions(pid: String, dir: URL, codexClears: () -> Bool = { false }) -> [String] {
     guard SessionMonitoring.isMarked(pid: pid, dir: dir) else {
         return ["account", "model", "send", "clear", "reload"]
     }
-    return SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) ? ["send"] : []
+    guard SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) else { return [] }
+    return codexClears() ? ["send", "clear"] : ["send"]
 }

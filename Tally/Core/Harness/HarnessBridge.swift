@@ -8,9 +8,12 @@ struct HarnessHookResult {
 }
 
 enum HarnessBridge {
+    static func blocking(_ event: String) -> Bool {
+        ["PreToolUse", "Stop", "UserPromptSubmit", "SubagentStop"].contains(event)
+    }
+
     static func failure(_ event: String, _ reason: String) -> HarnessHookResult {
-        let blocking = ["PreToolUse", "Stop", "UserPromptSubmit", "SubagentStop"].contains(event)
-        return HarnessHookResult(code: blocking ? 2 : 1, output: nil, error: "Tally harness: " + reason + "\n")
+        HarnessHookResult(code: blocking(event) ? 2 : 1, output: nil, error: "Tally harness: " + reason + "\n")
     }
 
     static func run(manifestPath: String, entryID: String, event: [String: Any]) -> HarnessHookResult {
@@ -30,11 +33,17 @@ enum HarnessBridge {
             if eventName == "Stop", event["stop_hook_active"] as? Bool == true {
                 return HarnessHookResult(code: 0, output: nil, error: "")
             }
-            let knownDefinitions = Set(manifest.hooks.filter { $0.source == entry.source }.map(\.definitionHash)
-                + manifest.registrations.filter { $0.path == entry.source }.map(\.definitionHash)
-                + (try HarnessTools.registrations(in: manifest.location.stateRoot))
-                    .filter { $0.path == entry.source }.map(\.definitionHash))
-            guard let handler = try HarnessInventory.resolveHandler(entry, knownDefinitions: knownDefinitions) else {
+            let resolved: [String: Any]?
+            do {
+                resolved = try HarnessInventory.resolveHandler(entry,
+                    knownDefinitions: HarnessInventory.knownDefinitions(manifest, entry))
+            } catch let error as HarnessError where error.message == HarnessInventory.definitionChanged && !blocking(eventName) {
+                // A non-blocking event gates nothing, so a stale definition must not fail every call.
+                // Blocking events stay fail-closed below. The message is user-visible, not model context.
+                return combined(eventName, [], ["Tally harness: this hook's source definition changed since installation, "
+                    + "so it did not run. Run `tally harness status` to review it."], nil)
+            }
+            guard let handler = resolved else {
                 return combined(eventName, ["Tally harness: source hook was removed. This orphan abstained; remove or reinstall the stale registration."], [], nil)
             }
             guard let command = handler["command"] as? String, let cwd = event["cwd"] as? String,

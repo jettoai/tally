@@ -31,7 +31,9 @@ struct SettingsView: View {
     private static let paneInset: CGFloat = 16
 
     enum Section: String, CaseIterable {
-        case accounts, launch, display, integrations, about
+        /// `overlay` is a pane a private build names and fills (`overlayPaneTitle`, OverlayApp.swift);
+        /// the sidebar lists it only while that title is non-nil, so the public window never offers it.
+        case accounts, launch, display, integrations, overlay, about
 
         var title: String {
             switch self {
@@ -39,6 +41,7 @@ struct SettingsView: View {
             case .launch: return L("Launch")
             case .display: return L("Display")
             case .integrations: return L("Integrations")
+            case .overlay: return ""   // named by the overlay (`sidebarTitle`)
             case .about: return L("About")
             }
         }
@@ -49,6 +52,7 @@ struct SettingsView: View {
             case .launch: return "play.circle"
             case .display: return "slider.horizontal.3"
             case .integrations: return "puzzlepiece.extension"
+            case .overlay: return ""   // drawn by the overlay (`sidebarSymbol`)
             case .about: return "info.circle"
             }
         }
@@ -109,6 +113,24 @@ struct SettingsView: View {
         .onChange(of: benchShown, initial: true) { _, shown in
             if SettingsTabBench.isActive { SettingsTabBench.shown = shown }
         }
+        // The overlay pane withdrawn while in front, or a capture launch naming it in a build that
+        // has none: fall back to the first pane rather than show an empty one.
+        .onChange(of: overlayPaneTitle == nil, initial: true) { _, gone in
+            if gone && section == .overlay { select(.accounts) }
+        }
+    }
+
+    /// The sidebar's sections: the overlay pane only while a private build names it.
+    private var shownSections: [Section] {
+        Section.allCases.filter { $0 != .overlay || overlayPaneTitle != nil }
+    }
+
+    private func sidebarTitle(_ item: Section) -> String {
+        item == .overlay ? overlayPaneTitle ?? "" : item.title
+    }
+
+    private func sidebarSymbol(_ item: Section) -> String {
+        item == .overlay ? overlayPaneSymbol : item.symbol
     }
 
     private var benchShown: SettingsTabBench.Shown {
@@ -127,16 +149,16 @@ struct SettingsView: View {
 
     private var rows: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Section.allCases, id: \.self) { item in
+            ForEach(shownSections, id: \.self) { item in
                 let selected = section == item
                 Button {
                     select(item)
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: item.symbol)
+                        Image(systemName: sidebarSymbol(item))
                             .font(.system(size: 14))
                             .frame(width: 20)
-                        Text(item.title).font(.system(size: 14, weight: selected ? .medium : .regular))
+                        Text(sidebarTitle(item)).font(.system(size: 14, weight: selected ? .medium : .regular))
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
@@ -231,6 +253,7 @@ struct SettingsView: View {
                                                        }) }
         case .display: sectionCard { displayRows }
         case .integrations: sectionCard { integrationsRows }
+        case .overlay: sectionCard { overlayPaneRows }
         case .about: sectionCard { aboutRows }
         }
     }

@@ -17,11 +17,8 @@ extension SettingsView {
     /// Three pages because that is how the set actually divides: what you type in a terminal, what a
     /// running session shows you, and what Claude Code itself is taught. The rows that answer for the
     /// WHOLE set stay outside the pages (see `integrationsRows`).
-    ///
-    /// `overlay` is a page a private build fills (`overlayIntegrationsTitle`, OverlayApp.swift); it is
-    /// shown only while that title is non-nil, so the public pane never offers it.
     enum IntegrationsGroup: String, CaseIterable {
-        case commandLine, sessions, claudeCode, codexHarness, overlay
+        case commandLine, sessions, claudeCode, codexHarness
 
         var title: String {
             switch self {
@@ -32,20 +29,8 @@ extension SettingsView {
             // ever hold four copies of these two words.
             case .claudeCode: return "Claude Code"
             case .codexHarness: return L("Harness")
-            case .overlay: return ""   // named by the overlay (`integrationsGroupPicker`)
             }
         }
-    }
-
-    /// The pages that have something on them: the overlay page only while a private build names it.
-    private var shownIntegrationsGroups: [IntegrationsGroup] {
-        IntegrationsGroup.allCases.filter { $0 != .overlay || overlayIntegrationsTitle != nil }
-    }
-
-    /// The page in front, falling back to the first one when the selected page is not shown (the
-    /// overlay page withdrawn, or a capture launch naming it in a build that has none).
-    private var shownIntegrationsGroup: IntegrationsGroup {
-        shownIntegrationsGroups.contains(integrationsGroup) ? integrationsGroup : .commandLine
     }
 
     /// Not private: the pane switch that renders it (`SettingsView.paneContent`) is in the other
@@ -68,11 +53,8 @@ extension SettingsView {
             // putting either on a page would make it look like the page's own. The all-in-one row in
             // particular is this pane's at-a-glance "is everything on?" answer, which is exactly the
             // answer paging away the rows would otherwise cost.
-            // The cross-provider tools have their own reversible installation receipt, and the
-            // overlay page installs nothing.
-            if shownIntegrationsGroup != .codexHarness && shownIntegrationsGroup != .overlay {
-                allIntegrationsRow(integrations)
-            }
+            // The cross-provider tools have their own reversible installation receipt.
+            if integrationsGroup != .codexHarness { allIntegrationsRow(integrations) }
         }
         .disabled(BuildVariant.isUnshipped)
         rowDivider
@@ -111,10 +93,9 @@ extension SettingsView {
     /// each label alone in the middle of a wide slab and read as three buttons rather than one
     /// switch.
     private var integrationsGroupPicker: some View {
-        Picker("", selection: Binding(get: { shownIntegrationsGroup },
-                                      set: { integrationsGroup = $0 })) {
-            ForEach(shownIntegrationsGroups, id: \.self) { group in
-                Text(group == .overlay ? overlayIntegrationsTitle ?? "" : group.title).tag(group)
+        Picker("", selection: $integrationsGroup) {
+            ForEach(IntegrationsGroup.allCases, id: \.self) { group in
+                Text(group.title).tag(group)
             }
         }
         .pickerStyle(.segmented)
@@ -131,24 +112,20 @@ extension SettingsView {
     @ViewBuilder
     private func integrationsGroupPages(_ integrations: IntegrationsStore) -> some View {
         ZStack(alignment: .top) {
-            ForEach(shownIntegrationsGroups, id: \.self) { group in
-                let front = shownIntegrationsGroup == group
+            ForEach(IntegrationsGroup.allCases, id: \.self) { group in
                 VStack(alignment: .leading, spacing: 0) {
                     switch group {
                     case .commandLine: commandLineRows(integrations)
                     case .sessions: sessionRows(integrations)
                     case .claudeCode: claudeCodeRows(integrations)
-                    case .codexHarness: SettingsCodexHarness(active: front)
-                    case .overlay: overlayIntegrationsRows
+                    case .codexHarness: SettingsCodexHarness(active: integrationsGroup == group)
                     }
                 }
-                // The harness and overlay pages only write this app's own settings, so a build
-                // nobody installed may still use them.
-                .disabled(BuildVariant.isUnshipped && group != .codexHarness && group != .overlay)
-                .opacity(front ? 1 : 0)
-                .allowsHitTesting(front)
-                .accessibilityHidden(!front)
-                .frame(height: front ? nil : 0, alignment: .top)
+                .disabled(BuildVariant.isUnshipped && group != .codexHarness)
+                .opacity(integrationsGroup == group ? 1 : 0)
+                .allowsHitTesting(integrationsGroup == group)
+                .accessibilityHidden(integrationsGroup != group)
+                .frame(height: integrationsGroup == group ? nil : 0, alignment: .top)
                 .clipped()
             }
         }

@@ -42,7 +42,8 @@ private final class Run: NSObject {
     /// Every ordered pair once, as one walk: for a step k, 0 -> k -> 2k -> ... -> 0 (mod 5) is a
     /// cycle through every pair k apart, and 5 being prime makes the four cycles cover all 20.
     private static let walk: [SettingsView.Section] = {
-        let all = SettingsView.Section.allCases
+        // The public five: the overlay pane is absent from the public window, and five is prime.
+        let all = SettingsView.Section.allCases.filter { $0 != .overlay }
         return (1..<all.count).flatMap { k in (1...all.count).map { all[$0 * k % all.count] } }
     }()
     private static let dwell: TimeInterval = 0.6

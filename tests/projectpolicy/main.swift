@@ -405,6 +405,9 @@ runCodexModelSpellingChecks()
 // And one of those lines is not environment at all: the water line this pick can cross, said in the
 // only way that reaches a shim-steered launch (reservenoticechecks.swift).
 runReserveNoticeChecks()
+// A clear that reopens a window as another provider must not end the child for a launch that
+// would refuse (reopenparitychecks.swift).
+runReopenParityChecks()
 
 // MARK: - Writes refuse to run on a file they could not read
 

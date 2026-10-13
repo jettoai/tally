@@ -113,7 +113,8 @@ func landSessionInput(_ request: SessionInputRequest, sessionKey: String, state:
     // roster of none and a roster that cannot be believed are one answer, "nothing to say".
     let count = clearing ? agents(sessionKey).flatMap({ $0 > 0 ? $0 : nil }) : nil
     // A provider reopen outranks an account move: both end the child, and the reopen's own
-    // `tally <provider>` picks the account anyway.
+    // `tally <provider>` picks the account again. `reopen` only answers when that launch is
+    // predicted to run (`providerLaunchable`); otherwise the move or the typed line stands.
     if sessionClearMovesAccounts(request: request, state: state, draft: draft) {
         if let provider = reopen() { return .reopened(provider, agents: count) }
         if let target = boundary() { return .moved(target, agents: count) }

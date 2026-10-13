@@ -22,8 +22,9 @@ func startProviderID(declared: String?, installed: (String) -> Bool) -> String {
 /// The provider a `tally session clear` should reopen this window as, or nil to clear the way this
 /// provider always has. A Claude window keeps its own `/clear` while Claude is still the default; a
 /// Codex window has no clear of its own, so a declared default (Codex included) is its only way to a
-/// fresh window. Only a target that is installed and has an account is offered: the reopen is an
-/// exec, and an exec into nothing leaves the terminal with no session at all.
+/// fresh window. Only a target that is installed and that `providerLaunchable` says the launcher will
+/// run supervised is offered: the reopen is an exec AFTER the child is ended, and an exec into a
+/// refusal leaves the terminal with no session at all.
 func clearReopenProvider(current: String, declared: String?,
                          installed: (String) -> Bool, launchable: (String) -> Bool) -> String? {
     guard let declared else { return nil }
@@ -32,15 +33,38 @@ func clearReopenProvider(current: String, declared: String?,
     return declared
 }
 
-/// Whether the snapshot has an account `tally <id>` could launch on. No snapshot reads as no.
+/// Whether `tally <id> --new`, exec'd with this process's environment, launches an account under a
+/// supervisor. No snapshot reads as no.
 func providerLaunchable(_ id: String, cwd: String) -> Bool {
-    guard let snapshot = loadSnapshot().0 else { return false }
-    let model = effectivePolicy(launchPolicy(id), project: projectPolicy(id, cwd: cwd)).model
-    return best(providerID: id, in: snapshot, primaryModel: model) != nil
+    guard let provider = providers.first(where: { $0.id == id }) else { return false }
+    return reopenLaunchable(provider, in: loadSnapshot().0,
+                            policy: effectivePolicy(launchPolicy(id), project: projectPolicy(id, cwd: cwd)),
+                            environment: ProcessInfo.processInfo.environment,
+                            stdoutIsTTY: isatty(STDOUT_FILENO) == 1)
 }
 
-/// The live reading behind `clearReopenProvider`. The binary is checked here, BEFORE anything is
-/// killed, so a reopen that could not exec is never offered.
+/// `providerLaunchable` with its readings passed in. It asks the launcher's own decisions rather
+/// than a third copy of them: an exported config home that `runLaunch` honours (main.swift) is
+/// either refused under its reserve or run as a plain exec no later clear can reach, so it is a no
+/// either way; otherwise the answer is `steeredLaunch`, the prediction that already carries the pin,
+/// the pin's reserve and the reserves of the automatic pick (LaunchDir.swift).
+func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
+                      environment: [String: String], stdoutIsTTY: Bool,
+                      reserves: AccountReserves = accountReserves(),
+                      quarantined: Set<String>? = nil) -> Bool {
+    guard snapshot != nil else { return false }
+    if environment[provider.envKey] != nil,
+       !inheritedSessionEnvironment(providerID: provider.id, stdoutIsTTY: stdoutIsTTY,
+                                    environment: environment) {
+        return false
+    }
+    return steeredLaunch(provider, in: snapshot, policy: policy, reserves: reserves,
+                         quarantined: quarantined) != nil
+}
+
+/// The live reading behind `clearReopenProvider`. The binary and the launcher's decision are both
+/// checked here, BEFORE anything is killed. Still a prediction: the snapshot and the reserves are
+/// read again by the new process after the child's teardown, and can change in between.
 func clearReopenTarget(current: String, cwd: String) -> String? {
     guard selfUpdateBinary() != nil else { return nil }
     return clearReopenProvider(current: current, declared: projectDefaultProvider(cwd: cwd),

@@ -22,6 +22,7 @@ usage:
                             automatically, and does not enforce its instruction or bypass native
                             trust. Caller prompts and all other resume shapes are unchanged.
   tally resume [args…]      continue this directory's latest Claude session on the best account
+  tally start [args…]       launch this directory's default provider (tally project set --default)
   tally worktree            overview of the main repo and its worktrees, marking where you
                             are (same as `tally worktree tree`)
   tally worktree root       print the main repo's absolute path, one line for scripts

@@ -172,11 +172,16 @@ enum SessionInputOutcome: String {
     /// composer, so nothing was typed, not even Return. `detail` says whether the dialog was known
     /// to be open or could not be ruled out.
     case refusedDialog = "refused-dialog"
+    /// NOTHING WAS TYPED: a `tally session clear` landed in a project whose default provider is not
+    /// this window's (or on a Codex window, which has no clear of its own), so the supervisor ended
+    /// the child and replaced itself with a fresh `tally <provider>` (ProviderReopen.swift). Like
+    /// `movedAccount`, a delivery of the clear that was asked for.
+    case reopenedProvider = "reopened-provider"
 
     /// Whether this outcome means what the caller asked for happened. Two words rather than one
     /// since 2026-08-18: a line typed and sent, and a window closed by moving the session that was
     /// asked to close it.
-    var delivered: Bool { self == .submitted || self == .movedAccount }
+    var delivered: Bool { self == .submitted || self == .movedAccount || self == .reopenedProvider }
 }
 
 /// The supervisor's answer to one request.

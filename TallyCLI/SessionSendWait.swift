@@ -230,6 +230,7 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
         // \(sessionKey), and a caller told it was would go looking for the line in a conversation
         // that no longer exists. What it asked for - an empty window - is what it got.
         return "window closed by moving session \(sessionKey)\(detail)"
+    case .reopenedProvider: return "window closed by reopening session \(sessionKey)\(detail)"
     case nil: return "the supervisor answered \"\(result.outcome)\"\(detail)"
     }
 }

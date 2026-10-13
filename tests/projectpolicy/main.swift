@@ -490,5 +490,7 @@ check("a project whose every provider is empty produces no block",
 check("neither does a key nobody has written",
       statusProjectProfile(reporting, key: "/nowhere") == nil)
 
+runDefaultProviderChecks(repoKey: repoKey)
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

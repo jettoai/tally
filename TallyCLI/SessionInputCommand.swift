@@ -231,10 +231,8 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     case .session(let key):
         sessionKey = key
     case .monitoringOnly(let key):
-        let refusal = requestIntent == sessionClearIntent
-            ? sessionControlRefusal(pid: key, dir: supervisorStateDir)
-            : sessionSendRefusal(pid: key, dir: supervisorStateDir)
-        warn(refusal ?? "This Codex session cannot accept direct input. Nothing was queued.")
+        warn(sessionSendRefusal(pid: key, dir: supervisorStateDir)
+            ?? "This Codex session cannot accept direct input. Nothing was queued.")
         return 3
     case .refused(let why):
         warn(why)
@@ -258,14 +256,13 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
     // model` get. Judged only where the session named ITSELF (`adopted` returns nil when the
     // directory answered, or when --session named somebody else): the version stamped in this
     // environment describes this session's supervisor and says nothing about another one's.
-    let refusal = requestIntent == nil
-        ? sessionSendRefusal(pid: sessionKey, dir: supervisorStateDir)
-        : sessionControlRefusal(pid: sessionKey, dir: supervisorStateDir)
-    if let refusal {
+    // A clear rides the send's capability check: a Codex supervisor answers it by reopening the
+    // window as the project's default provider, or refuses it unread (B-1706, ProviderReopen.swift).
+    if let refusal = sessionSendRefusal(pid: sessionKey, dir: supervisorStateDir) {
         warn(refusal)
         return 3
     }
-    if SessionMonitoring.isMarked(pid: sessionKey, dir: supervisorStateDir),
+    if requestIntent != sessionClearIntent, SessionMonitoring.isMarked(pid: sessionKey, dir: supervisorStateDir),
        let problem = codexSessionInputProblem(intent.text) {
         warn(problem)
         return 3

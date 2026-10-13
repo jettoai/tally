@@ -156,6 +156,27 @@ func runCodexInputChecks() {
             && readSessionInputResult(sessionKey: "101", dir: queue)?.delivered == false
             && readSessionInputRequest(sessionKey: "101", dir: queue) == nil)
         injection = .done
+        // B-1706: a `tally session clear` with somewhere to reopen bypasses the slash rule and is
+        // answered by a reopen; without one, or as a plain send, `/clear` is refused as before.
+        func applyClear(intent: String?, target: String?) -> SessionInputAction {
+            epoch += 1
+            try? writeSessionInputRequest(SessionInputRequest(epoch: epoch, text: windowClearCommand, intent: intent),
+                                          sessionKey: "101", dir: queue)
+            return applyCodexSessionInput(&input, observer: observer, keyboard: keyboard, launchedAt: launch,
+                terminalReady: true, dir: queue, log: log, now: now, reopen: { target },
+                inject: { delivered.append($0); return .done }, confirm: { true })
+        }
+        let typedBefore = delivered.count
+        check("Codex clear with no reopen target is still refused",
+              applyClear(intent: sessionClearIntent, target: nil).reopenAs == nil
+              && readSessionInputResult(sessionKey: "101", dir: queue)?.outcome == "refused-unsafe-input")
+        check("Codex plain send of /clear is still refused even with a reopen target",
+              applyClear(intent: nil, target: "claude").reopenAs == nil
+              && readSessionInputResult(sessionKey: "101", dir: queue)?.outcome == "refused-unsafe-input")
+        check("Codex clear with a reopen target reopens without typing",
+              applyClear(intent: sessionClearIntent, target: "claude").reopenAs == "claude"
+              && readSessionInputResult(sessionKey: "101", dir: queue)?.outcome == "reopened-provider"
+              && delivered.count == typedBefore)
         var working = observer
         let activeID = UUID().uuidString
         let handle = try FileHandle(forWritingTo: transcript)

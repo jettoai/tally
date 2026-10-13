@@ -314,6 +314,7 @@ _tally() {
     "claude:launch Claude Code on the account with the most headroom"
     "codex:launch Codex on the account with the most headroom"
     "resume:continue this directory's latest Claude session on the best account"
+    "start:launch this directory's default provider"
     "worktree:the main repo and its worktrees, and the teardown of a merged one"
     "project:declare what this project launches, overriding the app defaults"
     "prespawn:run your own check before every supervised claude start or restart"

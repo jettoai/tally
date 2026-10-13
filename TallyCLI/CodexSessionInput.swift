@@ -24,11 +24,18 @@ func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSes
                            keyboard: KeyboardActivity, launchedAt: Date,
                            terminalReady: Bool, startupDraftSuspected: Bool = false, dir: URL = sessionInputDir,
                            log: URL = sessionInputLog, now: Date = Date(),
+                           reopen: () -> String? = { nil },
                            inject: (String) -> SessionInputInjection,
                            confirm: () -> Bool) -> SessionInputAction {
     let ready = observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true
     let suspected = startupDraftSuspected || codexInputDraftSuspected(lastInput: keyboard.lastStamp,
         userTurnAt: observer?.lastUserTurnAt, launchedAt: launchedAt)
+    // Asked once per tick, and only while a `tally session clear` is pending on a ready session, so
+    // the refusal below and the landing read one answer (a slash line let through by one reading
+    // and then typed by another would reach the composer).
+    let pending = ready && !suspected ? readSessionInputRequest(sessionKey: input.sessionKey, dir: dir) : nil
+    let reopenTarget = pending.map { $0.intent == sessionClearIntent && sessionInputClearsContext($0.text) } == true
+        ? reopen() : nil
     // Reuse the existing queue, expiry, keyboard gate, receipt and audit writer. Unknown and
     // permission-wait readings stay closed; no Claude-specific account or draft action runs.
     // A composer-only line needs nothing extra here: this relay only types once the observer says
@@ -39,13 +46,18 @@ func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSes
             && keyboard.idle(sessionInputKeyboardQuietSeconds, now: now),
         relaunchPlanned: false, draftSuspected: suspected, waitingOnPerson: false,
         stashComposer: false,
-        inputRefusal: { request in codexSessionInputProblem(request.text)
+        inputRefusal: { request in
+            // A `tally session clear` with somewhere to reopen is not typed at all, so the slash
+            // rule (which guards what reaches the composer) does not apply to it.
+            if request.intent == sessionClearIntent, sessionInputClearsContext(request.text),
+               reopenTarget != nil { return nil }
+            return codexSessionInputProblem(request.text)
             ?? (suspected ? "Cannot verify that the Codex composer has no unsent input. "
             + "Submit an actual prompt in that "
             + "Codex session, wait for its turn to finish, then retry." : nil) },
         composerOnlyDialog: false,
         confirmInput: confirm, dir: dir, log: log, now: now, agents: { _ in nil },
-        inject: { text, _ in inject(text) })
+        reopen: { reopenTarget }, inject: { text, _ in inject(text) })
 }
 
 /// A tty write is not a native prompt receipt. Bound the wait and never repeat the injection.

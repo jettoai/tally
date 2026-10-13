@@ -42,11 +42,15 @@ struct ProjectPolicyFile: Codable {
     var version: Int
     /// project key (an absolute path, see `projectPolicyKey`) → provider id → overrides.
     var projects: [String: [String: ProjectPolicy]]
+    /// project key → the provider new windows there open with (`tally start`, `tally session clear`),
+    /// written by `tally project set --default`. Absent is "no opinion": Claude, as before it existed.
+    var defaults: [String: String]
 
     init(version: Int = projectPolicyVersion,
-         projects: [String: [String: ProjectPolicy]] = [:]) {
+         projects: [String: [String: ProjectPolicy]] = [:], defaults: [String: String] = [:]) {
         self.version = version
         self.projects = projects
+        self.defaults = defaults
     }
 
     /// Decoded field by field rather than by the synthesized initializer, which requires every
@@ -57,6 +61,7 @@ struct ProjectPolicyFile: Codable {
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? projectPolicyVersion
         projects = try container.decodeIfPresent([String: [String: ProjectPolicy]].self,
                                                  forKey: .projects) ?? [:]
+        defaults = try container.decodeIfPresent([String: String].self, forKey: .defaults) ?? [:]
     }
 
     /// One project's overrides for one provider; an unknown project or provider is simply "none".
@@ -142,6 +147,26 @@ func saveProjectPolicies(_ file: ProjectPolicyFile, to url: URL = projectPolicie
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
     try encoder.encode(next).write(to: url, options: .atomic)
+}
+
+/// The provider new windows in this project open with, or nil when none was declared or the
+/// declared one is not a provider this build knows.
+func projectDefaultProvider(_ file: ProjectPolicyFile, key: String) -> String? {
+    guard let id = file.defaults[key], providers.contains(where: { $0.id == id }) else { return nil }
+    return id
+}
+
+func projectDefaultProvider(cwd: String = FileManager.default.currentDirectoryPath) -> String? {
+    projectDefaultProvider(loadProjectPolicies(), key: projectPolicyKey(cwd: cwd))
+}
+
+/// Drop this project's declared default: every provider's when `provider` is nil (a bare `clear`),
+/// otherwise only when it names that provider. True when something was removed.
+@discardableResult
+func clearProjectDefault(_ file: inout ProjectPolicyFile, key: String, provider: String?) -> Bool {
+    guard let current = file.defaults[key], provider == nil || provider == current else { return false }
+    file.defaults.removeValue(forKey: key)
+    return true
 }
 
 /// This directory's overrides for one provider, the one-line read every launch surface uses.
@@ -307,8 +332,9 @@ private func runProjectSet(args: [String]) -> Int32 {
     let model = optionValue(args, "--model")
     let effort = optionValue(args, "--effort")
     let account = optionValue(args, "--account")
-    guard model != nil || effort != nil || account != nil else {
-        warn("nothing to set - pass --model, --effort or --account")
+    let makeDefault = args.contains("--default")
+    guard model != nil || effort != nil || account != nil || makeDefault else {
+        warn("nothing to set - pass --model, --effort, --account or --default")
         return 2
     }
     // Checked before the file is even read, so a refused value cannot rewrite anything. The account
@@ -354,9 +380,16 @@ private func runProjectSet(args: [String]) -> Int32 {
             return 1
         }
     }
-    file.projects[key, default: [:]][providerID] = policy
+    // A bare `--default` writes no empty provider entry, only the default.
+    if !policy.isEmpty { file.projects[key, default: [:]][providerID] = policy }
+    if makeDefault { file.defaults[key] = providerID }
     guard writeProjectPolicies(file) else { return 1 }
-    warn("\(key): \(providerID) runs \(projectPolicySummary(policy, accountLabel: accountLabel))")
+    if !policy.isEmpty {
+        warn("\(key): \(providerID) runs \(projectPolicySummary(policy, accountLabel: accountLabel))")
+    }
+    if makeDefault {
+        warn("new windows here open with \(providerID) (tally start, tally session clear)")
+    }
     if let model = policy.model {
         warn("the account pick now scores this project on \(model) - a drained window for another " +
              "model no longer rules an account out")
@@ -369,7 +402,8 @@ private func runProjectShow(cwd: String = FileManager.default.currentDirectoryPa
     let key = projectPolicyKey(cwd: cwd)
     let file = loadProjectPolicies()
     let byProvider = file.declared(for: key)
-    guard !byProvider.isEmpty else {
+    let opens = projectDefaultProvider(file, key: key)
+    guard !byProvider.isEmpty || opens != nil else {
         warn("no launch profile for \(key) - set one with `tally project set --model opus`")
         return 0
     }
@@ -377,6 +411,7 @@ private func runProjectShow(cwd: String = FileManager.default.currentDirectoryPa
     if realpathString(cwd) != key {
         print("  (inherited here: this directory belongs to that repo)")
     }
+    if let opens { print("  opens with: \(opens)") }
     let (snapshot, _) = loadSnapshot()
     for provider in providers {
         guard let policy = byProvider[provider.id] else { continue }
@@ -419,13 +454,15 @@ private func runProjectClear(args: [String],
     let existing = file.declared(for: key)
     // A bare `clear` drops the whole project; `--provider` narrows it to that provider's half.
     let dropping = narrowed ? existing.keys.filter { $0 == providerID } : Array(existing.keys)
-    guard !dropping.isEmpty else {
+    let droppedDefault = clearProjectDefault(&file, key: key, provider: narrowed ? providerID : nil)
+    guard !dropping.isEmpty || droppedDefault else {
         warn("no \(narrowed ? "\(providerID) " : "")launch profile for \(key) - nothing to clear")
         return 0
     }
     for id in dropping { file.projects[key]?.removeValue(forKey: id) }
     guard writeProjectPolicies(file) else { return 1 }
-    warn("cleared \(dropping.sorted().joined(separator: ", ")) launch profile for \(key)")
+    if !dropping.isEmpty { warn("cleared \(dropping.sorted().joined(separator: ", ")) launch profile for \(key)") }
+    if droppedDefault { warn("cleared the default provider for \(key)") }
     return 0
 }
 
@@ -444,17 +481,18 @@ func runProject(args: [String]) -> Never {
     default:
         warn("""
         usage:
-          tally project set --model <model> [--effort <effort>] [--account <name>] [--provider claude|codex]
+          tally project set --model <model> [--effort <effort>] [--account <name>] [--provider claude|codex] [--default]
                                     declare what this project launches. Applies to the whole repo
                                     (worktrees included) and outranks the app's defaults, while a
                                     flag you type outranks it. A model here also steers the ACCOUNT
-                                    pick: a drained window for another model stops ruling one out
+                                    pick: a drained window for another model stops ruling one out.
+                                    --default: new windows here open with that provider (tally start)
           tally project show        this directory's profile and the app defaults it overrides
                                     (bare `tally project` is the same)
           tally project list        every project with a profile, one tab-separated line per
                                     provider, marking the one you are in
           tally project clear [--provider claude|codex]
-                                    drop this project's profile (or one provider's half of it)
+                                    drop this project's profile and default (or one provider's half)
         """)
         exit(2)
     }

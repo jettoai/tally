@@ -158,10 +158,10 @@ func runSessionClearChecks() {
                                        waitingOnPerson: false, dir: dir, log: log,
                                        now: t0.addingTimeInterval(offset),
                                        agents: { _ in agents },
-                                       clearBoundary: { boundary }) { text, _ in
+                                       clearBoundary: { boundary }, inject: { text, _ in
             typed.append(text)
             return .done
-        }
+        })
         return (action, typed)
     }
     let moved = tick(clearRequest(), key: "9410", agents: 2, boundary: healthy)

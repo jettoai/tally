@@ -21,6 +21,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/projectpolicy/main.swift tests/projectpolicy/shellsafetychecks.swift \
   tests/projectpolicy/matcherchecks.swift tests/projectpolicy/exportedhomechecks.swift \
   tests/projectpolicy/reservenoticechecks.swift tests/projectpolicy/deletedcwdchecks.swift \
+  tests/projectpolicy/defaultproviderchecks.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \

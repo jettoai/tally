@@ -408,6 +408,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             since: launchedAt, resumeID: resumeID,
             isForeign: { liveConversations(in: cwd, excluding: supervisorPID).contains($0) })
         var handoff = false
+        /// Set when a `tally session clear` chose to reopen this window as another provider.
+        var reopenAs: String?
         /// Whether the relaunch this child ends in had to DROP the resume: the conversation it was
         /// in is being written by somebody else, so carrying it would fork it (HandoffResume.swift).
         /// Per child like the flag above, and read by the three places that would otherwise attribute
@@ -1126,7 +1128,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                             countsFuse: true, fresh: true)
                     return preSpawnAdmits(move, provider: provider, from: account,
                                           hold: &preSpawnHold, pid: supervisorPID) ? target : nil
-                })
+                },
+                reopen: { clearReopenTarget(current: provider.id, cwd: cwd) })
+            // A reopen as the project's default provider ends this supervisor: the child goes now,
+            // the shared teardown below runs, and then this process execs `tally <provider>`.
+            if let next = action.reopenAs {
+                endChildTree(&child, sweepDetached: false)   // a clear keeps detached jobs
+                reopenAs = next
+                return .childReplaced
+            }
             // `action.repick` RATHER THAN `action.typed`, which is not a rename: the repick is a
             // relaunch, and a session that may be holding an unsent draft is not restarted away from
             // it - the rule `sessionClearMovesAccounts` states about the synchronous move, applied
@@ -1465,6 +1475,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         for event in sessionWaits.finish(now: Date(), reason: supervisorEndReason(status)) { appendSessionWaitEvent(event) }
         maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
         postSessionStateChanged(pid: supervisorPID)
+        if let reopenAs {
+            drainTerminalInput()   // what the dead child left queued is not the new window's
+            execProviderReopen(reopenAs)
+        }
         exit(supervisorExitCode(childStatus: status))
     }
 }

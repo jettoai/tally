@@ -44,6 +44,9 @@ struct SessionInputAction: Equatable {
     /// to be replaced" - which is what stops the knock beside it from typing into a child that is
     /// already being terminated (Supervisor.swift, where both are set together).
     var moveTo: Snapshot.Account?
+    /// The provider a `tally session clear` chose to reopen this window as instead of typing. The
+    /// loop ends the child and execs `tally <provider>` (ProviderReopen.swift).
+    var reopenAs: String?
 }
 
 /// What one landing tells the window repick to do, in the three answers it has.
@@ -142,6 +145,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                        log: URL = sessionInputLog, now: Date = Date(),
                        agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                        clearBoundary: () -> Snapshot.Account? = { nil },
+                       reopen: () -> String? = { nil },
                        inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
                            injectSessionInput($0, draft: $1)
                        }) -> SessionInputAction {
@@ -165,6 +169,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     /// The account a clear-boundary move chose instead of typing, on the one branch where that
     /// happened.
     var moveTo: Snapshot.Account?
+    var reopenAs: String?
     /// What this landing was allowed to do about a draft in that composer, and what it therefore has
     /// to say about it in the log. Decided before the landing rather than inside it, because the
     /// account question reads the same value (SessionInputLanding.swift).
@@ -210,7 +215,8 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         // performed here (SessionInputLanding.swift states what else that buys). It has two
         // endings and this switch is the whole of the difference between them here.
         let landing = landSessionInput(asked, sessionKey: pid, state: session, draft: draft,
-                                       agents: agents, boundary: clearBoundary, inject: inject)
+                                       agents: agents, boundary: clearBoundary, reopen: reopen,
+                                       inject: inject)
         // ONE READING OF WHAT IT COST, taken from the landing rather than re-derived per branch:
         // "a write the terminal refused ended nothing" is a rule, and a rule spelled once here and
         // again in a pattern below is two rules waiting to disagree.
@@ -264,6 +270,12 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
             outcome = .movedAccount
             detail = sessionClearMovedDetail(to: target, agents: killed)
             moveTo = target
+        case .reopened(let provider, _):
+            // Nothing typed, and the repick left alone for the reason `.moved` gives.
+            outcome = .reopenedProvider
+            detail = "reopened as \(provider) instead of typing"
+                + (killed.map { ", " + sessionInputAgentsNote($0) } ?? "")
+            reopenAs = provider
         }
     }
     // THE ANSWER FIRST, then the request file. The caller is polling for the answer, so writing it
@@ -331,5 +343,5 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                                                           failure: lostReceipt, now: now),
                                to: log)
     }
-    return SessionInputAction(typed: typed, repick: repick, moveTo: moveTo)
+    return SessionInputAction(typed: typed, repick: repick, moveTo: moveTo, reopenAs: reopenAs)
 }

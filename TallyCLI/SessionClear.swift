@@ -162,6 +162,10 @@ left yields, and the session is told its pin was cleared), when launches are set
 (Tally never picks an account for you then), and when it is waiting on a person (a prompt on screen
 is not something to restart away).
 
+When this project declares a default provider (`tally project set --provider <id> --default`) other
+than the session's own, the window is instead reopened as a fresh session of that provider. A Codex
+window, which has no clear of its own, is reopened as a fresh Codex session when Codex is the default.
+
 Use `tally session send "/clear"` for the plain act of typing those six characters, which is what an
 external caller usually wants: nothing about the account is decided there.
 

@@ -33,7 +33,8 @@ func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
 nonisolated(unsafe) private var codexSupervisorSignal: Int32 = 0
 
 /// A supervised Codex resident with an owned PTY for guarded direct input.
-/// No recovery policy runs here: the child exits once and its exit status is preserved.
+/// No recovery policy runs here: the child exits once and its exit status is preserved. The one
+/// exception is a `tally session clear` that reopens the window, which execs `tally <provider>`.
 func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [String]) -> Never {
     guard let home = account.launchHome else { exit(1) }
     let pid = String(getpid())
@@ -112,6 +113,12 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     // because this one has no self-update station: it never replaces its own process image.
     var appRelaunch = AppRelaunchState()
     var nextAppRelaunchTick = Date.distantPast
+    /// Set when a `tally session clear` chose to reopen this window as a provider (ProviderReopen.swift).
+    /// The child is sent TERM and the loop keeps pumping until it exits: a Codex child writes its
+    /// terminal restore on the way out, and a supervisor blocked in waitpid instead of reading the
+    /// PTY leaves it stuck exiting. KILL follows if it is still there after the grace.
+    var reopenAs: String?
+    var reopenKillAt: Date?
     while reaper.isRunning {
         if let terminal, !terminal.pump(timeout: 0.02) {
             if metadata.childStart == SessionMonitoring.generation(child) { kill(child, SIGHUP) }
@@ -119,6 +126,10 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
         }
         reaper.poll()
         if !reaper.isRunning { break }
+        if let killAt = reopenKillAt, Date() >= killAt {
+            if metadata.childStart == SessionMonitoring.generation(child) { kill(child, SIGKILL) }
+            reopenKillAt = nil
+        }
         if codexSupervisorSignal != 0 {
             if metadata.childStart == SessionMonitoring.generation(child) { kill(child, codexSupervisorSignal) }
             break
@@ -172,9 +183,10 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                 }
                 var submittedText: String?
                 var submittedAt = Date()
-                applyCodexSessionInput(&input, observer: observer, keyboard: keyboard,
+                let action = applyCodexSessionInput(&input, observer: observer, keyboard: keyboard,
                     launchedAt: launchedAt, terminalReady: metadata.inputTTY != nil && terminalReady,
                     startupDraftSuspected: initializationDraft?.suspected == true,
+                    reopen: { clearReopenTarget(current: "codex", cwd: identity.directory ?? cwd) },
                     inject: { text in
                         observer?.poll(home: home)
                         guard observer?.canAcceptInput == true,
@@ -208,6 +220,11 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                         }
                         return confirmed
                     })
+                if let next = action.reopenAs, metadata.childStart == SessionMonitoring.generation(child) {
+                    kill(child, SIGTERM)
+                    reopenAs = next
+                    reopenKillAt = Date().addingTimeInterval(handoffKillGrace)
+                }
             }
             identity.model = observer?.model ?? identity.model
             let state = observer?.state ?? .unknown
@@ -224,6 +241,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
     clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
     postSessionStateChanged(pid: pid)
+    if let reopenAs { execProviderReopen(reopenAs) }
     exit(supervisorExitCode(childStatus: status))
 }
 

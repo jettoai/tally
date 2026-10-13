@@ -29,6 +29,9 @@ enum SessionInputLanding: Equatable {
     /// Nothing was typed: the window is being closed by moving this session to that account, and
     /// the agents named went with the child that is about to be replaced.
     case moved(Snapshot.Account, agents: Int?)
+    /// Nothing was typed: the window is being closed by reopening it as this provider, the
+    /// project's declared default (ProviderReopen.swift).
+    case reopened(String, agents: Int?)
 
     /// The subagents this landing ended, when it ended any worth reporting. nil is "nothing to say",
     /// which covers all of its causes: none were running, this session's Claude Code does not
@@ -45,7 +48,7 @@ enum SessionInputLanding: Equatable {
         // third case, a Ctrl-Y refused after the Return, which was a delivery -
         // `SessionInputInjection`). A write that never got the Return out ended nothing.
         case .typed(let injection, let agents): return injection.sent ? agents : nil
-        case .moved(_, let agents): return agents
+        case .moved(_, let agents), .reopened(_, let agents): return agents
         }
     }
 }
@@ -102,15 +105,18 @@ func landSessionInput(_ request: SessionInputRequest, sessionKey: String, state:
                       draft: SessionInputDraftGuard,
                       agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                       boundary: () -> Snapshot.Account? = { nil },
+                      reopen: () -> String? = { nil },
                       inject: (String, SessionInputDraftGuard) -> SessionInputInjection)
     -> SessionInputLanding {
     let clearing = sessionInputClearsContext(request.text)
     // Read before either ending, and normalised here so both of them report it the same way: a
     // roster of none and a roster that cannot be believed are one answer, "nothing to say".
     let count = clearing ? agents(sessionKey).flatMap({ $0 > 0 ? $0 : nil }) : nil
-    if sessionClearMovesAccounts(request: request, state: state, draft: draft),
-       let target = boundary() {
-        return .moved(target, agents: count)
+    // A provider reopen outranks an account move: both end the child, and the reopen's own
+    // `tally <provider>` picks the account anyway.
+    if sessionClearMovesAccounts(request: request, state: state, draft: draft) {
+        if let provider = reopen() { return .reopened(provider, agents: count) }
+        if let target = boundary() { return .moved(target, agents: count) }
     }
     return .typed(inject(request.text, draft), agents: count)
 }

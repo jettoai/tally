@@ -571,7 +571,7 @@ func runDraftStashChecks() {
                                  keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
                                  waitingOnPerson: false,
                                  dir: dir, log: log, now: at(5), agents: { _ in nil },
-                                 clearBoundary: { target }) { _, _ in .done }
+                                 clearBoundary: { target }, inject: { _, _ in .done })
     check("a clear answered by moving the session says nothing about drafts, having typed nothing",
           move.moveTo == target && !written().contains("pid=9505 input=draft-"))
 

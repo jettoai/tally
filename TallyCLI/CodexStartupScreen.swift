@@ -16,7 +16,12 @@ let codexStartupStallThreshold: TimeInterval = 20
 
 struct CodexStartupScreen {
     static let promptMarkers = ["Ask Codex to do anything", "Ask a follow-up question", "for shortcuts", "context left"]
-    static let screenMarkers = ["Update available", "Sign in with ChatGPT"]
+    static let screenMarkers = ["Update available", "Sign in with ChatGPT", modelNoticeMarker]
+    /// The choice that keeps the model Tally launched with on codex's new-model announcement
+    /// ("Meet GPT-6 Sol", codex-cli 0.162.1 when launched with an older `-m`).
+    static let modelNoticeMarker = "Use existing model"
+    /// The screens a person elsewhere can answer (CodexStartupChoice.swift).
+    static let answerable = ["Update available", modelNoticeMarker]
 
     private(set) var rows: Int
     private(set) var cols: Int
@@ -130,7 +135,7 @@ struct CodexStartupScreen {
     /// A composer placeholder drawn after the last blocking screen (or with none drawn at all).
     var reachedPrompt: Bool {
         guard let prompt = hits(Self.promptMarkers).map(\.stamp).max() else { return false }
-        let named = hits(Self.screenMarkers).map(\.stamp).max() ?? 0
+        let named = namedHits.map(\.stamp).max() ?? 0
         return named <= prompt && (picker?.stamp ?? 0) <= prompt
     }
 
@@ -138,7 +143,7 @@ struct CodexStartupScreen {
     /// selected picker row, nil when nothing recognisable is up.
     var title: String? {
         let prompt = hits(Self.promptMarkers).map(\.stamp).max() ?? 0
-        let named = hits(Self.screenMarkers).filter { $0.stamp > prompt }
+        let named = namedHits.filter { $0.stamp > prompt }
         if let first = Self.screenMarkers.first(where: { marker in named.contains { $0.marker == marker } }) {
             return first
         }
@@ -146,13 +151,16 @@ struct CodexStartupScreen {
         return picker.label
     }
 
-    /// The update menu as drawn, one row per line, for a person deciding from elsewhere. Only the
-    /// update screen: a sign-in screen can carry a login link and code, so nothing else is published.
+    /// The update menu or the model announcement as drawn, one row per line, for a person deciding
+    /// from elsewhere. Only those two: a sign-in screen can carry a login link and code, so nothing
+    /// else is published. The update menu is published from its title down, the announcement (whose
+    /// heading names a model, so no fixed word marks it) from its first drawn row.
     var menuLines: [String]? {
-        let named = hits(Self.screenMarkers)
-        guard !unreliable, title == "Update available",
-              !named.contains(where: { $0.marker != "Update available" }),
-              let start = named.max(by: { $0.stamp < $1.stamp })?.row
+        let named = namedHits
+        guard !unreliable, let title, Self.answerable.contains(title),
+              !named.contains(where: { $0.marker != title }),
+              let start = title == Self.modelNoticeMarker ? lines.firstIndex(where: { !$0.isEmpty })
+                  : named.max(by: { $0.stamp < $1.stamp })?.row
         else { return nil }
         let rows = lines[start...].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         return Array(rows.prefix(12).map { String($0.prefix(120)) })
@@ -176,6 +184,42 @@ struct CodexStartupScreen {
             return body[body.index(after: dot)...].trimmingCharacters(in: .whitespaces) == "Skip"
         }
         return hasSkip ? [0x1B] : nil
+    }
+
+    /// "Use existing model" on codex's new-model announcement: the arrow keys that move the
+    /// selection from the selected row to that one, then Enter (the screen reads "enter/esc confirm",
+    /// so Esc would confirm whichever row is selected, the new model included). Nil unless exactly one
+    /// row is selected and exactly one row is labelled that, so an unread selection types nothing.
+    static func existingModelKeys(_ lines: [String]) -> [UInt8]? {
+        var selected: [Int] = [], target: [Int] = []
+        for line in lines {
+            guard let choice = numberedChoice(line) else { continue }
+            if choice.selected { selected.append(choice.number) }
+            if choice.label == modelNoticeMarker { target.append(choice.number) }
+        }
+        guard selected.count == 1, target.count == 1 else { return nil }
+        let move = target[0] - selected[0]
+        let arrow: [UInt8] = move > 0 ? [0x1B, 0x5B, 0x42] : [0x1B, 0x5B, 0x41]   // Down, Up
+        return Array(repeating: arrow, count: abs(move)).flatMap { $0 } + [0x0D]
+    }
+
+    /// `› 2. Label` or `2. Label` (a published or grid row): its number, label and selection.
+    private static func numberedChoice(_ line: String) -> (number: Int, label: String, selected: Bool)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let selected = trimmed.hasPrefix("› ")
+        let body = selected ? trimmed.dropFirst(2) : Substring(trimmed)
+        guard let dot = body.firstIndex(of: "."), let number = Int(body[..<dot]) else { return nil }
+        let label = body[body.index(after: dot)...].trimmingCharacters(in: .whitespaces)
+        return label.isEmpty ? nil : (number, label, selected)
+    }
+
+    /// Named screens that are pickers: a marker counts only with a numbered choice row on it or within
+    /// eight rows below. The update menu has its choices three rows under the title; the banner codex
+    /// draws above its composer after Skip ("✨ Update available! ...", tests/codex-supervisor
+    /// fixtures/update-banner-after-skip-0.162.1-120x40.bin) has none, so it is not the menu.
+    private var namedHits: [(stamp: Int, row: Int, marker: String)] {
+        let choiceRows = lines.indices.filter { Self.numberedChoice(lines[$0]) != nil }
+        return hits(Self.screenMarkers).filter { hit in choiceRows.contains { $0 >= hit.row && $0 <= hit.row + 8 } }
     }
 
     /// Every visible occurrence of `markers`, stamped with the newest cell it covers: a word whose

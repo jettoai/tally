@@ -282,7 +282,9 @@ func handleStartupChoice(pid: String, record: CodexStartupScreenRecord?, relay: 
     guard let request = try? startupChoiceDecoder().decode(StartupChoiceRequest.self, from: data) else { return nil }
     var decision = decideStartupChoice(request, record: record, humanInputAt: relay?.lastHumanInputAt, now: now)
     if let keys = decision.keys {
-        if let relay, let childStart, relay.sendKeys(keys, child: child, startedAt: childStart) { sent() } else {
+        if let relay, let childStart, relay.sendKeys(keys, child: child, startedAt: childStart) {
+            if record?.title == "Update available" { sent() }   // the announcement's answer updates nothing
+        } else {
             decision.result = "write-failed"
         }
     }

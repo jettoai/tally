@@ -83,4 +83,91 @@ func runCodexStartupChoiceChecks() throws {
     let encoded = try startupChoiceEncoder().encode(request)
     check("D2 a request reads back equal through the shared coder pair",
           (try? startupChoiceDecoder().decode(StartupChoiceRequest.self, from: encoded)) == request)
+
+    try runCodexModelNoticeChecks(fixtures: fixtures)
 }
+
+/// B-1736 package 4: the new-model announcement ("Meet GPT-6 Sol") gets a one-step answer that keeps
+/// the launched model, and the update banner codex draws above its composer after Skip is not the menu.
+/// Bytes recorded from real codex-cli 0.162.1 windows (tmux, `-m gpt-5.6-sol`, a fresh home).
+func runCodexModelNoticeChecks(fixtures: URL) throws {
+    func replay(_ name: String, rows: Int, cols: Int) throws -> CodexStartupScreen {
+        var screen = CodexStartupScreen(rows: rows, cols: cols)
+        screen.observe(Array(try Data(contentsOf: fixtures.appendingPathComponent(name))))
+        return screen
+    }
+    let down: [UInt8] = [0x1B, 0x5B, 0x42], up: [UInt8] = [0x1B, 0x5B, 0x41], enter: [UInt8] = [0x0D]
+    let launched = start.addingTimeInterval(-30)
+    for (name, rows, cols) in [("model-notice-0.162.1-120x40.bin", 40, 120), ("model-notice-0.162.1-80x24.bin", 24, 80),
+                               ("update-then-model-notice-0.162.1-120x40.bin", 40, 120)] {
+        let screen = try replay(name, rows: rows, cols: cols)
+        let lines = screen.menuLines ?? []
+        check("M1 \(name) reads as the announcement, not the prompt",
+              screen.title == CodexStartupScreen.modelNoticeMarker && !screen.reachedPrompt)
+        check("M1 \(name) publishes its rows from the heading, the first row selected",
+              lines.first == "Meet GPT-6 Sol" && lines.contains("› 1. Try new model") && lines.contains("2. Use existing model"))
+        check("M2 \(name): one Down from the selected first row, then Enter",
+              CodexStartupScreen.existingModelKeys(lines) == down + enter)
+        let record = codexStartupScreenRecord(screen, stall: codexStartupStall(screen: screen, launchedAt: launched,
+                                                                               bindingLanded: false, now: start))
+        let id = record?.screenID ?? ""
+        let sent = decideStartupChoice(StartupChoiceRequest(screenID: id, nonce: "m", at: start), record: record,
+                                       humanInputAt: nil, now: start.addingTimeInterval(1))
+        check("M3 \(name): status carries the title and an id, and the request types Down Enter",
+              record?.title == CodexStartupScreen.modelNoticeMarker && id.hasPrefix("scr_")
+                  && sent.result == "sent" && sent.keys == down + enter)
+        let stale = decideStartupChoice(StartupChoiceRequest(screenID: "scr_0000000000000000", nonce: "m", at: start),
+                                        record: record, humanInputAt: nil, now: start.addingTimeInterval(1))
+        check("M3 \(name): another drawing's id is refused and types nothing", stale.result == "stale-screen" && stale.keys == nil)
+    }
+    check("M4 already on Use existing model: Enter alone",
+          CodexStartupScreen.existingModelKeys(["1. Try new model", "› 2. Use existing model"]) == enter)
+    check("M4 the selection below it: Up, then Enter",
+          CodexStartupScreen.existingModelKeys(["1. Use existing model", "2. Try new model", "› 3. Something else"]) == up + up + enter)
+    check("M4 no selected row types nothing",
+          CodexStartupScreen.existingModelKeys(["1. Try new model", "2. Use existing model"]) == nil)
+    check("M4 no Use existing model row types nothing",
+          CodexStartupScreen.existingModelKeys(["› 1. Try new model", "2. Keep the old one"]) == nil)
+    var unreliable = try replay("model-notice-0.162.1-120x40.bin", rows: 40, cols: 120)
+    unreliable.observe(Array("\u{1B}[5Z".utf8))
+    check("M5 an unreliable grid publishes no announcement rows", unreliable.menuLines == nil)
+
+    // rw2B: Skip answered (Esc), codex reached its composer and drew "✨ Update available!" above it.
+    let banner = try replay("update-banner-after-skip-0.162.1-120x40.bin", rows: 40, cols: 120)
+    check("B1 the update banner above the composer is the prompt, not the menu",
+          banner.reachedPrompt && banner.title == nil && banner.menuLines == nil)
+    check("B1 so nothing stands in front of the prompt and status publishes no screen",
+          codexStartupStall(screen: banner, launchedAt: launched, bindingLanded: false, now: start) == nil)
+    var shaped = CodexStartupScreen(rows: 24, cols: 80)
+    shaped.observe(Array("\u{1B}[20;1H› Ask Codex to do anything\u{1B}[2;3HUpdate available! 0.1 -> 0.2".utf8))
+    check("B2 a banner drawn after the composer, with no numbered choice under it, is not the menu",
+          shaped.title == nil && shaped.reachedPrompt)
+
+    // One wait per screen: the announcement after the update menu is a new request with its own key.
+    let identity = SessionWaitIdentity(key: "codex:4242:1758575401000000", supervisorPid: 4242,
+        supervisorStartedAt: 1758575401000000, childPid: 4243, transcriptSessionId: nil,
+        launchNonce: "fresh", account: "codex:.codex2", directory: nil, project: nil, worktree: nil)
+    var tracker = CodexWaitTracker(identity: identity)
+    func tick(_ title: String?, at: TimeInterval) -> [SessionWaitEvent] {
+        tracker.reconcile(observer: nil, directory: nil, project: nil, worktree: nil,
+                          startupScreen: title.map { (launched, $0) }, now: start.addingTimeInterval(at))
+    }
+    let first = tick("Update available", at: 21).filter { $0.kind == "wait.opened" }
+    _ = tick(nil, at: 25)
+    let second = tick(CodexStartupScreen.modelNoticeMarker, at: 27).filter { $0.kind == "wait.opened" }
+    check("W1 the announcement's wait.opened carries another request id and idempotency key than the menu's",
+          first.count == 1 && second.count == 1 && first[0].idempotencyKey != second[0].idempotencyKey
+              && first[0].request?.id != second[0].request?.id)
+
+    // After the keys: what one read of the session state means (#442 and the "reached its prompt" wording).
+    let next = CodexStartupScreenRecord(title: CodexStartupScreen.modelNoticeMarker, lines: nil, screenID: "scr_1", since: start)
+    check("F1 the state file gone after the keys is a session that ended, not a reached prompt",
+          startupAnswerOutcome(stateFound: false, screen: nil, answered: "Update available") == .sessionEnded)
+    check("F1 a live session with no screen reached its prompt",
+          startupAnswerOutcome(stateFound: true, screen: nil, answered: "Update available") == .prompt)
+    check("F1 the announcement after Skip is the next screen, named",
+          startupAnswerOutcome(stateFound: true, screen: next, answered: "Update available") == .next(next))
+    check("F1 the answered screen still up is still up",
+          startupAnswerOutcome(stateFound: true, screen: next, answered: CodexStartupScreen.modelNoticeMarker) == .stillUp)
+}
+

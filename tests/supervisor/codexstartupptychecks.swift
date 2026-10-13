@@ -55,6 +55,9 @@ func runCodexStartupPTYFixture() -> Never {
     guard ended == child else { stop(17) }
     terminal.drainOutput()
     terminal.close()
+    // Exit only once the driver has read every byte: bytes still queued on a pty when its last
+    // writer exits can be dropped, which lost the BYTES or RESULT line under load.
+    tcdrain(STDOUT_FILENO)
     exit(supervisorExitCode(childStatus: status))
 }
 
@@ -77,5 +80,6 @@ func runCodexStartupPTYReader() -> Never {
     }
     print("\r\nBYTES \(Data(bytes).base64EncodedString())\r")
     fflush(stdout)
+    tcdrain(STDOUT_FILENO)   // the relay reads it before this pty closes (see the fixture above)
     exit(0)
 }

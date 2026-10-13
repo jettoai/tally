@@ -72,6 +72,15 @@ struct CodexWaitTracker {
                                                at: screen.since, type: nil, sessionID: nil),
                             waiting: true, question: nil, questionSince: nil, quiet: false,
                             wait: nil, permissionTool: nil, codexStartupScreen: true)
+                .map { request in
+                    // One request per screen: every screen of one launch shares `since` (the launch),
+                    // so without the title the announcement after the update menu reused the menu's
+                    // id and idempotency key, and a consumer deduplicating by key dropped it.
+                    var request = request
+                    request.id = sessionWaitRequestID(sessionKey: identity.key, kind: request.kind,
+                                                      noticeType: screen.title, since: screen.since)
+                    return request
+                }
         }
         var resolution: SessionWaitResolution?
         if let standing = open, current == nil {

@@ -7,11 +7,13 @@ import Foundation
 let sessionSkipUpdateUsage = """
 tally session skip-update --session <pid> --screen <id>
 
-Answer Skip on the update menu a supervised Codex window is stuck on before its prompt. <id> is
-`startupScreen.screenID` from `tally status --json`; a menu drawn since then is refused, never
-guessed. Only that screen and only Skip; Tally then updates Codex in the background.
+Answer the startup screen a supervised Codex window is stuck on before its prompt: Skip on the
+update menu (Tally then updates Codex in the background), or "Use existing model" on the new-model
+announcement (the model Tally launched with stays). <id> is `startupScreen.screenID` from
+`tally status --json`; a screen drawn since then is refused, never guessed.
 
-Exit codes: 0 the window reached its prompt; 2 usage; 3 refused or unconfirmed (the reason is printed).
+Exit codes: 0 the screen was answered (the prompt, or the next screen and its id, is printed);
+2 usage; 3 refused or unconfirmed (the reason is printed).
 """
 
 func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int32 {
@@ -38,10 +40,11 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
         appendSessionInputLine("\(ISO8601DateFormatter().string(from: Date())) pid=\(pid) "
             + "input=startup-skip result=\(result) screen=\(screen)\n", to: sessionInputLog)
     }
-    guard let shown = readSessionState(pid: pid, dir: dir)?.startupScreen?.screenID else {
-        warn("that window is not on Codex's update menu")
+    guard let shownScreen = readSessionState(pid: pid, dir: dir)?.startupScreen, let shown = shownScreen.screenID else {
+        warn("that window is not on a Codex startup screen Tally can answer")
         return 3
     }
+    let answer = shownScreen.title == CodexStartupScreen.modelNoticeMarker ? CodexStartupScreen.modelNoticeMarker : "Skip"
     guard shown == screen else {
         warn("the menu changed since it was shown; reload and press again")
         return 3
@@ -55,7 +58,7 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
         return 3
     }
     log("requested")
-    warn("asked the supervisor (pid \(pid)) to choose Skip")
+    warn("asked the supervisor (pid \(pid)) to choose \(answer)")
     var receipt: StartupChoiceReceipt?
     for _ in 0..<50 where receipt == nil {
         usleep(100_000)
@@ -76,16 +79,38 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
         return 3
     }
     warn("keys sent; waiting for Codex's prompt")
-    for _ in 0..<100 {
-        if readSessionState(pid: pid, dir: dir)?.startupScreen == nil {
-            log("reached-prompt")
-            print("skipped: Codex reached its prompt")
+    // What follows the answered screen is only reported once it has held for 2.5s: codex can pass
+    // through a blank frame or its composer between the update menu and the announcement.
+    var settling: (followUp: StartupAnswerOutcome, since: Date)?
+    for _ in 0..<150 {
+        let state = readSessionState(pid: pid, dir: dir)
+        let followUp = startupAnswerOutcome(stateFound: state != nil, screen: state?.startupScreen,
+                                             answered: shownScreen.title)
+        switch followUp {
+        case .sessionEnded:
+            log("session-ended")
+            warn("keys sent but the session ended before Codex reached its prompt")
+            return 3
+        case .stillUp:
+            settling = nil
+        case .prompt, .next:
+            if settling?.followUp != followUp { settling = (followUp, Date()) }
+        }
+        if let settling, Date().timeIntervalSince(settling.since) >= 2.5 {
+            guard case .next(let next) = followUp else {
+                log("reached-prompt")
+                print("answered: Codex reached its prompt")
+                return 0
+            }
+            log("next-screen")
+            let id = next.screenID.map { "; answer it with: tally session skip-update --session \(pid) --screen \($0)" } ?? ""
+            print("answered: Codex now shows \"\(next.title ?? "an unrecognized screen")\"\(id)")
             return 0
         }
         usleep(100_000)
     }
     log("still-up")
-    warn("keys sent but the menu is still up")
+    warn("keys sent but the screen is still up")
     return 3
 }
 

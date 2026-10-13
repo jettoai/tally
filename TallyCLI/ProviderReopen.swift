@@ -33,8 +33,8 @@ func clearReopenProvider(current: String, declared: String?,
     return declared
 }
 
-/// Whether `tally <id> --new`, exec'd with this process's environment, launches an account under a
-/// supervisor. No snapshot reads as no.
+/// Whether `tally <id> --new`, exec'd with this process's environment, launches under a supervisor
+/// or the Codex monitor.
 func providerLaunchable(_ id: String, cwd: String) -> Bool {
     guard let provider = providers.first(where: { $0.id == id }) else { return false }
     return reopenLaunchable(provider, in: loadSnapshot().0,
@@ -43,32 +43,30 @@ func providerLaunchable(_ id: String, cwd: String) -> Bool {
                             stdoutIsTTY: isatty(STDOUT_FILENO) == 1)
 }
 
-/// `providerLaunchable` with its readings passed in. It asks the launcher's own decisions rather
-/// than a third copy of them: an exported config home that `runLaunch` honours (main.swift) is
-/// either refused under its reserve or run as a plain exec no later clear can reach, so it is a no
-/// either way, as is a pin resolved only through the policy's denormalized home; otherwise the
-/// answer is `steeredLaunch`, the prediction that already carries the pin,
-/// the pin's reserve and the reserves of the automatic pick (LaunchDir.swift).
+/// `providerLaunchable` with its readings passed in. It is the launcher's own decision
+/// (`resolveLaunch`, LaunchDecision.swift) for `tally <id> --new` with these readings, so it cannot
+/// drift from what the exec it predicts will do: yes exactly when that launch is neither refused nor
+/// left unsupervised (an opt-out, Claude on an exported or missing home).
+///
+/// `stdoutIsTTY` is the caller's terminal, read only for whether an exported home is a leak from
+/// another session. The reopen itself execs in the supervisor's own terminal, so it is never a
+/// one-shot run, whoever asks (`tally status --json` is usually read through a pipe).
 func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                       environment: [String: String], stdoutIsTTY: Bool,
                       reserves: AccountReserves = accountReserves(),
                       quarantined: Set<String>? = nil) -> Bool {
-    guard let snapshot else { return false }
-    if environment[provider.envKey] != nil,
-       !inheritedSessionEnvironment(providerID: provider.id, stdoutIsTTY: stdoutIsTTY,
-                                    environment: environment) {
-        return false
-    }
-    // A pin with no launchable row of its own that `pinnedLaunchHome` still resolves (the home the
-    // app denormalized into the policy) is exec'd plain by `runLaunch`, with no supervisor. The
-    // shim's `steeredLaunch` launches it too, so it is excluded here, not there.
-    if policy.mode == "manual",
-       !snapshot.accounts.contains(where: { $0.id == policy.pinnedAccountID && $0.launchHome != nil }),
-       pinnedLaunchHome(snapshot, policy: policy) != nil {
-        return false
-    }
-    return steeredLaunch(provider, in: snapshot, policy: policy, reserves: reserves,
-                         quarantined: quarantined) != nil
+    var intent = launchIntent(provider, args: ["--new"], accountFlag: nil, stdoutIsTTY: stdoutIsTTY,
+                              environment: environment)
+    intent.oneShot = false
+    let launched = applyLaunchDefaults(removingOption(intent.passthrough, "--new"), policy: policy,
+                                       providerID: provider.id)
+    let model = launchPrimaryModel(launched, providerID: provider.id) ?? policy.model
+    let decision = resolveLaunch(provider, intent: intent, readings: LaunchReadings(
+        snapshot: snapshot, policy: policy, pinnedBy: "pinned", primaryModel: model,
+        reserves: reserves, quarantined: quarantined ?? quarantinedAccounts(forPrimary: model),
+        clearance: false, now: Date()))
+    if case .none = decision.supervision { return false }
+    return decision.refusal == nil
 }
 
 /// The live reading behind `clearReopenProvider`. The binary and the launcher's decision are both

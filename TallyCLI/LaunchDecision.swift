@@ -182,8 +182,7 @@ struct LaunchDecision: Equatable {
         case optedOut
         /// Claude on `--account` or an exported home: nowhere else to move a capped session to.
         case handPinned
-        /// A home the snapshot has no row for (a pin missing from it, a bare launch, and for now
-        /// a Codex exported home).
+        /// Claude on a home the snapshot has no row for (a pin missing from it, a bare launch).
         case noAccountRow
     }
     /// The environment the child gets: this process's own (`env: nil`), or one set for the home.
@@ -357,16 +356,17 @@ func resolveLaunch(_ provider: Provider, intent: LaunchIntent,
 
 /// Supervision by route. A one-shot run never gets one; an opt-out never does. Claude's handoff
 /// supervisor needs a snapshot account it may move the session OFF, so a hand-pinned home and a
-/// home with no row stay plain execs. Codex's monitor never moves the window, but today it still
-/// runs only on a snapshot account (B-1736 family, the next change).
+/// home with no row stay plain execs. Codex's monitor never moves the window off its home, so it
+/// runs on every route: an exported home, a pin missing from the snapshot and a bare launch are
+/// windows `tally session` still has to reach (B-1736).
 private func supervision(_ provider: Provider, intent: LaunchIntent,
                          route: LaunchDecision.Route) -> LaunchDecision.Supervision {
     if intent.oneShot { return .none(.oneShot) }
     if !intent.autoHandoff { return .none(.optedOut) }
+    if provider.id == "codex" { return .monitor }
     switch route {
-    case .pin, .pick: return provider.id == "codex" ? .monitor : .handoff
-    case .accountFlag: return provider.id == "codex" ? .monitor : .none(.handPinned)
-    case .exportedHome: return provider.id == "codex" ? .none(.noAccountRow) : .none(.handPinned)
+    case .pin, .pick: return .handoff
+    case .accountFlag, .exportedHome: return .none(.handPinned)
     case .pinHome, .bare: return .none(.noAccountRow)
     }
 }

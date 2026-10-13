@@ -8,7 +8,8 @@ import Foundation
 // order the launcher takes them, and calls none of the code under test: an exported home (unless
 // `--account`), then `--account`, then the manual pin (row, then the denormalized home), then no
 // snapshot, then the headroom pick, a reserve refusing every named or automatic launch unless
-// `--spend-reserve`, and supervision by route. Every cell is listed, none sampled.
+// `--spend-reserve`, and supervision by route (Codex's monitor on every route, B-1736). Every cell
+// is listed, none sampled.
 //
 // Fixture per provider: three accounts (work1, work2, solo) whose windows are set by the snapshot
 // dimension (under a reserve, work1 carries the one reserve and the others are spent); a signed-out
@@ -82,9 +83,8 @@ func runResolveLaunchChecks() {
             if optedOut { return .none(.optedOut) }
             switch route {
             case .pin, .pick: return claude ? .handoff : .monitor
-            case .accountFlag: return claude ? .none(.handPinned) : .monitor
-            case .exportedHome: return claude ? .none(.handPinned) : .none(.noAccountRow)
-            case .pinHome, .bare: return .none(.noAccountRow)
+            case .accountFlag, .exportedHome: return claude ? .none(.handPinned) : .monitor
+            case .pinHome, .bare: return claude ? .none(.noAccountRow) : .monitor
             }
         }
         func launched(_ route: LaunchDecision.Route, _ at: String, _ env: LaunchDecision.ChildEnv) -> Expect {

@@ -59,7 +59,8 @@ class MigrationChecks(Fixture):
         self.reload_manifest()
         self.assertEqual(self.manifest["selectedHookIDs"], [self.keep])
         self.assertEqual(self.bridge(index=1)["hookSpecificOutput"]["permissionDecisionReason"], "retained guard")
-        self.bridge(index=0, code=2)
+        # A session that loaded hooks before the migration still calls the dropped entry.
+        self.assertIn("deselected", self.bridge(index=0)["systemMessage"])
         before_repeat = self.snapshot()
         self.assertEqual(self.harness("migrate", "--drop-hook", self.drop, "--drop-skill", "one", "--apply")["state"], "unchanged")
         self.assertEqual(self.snapshot(), before_repeat)

@@ -73,6 +73,33 @@ class BridgeChecks(Fixture):
         event["hook_event_name"] = "Stop"
         self.bridge(event, code=2)
 
+    def test_deselected_entry_abstains_with_user_visible_message(self):
+        # A running Codex session keeps calling an entry that migrate deselected after it started.
+        for name in ("PreToolUse", "PostToolUse", "Stop", "UserPromptSubmit", "SubagentStop"):
+            with self.subTest(event=name):
+                self.hook_source({"decision": "block", "reason": "gate"}, event=name)
+                self.install()
+                entry = self.manifest["hooks"][0]["id"]
+                migrated = self.harness("migrate", "--drop-hook", entry, "--apply")
+                self.assertIn("Restart them", migrated["notice"])
+                event = {"hook_event_name": name, "cwd": str(self.project), "tool_name": "Bash", "tool_input": {"command": "true"}}
+                result = self.bridge(event)
+                self.assertEqual(list(result), ["systemMessage"])
+                self.assertIn("deselected", result["systemMessage"])
+                mismatched = "PostToolUse" if name == "PreToolUse" else "PreToolUse"
+                self.assertIn("does not match", self.bridge(dict(event, hook_event_name=mismatched),
+                                                             code=1 if mismatched == "PostToolUse" else 2))
+                self.assertIn("Restart them", self.harness("remove")["notice"])
+
+    def test_unknown_entry_still_fails_closed(self):
+        self.hook_source()
+        self.install()
+        for name, code in (("PreToolUse", 2), ("Stop", 2), ("UserPromptSubmit", 2), ("SubagentStop", 2), ("PostToolUse", 1)):
+            with self.subTest(event=name):
+                error = self.run_cli("codex-hook", "--manifest", self.manifest_path, "--entry", "0" * 64,
+                                     input={"hook_event_name": name, "cwd": str(self.project)}, code=code)
+                self.assertIn("does not match", error)
+
     def test_reordered_definition_still_runs(self):
         self.hook_source({"decision": "block", "reason": "kept"})
         self.install()

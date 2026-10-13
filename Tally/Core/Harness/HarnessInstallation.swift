@@ -180,9 +180,11 @@ enum HarnessInstallation {
             let retired = location.directory + "/removed-" + UUID().uuidString + ".json"
             try HarnessIO.replace(retired, expected: nil, with: HarnessIO.encode(manifest))
             try HarnessIO.replace(location.manifestPath, expected: HarnessIO.data(location.manifestPath), with: nil)
-            return ["state": "removed", "receipt": retired]
+            return ["state": "removed", "receipt": retired, "notice": runningSessionsNotice]
         }
     }
+
+    static let runningSessionsNotice = "Codex sessions that are already running keep the hooks they loaded at startup. Restart them to apply this change."
 
     private static func removeFile(_ file: HarnessFileReceipt, manifest: HarnessManifest) throws {
         try HarnessIO.rejectSymlink(file.path)

@@ -184,6 +184,7 @@ enum HarnessMigration {
         }
         report["state"] = "migrated"
         report["backup"] = backup
+        report["notice"] = HarnessInstallation.runningSessionsNotice
         report["remainingDrift"] = try HarnessObservation.changes(manifest)
         return report
     }

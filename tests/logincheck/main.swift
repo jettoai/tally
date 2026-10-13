@@ -911,7 +911,7 @@ expect(storeSource.contains("landings.land([accountID])")
        "both witnesses of a landing retire the rounds that predate them: the CLI that reported the "
            + "renewal, and discovery finding the account live again")
 expect(usageSource.contains("queuedUserInitiated = queuedUserInitiated || userInitiated")
-        && usageSource.contains("Task { await refresh(userInitiated: inherited) }"),
+        && usageSource.contains("Task { await refresh(userInitiated: inherited, trigger: .queued) }"),
        "a refresh coalesced into one already running keeps the reason it was asked for, or the "
            + "renewal's forced probe is lost with it")
 expect(storeSource.contains("(output?.stdout ?? \"\") + \"\\n\" + (output?.stderr ?? \"\")"),

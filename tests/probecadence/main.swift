@@ -173,13 +173,90 @@ check("A12c other providers still fetch every account at once",
 // MARK: - Store wiring (read as text)
 
 let store = (try? String(contentsOfFile: "Tally/Stores/UsageStore.swift", encoding: .utf8)) ?? ""
-check("A12d the store routes every provider's round through the cadence, Claude serially",
-      store.contains("ProbeCadence.fetchRound(provider, active: active, previous: accounts,")
+check("A12d the store routes every provider's round through the cadence at once, Claude serially",
+      store.contains("ProbeCadence.fetchRounds(rounds, previous: accounts,")
           && store.contains("serial: provider.id == ClaudeAccounts.providerID")
-          && !store.contains("group.addTask"))
+          && !store.contains("group.addTask") && !store.contains("ProbeCadence.fetchRound("))
 let launchLoop = store.components(separatedBy: "for account in active {").dropFirst().first ?? ""
 check("A13 every enabled account still reaches the launchable homes, due or not",
       launchLoop.prefix(400).contains("launchHomes[account.id] = home"))
+
+
+// MARK: - Rows land as their probes return (B-1745)
+
+func labeled(_ id: String, _ provider: String, _ label: String, used: Double) -> AccountUsage {
+    var usage = row(id, readAgo: 0)
+    usage.providerID = provider; usage.accountLabel = label; usage.metrics[0].usedPercent = used
+    return usage
+}
+let shown = [labeled("c1", "claude", "A", used: 10), labeled("c2", "claude", "B", used: 20),
+             labeled("x1", "codex", "A", used: 30)]
+let swapped = ProbeCadence.landing(labeled("c2", "claude", "B", used: 77), into: shown, fact: nil, now: now)
+check("A16 a landed row replaces its own row and leaves every other row as it was",
+      swapped.map(\.id) == ["c1", "c2", "x1"] && swapped[1].metrics[0].usedPercent == 77
+          && swapped[0] == shown[0] && swapped[2] == shown[2])
+let inserted = ProbeCadence.landing(labeled("c0", "claude", "0", used: 5), into: shown, fact: nil, now: now)
+check("A16 a row not on screen yet is inserted in the panel's order",
+      inserted.map(\.id) == ["c0", "c1", "c2", "x1"])
+
+/// Records when each fetch starts and ends and when each row reaches the callback.
+actor Timeline {
+    var events: [String] = []
+    var inFlight: [String: Int] = [:], peak: [String: Int] = [:]
+    func begin(_ provider: String) {
+        inFlight[provider, default: 0] += 1; peak[provider] = max(peak[provider] ?? 0, inFlight[provider]!)
+    }
+    func end(_ provider: String, _ id: String) { inFlight[provider]! -= 1; events.append("end \(id)") }
+    func landed(_ id: String) { events.append("land \(id)") }
+}
+struct TimedProvider: UsageProvider {
+    let id: String, displayName = "Timed"
+    let delay: UInt64
+    let timeline: Timeline
+    func discoverAccounts() -> [ProviderAccount] { [] }
+    func fetchUsage(for account: ProviderAccount, userInitiated: Bool) async -> AccountUsage {
+        await timeline.begin(id)
+        try? await Task.sleep(nanoseconds: delay)
+        await timeline.end(id, account.id)
+        return labeled(account.id, id, account.id, used: 1)
+    }
+}
+let timeline = Timeline()
+let slow = TimedProvider(id: "claude", delay: 300_000_000, timeline: timeline)
+let fast = TimedProvider(id: "codex", delay: 50_000_000, timeline: timeline)
+let both = await ProbeCadence.fetchRounds(
+    [.init(provider: slow, active: [account("s1"), account("s2")], serial: true),
+     .init(provider: fast, active: [account("f1"), account("f2")], serial: false)],
+    previous: [], userInitiated: true, live: [], now: now,
+    onResult: { await timeline.landed($0.id) })
+let events = await timeline.events, peaks = await timeline.peak
+let firstFastLand = events.firstIndex { $0 == "land f1" || $0 == "land f2" } ?? .max
+let secondSlowEnd = events.firstIndex(of: "end s2") ?? -1
+check("A17 the fast provider's rows land before the slow provider's second probe ends",
+      firstFastLand < secondSlowEnd)
+check("A17 Claude stays one probe at a time while the other provider runs beside it",
+      peaks["claude"] == 1 && peaks["codex"] == 2)
+check("A17 every row reaches the callback once and comes back in provider order",
+      events.filter { $0.hasPrefix("land") }.count == 4
+          && both.map(\.id).prefix(2) == ["s1", "s2"] && Set(both.map(\.id).suffix(2)) == ["f1", "f2"])
+
+// The store's half, read as text: the store cannot be compiled into this harness.
+let landRowBody = store.components(separatedBy: "private func landRow(").dropFirst().first?
+    .components(separatedBy: "\n    }\n").first ?? ""
+check("A18 the commit reuses a landed row rather than folding it a second time",
+      store.contains("results.map { landedRows[$0.id] ?? applyLastGood($0) }")
+          && landRowBody.components(separatedBy: "applyLastGood(usage)").count == 2
+          && landRowBody.contains("removals.removedIDs(inRound: round)")
+          && !landRowBody.contains("republishSnapshot"))
+check("A19 a refresh asked for mid-round still queues exactly one follow-up",
+      store.contains("private var refreshQueued = false")
+          && store.components(separatedBy: "trigger: .queued").count == 2
+          && store.contains("queuedUserInitiated = queuedUserInitiated || userInitiated"))
+let cadence = (try? String(contentsOfFile: "Tally/Core/ProbeCadence.swift", encoding: .utf8)) ?? ""
+let roundLog = (try? String(contentsOfFile: "Tally/Stores/UsageStore+RoundLog.swift", encoding: .utf8)) ?? ""
+check("A20 the probe and round lines carry ids and timings, never an email",
+      cadence.contains("probe provider=") && roundLog.contains("round trigger=")
+          && !(cadence + roundLog).contains("accountEmail"))
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

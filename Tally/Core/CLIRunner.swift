@@ -21,6 +21,9 @@ enum CLIRunner {
         /// child that fills the stderr pipe (64 KB) while the parent blocks on stdout deadlocks,
         /// and the previous version, which never read this pipe at all, could do exactly that.
         var stderr: String = ""
+        /// The watchdog ended the run, as opposed to the CLI exiting on its own (B-1745): a reader
+        /// can tell "took too long" from "said no" and decide whether a second attempt is worth it.
+        var timedOut = false
     }
 
     /// One background read's result. A reference so the reading queue and the caller share it.
@@ -29,6 +32,14 @@ enum CLIRunner {
     /// orders the write before every later read.
     private final class Captured: @unchecked Sendable {
         var value = Data()
+    }
+
+    /// Set on the watchdog's queue and read once the child has exited; the lock orders the two.
+    private final class TimeoutFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        func set() { lock.lock(); value = true; lock.unlock() }
+        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
     }
 
     /// Run a CLI to completion off the main actor. `environment` entries overlay the app's env;
@@ -78,7 +89,10 @@ enum CLIRunner {
                 try? stdin.fileHandleForWriting.close()
 
                 // Watchdog: a wedged CLI must never stall the refresh loop.
-                let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+                let timedOut = TimeoutFlag()
+                let watchdog = DispatchWorkItem {
+                    if process.isRunning { timedOut.set(); process.terminate() }
+                }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
                 // Both pipes are drained concurrently, then joined: reading one to EOF while the
@@ -95,7 +109,8 @@ enum CLIRunner {
                 continuation.resume(returning: Output(
                     exitCode: process.terminationStatus,
                     stdout: String(data: data, encoding: .utf8) ?? "",
-                    stderr: String(data: errorData.value, encoding: .utf8) ?? ""
+                    stderr: String(data: errorData.value, encoding: .utf8) ?? "",
+                    timedOut: timedOut.isSet
                 ))
             }
         }

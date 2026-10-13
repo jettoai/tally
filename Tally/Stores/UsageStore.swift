@@ -88,7 +88,7 @@ final class UsageStore {
             shallowRoots: [FileManager.default.homeDirectoryForCurrentUser],
             reroot: { accountWatchRoots() },
             discoverChanged: { [weak self] in await self?.adoptFreshDiscovery() ?? false },
-            onChange: { [weak self] in Task { await self?.refresh(userInitiated: false) } })
+            onChange: { [weak self] in Task { await self?.refresh(userInitiated: false, trigger: .watcher) } })
         watcher.start()
         accountWatcher = watcher
     }
@@ -172,7 +172,7 @@ final class UsageStore {
         timer.setEventHandler { [weak self] in
             Task { @MainActor in
                 self?.mainTimerNextFire = Date().addingTimeInterval(interval)
-                await self?.refresh(userInitiated: false)
+                await self?.refresh(userInitiated: false, trigger: .timer)
             }
         }
         timer.resume()
@@ -180,39 +180,11 @@ final class UsageStore {
         mainTimerNextFire = Date().addingTimeInterval(interval)
     }
 
-    // MARK: Fast retry after a failed poll
+    // MARK: Fast retry after a failed poll (UsageStore+FailureRetry.swift)
 
-    /// Backoff ladder for retrying after a failure, so a transient miss (the seconds-long window
-    /// while the CLI rotates a token, a network blip) heals in ~1 minute instead of sitting on
-    /// screen until the next full 5-minute tick. Doubles per consecutive failure so a real outage
-    /// (e.g. a 429 spell) is probed gently, and never exceeds the regular interval.
-    private var retryTimer: DispatchSourceTimer?
-    private var retryDelay: TimeInterval = 60
-    private var retryFireAt: Date?
-
-    private func scheduleRetryIfNeeded(anyFailure: Bool, soon: Bool) {
-        retryTimer?.cancel()
-        retryTimer = nil
-        retryFireAt = nil
-        guard anyFailure else {
-            retryDelay = 60   // healthy again - reset the ladder
-            return
-        }
-        let interval = TimeInterval(max(1, SettingsStore.shared.refreshIntervalMinutes) * 60)
-        let delay = soon ? FailureRetry.newAccountDelay : min(retryDelay, interval)
-        if !soon { retryDelay = min(retryDelay * 2, interval) }  // one quick look, ladder unmoved
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + delay)
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.retryFireAt = nil
-                await self?.refresh(userInitiated: false)
-            }
-        }
-        timer.resume()
-        retryTimer = timer
-        retryFireAt = Date().addingTimeInterval(delay)
-    }
+    var retryTimer: DispatchSourceTimer?
+    var retryDelay: TimeInterval = 60
+    var retryFireAt: Date?
 
     /// Optimistically drop rows the user just switched off (an account or a whole provider) so
     /// every surface reacts instantly; the refresh right behind converges the snapshot too.
@@ -250,7 +222,7 @@ final class UsageStore {
     /// just-renewed account wearing its red "Login expired" chip for the rest of that interval.
     private var queuedUserInitiated = false
 
-    func refresh(userInitiated: Bool = false) async {
+    func refresh(userInitiated: Bool = false, trigger: RefreshTrigger? = nil) async {
         guard !isRefreshing else {
             refreshQueued = true
             queuedUserInitiated = queuedUserInitiated || userInitiated
@@ -277,6 +249,8 @@ final class UsageStore {
             return
         }
         isRefreshing = true
+        let startedAt = Date()
+        landedRows = [:]
         // Everything below is captured BEFORE the awaits, so a removal landing mid-round has to be
         // filtered back out at the commit (AccountRemovals.swift).
         let round = removals.beginRound()
@@ -288,6 +262,7 @@ final class UsageStore {
         var allDiscovered: [ProviderAccount] = []
         var launchHomes: [String: String] = [:]   // account id → CLI config home, for the snapshot
         var shared = SharedLoginRound()           // homes on another home's login (#6)
+        var rounds: [ProbeCadence.ProviderRound] = []
         for provider in providers {
             // Off the main thread: the home listing and Keychain probes hung the app (TALLY-2C).
             let found = await Task.detached(priority: .utility) {
@@ -306,10 +281,13 @@ final class UsageStore {
                 if let home = account.launchableHome { launchHomes[account.id] = home }
             }
             // Claude one probe at a time on its own cadence, other providers concurrently.
-            results += await ProbeCadence.fetchRound(provider, active: active, previous: accounts,
-                                                     serial: provider.id == ClaudeAccounts.providerID,
-                                                     userInitiated: userInitiated)
+            rounds.append(.init(provider: provider, active: active,
+                                serial: provider.id == ClaudeAccounts.providerID))
         }
+        // Every provider at once, each row on screen the moment its probe returns (B-1745): Codex no
+        // longer waits out the Claude accounts, and a slow account holds only its own row.
+        results = await ProbeCadence.fetchRounds(rounds, previous: accounts, userInitiated: userInitiated,
+                                                 onResult: { [weak self] in await self?.landRow($0, round: round) })
         // An account the user removed while this round was out fetching: its home went to the Trash
         // after the discovery above read it, so everything this round holds about it is an echo.
         let removed = removals.removedIDs(inRound: round)
@@ -345,7 +323,8 @@ final class UsageStore {
         let enabledNow = SettingsStore.shared.enabledProviders
         // Dormant and shared-login homes get rows rather than fetches (UsageStore+UnpolledRows.swift).
         for id in shared.kept.keys { lastGood[id] = nil; failureStreak[id] = nil }
-        let merged = (results + dormantRows(dormant, enabledProviders: enabledNow)).map(applyLastGood)
+        let merged = results.map { landedRows[$0.id] ?? applyLastGood($0) }
+            + dormantRows(dormant, enabledProviders: enabledNow).map(applyLastGood)
             + sharedLoginRows(shared, enabledProviders: enabledNow)
         let carried = carriedAccountRows(previous: accounts, fetched: Set(merged.map(\.id)),
                                          known: Set(known.map(\.id)), enabledProviders: enabledNow)
@@ -355,6 +334,7 @@ final class UsageStore {
             .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
         rememberIdentities(merged, round: shared)
         isRefreshing = false
+        logRound(trigger ?? (userInitiated ? .user : .other), since: startedAt, results: results)
         lastRefreshedAt = Date()
         if results.contains(where: { $0.error == nil }) {
             lastSuccessfulRefreshAt = Date()
@@ -437,7 +417,7 @@ final class UsageStore {
             refreshQueued = false
             let inherited = queuedUserInitiated
             queuedUserInitiated = false
-            Task { await refresh(userInitiated: inherited) }
+            Task { await refresh(userInitiated: inherited, trigger: .queued) }
         }
     }
 
@@ -472,6 +452,23 @@ final class UsageStore {
     private var lastGood: [String: AccountUsage] = [:]
     /// Consecutive failed polls per account, so a single transient failure doesn't flip the badge.
     private var failureStreak: [String: Int] = [:]
+    /// Rows this round already folded as their probes landed (`landRow`), which the commit reuses:
+    /// folding one again would count a single failure twice.
+    private var landedRows: [String: AccountUsage] = [:]
+
+    /// One probe's row on screen the moment it returns (B-1745), every other row as it was. The
+    /// snapshot the CLI reads still moves once a round, at the commit.
+    private func landRow(_ usage: AccountUsage, round: Int) {
+        let settings = SettingsStore.shared
+        guard !removals.removedIDs(inRound: round).contains(usage.id),
+              settings.enabledProviders.contains(usage.providerID), settings.isAccountEnabled(usage.id)
+        else { return }
+        let row = applyLastGood(usage)
+        landedRows[usage.id] = row
+        accounts = ProbeCadence.landing(row, into: accounts, fact: readLiveRateFact(accountID: row.id),
+                                        now: Date())
+        onChange?()
+    }
 
     /// On success, record the snapshot. On a failure hand the round to `foldLastGood`
     /// (Core/LastGoodFold.swift), which decides what the card shows and what the CLI is told: the

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 // Which Claude accounts a background refresh round probes, and in what order (2026-09-27, owner
 // report: five `claude -p /usage` running at once, each 23-42% CPU and about 340 MB).
@@ -17,6 +18,12 @@ import Foundation
 // live account is read every 5 minutes, not every tick, even after its status line goes quiet (the
 // status line stops redrawing while a session waits on background subagents; see `isDue` below).
 enum ProbeCadence {
+    /// The refresh's own channel (B-1745): one line per probe here, one per round in the store.
+    /// `log show --predicate 'subsystem == "ai.jetto.tally" AND category == "poll"'` then answers
+    /// which account held a round, for how long, and what asked for it. Ids only ("claude:.claude3",
+    /// the config dir's name); never an email or anything from a credential.
+    static let log = Logger(subsystem: "ai.jetto.tally", category: "poll")
+
     /// How often an account with no live session is read. Its numbers only move when a window
     /// resets (handled separately below) or when something off this machine spends it: claude.ai,
     /// the Desktop app, another computer. A manual refresh always reads every account.
@@ -61,14 +68,18 @@ enum ProbeCadence {
     static func fetchRound(_ provider: any UsageProvider, active: [ProviderAccount],
                            previous: [AccountUsage], serial: Bool, userInitiated: Bool,
                            live: Set<String>? = nil, facts: [String: LiveRateFact]? = nil,
-                           now: Date = Date()) async -> [AccountUsage] {
+                           now: Date = Date(),
+                           onResult: (@Sendable (AccountUsage) async -> Void)? = nil) async -> [AccountUsage] {
         guard serial else {
             return await withTaskGroup(of: AccountUsage.self) { group in
                 for account in active {
-                    group.addTask { await provider.fetchUsage(for: account, userInitiated: userInitiated) }
+                    group.addTask { await timedFetch(provider, account, userInitiated: userInitiated) }
                 }
                 var results: [AccountUsage] = []
-                for await usage in group { results.append(usage) }
+                for await usage in group {
+                    await onResult?(usage)
+                    results.append(usage)
+                }
                 return results
             }
         }
@@ -83,9 +94,58 @@ enum ProbeCadence {
         }
         var results: [AccountUsage] = []
         for account in due {
-            results.append(await provider.fetchUsage(for: account, userInitiated: userInitiated))
+            let usage = await timedFetch(provider, account, userInitiated: userInitiated)
+            await onResult?(usage)
+            results.append(usage)
         }
         return results
+    }
+
+    /// One provider's share of a round: which accounts, and whether one at a time (Claude).
+    struct ProviderRound: Sendable {
+        let provider: any UsageProvider
+        let active: [ProviderAccount]
+        let serial: Bool
+    }
+
+    /// Every provider's round at once (B-1745). Claude's accounts stay one at a time inside their
+    /// own round; what changed is that Codex no longer waits for the last of them, so a round lasts
+    /// about as long as its slowest provider rather than the sum. Rows come back in provider order,
+    /// each also handed to `onResult` the moment its probe returns.
+    static func fetchRounds(_ rounds: [ProviderRound], previous: [AccountUsage], userInitiated: Bool,
+                            live: Set<String>? = nil, now: Date = Date(),
+                            onResult: (@Sendable (AccountUsage) async -> Void)? = nil) async -> [AccountUsage] {
+        await withTaskGroup(of: (Int, [AccountUsage]).self) { group in
+            for (index, round) in rounds.enumerated() {
+                group.addTask {
+                    (index, await fetchRound(round.provider, active: round.active, previous: previous,
+                                             serial: round.serial, userInitiated: userInitiated,
+                                             live: live, now: now, onResult: onResult))
+                }
+            }
+            var byIndex: [Int: [AccountUsage]] = [:]
+            for await (index, rows) in group { byIndex[index] = rows }
+            return rounds.indices.flatMap { byIndex[$0] ?? [] }
+        }
+    }
+
+    /// One probe, timed and logged.
+    static func timedFetch(_ provider: any UsageProvider, _ account: ProviderAccount,
+                           userInitiated: Bool) async -> AccountUsage {
+        let start = Date()
+        let usage = await provider.fetchUsage(for: account, userInitiated: userInitiated)
+        let ms = Int(Date().timeIntervalSince(start) * 1000)
+        let outcome = usage.error == nil ? "ok" : "error"
+        log.notice("probe provider=\(provider.id, privacy: .public) account=\(account.id, privacy: .public) ms=\(ms, privacy: .public) outcome=\(outcome, privacy: .public)")
+        return usage
+    }
+
+    /// One landed row swapped into what the panel shows, every other row untouched (B-1745): the
+    /// same overlay and order the round's commit applies, so the commit lands on what is already there.
+    static func landing(_ row: AccountUsage, into rows: [AccountUsage], fact: LiveRateFact?,
+                        now: Date) -> [AccountUsage] {
+        (rows.filter { $0.id != row.id } + [overlay(row, fact: fact, now: now)])
+            .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
     }
 
     // MARK: - The status-line channel (TallyCLI/LiveRates.swift)

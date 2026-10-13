@@ -249,6 +249,29 @@ try FileManager.default.createSymbolicLink(at: linkRoot, withDestinationURL: pro
 _ = await ClaudeUsageCLI.fetchUsageText(configDir: t9b, executable: stub.path, probeHomeRoot: linkRoot)
 expect(runs() == ["\(t9b)|<unset>"], "a symlinked root sends the read down the old path")
 
+// T14: an isolated read the watchdog ended is not tried the old way in the same round (B-1745).
+// `exec` so the sleep IS the child: a forked sleep would hold stdout open past the kill.
+resetLog()
+let t14 = dir.appendingPathComponent(".claudeT14").path
+try routedStub(isolated: "exec sleep 5", legacy: threeWindows)
+let t14Text = await ClaudeUsageCLI.fetchUsageText(configDir: t14, executable: stub.path, probeHomeRoot: probeRoot,
+                                                  timeout: 1)
+expect(t14Text == nil && runs().count == 1, "a timed-out isolated read skips the old read (\(runs()))")
+let t14Raw = await CLIRunner.run(stub.path, arguments: [], environment: ["CLAUDE_SECURESTORAGE_CONFIG_DIR": "x"],
+                                 timeout: 1)
+expect(t14Raw?.timedOut == true, "the runner reports the watchdog's kill as a timeout")
+
+// T15: a nonzero exit that is not a timeout still gets the old read, and is not called a timeout.
+resetLog()
+let t15 = dir.appendingPathComponent(".claudeT15").path
+try routedStub(isolated: "exit 3", legacy: threeWindows)
+let t15Text = await ClaudeUsageCLI.fetchUsageText(configDir: t15, executable: stub.path, probeHomeRoot: probeRoot,
+                                                  timeout: 5)
+expect(runs().count == 2 && metricIDs(t15Text) == fullIDs, "a nonzero exit still falls back to the old read")
+let t15Raw = await CLIRunner.run(stub.path, arguments: [], environment: ["CLAUDE_SECURESTORAGE_CONFIG_DIR": "x"],
+                                 timeout: 5)
+expect(t15Raw?.exitCode == 3 && t15Raw?.timedOut == false, "an exit of its own is not a timeout")
+
 // T10 to T13: a manual refresh drops the CLI's 60-second `/usage` snapshot from the probe home.
 let snapshotJSON = #"{"cachedUsageUtilization":{"fetchedAtMs":1,"utilization":{}},"oauthAccount":{"emailAddress":"a@b.c"},"other":7}"#
 func plantSnapshot(_ name: String, _ contents: String?) throws -> URL {

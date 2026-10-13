@@ -71,12 +71,19 @@ func runProviderReopenChecks() {
     check("landing: a reopen target closes the window without typing and without the account question",
           land(request(), target: "codex") == .reopened("codex", agents: 2) && typed.isEmpty
               && boundaryAsked == 0)
-    check("landing: a blocked session types, and the reopen is not even asked",
-          land(request(), state: .blocked, target: "codex") == .typed(.done, agents: 2)
-              && reopenAsked == 0)
-    check("landing: a suspected draft types, and the reopen is not even asked",
-          land(request(), target: "codex", draft: sessionInputDraftGuard(dialog: false, suspected: true))
-              == .typed(.done, agents: 2) && reopenAsked == 0)
+    // B-1706: a guarded clear that is due to reopen used to type /clear, leaving the window on the
+    // provider the project no longer uses while the caller was told it was cleared.
+    let suspected = sessionInputDraftGuard(dialog: false, suspected: true)
+    check("landing: a blocked session due to reopen is held, typing nothing and moving nothing",
+          land(request(), state: .blocked, target: "codex") == .reopenHeld("codex", blocked: true)
+              && typed.isEmpty && boundaryAsked == 0)
+    check("landing: a suspected draft due to reopen is held, typing nothing and moving nothing",
+          land(request(), target: "codex", draft: suspected) == .reopenHeld("codex", blocked: false)
+              && typed.isEmpty && boundaryAsked == 0)
+    check("landing: a suspected draft with no reopen due still types /clear, without the account question",
+          land(request(), target: nil, draft: suspected) == .typed(.done, agents: 2)
+              && typed == [windowClearCommand] && boundaryAsked == 0)
+    check("landing: a held reopen ended no agents", land(request(), target: "codex", draft: suspected).agents == nil)
     check("landing: a plain send of /clear never asks the reopen",
           land(request(intent: nil), target: "codex") == .typed(.done, agents: 2) && reopenAsked == 0)
     check("landing: no reopen target falls through to the account move, as before",
@@ -104,6 +111,27 @@ func runProviderReopenChecks() {
     check("tick: the receipt says reopened-provider and reads as delivered",
           receipt?.outcome == "reopened-provider" && receipt?.delivered == true
               && receipt?.detail == "reopened as codex instead of typing")
+
+    var heldInput = SessionInputState(sessionKey: "9503", servedEpoch: 0, dir: dir)
+    try? writeSessionInputRequest(request(), sessionKey: "9503", dir: dir)
+    var heldTyped: [String] = []
+    let held = applySessionInput(&heldInput, session: .idle, quiet: .quiet, turnEnded: { false },
+                                 keyboardIdle: true, relaunchPlanned: false, draftSuspected: true,
+                                 waitingOnPerson: false, dir: dir,
+                                 log: dir.appendingPathComponent("input.log"),
+                                 now: t0.addingTimeInterval(1), agents: { _ in nil },
+                                 reopen: { "codex" }) { text, _ in heldTyped.append(text); return .done }
+    let heldReceipt = readSessionInputResult(sessionKey: "9503", dir: dir)
+    check("tick: a held reopen types nothing and hands nothing up",
+          heldTyped.isEmpty && held.typed == nil && held.moveTo == nil && held.reopenAs == nil)
+    check("tick: a held reopen is refused, not delivered, and says why and what to run",
+          heldReceipt?.outcome == "refused-reopen-held" && heldReceipt?.delivered == false
+              && heldReceipt.map { sessionInputExitCode($0) } == 3
+              && heldReceipt?.detail?.contains("reopen as codex") == true
+              && heldReceipt?.detail?.contains("15 minutes") == true
+              && heldReceipt?.detail?.contains("`tally codex --new`") == true)
+    check("tick: the blocked wording names the dialog instead",
+          sessionClearReopenHeldDetail(provider: "codex", blocked: true).contains("dialog"))
 
     // MARK: - The wiring no value can be asked about (read off the source, as the suites beside this do)
 

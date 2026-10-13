@@ -32,6 +32,11 @@ enum SessionInputLanding: Equatable {
     /// Nothing was typed: the window is being closed by reopening it as this provider, the
     /// project's declared default (ProviderReopen.swift).
     case reopened(String, agents: Int?)
+    /// Nothing was typed and nothing was ended: the window should reopen as this provider, but a
+    /// prompt is on screen (`blocked`) or a draft may be in the composer, and a reopen would destroy
+    /// either. Typing `/clear` instead would leave the window on a provider the project no longer
+    /// uses while the caller is told it was cleared, so the request is refused (B-1706).
+    case reopenHeld(String, blocked: Bool)
 
     /// The subagents this landing ended, when it ended any worth reporting. nil is "nothing to say",
     /// which covers all of its causes: none were running, this session's Claude Code does not
@@ -49,6 +54,7 @@ enum SessionInputLanding: Equatable {
         // `SessionInputInjection`). A write that never got the Return out ended nothing.
         case .typed(let injection, let agents): return injection.sent ? agents : nil
         case .moved(_, let agents), .reopened(_, let agents): return agents
+        case .reopenHeld: return nil
         }
     }
 }
@@ -115,9 +121,15 @@ func landSessionInput(_ request: SessionInputRequest, sessionKey: String, state:
     // A provider reopen outranks an account move: both end the child, and the reopen's own
     // `tally <provider>` picks the account again. `reopen` only answers when that launch is
     // predicted to run (`providerLaunchable`); otherwise the move or the typed line stands.
-    if sessionClearMovesAccounts(request: request, state: state, draft: draft) {
-        if let provider = reopen() { return .reopened(provider, agents: count) }
-        if let target = boundary() { return .moved(target, agents: count) }
+    // Asked for every clear, the guarded ones included: an account move may fall back to typing
+    // (any account can clear), a provider reopen may not (the typed clear stays on the wrong one).
+    if isSessionClear(request) {
+        let movable = sessionClearMovesAccounts(request: request, state: state, draft: draft)
+        if let provider = reopen() {
+            return movable ? .reopened(provider, agents: count)
+                : .reopenHeld(provider, blocked: state == .blocked)
+        }
+        if movable, let target = boundary() { return .moved(target, agents: count) }
     }
     return .typed(inject(request.text, draft), agents: count)
 }

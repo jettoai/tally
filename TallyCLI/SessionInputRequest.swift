@@ -177,6 +177,11 @@ enum SessionInputOutcome: String {
     /// the child and replaced itself with a fresh `tally <provider>` (ProviderReopen.swift). Like
     /// `movedAccount`, a delivery of the clear that was asked for.
     case reopenedProvider = "reopened-provider"
+    /// NOTHING WAS TYPED OR ENDED: a `tally session clear` was due to reopen the window as another
+    /// provider, but the session was blocked on a dialog or may hold an unsent draft. Typing the
+    /// clear instead would leave it on the wrong provider, so it is refused; `detail` says why and
+    /// what to do. A CLI that predates it prints the word verbatim and exits non-zero.
+    case refusedReopenHeld = "refused-reopen-held"
 
     /// Whether this outcome means what the caller asked for happened. Two words rather than one
     /// since 2026-08-18: a line typed and sent, and a window closed by moving the session that was

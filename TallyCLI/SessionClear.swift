@@ -67,6 +67,18 @@ func isSessionClear(_ request: SessionInputRequest) -> Bool {
     request.intent == sessionClearIntent && sessionInputClearsContext(request.text)
 }
 
+/// What the caller is told when a clear that should reopen the window as `provider` was refused
+/// (`SessionInputLanding.reopenHeld`): why nothing happened, and the two ways out.
+func sessionClearReopenHeldDetail(provider: String, blocked: Bool) -> String {
+    let why = blocked
+        ? "it is waiting on a dialog, which a reopen would destroy"
+        : "its terminal had input in the last \(Int(sessionInputDraftLife / 60)) minutes, "
+            + "which a reopen could lose as an unsent draft"
+    return "this window should reopen as \(provider), but \(why), so nothing was typed or ended. "
+        + "Run `tally session clear` again once nobody is using it, "
+        + "or /exit that window and run `tally \(provider) --new`"
+}
+
 /// What the caller is told when the window was closed by moving the session instead of typing into
 /// it. Pure, so the wording is assertable; `detail` on the receipt and the audit line share it.
 ///

@@ -265,6 +265,7 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
         // that no longer exists. What it asked for - an empty window - is what it got.
         return "window closed by moving session \(sessionKey)\(detail)"
     case .reopenedProvider: return "window closed by reopening session \(sessionKey)\(detail)"
+    case .refusedReopenHeld: return "refused: session \(sessionKey) was left as it was\(detail)"
     case nil: return "the supervisor answered \"\(result.outcome)\"\(detail)"
     }
 }

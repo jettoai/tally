@@ -276,6 +276,9 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
             detail = "reopened as \(provider) instead of typing"
                 + (killed.map { ", " + sessionInputAgentsNote($0) } ?? "")
             reopenAs = provider
+        case .reopenHeld(let provider, let blocked):
+            outcome = .refusedReopenHeld
+            detail = sessionClearReopenHeldDetail(provider: provider, blocked: blocked)
         }
     }
     // THE ANSWER FIRST, then the request file. The caller is polling for the answer, so writing it

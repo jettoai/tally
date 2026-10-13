@@ -62,13 +62,13 @@ enum ProbeCadence {
         Set(readLiveSessions(dir: dir, isAlive: isAlive).counts.keys)
     }
 
-    /// One provider's accounts for this round. `serial` (Claude) probes one account at a time,
-    /// live accounts first and only the ones due; an account skipped here keeps last round's row
+    /// One provider's accounts for this round. `serial` (Claude) probes one account at a time (a
+    /// second beside a slow one, see `lanes`), live accounts first and only the ones due; an account skipped here keeps last round's row
     /// through the store's carry (AccountRowCarry.swift). Other providers fetch every account at once.
     static func fetchRound(_ provider: any UsageProvider, active: [ProviderAccount],
                            previous: [AccountUsage], serial: Bool, userInitiated: Bool,
                            live: Set<String>? = nil, facts: [String: LiveRateFact]? = nil,
-                           now: Date = Date(),
+                           now: Date = Date(), slowAfter: TimeInterval = slowProbeAfter,
                            onResult: (@Sendable (AccountUsage) async -> Void)? = nil) async -> [AccountUsage] {
         guard serial else {
             return await withTaskGroup(of: AccountUsage.self) { group in
@@ -92,13 +92,56 @@ enum ProbeCadence {
             isDue(userInitiated: userInitiated, live: live.contains($0.id), fact: facts[$0.id],
                   previous: previous[$0.id], now: now)
         }
-        var results: [AccountUsage] = []
-        for account in due {
-            let usage = await timedFetch(provider, account, userInitiated: userInitiated)
-            await onResult?(usage)
-            results.append(usage)
+        return await lanes(provider, due, userInitiated: userInitiated, slowAfter: slowAfter,
+                           onResult: onResult)
+    }
+
+    /// A probe still out after this long is slow: the next account starts beside it (B-1745).
+    /// A normal read takes about 2 seconds.
+    static let slowProbeAfter: TimeInterval = 10
+    /// At most two probes at once, so one slow account never holds the rest while Claude still
+    /// never runs many CLIs together (51c3a66d moved it to one at a time for that).
+    static let maxLanes = 2
+
+    private enum LaneEvent: Sendable { case done(Int, AccountUsage), slow(Int) }
+
+    /// One account at a time; while every probe in flight is slow, one more starts, up to `maxLanes`.
+    static func lanes(_ provider: any UsageProvider, _ due: [ProviderAccount], userInitiated: Bool,
+                      slowAfter: TimeInterval,
+                      onResult: (@Sendable (AccountUsage) async -> Void)?) async -> [AccountUsage] {
+        await withTaskGroup(of: LaneEvent.self) { group in
+            var next = 0, running: Set<Int> = [], slow: Set<Int> = [], results: [AccountUsage] = []
+            func fill() {
+                while next < due.count, running.count < maxLanes, running.isSubset(of: slow) {
+                    let index = next, account = due[index]
+                    next += 1
+                    running.insert(index)
+                    if running.count > 1 {
+                        log.notice("probe second lane account=\(account.id, privacy: .public)")
+                    }
+                    group.addTask { .done(index, await timedFetch(provider, account, userInitiated: userInitiated)) }
+                    group.addTask {
+                        try? await Task.sleep(nanoseconds: UInt64(slowAfter * 1_000_000_000))
+                        return .slow(index)
+                    }
+                }
+            }
+            fill()
+            while !running.isEmpty, let event = await group.next() {
+                switch event {
+                case .slow(let index):
+                    if running.contains(index) { slow.insert(index) }
+                case .done(let index, let usage):
+                    running.remove(index)
+                    slow.remove(index)
+                    await onResult?(usage)
+                    results.append(usage)
+                }
+                fill()
+            }
+            group.cancelAll()  // the timers of probes that came back in time
+            return results
         }
-        return results
     }
 
     /// One provider's share of a round: which accounts, and whether one at a time (Claude).
@@ -108,8 +151,8 @@ enum ProbeCadence {
         let serial: Bool
     }
 
-    /// Every provider's round at once (B-1745). Claude's accounts stay one at a time inside their
-    /// own round; what changed is that Codex no longer waits for the last of them, so a round lasts
+    /// Every provider's round at once (B-1745). Claude's accounts stay one at a time (two beside a
+    /// slow one) inside their own round; what changed is that Codex no longer waits for the last of them, so a round lasts
     /// about as long as its slowest provider rather than the sum. Rows come back in provider order,
     /// each also handed to `onResult` the moment its probe returns.
     static func fetchRounds(_ rounds: [ProviderRound], previous: [AccountUsage], userInitiated: Bool,

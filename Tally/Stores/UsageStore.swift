@@ -280,12 +280,14 @@ final class UsageStore {
                 // signed-out account must not reach it even if it kept a home to be renewed at.
                 if let home = account.launchableHome { launchHomes[account.id] = home }
             }
-            // Claude one probe at a time on its own cadence, other providers concurrently.
+            // Claude one probe at a time on its own cadence (a second beside a slow one), other
+            // providers concurrently.
             rounds.append(.init(provider: provider, active: active,
                                 serial: provider.id == ClaudeAccounts.providerID))
         }
         // Every provider at once, each row on screen the moment its probe returns (B-1745): Codex no
-        // longer waits out the Claude accounts, and a slow account holds only its own row.
+        // longer waits out the Claude accounts, and a slow Claude account holds only its own row:
+        // the next one starts beside it once it is slow (`ProbeCadence.lanes`).
         results = await ProbeCadence.fetchRounds(rounds, previous: accounts, userInitiated: userInitiated,
                                                  onResult: { [weak self] in await self?.landRow($0, round: round) })
         // An account the user removed while this round was out fetching: its home went to the Trash

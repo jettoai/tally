@@ -32,6 +32,16 @@ enum ClaudeUsageCLI {
     static let probeHomeRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/probe-home", isDirectory: true)
 
+    /// Debug-only stand-in for `claude` on the usage read (B-1745): lets a Dev.app run against a
+    /// scratch wrapper that makes one account slow, so the timeout path can be watched for real.
+    static var devStandIn: String? {
+        #if DEBUG
+        UserDefaults.standard.string(forKey: "TallyClaudeUsageCLI").flatMap { $0.isEmpty ? nil : $0 }
+        #else
+        nil
+        #endif
+    }
+
     /// How long an account whose isolated read proved unusable goes straight to the old read.
     static let legacyHold: TimeInterval = 60 * 60
 
@@ -42,7 +52,7 @@ enum ClaudeUsageCLI {
     static func fetchUsageText(configDir: String?, userInitiated: Bool = false, executable: String? = nil,
                                probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = 60,
                                now: Date = Date()) async -> String? {
-        guard let binary = executable ?? CLIRunner.resolve("claude") else { return nil }
+        guard let binary = executable ?? devStandIn ?? CLIRunner.resolve("claude") else { return nil }
         try? FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
         let key = configDir ?? ""
         guard await routes.isolatedAllowed(key, now: now),

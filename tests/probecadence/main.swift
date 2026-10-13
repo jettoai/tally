@@ -170,6 +170,59 @@ let groupPeak = await groupProbe.peak
 check("A12c other providers still fetch every account at once",
       groupRows.map(\.id).sorted() == ["a", "b", "c"] && groupPeak == 3)
 
+// MARK: - A slow account does not hold the ones behind it (B-1745)
+
+/// Per-account delays; records each start time, the peak in flight, and the order of starts and ends.
+actor LaneLog {
+    var inFlight = 0, peak = 0, events: [String] = [], startedAt: [String: Date] = [:], endedAt: [String: Date] = [:]
+    func begin(_ id: String) { inFlight += 1; peak = max(peak, inFlight); events.append("start \(id)"); startedAt[id] = Date() }
+    func end(_ id: String) { inFlight -= 1; events.append("end \(id)"); endedAt[id] = Date() }
+}
+struct LaneProvider: UsageProvider {
+    let id = "claude", displayName = "Lanes"
+    let delays: [String: Double]
+    let log: LaneLog
+    func discoverAccounts() -> [ProviderAccount] { [] }
+    func fetchUsage(for account: ProviderAccount, userInitiated: Bool) async -> AccountUsage {
+        await log.begin(account.id)
+        try? await Task.sleep(nanoseconds: UInt64((delays[account.id] ?? 0.02) * 1_000_000_000))
+        await log.end(account.id)
+        return row(account.id, readAgo: 0)
+    }
+}
+func laneRound(_ delays: [String: Double], slowAfter: TimeInterval = 0.15) async -> (LaneLog, [AccountUsage], Date) {
+    let log = LaneLog(), start = Date()
+    let rows = await ProbeCadence.fetchRound(LaneProvider(delays: delays, log: log),
+                                             active: ["a", "b", "c", "d"].map(account), previous: [],
+                                             serial: true, userInitiated: true, live: [], now: now,
+                                             slowAfter: slowAfter)
+    return (log, rows, start)
+}
+
+let (calmLog, calmRows, calmStart) = await laneRound([:])
+let calmPeak = await calmLog.peak, calmEvents = await calmLog.events
+check("L1 with no slow account one probe runs at a time, in order",
+      calmPeak == 1 && calmRows.map(\.id) == ["a", "b", "c", "d"]
+          && calmEvents == ["start a", "end a", "start b", "end b", "start c", "end c", "start d", "end d"])
+let defaultStart = Date()
+_ = await ProbeCadence.fetchRound(LaneProvider(delays: [:], log: LaneLog()), active: ["a", "b"].map(account),
+                                  previous: [], serial: true, userInitiated: true, live: [], now: now)
+check("L1 the slow timers of probes that came back in time do not hold the round open",
+      Date().timeIntervalSince(defaultStart) < 2 && Date().timeIntervalSince(calmStart) < 3)
+
+let (oneLog, oneRows, _) = await laneRound(["a": 1.2])
+let onePeak = await oneLog.peak, oneStarts = await oneLog.startedAt, oneEnds = await oneLog.endedAt
+check("L2 one stuck account: the next starts once it is slow, never more than two at once",
+      onePeak == 2 && oneStarts["b"].map { $0.timeIntervalSince(oneStarts["a"]!) >= 0.14 } == true)
+check("L2 …and every account behind it lands before the stuck one returns",
+      ["b", "c", "d"].allSatisfy { (oneEnds[$0] ?? .distantFuture) < oneEnds["a"]! }
+          && oneRows.map(\.id).last == "a" && oneRows.count == 4)
+
+let (twoLog, _, _) = await laneRound(["a": 0.8, "b": 0.8])
+let twoPeak = await twoLog.peak, twoStarts = await twoLog.startedAt, twoEnds = await twoLog.endedAt
+check("L3 two stuck accounts: no third lane opens, the next waits for one of them",
+      twoPeak == 2 && twoStarts["c"].map { $0 >= min(twoEnds["a"]!, twoEnds["b"]!) } == true)
+
 // MARK: - Store wiring (read as text)
 
 let store = (try? String(contentsOfFile: "Tally/Stores/UsageStore.swift", encoding: .utf8)) ?? ""

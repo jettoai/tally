@@ -187,9 +187,10 @@ enum CaptureLaunch {
     /// server (`UsagePing.urlOverrideKey`, tests/usageping), and a Debug build sends nothing without it.
     /// `TallyCodexUpdateCLI` is another: it points the background Codex update at a scratch `tally`
     /// (CodexUpdateSchedule.swift), and a build nobody installed runs no schedule without it.
+    /// `TallyClaudeUsageCLI` points the Claude usage read at a scratch `claude` (Debug only).
     static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI",
                                   pickClaimOverride, "TallyRenewLoginTest", "TallyPingURL",
-                                  "TallyCodexUpdateCLI"]
+                                  "TallyCodexUpdateCLI", "TallyClaudeUsageCLI"]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without

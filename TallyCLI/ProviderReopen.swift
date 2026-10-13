@@ -15,8 +15,8 @@ func providerInstalled(_ id: String) -> Bool {
 
 /// What `tally start` launches: the declared default when it is installed, Claude otherwise.
 func startProviderID(declared: String?, installed: (String) -> Bool) -> String {
-    guard let declared, declared != "claude" else { return "claude" }
-    return installed(declared) ? declared : "claude"
+    guard let declared, declared != "claude", installed(declared) else { return "claude" }
+    return declared
 }
 
 /// The provider a `tally session clear` should reopen this window as, or nil to clear the way this
@@ -53,7 +53,7 @@ func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: Laun
                       environment: [String: String], stdoutIsTTY: Bool,
                       reserves: AccountReserves = accountReserves(),
                       quarantined: Set<String>? = nil) -> Bool {
-    guard snapshot != nil else { return false }
+    guard let snapshot else { return false }
     if environment[provider.envKey] != nil,
        !inheritedSessionEnvironment(providerID: provider.id, stdoutIsTTY: stdoutIsTTY,
                                     environment: environment) {
@@ -63,7 +63,7 @@ func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: Laun
     // app denormalized into the policy) is exec'd plain by `runLaunch`, with no supervisor. The
     // shim's `steeredLaunch` launches it too, so it is excluded here, not there.
     if policy.mode == "manual",
-       snapshot?.accounts.contains(where: { $0.id == policy.pinnedAccountID && $0.launchHome != nil }) != true,
+       !snapshot.accounts.contains(where: { $0.id == policy.pinnedAccountID && $0.launchHome != nil }),
        pinnedLaunchHome(snapshot, policy: policy) != nil {
         return false
     }

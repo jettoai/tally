@@ -32,9 +32,9 @@ func codexIsNewer(_ latest: String, than installed: String) -> Bool {
 
 /// "codex-cli 0.162.1" -> "0.162.1".
 func codexVersionFromOutput(_ output: String) -> String? {
-    guard let last = output.split(whereSeparator: { $0 == " " || $0 == "\n" }).last,
-          codexReleaseTriple(String(last)) != nil else { return nil }
-    return String(last)
+    guard let last = output.split(whereSeparator: { $0 == " " || $0 == "\n" }).last.map(String.init),
+          codexReleaseTriple(last) != nil else { return nil }
+    return last
 }
 
 /// A top-level `check_for_update_on_startup = false` in config.toml (before the first table header).
@@ -92,8 +92,8 @@ func codexUpdateBackedOff(attempt: (version: String, failedAt: Date)?, latest: S
 /// The newest version any of these Codex homes would offer, and the home that offers it.
 func codexBestCandidate(_ homes: [(home: String, cache: Data?, checkDisabled: Bool)]) -> (home: String, version: String)? {
     homes.compactMap { entry in
-        codexCachedUpdateCandidate(cache: entry.cache, checkDisabled: entry.checkDisabled).map { (entry.home, $0) }
-    }.max { codexIsNewer($1.1, than: $0.1) }
+        codexCachedUpdateCandidate(cache: entry.cache, checkDisabled: entry.checkDisabled).map { (home: entry.home, version: $0) }
+    }.max { codexIsNewer($1.version, than: $0.version) }
 }
 
 /// Whether `--if-due` should look at all: once an hour, and at once when it never has.

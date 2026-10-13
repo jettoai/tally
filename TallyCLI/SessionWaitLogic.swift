@@ -11,6 +11,9 @@ import Foundation
 // contract that caller will drive: given the same tick inputs `syncSessionState` already computes,
 // and the belief it held a moment ago, these three functions say what happened and what to publish.
 
+/// The `tool` a Codex wait carries when Codex has not reached its prompt (CodexWaitEvents.swift).
+let codexStartupScreenTool = "startup-screen"
+
 /// What this tick believes is STANDING, or nil when nothing is. Pure: every input is something the
 /// tick already computed (`notice`, `waiting`, `question`, `quiet`, `wait`) or was told
 /// (`permissionTool`, from a sidecar a later package wires in).
@@ -26,9 +29,6 @@ import Foundation
 /// `dialogWaitingFor` is Claude Code's own name for the dialog on top (its session registry's
 /// `waitingFor`), read only while a `permission_prompt` stands. `codexQuestionTool` is the Codex
 /// question tool whose call is open in the rollout (`CodexSessionObserver.pendingQuestion`).
-/// The `tool` a Codex wait carries when Codex has not reached its prompt (CodexWaitEvents.swift).
-let codexStartupScreenTool = "startup-screen"
-
 func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, waiting: Bool,
                      question: String?, questionSince: Date?, quiet: Bool,
                      wait: UserWait?, permissionTool: String?, dialogWaitingFor: String? = nil,

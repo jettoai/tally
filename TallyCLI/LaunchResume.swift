@@ -236,13 +236,16 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
 /// resumed one would stay there until the wall (B-1360 line-close review). The start mode is asked
 /// once, against the RANKED pick's home: Claude's transcripts are shared across homes, and an
 /// unshared Codex home that finds nothing there opens a new conversation wherever it lands.
+/// `finish` runs once, against the home of the account the launch actually lands on: Codex's
+/// startup update menu is read from that home's own version.json, not the ranked pick's.
 func settleLaunch(providerID: String, pick: (_ emptyConversation: Bool) -> Snapshot.Account?,
-                  startArgs: (_ home: String) -> [String])
+                  startArgs: (_ home: String) -> [String],
+                  finish: (_ args: [String], _ home: String) -> [String] = { args, _ in args })
     -> (account: Snapshot.Account, args: [String])? {
     guard let ranked = pick(false) else { return nil }
     let args = startArgs(ranked.launchHome!)
-    guard opensNewConversation(args, providerID: providerID) else { return (ranked, args) }
-    return (pick(true) ?? ranked, args)
+    let account = opensNewConversation(args, providerID: providerID) ? pick(true) ?? ranked : ranked
+    return (account, finish(args, account.launchHome!))
 }
 
 /// Whether finished launch args open a new conversation. Anything that names one to resume says no,

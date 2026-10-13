@@ -100,11 +100,11 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     /// The cleared, never-used conversation the start mode declined to resume, for the supervisor
     /// to find its task list by (TaskListPin.swift).
     var clearedConversation: String? = nil
-    func startModeArgs(_ args: [String], home: String) -> [String] {
+    func startModeArgs(_ args: [String], home: String, preflight: Bool = true) -> [String] {
         if provider.id == "codex" {
-            return prepareCodexLaunch(applyCodexStartMode(args, policy: policy, wantsNew: wantsNew,
-                home: home, cwd: FileManager.default.currentDirectoryPath, interactive: stdoutIsTTY,
-                live: liveCodexConversations()), home: home, interactive: stdoutIsTTY)
+            let next = applyCodexStartMode(args, policy: policy, wantsNew: wantsNew, home: home,
+                cwd: FileManager.default.currentDirectoryPath, interactive: stdoutIsTTY, live: liveCodexConversations())
+            return preflight ? prepareCodexLaunch(next, home: home, interactive: stdoutIsTTY) : next
         }
         // One reading of the working directory for both halves of the question, rather than two: the
         // chdir a worktree launch performs has already happened by here (above), and a decision made
@@ -252,7 +252,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
                                 primaryModel: primaryModel, quarantined: quarantined,
                                 reserves: $0, emptyConversation: empty) }
         return pick(reserves) ?? (spendReserve ? pick(.none) : nil)
-    }, startArgs: { startModeArgs(passthrough, home: $0) }) else {
+    }, startArgs: { startModeArgs(passthrough, home: $0, preflight: false) }, finish: {
+        provider.id == "codex" ? prepareCodexLaunch($0, home: $1, interactive: stdoutIsTTY) : $0 }) else {
         if let hold = reserveHoldout(providerID: provider.id, in: snapshot,
                                      primaryModel: primaryModel, reserves: reserves) {
             warn(reserveHoldNotice(hold, providerID: provider.id)); exit(1)
@@ -410,10 +411,8 @@ if let word = arguments.first, let code = runHookSubcommand(word, Array(argument
     exit(code)
 }
 switch arguments.first {
-case "claude":
-    runLaunch(providers[0], args: Array(arguments.dropFirst()))
-case "codex":
-    runLaunch(providers[1], args: Array(arguments.dropFirst()))
+case "claude": runLaunch(providers[0], args: Array(arguments.dropFirst()))
+case "codex": runLaunch(providers[1], args: Array(arguments.dropFirst()))
 case "start": runStart(args: Array(arguments.dropFirst()))
 case "resume":
     runResume(args: Array(arguments.dropFirst()))

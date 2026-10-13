@@ -122,6 +122,27 @@ func runClearanceChecks() {
           !opensNewConversation(["resume", "x"], providerID: "codex")
               && opensNewConversation([], providerID: "codex"))
 
+    // A16: the Codex update preflight reads the home the launch LANDS on (33ade7e line-close
+    // review). albert4's cache says "nothing new", albert's says an update is due: a new
+    // conversation cleared onto albert must be finished against albert's home, while the start
+    // mode is still asked once, against albert4's.
+    func codexSettled(_ start: [String]) -> (String, [String], [String])? {
+        var startHomes: [String] = []
+        let menuOff = ["-c", "check_for_update_on_startup=false"]
+        return settleLaunch(providerID: "codex", pick: { empty in
+            launchPick(providerID: "claude", in: fleetSnapshot, primaryModel: nil, quarantined: [],
+                       reserves: reserves, emptyConversation: empty, now: now)
+        }, startArgs: { startHomes.append($0); return start },
+        finish: { $1 == albert.launchHome ? menuOff + $0 : $0 })
+            .map { ($0.account.id, $0.args, startHomes) }
+    }
+    check("A16 a new Codex conversation cleared onto albert is preflighted against albert's home",
+          codexSettled([]).map { $0 == ("albert", ["-c", "check_for_update_on_startup=false"],
+                                       [albert4.launchHome!]) } ?? false)
+    check("A16 a Codex resume stays on albert4 and is preflighted against albert4's home",
+          codexSettled(["resume", "x"]).map { $0 == ("albert4", ["resume", "x"],
+                                                     [albert4.launchHome!]) } ?? false)
+
     // A8/A9: every move of a LIVE conversation still refuses the account (the lane is launch-only).
     check("A8 the cap handoff does not move a conversation onto albert",
           capHandoffTarget(fleet.filter { $0.id != "albert4" }, primaryModel: nil,

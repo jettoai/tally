@@ -402,8 +402,8 @@ _tally() {
         # `switch` is the name `account` shipped under. Still answered here, as the dispatch still
         # answers it, but deliberately absent from the list above: it is not the name to learn.
         (account|switch)
-          # Claude only, as the command is: a codex launch is a plain exec with no supervisor
-          # resident to move anything (SwitchCommand.swift takes `providers[0]`).
+          # Claude only, as the command is: a codex launch gets a monitor that never moves the
+          # session between accounts (SwitchCommand.swift takes `providers[0]`).
           _arguments \
             "--auto[release the pin, following automatic account selection again]" \
             ":account: _tally_accounts claude"

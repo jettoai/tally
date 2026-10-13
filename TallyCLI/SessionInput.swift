@@ -69,9 +69,10 @@ let sessionInputByteGap: TimeInterval = 0.030
 /// was still on an earlier filter state when Return arrived at 400ms AND at 1200ms, so the send
 /// picked the wrong menu entry, while the same text with Return four seconds later ran the command
 /// it named (2026-08-13, section 3.3 of the design document, with the method and the six
-/// combinations tried). Nothing is retuned for it here, and deliberately: `tally codex` is a plain
-/// exec with no supervisor (`runLaunch`, main.swift), so no request can reach a Codex session in
-/// the first place. When one can, the shape this measurement points at is a pause per provider
+/// combinations tried). Nothing is retuned for it here: a Codex session is reached through its
+/// monitor's own relay (`CodexInputRelay.submit`), which sends the text as one bracketed paste and
+/// waits this same pause before Return, and whether that paste meets the popup measured above has
+/// not been measured. If it does, the shape this measurement points at is a pause per provider
 /// rather than one number raised until the slowest CLI is happy, since that would slow every
 /// Claude Code send to pay for it.
 let sessionInputSubmitPause: TimeInterval = 0.400

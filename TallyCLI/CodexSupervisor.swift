@@ -34,7 +34,7 @@ func executeLaunch(_ provider: Provider, decision: LaunchDecision, account: Snap
         runSupervised(provider, account: account, args: args, follow: decision.follow,
                       clearedConversation: clearedConversation, spendReserve: decision.spendReserve)
     case .monitor:
-        runCodexSupervised(provider, account: account, args: args)
+        runCodexSupervised(provider, account: account, args: args, spendReserve: decision.spendReserve)
     case .none:
         launchProvider(provider, args: args, home: home,
                        env: decision.childEnv == .inherit ? nil : launchEnv(provider, home: home))
@@ -44,7 +44,9 @@ func executeLaunch(_ provider: Provider, decision: LaunchDecision, account: Snap
 /// A supervised Codex resident with an owned PTY for guarded direct input.
 /// No recovery policy runs here: the child exits once and its exit status is preserved. The one
 /// exception is a `tally session clear` that reopens the window, which execs `tally <provider>`.
-func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [String]) -> Never {
+/// `spendReserve` is the launch's own `--spend-reserve`, carried into a reopen as Codex.
+func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [String],
+                        spendReserve: Bool = false) -> Never {
     guard let home = account.launchHome else { exit(1) }
     let pid = String(getpid())
     let launchedAt = Date()
@@ -201,7 +203,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                 let action = applyCodexSessionInput(&input, observer: observer, keyboard: keyboard,
                     launchedAt: launchedAt, terminalReady: metadata.inputTTY != nil && terminalReady,
                     startupDraftSuspected: initializationDraft?.suspected == true,
-                    reopen: { clearReopenTarget(current: "codex", cwd: identity.directory ?? cwd) },
+                    reopen: { clearReopenTarget(current: "codex", cwd: identity.directory ?? cwd,
+                                                spendReserve: spendReserve) },
                     inject: { text in
                         observer?.poll(home: home)
                         guard observer?.canAcceptInput == true,
@@ -256,7 +259,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
     clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
     postSessionStateChanged(pid: pid)
-    if let reopenAs { execProviderReopen(reopenAs) }
+    if let reopenAs { execProviderReopen(reopenAs, current: "codex", spendReserve: spendReserve) }
     exit(supervisorExitCode(childStatus: status))
 }
 

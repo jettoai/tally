@@ -1129,7 +1129,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     return preSpawnAdmits(move, provider: provider, from: account,
                                           hold: &preSpawnHold, pid: supervisorPID) ? target : nil
                 },
-                reopen: { clearReopenTarget(current: provider.id, cwd: cwd) })
+                reopen: { clearReopenTarget(current: provider.id, cwd: cwd, spendReserve: spendReserve) })
             // A reopen as the project's default provider ends this supervisor: the child goes now,
             // the shared teardown below runs, and then this process execs `tally <provider>`.
             if let next = action.reopenAs {
@@ -1477,7 +1477,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         postSessionStateChanged(pid: supervisorPID)
         if let reopenAs {
             drainTerminalInput()   // what the dead child left queued is not the new window's
-            execProviderReopen(reopenAs)
+            execProviderReopen(reopenAs, current: provider.id, spendReserve: spendReserve)
         }
         exit(supervisorExitCode(childStatus: status))
     }

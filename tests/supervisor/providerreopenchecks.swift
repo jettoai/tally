@@ -10,7 +10,7 @@ func runProviderReopenChecks() {
     func reopen(_ current: String, _ declared: String?, installed: (String) -> Bool = { _ in true },
                 launchable: (String) -> Bool = { _ in true }) -> String? {
         clearReopenProvider(current: current, declared: declared, installed: installed,
-                            launchable: launchable)
+                            launchable: { target, _ in launchable(target) })
     }
     check("reopen: a Claude window in a Codex project reopens as Codex", reopen("claude", "codex") == "codex")
     check("reopen: a Claude window in a Claude project keeps its own /clear", reopen("claude", "claude") == nil)
@@ -20,6 +20,36 @@ func runProviderReopenChecks() {
     check("reopen: a target that is not installed is not offered", reopen("claude", "codex", installed: no) == nil)
     check("reopen: a target with no account to launch on is not offered",
           reopen("claude", "codex", launchable: no) == nil && reopen("codex", "claude", launchable: no) == nil)
+
+    // `--spend-reserve` rides a reopen to the same provider only (#424): the precheck is asked about
+    // exactly the argv the exec will run.
+    check("R3: a Codex window reopened as Codex keeps --spend-reserve",
+          providerReopenArgv(target: "codex", current: "codex", spendReserve: true)
+              == ["tally", "codex", "--spend-reserve", "--new"])
+    check("R4: a reopen into the other provider leaves --spend-reserve behind",
+          providerReopenArgv(target: "codex", current: "claude", spendReserve: true) == ["tally", "codex", "--new"]
+              && providerReopenArgv(target: "claude", current: "codex", spendReserve: true)
+                  == ["tally", "claude", "--new"])
+    check("R4 control: no --spend-reserve, none carried",
+          providerReopenArgv(target: "codex", current: "codex", spendReserve: false) == ["tally", "codex", "--new"])
+    // Measured 2026-10-13: without `--new` the reopened `tally codex` resumed the directory's last
+    // conversation (continue-by-default) instead of opening the empty window a clear asks for.
+    check("the reopen execs a NEW window, whatever it carries",
+          [("codex", "codex"), ("codex", "claude"), ("claude", "codex")].allSatisfy { pair in
+              [true, false].allSatisfy {
+                  providerReopenArgv(target: pair.0, current: pair.1, spendReserve: $0).last == "--new"
+              }
+          })
+    func asked(_ current: String, _ declared: String, spend: Bool) -> [String] {
+        var calls: [String] = []
+        _ = clearReopenProvider(current: current, declared: declared, spendReserve: spend, installed: yes,
+                                launchable: { calls.append("\($0):\($1)"); return true })
+        return calls
+    }
+    check("R5: the precheck is asked with the reserve spent only for the same provider",
+          asked("codex", "codex", spend: true) == ["codex:true"]
+              && asked("claude", "codex", spend: true) == ["codex:false"]
+              && asked("codex", "codex", spend: false) == ["codex:false"])
 
     var targetAsked = 0
     func oldSup(_ version: String?, _ target: String?) -> String? {
@@ -142,13 +172,25 @@ func runProviderReopenChecks() {
           command.contains("if let refusal = sessionSendRefusal(pid: sessionKey, dir: supervisorStateDir) {")
               && command.contains("if requestIntent != sessionClearIntent, SessionMonitoring.isMarked("))
     let reopenSource = (try? String(contentsOfFile: "TallyCLI/ProviderReopen.swift", encoding: .utf8)) ?? ""
-    // Measured 2026-10-13: without `--new` the reopened `tally codex` resumed the directory's last
-    // conversation (continue-by-default) instead of opening the empty window a clear asks for.
-    check("wiring: the reopen execs a NEW window", reopenSource.contains(#"["tally", providerID, "--new"]"#))
+    check("wiring: the reopen execs the argv `providerReopenArgv` builds",
+          reopenSource.contains("var argv: [UnsafeMutablePointer<CChar>?] = providerReopenArgv(\n"
+              + "            target: providerID, current: current, spendReserve: spendReserve)"))
+    check("wiring: the live precheck passes the reserve answer through to the launcher's decision",
+          reopenSource.contains("launchable: { providerLaunchable($0, cwd: cwd, spendReserve: $1) }")
+              && reopenSource.contains("stdoutIsTTY: isatty(STDOUT_FILENO) == 1, spendReserve: spendReserve)"))
+    let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     let codexSource = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
     // Measured 2026-10-13: a supervisor blocked in waitpid stopped reading the PTY and the Codex
     // child hung in exit; the reopen has to signal and keep pumping.
     check("wiring: the Codex reopen signals the child and keeps pumping rather than blocking on it",
           codexSource.contains("kill(child, SIGTERM)\n                    reopenAs = next")
               && !codexSource.contains("endChildTree(&reaper"))
+    // Both supervisors ask about, and exec, the reopen with the launch's own --spend-reserve.
+    check("wiring: the Codex monitor carries the launch's --spend-reserve into its reopen",
+          codexSource.contains("runCodexSupervised(provider, account: account, args: args, spendReserve: decision.spendReserve)")
+              && codexSource.contains("cwd: identity.directory ?? cwd,\n                                                spendReserve: spendReserve)")
+              && codexSource.contains(#"execProviderReopen(reopenAs, current: "codex", spendReserve: spendReserve)"#))
+    check("wiring: the Claude supervisor carries its --spend-reserve into its reopen",
+          supervisorSource.contains("clearReopenTarget(current: provider.id, cwd: cwd, spendReserve: spendReserve)")
+              && supervisorSource.contains("execProviderReopen(reopenAs, current: provider.id, spendReserve: spendReserve)"))
 }

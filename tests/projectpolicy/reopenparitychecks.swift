@@ -241,6 +241,17 @@ func runReopenGapChecks(acct: (String, String, Double, Double, Bool) -> Snapshot
         check("reopen gap \(cell.name): precheck \(got), launcher \(cell.want)", got == cell.want)
     }
     check("reopen gap: all 17 named cells were run and agreed", cells.count == 17 && agreed == 17)
+    // `--spend-reserve` carried by the reopen (#424): the field the reserve held is launched on.
+    for provider in [codex, claude] {
+        let p = provider.id
+        func held(spend: Bool) -> Bool {
+            reopenLaunchable(provider, in: shot([a(p, "A", under)]), policy: LaunchPolicy(), environment: [:],
+                             stdoutIsTTY: true, spendReserve: spend, reserves: reserve(p), quarantined: [])
+        }
+        check("R1 \(p): a reopen carrying --spend-reserve launches on the field its reserve held",
+              held(spend: true))
+        check("R2 \(p) control: the same reopen without it is refused", !held(spend: false))
+    }
     // The reopen execs in the supervisor's own terminal: a caller reading through a pipe
     // (`tally status --json | ...`) is not asking about a one-shot run.
     check("a precheck asked from a pipe still answers for the terminal the reopen lands in",

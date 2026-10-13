@@ -21,6 +21,24 @@ func runProviderReopenChecks() {
     check("reopen: a target with no account to launch on is not offered",
           reopen("claude", "codex", launchable: no) == nil && reopen("codex", "claude", launchable: no) == nil)
 
+    var targetAsked = 0
+    func oldSup(_ version: String?, _ target: String?) -> String? {
+        sessionClearReopenUnsupported(supervisorVersion: version,
+                                      reopenTarget: { targetAsked += 1; return target }())
+    }
+    let refused = oldSup("0.85.35", "codex") ?? ""
+    check("old supervisor: a clear due to reopen is refused, naming the version, target and way out",
+          refused.contains("runs 0.85.35") && refused.contains("as codex")
+              && refused.contains("`tally reload --self`") && refused.contains("`tally session clear` again"))
+    targetAsked = 0
+    check("old supervisor: 0.85.36 and later are let through without reading the target",
+          oldSup("0.85.36", "codex") == nil && oldSup("0.86.0", "codex") == nil && oldSup("0.85.100", "codex") == nil
+              && targetAsked == 0)
+    check("old supervisor: no reopen due (same provider) is let through", oldSup("0.85.35", nil) == nil)
+    check("old supervisor: an unreadable version is refused, as --composer-only is",
+          (oldSup(nil, "codex") != nil) == (sessionInputComposerOnlyUnsupported(supervisorVersion: nil) != nil)
+              && oldSup(nil, "codex")?.contains("does not report its version") == true)
+
     check("start: nothing declared starts claude", startProviderID(declared: nil, installed: yes) == "claude")
     check("start: claude declared starts claude", startProviderID(declared: "claude", installed: no) == "claude")
     check("start: codex declared and installed starts codex", startProviderID(declared: "codex", installed: yes) == "codex")

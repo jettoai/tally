@@ -286,6 +286,8 @@ func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?,
         warn(unsupported)
         return 3
     }
+    // A clear due to reopen as another provider needs a supervisor that does (B-1706).
+    if requestIntent == sessionClearIntent, let old = sessionClearReopenRefusal(sessionKey: sessionKey) { warn(old); return 3 }
     // Both husk sweeps, at the only moment this directory grows. The requests are swept by the same
     // loop every per-session channel uses; the answers need their own, because that loop reads a
     // file name as a pid outright (SessionInputRequest.swift).

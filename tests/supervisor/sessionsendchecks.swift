@@ -766,18 +766,19 @@ func runSessionSendChecks() {
                                    range: start.upperBound ..< command.endIndex) {
         let before = String(command[start.upperBound ..< written.lowerBound])
         let after = String(command[written.upperBound ..< command.endIndex])
-        // Thirteen refusals, counted where they are now worded. Nine return 3 here - the
+        // Fourteen refusals, counted where they are now worded. Ten return 3 here - the
         // explicitly named legacy Codex monitor, the directory that names no single session
         // (`--project`, decided before anything else is asked), the session that turns out to be
         // the provider `tally type <claude|codex>` did NOT name, a supervisor too old to read
-        // --composer-only, and the rest - and the four that
+        // --composer-only, one too old to reopen a cleared window as the project's provider, and
+        // the rest - and the four that
         // say which session an address names moved to `addressedSessionKey` when `tally message`
         // began taking the same three addresses (SessionAddressing.swift). BOTH HALVES ARE
         // COUNTED, because a refusal that went missing in the move would leave this check passing
         // on a smaller number. A refusal below the write can only be reached after a caller has
         // already been told its line was queued.
         check("every refusal is decided before the request is written, so none of them waits",
-              before.components(separatedBy: "return 3").count == 11
+              before.components(separatedBy: "return 3").count == 12
                   && before.contains("return 2")
                   // the one `return 3` below it is the --no-queue line that was taken but never
                   // answered, and that caller was never told its line was queued

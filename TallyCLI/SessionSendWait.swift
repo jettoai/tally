@@ -88,6 +88,40 @@ func sessionInputComposerOnlyUnsupported(supervisorVersion: String?) -> String? 
         + "`tally claude`) and it can be sent to from then on"
 }
 
+/// The first release whose supervisor answers a `tally session clear` by reopening the window as
+/// the project's default provider (B-1706, ProviderReopen.swift).
+let sessionClearReopenSince = "0.85.36"
+
+/// Why a `tally session clear` that should reopen the window as `reopenTarget` cannot be queued for
+/// a supervisor of this version, or nil when it can. An older supervisor ignores the reopen and
+/// types a bare /clear, which leaves the window on the provider the project moved away from. nil
+/// target (no reopen due) is never refused. `reopenTarget` is only evaluated for an old supervisor,
+/// because reading it loads the snapshot. A version that cannot be read is refused, as
+/// `sessionInputComposerOnlyUnsupported` does.
+func sessionClearReopenUnsupported(supervisorVersion: String?,
+                                   reopenTarget: @autoclosure () -> String?) -> String? {
+    if let supervisorVersion,
+       supervisorVersion.compare(sessionClearReopenSince, options: .numeric)
+           != .orderedAscending { return nil }
+    guard let target = reopenTarget() else { return nil }
+    let running = supervisorVersion.map { "runs \($0)" } ?? "does not report its version"
+    return "this session's supervisor \(running) and will not reopen this window as \(target), "
+        + "this project's default provider (that arrived in \(sessionClearReopenSince)); it would "
+        + "only type /clear, so nothing was queued. Run `tally reload --self` first (the supervisor "
+        + "swaps in the installed build once this turn ends), then run `tally session clear` again"
+}
+
+/// `sessionClearReopenUnsupported` for the session at `sessionKey`, read off its state file. The
+/// session's own directory decides the project default, not this process's: `--session` may name
+/// another session. No state file or no directory reads as no refusal, which is the old behaviour.
+func sessionClearReopenRefusal(sessionKey: String) -> String? {
+    guard let state = readSessionState(pid: sessionKey), let directory = state.directory else { return nil }
+    return sessionClearReopenUnsupported(
+        supervisorVersion: state.supervisorVersion,
+        reopenTarget: clearReopenTarget(
+            current: sessionProviderName(sessionKey: sessionKey, dir: supervisorStateDir), cwd: directory))
+}
+
 /// Why the supervisor refuses a pending line instead of typing it, under `--composer-only`, or
 /// nil when it may be typed. Asked at the instant the line would land, after every shared gate.
 ///

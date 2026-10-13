@@ -43,6 +43,9 @@ extension PopoverRootView {
                 // The logotype (brand T as the initial) - a bare glyph next to the word "Tally"
                 // read as two Ts. The header is the product's line; the jetto credit lives quietly
                 // in the footer's empty centre instead of trailing the wordmark like a byline.
+                // The version sits on the wordmark's baseline, like a subscript to the name; the
+                // badges after it stay centred on the row.
+                HStack(alignment: .lastTextBaseline, spacing: 6) {
                 TallyWordmarkView(glyphHeight: 13)
                 // Against the wordmark, which is the whole point of it being here rather than in
                 // the footer: trailing the jetto byline it read as the BYLINE's version, and no
@@ -51,6 +54,7 @@ extension PopoverRootView {
                 // Demo mode is for screenshots and promo footage: a version in them dates the shot.
                 if let version = BuildVariant.version, !DemoUsage.isActive {
                     Text(version).font(.caption2).foregroundStyle(.tertiary)
+                }
                 }
                 overlayHeaderBadge
                 // The dev variant tags every surface (menu bar strip + panel header), so a test

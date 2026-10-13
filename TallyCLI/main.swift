@@ -449,8 +449,7 @@ case "session":
     exit(runSession(args: Array(arguments.dropFirst())))
 case "type", "send":
     exit(runSend(args: Array(arguments.dropFirst())))
-case "message":
-    exit(runMessage(args: Array(arguments.dropFirst())))
+case "message": exit(runMessage(args: Array(arguments.dropFirst())))
 // One Claude in Chrome step on the account the extension is signed in to, for a session that
 // stays on its own (ChromeRun.swift).
 case "chrome":
@@ -473,6 +472,7 @@ case resuperviseCommand:   // internal: a supervisor replacing itself after an a
     runResupervise(args: Array(arguments.dropFirst()))
 case "completion":
     exit(runCompletion(args: Array(arguments.dropFirst())))
+case "codex-update": exit(runCodexUpdate(args: Array(arguments.dropFirst())))   // internal: CodexUpdateCommand.swift
 case "update": runUpdate()
 case "cost": exit(runCost(args: Array(arguments.dropFirst())))
 case "reap": exit(runReap(args: Array(arguments.dropFirst())))

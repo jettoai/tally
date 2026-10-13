@@ -477,7 +477,7 @@ a dialog may stand in front of the composer (--composer-only); 1 something went 
 
 /// What a missing or unknown verb is told: the first line of each verb's own text rather than a
 /// third copy of them, so what the namespace says cannot drift from what its verbs document.
-let sessionUsage = [sessionSendUsage, sessionClearUsage]
+let sessionUsage = [sessionSendUsage, sessionClearUsage, sessionSkipUpdateUsage]
     .map { String($0.prefix { $0 != "\n" }) }
     .joined(separator: "\n       ")
 
@@ -488,6 +488,7 @@ func runSession(args: [String]) -> Int32 {
         return runSessionSend(args: Array(args.dropFirst()))
     case "clear":
         return runSessionClear(args: Array(args.dropFirst()))
+    case "skip-update": return runSessionSkipUpdate(args: Array(args.dropFirst()))
     default:
         // Named rather than defaulted, the rule `runCompletion` states: a bare `tally session` is a
         // usage error rather than a guess, so the day a second verb arrives nothing that was written

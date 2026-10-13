@@ -18,6 +18,9 @@ struct CodexStartupScreen {
     private(set) var text = ""
     /// An escape sequence or UTF-8 character cut at the end of the last packet.
     private var carry: [UInt8] = []
+    /// The row of the last absolute cursor move: codex places each word of a menu row with its own
+    /// `CSI row;col H`, so a move along the same row is a space, not a line break.
+    private var row: Substring?
 
     mutating func observe(_ bytes: [UInt8]) {
         let input = carry + bytes
@@ -27,7 +30,7 @@ struct CodexStartupScreen {
         scan: while i < input.count {
             let byte = input[i]
             guard byte == 0x1B else {
-                if byte == 0x0A || byte == 0x0D { out.append(0x0A) } else if byte >= 0x20, byte != 0x7F { out.append(byte) }
+                if byte == 0x0A || byte == 0x0D { out.append(0x0A); row = nil } else if byte >= 0x20, byte != 0x7F { out.append(byte) }
                 i += 1
                 continue
             }
@@ -38,7 +41,11 @@ struct CodexStartupScreen {
                 while j < input.count, !(0x40...0x7E).contains(input[j]) { j += 1 }
                 guard j < input.count else { carry = Array(input[i...]); break scan }
                 // A cursor move separates what was drawn on either side; a style change does not.
-                if input[j] != 0x6D { out.append(0x0A) }
+                if input[j] == 0x48 {
+                    let moved = String(decoding: input[(i + 2)..<j], as: UTF8.self).split(separator: ";").first
+                    out.append(moved != nil && moved == row ? 0x20 : 0x0A)
+                    row = moved
+                } else if input[j] != 0x6D { out.append(0x0A); row = nil }
                 i = j + 1
             case 0x5D: // OSC: up to BEL or ESC backslash
                 var j = i + 2
@@ -70,6 +77,42 @@ struct CodexStartupScreen {
     var title: String? {
         let prompt = Self.last(Self.promptMarkers, in: text)?.lowerBound ?? text.startIndex
         return screens.first { $0.range.lowerBound >= prompt }?.title
+    }
+
+    /// The update menu as drawn, one row per line, for a person deciding from elsewhere. Only the
+    /// update screen: a sign-in screen can carry a login link and code, so nothing else is published.
+    var menuLines: [String]? {
+        guard title == "Update available",
+              let start = text.range(of: "Update available", options: .backwards),
+              !Self.screenMarkers.contains(where: { $0 != "Update available" && text[start.upperBound...].contains($0) })
+        else { return nil }
+        let rows = text[start.lowerBound...].split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return Array(rows.prefix(12).map { String($0.prefix(120)) })
+    }
+
+    /// Names one drawing of the menu, so a choice made while looking at it cannot land on another.
+    static func screenID(_ lines: [String]) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325   // FNV-1a 64, stable across processes and builds
+        for byte in lines.joined(separator: "\n").utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        return "scr_" + String(format: "%016llx", hash)
+    }
+
+    /// Arrow keys then Return that move the selection to the row labelled exactly `Skip`, or nil when
+    /// the rows cannot be read (nothing is typed on a guess).
+    static func skipKeys(_ lines: [String]) -> [UInt8]? {
+        var selected: Int?, target: Int?
+        for line in lines {
+            let marked = line.hasPrefix("› ")
+            let body = marked ? String(line.dropFirst(2)) : line
+            guard let dot = body.firstIndex(of: "."), let number = Int(body[..<dot]) else { continue }
+            let label = body[body.index(after: dot)...].trimmingCharacters(in: .whitespaces)
+            if marked { selected = number }
+            if label == "Skip" { target = number }
+        }
+        guard let selected, let target else { return nil }
+        let step: [UInt8] = target > selected ? [0x1B, 0x5B, 0x42] : [0x1B, 0x5B, 0x41]
+        return Array(repeating: step, count: abs(target - selected)).flatMap { $0 } + [0x0D]
     }
 
     /// Named screens first, then the picker row, each at its last position in `text`.
@@ -115,4 +158,13 @@ func codexStartupStall(screen: CodexStartupScreen, launchedAt: Date, bindingLand
     -> (since: Date, title: String?)? {
     guard !screen.reachedPrompt, !bindingLanded, now.timeIntervalSince(launchedAt) >= threshold else { return nil }
     return (launchedAt, screen.title)
+}
+
+/// What the state file carries for one tick: nil once the launch reached its prompt or bound a session.
+func codexStartupScreenRecord(_ screen: CodexStartupScreen, stall: (since: Date, title: String?)?)
+    -> CodexStartupScreenRecord? {
+    guard let stall else { return nil }
+    let lines = screen.menuLines
+    return CodexStartupScreenRecord(title: stall.title, lines: lines,
+                                    screenID: lines.map(CodexStartupScreen.screenID), since: stall.since)
 }

@@ -100,6 +100,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/SessionInput.swift TallyCLI/AutomaticInput.swift \
   TallyCLI/SessionInputAutomatic.swift \
   TallyCLI/SessionInputCommand.swift \
+  TallyCLI/CodexStartupChoice.swift TallyCLI/CodexStartupChoiceCommand.swift TallyCLI/CodexStartupScreen.swift \
   TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionInputLanding.swift \
   TallyCLI/SessionInputLog.swift \
@@ -112,7 +113,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/SessionQuiet.swift \
   TallyCLI/SessionSendVerb.swift \
   TallyCLI/SessionSendWait.swift \
-  TallyCLI/SessionState.swift \
+  TallyCLI/SessionState.swift TallyCLI/CodexStartupScreenRecord.swift \
   TallyCLI/SessionSwitch.swift \
   TallyCLI/SessionTurnEnd.swift \
   TallyCLI/Snapshot.swift \

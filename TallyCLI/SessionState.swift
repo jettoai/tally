@@ -127,6 +127,8 @@ struct SessionStateRecord: Codable, Equatable, Sendable {
     /// surface that drew nil as outdated would name a version it does not have and raise the badge
     /// on every card at once.
     var supervisorVersion: String?
+    /// A supervised Codex launch that has not reached its prompt (CodexStartupScreen.swift), nil otherwise.
+    var startupScreen: CodexStartupScreenRecord?
 
     /// The state this record names, with anything unfamiliar read as `unknown` (see above).
     var supervised: SupervisedState { SupervisedState(rawValue: state) ?? .unknown }

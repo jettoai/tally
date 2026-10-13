@@ -83,6 +83,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/SessionInput.swift TallyCLI/AutomaticInput.swift \
   TallyCLI/SessionInputAutomatic.swift \
   TallyCLI/SessionInputCommand.swift \
+  TallyCLI/CodexStartupChoice.swift TallyCLI/CodexStartupChoiceCommand.swift TallyCLI/CodexStartupScreen.swift \
   TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionInputLanding.swift \
   TallyCLI/SessionInputLog.swift \
@@ -95,7 +96,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/SessionQuiet.swift \
   TallyCLI/SessionSendVerb.swift \
   TallyCLI/SessionSendWait.swift \
-  TallyCLI/SessionState.swift \
+  TallyCLI/SessionState.swift TallyCLI/CodexStartupScreenRecord.swift \
   TallyCLI/SessionSwitch.swift \
   TallyCLI/SessionTurnEnd.swift \
   TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift \

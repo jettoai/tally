@@ -8,7 +8,7 @@ import Foundation
 // codex refreshing version.json, so Tally would never see a newer version again.
 
 let codexUpdateTimeout: TimeInterval = 180
-private let codexUpdateStateDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tally")
+let codexUpdateStateDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tally")
 /// Once per process: true when the launch must open with the menu switched off.
 nonisolated(unsafe) private var codexUpdateSkipMenu: Bool?
 
@@ -47,7 +47,8 @@ private func runCodexUpdatePreflight(home: String) -> Bool {
     }
 }
 
-private func updateCodex(_ codex: String, to latest: String, home: String) -> Bool {
+func updateCodex(_ codex: String, to latest: String, home: String,
+                 timeout: TimeInterval = codexUpdateTimeout, announce: String? = nil) -> Bool {
     let attemptURL = codexUpdateStateDir.appendingPathComponent("codex-update-attempt.json")
     let decoder = JSONDecoder(), encoder = JSONEncoder()
     decoder.dateDecodingStrategy = .iso8601
@@ -58,8 +59,8 @@ private func updateCodex(_ codex: String, to latest: String, home: String) -> Bo
         warn(codexUpdateFailureLine(latest: latest, reason: "last attempt failed \(minutes)m ago"))
         return false
     }
-    warn("Codex \(latest) is available; running `codex update` before opening (up to 3 min)...")
-    let deadline = Date().addingTimeInterval(codexUpdateTimeout)
+    warn(announce ?? "Codex \(latest) is available; running `codex update` before opening (up to 3 min)...")
+    let deadline = Date().addingTimeInterval(timeout)
     func fail(_ reason: String) -> Bool {
         if let data = try? encoder.encode(CodexUpdateAttempt(version: latest, failedAt: Date())) {
             try? data.write(to: attemptURL, options: .atomic)
@@ -73,13 +74,13 @@ private func updateCodex(_ codex: String, to latest: String, home: String) -> Bo
     let lock = open(codexUpdateStateDir.appendingPathComponent("codex-update.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
     defer { if lock >= 0 { close(lock) } }
     while lock >= 0, flock(lock, LOCK_EX | LOCK_NB) != 0 {
-        guard Date() < deadline else { return fail("timed out after \(Int(codexUpdateTimeout))s") }
+        guard Date() < deadline else { return fail("timed out after \(Int(timeout))s") }
         usleep(200_000)
     }
     if let installed = codexInstalledVersion(codex), !codexIsNewer(latest, than: installed) { return true }
 
     let run = codexRunInherited([codex, "update"], home: home, deadline: deadline)
-    if run.timedOut { return fail("timed out after \(Int(codexUpdateTimeout))s") }
+    if run.timedOut { return fail("timed out after \(Int(timeout))s") }
     guard let status = run.status else { return fail("codex update could not start") }
     guard status == 0 else { return fail("codex update exited with status \(status)") }
     // rc 0 alone is not proof: a package manager that finds nothing to do also exits 0.
@@ -101,7 +102,7 @@ private struct CodexInstalledStamp: Codable {
 
 /// `codex --version`, read back while the resolved executable is the same file (path, mtime, size).
 /// An upgrade replaces that file (brew points the link at a new Caskroom directory), so it asks again.
-private func codexInstalledVersionRemembered(_ codex: String) -> String? {
+func codexInstalledVersionRemembered(_ codex: String) -> String? {
     let url = codexUpdateStateDir.appendingPathComponent("codex-installed-version.json")
     let resolved = URL(fileURLWithPath: codex).resolvingSymlinksInPath().path
     guard let attributes = try? FileManager.default.attributesOfItem(atPath: resolved),

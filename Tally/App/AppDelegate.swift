@@ -136,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // switch during those same seconds arms the schedule without coming through here, so
             // the store gates those on a readiness flag that this line is what opens.
             EarlyStartStore.shared.start()
+            CodexUpdateSchedule.start()
         }
         // The native picker behind `/tally`: listen for the CLI's
         // knock for the life of the process, the way the update check's observer does. Not

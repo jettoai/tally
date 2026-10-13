@@ -220,6 +220,8 @@ struct StatusReport: Encodable {
         /// no tool call outstanding, no subagent writing. The other input to the same judgement,
         /// and the one that cannot be recovered afterwards.
         var quiet: Bool?
+        /// A Codex launch stuck before its prompt: the update menu's rows and the id `tally session skip-update` needs.
+        var startupScreen: CodexStartupScreenRecord?
         /// Capabilities of this resident, independent of whether a model supports these actions.
         var provider: String?
         var supportedActions: [String]?

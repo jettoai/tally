@@ -135,7 +135,8 @@ struct SessionStateWriter {
     /// field, so a session sitting blocked while its subagents start and stop writing costs one
     /// write per flip - which is the price of being able to answer "why is this red" at all.
     mutating func sync(_ state: SupervisedState, reason: String?, noticeType: String? = nil,
-                       quiet: Bool? = nil, loginRequiredAt: Date? = nil, identity: SessionIdentity,
+                       quiet: Bool? = nil, loginRequiredAt: Date? = nil,
+                       startupScreen: CodexStartupScreenRecord? = nil, identity: SessionIdentity,
                        pid: String, dir: URL = supervisorStateDir, now: Date = Date(),
                        notify: (String) -> Void = postSessionStateChanged) {
         let word = state.rawValue
@@ -147,7 +148,7 @@ struct SessionStateWriter {
             accountID: identity.accountID,
             directory: identity.directory, project: identity.project, worktree: identity.worktree,
             model: identity.model, childPid: identity.childPid,
-            supervisorVersion: identity.supervisorVersion)
+            supervisorVersion: identity.supervisorVersion, startupScreen: startupScreen)
         // WHOLE-VALUE, with `updatedAt` normalised away: that field moves on every tick by
         // construction, so comparing it would make every tick a write. Written this way rather than
         // as a chain of field comparisons so a field added to the record LATER joins this test for
@@ -158,6 +159,7 @@ struct SessionStateWriter {
             if unchanged == record { return }
         }
         let moved = current?.state != word || current?.loginRequiredAt != loginRequiredAt
+            || current?.startupScreen?.screenID != startupScreen?.screenID
         // NOTHING IS BELIEVED UNTIL IT IS ON DISK. The guard above judges the next write against
         // `current`, so updating it after a publish that failed would suppress every retry for the
         // rest of the session: the state would be decided correctly, every tick, and never

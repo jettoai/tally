@@ -195,6 +195,8 @@ try runCodexWaitPermissionChecks()
 try runCodexWaitQuestionChecks()
 runCodexUpdateChecks()
 try runCodexStartupChecks()
+try runCodexStartupChoiceChecks()
+runCodexUpdateCommandChecks()
 
 var (historyFile, historical) = try fixture("history", contents: meta() + event("task_complete", after: -1))
 historical.poll(home: home.path)

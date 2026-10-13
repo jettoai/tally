@@ -74,3 +74,17 @@ func spawnDetachedEventDeliverer(executable: String?) {
     try? p.run()
     p.waitUntilExit()   // sh itself exits in milliseconds; the grandchild it backgrounded does not
 }
+
+/// A detached one-shot `tally <args>` (the deliverer's spawn above, generalised): the arguments are
+/// handed to `sh` as positional parameters, never spliced into its script.
+func spawnDetachedTally(_ args: [String]) {
+    guard let exe = ownExecutablePath() else { return }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/sh")
+    p.arguments = ["-c", "\"$0\" \"$@\" </dev/null >/dev/null 2>&1 &", exe] + args
+    p.standardInput = nil
+    p.standardOutput = nil
+    p.standardError = nil
+    try? p.run()
+    p.waitUntilExit()
+}

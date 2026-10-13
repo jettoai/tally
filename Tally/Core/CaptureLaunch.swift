@@ -138,7 +138,11 @@ enum CaptureLaunch {
                                // against it (`UpdaterController.previewStall`). Alone it only
                                // shortens the stall threshold of a real update, which shows nothing
                                // until an update actually hangs.
-                               "TallyUpdateStallSeconds"]
+                               "TallyUpdateStallSeconds",
+                               // Qualify TallyCodexUpdateCLI (Debug): the background update's
+                               // pause between runs, the `--codex` it passes, and one environment
+                               // pair for the helper. Without the stand-in the schedule never starts.
+                               "TallyCodexUpdateEvery", "TallyCodexUpdateCodex", "TallyCodexUpdateEnv"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks
@@ -181,8 +185,11 @@ enum CaptureLaunch {
     ///
     /// `TallyPingURL` is a stand-in of the same kind: it points the anonymous usage ping at a local
     /// server (`UsagePing.urlOverrideKey`, tests/usageping), and a Debug build sends nothing without it.
+    /// `TallyCodexUpdateCLI` is another: it points the background Codex update at a scratch `tally`
+    /// (CodexUpdateSchedule.swift), and a build nobody installed runs no schedule without it.
     static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI",
-                                  pickClaimOverride, "TallyRenewLoginTest", "TallyPingURL"]
+                                  pickClaimOverride, "TallyRenewLoginTest", "TallyPingURL",
+                                  "TallyCodexUpdateCLI"]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without

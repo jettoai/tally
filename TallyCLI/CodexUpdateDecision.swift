@@ -86,3 +86,29 @@ func codexUpdateBackedOff(attempt: (version: String, failedAt: Date)?, latest: S
     guard let attempt, attempt.version == latest else { return false }
     return now.timeIntervalSince(attempt.failedAt) < window
 }
+
+// MARK: - The background update (`tally codex-update`, CodexUpdateCommand.swift)
+
+/// The newest version any of these Codex homes would offer, and the home that offers it.
+func codexBestCandidate(_ homes: [(home: String, cache: Data?, checkDisabled: Bool)]) -> (home: String, version: String)? {
+    homes.compactMap { entry in
+        codexCachedUpdateCandidate(cache: entry.cache, checkDisabled: entry.checkDisabled).map { (entry.home, $0) }
+    }.max { codexIsNewer($1.1, than: $0.1) }
+}
+
+/// Whether `--if-due` should look at all: once an hour, and at once when it never has.
+func codexUpdateCheckDue(lastCheckedAt: Date?, now: Date, every: TimeInterval = 3600) -> Bool {
+    guard let lastCheckedAt else { return true }
+    return now.timeIntervalSince(lastCheckedAt) >= every
+}
+
+/// One line of `~/.tally/logs/codex-update.log`: what ran, why, and what came of it.
+func codexUpdateLogLine(at: Date, trigger: String, codex: String, from: String?, to: String?,
+                        result: String, seconds: Int) -> String {
+    var fields: [String: Any] = ["at": ISO8601DateFormatter().string(from: at), "trigger": trigger,
+                                 "codex": codex, "result": result, "seconds": seconds]
+    fields["from"] = from
+    fields["to"] = to
+    let data = (try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
+    return String(decoding: data, as: UTF8.self) + "\n"
+}

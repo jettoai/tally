@@ -10,7 +10,7 @@ swiftc -o "$out" tests/statusjson/main.swift tests/statusjson/resetpassedchecks.
   tests/statusjson/clearancemarkerchecks.swift tests/statusjson/pinstepasidechecks.swift tests/statusjson/sharedloginchecks.swift TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift \
   TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
   TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
-  TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift TallyCLI/StatusResetText.swift Tally/Core/HeldOverReset.swift \
+  TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift TallyCLI/CodexStartupScreenRecord.swift TallyCLI/StatusResetText.swift Tally/Core/HeldOverReset.swift \
   TallyCLI/ResumePrompt.swift \
     TallyCLI/UsageAdvisor.swift TallyCLI/UsageAdvisorMath.swift TallyCLI/AccountComfort.swift
 "$out"

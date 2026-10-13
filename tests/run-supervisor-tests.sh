@@ -146,6 +146,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/transcriptcatchupchecks.swift \
   tests/supervisor/backstopchecks.swift \
   tests/supervisor/codexmonitoringchecks.swift tests/supervisor/codexinputchecks.swift tests/supervisor/codexresumechecks.swift \
+  tests/supervisor/codexstartupptychecks.swift TallyCLI/CodexStartupChoice.swift TallyCLI/CodexStartupChoiceCommand.swift \
   Tally/Core/CodexSessionHooks.swift TallyCLI/CodexStartMode.swift TallyCLI/CodexInputRelay.swift TallyCLI/CodexStartupScreen.swift TallyCLI/CodexSessionInput.swift TallyCLI/CodexSupervisor.swift TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift TallyCLI/CodexSessionHook.swift \
   TallyCLI/Supervisor.swift TallyCLI/TaskListPin.swift TallyCLI/SupervisorTermination.swift TallyCLI/SupervisorRuntime.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CapRecovery.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/LaunchDir.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/RestartLiveWork.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift TallyCLI/TranscriptLineBytes.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/CapLimitReset.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
@@ -160,7 +161,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/KeyboardIdle.swift TallyCLI/FocusEvents.swift TallyCLI/KeyboardTrace.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift TallyCLI/UnmanagedLaunch.swift \
   TallyCLI/TerminalHandover.swift \
-  TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/HookNotify.swift TallyCLI/AgentRoster.swift TallyCLI/HookAgents.swift TallyCLI/SessionStateSync.swift TallyCLI/SessionWaitTracker.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
+  TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/CodexStartupScreenRecord.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/HookNotify.swift TallyCLI/AgentRoster.swift TallyCLI/HookAgents.swift TallyCLI/SessionStateSync.swift TallyCLI/SessionWaitTracker.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
   TallyCLI/SessionWaitEvent.swift TallyCLI/SessionWaitLogic.swift TallyCLI/SessionWaitSpool.swift TallyCLI/EventDeliverySpawn.swift TallyCLI/CodexWaitEvents.swift \
   TallyCLI/SessionContext.swift TallyCLI/SessionInventory.swift TallyCLI/MessagingSocket.swift \
   TallyCLI/SessionInput.swift TallyCLI/AutomaticInput.swift TallyCLI/SessionInputAutomatic.swift TallyCLI/SessionInputTick.swift TallyCLI/SessionInputLanding.swift \
@@ -226,3 +227,4 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
 
 python3 tests/supervisor/codexinputpty.py "$out"
 python3 tests/supervisor/codexresumepty.py "$out"
+python3 tests/supervisor/codexstartuppty.py "$out"

@@ -58,7 +58,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Core/AccountReserve.swift Tally/Core/PersonalAccount.swift \
   TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \
-  TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift \
+  TallyCLI/SessionState.swift TallyCLI/CodexStartupScreenRecord.swift TallyCLI/AgentRoster.swift Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \
   Tally/Core/PromptHookInput.swift Tally/Core/CLIRunner.swift Tally/Core/CLISearchPath.swift Tally/Core/ClaudeStableExecutable.swift \
   Tally/Core/UsageSnapshot.swift \

@@ -245,6 +245,7 @@ targets:
       # nothing while every session reports correctly. Only the record and its reader are here -
       # everything that DECIDES a state stays in the CLI (SessionStateSync.swift).
       - path: TallyCLI/SessionState.swift
+      - path: TallyCLI/CodexStartupScreenRecord.swift
       # The same division one reading over: how many subagents a session has working, written by
       # the hooks Claude Code fires and read by the card that draws the count. Both targets compile
       # the one record for the reason above - separate processes speaking through a file - and the

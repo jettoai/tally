@@ -137,7 +137,7 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             // decided: this join reads, it does not judge (StatusReport.swift says what they are
             // for and why a state word alone left the question unanswerable).
             reason: session.state?.reason, noticeType: session.state?.noticeType,
-            quiet: session.state?.quiet,
+            quiet: session.state?.quiet, startupScreen: session.state?.startupScreen,
             provider: session.monitoring ? "codex" : "claude",
             // The same answer `tally session send` refuses or accepts on (SessionMonitoring.swift),
             // so the inventory cannot advertise a control the send path would then turn down.

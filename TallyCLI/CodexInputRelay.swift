@@ -226,6 +226,13 @@ final class CodexInputRelay {
         return .done
     }
 
+    /// Writes `bytes` to the child exactly as keys, for the startup update menu only (no bracketed
+    /// paste: a picker reads keys, not a paste). Refused unless the child still owns this PTY.
+    func sendKeys(_ bytes: [UInt8], child: Int32, startedAt: Int64) -> Bool {
+        guard !didRestore, didSpawn, master >= 0, terminalReady(child: child, startedAt: startedAt) else { return false }
+        return writeAll(bytes, to: master)
+    }
+
     /// An uncertain paste or native receipt requires a fresh supervisor, never a second writer.
     func disableDirectSend() { submissionUncertain = true }
 

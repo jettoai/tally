@@ -119,6 +119,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     /// PTY leaves it stuck exiting. KILL follows if it is still there after the grace.
     var reopenAs: String?
     var reopenKillAt: Date?
+    /// What this tick publishes about a launch stuck before its prompt (CodexStartupScreen.swift).
+    var screenRecord: CodexStartupScreenRecord?
     while reaper.isRunning {
         if let terminal, !terminal.pump(timeout: 0.02) {
             if metadata.childStart == SessionMonitoring.generation(child) { kill(child, SIGHUP) }
@@ -167,6 +169,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             for event in codexWaits.reconcile(observer: observer, directory: identity.directory, project: identity.project,
                                               worktree: identity.worktree, startupScreen: stall, now: Date()) { appendSessionWaitEvent(event) }
             maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)
+            screenRecord = terminal.flatMap { codexStartupScreenRecord($0.startupScreen, stall: stall) }
+            handleStartupChoice(pid: pid, record: screenRecord, relay: terminal, child: child, childStart: metadata.childStart)
             initializationDraft?.observe(humanInput: terminal?.lastHumanInputAt,
                 inputReceipt: observer?.lastInputReceiptAt,
                 ready: observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true)
@@ -231,7 +235,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             identity.model = observer?.model ?? identity.model
             let state = observer?.state ?? .unknown
             writer.sync(state, reason: state == .unknown ? "Codex session status is not available." : nil,
-                        identity: identity, pid: pid)
+                        startupScreen: screenRecord, identity: identity, pid: pid)
         }
         if terminal == nil { usleep(250_000) }
     }
@@ -251,4 +255,25 @@ func clearCodexSupervisorState(pid: String, dir: URL) {
     for suffix in [""] + supervisorStateSuffixes {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(pid + suffix))
     }
+}
+
+/// Serves one pending `tally session skip-update` request (CodexStartupChoice.swift): decided against
+/// what this tick publishes, typed into this child's PTY only, receipted either way. `sent` is the
+/// background update Tally runs once Skip is typed, injectable so a fixture types without spawning.
+@discardableResult
+func handleStartupChoice(pid: String, record: CodexStartupScreenRecord?, relay: CodexInputRelay?,
+                         child: Int32, childStart: Int64?, dir: URL = supervisorStateDir, now: Date = Date(),
+                         sent: () -> Void = { spawnDetachedTally(["codex-update", "--trigger", "skip"]) }) -> String? {
+    let url = dir.appendingPathComponent(pid + startupChoiceSuffix)
+    guard let data = try? Data(contentsOf: url) else { return nil }
+    try? FileManager.default.removeItem(at: url)
+    guard let request = try? startupChoiceDecoder().decode(StartupChoiceRequest.self, from: data) else { return nil }
+    var decision = decideStartupChoice(request, record: record, humanInputAt: relay?.lastHumanInputAt, now: now)
+    if let keys = decision.keys {
+        if let relay, let childStart, relay.sendKeys(keys, child: child, startedAt: childStart) { sent() } else {
+            decision.result = "write-failed"
+        }
+    }
+    writeStartupChoiceReceipt(StartupChoiceReceipt(nonce: request.nonce, result: decision.result), pid: pid, dir: dir)
+    return decision.result
 }

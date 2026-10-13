@@ -74,6 +74,9 @@ func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
     dir.appendingPathComponent(pid + pendingNoticeSuffix)
 }
 
+/// A request to answer codex's startup update menu, and the supervisor's receipt for it (CodexStartupChoice.swift).
+let startupChoiceSuffix = ".startup-choice"
+let startupChoiceReceiptSuffix = ".startup-choice-receipt"
 /// The supervisor pid a file in the state directory belongs to: the presence/drift file (`<pid>`),
 /// or any of the documents written beside it under a suffix. nil for anything else in there, which
 /// is what keeps the sweep off files that are not ours - so a new document on this track is added
@@ -83,7 +86,8 @@ let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, superv
                                transcriptIdentitySuffix, sessionStateSuffix, userNoticeSuffix,
                                sessionAgentsSuffix, sessionAgentsLockSuffix, sessionTurnEndSuffix,
                                quotaKnockNoticeSuffix, SessionMonitoring.suffix, ".codex-binding", ".codex-activity",
-                               keyboardTraceSuffix, taskListPublishedSuffix]
+                               keyboardTraceSuffix, taskListPublishedSuffix,
+                               startupChoiceSuffix, startupChoiceReceiptSuffix]
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }

@@ -36,6 +36,12 @@ if CommandLine.arguments.contains("--codex-input-pty-reader") {
 if CommandLine.arguments.contains("--codex-input-pty-fixture") {
     runCodexInputPTYFixture()
 }
+if CommandLine.arguments.contains("--codex-startup-pty-reader") {
+    runCodexStartupPTYReader()
+}
+if CommandLine.arguments.contains("--codex-startup-pty-fixture") {
+    runCodexStartupPTYFixture()
+}
 if CommandLine.arguments.contains("--codex-resume-pty-fixture") {
     runCodexResumePTYFixture()
 }

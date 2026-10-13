@@ -46,8 +46,6 @@ private func runCodexUpdatePreflight(home: String) -> Bool {
 
 func updateCodex(_ codex: String, to latest: String, home: String,
                  timeout: TimeInterval = codexUpdateTimeout, announce: String? = nil) -> Bool {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
     let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt)
     if let attempt, codexUpdateBackedOff(attempt: attempt, latest: latest, timeout: timeout, now: Date()) {
         let minutes = Int(Date().timeIntervalSince(attempt.failedAt) / 60)
@@ -58,7 +56,7 @@ func updateCodex(_ codex: String, to latest: String, home: String,
     let deadline = Date().addingTimeInterval(timeout)
     func fail(_ reason: String, timedOut: Bool = false) -> Bool {
         let record = CodexUpdateAttempt(version: latest, failedAt: Date(), timedOutAfter: timedOut ? timeout : nil)
-        if let data = try? encoder.encode(record) {
+        if let data = encodeCodexUpdateAttempt(record) {
             try? data.write(to: codexUpdateAttemptURL, options: .atomic)
         }
         warn(codexUpdateFailureLine(latest: latest, reason: reason))

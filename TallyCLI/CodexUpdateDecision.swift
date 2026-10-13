@@ -94,6 +94,12 @@ func decodeCodexUpdateAttempt(_ data: Data) -> CodexUpdateAttempt? {
     return try? decoder.decode(CodexUpdateAttempt.self, from: data)
 }
 
+func encodeCodexUpdateAttempt(_ attempt: CodexUpdateAttempt) -> Data? {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    return try? encoder.encode(attempt)
+}
+
 /// A failed attempt at `latest` within `window` of `now` suppresses another try, except a timeout
 /// under a shorter limit than this caller's `timeout`: the 180 s pre-launch update running out must
 /// not hold the 900 s background update off the same version.

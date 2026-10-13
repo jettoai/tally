@@ -45,8 +45,6 @@ func runCodexUpdateCommandChecks() {
     check("UC4 an attempt file without the timeout field still reads, and backs off both",
           legacy != nil && legacy?.timedOutAfter == nil
               && backedOff(legacy, timeout: 900) && backedOff(legacy, timeout: 180))
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    let roundTrip = (try? encoder.encode(shortTimeout)).flatMap(decodeCodexUpdateAttempt)
+    let roundTrip = encodeCodexUpdateAttempt(shortTimeout).flatMap(decodeCodexUpdateAttempt)
     check("UC4 the timeout limit survives the attempt file", roundTrip?.timedOutAfter == 180)
 }

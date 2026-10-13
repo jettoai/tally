@@ -268,13 +268,19 @@ struct CodexStartupScreen {
 
     /// Blanks cells with one new stamp (or `stamp`, to join the batch just started).
     private mutating func erase(row r: Int, cols range: Range<Int>, stamp: Int? = nil) {
-        let stamp = stamp ?? { clock += 1; return clock }()
+        let stamp = stamp ?? tick()
         for c in range { cells[r][c] = " "; stamps[r][c] = stamp }
     }
 
     private mutating func erase(rows range: Range<Int>, stamp: Int? = nil) {
-        let stamp = stamp ?? { clock += 1; return clock }()
+        let stamp = stamp ?? tick()
         for r in range { erase(row: r, cols: 0..<cols, stamp: stamp) }
+    }
+
+    /// The next stamp.
+    private mutating func tick() -> Int {
+        clock += 1
+        return clock
     }
 
     private mutating func put(_ scalar: Unicode.Scalar) {
@@ -282,11 +288,11 @@ struct CodexStartupScreen {
         if measured == 0 { return }                       // combining mark: not modelled
         let width = measured == 2 ? 2 : 1
         if wrapPending || col + width > cols { col = 0; lineFeed(); wrapPending = false }
-        clock += 1
+        let stamp = tick()
         if cells[row][col] == Self.wideTail, col > 0 { cells[row][col - 1] = " " }   // split a wide pair
         if col + 1 < cols, cells[row][col + 1] == Self.wideTail, width == 1 { cells[row][col + 1] = " " }
-        cells[row][col] = Character(scalar); stamps[row][col] = clock
-        if width == 2, col + 1 < cols { cells[row][col + 1] = Self.wideTail; stamps[row][col + 1] = clock }
+        cells[row][col] = Character(scalar); stamps[row][col] = stamp
+        if width == 2, col + 1 < cols { cells[row][col + 1] = Self.wideTail; stamps[row][col + 1] = stamp }
         col += width
         if col >= cols { col = cols - 1; wrapPending = true }
     }

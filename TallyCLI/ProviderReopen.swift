@@ -68,8 +68,9 @@ func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: Laun
                       environment: [String: String], stdoutIsTTY: Bool, spendReserve: Bool = false,
                       reserves: AccountReserves = accountReserves(),
                       quarantined: Set<String>? = nil) -> Bool {
-    // The tail of `providerReopenArgv`: the exec this predicts.
-    let args = (spendReserve ? [spendReserveFlag] : []) + ["--new"]
+    // The exec this predicts, minus `tally <provider>`.
+    let args = Array(providerReopenArgv(target: provider.id, current: provider.id,
+                                        spendReserve: spendReserve).dropFirst(2))
     var intent = launchIntent(provider, args: args, accountFlag: nil, stdoutIsTTY: stdoutIsTTY,
                               environment: environment)
     intent.oneShot = false

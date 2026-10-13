@@ -46,7 +46,8 @@ func providerLaunchable(_ id: String, cwd: String) -> Bool {
 /// `providerLaunchable` with its readings passed in. It asks the launcher's own decisions rather
 /// than a third copy of them: an exported config home that `runLaunch` honours (main.swift) is
 /// either refused under its reserve or run as a plain exec no later clear can reach, so it is a no
-/// either way; otherwise the answer is `steeredLaunch`, the prediction that already carries the pin,
+/// either way, as is a pin resolved only through the policy's denormalized home; otherwise the
+/// answer is `steeredLaunch`, the prediction that already carries the pin,
 /// the pin's reserve and the reserves of the automatic pick (LaunchDir.swift).
 func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                       environment: [String: String], stdoutIsTTY: Bool,
@@ -56,6 +57,14 @@ func reopenLaunchable(_ provider: Provider, in snapshot: Snapshot?, policy: Laun
     if environment[provider.envKey] != nil,
        !inheritedSessionEnvironment(providerID: provider.id, stdoutIsTTY: stdoutIsTTY,
                                     environment: environment) {
+        return false
+    }
+    // A pin with no launchable row of its own that `pinnedLaunchHome` still resolves (the home the
+    // app denormalized into the policy) is exec'd plain by `runLaunch`, with no supervisor. The
+    // shim's `steeredLaunch` launches it too, so it is excluded here, not there.
+    if policy.mode == "manual",
+       snapshot?.accounts.contains(where: { $0.id == policy.pinnedAccountID && $0.launchHome != nil }) != true,
+       pinnedLaunchHome(snapshot, policy: policy) != nil {
         return false
     }
     return steeredLaunch(provider, in: snapshot, policy: policy, reserves: reserves,

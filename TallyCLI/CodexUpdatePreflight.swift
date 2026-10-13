@@ -9,6 +9,8 @@ import Foundation
 
 let codexUpdateTimeout: TimeInterval = 180
 let codexUpdateStateDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tally")
+/// The last failed update (`CodexUpdateAttempt`), shared with `tally codex-update` (CodexUpdateCommand.swift).
+let codexUpdateAttemptURL = codexUpdateStateDir.appendingPathComponent("codex-update-attempt.json")
 /// Once per process: true when the launch must open with the menu switched off.
 nonisolated(unsafe) private var codexUpdateSkipMenu: Bool?
 
@@ -44,10 +46,9 @@ private func runCodexUpdatePreflight(home: String) -> Bool {
 
 func updateCodex(_ codex: String, to latest: String, home: String,
                  timeout: TimeInterval = codexUpdateTimeout, announce: String? = nil) -> Bool {
-    let attemptURL = codexUpdateStateDir.appendingPathComponent("codex-update-attempt.json")
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let attempt = (try? Data(contentsOf: attemptURL)).flatMap(decodeCodexUpdateAttempt)
+    let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt)
     if let attempt, codexUpdateBackedOff(attempt: attempt, latest: latest, timeout: timeout, now: Date()) {
         let minutes = Int(Date().timeIntervalSince(attempt.failedAt) / 60)
         warn(codexUpdateFailureLine(latest: latest, reason: "last attempt failed \(minutes)m ago"))
@@ -58,7 +59,7 @@ func updateCodex(_ codex: String, to latest: String, home: String,
     func fail(_ reason: String, timedOut: Bool = false) -> Bool {
         let record = CodexUpdateAttempt(version: latest, failedAt: Date(), timedOutAfter: timedOut ? timeout : nil)
         if let data = try? encoder.encode(record) {
-            try? data.write(to: attemptURL, options: .atomic)
+            try? data.write(to: codexUpdateAttemptURL, options: .atomic)
         }
         warn(codexUpdateFailureLine(latest: latest, reason: reason))
         return false
@@ -81,7 +82,7 @@ func updateCodex(_ codex: String, to latest: String, home: String,
     // rc 0 alone is not proof: a package manager that finds nothing to do also exits 0.
     guard let after = codexInstalledVersion(codex) else { return fail("could not read the installed codex version") }
     guard !codexIsNewer(latest, than: after) else { return fail("still at \(after) after the update") }
-    try? FileManager.default.removeItem(at: attemptURL)
+    try? FileManager.default.removeItem(at: codexUpdateAttemptURL)
     warn("Codex updated to \(after)")
     return true
 }

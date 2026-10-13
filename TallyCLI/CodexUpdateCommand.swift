@@ -63,8 +63,7 @@ func runCodexUpdate(args: [String]) -> Int32 {
     case .installedUnknown:
         return record("installed-unknown", from: nil, to: best.version)
     case .available(let latest):
-        let attempt = codexUpdateStateDir.appendingPathComponent("codex-update-attempt.json")
-        func stamp() -> Date? { (try? FileManager.default.attributesOfItem(atPath: attempt.path))?[.modificationDate] as? Date }
+        func stamp() -> Date? { (try? FileManager.default.attributesOfItem(atPath: codexUpdateAttemptURL.path))?[.modificationDate] as? Date }
         let before = stamp()
         let ok = updateCodex(codex, to: latest, home: best.home, timeout: timeout,
             announce: "Codex \(latest) is available; updating in the background (up to \(Int(timeout / 60)) min)...")

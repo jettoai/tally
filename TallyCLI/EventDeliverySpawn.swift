@@ -64,21 +64,13 @@ func spawnDetachedEventDeliverer() {
 /// The same spawn with the binary named by the caller, so a test can hand it a slow stand-in and
 /// measure that the call returns while the stand-in is still running.
 func spawnDetachedEventDeliverer(executable: String?) {
-    guard let exe = executable else { return }
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/bin/sh")
-    p.arguments = ["-c", "\"$0\" events --deliver-once </dev/null >/dev/null 2>&1 &", exe]
-    p.standardInput = nil
-    p.standardOutput = nil
-    p.standardError = nil
-    try? p.run()
-    p.waitUntilExit()   // sh itself exits in milliseconds; the grandchild it backgrounded does not
+    spawnDetachedTally(["events", "--deliver-once"], executable: executable)
 }
 
-/// A detached one-shot `tally <args>` (the deliverer's spawn above, generalised): the arguments are
-/// handed to `sh` as positional parameters, never spliced into its script.
-func spawnDetachedTally(_ args: [String]) {
-    guard let exe = ownExecutablePath() else { return }
+/// A detached one-shot `tally <args>`: the arguments are handed to `sh` as positional parameters,
+/// never spliced into its script.
+func spawnDetachedTally(_ args: [String], executable: String? = ownExecutablePath()) {
+    guard let exe = executable else { return }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/sh")
     p.arguments = ["-c", "\"$0\" \"$@\" </dev/null >/dev/null 2>&1 &", exe] + args
@@ -86,5 +78,5 @@ func spawnDetachedTally(_ args: [String]) {
     p.standardOutput = nil
     p.standardError = nil
     try? p.run()
-    p.waitUntilExit()
+    p.waitUntilExit()   // sh itself exits in milliseconds; the grandchild it backgrounded does not
 }

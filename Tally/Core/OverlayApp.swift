@@ -29,5 +29,9 @@ extension SettingsView {
     /// Rows a private build adds to the About pane, under the brand row. Each row brings its own
     /// trailing divider, so the public pane is unchanged.
     @ViewBuilder var overlayAboutRows: some View { EmptyView() }
+    /// The name of a page a private build adds to the Integrations pane; nil leaves the page out.
+    var overlayIntegrationsTitle: String? { nil }
+    /// The rows of that page.
+    @ViewBuilder var overlayIntegrationsRows: some View { EmptyView() }
 }
 #endif

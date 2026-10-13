@@ -190,7 +190,7 @@ final class UsageStore {
     private var retryDelay: TimeInterval = 60
     private var retryFireAt: Date?
 
-    private func scheduleRetryIfNeeded(anyFailure: Bool, soon: Bool = false) {
+    private func scheduleRetryIfNeeded(anyFailure: Bool, soon: Bool) {
         retryTimer?.cancel()
         retryTimer = nil
         retryFireAt = nil

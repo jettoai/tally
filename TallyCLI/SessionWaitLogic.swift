@@ -26,10 +26,13 @@ import Foundation
 /// `dialogWaitingFor` is Claude Code's own name for the dialog on top (its session registry's
 /// `waitingFor`), read only while a `permission_prompt` stands. `codexQuestionTool` is the Codex
 /// question tool whose call is open in the rollout (`CodexSessionObserver.pendingQuestion`).
+/// The `tool` a Codex wait carries when Codex has not reached its prompt (CodexWaitEvents.swift).
+let codexStartupScreenTool = "startup-screen"
+
 func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, waiting: Bool,
                      question: String?, questionSince: Date?, quiet: Bool,
                      wait: UserWait?, permissionTool: String?, dialogWaitingFor: String? = nil,
-                     codexQuestionTool: String? = nil) -> SessionWaitRequest? {
+                     codexQuestionTool: String? = nil, codexStartupScreen: Bool = false) -> SessionWaitRequest? {
     // Row: claude, `openUserQuestion` non-nil -> question, confirmed. Provider-agnostic in this
     // repo today (only Claude opens a question, X4 in the plan marks Codex's as unproven), but
     // checked ahead of the provider split because the transcript signal, when it exists, always
@@ -66,6 +69,12 @@ func openWaitRequest(provider: String, sessionKey: String, notice: UserNotice?, 
         // rollout proves the call was made and not yet answered, never that a person saw it.
         if let codexQuestionTool {
             return request(kind: .question, confidence: .suspected, tool: codexQuestionTool)
+        }
+        // Row: codex, launched over `codexStartupStallThreshold` ago and the composer never drawn
+        // (CodexStartupScreen.swift) -> unknown, suspected. The screen proves something stands in
+        // front of the prompt, never which kind of request it is or that a person is looking.
+        if codexStartupScreen {
+            return request(kind: .unknown, confidence: .suspected, tool: codexStartupScreenTool)
         }
         return request(kind: .permission, confidence: .suspected, tool: permissionTool)
     }

@@ -102,9 +102,9 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     var clearedConversation: String? = nil
     func startModeArgs(_ args: [String], home: String) -> [String] {
         if provider.id == "codex" {
-            return applyCodexStartMode(args, policy: policy, wantsNew: wantsNew, home: home,
-                cwd: FileManager.default.currentDirectoryPath, interactive: stdoutIsTTY,
-                live: liveCodexConversations())
+            return prepareCodexLaunch(applyCodexStartMode(args, policy: policy, wantsNew: wantsNew,
+                home: home, cwd: FileManager.default.currentDirectoryPath, interactive: stdoutIsTTY,
+                live: liveCodexConversations()), home: home, interactive: stdoutIsTTY)
         }
         // One reading of the working directory for both halves of the question, rather than two: the
         // chdir a worktree launch performs has already happened by here (above), and a decision made

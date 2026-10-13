@@ -23,6 +23,8 @@ final class CodexInputRelay {
     private var submissionUncertain = false
     private var outputTail: [UInt8] = []
     private var inputClassifier = CodexTerminalInputClassifier()
+    /// What Codex drew before its composer, for the startup-screen wait (CodexStartupScreen.swift).
+    private(set) var startupScreen = CodexStartupScreen()
 
     /// A real keyboard edit observed while relaying. Terminal replies, focus changes and mouse
     /// reports deliberately do not become a draft stamp.
@@ -265,6 +267,7 @@ final class CodexInputRelay {
     }
 
     private func observeCodexOutput(_ bytes: [UInt8]) {
+        startupScreen.observe(bytes)
         let combined = outputTail + bytes
         let enable = Array("\u{1B}[?2004h".utf8)
         let disable = Array("\u{1B}[?2004l".utf8)

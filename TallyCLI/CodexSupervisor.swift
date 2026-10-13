@@ -162,8 +162,10 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             let activity = (try? Data(contentsOf: supervisorStateDir.appendingPathComponent(pid + ".codex-activity")))
                 .flatMap { try? JSONDecoder().decode(CodexSessionActivity.self, from: $0) }
             observer?.poll(home: home, activity: activity)
+            let stall = terminal.flatMap { codexStartupStall(screen: $0.startupScreen, launchedAt: launchedAt,
+                                                             bindingLanded: observer != nil, now: Date()) }
             for event in codexWaits.reconcile(observer: observer, directory: identity.directory, project: identity.project,
-                                              worktree: identity.worktree, now: Date()) { appendSessionWaitEvent(event) }
+                                              worktree: identity.worktree, startupScreen: stall, now: Date()) { appendSessionWaitEvent(event) }
             maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)
             initializationDraft?.observe(humanInput: terminal?.lastHumanInputAt,
                 inputReceipt: observer?.lastInputReceiptAt,

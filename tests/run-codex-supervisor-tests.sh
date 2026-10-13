@@ -8,10 +8,12 @@ trap 'rm -rf "$out"' EXIT
 # OpenTurn.swift are what SessionWaitLogic.swift needs to compile (support.swift stands in for
 # the one Snapshot.swift symbol OpenTurn.swift would otherwise drag in).
 swiftc -o "$out/run" tests/codex-supervisor/main.swift tests/codex-supervisor/waitchecks.swift tests/codex-supervisor/waitquestionchecks.swift \
+  tests/codex-supervisor/updatechecks.swift tests/codex-supervisor/startupchecks.swift \
   tests/codex-supervisor/support.swift \
   Tally/Core/SessionMonitoring.swift Tally/Core/CodexSessionHooks.swift \
   TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift \
   TallyCLI/SessionState.swift TallyCLI/ReloadRequest.swift \
   TallyCLI/CodexWaitEvents.swift TallyCLI/SessionWaitEvent.swift TallyCLI/SessionWaitLogic.swift \
-  TallyCLI/UserNotice.swift TallyCLI/OpenTurn.swift
+  TallyCLI/UserNotice.swift TallyCLI/OpenTurn.swift \
+  TallyCLI/CodexUpdateDecision.swift TallyCLI/CodexStartupScreen.swift
 "$out/run"

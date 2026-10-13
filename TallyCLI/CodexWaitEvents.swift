@@ -20,6 +20,8 @@ import Foundation
 let codexPermissionSummary = "Codex PermissionRequest hook fired"
 /// Same rule for a structured question: the rollout proves the call is open, nothing more.
 let codexQuestionSummary = "Codex request_user_input call is open"
+/// Same rule for a launch stuck before its prompt: the screen's own title follows, nothing more.
+let codexStartupSummaryPrefix = "Codex has not reached its prompt: "
 
 struct CodexWaitTracker {
     private(set) var identity: SessionWaitIdentity
@@ -44,7 +46,8 @@ struct CodexWaitTracker {
     /// every other clearing (`turn-ended`, `turn-moved`) is `unknown`, because Codex never says what
     /// the person did, only that the turn moved on.
     mutating func reconcile(observer: CodexSessionObserver?, directory: String?, project: String?,
-                            worktree: String?, now: Date) -> [SessionWaitEvent] {
+                            worktree: String?, startupScreen: (since: Date, title: String?)? = nil,
+                            now: Date) -> [SessionWaitEvent] {
         identity.directory = directory
         identity.project = project
         identity.worktree = worktree
@@ -63,10 +66,19 @@ struct CodexWaitTracker {
                                                type: nil, sessionID: nil),
                             waiting: true, question: nil, questionSince: nil, quiet: false,
                             wait: nil, permissionTool: nil, codexQuestionTool: codexQuestionTool)
+        } ?? startupScreen.flatMap { screen in
+            openWaitRequest(provider: "codex", sessionKey: identity.key,
+                            notice: UserNotice(message: codexStartupSummaryPrefix + (screen.title ?? "an unrecognized screen"),
+                                               at: screen.since, type: nil, sessionID: nil),
+                            waiting: true, question: nil, questionSince: nil, quiet: false,
+                            wait: nil, permissionTool: nil, codexStartupScreen: true)
         }
         var resolution: SessionWaitResolution?
         if let standing = open, current == nil {
-            if standing.kind == SessionWaitKind.question.rawValue {
+            if standing.tool == codexStartupScreenTool {
+                // The composer drew or the session bound: nothing says what the person chose.
+                resolution = .unknown
+            } else if standing.kind == SessionWaitKind.question.rawValue {
                 // A question's own output landing is the one Codex signal that says a person
                 // answered; the rest are the turn moving on without saying what happened.
                 let outcome = observer?.lastQuestionOutcome

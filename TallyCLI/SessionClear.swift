@@ -59,8 +59,12 @@ let sessionClearIntent = "clear"
 ///     does not come round at all.
 func sessionClearMovesAccounts(request: SessionInputRequest, state: SupervisedState,
                                draft: SessionInputDraftGuard) -> Bool {
+    isSessionClear(request) && state != .blocked && !draft.suspected
+}
+
+/// A `tally session clear` that clears the context, as opposed to a plain send of the same text.
+func isSessionClear(_ request: SessionInputRequest) -> Bool {
     request.intent == sessionClearIntent && sessionInputClearsContext(request.text)
-        && state != .blocked && !draft.suspected
 }
 
 /// What the caller is told when the window was closed by moving the session instead of typing into

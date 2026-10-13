@@ -34,8 +34,7 @@ func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSes
     // the refusal below and the landing read one answer (a slash line let through by one reading
     // and then typed by another would reach the composer).
     let pending = ready && !suspected ? readSessionInputRequest(sessionKey: input.sessionKey, dir: dir) : nil
-    let reopenTarget = pending.map { $0.intent == sessionClearIntent && sessionInputClearsContext($0.text) } == true
-        ? reopen() : nil
+    let reopenTarget = pending.map(isSessionClear) == true ? reopen() : nil
     // Reuse the existing queue, expiry, keyboard gate, receipt and audit writer. Unknown and
     // permission-wait readings stay closed; no Claude-specific account or draft action runs.
     // A composer-only line needs nothing extra here: this relay only types once the observer says
@@ -49,8 +48,7 @@ func applyCodexSessionInput(_ input: inout SessionInputState, observer: CodexSes
         inputRefusal: { request in
             // A `tally session clear` with somewhere to reopen is not typed at all, so the slash
             // rule (which guards what reaches the composer) does not apply to it.
-            if request.intent == sessionClearIntent, sessionInputClearsContext(request.text),
-               reopenTarget != nil { return nil }
+            if isSessionClear(request), reopenTarget != nil { return nil }
             return codexSessionInputProblem(request.text)
             ?? (suspected ? "Cannot verify that the Codex composer has no unsent input. "
             + "Submit an actual prompt in that "

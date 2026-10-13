@@ -184,10 +184,14 @@ func runReserveMoverChecks() {
     let launcher = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
     check("the launcher source is readable from the reserve checks", !launcher.isEmpty)
     func position(_ needle: String) -> String.Index? { launcher.range(of: needle)?.lowerBound }
-    check("the reserves are read above every branch that launches a named account",
+    // Every named branch is in the one decision now (LaunchDecision.swift), taken off the reserves
+    // the launcher read.
+    let decision = (try? String(contentsOfFile: "TallyCLI/LaunchDecision.swift", encoding: .utf8)) ?? ""
+    func decided(_ needle: String) -> String.Index? { decision.range(of: needle)?.lowerBound }
+    check("the reserves are read above the decision that launches a named account",
           position("let reserves = accountReserves()").map { read in
-              position("(pinned)\")").map { read < $0 } ?? false
-          } ?? false)
+              position("resolveLaunch(provider,").map { read < $0 } ?? false
+          } ?? false && launcher.contains("reserves: reserves, quarantined:"))
     let runLaunch = launcher.components(separatedBy: "func runStatus(").first ?? ""
     check("…exactly once in the launch path",
           runLaunch.components(separatedBy: "accountReserves()").count == 2)
@@ -201,16 +205,19 @@ func runReserveMoverChecks() {
     check("…and a session launched without it is not given it",
           !selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
                           follow: true, args: []).contains(resuperviseSpendReserveFlag))
+    let spent = launchIntent(providers[0], args: [spendReserveFlag, "--model", "x"], accountFlag: nil,
+                             stdoutIsTTY: true, environment: [:])
     check("the flag is Tally's own and never reaches the CLI",
-          launcher.contains("removingOption(passthrough, spendReserveFlag)"))
+          decision.contains("removingOption(passthrough, spendReserveFlag)")
+              && spent.spendReserve && spent.passthrough == ["--model", "x"])
     check("both named branches ask the reserve before they launch",
-          launcher.components(separatedBy: "namedReserveRefusal(").count == 3
-              && position("namedReserveRefusal(").map { first in
-                  position("(pinned)\")").map { first < $0 } ?? false
+          decision.components(separatedBy: "namedReserveRefusal(").count == 3
+              && decided("namedReserveRefusal(").map { first in
+                  decided("(pinned)\")").map { first < $0 } ?? false
               } ?? false)
     check("an automatic launch with nobody above the line refuses before any bare fallback",
-          position("reserveHoldout(").map { hold in
-              launcher.range(of: "account - launching bare", options: .backwards)
+          decided("reserveHoldout(").map { hold in
+              decision.range(of: "return bare()", options: .backwards)
                   .map { hold < $0.lowerBound } ?? false
           } ?? false)
     // AND THE SUPERVISOR SIDE: a session under its owner's line with nowhere to go gets nothing

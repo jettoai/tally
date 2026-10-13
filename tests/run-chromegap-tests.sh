@@ -54,7 +54,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/HookKnock.swift TallyCLI/HostHealthKnockLogic.swift \
   Tally/Core/HostHealthLogic.swift Tally/Core/KeystrokeText.swift \
   TallyCLI/KeyboardIdle.swift \
-  TallyCLI/LaunchFlags.swift \
+  TallyCLI/LaunchFlags.swift TallyCLI/LaunchDecision.swift \
   TallyCLI/LimitResetSignals.swift \
   TallyCLI/ManualMoveState.swift \
   TallyCLI/MessagingSocket.swift \

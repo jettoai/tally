@@ -265,26 +265,43 @@ func runPinPriorityChecks() {
               == 2)
     check("…and asks the release without the app's mode",
           !supervisorCode.isEmpty && !supervisorCode.contains("pinYieldsToSpentAccount(appMode"))
+    // The launch side, asked of the one decision (LaunchDecision.swift) rather than read off source.
+    func launch(_ provider: Provider, _ rows: [Snapshot.Account], account: String? = nil,
+                policy: LaunchPolicy = appPinned) -> LaunchDecision {
+        resolveLaunch(provider, intent: launchIntent(provider, args: [], accountFlag: account,
+                                                     stdoutIsTTY: true, environment: [:]),
+                      readings: LaunchReadings(snapshot: Snapshot(version: 2, generatedAt: pNow,
+                                                                  accounts: rows),
+                                               policy: policy, pinnedBy: "pinned in Tally",
+                                               primaryModel: "fable", reserves: .none,
+                                               quarantined: [], clearance: true, now: pNow))
+    }
+    let stepped = launch(providers[0], [emptyP, sibling])
+    let stuck = launch(providers[0], [emptyP, pinAccount("S", model: 0)])
     check("`tally claude` no longer launches an empty pin unconditionally",
-          !mainCode.isEmpty && !mainCode.contains(#"launching anyway (\(pinnedBy))"#)
-              && mainCode.contains("!pinStepsAside("))
+          !mainCode.isEmpty && stepped.route == .pick && stepped.stepAside?.id == "P"
+              && stepped.account?.id == "S"
+              && stepped.notices == [pinStepAsideNotice(emptyP, pinnedBy: "pinned in Tally")])
+    check("…and says it launches the empty pin anyway only when nothing else can take it",
+          stuck.route == .pin && stuck.account?.id == "P"
+              && stuck.notices.first?.hasSuffix("launching it anyway (pinned in Tally)") == true)
 
     // B-1736: a `--account` Codex window is monitored like any other, so a startup menu it stalls
     // on reaches `tally status`; a `--account` Claude launch stays a plain exec.
-    let pinnedBranch: String = {
-        guard let open = mainCode.range(of: "    if let pinned {\n") else { return "" }
-        let rest = mainCode[open.upperBound...]
-        return String(rest[..<(rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex)])
-    }()
     let codexCode = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
-    let helper = codexCode.components(separatedBy: "func launchOnAccount(").dropFirst().first ?? ""
+    let helper = codexCode.components(separatedBy: "func executeLaunch(").dropFirst().first ?? ""
+    let codexSibling = Snapshot.Account(id: "codex:S", provider: "codex", label: "Codex 1",
+        launchHome: "/tmp/codex-S", sessionRemaining: 80, weeklyRemaining: 80, modelRemaining: nil,
+        sessionResetsAt: nil, weeklyResetsAt: nil, modelResetsAt: nil, modelWindowName: nil,
+        resetCreditsAvailable: nil, isStale: false, error: nil)
+    let codexPinned = launch(providers[1], [codexSibling], account: "Codex 1", policy: LaunchPolicy())
     check("a --account Codex launch goes through the monitored launch",
-          pinnedBranch.contains("(pinned)") && pinnedBranch.contains("monitorCodex: wantsCodexMonitoring"))
-    check("…which monitors before it would exec",
-          helper.range(of: "runCodexSupervised(").map { monitor in
-              helper.range(of: "launchProvider(").map { monitor.lowerBound < $0.lowerBound } ?? false
-          } ?? false)
+          codexPinned.route == .accountFlag && codexPinned.supervision == .monitor
+              && codexPinned.notices == ["→ Codex 1 (pinned)"])
+    check("…which the executor carries out by monitoring",
+          helper.contains("case .monitor:\n        runCodexSupervised("))
+    let claudePinned = launch(providers[0], [sibling], account: "S", policy: LaunchPolicy())
     check("…while a --account Claude launch stays a plain exec",
-          !pinnedBranch.isEmpty && !pinnedBranch.contains("runSupervised(")
-              && mainCode.contains("let wantsCodexMonitoring = provider.id == \"codex\""))
+          claudePinned.route == .accountFlag && claudePinned.supervision == .none(.handPinned)
+              && claudePinned.childEnv == .forHome)
 }

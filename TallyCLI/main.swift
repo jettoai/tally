@@ -22,14 +22,10 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // name, case-insensitive) - the manual override, so nobody needs hand-rolled per-account
     // aliases. The flag is tally's own; it is stripped before the args pass through.
     var passthrough = args
-    var pinned: String?
-    if let index = passthrough.firstIndex(of: "--account"), index + 1 < passthrough.count {
-        pinned = passthrough[index + 1]
-        passthrough.removeSubrange(index ... index + 1)
-    }
+    let pinned = takeAccountFlag(&passthrough)
     // `-w/--worktree [name]` launches inside a git worktree (claude only): resolve/create it, share
     // the project's memory, run the repo setup hook, and chdir so the supervisor and the CLI inherit
-    // it. Done before the exported-home exit below, so even that launch runs in the worktree.
+    // it. Done before the decision below, so every launch it settles runs in the worktree.
     let (wantsWorktree, worktreeName) = extractWorktreeFlag(&passthrough)
     if wantsWorktree, provider.id != "claude" {
         warn("--worktree is claude-only for now")
@@ -42,34 +38,18 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     if worktreeFresh, stripContinueResume(&passthrough) {
         warn("no conversation in this worktree yet - starting fresh")
     }
-    // A one-shot run is deliberately left unsupervised: every supervisor action restarts the child,
-    // which RE-RUNS a command (LaunchFlags.swift). Read before the flag is stripped.
+    // What the launch's own args, environment and terminal ask for (LaunchDecision.swift): whether
+    // it is a one-shot run, the opt-outs, an exported or inherited config home, Tally's own flags.
     let stdoutIsTTY = isatty(STDOUT_FILENO) == 1
-    let wantsHandoff = shouldSupervise(args: passthrough, stdoutIsTTY: stdoutIsTTY)
-    let wantsCodexMonitoring = provider.id == "codex"
-        && shouldMonitorCodex(args: passthrough, stdoutIsTTY: stdoutIsTTY)
-    // Say so when the reason was the pipe, the one reason nobody typed: a session silently losing
-    // its auto-handoff is only noticed later, at the wall. On stderr, out of the piped output.
-    // Piped Codex commands deliberately remain one-shot.
-    if provider.id == "claude", !wantsHandoff, !stdoutIsTTY, autoHandoffEnabled(args: passthrough),
-       !optionsOnly(passthrough).contains(where: { printFlags.contains($0) }) {
+    let intent = launchIntent(provider, args: passthrough, accountFlag: pinned,
+                              stdoutIsTTY: stdoutIsTTY)
+    passthrough = intent.passthrough
+    // Say so when the pipe is why a Claude session is left unsupervised, the one reason nobody
+    // typed: a session silently losing its auto-handoff is only noticed later, at the wall. On
+    // stderr, out of the piped output. Piped Codex commands deliberately remain one-shot.
+    if provider.id == "claude", intent.pipedOnly {
         warn("not supervised: stdout is not a terminal (claude runs one-shot when piped)")
     }
-    // Tally's own flags, never passed through - and never taken out of the PROMPT, where the
-    // same word belongs to the user (Snapshot.swift: `removingOption`).
-    passthrough = removingOption(passthrough, "--no-handoff")
-    // `--spend-reserve`: onto an account under its line (B-1213; AccountReserveReader.swift).
-    let spendReserve = optionsOnly(passthrough).contains(spendReserveFlag)
-    passthrough = removingOption(passthrough, spendReserveFlag)
-    // A running session follows a later Settings change to the default model/effort UNLESS the
-    // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice
-    // outranks the default, and the follow adopts the pair as a whole - it must never overwrite
-    // a hand-typed flag). Captured before the policy injects its own flags below. A project
-    // profile does not opt the session out: see `allowFollow` below.
-    let followEnabled = autoFollowEnabled(args: passthrough)
-        && !optionsOnly(passthrough).contains("--model")
-        && !optionsOnly(passthrough).contains("--effort")
-    passthrough = removingOption(passthrough, "--no-follow")
 
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
@@ -83,10 +63,6 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // and is never passed through.
     let project = projectPolicy(provider.id)
     let policy = effectivePolicy(launchPolicy(provider.id), project: project)
-    // A project profile does NOT opt the session out (B-1091): the supervisor follows the EFFECTIVE
-    // pair, the app's with this profile laid over it, so a project axis is what the follow lands on,
-    // never what it overwrites. Opting out stays reserved for the user's own flags (above).
-    let allowFollow = followEnabled
     let wantsNew = optionsOnly(passthrough).contains("--new") || worktreeFresh
     passthrough = removingOption(passthrough, "--new")
     passthrough = applyLaunchDefaults(passthrough, policy: policy, providerID: provider.id)
@@ -118,162 +94,46 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         return next
     }
 
-    // An exported config home is the user choosing the ACCOUNT by hand (a reserve refuses it), and
-    // the ONLY axis it settles: mode, model, effort and start still come from the policy above.
-    //
-    // The home comes from the environment rather than from the snapshot because the exported value
-    // IS the answer, and `--continue` has to be resolved against that same directory: asking the
-    // account we would otherwise have picked would predict a conversation this launch cannot reach.
-    //
-    // A plain exec, never `runSupervised`: a hand-pinned home leaves the supervisor nowhere to move
-    // a capped session to. `--account` still outranks this (the `pinned == nil` guard falls through
-    // to it below): that flag names an account, this variable names a config directory.
-    //
-    // …unless nobody exported it. A terminal started from inside a session inherits that session's
-    // whole environment, so every window opened afterwards arrives carrying one account's home and
-    // reads as a hand pin: the machine silently stuck on one account (owner-reported 2026-08-13, the
-    // same evening as the defect above). What gives a leak away is Claude Code's own child marker in
-    // a launch somebody typed (`inheritedSessionEnvironment`, Snapshot.swift), and a leak is not a
-    // choice - so the exit stands down and this launch picks normally, supervisor and all. The
-    // marker is dropped from the environment as well, because Claude Code reads it as "you are a
-    // child session" and stops saving the transcript. A REAL child (the same marker, stdout on a
-    // pipe) keeps both: following its parent's home is what stops one conversation picking a second
-    // account, and `! tally claude` typed inside a session is the accepted cost of that test - it
-    // reads as a leak and picks by policy, with `--account` still there to pin it by hand.
-    let inheritedEnvironment = inheritedSessionEnvironment(providerID: provider.id,
-                                                           stdoutIsTTY: stdoutIsTTY)
-    if inheritedEnvironment {
-        // Said only when a home was actually inherited: the marker can outlive the variable, and a
-        // launch that was never going to read one has nothing to report.
-        if getenv(provider.envKey) != nil {
-            warn("\(provider.envKey) was inherited from another session rather than exported by "
-                + "you - ignoring it and choosing the account normally")
-        }
-        // "Ignoring it" has to be true of every exec below: the bare fallbacks hand the child
-        // `env: nil`, THIS process's environment, and a leaked home left in it would run them on
-        // the very account the warning says is ignored. Unsetting an absent variable is nothing.
-        unsetenv(provider.envKey)
-        unsetenv(childSessionMarker)
-    }
-
-    // What the accounts are scored FOR, off the args the launch runs with (Snapshot.swift), and
-    // each owner's reserve (AccountReserve.swift): read above every named branch, which refuse too.
+    // What the accounts are scored FOR, off the args the launch runs with (Snapshot.swift), each
+    // owner's reserve (AccountReserve.swift), and the accounts another session just saw cap (the
+    // snapshot lags the real cap: Quarantine.swift). Then the one decision (LaunchDecision.swift):
+    // an exported home, `--account`, the pin, or the headroom pick, refused under a reserve unless
+    // `--spend-reserve`, and supervised or not.
     let primaryModel = launchPrimaryModel(passthrough, providerID: provider.id) ?? policy.model
     let reserves = accountReserves()
-    if pinned == nil, !inheritedEnvironment, let exported = getenv(provider.envKey) {
-        let home = String(cString: exported)
-        // A marker still set here is a REAL child following its parent's home: not a choice.
-        if !spendReserve, getenv(childSessionMarker) == nil, let refusal = exportedHomeRefusal(home,
-            providerID: provider.id, in: snapshot, primaryModel: primaryModel, reserves: reserves) {
-            warn(refusal); exit(1)
-        }
-        warn("\(provider.envKey) already set - keeping that account, launch defaults still apply")
-        launchProvider(provider, args: startModeArgs(passthrough, home: home), home: home, env: nil)
-    }
-    if let pinned {
-        let match: Snapshot.Account
-        switch accountMatching(pinned, provider: provider.id, in: snapshot) {
-        case .one(let account):
-            match = account
-        case .none:
-            warn("no \(provider.id) account matches \"\(pinned)\" - try `tally status`")
-            exit(1)
-        case .several(let candidates):
-            // Refused rather than picked: `--account` means "not the one you would have chosen",
-            // so answering it with a choice of our own is the one thing it rules out.
-            warn(accountMatchAmbiguity(pinned, provider: provider.id, candidates: candidates))
-            exit(1)
-        }
-        if !spendReserve, let refusal = namedReserveRefusal(match, primaryModel: primaryModel,
-                                                            reserves: reserves) {
-            warn(refusal); exit(1)
-        }
-        warn("→ \(match.label) (pinned)")
-        // Claude stays a plain exec: the flag opts out of the handoff supervisor. A Codex window is
-        // still monitored, which never moves it off this account (CodexSupervisor.swift, B-1736).
-        launchOnAccount(provider, account: match, args: startModeArgs(passthrough, home: match.launchHome!),
-                        monitorCodex: wantsCodexMonitoring)
-    }
+    let pinnedBy = project.accountID != nil ? "pinned for this project" : "pinned in Tally"
+    let decision = resolveLaunch(provider, intent: intent, readings: LaunchReadings(
+        snapshot: snapshot, policy: policy, pinnedBy: pinnedBy, primaryModel: primaryModel,
+        reserves: reserves, quarantined: quarantinedAccounts(forPrimary: primaryModel),
+        clearance: true, now: Date()))
 
-    // The pinned account: the app's launch policy (Settings → Launch account) or this project's own
-    // `tally project set --account`, which the overlay above expressed as the same pin. A
-    // `--account` flag outranks both (handled above).
-    // "off" still auto-picks HERE: invoking `tally claude` is itself an explicit ask to pick -
-    // off only means Tally must not steer launches it wasn't asked into (the PATH shim).
-    if policy.mode == "manual", !pinStepsAside(snapshot, policy: policy, project: project,
-                                               model: primaryModel, reserves: reserves, spend: spendReserve) {
-        let pinnedBy = project.accountID != nil ? "pinned for this project" : "pinned in Tally"
-        if let match = snapshot?.accounts.first(where: {
-            $0.id == policy.pinnedAccountID && $0.launchHome != nil
-        }) {
-            if !spendReserve, let refusal = namedReserveRefusal(match, primaryModel: primaryModel,
-                                                                reserves: reserves) {
-                warn("\(refusal) (\(pinnedBy))"); exit(1)
-            }
-            warn("→ \(match.label) (\(pinnedBy))")
-            let args = startModeArgs(passthrough, home: match.launchHome!)
-            // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin switch),
-            // and it hands off on a cap and brings the session back when the account refills (B-1540).
-            // A Claude CLI --account pin remains a plain exec - that flag opts out of supervision.
-            if provider.id == "claude", wantsHandoff {
-                runSupervised(provider, account: match, args: args, follow: allowFollow,
-                              clearedConversation: clearedConversation, spendReserve: spendReserve)
-            }
-            launchOnAccount(provider, account: match, args: args, monitorCodex: wantsCodexMonitoring)
+    // An inherited environment's home and marker go before any exec: the bare fallbacks hand the
+    // child `env: nil`, THIS process's environment, and Claude Code reads the marker as "you are a
+    // child session" and stops saving the transcript.
+    decision.envToUnset.forEach { unsetenv($0) }
+    decision.notices.forEach { warn($0) }
+    if let refusal = launchRefusalText(decision, pinnedBy: pinnedBy) {
+        warn(refusal); exit(1)
+    }
+    guard var account = decision.account, let home = account.launchHome else { exit(1) }
+    var args: [String]
+    if decision.route == .pick {
+        // The start mode is settled before the clearance lane may take the launch (`settleLaunch`).
+        guard case let (landed, settled)? = settleLaunch(providerID: provider.id, pick: {
+            $0 ? decision.clearanceAccount : decision.account
+        }, startArgs: { startModeArgs(passthrough, home: $0, preflight: false) }, finish: {
+            provider.id == "codex" ? prepareCodexLaunch($0, home: $1, interactive: stdoutIsTTY) : $0 })
+        else { exit(1) }
+        (account, args) = (landed, settled)
+        if let dip = reserveDipNotice(account, primaryModel: primaryModel, reserves: reserves) {
+            warn(dip)
         }
-        // The denormalized home, for a pin whose account is missing from this snapshot. NOT for one
-        // the snapshot lists WITHOUT a launch home: that is Tally saying the login is gone, and
-        // exec'ing it anyway drops the session into a signed-out config dir (AccountPick.swift).
-        if let home = pinnedLaunchHome(snapshot, policy: policy) {
-            warn("→ pinned account (set in Tally)")
-            launchProvider(provider, args: startModeArgs(passthrough, home: home), home: home,
-                           env: launchEnv(provider, home: home))
-        }
-        warn(pinnedAccountIsSignedOut(snapshot, policy: policy)
-            ? "pinned account is signed out - renew its login in Tally; picking by headroom instead"
-            : "pinned account not found - picking by headroom instead")
+        warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
+    } else {
+        args = startModeArgs(passthrough, home: home)
     }
-
-    guard let snapshot else {
-        warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
-        launchProvider(provider, args: startModeArgs(passthrough, home: defaultHome(provider)),
-                       home: defaultHome(provider), env: nil)
-    }
-    // Skip an account another session just saw cap: the snapshot lags the real cap, so its
-    // percentage still reads healthy and picking it would drop a fresh session onto the wall that
-    // just failed. `launchPick` carries the "quarantine left nothing, launch anyway" fallback; the
-    // start mode is settled before its clearance lane may take the launch (`settleLaunch`).
-    let quarantined = quarantinedAccounts(forPrimary: primaryModel)
-    // A field the reserves emptied is a refusal, said with when it ends (B-1213); only
-    // `--spend-reserve` ranks it again without them, and the dip notice below says so.
-    guard case let (account, args)? = settleLaunch(providerID: provider.id, pick: { empty in
-        let pick = { launchPick(providerID: provider.id, in: snapshot,
-                                primaryModel: primaryModel, quarantined: quarantined,
-                                reserves: $0, emptyConversation: empty) }
-        return pick(reserves) ?? (spendReserve ? pick(.none) : nil)
-    }, startArgs: { startModeArgs(passthrough, home: $0, preflight: false) }, finish: {
-        provider.id == "codex" ? prepareCodexLaunch($0, home: $1, interactive: stdoutIsTTY) : $0 }) else {
-        if let hold = reserveHoldout(providerID: provider.id, in: snapshot,
-                                     primaryModel: primaryModel, reserves: reserves) {
-            warn(reserveHoldNotice(hold, providerID: provider.id)); exit(1)
-        }
-        warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
-        launchProvider(provider, args: startModeArgs(passthrough, home: defaultHome(provider)),
-                       home: defaultHome(provider), env: nil)
-    }
-    if let dip = reserveDipNotice(account, primaryModel: primaryModel, reserves: reserves) {
-        warn(dip)
-    }
-    warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
-    // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
-    // `--account` pin or `--no-handoff` opts out. Codex interactive sessions monitor only.
-    if provider.id == "claude", wantsHandoff {
-        runSupervised(provider, account: account, args: args, follow: allowFollow,
-                      clearedConversation: clearedConversation, spendReserve: spendReserve)
-    }
-    if wantsCodexMonitoring { runCodexSupervised(provider, account: account, args: args) }
-    launchProvider(provider, args: args, home: account.launchHome!,
-                   env: launchEnv(provider, home: account.launchHome!))
+    executeLaunch(provider, decision: decision, account: account, args: args,
+                  clearedConversation: clearedConversation)
 }
 
 func runStatus(json: Bool = false) {

@@ -71,7 +71,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   Tally/Core/HostHealthLogic.swift \
   Tally/Core/KeystrokeText.swift \
   TallyCLI/KeyboardIdle.swift \
-  TallyCLI/LaunchFlags.swift \
+  TallyCLI/LaunchFlags.swift TallyCLI/LaunchDecision.swift \
   TallyCLI/LimitResetSignals.swift \
   TallyCLI/ManualMoveState.swift \
   TallyCLI/MessagingSocket.swift \

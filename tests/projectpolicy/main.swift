@@ -288,7 +288,7 @@ check("the launcher scores the pick on the model the launch carries",
       launcher.contains("let primaryModel = launchPrimaryModel(passthrough, providerID: provider.id)"))
 check("…and hands that same value to the quarantine, the pick and the reason",
       launcher.contains("quarantinedAccounts(forPrimary: primaryModel)")
-          && launcher.contains("primaryModel: primaryModel, quarantined: quarantined")
+          && launcher.contains("reserves: reserves, quarantined: quarantinedAccounts(forPrimary: primaryModel)")
           && launcher.contains("pickReason(account, primaryModel: primaryModel)"))
 check("…with none of the three reading the configured default behind the flag's back",
       !launcher.contains("forPrimary: policy.model")
@@ -408,6 +408,7 @@ runReserveNoticeChecks()
 // A clear that reopens a window as another provider must not end the child for a launch that
 // would refuse (reopenparitychecks.swift).
 runReopenParityChecks()
+runResolveLaunchChecks()
 
 // MARK: - Writes refuse to run on a file they could not read
 

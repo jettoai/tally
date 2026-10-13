@@ -5,21 +5,8 @@ import Foundation
 // child was given, and nothing about the fleet, the quota or the transcript, which is why they can
 // be tested with a string array and no supervisor at all.
 
-/// Whether auto-handoff is on for this launch (opt out with `--no-handoff` or TALLY_AUTO_HANDOFF=0).
-func autoHandoffEnabled(args: [String]) -> Bool {
-    if optionsOnly(args).contains("--no-handoff") { return false }
-    if let raw = getenv("TALLY_AUTO_HANDOFF"), String(cString: raw) == "0" { return false }
-    return true
-}
-
-/// Whether a running session adopts a later change to the launch-default model (Settings). Mirrors
-/// the `--no-handoff` opt-out. A hand-typed `--model` is handled separately at the call site (a
-/// deliberate model choice must never be overridden), so this only covers the explicit escape hatch.
-func autoFollowEnabled(args: [String]) -> Bool {
-    if optionsOnly(args).contains("--no-follow") { return false }
-    if let raw = getenv("TALLY_AUTO_FOLLOW"), String(cString: raw) == "0" { return false }
-    return true
-}
+// `autoHandoffEnabled`, `autoFollowEnabled`, `printFlags`, `shouldSupervise` and
+// `shouldMonitorCodex` live with the launch decision that reads them (LaunchDecision.swift).
 
 /// `args` minus the given value-taking flags (and their values), with everything from a bare `--`
 /// onward passed through untouched: that part is the prompt, and editing it edits what the user
@@ -182,9 +169,8 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
     return ["--resume", asked] + next
 }
 
-/// The two halves of `sessionFlags` (Snapshot.swift), partitioned rather than listed again so a flag
-/// added there lands in one of them instead of being silently uncovered here.
-let printFlags: Set<String> = ["--print", "-p"]
+/// The non-print half of `sessionFlags` (Snapshot.swift); `printFlags` is the other
+/// (LaunchDecision.swift).
 let resumeFlags = sessionFlags.subtracting(printFlags)
 
 /// The two spellings of "continue the latest conversation", named because three readers above share
@@ -246,30 +232,4 @@ func followAlreadySatisfied(desiredModel: String?, desiredEffort: String?,
     let sameModel = (desiredModel == nil && currentModel == nil)
         || modelsAgree(desiredModel, currentModel)
     return sameModel && desiredEffort?.lowercased() == currentEffort
-}
-
-/// Whether a launch gets a resident supervisor at all, or is left to `exec` on its own.
-///
-/// Supervision earns its keep by outliving a conversation: it moves the session between accounts,
-/// adopts Settings changes, restarts on request. Every one of those does the same physical thing -
-/// kill the child, start it again - which a CONVERSATION survives (it is resumed by id) and a
-/// one-shot run does not. Re-running `claude -p "ship it"` on another account does not continue
-/// anything; it does the work a second time, tool calls, writes and all.
-///
-/// The mover paths each learned that separately and one at a time (`carryableSession` above is the
-/// scar), which is the tell that the question was being asked in the wrong place. A one-shot run
-/// does not need a cheaper handoff, it needs no supervisor, and refusing it here retires the
-/// question for every path at once - including the ones that never asked it: the cap handoff, the
-/// degradation rescue and the follow adoption all restart the child too.
-///
-/// `stdoutIsTTY` is not a detail. `--print` is the explicit spelling, but claude also enters print
-/// mode implicitly when its stdout is not a terminal, so `tally claude 'summarise this' | tee out`
-/// is a one-shot run carrying no flag that says so. Reading the terminal is how the CLI itself
-/// decides, so it is how this decides.
-///
-/// Interactive launches are unaffected: a terminal on stdout and no print flag is every ordinary
-/// session, and it is supervised exactly as before.
-func shouldSupervise(args: [String], stdoutIsTTY: Bool) -> Bool {
-    guard autoHandoffEnabled(args: args) else { return false }
-    return stdoutIsTTY && !optionsOnly(args).contains(where: { printFlags.contains($0) })
 }

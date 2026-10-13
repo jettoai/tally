@@ -38,7 +38,7 @@ swiftc -o "$out" \
   TallyCLI/OpenTurn.swift \
   TallyCLI/SupervisorRuntime.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/TaskListPin.swift TallyCLI/RelaunchPlan.swift \
   TallyCLI/ResumePrompt.swift \
-  TallyCLI/LaunchFlags.swift \
+  TallyCLI/LaunchFlags.swift TallyCLI/LaunchDecision.swift \
   TallyCLI/WorktreeMenu.swift \
   TallyCLI/Snapshot.swift TallyCLI/CodexLaunchArgs.swift \
   TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \

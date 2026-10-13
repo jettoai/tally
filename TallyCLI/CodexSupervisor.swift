@@ -1,14 +1,6 @@
 import Darwin
 import Foundation
 
-func shouldMonitorCodex(args: [String], stdoutIsTTY: Bool) -> Bool {
-    guard stdoutIsTTY, autoHandoffEnabled(args: args) else { return false }
-    let options = optionsOnly(args)
-    guard !options.contains(where: { ["--help", "-h", "--version", "-V"].contains($0) }) else { return false }
-    let command = codexSubcommand(options)
-    return command == nil || command == "resume"
-}
-
 /// Only a value actually passed to this child, never a profile or a configuration-home guess.
 func codexLaunchEffort(_ args: [String]) -> String? {
     let value = codexTypedConfigOverrides(optionsOnly(args))
@@ -32,13 +24,21 @@ func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
 
 nonisolated(unsafe) private var codexSupervisorSignal: Int32 = 0
 
-/// A launch on one named account: a monitored Codex window when `monitorCodex` holds (an
-/// interactive Codex launch, main.swift), otherwise a plain exec.
-func launchOnAccount(_ provider: Provider, account: Snapshot.Account, args: [String],
-                     monitorCodex: Bool) -> Never {
-    if monitorCodex { runCodexSupervised(provider, account: account, args: args) }
-    launchProvider(provider, args: args, home: account.launchHome!,
-                   env: launchEnv(provider, home: account.launchHome!))
+/// Carries out a launch `resolveLaunch` decided (LaunchDecision.swift): the handoff supervisor, the
+/// Codex monitor, or a plain exec in the environment the decision names.
+func executeLaunch(_ provider: Provider, decision: LaunchDecision, account: Snapshot.Account,
+                   args: [String], clearedConversation: String?) -> Never {
+    let home = account.launchHome!
+    switch decision.supervision {
+    case .handoff:
+        runSupervised(provider, account: account, args: args, follow: decision.follow,
+                      clearedConversation: clearedConversation, spendReserve: decision.spendReserve)
+    case .monitor:
+        runCodexSupervised(provider, account: account, args: args)
+    case .none:
+        launchProvider(provider, args: args, home: home,
+                       env: decision.childEnv == .inherit ? nil : launchEnv(provider, home: home))
+    }
 }
 
 /// A supervised Codex resident with an owned PTY for guarded direct input.

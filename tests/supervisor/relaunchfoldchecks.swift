@@ -143,9 +143,19 @@ func runRelaunchFoldChecks() {
     let entry = (try? String(contentsOfFile: "TallyCLI/SelfUpdate.swift", encoding: .utf8)) ?? ""
     check("the fold checks can read their sources",
           !mainSource.isEmpty && !loop.isEmpty && !entry.isEmpty)
+    let decisionSource = (try? String(contentsOfFile: "TallyCLI/LaunchDecision.swift",
+                                      encoding: .utf8)) ?? ""
+    let executor = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
+    func follows(_ args: [String]) -> Bool {
+        launchIntent(providers[0], args: args, accountFlag: nil, stdoutIsTTY: true,
+                     environment: [:]).follow
+    }
     check("a project profile no longer opts the session out of following",
-          mainSource.contains("let allowFollow = followEnabled\n")
-              && !mainSource.contains("project.model == nil && project.effort == nil"))
+          executor.contains("follow: decision.follow") && follows([])
+              && !follows(["--model", "x"]) && !follows(["--effort", "high"])
+              && !follows(["--no-follow"])
+              && !mainSource.contains("project.model == nil && project.effort == nil")
+              && !decisionSource.contains("project.model == nil && project.effort == nil"))
     let fold = loop.range(of: "foldEffectiveFollow(&plan")
     let apply = loop.range(of: "launchArgs = planLaunchArgs(launchArgs, plan: plan")
     let restore = loop.range(of: "committed.restore(")

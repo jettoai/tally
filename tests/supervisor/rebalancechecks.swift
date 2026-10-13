@@ -280,8 +280,10 @@ func runRebalanceChecks() {
     // can be quietly dropped (the flag half looks complete on its own), so the source carries it.
     let launcher = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
     check("the launcher source is readable from these checks", !launcher.isEmpty)
+    let decision = (try? String(contentsOfFile: "TallyCLI/LaunchDecision.swift", encoding: .utf8)) ?? ""
     check("the launcher decides supervision through the gate",
-          launcher.contains("shouldSupervise(args: passthrough"))
+          launcher.contains("launchIntent(provider, args: passthrough")
+              && decision.contains("shouldSupervise(args: args, stdoutIsTTY: true, environment: environment)"))
     check("and answers the terminal question from the real terminal",
           launcher.contains("let stdoutIsTTY = isatty(STDOUT_FILENO) == 1"))
     // The pipe is the one reason for refusing that the user cannot see in what they typed, so it is
@@ -291,8 +293,14 @@ func runRebalanceChecks() {
     // ...and only for the provider that would have had a supervisor: both `runSupervised` calls are
     // behind `provider.id == "claude"`, so a piped `tally codex` never lost anything to be told
     // about. The notice and the supervision have to agree about who they are for.
+    func piped(_ args: [String], tty: Bool = false, env: [String: String] = [:]) -> Bool {
+        launchIntent(providers[0], args: args, accountFlag: nil, stdoutIsTTY: tty,
+                     environment: env).pipedOnly
+    }
     check("and only for the provider a supervisor was on offer for",
-          launcher.contains("if provider.id == \"claude\", !wantsHandoff, !stdoutIsTTY"))
+          launcher.contains("if provider.id == \"claude\", intent.pipedOnly")
+              && piped([]) && !piped([], tty: true) && !piped(["-p"])
+              && !piped([], env: ["TALLY_AUTO_HANDOFF": "0"]) && !piped(["--no-handoff"]))
     check("and says it through the stderr writer",
           launcher.contains("warn(\"not supervised: stdout is not a terminal"))
 

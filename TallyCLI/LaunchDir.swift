@@ -42,68 +42,31 @@ struct SteeredLaunch {
 func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                    reserves: AccountReserves = accountReserves(),
                    quarantined: Set<String>? = nil, now: Date = Date()) -> SteeredLaunch? {
-    let held = quarantined ?? quarantinedAccounts(forPrimary: policy.model)
+    let decision = steeredDecision(provider, in: snapshot, policy: policy, reserves: reserves,
+                                   quarantined: quarantined, now: now)
+    // A refusal is `steeredRefusal`'s to say; nothing eligible leaves the shim to run the bare CLI.
+    guard decision.refusal == nil, decision.route != .bare,
+          let account = decision.account, let home = account.launchHome else { return nil }
     // A pin over an account that is out of quota steps aside to the smart pick (B-1540); the shim
     // cannot bring the session back later, but it no longer launches it onto the wall either.
-    let aside = pinStepAsideRow(snapshot, policy: policy, primaryModel: policy.model,
-                                quarantined: held, reserves: reserves, spendReserve: false, now: now)
-    if aside == nil, let home = pinnedLaunchHome(snapshot, policy: policy) {
-        // A pin onto an account under its line is refused (B-1213): `steeredRefusal` says why.
-        if pinnedUnderReserve(snapshot, policy: policy, reserves: reserves, now: now) != nil {
-            return nil
-        }
-        return SteeredLaunch(home: home, dip: nil)
-    }
-    // Reserves included for the same reason the quarantine is: this PREDICTS the launch, and a
-    // prediction that ignores an exclusion the launcher applies is simply wrong. The shim's
-    // bare `claude` is the launch that most needs it - nobody typed an account there.
-    guard let snapshot,
-          let account = launchPick(providerID: provider.id, in: snapshot,
-                                   primaryModel: policy.model, quarantined: held,
-                                   reserves: reserves, now: now),
-          let home = account.launchHome else { return nil }
     return SteeredLaunch(home: home,
-                         dip: aside.map { pinStepAsideNotice($0, pinnedBy: "pinned") }
-                             ?? reserveDipNotice(account, primaryModel: policy.model,
-                                                 reserves: reserves, now: now))
+                         dip: decision.stepAside.map { pinStepAsideNotice($0, pinnedBy: "pinned") }
+                             ?? (decision.route == .pick
+                                 ? reserveDipNotice(account, primaryModel: policy.model,
+                                                    reserves: reserves, now: now) : nil))
 }
 
-/// `tally claude`'s half of `pinStepAsideRow`: say why and answer true when the launch steps aside
-/// from its pin, so the caller falls through to the smart pick (B-1540). When the pinned account is
-/// out of quota and nothing else can take the launch, the pin still launches, and says so.
-func pinStepsAside(_ snapshot: Snapshot?, policy: LaunchPolicy, project: ProjectPolicy,
-                   model: String?, reserves: AccountReserves, spend: Bool) -> Bool {
-    let pinnedBy = project.accountID != nil ? "pinned for this project" : "pinned in Tally"
-    if let row = pinStepAsideRow(snapshot, policy: policy, primaryModel: model,
-                                 quarantined: quarantinedAccounts(forPrimary: model),
-                                 reserves: reserves, spendReserve: spend) {
-        warn(pinStepAsideNotice(row, pinnedBy: pinnedBy))
-        return true
-    }
-    // The sentence the launch used to say every time, kept for the one cell where it is still true.
-    // Not under the owner's line: that launch is about to be refused, and "launching anyway" first
-    // would contradict it.
-    if let row = snapshot?.accounts.first(where: {
-           policy.mode == "manual" && $0.id == policy.pinnedAccountID && $0.launchHome != nil
-       }), pinnedOutOfQuota(row, primaryModel: model),
-       spend || aboveReserve(row, primaryModel: model, reserves: reserves) {
-        warn("\(row.label) is out of quota and no other account can take this launch - "
-            + "launching it anyway (\(pinnedBy))")
-    }
-    return false
-}
-
-/// The pinned row when the pin names an account under its owner's line, or nil. A pin whose account
-/// is missing from the snapshot has no reading and is let through (named blind spot).
-private func pinnedUnderReserve(_ snapshot: Snapshot?, policy: LaunchPolicy,
-                                reserves: AccountReserves, now: Date) -> Snapshot.Account? {
-    guard policy.mode == "manual",
-          let row = snapshot?.accounts.first(where: {
-              $0.id == policy.pinnedAccountID && $0.launchHome != nil
-          }),
-          !aboveReserve(row, primaryModel: policy.model, reserves: reserves, now: now)
-    else { return nil }
-    return row
+/// The launcher's own decision (`resolveLaunch`) for a launch nobody typed anything into: the
+/// policy's model, no `--spend-reserve`, and no clearance lane (the shim cannot tell whether the
+/// launch opens a new conversation).
+private func steeredDecision(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
+                             reserves: AccountReserves, quarantined: Set<String>?,
+                             now: Date) -> LaunchDecision {
+    resolveLaunch(provider, intent: .shim, readings: LaunchReadings(
+        snapshot: snapshot, policy: policy, pinnedBy: "pinned", primaryModel: policy.model,
+        reserves: reserves,
+        quarantined: quarantined ?? quarantinedAccounts(forPrimary: policy.model),
+        clearance: false, now: now))
 }
 
 /// Why a launch `steeredLaunch` resolved nothing for must be REFUSED rather than run bare, or nil to
@@ -112,19 +75,12 @@ private func pinnedUnderReserve(_ snapshot: Snapshot?, policy: LaunchPolicy,
 func steeredRefusal(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                     reserves: AccountReserves = accountReserves(),
                     quarantined: Set<String>? = nil, now: Date = Date()) -> String? {
-    if let row = pinnedUnderReserve(snapshot, policy: policy, reserves: reserves, now: now),
-       let refusal = namedReserveRefusal(row, primaryModel: policy.model, reserves: reserves,
-                                         now: now) {
-        return bareLaunchRefusal(refusal, provider)
+    switch steeredDecision(provider, in: snapshot, policy: policy, reserves: reserves,
+                           quarantined: quarantined, now: now).refusal {
+    case .named(let refusal)?: return bareLaunchRefusal(refusal, provider)
+    case .hold(let notice)?: return notice
+    default: return nil
     }
-    guard pinnedLaunchHome(snapshot, policy: policy) == nil, let snapshot,
-          launchPick(providerID: provider.id, in: snapshot, primaryModel: policy.model,
-                     quarantined: quarantined ?? quarantinedAccounts(forPrimary: policy.model),
-                     reserves: reserves, now: now) == nil,
-          let hold = reserveHoldout(providerID: provider.id, in: snapshot,
-                                    primaryModel: policy.model, reserves: reserves, now: now)
-    else { return nil }
-    return reserveHoldNotice(hold, providerID: provider.id, now: now)
 }
 
 /// A named refusal as a bare launch has to say it: the flag it names cannot be typed there.

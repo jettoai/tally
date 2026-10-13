@@ -228,6 +228,16 @@ check("the early-start row asks this fact rather than the badge",
       keepsFailingRule.contains("usage.pollsKeepFailing")
           && !keepsFailingRule.contains("usage.isStale"))
 
+// A login that landed this launch gets one quick second look after its first failure (B-1702).
+check("a new account's first failure retries soon",
+      FailureRetry.isSoon(failed: ["n"], streaks: ["n": 1], arrived: ["n"]))
+check("…only the first: its second failure is back on the ladder",
+      !FailureRetry.isSoon(failed: ["n"], streaks: ["n": 2], arrived: ["n"]))
+check("an account that was there at launch does not retry soon",
+      !FailureRetry.isSoon(failed: ["n"], streaks: ["n": 1], arrived: []))
+check("no failures, no quick retry",
+      !FailureRetry.isSoon(failed: [], streaks: ["n": 1], arrived: ["n"]))
+
 let catalogue = (try? Data(contentsOf: URL(fileURLWithPath: "Tally/Resources/Localizable.xcstrings")))
     .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
 let retrying = ((catalogue?["strings"] as? [String: Any])?["Reading quota, retrying"]

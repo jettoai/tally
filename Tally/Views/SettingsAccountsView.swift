@@ -411,6 +411,11 @@ struct SettingsAccountsView: View {
         LoginStatusStore.shared.identityEmail(accountID: item.id,
                                               polled: usage?.accountEmail)
     }
+
+    /// A login that landed this launch and has not named itself yet (`UsageStore.arrivedThisLaunch`).
+    func isSigningIn(_ item: ProviderAccount) -> Bool {
+        !item.isDormant && UsageStore.shared.arrivedThisLaunch.contains(item.id)
+    }
 }
 
 /// `-TallyDemoMenuOpen` (Debug captures only, see `demoRowID`): opens the menu button it sits

@@ -924,6 +924,16 @@ func runAccountRowChecks() {
           readSource("Tally/Views/SettingsAccountRowCompact.swift")
               .contains("UsageMetric.columns(usage.metrics)"))
 
+    // MARK: - The account column of a login that just landed (B-1702)
+
+    check("a new login with no address yet says it is signing in",
+          AccountIdentity.column(email: nil, signingIn: true, home: "~/.claude8") == .signingIn)
+    check("an address wins over signing in",
+          AccountIdentity.column(email: "a@b", signingIn: true, home: "~/.claude8") == .address("a@b"))
+    check("an account that was not just added shows its home, and an empty address is none",
+          AccountIdentity.column(email: nil, signingIn: false, home: "~/.claude8") == .home("~/.claude8")
+              && AccountIdentity.column(email: "", signingIn: false, home: "~/.claude8") == .home("~/.claude8"))
+
     print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
     exit(failed == 0 ? 0 : 1)
 }

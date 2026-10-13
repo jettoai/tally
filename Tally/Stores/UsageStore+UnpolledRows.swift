@@ -11,6 +11,9 @@ struct SharedLoginRound {
     var homes: [(account: ProviderAccount, plan: String?, email: String?)] = []
     /// Default label of every Claude home read this round, for the message's names.
     var labels: [String: String] = [:]
+    /// Homes whose config named nobody when this round split them, so a name the poll found later
+    /// is not written to memory before a split has seen it (B-1702; see UsageStore.refresh).
+    var unnamedBeforePoll: Set<String> = []
 }
 
 extension UsageStore {
@@ -49,6 +52,7 @@ extension UsageStore {
         var round = SharedLoginRound(kept: kept)
         round.homes = profiles.filter { kept[$0.0.id] != nil }.map { ($0.0, $0.1.plan, $0.1.email) }
         round.labels = Dictionary(active.map { ($0.id, $0.label) }, uniquingKeysWith: { a, _ in a })
+        round.unnamedBeforePoll = Set(profiles.filter { $0.1.email == nil }.map(\.0.id))
         return (active.filter { kept[$0.id] == nil }, round)
     }
 

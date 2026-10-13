@@ -19,8 +19,9 @@ struct ClaudeProvider: UsageProvider {
         // Who the account is comes from a plain local file, not from the poll, so it is read up
         // front and carried by every outcome: a card whose first poll failed still names its
         // account, and a config dir signed in as somebody else reports the new identity even while
-        // the last-good numbers are the old account's.
-        let profile = ClaudeAccounts.profile(configDir: home)
+        // the last-good numbers are the old account's. Read once more after the probe when the
+        // first read named nobody.
+        var profile = ClaudeAccounts.profile(configDir: home)
         func failed(_ message: String, detail: String? = nil) -> AccountUsage {
             .failure(account: account, providerID: id, message: message,
                      planName: profile.plan, accountEmail: profile.email, errorDetail: detail)
@@ -36,7 +37,11 @@ struct ClaudeProvider: UsageProvider {
         let configDir = (home == defaultHome) ? nil : home
 
         let authMark = await LoginStatusStore.shared.beginUsageAuthentication()
-        guard let text = await ClaudeUsageCLI.fetchUsageText(configDir: configDir, userInitiated: userInitiated) else {
+        let text = await ClaudeUsageCLI.fetchUsageText(configDir: configDir, userInitiated: userInitiated)
+        // The probe takes seconds; a login that had only just landed has written its profile by
+        // now, so a card no longer waits a whole retry to say whose it is (B-1702).
+        profile = ClaudeAccounts.profile(configDir: home, unlessNamed: profile)
+        guard let text else {
             return failed(L("Claude CLI read failed"))
         }
         if ClaudeUsageCLI.authenticationRejected(text) {

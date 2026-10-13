@@ -508,8 +508,10 @@ if let probeRound = storeSource.range(of: "for (id, reading) in fresh {"),
     expect(false, "the probe round's own bookkeeping was found to read")
 }
 let usageStoreSource = readSource("Tally/Stores/UsageStore.swift")
-expect(usageStoreSource.contains("LoginStatusStore.shared.rememberIdentities(merged)")
-        && usageStoreSource.contains("LoginStatusStore.shared.forgetIdentity(accountID: accountID)"),
+expect(usageStoreSource.contains("rememberIdentities(merged, round: shared)")
+        && usageStoreSource.contains("LoginStatusStore.shared.forgetIdentity(accountID: accountID)")
+        && readSource("Tally/Stores/UsageStore+NewArrivals.swift")
+            .contains("LoginStatusStore.shared.rememberIdentities(rows.filter"),
        "and the refresh is what feeds it, while a removal is what clears it")
 
 // The surfaces that STEER A LAUNCH have to ask `launchableHome` rather than read the renewal home:

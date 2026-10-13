@@ -72,6 +72,14 @@ func accountSetChanged(from before: [ProviderAccount], to after: [ProviderAccoun
     return identity(before) != identity(after)
 }
 
+/// The accounts a later discovery found that the previous one did not: a login that landed while
+/// the app was running. A dormant account coming back is not new (it is the same account signing
+/// back in, and its address is remembered), so it is not counted.
+func accountsArrived(from before: [ProviderAccount], to after: [ProviderAccount]) -> Set<String> {
+    let known = Set(before.map(\.id))
+    return Set(after.filter { !$0.isDormant && !known.contains($0.id) }.map(\.id))
+}
+
 /// Watches a subtree and reports when something the owner cares about has changed.
 ///
 /// Four parts, and the middle two are what keep an FSEvents stream from becoming a firehose: the

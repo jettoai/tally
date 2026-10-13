@@ -123,12 +123,17 @@ extension SettingsAccountsView {
                 .frame(width: Column.name, alignment: .leading)
 
                 // No address: the config home in its place, faint and small, so two rows given the
-                // same nickname can still be told apart without hovering.
+                // same nickname can still be told apart without hovering. A login that just landed
+                // says so instead, in the same faint style, until its address arrives (B-1702).
                 Group {
-                    if let email {
-                        Text(email).font(.system(size: 12)).foregroundStyle(.secondary)
-                    } else {
-                        Text(homeName ?? "")
+                    switch AccountIdentity.column(email: email, signingIn: isSigningIn(item), home: homeName) {
+                    case .address(let address):
+                        Text(address).font(.system(size: 12)).foregroundStyle(.secondary)
+                    case .signingIn:
+                        Text(L("Signing in") + "…")
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    case .home(let name):
+                        Text(name ?? "")
                             .font(.system(size: 11)).foregroundStyle(.tertiary)
                     }
                 }

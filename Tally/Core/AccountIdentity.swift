@@ -24,6 +24,16 @@ enum AccountIdentity {
         probe ?? polled ?? remembered
     }
 
+    /// What the Settings row's account column shows: the address when there is one, "Signing in"
+    /// for a login that landed this launch and has not named itself yet, otherwise the config home
+    /// (B-1702: a just-added account read as a bare folder for a minute).
+    enum Column: Equatable { case address(String), signingIn, home(String?) }
+
+    static func column(email: String?, signingIn: Bool, home: String?) -> Column {
+        if let email, !email.isEmpty { return .address(email) }
+        return signingIn ? .signingIn : .home(home)
+    }
+
     /// The line UNDER the address: what tells two accounts apart when the address cannot.
     ///
     /// One person can hold two logins on ONE address - a Codex account in a personal workspace and

@@ -24,6 +24,7 @@ final class UsageStore {
     /// CLI that round polls, so on the cold start every self-update performs, an empty
     /// `discoveredAccounts` means "not asked yet" for as long as that takes.
     private(set) var hasDiscovered = false
+    var arrivedThisLaunch: Set<String> = []  // B-1702, UsageStore+NewArrivals.swift
     private(set) var isRefreshing = false
     private(set) var lastRefreshedAt: Date?
     /// Set only when a refresh produced at least one non-error account - drives the "updated …" header
@@ -124,6 +125,7 @@ final class UsageStore {
     private func adoptDiscovered(_ accounts: [ProviderAccount]) {
         discoveryEpoch += 1
         let dormantBefore = Set(discoveredAccounts.filter(\.isDormant).map(\.id))
+        noteArrivals(accounts)
         discoveredAccounts = accounts
         // Every route that produces a set passes through here, so this is the one place that can
         // say the question has been asked - including when the answer is "none".
@@ -188,7 +190,7 @@ final class UsageStore {
     private var retryDelay: TimeInterval = 60
     private var retryFireAt: Date?
 
-    private func scheduleRetryIfNeeded(anyFailure: Bool) {
+    private func scheduleRetryIfNeeded(anyFailure: Bool, soon: Bool = false) {
         retryTimer?.cancel()
         retryTimer = nil
         retryFireAt = nil
@@ -197,8 +199,8 @@ final class UsageStore {
             return
         }
         let interval = TimeInterval(max(1, SettingsStore.shared.refreshIntervalMinutes) * 60)
-        let delay = min(retryDelay, interval)
-        retryDelay = min(retryDelay * 2, interval)
+        let delay = soon ? FailureRetry.newAccountDelay : min(retryDelay, interval)
+        if !soon { retryDelay = min(retryDelay * 2, interval) }  // one quick look, ladder unmoved
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler { [weak self] in
@@ -351,10 +353,7 @@ final class UsageStore {
             .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
             .map { ProbeCadence.overlay($0, fact: readLiveRateFact(accountID: $0.id), now: Date()) }
             .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
-        // Who each polled account turned out to be, written down before the filter above can make
-        // it unaskable: only enabled accounts are polled, so this round is the only chance to learn
-        // an address that a switched-off row will still want to show (AccountIdentity.swift).
-        LoginStatusStore.shared.rememberIdentities(merged)
+        rememberIdentities(merged, round: shared)
         isRefreshing = false
         lastRefreshedAt = Date()
         if results.contains(where: { $0.error == nil }) {
@@ -427,7 +426,8 @@ final class UsageStore {
                                                       known: Set(known.map(\.id)),
                                                       userInitiated: userInitiated) }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
-        scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
+        scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil },
+                              soon: retriesSoon(results, streaks: failureStreak))
         // This round has now published a world without the removed accounts, so the tombstones that
         // predate it are spent - and a config home recreated under the same name is a new account
         // again rather than one this store refuses to show.
@@ -457,6 +457,7 @@ final class UsageStore {
     func forgetAccount(_ accountID: String) {
         lastGood[accountID] = nil
         failureStreak[accountID] = nil
+        arrivedThisLaunch.remove(accountID)
         lastPublishedAccounts.removeAll { $0.id == accountID }
         lastLaunchHomes[accountID] = nil
         removals.remove(accountID)

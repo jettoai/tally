@@ -54,7 +54,7 @@ try MainActor.assumeIsolated {
     try runAgentHookChecks(tmp: tmp)
     try runKnockHookChecks(tmp: tmp)
     // The same files written in their own layout, not Foundation's (claudejsonformatchecks.swift).
-    try runClaudeJSONFormatChecks(tmp: tmp)
+    try runClaudeJSONFormatChecks(tmp: tmp); try runProfileChecks(tmp: tmp)
     try runArtifactHookRetirementChecks(tmp: tmp)
     runSmartBadgeChecks()
     runLoadBadgeChecks(); runSharedLoginBadgeChecks()

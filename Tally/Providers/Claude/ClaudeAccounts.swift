@@ -82,6 +82,14 @@ enum ClaudeAccounts {
         return Profile(plan: account.planLabel, email: account.email, accountUUID: account.uuid)
     }
 
+    /// The same read, skipped when an earlier one already named the account. A login lands its
+    /// credential a moment before it writes `oauthAccount` (B-1702: the Keychain item and the
+    /// profile fetch fell in the same second), so a read taken right as the account appears can
+    /// find nobody; asking again once the usage probe returns names it on that same round.
+    static func profile(configDir: String, unlessNamed earlier: Profile) -> Profile {
+        earlier.email != nil ? earlier : profile(configDir: configDir)
+    }
+
     private struct Config: Decodable {
         var oauthAccount: Account?
 

@@ -93,3 +93,16 @@ func foldLastGood(_ usage: AccountUsage, previous: AccountUsage?, failureStreak 
     }
     return previous
 }
+
+/// When the store retries after a round with failures. One case is quicker than the ladder: an
+/// account that appeared while the app was running and has failed exactly once. Its first read often
+/// lands in the second its login is still finishing (B-1702), and a minute is the whole wait the
+/// user sees. Only the first failure: after that the ordinary ladder and `bareErrorAfterFailures`
+/// apply unchanged, so a new account that is really broken is not probed every few seconds.
+enum FailureRetry {
+    static let newAccountDelay: TimeInterval = 5
+
+    static func isSoon(failed: [String], streaks: [String: Int], arrived: Set<String>) -> Bool {
+        failed.contains { arrived.contains($0) && streaks[$0] == 1 }
+    }
+}

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Spawns a provider's own CLI and captures its stdout for usage readers.
 ///
@@ -32,14 +33,6 @@ enum CLIRunner {
     /// orders the write before every later read.
     private final class Captured: @unchecked Sendable {
         var value = Data()
-    }
-
-    /// Set on the watchdog's queue and read once the child has exited; the lock orders the two.
-    private final class TimeoutFlag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = false
-        func set() { lock.lock(); value = true; lock.unlock() }
-        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
     }
 
     /// Run a CLI to completion off the main actor. `environment` entries overlay the app's env;
@@ -89,9 +82,10 @@ enum CLIRunner {
                 try? stdin.fileHandleForWriting.close()
 
                 // Watchdog: a wedged CLI must never stall the refresh loop.
-                let timedOut = TimeoutFlag()
+                // Set on the watchdog's queue and read once the child has exited; the lock orders the two.
+                let timedOut = OSAllocatedUnfairLock(initialState: false)
                 let watchdog = DispatchWorkItem {
-                    if process.isRunning { timedOut.set(); process.terminate() }
+                    if process.isRunning { timedOut.withLock { $0 = true }; process.terminate() }
                 }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
@@ -110,7 +104,7 @@ enum CLIRunner {
                     exitCode: process.terminationStatus,
                     stdout: String(data: data, encoding: .utf8) ?? "",
                     stderr: String(data: errorData.value, encoding: .utf8) ?? "",
-                    timedOut: timedOut.isSet
+                    timedOut: timedOut.withLock { $0 }
                 ))
             }
         }

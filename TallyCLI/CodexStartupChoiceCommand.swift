@@ -50,8 +50,8 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
         warn("the menu changed since it was shown; reload and press again")
         return 3
     }
-    guard let answer = shownScreen.answer ?? shownScreen.title.flatMap({ title in
-        shownScreen.lines.flatMap { CodexStartupScreen.answerLabel(title: title, lines: $0) } }) else {
+    guard let answer = shownScreen.answer
+            ?? CodexStartupScreen.answerLabel(title: shownScreen.title, lines: shownScreen.lines) else {
         warn("Codex is showing \"\(shownScreen.title ?? "a screen")\", which Tally does not answer; answer it in the window")
         return 3
     }

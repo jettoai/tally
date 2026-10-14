@@ -98,6 +98,9 @@ func runCodexModelNoticeChecks(fixtures: URL) throws {
         return screen
     }
     let down: [UInt8] = [0x1B, 0x5B, 0x42], up: [UInt8] = [0x1B, 0x5B, 0x41], enter: [UInt8] = [0x0D]
+    func existingModelKeys(_ lines: [String]) -> [UInt8]? {
+        CodexStartupScreen.answerKeys(title: CodexStartupScreen.modelNoticeMarker, lines: lines)
+    }
     let launched = start.addingTimeInterval(-30)
     for (name, rows, cols) in [("model-notice-0.162.1-120x40.bin", 40, 120), ("model-notice-0.162.1-80x24.bin", 24, 80),
                                ("update-then-model-notice-0.162.1-120x40.bin", 40, 120)] {
@@ -108,7 +111,7 @@ func runCodexModelNoticeChecks(fixtures: URL) throws {
         check("M1 \(name) publishes its rows from the heading, the first row selected",
               lines.first == "Meet GPT-6 Sol" && lines.contains("› 1. Try new model") && lines.contains("2. Use existing model"))
         check("M2 \(name): one Down from the selected first row, then Enter",
-              CodexStartupScreen.existingModelKeys(lines) == down + enter)
+              existingModelKeys(lines) == down + enter)
         let record = codexStartupScreenRecord(screen, stall: codexStartupStall(screen: screen, launchedAt: launched,
                                                                                bindingLanded: false, now: start))
         let id = record?.screenID ?? ""
@@ -122,13 +125,13 @@ func runCodexModelNoticeChecks(fixtures: URL) throws {
         check("M3 \(name): another drawing's id is refused and types nothing", stale.result == "stale-screen" && stale.keys == nil)
     }
     check("M4 already on Use existing model: Enter alone",
-          CodexStartupScreen.existingModelKeys(["1. Try new model", "› 2. Use existing model"]) == enter)
+          existingModelKeys(["1. Try new model", "› 2. Use existing model"]) == enter)
     check("M4 the selection below it: Up, then Enter",
-          CodexStartupScreen.existingModelKeys(["1. Use existing model", "2. Try new model", "› 3. Something else"]) == up + up + enter)
+          existingModelKeys(["1. Use existing model", "2. Try new model", "› 3. Something else"]) == up + up + enter)
     check("M4 no selected row types nothing",
-          CodexStartupScreen.existingModelKeys(["1. Try new model", "2. Use existing model"]) == nil)
+          existingModelKeys(["1. Try new model", "2. Use existing model"]) == nil)
     check("M4 no Use existing model row types nothing",
-          CodexStartupScreen.existingModelKeys(["› 1. Try new model", "2. Keep the old one"]) == nil)
+          existingModelKeys(["› 1. Try new model", "2. Keep the old one"]) == nil)
     var unreliable = try replay("model-notice-0.162.1-120x40.bin", rows: 40, cols: 120)
     unreliable.observe(Array("\u{1B}[5Z".utf8))
     check("M5 an unreliable grid publishes no announcement rows", unreliable.menuLines == nil)

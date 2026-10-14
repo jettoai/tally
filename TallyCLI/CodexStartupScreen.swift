@@ -1,8 +1,9 @@
 import Foundation
 
 // What Codex has drawn before its composer is usable. The startup update menu, the new-model
-// announcement, the folder trust screen, the hooks review, sign-in and other pickers come up before Codex builds a thread, so no hook or rollout can report them; the PTY bytes
-// the relay copies are the only evidence. They are replayed onto a grid the size of the PTY, as the
+// announcement, the folder trust screen, the hooks review, sign-in and other pickers come up before
+// Codex builds a thread, so no hook or rollout can report them; the PTY bytes the relay copies are
+// the only evidence. They are replayed onto a grid the size of the PTY, as the
 // terminal shows them: codex redraws only the cells that changed since its last frame, so a word on
 // screen can be made of cells written frames apart (codex-cli 0.162.1 keeps the `e` of "Update"
 // from the header's "Open"). The sequences interpreted are the ones recorded real windows use
@@ -208,10 +209,6 @@ struct CodexStartupScreen {
         return hasSkip ? [0x1B] : nil
     }
 
-    /// "Use existing model" on codex's new-model announcement (the screen reads "enter/esc confirm",
-    /// so Esc would confirm whichever row is selected, the new model included).
-    static func existingModelKeys(_ lines: [String]) -> [UInt8]? { choiceKeys(lines, label: modelNoticeMarker) }
-
     /// The arrow keys that move the selection from the selected row to the row labelled `wanted`,
     /// then Enter. Nil unless exactly one row is selected and exactly one row is labelled that, so
     /// an unread selection types nothing.
@@ -233,15 +230,18 @@ struct CodexStartupScreen {
     static func answerKeys(title: String, lines: [String]) -> [UInt8]? {
         switch title {
         case updateMenuMarker: return skipKeys(lines)
+        // The announcement reads "enter/esc confirm", so Esc would confirm whichever row is
+        // selected, the new model included.
         case modelNoticeMarker: return choiceKeys(lines, label: modelNoticeMarker)
         case trustFolderMarker: return choiceKeys(lines, label: trustFolderChoice)
         default: return nil
         }
     }
 
-    /// The name of that answer for the asker and for `status --json`; nil exactly when `answerKeys` is.
-    static func answerLabel(title: String, lines: [String]) -> String? {
-        guard answerKeys(title: title, lines: lines) != nil else { return nil }
+    /// The name of that answer for the asker and for `status --json`; nil exactly when `answerKeys`
+    /// is, or when there is no title or no published rows.
+    static func answerLabel(title: String?, lines: [String]?) -> String? {
+        guard let title, let lines, answerKeys(title: title, lines: lines) != nil else { return nil }
         switch title {
         case updateMenuMarker: return "Skip"
         case modelNoticeMarker: return modelNoticeMarker
@@ -416,7 +416,7 @@ func codexStartupScreenRecord(_ screen: CodexStartupScreen, stall: (since: Date,
     -> CodexStartupScreenRecord? {
     guard let stall else { return nil }
     let lines = screen.menuLines
-    let answer = stall.title.flatMap { title in lines.flatMap { CodexStartupScreen.answerLabel(title: title, lines: $0) } }
     return CodexStartupScreenRecord(title: stall.title, lines: lines,
-                                    screenID: lines.map(CodexStartupScreen.screenID), since: stall.since, answer: answer)
+                                    screenID: lines.map(CodexStartupScreen.screenID), since: stall.since,
+                                    answer: CodexStartupScreen.answerLabel(title: stall.title, lines: lines))
 }

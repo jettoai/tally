@@ -85,7 +85,7 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
     for _ in 0..<150 {
         let state = readSessionState(pid: pid, dir: dir)
         let followUp = startupAnswerOutcome(stateFound: state != nil, screen: state?.startupScreen,
-                                             answered: shownScreen.title)
+                                           answered: shownScreen.title)
         switch followUp {
         case .sessionEnded:
             log("session-ended")

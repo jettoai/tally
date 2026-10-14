@@ -44,7 +44,7 @@ enum StartupAnswerOutcome: Equatable {
 }
 
 func startupAnswerOutcome(stateFound: Bool, screen: CodexStartupScreenRecord?,
-                           answered title: String?) -> StartupAnswerOutcome {
+                         answered title: String?) -> StartupAnswerOutcome {
     guard stateFound else { return .sessionEnded }
     guard let screen else { return .prompt }
     return screen.title == title ? .stillUp : .next(screen)

@@ -11,6 +11,9 @@ let codexUpdateTimeout: TimeInterval = 180
 let codexUpdateStateDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".tally")
 /// The last failed update (`CodexUpdateAttempt`), shared with `tally codex-update` (CodexUpdateCommand.swift).
 let codexUpdateAttemptURL = codexUpdateStateDir.appendingPathComponent("codex-update-attempt.json")
+func loadCodexUpdateAttempt() -> CodexUpdateAttempt? {
+    (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt)
+}
 /// Once per process: true when the launch must open with the menu switched off.
 nonisolated(unsafe) private var codexUpdateSkipMenu: Bool?
 
@@ -48,7 +51,7 @@ func updateCodex(_ codex: String, to latest: String, home: String,
                  timeout: TimeInterval = codexUpdateTimeout, announce: String? = nil) -> Bool {
     let begun = Date()
     func backedOff() -> Bool {
-        guard let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt),
+        guard let attempt = loadCodexUpdateAttempt(),
               codexUpdateBackedOff(attempt: attempt, latest: latest, timeout: timeout, now: Date()) else { return false }
         let minutes = Int(Date().timeIntervalSince(attempt.failedAt) / 60)
         warn(attempt.reached.map { codexUpdateUnpublishedLine(latest: latest, detail: "still at \($0), checked \(minutes)m ago") }

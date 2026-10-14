@@ -81,12 +81,12 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
     warn("keys sent; waiting for Codex's prompt")
     // What follows the answered screen is only reported once it has held for 2.5s: codex can pass
     // through a blank frame or its composer between the update menu and the announcement.
-    var settling: (followUp: StartupAnswerOutcome, since: Date)?
+    var settling: (outcome: StartupAnswerOutcome, since: Date)?
     for _ in 0..<150 {
         let state = readSessionState(pid: pid, dir: dir)
-        let followUp = startupAnswerOutcome(stateFound: state != nil, screen: state?.startupScreen,
-                                           answered: shownScreen.title)
-        switch followUp {
+        let outcome = startupAnswerOutcome(stateFound: state != nil, screen: state?.startupScreen,
+                                          answered: shownScreen.title)
+        switch outcome {
         case .sessionEnded:
             log("session-ended")
             warn("keys sent but the session ended before Codex reached its prompt")
@@ -94,10 +94,10 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
         case .stillUp:
             settling = nil
         case .prompt, .next:
-            if settling?.followUp != followUp { settling = (followUp, Date()) }
+            if settling?.outcome != outcome { settling = (outcome, Date()) }
         }
         if let settling, Date().timeIntervalSince(settling.since) >= 2.5 {
-            guard case .next(let next) = followUp else {
+            guard case .next(let next) = outcome else {
                 log("reached-prompt")
                 print("answered: Codex reached its prompt")
                 return 0

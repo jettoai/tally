@@ -68,7 +68,7 @@ func runCodexUpdate(args: [String]) -> Int32 {
         let ok = updateCodex(codex, to: latest, home: best.home, timeout: timeout,
             announce: "Codex \(latest) is available; updating in the background (up to \(Int(timeout / 60)) min)...")
         if ok { return record("updated", from: installed, to: codexInstalledVersionRemembered(codex) ?? latest) }
-        let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt)
+        let attempt = loadCodexUpdateAttempt()
         let result = codexUpdateShortfallResult(attemptRewritten: before == nil || stamp() != before, attempt: attempt)
         return record(result, from: installed, to: result == "unpublished" ? attempt?.reached : latest)
     }

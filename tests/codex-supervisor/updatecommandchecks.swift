@@ -47,4 +47,29 @@ func runCodexUpdateCommandChecks() {
               && backedOff(legacy, timeout: 900) && backedOff(legacy, timeout: 180))
     let roundTrip = encodeCodexUpdateAttempt(shortTimeout).flatMap(decodeCodexUpdateAttempt)
     check("UC4 the timeout limit survives the attempt file", roundTrip?.timedOutAfter == 180)
+
+    // UC5: `codex update` exited 0 but brew's newest is still short of the version codex announced
+    // (the real-window sample: 0.162.1 installed, cask 0.162.1, version.json 0.163.0). Backs off an
+    // hour, not six, so the next hourly check tries again; a real failure keeps its six hours.
+    func unpublished(_ minutesAgo: Double) -> CodexUpdateAttempt {
+        CodexUpdateAttempt(version: "0.162.1", failedAt: start.addingTimeInterval(-minutesAgo * 60), reached: "0.160.0")
+    }
+    check("UC5 unpublished 59 minutes ago backs off", backedOff(unpublished(59), timeout: 900) && backedOff(unpublished(59), timeout: 180))
+    check("UC5 unpublished 61 minutes ago is tried again", !backedOff(unpublished(61), timeout: 900) && !backedOff(unpublished(61), timeout: 180))
+    let realFailure = CodexUpdateAttempt(version: "0.162.1", failedAt: start.addingTimeInterval(-5 * 3600))
+    check("UC5 a real failure 5h ago still backs off", backedOff(realFailure, timeout: 900))
+    check("UC5 an old attempt file reads as a real failure", legacy?.reached == nil)
+    check("UC5 the reached version survives the attempt file",
+          encodeCodexUpdateAttempt(unpublished(1)).flatMap(decodeCodexUpdateAttempt)?.reached == "0.160.0")
+
+    check("UC6 an unpublished attempt logs unpublished and exits 0",
+          codexUpdateShortfallResult(attemptRewritten: true, attempt: unpublished(0)) == "unpublished"
+              && codexUpdateExitCode("unpublished") == 0)
+    check("UC6 a real failure still logs failed and exits 1",
+          codexUpdateShortfallResult(attemptRewritten: true, attempt: realFailure) == "failed" && codexUpdateExitCode("failed") == 1)
+    check("UC6 an attempt file left alone logs backed-off",
+          codexUpdateShortfallResult(attemptRewritten: false, attempt: unpublished(0)) == "backed-off" && codexUpdateExitCode("backed-off") == 1)
+    let line = codexUpdateUnpublishedLine(latest: "0.163.0", detail: "still at 0.162.1")
+    check("UC6 the unpublished notice does not call it a failure, no em dash",
+          !line.contains("fail") && line.contains("0.163.0") && line.contains("still at 0.162.1") && !line.contains("\u{2014}"))
 }

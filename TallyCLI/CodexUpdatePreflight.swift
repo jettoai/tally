@@ -46,19 +46,25 @@ private func runCodexUpdatePreflight(home: String) -> Bool {
 
 func updateCodex(_ codex: String, to latest: String, home: String,
                  timeout: TimeInterval = codexUpdateTimeout, announce: String? = nil) -> Bool {
-    let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt)
-    if let attempt, codexUpdateBackedOff(attempt: attempt, latest: latest, timeout: timeout, now: Date()) {
+    let begun = Date()
+    func backedOff() -> Bool {
+        guard let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt),
+              codexUpdateBackedOff(attempt: attempt, latest: latest, timeout: timeout, now: Date()) else { return false }
         let minutes = Int(Date().timeIntervalSince(attempt.failedAt) / 60)
-        warn(codexUpdateFailureLine(latest: latest, reason: "last attempt failed \(minutes)m ago"))
-        return false
+        warn(attempt.reached.map { codexUpdateUnpublishedLine(latest: latest, detail: "still at \($0), checked \(minutes)m ago") }
+            ?? codexUpdateFailureLine(latest: latest, reason: "last attempt failed \(minutes)m ago"))
+        return true
     }
+    if backedOff() { return false }
     warn(announce ?? "Codex \(latest) is available; running `codex update` before opening (up to 3 min)...")
     let deadline = Date().addingTimeInterval(timeout)
-    func fail(_ reason: String, timedOut: Bool = false) -> Bool {
-        let record = CodexUpdateAttempt(version: latest, failedAt: Date(), timedOutAfter: timedOut ? timeout : nil)
+    func save(_ record: CodexUpdateAttempt) {
         if let data = encodeCodexUpdateAttempt(record) {
             try? data.write(to: codexUpdateAttemptURL, options: .atomic)
         }
+    }
+    func fail(_ reason: String, timedOut: Bool = false) -> Bool {
+        save(CodexUpdateAttempt(version: latest, failedAt: Date(), timedOutAfter: timedOut ? timeout : nil))
         warn(codexUpdateFailureLine(latest: latest, reason: reason))
         return false
     }
@@ -71,6 +77,8 @@ func updateCodex(_ codex: String, to latest: String, home: String,
         guard Date() < deadline else { return fail("timed out after \(Int(timeout))s", timedOut: true) }
         usleep(200_000)
     }
+    // The window that held the lock may have just recorded a failure this one could not see before.
+    if backedOff() { return false }
     if let installed = codexInstalledVersion(codex), !codexIsNewer(latest, than: installed) { return true }
 
     let run = codexRunInherited([codex, "update"], home: home, deadline: deadline)
@@ -79,7 +87,12 @@ func updateCodex(_ codex: String, to latest: String, home: String,
     guard status == 0 else { return fail("codex update exited with status \(status)") }
     // rc 0 alone is not proof: a package manager that finds nothing to do also exits 0.
     guard let after = codexInstalledVersion(codex) else { return fail("could not read the installed codex version") }
-    guard !codexIsNewer(latest, than: after) else { return fail("still at \(after) after the update") }
+    guard !codexIsNewer(latest, than: after) else {
+        // Stamped from before the update ran, so the next hourly check finds the hour already over.
+        save(CodexUpdateAttempt(version: latest, failedAt: begun, reached: after))
+        warn(codexUpdateUnpublishedLine(latest: latest, detail: "still at \(after)"))
+        return false
+    }
     try? FileManager.default.removeItem(at: codexUpdateAttemptURL)
     warn("Codex updated to \(after)")
     return true

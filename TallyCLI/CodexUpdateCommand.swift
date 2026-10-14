@@ -46,7 +46,7 @@ func runCodexUpdate(args: [String]) -> Int32 {
     func record(_ result: String, from: String?, to: String?) -> Int32 {
         appendHandoffLine(codexUpdateLogLine(at: started, trigger: trigger, codex: codex, from: from, to: to, result: result,
                                              seconds: Int(Date().timeIntervalSince(started))), to: codexUpdateLog)
-        return ["updated", "current", "no-candidate"].contains(result) ? 0 : 1
+        return codexUpdateExitCode(result)
     }
     let fallback = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path
     let homes = Array(Set((loadSnapshot().0?.accounts ?? []).filter { $0.provider == "codex" }.compactMap(\.launchHome) + [fallback]))
@@ -68,6 +68,8 @@ func runCodexUpdate(args: [String]) -> Int32 {
         let ok = updateCodex(codex, to: latest, home: best.home, timeout: timeout,
             announce: "Codex \(latest) is available; updating in the background (up to \(Int(timeout / 60)) min)...")
         if ok { return record("updated", from: installed, to: codexInstalledVersionRemembered(codex) ?? latest) }
-        return record(before != nil && stamp() == before ? "backed-off" : "failed", from: installed, to: latest)
+        let attempt = (try? Data(contentsOf: codexUpdateAttemptURL)).flatMap(decodeCodexUpdateAttempt)
+        let result = codexUpdateShortfallResult(attemptRewritten: before == nil || stamp() != before, attempt: attempt)
+        return record(result, from: installed, to: result == "unpublished" ? attempt?.reached : latest)
     }
 }

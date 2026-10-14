@@ -80,12 +80,21 @@ func codexUpdateFailureLine(latest: String, reason: String) -> String {
     "Codex \(latest) is available; automatic update failed (\(reason)). Opening without the update menu."
 }
 
+/// `codex update` exited 0 but the package manager's newest release is still short of `latest`
+/// (brew's cask trails the version codex's own feed announces). Not a failure.
+func codexUpdateUnpublishedLine(latest: String, detail: String) -> String {
+    "Codex \(latest) is not published for this install method yet (\(detail)). Opening without the update menu."
+}
+
 /// One failed update, as `~/.tally/codex-update-attempt.json` keeps it. `timedOutAfter` is the limit
 /// a timeout ran out of: nil for any other failure, and in a file written before the field existed.
+/// `reached` is set only when `codex update` exited 0 but stopped short of `version` (unpublished):
+/// the version it did reach. nil, as in a file written before the field existed, is a real failure.
 struct CodexUpdateAttempt: Codable {
     var version: String
     var failedAt: Date
     var timedOutAfter: TimeInterval?
+    var reached: String?
 }
 
 func decodeCodexUpdateAttempt(_ data: Data) -> CodexUpdateAttempt? {
@@ -100,13 +109,14 @@ func encodeCodexUpdateAttempt(_ attempt: CodexUpdateAttempt) -> Data? {
     return try? encoder.encode(attempt)
 }
 
-/// A failed attempt at `latest` within `window` of `now` suppresses another try, except a timeout
+/// A failed attempt at `latest` within six hours of `now` suppresses another try, except a timeout
 /// under a shorter limit than this caller's `timeout`: the 180 s pre-launch update running out must
-/// not hold the 900 s background update off the same version.
-func codexUpdateBackedOff(attempt: CodexUpdateAttempt?, latest: String, timeout: TimeInterval,
-                          now: Date, window: TimeInterval = 6 * 3600) -> Bool {
+/// not hold the 900 s background update off the same version. An unpublished attempt holds off for
+/// one hour only, so the next hourly check (`--if-due`) tries again.
+func codexUpdateBackedOff(attempt: CodexUpdateAttempt?, latest: String, timeout: TimeInterval, now: Date) -> Bool {
     guard let attempt, attempt.version == latest else { return false }
     if let limit = attempt.timedOutAfter, limit < timeout { return false }
+    let window: TimeInterval = attempt.reached == nil ? 6 * 3600 : 3600
     return now.timeIntervalSince(attempt.failedAt) < window
 }
 
@@ -123,6 +133,17 @@ func codexBestCandidate(_ homes: [(home: String, cache: Data?, checkDisabled: Bo
 func codexUpdateCheckDue(lastCheckedAt: Date?, now: Date, every: TimeInterval = 3600) -> Bool {
     guard let lastCheckedAt else { return true }
     return now.timeIntervalSince(lastCheckedAt) >= every
+}
+
+/// The log result of a background update that did not succeed: "backed-off" when it never ran (the
+/// attempt file was left as it was), else "unpublished" or "failed" by what it wrote.
+func codexUpdateShortfallResult(attemptRewritten: Bool, attempt: CodexUpdateAttempt?) -> String {
+    guard attemptRewritten else { return "backed-off" }
+    return attempt?.reached != nil ? "unpublished" : "failed"
+}
+
+func codexUpdateExitCode(_ result: String) -> Int32 {
+    ["updated", "current", "no-candidate", "unpublished"].contains(result) ? 0 : 1
 }
 
 /// One line of `~/.tally/logs/codex-update.log`: what ran, why, and what came of it.

@@ -37,7 +37,7 @@ func runCodexUpdate(args: [String]) -> Int32 {
     let started = Date()
     if ifDue {
         let last = (try? Data(contentsOf: codexUpdateCheckFile)).flatMap { try? decoder.decode(CodexUpdateCheck.self, from: $0) }
-        guard codexUpdateCheckDue(lastCheckedAt: last?.checkedAt, now: started) else { return 0 }
+        guard codexUpdateCheckDue(lastCheckedAt: last?.checkedAt, now: started) else { print("due=false"); return 0 }
         // Written before checking, so a check that fails still waits its hour.
         try? FileManager.default.createDirectory(at: codexUpdateStateDir, withIntermediateDirectories: true)
         try? encoder.encode(CodexUpdateCheck(checkedAt: started)).write(to: codexUpdateCheckFile, options: .atomic)
@@ -46,6 +46,7 @@ func runCodexUpdate(args: [String]) -> Int32 {
     func record(_ result: String, from: String?, to: String?) -> Int32 {
         appendHandoffLine(codexUpdateLogLine(at: started, trigger: trigger, codex: codex, from: from, to: to, result: result,
                                              seconds: Int(Date().timeIntervalSince(started))), to: codexUpdateLog)
+        if ifDue { print("due=true result=\(result)") }
         return codexUpdateExitCode(result)
     }
     let fallback = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path

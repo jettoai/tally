@@ -9,7 +9,8 @@ trap 'rm -rf "$out"' EXIT
 # the one Snapshot.swift symbol OpenTurn.swift would otherwise drag in).
 swiftc -o "$out/run" tests/codex-supervisor/main.swift tests/codex-supervisor/waitchecks.swift tests/codex-supervisor/waitquestionchecks.swift \
   tests/codex-supervisor/updatechecks.swift tests/codex-supervisor/startupchecks.swift \
-  tests/codex-supervisor/startupchoicechecks.swift tests/codex-supervisor/updatecommandchecks.swift \
+  tests/codex-supervisor/startupchoicechecks.swift tests/codex-supervisor/startuptrustchecks.swift \
+  tests/codex-supervisor/updatecommandchecks.swift \
   tests/codex-supervisor/support.swift \
   Tally/Core/SessionMonitoring.swift Tally/Core/CodexSessionHooks.swift \
   TallyCLI/CodexSessionEvents.swift TallyCLI/CodexSessionContext.swift \

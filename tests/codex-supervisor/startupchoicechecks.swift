@@ -85,6 +85,7 @@ func runCodexStartupChoiceChecks() throws {
           (try? startupChoiceDecoder().decode(StartupChoiceRequest.self, from: encoded)) == request)
 
     try runCodexModelNoticeChecks(fixtures: fixtures)
+    try runCodexTrustFolderChecks(fixtures: fixtures)
 }
 
 /// B-1736 package 4: the new-model announcement ("Meet GPT-6 Sol") gets a one-step answer that keeps

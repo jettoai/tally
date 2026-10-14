@@ -1,7 +1,7 @@
 import Foundation
 
-// What Codex has drawn before its composer is usable. The startup update menu, sign-in and other
-// pickers come up before Codex builds a thread, so no hook or rollout can report them; the PTY bytes
+// What Codex has drawn before its composer is usable. The startup update menu, the new-model
+// announcement, the folder trust screen, the hooks review, sign-in and other pickers come up before Codex builds a thread, so no hook or rollout can report them; the PTY bytes
 // the relay copies are the only evidence. They are replayed onto a grid the size of the PTY, as the
 // terminal shows them: codex redraws only the cells that changed since its last frame, so a word on
 // screen can be made of cells written frames apart (codex-cli 0.162.1 keeps the `e` of "Update"
@@ -16,14 +16,28 @@ let codexStartupStallThreshold: TimeInterval = 20
 
 struct CodexStartupScreen {
     static let promptMarkers = ["Ask Codex to do anything", "Ask a follow-up question", "for shortcuts", "context left"]
-    static let screenMarkers = [updateMenuMarker, "Sign in with ChatGPT", modelNoticeMarker]
+    static let screenMarkers = [updateMenuMarker, "Sign in with ChatGPT", modelNoticeMarker, trustFolderMarker, hooksReviewMarker]
     /// The title of codex's startup update menu.
     static let updateMenuMarker = "Update available"
     /// The choice that keeps the model Tally launched with on codex's new-model announcement
     /// ("Meet GPT-6 Sol", codex-cli 0.162.1 when launched with an older `-m`).
     static let modelNoticeMarker = "Use existing model"
+    /// The first-run folder trust screen (codex-cli 0.162.1: a "Folder access" heading, the folder,
+    /// this question, then `› 1. Trust and continue` / `2. Quit` and `enter continue · esc quit`).
+    static let trustFolderMarker = "Trust this folder?"
+    /// The trust screen's heading: its rows are published from here, so the folder being trusted is in them.
+    static let trustFolderHeading = "Folder access"
+    /// The trust screen's way on to the composer. Esc there is Quit, so it is reached with arrows
+    /// and Enter, as the announcement's answer is.
+    static let trustFolderChoice = "Trust and continue"
+    /// Codex's startup hooks review (tui/src/startup_hooks_review.rs). Its rows are published so a
+    /// person elsewhere sees it, but it is never answered from here: trusting runs hooks outside the
+    /// sandbox, and continuing without trust turns this session's hooks off, Tally's own included.
+    static let hooksReviewMarker = "Hooks need review"
     /// The screens a person elsewhere can answer (CodexStartupChoice.swift).
-    static let answerable = [updateMenuMarker, modelNoticeMarker]
+    static let answerable = [updateMenuMarker, modelNoticeMarker, trustFolderMarker]
+    /// The screens whose rows are published. Never the sign-in screen: it can carry a login link and code.
+    static let publishable = answerable + [hooksReviewMarker]
 
     private(set) var rows: Int
     private(set) var cols: Int
@@ -153,19 +167,25 @@ struct CodexStartupScreen {
         return picker.label
     }
 
-    /// The update menu or the model announcement as drawn, one row per line, for a person deciding
-    /// from elsewhere. Only those two: a sign-in screen can carry a login link and code, so nothing
-    /// else is published. The update menu is published from its title down, the announcement (whose
-    /// heading names a model, so no fixed word marks it) from its first drawn row.
+    /// A recognised screen as drawn, one row per line, for a person deciding from elsewhere: the
+    /// `publishable` screens only. The update menu and the hooks review are published from their
+    /// title, the announcement (whose heading names a model, so no fixed word marks it) from its
+    /// first drawn row, the trust screen from its "Folder access" heading above the title.
     var menuLines: [String]? {
         let named = namedHits
-        guard !unreliable, let title, Self.answerable.contains(title),
+        guard !unreliable, let title, Self.publishable.contains(title),
               !named.contains(where: { $0.marker != title }),
-              let start = title == Self.modelNoticeMarker ? lines.firstIndex(where: { !$0.isEmpty })
-                  : named.max(by: { $0.stamp < $1.stamp })?.row
+              let start = menuStart(title: title, named: named)
         else { return nil }
         let rows = lines[start...].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        return Array(rows.prefix(12).map { String($0.prefix(120)) })
+        return Array(rows.prefix(16).map { String($0.prefix(120)) })
+    }
+
+    private func menuStart(title: String, named: [(stamp: Int, row: Int, marker: String)]) -> Int? {
+        if title == Self.modelNoticeMarker { return lines.firstIndex(where: { !$0.isEmpty }) }
+        guard let titleRow = named.max(by: { $0.stamp < $1.stamp })?.row else { return nil }
+        guard title == Self.trustFolderMarker else { return titleRow }
+        return lines[...titleRow].lastIndex { $0.trimmingCharacters(in: .whitespaces) == Self.trustFolderHeading } ?? titleRow
     }
 
     /// Names one drawing of the menu, so a choice made while looking at it cannot land on another.
@@ -188,21 +208,45 @@ struct CodexStartupScreen {
         return hasSkip ? [0x1B] : nil
     }
 
-    /// "Use existing model" on codex's new-model announcement: the arrow keys that move the
-    /// selection from the selected row to that one, then Enter (the screen reads "enter/esc confirm",
-    /// so Esc would confirm whichever row is selected, the new model included). Nil unless exactly one
-    /// row is selected and exactly one row is labelled that, so an unread selection types nothing.
-    static func existingModelKeys(_ lines: [String]) -> [UInt8]? {
+    /// "Use existing model" on codex's new-model announcement (the screen reads "enter/esc confirm",
+    /// so Esc would confirm whichever row is selected, the new model included).
+    static func existingModelKeys(_ lines: [String]) -> [UInt8]? { choiceKeys(lines, label: modelNoticeMarker) }
+
+    /// The arrow keys that move the selection from the selected row to the row labelled `wanted`,
+    /// then Enter. Nil unless exactly one row is selected and exactly one row is labelled that, so
+    /// an unread selection types nothing.
+    static func choiceKeys(_ lines: [String], label wanted: String) -> [UInt8]? {
         var selected: [Int] = [], target: [Int] = []
         for line in lines {
             guard let choice = numberedChoice(line) else { continue }
             if choice.selected { selected.append(choice.number) }
-            if choice.label == modelNoticeMarker { target.append(choice.number) }
+            if choice.label == wanted { target.append(choice.number) }
         }
         guard selected.count == 1, target.count == 1 else { return nil }
         let move = target[0] - selected[0]
         let arrow: [UInt8] = move > 0 ? [0x1B, 0x5B, 0x42] : [0x1B, 0x5B, 0x41]   // Down, Up
         return Array(repeating: arrow, count: abs(move)).flatMap { $0 } + [0x0D]
+    }
+
+    /// The keys that answer `title`'s screen the one way Tally answers it, nil when the rows do not
+    /// read as that screen's shape (nothing is typed then) or Tally does not answer it.
+    static func answerKeys(title: String, lines: [String]) -> [UInt8]? {
+        switch title {
+        case updateMenuMarker: return skipKeys(lines)
+        case modelNoticeMarker: return choiceKeys(lines, label: modelNoticeMarker)
+        case trustFolderMarker: return choiceKeys(lines, label: trustFolderChoice)
+        default: return nil
+        }
+    }
+
+    /// The name of that answer for the asker and for `status --json`; nil exactly when `answerKeys` is.
+    static func answerLabel(title: String, lines: [String]) -> String? {
+        guard answerKeys(title: title, lines: lines) != nil else { return nil }
+        switch title {
+        case updateMenuMarker: return "Skip"
+        case modelNoticeMarker: return modelNoticeMarker
+        default: return trustFolderChoice
+        }
     }
 
     /// `› 2. Label` or `2. Label` (a published or grid row): its number, label and selection.
@@ -372,6 +416,7 @@ func codexStartupScreenRecord(_ screen: CodexStartupScreen, stall: (since: Date,
     -> CodexStartupScreenRecord? {
     guard let stall else { return nil }
     let lines = screen.menuLines
+    let answer = stall.title.flatMap { title in lines.flatMap { CodexStartupScreen.answerLabel(title: title, lines: $0) } }
     return CodexStartupScreenRecord(title: stall.title, lines: lines,
-                                    screenID: lines.map(CodexStartupScreen.screenID), since: stall.since)
+                                    screenID: lines.map(CodexStartupScreen.screenID), since: stall.since, answer: answer)
 }

@@ -8,9 +8,11 @@ let sessionSkipUpdateUsage = """
 tally session skip-update --session <pid> --screen <id>
 
 Answer the startup screen a supervised Codex window is stuck on before its prompt: Skip on the
-update menu (Tally then updates Codex in the background), or "Use existing model" on the new-model
-announcement (the model Tally launched with stays). <id> is `startupScreen.screenID` from
-`tally status --json`; a screen drawn since then is refused, never guessed.
+update menu (Tally then updates Codex in the background), "Use existing model" on the new-model
+announcement (the model Tally launched with stays), or "Trust and continue" on the trust screen of
+a folder opened for the first time (saved, as when chosen in the window). <id> is
+`startupScreen.screenID` from `tally status --json`; a screen drawn since then is refused, never
+guessed, and a screen Tally does not answer (`startupScreen.answer` absent) is refused.
 
 Exit codes: 0 the screen was answered (the prompt, or the next screen and its id, is printed);
 2 usage; 3 refused or unconfirmed (the reason is printed).
@@ -44,9 +46,13 @@ func runSessionSkipUpdate(args: [String], dir: URL = supervisorStateDir) -> Int3
         warn("that window is not on a Codex startup screen Tally can answer")
         return 3
     }
-    let answer = shownScreen.title == CodexStartupScreen.modelNoticeMarker ? CodexStartupScreen.modelNoticeMarker : "Skip"
     guard shown == screen else {
         warn("the menu changed since it was shown; reload and press again")
+        return 3
+    }
+    guard let answer = shownScreen.answer ?? shownScreen.title.flatMap({ title in
+        shownScreen.lines.flatMap { CodexStartupScreen.answerLabel(title: title, lines: $0) } }) else {
+        warn("Codex is showing \"\(shownScreen.title ?? "a screen")\", which Tally does not answer; answer it in the window")
         return 3
     }
     let request = StartupChoiceRequest(screenID: screen, nonce: UUID().uuidString, at: Date())

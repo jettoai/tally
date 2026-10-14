@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Keeps Codex current while no window is open: every ten minutes the bundled CLI is asked whether
 /// an hourly update check is due (`tally codex-update --if-due`, TallyCLI/CodexUpdateCommand.swift),
@@ -8,6 +9,9 @@ import Foundation
 enum CodexUpdateSchedule {
     static let interval: TimeInterval = 600
     static let timeout: TimeInterval = 960
+    /// One line a tick in the unified log, at notice level so it is kept on disk: the only trace of a
+    /// tick that found no check due (the CLI writes ~/.tally/logs/codex-update.log once an hour).
+    private static let log = Logger(subsystem: "ai.jetto.tally", category: "codex-update")
 
     @MainActor
     static func start() {
@@ -33,8 +37,11 @@ enum CodexUpdateSchedule {
             guard FileManager.default.isExecutableFile(atPath: helper) else { return }
             try? await Task.sleep(for: .seconds(120))
             while true {
-                _ = await CLIRunner.run(helper, arguments: ["codex-update", "--if-due"] + extra,
-                                        environment: environment, timeout: timeout)
+                let began = Date()
+                let out = await CLIRunner.run(helper, arguments: ["codex-update", "--if-due"] + extra,
+                                              environment: environment, timeout: timeout)
+                let due = out?.stdout.split(separator: "\n").last { $0.hasPrefix("due=") }.map(String.init) ?? "due=unknown"
+                log.notice("codex update tick \(due, privacy: .public) rc=\(out?.exitCode ?? -1, privacy: .public) timedOut=\(out?.timedOut ?? false, privacy: .public) took=\(Int(Date().timeIntervalSince(began)), privacy: .public)s")
                 try? await Task.sleep(for: .seconds(pause))
             }
         }

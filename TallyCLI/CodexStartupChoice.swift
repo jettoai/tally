@@ -1,10 +1,11 @@
 import Foundation
 
-// One answer to codex's startup update menu, asked from outside the window (a Baton button) and
-// carried out by the supervisor that owns the window's PTY. Deliberately narrow: two screens, one
-// answer each, neither changing what Tally launched: Skip on the update menu (Esc, so the selected
-// row does not matter) and "Use existing model" on the new-model announcement (arrows from the
-// selected row, then Enter); and only while the drawing the asker saw is still up (`screenID`).
+// One answer to a codex startup screen, asked from outside the window (a Baton button) and carried
+// out by the supervisor that owns the window's PTY. Deliberately narrow: three screens, one answer
+// each (CodexStartupScreen.answerKeys): Skip on the update menu (Esc, so the selected row does not
+// matter), "Use existing model" on the new-model announcement and "Trust and continue" on the
+// first-run folder trust screen (arrows from the selected row, then Enter; Esc there is Quit); and
+// only while the drawing the asker saw is still up (`screenID`).
 // Whether a person asked is not decidable here; the caller gates that. The request and receipt
 // files sit in the supervisor state directory (`startupChoiceSuffix`, PendingNotice.swift).
 
@@ -30,9 +31,7 @@ func decideStartupChoice(_ request: StartupChoiceRequest, record: CodexStartupSc
           let lines = record.lines else { return ("no-menu", nil) }
     guard record.screenID == request.screenID else { return ("stale-screen", nil) }
     if let humanInputAt, now.timeIntervalSince(humanInputAt) < 2 { return ("typing", nil) }
-    let keys = title == CodexStartupScreen.modelNoticeMarker
-        ? CodexStartupScreen.existingModelKeys(lines) : CodexStartupScreen.skipKeys(lines)
-    guard let keys else { return ("unreadable", nil) }
+    guard let keys = CodexStartupScreen.answerKeys(title: title, lines: lines) else { return ("unreadable", nil) }
     return ("sent", keys)
 }
 

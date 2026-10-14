@@ -16,12 +16,14 @@ let codexStartupStallThreshold: TimeInterval = 20
 
 struct CodexStartupScreen {
     static let promptMarkers = ["Ask Codex to do anything", "Ask a follow-up question", "for shortcuts", "context left"]
-    static let screenMarkers = ["Update available", "Sign in with ChatGPT", modelNoticeMarker]
+    static let screenMarkers = [updateMenuMarker, "Sign in with ChatGPT", modelNoticeMarker]
+    /// The title of codex's startup update menu.
+    static let updateMenuMarker = "Update available"
     /// The choice that keeps the model Tally launched with on codex's new-model announcement
     /// ("Meet GPT-6 Sol", codex-cli 0.162.1 when launched with an older `-m`).
     static let modelNoticeMarker = "Use existing model"
     /// The screens a person elsewhere can answer (CodexStartupChoice.swift).
-    static let answerable = ["Update available", modelNoticeMarker]
+    static let answerable = [updateMenuMarker, modelNoticeMarker]
 
     private(set) var rows: Int
     private(set) var cols: Int

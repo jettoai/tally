@@ -82,7 +82,7 @@ func secondHeadHoldLine(conversation: String, pid: String, cwd: String, holder: 
 /// the child is already gone and the next has not been spawned, which is the only window in a
 /// supervisor's life that nothing is drawing into (PendingNotice.swift).
 func noteSecondHead(conversation: String, target: String, pid: String, cwd: String, log: URL,
-                    holder: ConversationHolder? = nil) {
+                    holder: ConversationHolder?) {
     warn(secondHeadNotice(conversation: conversation, target: target, holder: holder))
     appendHandoffLine(secondHeadHoldLine(conversation: conversation, pid: pid, cwd: cwd,
                                          holder: holder?.pid), to: log)

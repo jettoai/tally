@@ -468,11 +468,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let holders = conversationHolders(in: cwd, excluding: supervisorPID)
             secondHead = resumeForksConversation(conversation, liveElsewhere: Set(holders.keys))
             if secondHead, let conversation {
+                let holder = holders[conversation]
                 noteSecondHead(conversation: conversation, target: target.label,
-                               pid: supervisorPID, cwd: cwd, log: handoffLog,
-                               holder: holders[conversation])
+                               pid: supervisorPID, cwd: cwd, log: handoffLog, holder: holder)
                 manualMoves.noteFreshStart(
-                    secondHeadFreshBadge(conversation: conversation, holder: holders[conversation],
+                    secondHeadFreshBadge(conversation: conversation, holder: holder,
                                          target: target.label), at: Date())
             }
             let carrying = fresh || secondHead ? nil : sessionFile

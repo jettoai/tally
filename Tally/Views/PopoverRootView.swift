@@ -25,10 +25,6 @@ struct PopoverRootView: View {
     /// sizes itself from the report and holds a corner while it does, and one that does not must not
     /// have the content waiting against an edge nothing keeps still (see `anchoredInHost`).
     var onContentSize: ((CGSize) -> Void)? = nil
-    /// Whether the host window itself draws glass (the popover's vibrancy, the pinned panel's
-    /// behind-window blur). The dashboard window is opaque, so it opts out and keeps solid cards -
-    /// a within-window material there would only sample that window's own grey.
-    var hostDrawsGlass: Bool = true
     /// Which screen this surface is on, asked of the host rather than assumed: the popover opens on
     /// the status item's screen, the pinned panel sits wherever the user dragged it, and the window
     /// on whichever display it was summoned to. Nil before the host has a window, which falls back
@@ -265,11 +261,11 @@ struct PopoverRootView: View {
         .anchoredInHost(enabled: onContentSize != nil)
     }
 
-    /// The card fill for this surface: glass only where the host has glass to sample AND the user
-    /// asked for it. Reduce Transparency is a need, not a preference, so it clamps the cards to
+    /// The card fill for this surface: glass when the user asked for it (all three hosts put glass
+    /// behind the cards then: the popover's vibrancy, the panel's and the window's behind-window blur). Reduce Transparency is a need, not a preference, so it clamps the cards to
     /// solid regardless of the setting - the same rule the pinned panel's backdrop follows.
     private var cardStyle: TallyCardStyle {
-        guard hostDrawsGlass, settings.isPanelTranslucent,
+        guard settings.isPanelTranslucent,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else { return .solid }
         return .glassVariant
     }

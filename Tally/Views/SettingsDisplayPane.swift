@@ -141,8 +141,8 @@ extension SettingsView {
 
         rowDivider
 
-        toggleRow(L("Glass pinned panel"),
-                  subtitle: L("The pinned panel shows the desktop through frosted glass."),
+        toggleRow(L("Frosted glass"),
+                  subtitle: L("The pinned panel, the menu bar popover and the main window show the desktop through frosted glass. Off makes all three solid."),
                   isOn: $settings.isPanelTranslucent)
 
         // Language and refresh cadence live here too: language decides what you read, the

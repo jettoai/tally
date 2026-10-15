@@ -139,8 +139,11 @@ final class MainWindowController {
             window.toolbar = NSToolbar(identifier: "TallyMainWindowToolbar")
             window.toolbarStyle = .unifiedCompact
             window.isReleasedWhenClosed = false
-            // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
-            // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
+            // Not opaque, because the glass setting decides what is behind the content: the same
+            // `PanelBackdrop` as the pinned panel (behind-window blur, or the solid window colour),
+            // drawn by the content below. Clear here so the blur has the desktop to sample.
+            window.isOpaque = false
+            window.backgroundColor = .clear
             //
             // Everything about the size is the sizer's, including the autosaved frame: restoring
             // one IS a resize, and the surface has to be following its content by then.
@@ -148,7 +151,6 @@ final class MainWindowController {
                                  autosaveName: "TallyMainWindow.v3") { sizer in
                 PopoverRootView(store: .shared, settings: .shared,
                                 onContentSize: sizer.onContentSize,
-                                hostDrawsGlass: false,
                                 // Summoned windows follow the user, so the display to fit is the
                                 // one this window was last put on.
                                 hostScreen: sizer.screen,
@@ -158,6 +160,7 @@ final class MainWindowController {
                                 // pushing the window up from under the pointer.
                                 hostTopEdge: sizer.topEdge,
                                 tokens: .shared, tabState: surfaceTab, host: sizer.host)
+                    .background(PanelBackdrop(settings: .shared, cornerRadius: nil))
             }
             ActivationPolicy.track(window)
             // A title-bar drag is a carry like the pinned panel's: without this, every frame of it

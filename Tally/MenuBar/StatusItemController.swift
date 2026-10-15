@@ -23,7 +23,7 @@ final class StatusItemController: NSObject {
     /// What `updateButton` last put on the button; nil until the first apply.
     var lastAppliedFace: StatusItemFace?
     let popover = NSPopover()
-    private var popoverHost: NSHostingController<PopoverRootView>?
+    private var popoverHost: NSHostingController<AnyView>?
     /// The popover's own Usage / Tokens selection, kept here so the pin hand-off can read it.
     let popoverTab = SurfaceTabState()
     /// THE ANCHOR THIS POPOVER ACTUALLY HANGS FROM, and the whole of the fix.
@@ -92,14 +92,15 @@ final class StatusItemController: NSObject {
         // `sizeThatFits`. Two size authorities (SwiftUI constraints + manual sizing) recurse the layout
         // engine into a stack-overflow crash.
         let host = NSHostingController(
-            rootView: PopoverRootView(store: UsageStore.shared, settings: SettingsStore.shared,
+            rootView: AnyView(PopoverRootView(store: UsageStore.shared, settings: SettingsStore.shared,
                                       onContentSize: { [weak self] size in
                                           self?.applyPopoverSize(size)
                                       },
                                       // The screen the content has to fit inside, which is the one
                                       // the surface is actually on (see `contentHostScreen`).
                                       hostScreen: { [weak self] in self?.contentHostScreen() },
-                                      tabState: popoverTab, host: .popover))
+                                      tabState: popoverTab, host: .popover)
+                .background(PopoverSolidCover(settings: SettingsStore.shared))))
         host.sizingOptions = []
         popoverHost = host
         popover.contentViewController = host

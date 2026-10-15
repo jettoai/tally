@@ -193,25 +193,45 @@ extension View {
 /// with the pick panel, which is borderless for the same reason and must not invent a second look.
 struct PanelBackdrop: View {
     @Bindable var settings: SettingsStore
+    /// The surface's own corner radius; nil for a host whose window shape already clips it (the
+    /// dashboard window), which then needs no mask of ours.
+    var cornerRadius: CGFloat? = 12
 
     var body: some View {
         if settings.isPanelTranslucent,
            !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-            GlassBackdrop()
-        } else {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            GlassBackdrop(cornerRadius: cornerRadius)
+        } else if let cornerRadius {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
+        } else {
+            Color(nsColor: .windowBackgroundColor)
+        }
+    }
+}
+
+/// The menu bar popover's cover for the glass setting being off: the system popover backdrop is
+/// translucent whatever the setting says, so a solid layer over it is what makes "off" solid there.
+/// On leaves the system backdrop alone.
+struct PopoverSolidCover: View {
+    @Bindable var settings: SettingsStore
+
+    var body: some View {
+        if !settings.isPanelTranslucent || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            Color(nsColor: .windowBackgroundColor)
         }
     }
 }
 
 private struct GlassBackdrop: NSViewRepresentable {
+    var cornerRadius: CGFloat?
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
-        view.maskImage = Self.roundedMask(cornerRadius: 12)
+        if let cornerRadius { view.maskImage = Self.roundedMask(cornerRadius: cornerRadius) }
         return view
     }
 

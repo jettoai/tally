@@ -1886,60 +1886,60 @@
         }
       }
     },
-    "Glass pinned panel": {
+    "Frosted glass": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "釘選面板毛玻璃"
+            "value": "毛玻璃"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "置顶面板毛玻璃"
+            "value": "毛玻璃"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ピン留めパネルをすりガラスに"
+            "value": "すりガラス"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "고정 패널 유리 효과"
+            "value": "유리 효과"
           }
         }
       }
     },
-    "The pinned panel shows the desktop through frosted glass.": {
+    "The pinned panel, the menu bar popover and the main window show the desktop through frosted glass. Off makes all three solid.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "釘選面板以毛玻璃透出桌面。"
+            "value": "釘選面板、選單列下拉與主視窗以毛玻璃透出桌面；關閉則三者皆為實色。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "置顶面板以毛玻璃透出桌面。"
+            "value": "置顶面板、菜单栏下拉与主窗口以毛玻璃透出桌面；关闭则三者均为纯色。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ピン留めパネルの背景にデスクトップが透けて見えます。"
+            "value": "ピン留めパネル、メニューバーのポップオーバー、メインウィンドウの背景にデスクトップが透けて見えます。オフにすると3つとも不透明になります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "고정 패널 뒤로 데스크톱이 비쳐 보입니다."
+            "value": "고정 패널, 메뉴 막대 팝오버, 메인 창 뒤로 데스크톱이 비쳐 보입니다. 끄면 세 곳 모두 불투명해집니다."
           }
         }
       }

@@ -16,55 +16,9 @@
 static ENTRY_MARKER: [u8; 22] = *b"tally_entry forward-v1";
 
 #[cfg(unix)]
-mod forward {
-    use std::ffi::{c_char, c_int, CString};
-    use std::io::Write;
-    use std::os::unix::ffi::OsStrExt;
-
-    extern "C" {
-        fn execv(path: *const c_char, argv: *const *const c_char) -> c_int;
-        fn usleep(microseconds: u32) -> c_int;
-    }
-
-    /// How long a missing Swift CLI is waited for: the moment an installer swaps the bundle.
-    const MISSING_RETRIES: u32 = 10;
-    const MISSING_WAIT_US: u32 = 50_000;
-
-    fn fail(message: &str) -> c_int {
-        let _ = writeln!(std::io::stderr(), "tally: {message}");
-        127
-    }
-
-    pub fn run(argv: *const *const c_char) -> c_int {
-        let entry = match std::env::current_exe().and_then(std::fs::canonicalize) {
-            Ok(path) => path,
-            Err(error) => return fail(&format!("cannot locate this binary: {error}")),
-        };
-        let Some(target) = tally_sys::paths::swift_cli(&entry) else {
-            return fail("cannot locate the Swift CLI");
-        };
-        let Ok(c_target) = CString::new(target.as_os_str().as_bytes()) else {
-            return fail("Swift CLI path contains a NUL byte");
-        };
-        let mut attempt = 0;
-        loop {
-            // Returns only on failure.
-            unsafe { execv(c_target.as_ptr(), argv) };
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::NotFound && attempt < MISSING_RETRIES {
-                attempt += 1;
-                unsafe { usleep(MISSING_WAIT_US) };
-                continue;
-            }
-            return fail(&format!("cannot start {}: {error}", target.display()));
-        }
-    }
-}
-
-#[cfg(unix)]
 #[no_mangle]
 pub extern "C" fn main(_argc: std::ffi::c_int, argv: *const *const std::ffi::c_char) -> std::ffi::c_int {
-    forward::run(argv)
+    tally_sys::entry::forward(argv)
 }
 
 #[cfg(not(unix))]

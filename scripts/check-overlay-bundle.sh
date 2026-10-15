@@ -5,6 +5,8 @@
 # The strings to look for come from the overlay itself (lines of `cli:<text>` or `app:<text>`), so
 # this public script names nothing the overlay adds. A `file:<path>` line names a file inside the
 # bundle, relative to Tally.app, that must exist (present) or must not (absent).
+# An `entry:<text>` line is looked for only in the tally entry (Contents/Helpers/tally) when
+# present, and in every binary given plus the entry when absent.
 #
 # Present (default): the overlay linked at ./overlay lists the markers (overlay/bundle-markers).
 # Every CLI slice must carry every cli marker, the app binary every app marker, the Info.plist a
@@ -47,6 +49,12 @@ for cli in "${CLIS[@]}"; do
   done
 done
 strings "$APP/Contents/MacOS/Tally" > "$work/app.txt"
+ENTRY="$APP/Contents/Helpers/tally"
+[ -f "$ENTRY" ] || { echo "no tally entry at $ENTRY" >&2; exit 1; }
+for arch in $(lipo -archs "$ENTRY"); do
+  lipo "$ENTRY" -thin "$arch" -output "$work/entry-$arch" 2> /dev/null || cp "$ENTRY" "$work/entry-$arch"
+  strings "$work/entry-$arch" > "$work/entry-$arch.txt"
+done
 
 # expect <text> <strings file> <where>: the text is there when present, missing when absent.
 expect() {
@@ -68,6 +76,16 @@ if [ -s "$MARKERS" ]; then
         found=$((found + 1)) ;;
       app:*)
         expect "${line#app:}" "$work/app.txt" "the app binary"
+        found=$((found + 1)) ;;
+      entry:*)
+        for txt in "$work"/entry-*.txt; do
+          expect "${line#entry:}" "$txt" "entry slice ${txt##*/}"
+        done
+        if [ "$MODE" = absent ]; then
+          for txt in "$work"/cli*.txt; do
+            expect "${line#entry:}" "$txt" "CLI slice ${txt##*/}"
+          done
+        fi
         found=$((found + 1)) ;;
       file:*)
         if [ -e "$APP/${line#file:}" ]; then

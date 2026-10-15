@@ -9,13 +9,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 export MACOSX_DEPLOYMENT_TARGET=14.0
-(cd rust && cargo build --quiet --release --locked -p tally)
+# TALLY_ENTRY_BIN=<path> tests that binary instead of building this tree's entry (an overlay's).
+if [ -n "${TALLY_ENTRY_BIN:-}" ]; then
+    entry_bin="$TALLY_ENTRY_BIN"
+else
+    (cd rust && cargo build --quiet --release --locked -p tally)
+    entry_bin=rust/target/release/tally
+fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 helpers="$work/App/Contents/Helpers"
 mkdir -p "$helpers/swift" "$work/bin" "$work/cwd"
 swiftc -O -o "$helpers/swift/tally" tests/entry/probe.swift
-cp rust/target/release/tally "$helpers/tally"
+cp "$entry_bin" "$helpers/tally"
 ln -s "$helpers/tally" "$work/bin/tally"
 
 python3 - "$work" <<'PY'
@@ -117,7 +123,7 @@ else
     echo "FAIL: E9 the Rust and Swift sides name the same Swift CLI directory (rust=$rust_dir swift=$swift_dir)"
     exit 1
 fi
-if strings rust/target/release/tally | command grep -q 'tally_entry forward-v1'; then
+if strings "$entry_bin" | command grep -q 'tally_entry forward-v1'; then
     echo "PASS: E10 the entry carries the marker build-release.sh looks for"
 else
     echo "FAIL: E10 the entry carries the marker build-release.sh looks for"

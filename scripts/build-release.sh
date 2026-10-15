@@ -130,13 +130,19 @@ for arch in arm64 x86_64; do
 done
 
 echo "==> build the Rust tally entry (universal)"
-entry_slices=()
-for triple in aarch64-apple-darwin x86_64-apple-darwin; do
-  (cd "$SRC/rust" && MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked -p tally --target "$triple")
-  entry_slices+=("$SRC/rust/target/$triple/release/tally")
-done
 ENTRY_BIN="build/tally-entry"
-lipo -create "${entry_slices[@]}" -output "$ENTRY_BIN"
+if [ -x "$SRC/overlay/rust/build-entry.sh" ]; then
+  # An overlay linked at ./overlay may build its own entry in place of this one (the same hand-over
+  # as scripts/build-rust-core.sh); the public tree has none, so this never fires there.
+  SRCROOT="$SRC" "$SRC/overlay/rust/build-entry.sh" "$PWD/$ENTRY_BIN"
+else
+  entry_slices=()
+  for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+    (cd "$SRC/rust" && MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked -p tally --target "$triple")
+    entry_slices+=("$SRC/rust/target/$triple/release/tally")
+  done
+  lipo -create "${entry_slices[@]}" -output "$ENTRY_BIN"
+fi
 for arch in arm64 x86_64; do
   lipo "$ENTRY_BIN" -thin "$arch" -output "build/entry-$arch.thin"
   strings "build/entry-$arch.thin" | grep 'tally_entry forward-v1' > /dev/null \

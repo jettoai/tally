@@ -79,11 +79,13 @@ func runDoubleHeadChecks() {
     check("the notice names the conversation left behind, cut to the eight characters every other "
           + "surface shows",
           notice.contains(siblingConversation.prefix(8)) && !notice.contains(siblingConversation))
-    check("and the account the fresh window starts on instead", notice.contains("Claude 2"))
+    check("and the account the fork continues on", notice.contains("Claude 2")
+          && notice.contains("fork"))
     let holdLine = secondHeadHoldLine(conversation: siblingConversation, pid: ours,
                                       cwd: projectCwd.path)
     check("the audit line carries the fields this log is grepped by",
-          holdLine.contains("pid=\(ours)") && holdLine.contains("resume=declined")
+          holdLine.contains("pid=\(ours)") && holdLine.contains("resume=forked")
+              && !holdLine.contains("resume=declined")
               && holdLine.contains("reason=second-head") && holdLine.contains("cwd=\(projectCwd.path)"))
     check("and is one whole line", holdLine.hasSuffix("\n")
               && !holdLine.dropLast().contains(where: { $0 == "\n" }))

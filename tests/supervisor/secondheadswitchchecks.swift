@@ -152,27 +152,26 @@ func runSecondHeadSwitchChecks() {
           supervisor.contains("manualMoves.noteFreshStart("))
     check("S10 the resume decision still asks the holders",
           supervisor.contains("secondHead = resumeForksConversation("))
-    let carryingAt = supervisor.range(
-        of: "let carrying = fresh || secondHead ? nil : sessionFile")?.lowerBound
+    let carryingAt = supervisor.range(of: "let carrying = fresh ? nil : sessionFile")?.lowerBound
     let resumedAt = supervisor.range(of: "switchResumedNotice(")?.lowerBound
     check("S10 a typed switch that continues the conversation says so after the decision",
           carryingAt != nil && resumedAt != nil && carryingAt! < resumedAt!
-              && supervisor.contains("if reason == \"switch\", let id = carrying"))
+              && supervisor.contains("if reason == \"switch\", !secondHead, let id = carrying"))
 
     // MARK: - S11, S12. What a fresh start says, and how long the badge lives
 
     let notice = secondHeadNotice(conversation: held, target: "GM", holder: me)
-    check("S11 the fresh-start notice says so, names the holder and what ended with the window",
-          notice.contains("started fresh") && notice.contains("pid \(getpid())")
+    check("S11 the fork notice says so, names the holder and what ended with the window",
+          notice.contains("in a fork of conversation") && notice.contains("pid \(getpid())")
               && notice.contains("Subagents") && notice.contains(held.prefix(8))
               && !notice.contains(held))
     let line = secondHeadHoldLine(conversation: held, pid: "4242", cwd: "/work", holder: "999")
     check("S11 the audit line names the holder before cwd and stays one line",
-          line.contains("holder=999 cwd=/work") && line.hasSuffix("\n")
+          line.contains("holder=999 cwd=/work") && line.contains("resume=forked") && line.hasSuffix("\n")
               && !line.dropLast().contains("\n"))
     let freshBadge = secondHeadFreshBadge(conversation: held, holder: me, target: "GM")
-    check("S11 the badge starts 'started fresh:' and no surface has an em dash",
-          freshBadge.badge.hasPrefix("started fresh:") && freshBadge.kind == secondHeadFreshNoticeKind
+    check("S11 the badge starts 'forked:' and no surface has an em dash",
+          freshBadge.badge.hasPrefix("forked:") && freshBadge.kind == secondHeadFreshNoticeKind
               && !notice.contains("\u{2014}") && !line.contains("\u{2014}")
               && !(freshBadge.detail ?? "").contains("\u{2014}"))
 
@@ -187,4 +186,40 @@ func runSecondHeadSwitchChecks() {
     news.waiting = nil
     news.expireCancellation(lastUserTurnAt: raised.addingTimeInterval(5))
     check("S12 the user's next prompt clears it", news.badge == nil)
+
+    // MARK: - S13. The fork's watcher never binds the parent
+    //
+    // The parent is the file the holder is writing, so every idle gate, token reading and published
+    // conversation id read off a watcher bound to it would describe somebody else's session. Both
+    // ways a watcher binds are asserted: the `--resume` pin, and the mtime guess, which the fixture
+    // gives the wrong answer to first (the parent is the NEWER file) and which cannot lean on
+    // `isForeign` (the holder has exited, so it answers false).
+    let forkDir = tmp.appendingPathComponent("tally-shs-fork-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: forkDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: forkDir) }
+    func touch(_ id: String, age: TimeInterval) {
+        let url = forkDir.appendingPathComponent("\(id).jsonl")
+        try! Data("{}\n".utf8).write(to: url)
+        try! FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)],
+                                               ofItemAtPath: url.path)
+    }
+    touch(held, age: 0)
+    var forked = TranscriptWatcher(projectDir: forkDir, since: Date().addingTimeInterval(-60),
+                                   resumeID: held)
+    forked.forkedFrom = forkParentID(["--resume", held, "--fork-session"])
+    forked.locateFile()
+    check("S13 the parent alone is never bound, pinned by --resume or guessed by mtime",
+          forked.file == nil)
+    let born = "7f7f7f7f-0000-1111-2222-333333333333"
+    touch(born, age: 10)
+    forked.locateFile()
+    check("S13 the fork's own file is bound once it exists, though the parent is newer",
+          forked.transcriptSessionID == born)
+
+    // MARK: - S14. The relaunch is wired to all of it
+    check("S14 the watcher is told its fork parent and the first child is not woken as a resume",
+          supervisor.contains("watcher.forkedFrom = forkParentID(launchArgs)")
+              && supervisor.contains("let resumesConversation = launchResumesConversation(launchArgs)"))
+    check("S14 cap resume, switch resume and restart note stay unarmed for a fork",
+          supervisor.components(separatedBy: "fresh: plan.fresh || secondHead").count == 4)
 }

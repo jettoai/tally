@@ -16,8 +16,8 @@ import Foundation
 // A restart that stopped nothing is owed a line only when the child it replaced had work the
 // restart took (`restartOwed`, RestartLiveWork.swift; 2026-10-02's 26 minutes were a Monitor the
 // roster missed, 2026-10-07's waste was idle sessions woken by every self-update), worded without
-// the stopped count. A fresh or second-head relaunch leaves no note, so a new empty window is never
-// typed into.
+// the stopped count. A fresh relaunch, or a fork beside a live holder, leaves no note, so a new
+// window that did not resume the conversation in place is never typed into.
 
 /// The note an exec's first child starts with when the old image carried none (a build before
 /// `--restart-note`): it cannot say, so it owes the line.
@@ -53,7 +53,8 @@ struct RestartNote: Equatable {
     let owed: Bool
 }
 
-/// The note a handoff leaves, or nil for a relaunch that resumes nothing (fresh, second head).
+/// The note a handoff leaves, or nil for a relaunch that does not resume the conversation in place
+/// (fresh, or a fork beside a second head).
 func restartNoteForHandoff(reason: String, fresh: Bool, roster: SessionAgentsRecord?,
                            owed: Bool) -> RestartNote? {
     fresh ? nil : RestartNote(reason: reason, background: rosterBackgroundCount(roster), owed: owed)

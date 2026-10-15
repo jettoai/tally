@@ -31,11 +31,15 @@ import Foundation
 // afterwards (SessionSwitch.swift), because the person asked for a continuation and the session can
 // keep working where it is. What follows is the backstop for everything else.
 //
-// THE ANSWER IS A FRESH WINDOW, NOT A WAIT. Deferring the move would leave the session on the
-// account it was told to leave for as long as the other head runs, which for a cap handoff is a
-// session that cannot work at all; and resuming anyway is the fork this exists to prevent. So the
-// conversation is left with the head that has it, and this session starts a new window on the
-// target account - the same thing `tally session clear` asks for, reached by a different road.
+// THE ANSWER IS A FORK, NOT A WAIT AND NOT AN EMPTY WINDOW (jettoai/tally#10). Deferring the move
+// would leave the session on the account it was told to leave for as long as the other head runs,
+// which for a cap handoff is a session that cannot work at all; and resuming the SAME file is the
+// second writer this exists to prevent. A fresh window avoided the writer by dropping the whole
+// conversation, which is what the issue reported. `--resume <id> --fork-session` keeps the history
+// and writes a NEW file, so the head that holds the conversation keeps its file alone and this
+// window starts on the target account with everything up to the fork point. The two then diverge,
+// so nothing is typed into the fork on its own: work the move interrupted is for a person to carry
+// on, in whichever head they choose. Only `tally session clear` still asks for an empty window.
 
 /// Whether resuming `conversation` would put a SECOND head on it: somebody else in this directory
 /// is writing it right now.
@@ -54,17 +58,18 @@ func secondHeadHolderPhrase(_ holder: ConversationHolder?) -> String {
         : "(pid \(holder.pid), not supervised by Tally)"
 }
 
-/// What the terminal is told when a move had to start a fresh window: which conversation was left
-/// behind, who holds it, and what that costs.
+/// What the terminal is told when a move had to fork the conversation: which one, who still holds
+/// it, and what that costs.
 ///
 /// The id is cut to the eight characters every other surface in this system shows, so the line can
 /// be matched against a handoff log entry and a status line by eye.
 func secondHeadNotice(conversation: String, target: String,
                       holder: ConversationHolder? = nil) -> String {
     let who = secondHeadHolderPhrase(holder)
-    return "started fresh on \(target): conversation \(conversation.prefix(8)) is still open in "
-        + "another Claude Code here" + (who.isEmpty ? "" : " \(who)")
-        + ", so this window does not continue it. Subagents of the previous window ended with it."
+    return "continued on \(target) in a fork of conversation \(conversation.prefix(8)): it is still "
+        + "open in another Claude Code here" + (who.isEmpty ? "" : " \(who)")
+        + ", so this window carries its history under a new id. Work from here on is not shared "
+        + "between the two. Subagents of the previous window ended with it."
 }
 
 /// And the audit line, in the shape the rest of this log is written in (`unresolvedForkHoldLine`).
@@ -72,7 +77,7 @@ func secondHeadNotice(conversation: String, target: String,
 func secondHeadHoldLine(conversation: String, pid: String, cwd: String, holder: String? = nil,
                         now: Date = Date()) -> String {
     "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) session=\(conversation.prefix(8)) "
-        + "resume=declined reason=second-head " + (holder.map { "holder=\($0) " } ?? "")
+        + "resume=forked reason=second-head " + (holder.map { "holder=\($0) " } ?? "")
         + "cwd=\(cwd)\n"
 }
 
@@ -116,4 +121,20 @@ func sessionConversation(promptID: String?, identity: TranscriptIdentity?,
         return identity.id
     }
     return published
+}
+
+/// The conversation a launch forks from, or nil when it forks nothing: `--fork-session` with the
+/// `--resume` / `-r` it applies to. The watcher must never bind this file (the head that holds it
+/// is writing it) and the first child must not be woken as a resume of it.
+func forkParentID(_ launchArgs: [String]) -> String? {
+    guard optionsOnly(launchArgs).contains("--fork-session") else { return nil }
+    return flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")
+}
+
+/// Whether a launch resumes a conversation in place. A fork starts a new conversation, so it does
+/// not (`firstLaunchRestartNote` answers a fork the same way for a first launch).
+func launchResumesConversation(_ launchArgs: [String]) -> Bool {
+    !optionsOnly(launchArgs).contains("--fork-session")
+        && ((flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) != nil
+            || launchArgs.contains(where: continueFlags.contains))
 }

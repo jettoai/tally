@@ -168,11 +168,11 @@ func switchSecondHeadHoldBadge(conversation: String, holder: ConversationHolder,
                      + "staying on \(staying) until then. `tally account --auto` drops the move")
 }
 
-/// News, not a wait: a relaunch started a fresh window because another head held the conversation.
+/// News, not a wait: a relaunch forked the conversation because another head held it.
 /// Held until the user's next prompt (`ManualMoveState.expireCancellation`).
 func secondHeadFreshBadge(conversation: String, holder: ConversationHolder?,
                           target: String) -> PendingBadge {
-    PendingBadge("started fresh: \(conversation.prefix(8)) open elsewhere",
+    PendingBadge("forked: \(conversation.prefix(8)) open elsewhere",
                  detail: secondHeadNotice(conversation: conversation, target: target, holder: holder),
                  kind: secondHeadFreshNoticeKind)
 }

@@ -127,9 +127,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// supervisor this process replaced in a self-update, so an upgrade does not re-announce an
     /// unchanged conversation over a sibling session's newer one.
     var lastConversation = LastConversationWriter(current: lastConversation)
-    var taskListRecord = ConversationTaskListRecorder(
-        forkedFrom: optionsOnly(launchArgs).contains("--fork-session")
-            ? (flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")) : nil)
+    var taskListRecord = ConversationTaskListRecorder(forkedFrom: forkParentID(launchArgs))
     /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
@@ -378,7 +376,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         let childNote = restartNote
         restartNote = nil
         let resumeID = flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r")
-        let resumesConversation = resumeID != nil || launchArgs.contains(where: continueFlags.contains)
+        let resumesConversation = launchResumesConversation(launchArgs)
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)
@@ -407,11 +405,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             projectDir: URL(fileURLWithPath: account.launchHome!).appendingPathComponent("projects/\(slug)"),
             since: launchedAt, resumeID: resumeID,
             isForeign: { liveConversations(in: cwd, excluding: supervisorPID).contains($0) })
+        // A fork's parent is never this child's file, the holder's or not (TranscriptWatcher.swift).
+        watcher.forkedFrom = forkParentID(launchArgs)
         var handoff = false
         /// Set when a `tally session clear` chose to reopen this window as another provider.
         var reopenAs: String?
-        /// Whether the relaunch this child ends in had to DROP the resume: the conversation it was
-        /// in is being written by somebody else, so carrying it would fork it (HandoffResume.swift).
+        /// Whether the relaunch this child ends in found the conversation it was in being written by
+        /// somebody else, so it resumes a FORK of it instead of the file itself (HandoffResume.swift).
         /// Per child like the flag above, and read by the three places that would otherwise attribute
         /// a conversation to a window that is not in it.
         var secondHead = false
@@ -475,8 +475,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     secondHeadFreshBadge(conversation: conversation, holder: holder,
                                          target: target.label), at: Date())
             }
-            let carrying = fresh || secondHead ? nil : sessionFile
-            if reason == "switch", let id = carrying?.deletingPathExtension().lastPathComponent {
+            let carrying = fresh ? nil : sessionFile
+            if reason == "switch", !secondHead, let id = carrying?.deletingPathExtension().lastPathComponent {
                 warn(switchResumedNotice(conversation: id, target: target.label))
             }
             if let carrying {
@@ -505,7 +505,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // `!secondHead` beside `!fresh`, and it has to be there: a same-account relaunch
                 // re-adds the `--continue` it was launched with, which on the account this session
                 // is already on names the very conversation the guard above declined to resume.
-                sameAccount: sameAccount && !fresh && !secondHead)
+                sameAccount: sameAccount && !fresh && !secondHead,
+                // A second head gets a fork of the conversation: the history without a second
+                // writer on the holder's file (`tally session clear` still gets an empty window).
+                fork: secondHead && !fresh)
             handoff = true
         }
 
@@ -1349,9 +1352,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // fork check, so this is the first point in the tick where the id being resumed is
                 // the one the conversation is really in. It only ever RAISES an arm; whether that
                 // line is ever typed is decided tick by tick against the child that follows.
-                // `plan.fresh || secondHead`, on the same terms the publish below reads them: a
-                // relaunch that dropped its resume starts an EMPTY window, and an offer to carry
-                // on with work the wall interrupted belongs to the conversation that holds it.
+                // `plan.fresh || secondHead`, on the same terms the publish below reads them: an
+                // empty window or a fork is a different conversation, and an offer to carry on
+                // with work the wall interrupted belongs to the one that holds it.
                 let personTurn = lastPersonTurn(watcher.recentUserTurns,
                                                 automatic: automaticInputLedger)
                 armCapResume(&capResume, pid: supervisorPID, reason: plan.reason,
@@ -1409,7 +1412,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // HookAgents.swift). Nothing corrects it soon either: the next child's watcher starts
                 // with no token reading at all, and `sync` publishes nothing until that conversation
                 // writes its first turn with usage in it (codex review of a599a06).
-                // A DROPPED RESUME IS A FRESH WINDOW BY EVERY MEASURE THIS PUBLISH TAKES, which is
+                // A FORK IS A FRESH WINDOW BY EVERY MEASURE THIS PUBLISH TAKES (a new id), which is
                 // why it is read here rather than only where it was decided: what the watcher still
                 // holds is the id and the size of a conversation this session is no longer in, and
                 // republishing them under the new account is what makes every hook match its events

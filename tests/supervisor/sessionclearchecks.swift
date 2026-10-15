@@ -384,13 +384,13 @@ func runSessionClearChecks() {
     if let start = loop.range(of: "func performHandoff("),
        let end = loop.range(of: "\n            handoff = true", range: start.upperBound ..< loop.endIndex) {
         let body = String(loop[start.upperBound ..< end.lowerBound])
-        // `|| secondHead` is the SECOND reason a relaunch carries nothing, and it is asserted in
-        // the same breath rather than beside it: a handoff whose conversation is being written by
-        // another session in this directory drops the resume too, and the two reasons have to reach
-        // one decision or a later reader will answer one of them and not the other
-        // (HandoffResume.swift).
+        // ONLY `fresh` carries nothing now. A conversation another session is writing is carried as
+        // a FORK (`fork: secondHead && !fresh`, HandoffResume.swift), so the history reaches the
+        // target without a second writer on the holder's file; a clear still beats it, because the
+        // fork is asked for only when `fresh` is not.
         check("a fresh handoff copies nothing to the target and resumes nothing",
-              body.contains("let carrying = fresh || secondHead ? nil : sessionFile")
+              body.contains("let carrying = fresh ? nil : sessionFile")
+                  && body.contains("fork: secondHead && !fresh")
                   && body.contains("shareTranscript(carrying,")
                   && body.contains("sessionID: carrying?.deletingPathExtension().lastPathComponent"))
         // …while the AUDIT line still names the conversation that ended here, which is a different
@@ -420,8 +420,8 @@ func runSessionClearChecks() {
        let end = loop.range(of: "writeSupervisorAccount(account.id, pid: supervisorPID)",
                             range: start.upperBound ..< loop.endIndex) {
         let block = String(loop[start.upperBound ..< end.lowerBound])
-        // On the same terms as the carry above: a dropped resume starts an empty window, so the
-        // reading is retired for it too rather than republished onto the new account.
+        // An empty window and a fork are both a different conversation id, so the reading is
+        // retired for either rather than republished onto the new account.
         check("a fresh relaunch retires the published reading instead of republishing it",
               block.contains("if plan.fresh || secondHead {")
                   && block.contains("sessionContext.conversationEnded(pid: supervisorPID)"))

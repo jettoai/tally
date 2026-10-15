@@ -181,7 +181,7 @@ func runRestartWakeChecks() {
           wakeOffer(quiet, launch: sample1Launch,
                     note: RestartNote(reason: "turn-boundary", background: 0, owed: false),
                     after: 16) == nil)
-    check("R9b a fresh or second-head relaunch (no note) still raises nothing",
+    check("R9b a fresh relaunch or a fork beside a live holder (no note) still raises nothing",
           wakeOffer(quiet, launch: sample1Launch, note: nil, after: 16) == nil)
     check("R9b a first spawn is still not armed",
           wakeOffer(quiet, launch: sample1Launch, spawnedByTally: false, note: idle, after: 16) == nil)

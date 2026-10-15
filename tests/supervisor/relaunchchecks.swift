@@ -14,6 +14,33 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // on where it lands: a MOVE drops --continue so it cannot open an unrelated conversation on the
     // other account, while a SAME-account relaunch keeps it - stripping it there restarted
     // `tally claude --continue` into an empty session instead of the one the user resumed.
+    // jettoai/tally#10: a second head gets `--resume <id> --fork-session`, and only the handoff that
+    // found one asks for it. An earlier launch's flag must not survive a located id, or every later
+    // relaunch forks the fork again.
+    check("a located id drops the fork flag an earlier launch carried",
+          relaunchArgs(["--resume", "p", "--fork-session", "--model", "x"], sessionID: "n",
+                       sameAccount: false) == ["--resume", "n", "--model", "x"])
+    check("a second head resumes the located id as a fork, once, never re-adding --continue",
+          relaunchArgs(["--continue", "--fork-session", "--model", "x"], sessionID: "p",
+                       sameAccount: true, fork: true)
+              == ["--resume", "p", "--fork-session", "--model", "x"]
+              && relaunchArgs(["--continue", "--model", "x"], sessionID: "p", sameAccount: false,
+                              fork: true) == ["--resume", "p", "--fork-session", "--model", "x"])
+    check("a window that resumes nothing (a clear) forks nothing either",
+          !relaunchArgs(["--resume", "p", "--fork-session"], sessionID: nil, sameAccount: false)
+              .contains("--fork-session")
+              && !relaunchArgs(["--resume", "p"], sessionID: nil, sameAccount: false)
+                  .contains("--resume"))
+    check("an unlocated same-account relaunch keeps the fork it was launched with",
+          relaunchArgs(["--resume", "p", "--fork-session"], sessionID: nil, sameAccount: true)
+              == ["--resume", "p", "--fork-session"])
+    check("a fork launch is no resume in place and names its parent",
+          !launchResumesConversation(["--resume", "p", "--fork-session"])
+              && launchResumesConversation(["--resume", "p"]) && launchResumesConversation(["-c"])
+              && !launchResumesConversation(["--model", "x"])
+              && forkParentID(["--resume", "p", "--fork-session"]) == "p"
+              && forkParentID(["-r", "p", "--fork-session"]) == "p"
+              && forkParentID(["--resume", "p"]) == nil && forkParentID(["--fork-session"]) == nil)
     check("a located session is resumed by id",
           relaunchArgs(["--continue", "--model", "fable"], sessionID: "abc", sameAccount: true)
           == ["--resume", "abc", "--model", "fable"])

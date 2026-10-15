@@ -65,6 +65,10 @@ struct TranscriptWatcher {
     /// newest file here is a sibling's, so without this a sibling's next write bound this session to
     /// that conversation (2026-09-26: supervisor 43275 reported a477080c, which 28094 was running).
     var isForeign: (String) -> Bool = { _ in false }
+    /// The conversation a `--fork-session` launch forked from, which another head is writing and
+    /// which this watcher must never bind: not as the `resumeID` pin, and not through the mtime
+    /// guess below, whatever `isForeign` says by then (the holder may have exited since).
+    var forkedFrom: String?
     /// The fork-discovery join key: the id THIS child process was launched with, which every file
     /// it moves the conversation into carries as its `session_id` (see TranscriptFork.swift). A
     /// per-process constant, so unlike `resumeID` it is NEVER moved by an adoption: `resumeID`
@@ -453,7 +457,7 @@ struct TranscriptWatcher {
         // would otherwise pick the wrong file when the directory holds a second session (a
         // sibling tab, an unrelated older conversation). Only a first launch (no known id, or
         // the file not yet copied into this account's tree) falls back to the heuristic below.
-        if let resumeID {
+        if let resumeID, resumeID != forkedFrom {
             let pinned = projectDir.appendingPathComponent("\(resumeID).jsonl")
             if FileManager.default.fileExists(atPath: pinned.path) { file = pinned; return }
         }
@@ -469,7 +473,10 @@ struct TranscriptWatcher {
                     .contentModificationDate else { return nil }
                 return modified >= since.addingTimeInterval(-5) ? (url, modified) : nil
             }
-            .filter { !isForeign($0.0.deletingPathExtension().lastPathComponent) }
+            .filter {
+                let id = $0.0.deletingPathExtension().lastPathComponent
+                return id != forkedFrom && !isForeign(id)
+            }
             .max { $0.1 < $1.1 }
         file = candidate?.0
     }

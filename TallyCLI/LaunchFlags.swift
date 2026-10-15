@@ -154,7 +154,8 @@ func withoutPositionals(_ args: [String]) -> [String] {
 /// it submits it a second time. The one case that changes anything a user would want is a session
 /// killed before it wrote a transcript at all, whose prompt then has to be retyped instead of being
 /// silently sent again - a visible, one-off cost against a fossil that re-types itself forever.
-func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [String] {
+func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool,
+                  fork: Bool = false) -> [String] {
     // The prompt goes first, so a `-c` the user SAID can no longer be read as a request to
     // continue: the rewriting below only ever meant to touch the options, and what is left is
     // options and their values (`withoutPositionals`). The old start mode goes with it - `--resume`
@@ -162,8 +163,14 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
     let options = withoutPositionals(args)
     let next = removingFlagPairs(options, ["--resume", "-r"])
         .filter { !continueFlags.contains($0) }
-    if let sessionID { return ["--resume", sessionID] + next }
-    guard sameAccount else { return next }
+    // A located id is the file this child is writing, so an earlier launch's `--fork-session` is
+    // dropped: kept, it would fork that file again on every relaunch. Only a handoff that found a
+    // second head on the conversation asks for one (`fork`, HandoffResume.swift).
+    if let sessionID {
+        return ["--resume", sessionID] + (fork ? ["--fork-session"] : [])
+            + next.filter { $0 != "--fork-session" }
+    }
+    guard sameAccount else { return next.filter { $0 != "--fork-session" } }
     if options.contains(where: { continueFlags.contains($0) }) { return ["--continue"] + next }
     guard let asked = flagValue(options, "--resume") ?? flagValue(options, "-r") else { return next }
     return ["--resume", asked] + next

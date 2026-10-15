@@ -7,12 +7,22 @@
 # so every release MUST upload a MERGED appcast (full history) - that URL always resolves to the
 # newest release's asset. The append-only and signature checks below guard exactly that.
 #
-# Usage: scripts/release.sh <version>   e.g. scripts/release.sh 0.2.0
+# The app is compiled on the MBP and signed, notarized and stapled here (scripts/build-on-mbp.sh).
+# --local builds everything on this Mac instead (scripts/build-release.sh); a failed MBP build is
+# never retried locally on its own.
+#
+# Usage: scripts/release.sh <version> [--local]   e.g. scripts/release.sh 0.2.0
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${1:?usage: release.sh <version, e.g. 0.2.0>}"
+VERSION="${1:?usage: release.sh <version, e.g. 0.2.0> [--local]}"
+LOCAL=0
+case "${2:-}" in
+  "") ;;
+  --local) LOCAL=1 ;;
+  *) echo "unknown option: $2" >&2; exit 1 ;;
+esac
 REPO="jettoai/tally"
 TAG="v$VERSION"
 DOWNLOAD_PREFIX="https://github.com/$REPO/releases/download/$TAG/"
@@ -27,7 +37,7 @@ BUILD_NUM=$(( COUNT > PREV_BUILD ? COUNT : PREV_BUILD + 1 ))
 sed -i '' "s/CURRENT_PROJECT_VERSION: \"[^\"]*\"/CURRENT_PROJECT_VERSION: \"$BUILD_NUM\"/" project.yml
 
 echo "==> build + notarize"
-scripts/build-release.sh
+if [ "$LOCAL" = 1 ]; then scripts/build-release.sh; else scripts/build-on-mbp.sh; fi
 DMG="dist/Tally-$VERSION.dmg"
 [ -f "$DMG" ] || { echo "expected $DMG" >&2; exit 1; }
 
@@ -83,6 +93,6 @@ echo "==> done - verify: curl -sL https://github.com/$REPO/releases/latest/downl
 # A linked overlay may publish its own build of this version through its own feed.
 if [ -x overlay/release.sh ]; then
   echo "==> overlay release"
-  overlay/release.sh "$VERSION" \
+  overlay/release.sh "$VERSION" $([ "$LOCAL" = 1 ] && echo --local) \
     || { echo "public release $TAG is out; the overlay release failed" >&2; exit 1; }
 fi

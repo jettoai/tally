@@ -100,7 +100,9 @@ final class StatusItemController: NSObject {
                                       // the surface is actually on (see `contentHostScreen`).
                                       hostScreen: { [weak self] in self?.contentHostScreen() },
                                       tabState: popoverTab, host: .popover)
-                .background(PopoverSolidCover(settings: SettingsStore.shared))))
+                // The same backdrop as the pinned panel: behind-window glass on, solid off.
+                // Square, because NSPopover clips the content to its own rounded shape.
+                .background(PanelBackdrop(settings: SettingsStore.shared, cornerRadius: nil))))
         host.sizingOptions = []
         popoverHost = host
         popover.contentViewController = host
@@ -192,6 +194,19 @@ final class StatusItemController: NSObject {
             // comes back to it, and from inside a reused view a close looks exactly like that:
             // without this, the ring and the arrow keys come back with a popover merely reopened.
             window?.makeFirstResponder(nil)
+        }
+    }
+
+    /// `-TallyPopoverCapture YES` (demo or dev builds only): open the popover at launch so it can be
+    /// photographed without a synthesized click. Shown, never activated: the capture family must
+    /// not take the foreground, so this skips `takeForegroundForPopover` and the click watchers.
+    func showPopoverForCaptureIfAsked() {
+        guard DemoUsage.isActive || BuildVariant.isDev, CaptureLaunch.carries("TallyPopoverCapture"),
+              let button = statusItem?.button else { return }
+        // Delayed for the reason the status menu capture is: the button has no window at first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [self] in
+            guard let anchorView = decoyAnchorViewForShow(button: button) else { return }
+            popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
         }
     }
 

@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key
         UsagePing.start()   // anonymous install count; nothing unless the Settings switch is on
         statusItemController.showMenuForCaptureIfAsked()   // after start(): the menu reads it
+        statusItemController.showPopoverForCaptureIfAsked()
         // Whatever was on screen at the last quit comes back: an update relaunch is just
         // quit + launch, and losing the window you were reading mid-update is disorienting.
         // (The pinned panel restores itself inside install(); the transient popover is always

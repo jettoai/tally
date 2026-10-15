@@ -210,19 +210,6 @@ struct PanelBackdrop: View {
     }
 }
 
-/// The menu bar popover's cover for the glass setting being off: the system popover backdrop is
-/// translucent whatever the setting says, so a solid layer over it is what makes "off" solid there.
-/// On leaves the system backdrop alone.
-struct PopoverSolidCover: View {
-    @Bindable var settings: SettingsStore
-
-    var body: some View {
-        if !settings.isPanelTranslucent || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-            Color(nsColor: .windowBackgroundColor)
-        }
-    }
-}
-
 private struct GlassBackdrop: NSViewRepresentable {
     var cornerRadius: CGFloat?
 

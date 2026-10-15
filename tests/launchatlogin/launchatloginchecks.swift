@@ -457,7 +457,7 @@ func runLaunchAtLoginChecks() {
     // directions are pinned, a member going missing and one appearing without anybody deciding to.
     let expectedFamily: Set<String> = [
         "TallyDemoData", "TallyAppearance", "TallyCardStyle", "TallySessionCardCap",
-        "TallyPanelCapture", "TallyStatusMenuCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
+        "TallyPanelCapture", "TallyStatusMenuCapture", "TallyPopoverCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
         "TallyEmptyStatePreview",
         "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
         "TallyMotionDemo", "TallySettingsTabBench",
@@ -466,7 +466,7 @@ func runLaunchAtLoginChecks() {
         "TallyHostHealthTest", "TallyCPUAlertTest", "TallySentryTestEvent",
         "TallyUpdateLagTest", "TallyClearanceIdleTest",
     ]
-    check("the family is exactly these twenty-seven flags",
+    check("the family is exactly these twenty-eight flags",
           Set(CaptureLaunch.backgroundKeys) == expectedFamily)
     check("and it carries no duplicates",
           CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -521,8 +521,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to sixty-one, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 61 && scanned.count == 61)
+    check("which comes to sixty-two, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 62 && scanned.count == 62)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",

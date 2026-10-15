@@ -155,3 +155,24 @@ func pinSwitchWaitBadge(_ wait: PinSwitchWait, pinned: String, staying: String) 
     }
 }
 
+
+/// A typed switch held at plan time because the conversation it would resume is also open in another
+/// head: moving now would start an empty window. Re-derived every tick, so it goes when the holder
+/// exits and the move then happens on its own.
+func switchSecondHeadHoldBadge(conversation: String, holder: ConversationHolder, target: String,
+                               staying: String) -> PendingBadge {
+    PendingBadge("switch: held, conversation open elsewhere",
+                 detail: "conversation \(conversation.prefix(8)) is also open in another Claude "
+                     + "Code here \(secondHeadHolderPhrase(holder)); moving now would start an "
+                     + "empty window on \(target), so the move waits for that session to exit; "
+                     + "staying on \(staying) until then. `tally account --auto` drops the move")
+}
+
+/// News, not a wait: a relaunch started a fresh window because another head held the conversation.
+/// Held until the user's next prompt (`ManualMoveState.expireCancellation`).
+func secondHeadFreshBadge(conversation: String, holder: ConversationHolder?,
+                          target: String) -> PendingBadge {
+    PendingBadge("started fresh: \(conversation.prefix(8)) open elsewhere",
+                 detail: secondHeadNotice(conversation: conversation, target: target, holder: holder),
+                 kind: secondHeadFreshNoticeKind)
+}

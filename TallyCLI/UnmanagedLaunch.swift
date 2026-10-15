@@ -248,10 +248,19 @@ func liveUnmanagedLaunches(dir: URL = unmanagedLaunchDir,
 /// no supervisor can report (`liveConversations`, SwitchRequest.swift).
 func unmanagedConversations(in cwd: String, dir: URL = unmanagedLaunchDir,
                             stamp: (pid_t) -> ProcessStamp? = processStamp) -> Set<String> {
+    Set(unmanagedHolders(in: cwd, dir: dir, stamp: stamp).keys)
+}
+
+/// The same set with the Claude Code pid that holds each conversation, for a message that has to
+/// name it.
+func unmanagedHolders(in cwd: String, dir: URL = unmanagedLaunchDir,
+                      stamp: (pid_t) -> ProcessStamp? = processStamp) -> [String: pid_t] {
     let target = realpathString(cwd)
-    return Set(liveUnmanagedLaunches(dir: dir, stamp: stamp)
-        .filter { $0.cwd == target }
-        .compactMap(\.id))
+    var holders: [String: pid_t] = [:]
+    for launch in liveUnmanagedLaunches(dir: dir, stamp: stamp) where launch.cwd == target {
+        if let id = launch.id { holders[id] = launch.claudeCode.pid }
+    }
+    return holders
 }
 
 /// Drop the records of sessions that have ended.

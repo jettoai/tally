@@ -48,6 +48,6 @@ swiftc -o "$out" \
   Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift \
   TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/CodexStartupScreenRecord.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/QuotaKnockNotice.swift TallyCLI/AgentRoster.swift \
   TallyCLI/SessionContext.swift Tally/Core/SessionPinScope.swift TallyCLI/MoveField.swift TallyCLI/Quarantine.swift \
-  TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift \
+  TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/HandoffResume.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift \
   TallyCLI/Reload.swift
 "$out"

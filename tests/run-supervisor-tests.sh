@@ -134,7 +134,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/switchrequestchecks.swift tests/supervisor/switchsessionchecks.swift \
   tests/supervisor/switchhookchecks.swift tests/supervisor/sessionpinchecks.swift \
   tests/supervisor/capsessionpinchecks.swift \
-  tests/supervisor/doubleheadchecks.swift tests/supervisor/tasklistpinchecks.swift \
+  tests/supervisor/doubleheadchecks.swift tests/supervisor/secondheadswitchchecks.swift tests/supervisor/tasklistpinchecks.swift \
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
   tests/supervisor/mcppickerchecks.swift tests/supervisor/accountwindowchecks.swift tests/supervisor/pickerchecks.swift tests/supervisor/pickgracechecks.swift \

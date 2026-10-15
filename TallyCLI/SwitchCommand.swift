@@ -186,6 +186,18 @@ func attemptSwitch(_ intent: SwitchIntent,
                 + "`tally claude`) and it can be switched from then on.",
             notes: notes)
     }
+    // A typed move off a conversation another head here also holds would start an empty window on
+    // the target instead of continuing it (jettoai/tally#10), so it is refused now, while the person
+    // can still act, rather than queued behind a promise it cannot keep. `--auto` and "already
+    // there" move nothing. A conversation not known yet has nothing to fork.
+    if let target, !alreadyThere,
+       let refusal = switchSecondHeadRefusal(
+        conversation: sessionConversation(
+            promptID: marker.promptTranscriptID, identity: readTranscriptIdentity(pid: sessionKey),
+            published: readSessionContext(pid: sessionKey)?.transcriptSessionID),
+        holders: conversationHolders(in: cwd, excluding: sessionKey), target: target.label) {
+        return .refusal(refusal, notes: notes)
+    }
     // Said, not refused: naming an account is an instruction, and its quota is the user's business
     // (the same reading a pin gets - `tally claude` launches a pinned account that is out too).
     if let target, headroom(target) <= 0 {

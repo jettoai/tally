@@ -341,13 +341,34 @@ func supervisorsInDirectory(_ cwd: String, dir: URL = supervisorStateDir) -> [St
 /// session never appears in it (UnmanagedLaunch.swift).
 func liveConversations(in cwd: String, excluding: String? = nil, dir: URL = supervisorStateDir,
                        unmanagedDir: URL = unmanagedLaunchDir) -> Set<String> {
-    var ids: Set<String> = []
+    Set(conversationHolders(in: cwd, excluding: excluding, dir: dir, unmanagedDir: unmanagedDir).keys)
+}
+
+/// Who is holding a conversation: the pid a person can find, and whether Tally supervises it.
+struct ConversationHolder: Equatable {
+    let pid: String
+    let supervised: Bool
+}
+
+/// `liveConversations` with the holder of each id kept, which is what a refusal has to name. One
+/// rule for both: the set above is exactly this map's keys.
+///
+/// A supervised witness is named by its supervisor pid (the key `tally status` lists); an unmanaged
+/// one by its Claude Code pid. On a collision the unmanaged entry wins, since its pid is the actual
+/// `claude` process the person can look up in a terminal.
+func conversationHolders(in cwd: String, excluding: String? = nil, dir: URL = supervisorStateDir,
+                         unmanagedDir: URL = unmanagedLaunchDir) -> [String: ConversationHolder] {
+    var holders: [String: ConversationHolder] = [:]
     for pid in supervisorsInDirectory(cwd, dir: dir) where pid != excluding {
-        if let id = readSessionContext(pid: pid, dir: dir)?.transcriptSessionID { ids.insert(id) }
+        let holder = ConversationHolder(pid: pid, supervised: true)
+        if let id = readSessionContext(pid: pid, dir: dir)?.transcriptSessionID { holders[id] = holder }
         if let report = readTranscriptIdentity(pid: pid, dir: dir),
-           processStamp(report.claudeCode.pid) == report.claudeCode { ids.insert(report.id) }
+           processStamp(report.claudeCode.pid) == report.claudeCode { holders[report.id] = holder }
     }
-    return ids.union(unmanagedConversations(in: cwd, dir: unmanagedDir))
+    for (id, pid) in unmanagedHolders(in: cwd, dir: unmanagedDir) {
+        holders[id] = ConversationHolder(pid: String(pid), supervised: false)
+    }
+    return holders
 }
 
 /// The account a supervised session is running on RIGHT NOW, or nil when nothing can say.

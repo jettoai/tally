@@ -45,10 +45,20 @@ struct ManualMoveState {
     var cancelled: PendingBadge?
     /// When that news was raised, so it can stop being news. nil whenever `cancelled` is.
     var cancelledAt: Date?
+    /// A relaunch that had to START FRESH because another head held the conversation: news like
+    /// `cancelled`, held until the user's next prompt, so the person who was promised a continuation
+    /// sees what happened on the status line and not only in a terminal line that scrolls away.
+    var freshStart: PendingBadge?
+    var freshStartAt: Date?
 
     /// The one badge the status line gets from this session's manual moves: a live wait outranks
     /// old news, because it is the thing that is still true.
-    var badge: PendingBadge? { waiting ?? cancelled }
+    var badge: PendingBadge? { waiting ?? cancelled ?? freshStart }
+
+    mutating func noteFreshStart(_ badge: PendingBadge, at: Date) {
+        freshStart = badge
+        freshStartAt = at
+    }
 
     /// The cancellation notice has been READ, so it stops being shown: the user has said something
     /// themselves since it was raised.
@@ -69,6 +79,10 @@ struct ManualMoveState {
     /// restart then waits for the first prompt after it, which is the same promise measured from
     /// the same place.
     mutating func expireCancellation(lastUserTurnAt: Date?) {
+        if let freshStartAt, let lastUserTurnAt, lastUserTurnAt > freshStartAt {
+            freshStart = nil
+            self.freshStartAt = nil
+        }
         guard let cancelledAt, let lastUserTurnAt, lastUserTurnAt > cancelledAt else { return }
         cancelled = nil
         self.cancelledAt = nil

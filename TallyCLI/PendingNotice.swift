@@ -64,6 +64,8 @@ struct PendingNotice: Equatable, Codable {
 /// itself - its own, from before a self-update replaced the image behind the pid. Every other badge
 /// on this track is re-derived from state within a tick or two of the new image starting.
 let cancellationNoticeKind = "switch-cancelled"
+/// The news that a move had to start a fresh window (ManualMoveState.freshStart).
+let secondHeadFreshNoticeKind = "second-head-fresh"
 
 /// A `/model` choice taken as this session's pin (SessionModel.swift): news on the model axis
 /// exactly as the cancellation is on the account axis.

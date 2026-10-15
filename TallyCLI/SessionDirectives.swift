@@ -69,7 +69,8 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                             switchRequest: (String) -> SwitchRequest? = {
                                 readSwitchRequest(sessionKey: $0)
                             },
-                            log: URL = handoffLog) {
+                            log: URL = handoffLog,
+                            heldElsewhere: (String) -> ConversationHolder? = { _ in nil }) {
     // Claude Code's own `/model`, read out of the transcript and taken as the instruction it is.
     // FIRST, because it changes what this session is understood to run, and everything after it -
     // including the degradation rescue one call further down the tick - has to be judged against
@@ -99,7 +100,8 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
     applyManualMoves(plan: &plan, state: &moves, record: &switchRecord, policy: &policy,
                      account: account, providerID: providerID, primaryModel: primaryModel,
                      quarantine: quarantine, watcher: &watcher,
-                     childAge: childAge, keyboardIdle: keyboardIdle, request: switchRequest)
+                     childAge: childAge, keyboardIdle: keyboardIdle, request: switchRequest,
+                     heldElsewhere: heldElsewhere)
     // Handed the tick's relaunch as something it may only ADD to: with an account already chosen
     // above, this station folds its pair onto that plan and cannot replace it (`TickPlan`,
     // SupervisorRuntime.swift). The wrap is here rather than around the whole sequence because the

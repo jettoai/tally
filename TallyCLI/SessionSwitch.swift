@@ -157,7 +157,8 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                       },
                       loaded: () -> (Snapshot?, String?) = { loadSnapshot() },
                       now: Date = Date(),
-                      quarantineIn: URL = quarantineDir) {
+                      quarantineIn: URL = quarantineDir,
+                      heldElsewhere: (String) -> ConversationHolder? = { _ in nil }) {
     let fleet = policy
     // Before anything else this tick, and on every tick rather than only the ones with a request:
     // the cancellation notice is the one badge here that nothing re-derives, so the tick that takes
@@ -169,7 +170,7 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                        providerID: providerID, watcher: &watcher,
                        childAge: childAge, keyboardIdle: keyboardIdle, dir: dir,
                        request: request(state.sessionKey), accounts: accounts,
-                       homeOnDisk: homeOnDisk, now: now)
+                       homeOnDisk: homeOnDisk, now: now, heldElsewhere: heldElsewhere)
     policy = sessionPolicy(fleet, sessionPin: state.sessionPin)
     guard plan == nil else { return }
     // The FLEET's policy, deliberately: this half is about the pin moved in the panel, and the
@@ -191,7 +192,8 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
                                 keyboardIdle: (TimeInterval) -> Bool,
                                 dir: URL, request: SwitchRequest?,
                                 accounts: () -> [Snapshot.Account]?,
-                                homeOnDisk: (String, String) -> Bool, now: Date) {
+                                homeOnDisk: (String, String) -> Bool, now: Date,
+                                heldElsewhere: (String) -> ConversationHolder?) {
     // No request, or one this supervisor has already served. The staleness rule is answered here as
     // well as inside the decision below, because everything between costs a snapshot read and a
     // transcript tail: `isQuiet` locates and tails the file, which is not free per tick.
@@ -324,6 +326,17 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         consume(pin: nil)
     case .relaunch:
         guard let named else { return }
+        // HELD, NOT PLANNED, while another head holds this conversation: moving now would resume
+        // nothing and open an empty window (jettoai/tally#10). The request is not consumed and the
+        // question is asked again every tick, so the move happens on its own once the holder exits.
+        // Before the `warn` below, which would otherwise print into the live child's terminal each tick.
+        if let conversation = watcher.transcriptSessionID, let holder = heldElsewhere(conversation) {
+            state.waiting = switchSecondHeadHoldBadge(conversation: conversation, holder: holder,
+                                                      target: named.label, staying: account.label)
+            return
+        }
+        // The move is going ahead, so a hold badge from the ticks before it must not outlive that.
+        state.waiting = nil
         warn("switching to \(named.label) as asked, and staying there until you say otherwise")
         plan = RelaunchPlan(target: named, reason: "switch", countsFuse: false)
         record = PendingSwitchConsumption(epoch: request.epoch, sessionPin: named.id, dir: dir,

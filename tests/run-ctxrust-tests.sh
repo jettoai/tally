@@ -122,7 +122,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   Tally/Core/HeldOverReset.swift \
   TallyCLI/SupervisorRuntime.swift \
   TallyCLI/TaskListPin.swift \
-  TallyCLI/SwitchBadges.swift \
+  TallyCLI/SwitchBadges.swift TallyCLI/HandoffResume.swift \
   TallyCLI/SwitchDecision.swift \
   TallyCLI/SwitchRequest.swift \
   TallyCLI/TranscriptFork.swift \

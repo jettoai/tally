@@ -26,6 +26,11 @@ import Foundation
 // and the answer to it is not a refusal here but a kill that reaches the whole tree
 // (HandoffKill.swift, run before this decision is taken).
 //
+// A TYPED SWITCH IS THE EXCEPTION (jettoai/tally#10): it is refused at request time while another head
+// holds the conversation (`switchSecondHeadRefusal`), and held at plan time if the holder appears
+// afterwards (SessionSwitch.swift), because the person asked for a continuation and the session can
+// keep working where it is. What follows is the backstop for everything else.
+//
 // THE ANSWER IS A FRESH WINDOW, NOT A WAIT. Deferring the move would leave the session on the
 // account it was told to leave for as long as the other head runs, which for a cap handoff is a
 // session that cannot work at all; and resuming anyway is the fork this exists to prevent. So the
@@ -42,20 +47,33 @@ func resumeForksConversation(_ conversation: String?, liveElsewhere: Set<String>
     return liveElsewhere.contains(conversation)
 }
 
-/// What the terminal is told: which conversation was left behind, and what starts instead.
+/// "(pid 90731, not supervised by Tally)", or "" when nobody is known to hold it.
+func secondHeadHolderPhrase(_ holder: ConversationHolder?) -> String {
+    guard let holder else { return "" }
+    return holder.supervised ? "(the Tally session with pid \(holder.pid))"
+        : "(pid \(holder.pid), not supervised by Tally)"
+}
+
+/// What the terminal is told when a move had to start a fresh window: which conversation was left
+/// behind, who holds it, and what that costs.
 ///
 /// The id is cut to the eight characters every other surface in this system shows, so the line can
 /// be matched against a handoff log entry and a status line by eye.
-func secondHeadNotice(conversation: String, target: String) -> String {
-    "another session here is still writing conversation \(conversation.prefix(8)), so this one "
-        + "starts a fresh window on \(target) rather than a second head on that conversation"
+func secondHeadNotice(conversation: String, target: String,
+                      holder: ConversationHolder? = nil) -> String {
+    let who = secondHeadHolderPhrase(holder)
+    return "started fresh on \(target): conversation \(conversation.prefix(8)) is still open in "
+        + "another Claude Code here" + (who.isEmpty ? "" : " \(who)")
+        + ", so this window does not continue it. Subagents of the previous window ended with it."
 }
 
 /// And the audit line, in the shape the rest of this log is written in (`unresolvedForkHoldLine`).
-func secondHeadHoldLine(conversation: String, pid: String, cwd: String,
+/// `holder=` goes before `cwd=`, which stays last (SupervisorRuntime.swift).
+func secondHeadHoldLine(conversation: String, pid: String, cwd: String, holder: String? = nil,
                         now: Date = Date()) -> String {
     "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) session=\(conversation.prefix(8)) "
-        + "resume=declined reason=second-head cwd=\(cwd)\n"
+        + "resume=declined reason=second-head " + (holder.map { "holder=\($0) " } ?? "")
+        + "cwd=\(cwd)\n"
 }
 
 /// Say it on both surfaces at once, so a handoff cannot report one and not the other.
@@ -63,7 +81,39 @@ func secondHeadHoldLine(conversation: String, pid: String, cwd: String,
 /// The terminal is allowed here for the reason the pin-cleared notice beside this one is allowed:
 /// the child is already gone and the next has not been spawned, which is the only window in a
 /// supervisor's life that nothing is drawing into (PendingNotice.swift).
-func noteSecondHead(conversation: String, target: String, pid: String, cwd: String, log: URL) {
-    warn(secondHeadNotice(conversation: conversation, target: target))
-    appendHandoffLine(secondHeadHoldLine(conversation: conversation, pid: pid, cwd: cwd), to: log)
+func noteSecondHead(conversation: String, target: String, pid: String, cwd: String, log: URL,
+                    holder: ConversationHolder? = nil) {
+    warn(secondHeadNotice(conversation: conversation, target: target, holder: holder))
+    appendHandoffLine(secondHeadHoldLine(conversation: conversation, pid: pid, cwd: cwd,
+                                         holder: holder?.pid), to: log)
+}
+
+/// What the terminal says after a typed switch DID continue the conversation.
+func switchResumedNotice(conversation: String, target: String) -> String {
+    "resumed conversation \(conversation.prefix(8)) on \(target)"
+}
+
+/// The refusal a typed switch gets at request time when the conversation it is in is also open in
+/// another head here: moving now would start an empty window instead of continuing it. nil when the
+/// conversation is unknown (nothing to fork yet) or nobody else holds it.
+func switchSecondHeadRefusal(conversation: String?, holders: [String: ConversationHolder],
+                             target: String) -> String? {
+    guard let conversation, let holder = holders[conversation] else { return nil }
+    return "not switched: conversation \(conversation.prefix(8)) is also open in another Claude "
+        + "Code in this directory \(secondHeadHolderPhrase(holder)). Moving now would start an "
+        + "empty window on \(target) instead of continuing this conversation, so nothing was "
+        + "queued. Exit that session, then run this again."
+}
+
+/// The conversation a switch request was typed into, as best the surface knows: Claude Code's own
+/// prompt id (hook and picker surfaces), then the status line's report while the process that filed
+/// it is still the one running, then the supervisor's publish. The report is fresher than the
+/// publish after a `/clear` (SwitchRequest.swift).
+func sessionConversation(promptID: String?, identity: TranscriptIdentity?,
+                         published: String?) -> String? {
+    if let promptID { return promptID }
+    if let identity, processStamp(identity.claudeCode.pid) == identity.claudeCode {
+        return identity.id
+    }
+    return published
 }

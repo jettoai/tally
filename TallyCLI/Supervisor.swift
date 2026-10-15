@@ -465,13 +465,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // its own CHILD is not a witness here and does not need to be, the kill above having
             // already taken that process and its tree down.
             let conversation = sessionFile?.deletingPathExtension().lastPathComponent
-            secondHead = resumeForksConversation(
-                conversation, liveElsewhere: liveConversations(in: cwd, excluding: supervisorPID))
+            let holders = conversationHolders(in: cwd, excluding: supervisorPID)
+            secondHead = resumeForksConversation(conversation, liveElsewhere: Set(holders.keys))
             if secondHead, let conversation {
                 noteSecondHead(conversation: conversation, target: target.label,
-                               pid: supervisorPID, cwd: cwd, log: handoffLog)
+                               pid: supervisorPID, cwd: cwd, log: handoffLog,
+                               holder: holders[conversation])
+                manualMoves.noteFreshStart(
+                    secondHeadFreshBadge(conversation: conversation, holder: holders[conversation],
+                                         target: target.label), at: Date())
             }
             let carrying = fresh || secondHead ? nil : sessionFile
+            if reason == "switch", let id = carrying?.deletingPathExtension().lastPathComponent {
+                warn(switchResumedNotice(conversation: id, target: target.label))
+            }
             if let carrying {
                 shareTranscript(carrying, toHome: target.launchHome!, slug: slug)
             }
@@ -735,7 +742,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    quarantine: quarantine, reserves: reserves,
                                    watcher: &watcher,
                                    childAge: Date().timeIntervalSince(launchedAt),
-                                   keyboardIdle: { keyboard.idle($0) })
+                                   keyboardIdle: { keyboard.idle($0) },
+                                   heldElsewhere: { conversationHolders(in: cwd, excluding: supervisorPID)[$0] })
             // AND AGAIN, because the station above can have folded a SESSION pin in
             // (`sessionPolicy`), which lands as a fresh `manual` over the reading taken a moment
             // ago. The release is about the account being empty, which is as true of the session's

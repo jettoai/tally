@@ -194,24 +194,16 @@ func runSecondHeadSwitchChecks() {
     // ways a watcher binds are asserted: the `--resume` pin, and the mtime guess, which the fixture
     // gives the wrong answer to first (the parent is the NEWER file) and which cannot lean on
     // `isForeign` (the holder has exited, so it answers false).
-    let forkDir = tmp.appendingPathComponent("tally-shs-fork-\(UUID().uuidString)")
-    try! FileManager.default.createDirectory(at: forkDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: forkDir) }
-    func touch(_ id: String, age: TimeInterval) {
-        let url = forkDir.appendingPathComponent("\(id).jsonl")
-        try! Data("{}\n".utf8).write(to: url)
-        try! FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)],
-                                               ofItemAtPath: url.path)
-    }
-    touch(held, age: 0)
-    var forked = TranscriptWatcher(projectDir: forkDir, since: Date().addingTimeInterval(-60),
-                                   resumeID: held)
+    let fork = ForkFixture("shs")
+    defer { try? FileManager.default.removeItem(at: fork.dir) }
+    fork.write("\(held).jsonl", ["{}"], born: 0, wrote: 600)
+    var forked = TranscriptWatcher(projectDir: fork.dir, since: fork.launchedAt, resumeID: held)
     forked.forkedFrom = forkParentID(["--resume", held, "--fork-session"])
     forked.locateFile()
     check("S13 the parent alone is never bound, pinned by --resume or guessed by mtime",
           forked.file == nil)
     let born = "7f7f7f7f-0000-1111-2222-333333333333"
-    touch(born, age: 10)
+    fork.write("\(born).jsonl", ["{}"], born: 0, wrote: 590)
     forked.locateFile()
     check("S13 the fork's own file is bound once it exists, though the parent is newer",
           forked.transcriptSessionID == born)

@@ -166,11 +166,9 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool,
     // A located id is the file this child is writing, so an earlier launch's `--fork-session` is
     // dropped: kept, it would fork that file again on every relaunch. Only a handoff that found a
     // second head on the conversation asks for one (`fork`, HandoffResume.swift).
-    if let sessionID {
-        return ["--resume", sessionID] + (fork ? ["--fork-session"] : [])
-            + next.filter { $0 != "--fork-session" }
-    }
-    guard sameAccount else { return next.filter { $0 != "--fork-session" } }
+    let unforked = next.filter { $0 != "--fork-session" }
+    if let sessionID { return ["--resume", sessionID] + (fork ? ["--fork-session"] : []) + unforked }
+    guard sameAccount else { return unforked }
     if options.contains(where: { continueFlags.contains($0) }) { return ["--continue"] + next }
     guard let asked = flagValue(options, "--resume") ?? flagValue(options, "-r") else { return next }
     return ["--resume", asked] + next

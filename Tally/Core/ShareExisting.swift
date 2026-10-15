@@ -21,6 +21,11 @@ import Foundation
 //     author, and two of them merged by a machine make a third one nobody wrote. It is renamed
 //     aside, whole, and stays in the account's own home.
 //
+// A LINK to a conversation store is the store: `projects -> /Volumes/data/claude-projects` is that
+// account's history, kept somewhere else, and it is merged like the directory it stands for. The
+// link itself is renamed aside (still pointing at the store, so whatever collided stays reachable)
+// and the store is never removed or emptied of directories (jettoai/tally#9).
+//
 // Backup-and-link is what GNU Stow (`stow --adopt`) and chezmoi both do when a real file stands
 // where a link belongs, for the reason this does: the link is the point, and the bytes in the way
 // belong to somebody.
@@ -85,6 +90,16 @@ struct ShareExistingReport: Equatable {
     var alreadyShared: [String] { items { $0 == .alreadyShared } }
     var failed: [String] { items { if case .failed = $0 { return true }; return false } }
 
+    /// The documents renamed aside whole, as "item -> backup" pairs: the account's own copy, which
+    /// the shared one now replaces and which nothing reads any more. Not the `.merged` backups,
+    /// which only hold what collided inside a directory whose content moved across.
+    var keptDocuments: [(item: String, name: String)] {
+        results.compactMap { result in
+            if case .backedUp(let name) = result.outcome { return (result.item, name) }
+            return nil
+        }
+    }
+
     /// The names things were renamed aside under, as "item -> backup" pairs.
     var backups: [(item: String, name: String)] {
         results.compactMap { result in
@@ -111,6 +126,34 @@ struct ShareExistingReport: Equatable {
     private func items(_ matching: (ShareExistingOutcome) -> Bool) -> [String] {
         results.filter { matching($0.outcome) }.map(\.item)
     }
+}
+
+/// The id the supervisor registry knows an account by ("claude:.claude3"): the provider and the home's
+/// directory name, which is how both account lists build it (ClaudeAccounts, CodexAccounts).
+func harnessAccountID(providerID: String, home: URL) -> String {
+    "\(providerID):\(home.lastPathComponent)"
+}
+
+/// Whether a share may go ahead given which supervised sessions are running.
+enum ShareLiveBlock: Equatable {
+    case clear
+    /// The registry could not be read, which is read as busy like every other caller does.
+    case unknown
+    /// These homes (directory names) have a supervised session running on them.
+    case live([String])
+}
+
+/// A session running on a home that is about to have its conversation store moved reads, and may
+/// write, that store while it moves; a relaunch then finds the transcript on the other side. So
+/// nothing is shared while one runs on any of `homes`. `homes` is every home of the provider that
+/// is not shared yet, not only the one asked about, because two homes can lead to one store.
+func shareLiveBlock(providerID: String, homes: [URL], liveCounts: [String: Int]?) -> ShareLiveBlock {
+    guard !homes.isEmpty else { return .clear }
+    guard let liveCounts else { return .unknown }
+    let names = homes.filter {
+        (liveCounts[harnessAccountID(providerID: providerID, home: $0)] ?? 0) > 0
+    }.map(\.lastPathComponent)
+    return names.isEmpty ? .clear : .live(names)
 }
 
 /// Point `target`'s harness at `mainHome`'s, moving whatever stands in the way out of it first.
@@ -194,16 +237,39 @@ private func shareExistingItem(_ item: String, source: URL, dest: URL,
         return .alreadyShared
     }
 
+    // A link to somebody's own conversation store (not ours: that was answered above) is the store
+    // it leads to, so it is merged like a real directory and the link is then renamed aside.
+    var followed: URL?
+    var isDirectory: ObjCBool = false
+    if type == .typeSymbolicLink, mergeableHarnessItems.contains(item),
+       fm.fileExists(atPath: dest.path, isDirectory: &isDirectory), isDirectory.boolValue {
+        let store = dest.resolvingSymlinksInPath()
+        // Moving across volumes is a copy and a delete, not a rename: not atomic under a writing
+        // session, and not the "series of renames" the Settings row relies on.
+        if fileIdentity(atPath: store.path)?.device != fileIdentity(atPath: source.path)?.device {
+            return .failed("\(item) leads to another volume (\(store.path)); nothing was changed")
+        }
+        // A store that holds the main item, or sits inside it, would have the main account's own
+        // files moved into (or out of) its own history.
+        let main = source.resolvingSymlinksInPath().path + "/", other = store.path + "/"
+        if main.hasPrefix(other) || other.hasPrefix(main) {
+            return .failed("\(item) leads into the main account's own files; nothing was changed")
+        }
+        followed = store
+    }
+
     var mergeCounts: (moved: Int, kept: Int)?
-    if type == .typeDirectory, mergeableHarnessItems.contains(item) {
-        let counts = mergeHarnessDirectory(from: dest, into: source,
+    if type == .typeDirectory || followed != nil, mergeableHarnessItems.contains(item) {
+        let counts = mergeHarnessDirectory(from: followed ?? dest, into: source,
                                            mainTaskLists: item == taskListsItem ? source : nil)
         mergeCounts = counts
         // Everything moved across, so what is left should be the empty shape of the directory tree,
         // and removing that shape is the one deletion in here. It is made INCAPABLE of deleting a
         // file rather than counted as not deleting one; anything still standing falls through to the
         // backup path below and is renamed aside with every other leftover.
-        if counts.kept == 0, removeEmptiedTree(at: dest) {
+        // Never for a followed link: the walk would follow it and rmdir directories inside a store
+        // that is not in this home.
+        if counts.kept == 0, followed == nil, removeEmptiedTree(at: dest) {
             return link(.merged(moved: counts.moved, kept: 0, backup: nil))
         }
     }

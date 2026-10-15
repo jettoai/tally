@@ -11,6 +11,14 @@ import Foundation
 
 private let fixtureFileManager = FileManager.default
 
+/// A fixed day, so the names backups are given can be asserted rather than recomputed from whatever
+/// "today" is when the suite runs.
+let fixtureDay = Date(timeIntervalSince1970: 1_770_000_000)
+let fixtureStamp: String = {
+    let parts = Calendar.current.dateComponents([.year, .month, .day], from: fixtureDay)
+    return String(format: "%04d%02d%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+}()
+
 func writeFixture(_ text: String, _ url: URL) {
     try? fixtureFileManager.createDirectory(at: url.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)

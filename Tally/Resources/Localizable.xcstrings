@@ -11565,6 +11565,93 @@
         }
       }
     },
+    "Not shared while a session is running on: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下帳號有工作階段正在執行，未共用："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下账号有会话正在运行，未共享："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが実行中のため共有しませんでした: "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 실행 중이어서 공유하지 않았습니다: "
+          }
+        }
+      }
+    },
+    "Could not tell which sessions are running, so nothing was shared": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法確認哪些工作階段正在執行，所以沒有共用任何項目"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认哪些会话正在运行，所以没有共享任何项目"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のセッションを確認できなかったため、何も共有しませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 세션을 확인할 수 없어 아무것도 공유하지 않았습니다"
+          }
+        }
+      }
+    },
+    "Each account's own copy was kept beside the shared one and is no longer read: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各帳號原有的副本已保留在共用項目旁，不再被讀取："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各账号原有的副本已保留在共享项目旁，不再被读取："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アカウント自身のコピーは共有項目の横に残してあり、もう読み込まれません: "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 계정의 기존 사본은 공유 항목 옆에 보관되며 더 이상 읽히지 않습니다: "
+          }
+        }
+      }
+    },
     "Sort by status": {
       "extractionState": "manual",
       "localizations": {

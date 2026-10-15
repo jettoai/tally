@@ -964,6 +964,7 @@ check("the CLI's login message still promises no wait",
 // (unlinkchecks.swift, Tally/Core/SharedHarness.swift), and the command line that asks for it
 // (sharecommandchecks.swift, TallyCLI/ShareCommand.swift).
 runShareExistingChecks(root: tmp)
+runShareLinkedStoreChecks(root: tmp)
 runUnlinkChecks(root: tmp)
 runShareCommandChecks()
 // And the other user of TrustSeed.swift: the folder trust a supervisor RELAUNCH seeds into a live

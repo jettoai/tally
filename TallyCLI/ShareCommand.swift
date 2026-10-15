@@ -59,7 +59,7 @@ func shareIntent(_ args: [String]) -> ShareIntent? {
 }
 
 /// `tally share <provider> <account>|--all`.
-func runShare(args: [String]) -> Int32 {
+func runShare(args: [String], liveCounts: () -> [String: Int]?) -> Int32 {
     guard let intent = shareIntent(args),
           let provider = providers.first(where: { $0.id == intent.providerID }) else {
         warn(shareUsage)
@@ -103,6 +103,29 @@ func runShare(args: [String]) -> Int32 {
                 + "Tally can see")
             return 1
         }
+    }
+
+    // Nothing moves under a running session. Asked of every home of the provider that is not shared
+    // yet, not only the ones named: two homes can lead to one conversation store, so sharing one
+    // moves files the other is writing.
+    let pending = (snapshot?.accounts ?? []).compactMap { account -> URL? in
+        guard account.provider == provider.id, let launchHome = account.launchHome else { return nil }
+        let url = URL(fileURLWithPath: launchHome)
+        guard !harnessHomesAreOne(url, mainHome),
+              !sharedHarnessProgress(providerID: provider.id, mainHome: mainHome,
+                                     target: url).isComplete else { return nil }
+        return url
+    }
+    switch shareLiveBlock(providerID: provider.id, homes: pending, liveCounts: liveCounts()) {
+    case .live(let names):
+        warn("not shared: a session is running on \(names.joined(separator: ", ")) - quit it and "
+            + "run `tally share` again; nothing was changed")
+        return 1
+    case .unknown:
+        warn("not shared: could not tell which sessions are running; nothing was changed")
+        return 1
+    case .clear:
+        break
     }
 
     var failed = 0

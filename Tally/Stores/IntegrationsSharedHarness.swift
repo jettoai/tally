@@ -105,25 +105,63 @@ extension IntegrationsStore {
     /// Share the main account's harness into every account that is not already on it.
     ///
     /// Synchronous, like the other installs, and the reason it can be: everything it moves stays on
-    /// one volume, so a merge is a series of renames rather than of copies.
+    /// one volume (a link to a store on another volume is refused), so a merge is a series of
+    /// renames rather than of copies.
+    ///
+    /// A provider with a supervised session running on a home that is not shared yet is skipped
+    /// whole and says so: moving a conversation store under a running session splits its history.
     func installSharedHarness() {
         guard guardNotDev() else { return }
         lastError = nil
         let targets = Self.sharedHarnessTargets()
+        let liveCounts = liveSessionCounts()
+        var lines: [String] = []
         var failures: [String] = []
-        for target in targets {
-            let report = shareExistingHarness(providerID: target.providerID,
-                                              mainHome: target.main, target: target.home)
-            failures += report.failed.map { "\(target.home.lastPathComponent)/\($0)" }
+        var kept: [String] = []
+        var shared: [SharedHarnessTarget] = []
+        for providerID in Set(targets.map(\.providerID)).sorted() {
+            let ofProvider = targets.filter { $0.providerID == providerID }
+            let pending = ofProvider.filter {
+                !sharedHarnessProgress(providerID: providerID, mainHome: $0.main,
+                                       target: $0.home).isComplete
+            }
+            switch shareLiveBlock(providerID: providerID, homes: pending.map(\.home),
+                                  liveCounts: liveCounts) {
+            case .live(let names):
+                lines.append(L("Not shared while a session is running on: ")
+                    + names.joined(separator: ", "))
+                continue
+            case .unknown:
+                lines.append(L("Could not tell which sessions are running, so nothing was shared"))
+                continue
+            case .clear:
+                break
+            }
+            for target in ofProvider {
+                let report = shareExistingHarness(providerID: target.providerID,
+                                                  mainHome: target.main, target: target.home)
+                shared.append(target)
+                failures += report.failed.map { "\(target.home.lastPathComponent)/\($0)" }
+                kept += report.keptDocuments.map {
+                    "\(target.home.lastPathComponent)/\($0.item) -> \($0.name)"
+                }
+            }
         }
         // Provenance, as for every other component: what this app touched outside its bundle. The
         // removal below does not read it (a link is only removed when it still points at the main
         // account, which is a stronger test than a path list), so this is the record rather than
-        // the mechanism.
-        recordManifest("sharedHarness", paths: targets.isEmpty ? nil : targets.map(\.home.path))
+        // the mechanism. A home that was refused is not recorded; one recorded earlier stays.
+        let recorded = Self.manifestPaths("sharedHarness")
+        let paths = recorded + shared.map(\.home.path).filter { !recorded.contains($0) }
+        recordManifest("sharedHarness", paths: paths.isEmpty ? nil : paths)
         if !failures.isEmpty {
-            lastError = L("Some items could not be shared: ") + failures.joined(separator: ", ")
+            lines.append(L("Some items could not be shared: ") + failures.joined(separator: ", "))
         }
+        if !kept.isEmpty {
+            lines.append(L("Each account's own copy was kept beside the shared one and is no longer read: ")
+                + kept.joined(separator: ", "))
+        }
+        lastError = lines.isEmpty ? nil : lines.joined(separator: "\n")
         refresh()
     }
 

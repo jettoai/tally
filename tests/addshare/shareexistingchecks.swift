@@ -17,11 +17,7 @@ import Foundation
 
 func runShareExistingChecks(root: URL) {
     let fm = FileManager.default
-    // A fixed day, so the names backups are given can be asserted rather than recomputed from
-    // whatever "today" is when the suite runs.
-    let day = Date(timeIntervalSince1970: 1_770_000_000)
-    let parts = Calendar.current.dateComponents([.year, .month, .day], from: day)
-    let stamp = String(format: "%04d%02d%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    let day = fixtureDay, stamp = fixtureStamp
 
     // The account shapes live in harnessfixtures.swift, because the suite next door
     // (unlinkchecks.swift) asserts about the same ones from the other end.
@@ -145,35 +141,6 @@ func runShareExistingChecks(root: URL) {
     check("…and the emptied directory is a link to the main account's",
           read(cleanMain.appendingPathComponent("projects/proj-c/four.jsonl")) == "only theirs"
               && read(clean.appendingPathComponent("projects/proj-c/four.jsonl")) == "only theirs")
-
-    // MARK: - Links that are already there
-
-    let linkMain = mainAccount("link-main")
-    let linked = home("link-target")
-    // Somebody's own link, pointing somewhere else entirely: theirs, so it is moved aside like any
-    // other thing of theirs rather than silently replaced.
-    let elsewhere = root.appendingPathComponent("elsewhere.md")
-    write("somewhere else", elsewhere)
-    try? fm.createSymbolicLink(at: linked.appendingPathComponent("CLAUDE.md"),
-                               withDestinationURL: elsewhere)
-    // A link to nothing at all is still a thing that is there.
-    try? fm.createSymbolicLink(at: linked.appendingPathComponent("settings.json"),
-                               withDestinationURL: root.appendingPathComponent("gone.json"))
-    // And a link already pointing at the main account, which is what an earlier share leaves.
-    try? fm.createSymbolicLink(at: linked.appendingPathComponent("memory"),
-                               withDestinationURL: linkMain.appendingPathComponent("memory"))
-    let linkReport = shareExistingHarness(providerID: "claude", mainHome: linkMain, target: linked,
-                                          now: day)
-    check("a link of the user's own is moved aside, still pointing where they aimed it",
-          linkReport.backups.contains { $0.item == "CLAUDE.md" }
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: linked.appendingPathComponent("CLAUDE.md.local-\(stamp)").path))
-                  == elsewhere.path)
-    check("a dangling link is something that is there, so it is kept too",
-          linkReport.backups.contains { $0.item == "settings.json" })
-    check("a link that already points at the main account is left alone",
-          linkReport.alreadyShared.contains("memory")
-              && !fm.fileExists(atPath: linked.appendingPathComponent("memory.local-\(stamp)").path))
 
     // MARK: - The home a share may not touch
 

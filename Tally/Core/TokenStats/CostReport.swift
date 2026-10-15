@@ -84,7 +84,7 @@ struct CostReport: Codable, Equatable, Sendable {
     struct Pricing: Codable, Equatable, Sendable {
         var source = "tally-builtin"
         /// The date of the price table in rust/crates/core/src/tokenstats/pricing.rs.
-        var version = "2026-09-23"
+        var version = "2026-10-15"
         var currency = "USD"
         var unpricedProviders: [String]
     }

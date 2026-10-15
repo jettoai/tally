@@ -3,7 +3,7 @@
 //! and `CACHE_CREATE_*_MULT` in the maintainer's era-compare.py (lines 587-609 there); that file is
 //! the source of truth and the two are changed together. A model not in the table (every Codex
 //! model among them: no local price list is trusted for those) has no price, which callers count
-//! and show rather than treat as free.
+//! and show rather than treat as free. Extended 2026-10-15 with the claude-sonnet-5-5 key.
 
 use super::Totals;
 
@@ -15,6 +15,7 @@ const PRICES: &[(&str, f64, f64, f64)] = &[
     ("claude-opus-5-5", 4.0, 20.0, 0.05),
     ("claude-opus-4-8", 5.0, 25.0, 0.1),
     ("claude-sonnet-5", 2.0, 10.0, 0.1),
+    ("claude-sonnet-5-5", 2.0, 10.0, 0.05),
     ("claude-haiku-4-5", 1.0, 5.0, 0.1),
 ];
 const CACHE_WRITE_5M_MULT: f64 = 1.25;
@@ -89,6 +90,10 @@ mod tests {
         assert!(close(cost("claude-fable-5", &t(0, 0, 0, 1_000_000, 0)).unwrap().total(), 1.0));
         // Sonnet 5, flat cache write only (no nested split): 1e6*1.25*2 + 1e6*10 = 12.5.
         assert!(close(cost("claude-sonnet-5", &t(0, 1_000_000, 0, 0, 1_000_000)).unwrap().total(), 12.5));
+        // Sonnet 5.5 dated id reads cache at 0.05x (1e6*2*0.05 = 0.10); Sonnet 5 stays 0.1x (0.20).
+        assert!(close(cost("claude-sonnet-5-5-20261001", &t(0, 0, 0, 1_000_000, 0)).unwrap().total(), 0.10));
+        assert!(close(cost("claude-sonnet-5", &t(0, 0, 0, 1_000_000, 0)).unwrap().total(), 0.20));
+        assert!(close(cost("claude-sonnet-5-0", &t(0, 0, 0, 1_000_000, 0)).unwrap().total(), 0.20));
         // Haiku 4.5: 2e6*1 + 1e6*5 = 7.
         let h = cost("claude-haiku-4-5-20251001", &t(2_000_000, 0, 0, 0, 1_000_000)).unwrap();
         assert!(close(h.input, 2.0) && close(h.output, 5.0));

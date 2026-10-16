@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/lastgood/main.swift \
-  Tally/Core/LastGoodFold.swift Tally/Core/UsageSnapshot.swift \
+swiftc -o "$out" tests/lastgood/main.swift tests/lastgood/cachechecks.swift \
+  Tally/Core/LastGoodFold.swift Tally/Core/LastGoodCache.swift Tally/Core/UsageSnapshot.swift \
   Tally/Providers/ProviderModels.swift
 "$out"

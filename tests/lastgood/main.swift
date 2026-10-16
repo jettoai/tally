@@ -245,5 +245,7 @@ let retrying = ((catalogue?["strings"] as? [String: Any])?["Reading quota, retry
 check("the retrying line is in all four translations",
       ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { retrying[$0] != nil })
 
+runCacheChecks()
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

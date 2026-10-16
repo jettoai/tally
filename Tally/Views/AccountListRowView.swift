@@ -116,9 +116,10 @@ struct AccountListRowView: View {
             // stale mark needs `isStale`, which a never-loaded row does not have
             // (`AccountFacts.isHardError`), and the reset mark is not a reading, so an account
             // whose first poll failed still shows its "?" (codex review of dcbc04f). The login
-            // marks stay outside for their own reason: `lastGood` lives in memory, so after every
-            // launch a signed-out account IS the hard-error row until the first good poll, which
-            // is precisely when the renewal button is worth having on screen.
+            // marks stay outside for their own reason: `lastGood` survives a launch only for readings
+            // under a day old (LastGoodCache), so a signed-out account with none IS the hard-error
+            // row until the first good poll, which is precisely when the renewal button is worth
+            // having on screen.
             usageMarks
             loginMarks
         }

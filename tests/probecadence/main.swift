@@ -251,6 +251,12 @@ check("A16 a landed row replaces its own row and leaves every other row as it wa
 let inserted = ProbeCadence.landing(labeled("c0", "claude", "0", used: 5), into: shown, fact: nil, now: now)
 check("A16 a row not on screen yet is inserted in the panel's order",
       inserted.map(\.id) == ["c0", "c1", "c2", "x1"])
+// B-2027: rows seeded from the last launch's cache are replaced in place as probes land: the count
+// never drops to zero and never grows past the cached accounts, and only the landed row changes.
+let reseeded = ProbeCadence.landing(labeled("x1", "codex", "A", used: 99), into: shown, fact: nil, now: now)
+check("A16b a landing over seeded rows keeps every account and updates only its own row",
+      reseeded.count == shown.count && reseeded[2].metrics[0].usedPercent == 99
+          && reseeded[0] == shown[0] && reseeded[1] == shown[1])
 
 /// Records when each fetch starts and ends and when each row reaches the callback.
 actor Timeline {

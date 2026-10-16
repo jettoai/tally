@@ -395,8 +395,9 @@ expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id
         && cardSource.contains(".disabled(!facts.canRenewLogin)")
         && rowSource.contains(".disabled(!facts.canRenewLogin)"),
        "the chip greys out where the menu entry does, asked of the same place")
-// An account that never loaded is EXACTLY the one whose login expired: `lastGood` is a memory-only
-// cache, so after every launch a signed-out account is a hard-error row until the first good poll.
+// An account that never loaded is EXACTLY the one whose login expired: `lastGood` survives a launch
+// only for readings under a day old (LastGoodCache), so a signed-out account with none is a
+// hard-error row until the first good poll.
 // The card has always drawn its login state outside its own error branch for that reason, and the
 // compact row draws its login marks outside it too, or the row hides the renewal button and the
 // "renewing…" spinner at the one moment they are worth showing. The usage marks are no longer

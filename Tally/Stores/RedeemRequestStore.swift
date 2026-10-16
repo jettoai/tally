@@ -38,7 +38,9 @@ final class RedeemRequestStore: NSObject {
 
     private func handle(_ request: RedeemRequest) async {
         let store = UsageStore.shared
-        guard !store.accounts.isEmpty else { return answer(request, .notReady) }
+        // Rows seeded from the last launch's cache exist before discovery has run (B-2027): without
+        // discovery the signed-out check below would misread them.
+        guard store.hasDiscovered, !store.accounts.isEmpty else { return answer(request, .notReady) }
         guard let usage = store.accounts.first(where: { $0.id == request.accountID }) else {
             return answer(request, .notFound)
         }

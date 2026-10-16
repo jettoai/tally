@@ -66,7 +66,7 @@ final class UsageStore {
     }
     private var mainTimerNextFire: Date?
 
-    private init() {}
+    private init() { (accounts, lastGood) = Self.cachedLastGood() }
 
     func start() {
         // First launch counts as user-initiated: the app was just opened, so the one-time credential
@@ -334,6 +334,7 @@ final class UsageStore {
             .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
             .map { ProbeCadence.overlay($0, fact: readLiveRateFact(accountID: $0.id), now: Date()) }
             .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
+        persistLastGood(lastGood, known: known)
         rememberIdentities(merged, round: shared)
         isRefreshing = false
         logRound(trigger ?? (userInitiated ? .user : .other), since: startedAt, results: results)
@@ -438,6 +439,7 @@ final class UsageStore {
     /// previous account's numbers, publish them, and let smart pick route on them.
     func forgetAccount(_ accountID: String) {
         lastGood[accountID] = nil
+        persistLastGood(lastGood, known: nil)
         failureStreak[accountID] = nil
         arrivedThisLaunch.remove(accountID)
         lastPublishedAccounts.removeAll { $0.id == accountID }

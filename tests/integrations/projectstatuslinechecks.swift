@@ -82,24 +82,24 @@ func runProjectStatusLineChecks() throws {
     let main = try dir("main", git: true)
     let mainSub = try dir("main/sub")
     try fm.createDirectory(at: main.appendingPathComponent(".git/worktrees/wt"), withIntermediateDirectories: true)
+    let wt = try dir("wt")
     let worktree = try dir("wt/sub")
     try "gitdir: \(main.path)/.git/worktrees/wt\n".write(
-        to: root.appendingPathComponent("wt/.git"), atomically: true, encoding: .utf8)
+        to: wt.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
     check("a worktree with no settings anywhere is no override", found(worktree) == nil)
     try write(main, "settings.local.json", status("main-local"))
-    check("a worktree reads the main checkout's root settings.local.json",
-          found(worktree) == main.appendingPathComponent(".claude/settings.local.json").path)
-    check("…and so does a subfolder of the main checkout",
-          found(mainSub) == main.appendingPathComponent(".claude/settings.local.json").path)
-    try write(root.appendingPathComponent("wt"), "settings.json", status("wt-line"))
-    check("the worktree's own shared file is read only from the session folder", found(worktree) == main.appendingPathComponent(".claude/settings.local.json").path)
+    let mainLocal = main.appendingPathComponent(".claude/settings.local.json").path
+    check("a worktree reads the main checkout's root settings.local.json", found(worktree) == mainLocal)
+    check("…and so does a subfolder of the main checkout", found(mainSub) == mainLocal)
+    try write(wt, "settings.json", status("wt-line"))
+    check("the worktree's own shared file is read only from the session folder", found(worktree) == mainLocal)
     try fm.removeItem(at: main.appendingPathComponent(".claude"))
     check("a worktree root's shared settings.json is not read from its subfolder", found(worktree) == nil)
     try "gitdir: /elsewhere/modules/x".write(
-        to: root.appendingPathComponent("wt/.git"), atomically: true, encoding: .utf8)
-    try write(root.appendingPathComponent("wt"), "settings.local.json", status("sub-local"))
+        to: wt.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+    try write(wt, "settings.local.json", status("sub-local"))
     check("a .git file that is not a worktree (submodule) is its own root",
-          found(worktree) == root.appendingPathComponent("wt/.claude/settings.local.json").path)
+          found(worktree) == wt.appendingPathComponent(".claude/settings.local.json").path)
 
     let homeDir = try dir("home", git: true)
     try write(homeDir, "settings.json", status("user-layer"))

@@ -475,7 +475,8 @@ final class OrphanReclaimStore {
         else { return }
         let workspace = machine.home.appendingPathComponent("workspace").path
         let key = OrphanNotice.key(for: repository.root, workspace: workspace)
-        let letter = OrphanNotice.letter(report, to: key, worktree: repository.worktree, at: now)
+        var letter = OrphanNotice.letter(report, to: key, worktree: repository.worktree, at: now)
+        letter.recipient = OrphanNotice.recipient(for: repository.root, workspace: workspace)
         machine.deliver(letter,
                         OrphanNotice.inbox(key, home: machine.home),
                         OrphanNotice.filename(at: now, pid: getpid(),

@@ -169,6 +169,21 @@ enum OrphanNotice {
         return relative.replacingOccurrences(of: "/", with: "-")
     }
 
+    /// THE ADDRESS `inbox-send --to` TAKES FOR A REPOSITORY, which is not the inbox key.
+    ///
+    /// The port resolves a flat key only for a repository one or two levels under the workspace; a
+    /// deeper one (`social/brands/repo`) is addressable only by its path, which the port maps to the
+    /// same key (`social-brands-repo`) itself. Handing it the flattened key bounced every message
+    /// from a deep checkout (rc 2) and the notice was dropped.
+    ///
+    /// NIL OUTSIDE THE WORKSPACE, because the port has no address for such a repository: a basename
+    /// nothing else owns bounces, and one that matches a workspace repository's name is delivered
+    /// into THAT repository's inbox. Those messages are written directly instead (`send`).
+    static func recipient(for repository: String, workspace: String) -> String? {
+        guard repository.hasPrefix(workspace + "/") else { return nil }
+        return String(repository.dropFirst(workspace.count + 1))
+    }
+
     /// What `<directory>/.git` is on the real filesystem, which is the one call the walk above
     /// makes. A `.git` that cannot be read is reported as an empty file rather than as absent: the
     /// walk then stops here and calls this directory the repository, which is true, instead of
@@ -209,6 +224,9 @@ enum OrphanNotice {
     /// builds the envelope itself.
     struct Letter: Sendable {
         var key: String
+        /// What `--to` carries (`recipient(for:workspace:)`); nil sends nothing through the port.
+        /// `letter` starts it at the key, which is the whole address for a top-level repository.
+        var recipient: String?
         var worktree: String?
         var title: String
         /// Everything under the envelope: the worktree note, the facts, what was done.
@@ -246,7 +264,7 @@ enum OrphanNotice {
                         "**reply**: none",
                         "**thread**: orphan-reclaim",
                         "**hop**: 0", ""]
-        return Letter(key: key, worktree: worktree, title: title, body: content,
+        return Letter(key: key, recipient: key, worktree: worktree, title: title, body: content,
                       text: envelope.joined(separator: "\n") + "\n" + content)
     }
 
@@ -405,9 +423,10 @@ enum OrphanNotice {
         home.appendingPathComponent(".claude/scripts/inbox-send")
     }
 
-    /// DELIVER THROUGH THE HARNESS'S OWN PORT when this machine has one, and write the file directly
-    /// when it does not. The port holds the 30 minute dedupe, the recipient check and the envelope;
-    /// writing the maildir here instead bypassed all three and delivered one message eight times.
+    /// DELIVER THROUGH THE HARNESS'S OWN PORT when this machine has one and the letter has an address
+    /// for it, and write the file directly when either is missing. The port holds the 30 minute
+    /// dedupe, the recipient check and the envelope; writing the maildir here instead bypassed all
+    /// three and delivered one message eight times.
     /// Blocking (a child process), so callers keep it off the main thread.
     ///
     /// - Returns: whether the message is in the inbox now (a duplicate counts: it is there already).
@@ -424,16 +443,18 @@ enum OrphanNotice {
 
     /// `inbox-send` as a child process: argv array, no shell, body through a temp file, stdin from
     /// /dev/null, terminated after `timeout`. Nil when the script is missing or not executable
-    /// (a machine without the harness); -1 when it exists but could not be run.
+    /// (a machine without the harness) or the letter has no recipient to give it; -1 when it exists
+    /// but could not be run.
     private static func runInboxSend(_ letter: Letter, home: URL, timeout: TimeInterval) -> Int32? {
         let script = inboxSendScript(home: home)
-        guard FileManager.default.isExecutableFile(atPath: script.path) else { return nil }
+        guard let recipient = letter.recipient,
+              FileManager.default.isExecutableFile(atPath: script.path) else { return nil }
         let bodyFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("tally-orphan-\(UUID().uuidString).md")
         defer { try? FileManager.default.removeItem(at: bodyFile) }
         guard (try? letter.body.write(to: bodyFile, atomically: true, encoding: .utf8)) != nil
         else { return -1 }
-        var arguments = ["--to", letter.key, "--from", "tally-app", "--title", letter.title,
+        var arguments = ["--to", recipient, "--from", "tally-app", "--title", letter.title,
                          "--body-file", bodyFile.path, "--type", "notify", "--reply", "none",
                          "--thread", "orphan-reclaim"]
         if letter.worktree != nil { arguments += ["--worktree-of", letter.key] }

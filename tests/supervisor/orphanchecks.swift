@@ -686,6 +686,17 @@ private func runOrphanNoticeChecks() {
     check("a relatively linked worktree's message is addressed to its repository's own box",
           OrphanNotice.key(for: OrphanNotice.repository(of: feat, entry: nested)?.root ?? "",
                            workspace: workspace) == "bigdata")
+    // THE PORT'S ADDRESS IS NOT THE KEY: it resolves a deep checkout only by its path, and has none
+    // for a checkout outside the workspace (B-1956).
+    check("a deep checkout is addressed to the port by its path under the workspace",
+          OrphanNotice.recipient(for: "/Users/x/workspace/social/brands/repo", workspace: workspace)
+              == "social/brands/repo"
+              && OrphanNotice.recipient(for: "/Users/x/workspace/tally", workspace: workspace)
+                  == "tally")
+    check("…and one outside it, or merely named alike, has no address",
+          OrphanNotice.recipient(for: "/opt/src/thing", workspace: workspace) == nil
+              && OrphanNotice.recipient(for: "/Users/x/workspace-old/tally", workspace: workspace)
+                  == nil)
     check("the inbox is the one the harness's own notify skill writes into",
           OrphanNotice.inbox("tally", home: URL(fileURLWithPath: "/Users/x")).path
               == "/Users/x/.claude/inboxes/tally")
@@ -869,6 +880,68 @@ private func runOrphanNoticeChecks() {
     check("a port that hangs is ended at the timeout and counted as not delivered",
           !OrphanNotice.send(letter, to: direct, named: name, home: sandbox, timeout: 1)
               && Date().timeIntervalSince(started) < 10)
+    install(exit: 0)
+    var unaddressed = letter
+    unaddressed.recipient = nil
+    let written = OrphanNotice.send(unaddressed, to: direct, named: name, home: sandbox)
+    check("a letter with no address never reaches the port and is written directly",
+          written && !FileManager.default.fileExists(atPath: record.path)
+              && (try? String(contentsOf: direct.appendingPathComponent(name), encoding: .utf8))
+                  == letter.text)
+
+    runRealInboxSendChecks(report: report, at: at)
+}
+
+/// THE REAL PORT, because a stand-in that accepts any `--to` is how a flat key the real one bounces
+/// went unnoticed (B-1956). Skipped where the harness is not installed. Each case goes through
+/// `OrphanNotice.send` with a letter built the way the store builds it, into a sandbox home.
+private func runRealInboxSendChecks(report: OrphanNotice.Report, at: Date) {
+    let real = FileManager.default.homeDirectoryForCurrentUser
+    let source = OrphanNotice.inboxSendScript(home: real)
+    guard FileManager.default.isExecutableFile(atPath: source.path) else {
+        print("SKIP: no \(source.path); the real-port checks did not run")
+        return
+    }
+    let home = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("orphan-real-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: home) }
+    let manager = FileManager.default
+    let workspace = home.appendingPathComponent("workspace").path
+    for repo in ["social/brands/repo", "koodata/kooai", "taiwanbigdata/bigdata"] {
+        try? manager.createDirectory(atPath: workspace + "/" + repo + "/.git",
+                                     withIntermediateDirectories: true)
+    }
+    let scripts = home.appendingPathComponent(".claude/scripts")
+    try? manager.createDirectory(at: scripts, withIntermediateDirectories: true)
+    try? manager.copyItem(at: source, to: OrphanNotice.inboxSendScript(home: home))
+    // The port knocks on the recipient's session after landing; that is not under test here.
+    setenv("INBOX_SEND_KNOCK", "0", 1)
+    defer { unsetenv("INBOX_SEND_KNOCK") }
+
+    func landed(_ key: String) -> Int {
+        let box = OrphanNotice.inbox(key, home: home).path
+        return ((try? manager.contentsOfDirectory(atPath: box)) ?? []).filter { $0.hasSuffix(".md") }.count
+    }
+    func send(from root: String, nth: Int) -> Bool {
+        let key = OrphanNotice.key(for: root, workspace: workspace)
+        var letter = OrphanNotice.letter(report, to: key, worktree: nil, at: at)
+        letter.recipient = OrphanNotice.recipient(for: root, workspace: workspace)
+        return OrphanNotice.send(letter, to: OrphanNotice.inbox(key, home: home),
+                                 named: OrphanNotice.filename(at: at, pid: 1, random: UInt32(nth)),
+                                 home: home)
+    }
+    let deep = workspace + "/social/brands/repo"
+    check("[real port] a three-level checkout's notice lands in its own inbox",
+          send(from: deep, nth: 1) && landed("social-brands-repo") == 1)
+    check("…and the same notice sent again is a duplicate, not a second file",
+          send(from: deep, nth: 2) && landed("social-brands-repo") == 1)
+    check("[real port] a two-level checkout's notice lands, and is deduped the same way",
+          send(from: workspace + "/koodata/kooai", nth: 3) && landed("koodata-kooai") == 1
+              && send(from: workspace + "/koodata/kooai", nth: 4) && landed("koodata-kooai") == 1)
+    // A basename the port WOULD match to a workspace repository (`bigdata` -> taiwanbigdata-bigdata)
+    check("[real port] a checkout outside the workspace is written to its own box, not a namesake's",
+          send(from: "/opt/elsewhere/bigdata", nth: 5) && landed("bigdata") == 1
+              && landed("taiwanbigdata-bigdata") == 0)
 }
 
 /// A process table entry with a start time derived from its pid, so two fixtures of the same pid

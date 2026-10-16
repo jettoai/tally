@@ -50,6 +50,8 @@ final class FakeMachine {
     /// round's own walk: a kill takes effect between them.
     var surviving: [pid_t: Int64] = [:]
     var delivered: [(text: String, inbox: URL, name: String)] = []
+    /// What each delivered letter would hand the port as `--to` (nil: written directly).
+    var recipients: [String?] = []
     var gitRoot = "/Users/x/workspace/bigdata"
     /// What `<dir>/.git` is, for the paths the default below does not cover: a parallel line's
     /// `.git` FILE, which is what folds a worktree into its repository (`OrphanNotice.repository`).
@@ -105,16 +107,44 @@ final class FakeMachine {
             deliver: { [self] letter, inbox, name in
                 MainActor.assumeIsolated {
                     delivered.append((letter.text, inbox, name))
+                    recipients.append(letter.recipient)
                 }
             },
             home: home))
     }
 }
 
+/// WHAT THE STORE HANDS THE PORT AS `--to`, per place a checkout can sit. The flat inbox key is
+/// not an address the port resolves for a deep checkout, and no address exists for one outside the
+/// workspace (B-1956).
+@MainActor
+private func runOrphanRecipientChecks() {
+    let at = Date(timeIntervalSince1970: 1_800_000_000)
+    func announced(from root: String) -> (recipient: String??, inbox: String?) {
+        let fake = FakeMachine()
+        fake.gitRoot = root
+        fake.store().announce(OrphanNotice.Report(
+            project: root, program: "node", pid: 900, processes: 1, cpuPercent: nil,
+            memoryBytes: 0, listeningPorts: [], ageSeconds: 600, outcome: .failed(reason: "x")),
+            at: at)
+        return (fake.recipients.first, fake.delivered.first?.inbox.path)
+    }
+    let deep = announced(from: "/Users/x/workspace/social/brands/repo")
+    check("a checkout three levels down is addressed by its path, into the flat-key inbox",
+          deep.recipient == .some("social/brands/repo")
+              && deep.inbox == "/Users/x/.claude/inboxes/social-brands-repo")
+    check("…a two-level one by its path too",
+          announced(from: "/Users/x/workspace/koodata/kooai").recipient == .some("koodata/kooai"))
+    let outside = announced(from: "/opt/elsewhere/bigdata")
+    check("…and one outside the workspace has no address and goes by the direct write, to its own key",
+          outside.recipient == .some(nil) && outside.inbox == "/Users/x/.claude/inboxes/bigdata")
+}
+
 @MainActor
 func runOrphanStoreChecks() {
     runOrphanRecordExpiryChecks()
     runOrphanMemoryChecks()
+    runOrphanRecipientChecks()
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     let repo = "/Users/x/workspace/bigdata"
     let web = repo + "/web"

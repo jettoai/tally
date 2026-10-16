@@ -233,6 +233,10 @@ struct StatusReport: Encodable {
         var effort: String?
         /// The Claude Code task list this session writes (TaskListPin.swift); absent until pinned.
         var taskList: TaskList?
+        /// The project settings file that gives this Claude session a status line of its own, so
+        /// `tally statusline` never runs in it (ProjectStatusLine.swift). Absent when nothing
+        /// overrides it, for a Codex session, and when the session published no directory.
+        var statusLineOverride: String?
 
         struct TaskList: Encodable {
             var id: String

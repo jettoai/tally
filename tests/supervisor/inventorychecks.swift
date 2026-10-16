@@ -354,6 +354,29 @@ func runSessionInventoryChecks() {
     check("a monitoring-only Codex registration advertises no fabricated send capability",
           codexLegacy?.provider == "codex" && codexLegacy?.supportedActions == [])
 
+    // A project settings file that replaces Tally's status line is named on the session that runs
+    // under it (ProjectStatusLine.swift), and the key is absent otherwise. This process is the one
+    // live supervisor in a directory of its own, started in a scratch folder.
+    let overrideDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-inventory-psl-\(UUID().uuidString)")
+    let overrideScratch = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-inventory-psl-cwd-\(UUID().uuidString)").resolvingSymlinksInPath()
+    let overrideFile = overrideScratch.appendingPathComponent(".claude/settings.local.json")
+    try? FileManager.default.createDirectory(at: overrideScratch.appendingPathComponent(".claude"),
+                                             withIntermediateDirectories: true)
+    markSupervisorLive(pid: trunkSupervisor, dir: overrideDir)
+    writeSupervisorCwd(overrideScratch.path, pid: trunkSupervisor, dir: overrideDir)
+    func overridden() -> String? {
+        sessionReadings(dir: overrideDir, socketDir: empty, identity: identity).sessions.first?.statusLineOverride
+    }
+    check("no project settings file, no statusLineOverride", overridden() == nil)
+    try? #"{"statusLine":{"command":"my-line"}}"#.write(to: overrideFile, atomically: true, encoding: .utf8)
+    check("a project file with its own status line is named on the session", overridden() == overrideFile.path)
+    try? FileManager.default.removeItem(at: overrideFile)
+    check("…and the key is gone once the file's statusLine is", overridden() == nil)
+    try? FileManager.default.removeItem(at: overrideDir)
+    try? FileManager.default.removeItem(at: overrideScratch)
+
     try? FileManager.default.removeItem(at: dir)
     try? FileManager.default.removeItem(atPath: socketDir)
 }

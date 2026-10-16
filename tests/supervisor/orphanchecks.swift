@@ -700,7 +700,7 @@ private func runOrphanNoticeChecks() {
         project: "/Users/x/workspace/bigdata/web", program: "node", pid: 900, processes: 4,
         cpuPercent: 187, memoryBytes: 3_400_000_000, listeningPorts: [3000, 24_678],
         ageSeconds: 7200, signalled: [900, 901, 902, 904], outcome: .reclaimedByLease)
-    let text = OrphanNotice.message(report, to: "bigdata", worktree: nil, at: at)
+    let text = OrphanNotice.letter(report, to: "bigdata", worktree: nil, at: at).text
     // THE STOP GATE ON THE RECEIVING SIDE CHASES ANYTHING THAT ASKS FOR A REPLY, and the writer
     // here is a menu bar app that cannot receive one.
     check("every message asks for no reply, since nothing here could read one",
@@ -721,23 +721,23 @@ private func runOrphanNoticeChecks() {
     unsent.signalled = []
     unsent.outcome = .reported(doubts: [.unknownProgram])
     check("…while a report, which sends nothing, has no such line to write",
-          !OrphanNotice.message(unsent, to: "bigdata", worktree: nil, at: at)
-              .contains("Signalled:"))
+          !OrphanNotice.letter(unsent, to: "bigdata", worktree: nil, at: at)
+              .text.contains("Signalled:"))
     check("…and a parallel line's message says which line, since the repository's box is not it",
-          OrphanNotice.message(report, to: "bigdata",
-                               worktree: "/Users/x/workspace/bigdata/.worktrees/feat", at: at)
-              .contains("/Users/x/workspace/bigdata/.worktrees/feat"))
+          OrphanNotice.letter(report, to: "bigdata",
+                              worktree: "/Users/x/workspace/bigdata/.worktrees/feat", at: at)
+              .text.contains("/Users/x/workspace/bigdata/.worktrees/feat"))
     var doubted = report
     doubted.outcome = .reported(doubts: [.inUse, .unknownProgram])
     check("a tier-C message says what was NOT done and why, in words rather than in enum names",
-          OrphanNotice.message(doubted, to: "bigdata", worktree: nil, at: at)
+          OrphanNotice.letter(doubted, to: "bigdata", worktree: nil, at: at).text
               .contains("something is connected to it; its program is not one this app recognises"))
     // 🔴 AND THE ONE THE INCIDENT WAS MISSING: what a reader is to do when the doubt is that they
     // themselves are working here. "Have a look and end it yourself" is the wrong sentence for a
     // tree that may be their own session's.
     var mine = report
     mine.outcome = .reported(doubts: [.sessionPresent])
-    let told = OrphanNotice.message(mine, to: "bigdata", worktree: nil, at: at)
+    let told = OrphanNotice.letter(mine, to: "bigdata", worktree: nil, at: at).text
     check("a tree in an occupied checkout is reported as possibly the reader's own work",
           told.contains("a session is working in this checkout, so this may be its work"))
     check("…and is told how to keep it rather than only how to end it",
@@ -751,7 +751,7 @@ private func runOrphanNoticeChecks() {
     var clear = report
     clear.signalled = []
     clear.outcome = .reported(doubts: [])
-    let held = OrphanNotice.message(clear, to: "bigdata", worktree: nil, at: at)
+    let held = OrphanNotice.letter(clear, to: "bigdata", worktree: nil, at: at).text
     check("a candidate with no doubt at all is reported as one this app would end and did not",
           held.contains("no session is working in its checkout")
               && held.contains("switched off while this feature is being observed"))
@@ -763,7 +763,7 @@ private func runOrphanNoticeChecks() {
     var unplaced = report
     unplaced.signalled = []
     unplaced.outcome = .reported(doubts: [.sessionUnknown])
-    let vague = OrphanNotice.message(unplaced, to: "bigdata", worktree: nil, at: at)
+    let vague = OrphanNotice.letter(unplaced, to: "bigdata", worktree: nil, at: at).text
     check("a round whose board could not place a session says so, and offers the careful advice",
           vague.contains("a live session would not say which checkout it is working in")
               && vague.contains("If it is yours, there is nothing to do."))
@@ -774,13 +774,13 @@ private func runOrphanNoticeChecks() {
     var sustained = report
     sustained.outcome = .reclaimedBySustained
     check("a reclaim still says no session was working here, which is now a tested claim",
-          OrphanNotice.message(sustained, to: "bigdata", worktree: nil, at: at)
-              .contains("No live session was working in this checkout"))
+          OrphanNotice.letter(sustained, to: "bigdata", worktree: nil, at: at)
+              .text.contains("No live session was working in this checkout"))
     var failed = report
     failed.outcome = .failed(reason: "it would not go")
     check("…and a failure says the thing is still running",
-          OrphanNotice.message(failed, to: "bigdata", worktree: nil, at: at)
-              .contains("It is still running."))
+          OrphanNotice.letter(failed, to: "bigdata", worktree: nil, at: at)
+              .text.contains("It is still running."))
 
     // MARK: delivering it
 

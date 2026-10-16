@@ -204,22 +204,10 @@ enum OrphanNotice {
         return clock.string(from: instant)
     }
 
-    /// THE MESSAGE ITSELF.
-    ///
-    /// `reply: none` ON EVERY ONE OF THEM. The harness's `notify` contract has a session's stop gate
-    /// chase anything marked otherwise until it is answered, and there is nobody here to answer: the
-    /// writer is a menu bar app, and what it has to say is finished when it has been said. A message
-    /// asking for a reply from a process that cannot receive one would leave a session holding an
-    /// obligation forever, which the contract's own note calls out as the common mistake.
-    static func message(_ report: Report, to key: String, worktree: String?,
-                        at instant: Date) -> String {
-        letter(report, to: key, worktree: worktree, at: instant).text
-    }
-
     /// A MESSAGE IN THE TWO SHAPES IT TRAVELS IN: the whole file (`text`, envelope included, for the
     /// direct write) and the parts the harness's delivery port wants (`title`, `body`), because it
     /// builds the envelope itself.
-    struct Letter: Equatable, Sendable {
+    struct Letter: Sendable {
         var key: String
         var worktree: String?
         var title: String
@@ -228,6 +216,13 @@ enum OrphanNotice {
         var text: String
     }
 
+    /// THE MESSAGE ITSELF.
+    ///
+    /// `reply: none` ON EVERY ONE OF THEM. The harness's `notify` contract has a session's stop gate
+    /// chase anything marked otherwise until it is answered, and there is nobody here to answer: the
+    /// writer is a menu bar app, and what it has to say is finished when it has been said. A message
+    /// asking for a reply from a process that cannot receive one would leave a session holding an
+    /// obligation forever, which the contract's own note calls out as the common mistake.
     static func letter(_ report: Report, to key: String, worktree: String?,
                        at instant: Date) -> Letter {
         var lines: [String] = []

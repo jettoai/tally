@@ -411,13 +411,13 @@ do {
 do {
     let now = Date(timeIntervalSince1970: 1_000_000)
     let at = now.addingTimeInterval(2 * 86_400 + 3_600)
-    let refill = FleetPool.Refill(at: at, accountLabel: "c1", gain: 40)
+    let refill = FleetPool.Refill(at: at, accountLabel: "c1", gain: 40, poolSize: 1)
     let value = FleetTooltip.refillValue(refill, now: now)
     expect(value.countdown == 2 * 86_400 + 3_600 && value.clock == at,
            "the hover reads the time remaining and the instant itself")
     // A refill already due (or seconds away) still reads as a minute rather than counting to zero,
     // which is the floor the strip's own label uses; the clock stays the instant.
-    let due = FleetTooltip.refillValue(FleetPool.Refill(at: now, accountLabel: "c1", gain: 40), now: now)
+    let due = FleetTooltip.refillValue(FleetPool.Refill(at: now, accountLabel: "c1", gain: 40, poolSize: 1), now: now)
     expect(due.countdown == 60, "a refill inside the next minute floors at one minute")
     expect(due.clock == now, "and the floor does not move the clock reading")
 }
@@ -450,6 +450,34 @@ do {
     expect(pooled.first?.accountCount == 1, "F1 the pool counts one account, not two")
     expect(FleetMath.weighted(accounts: [duplicate, gm], codexProMultiple: nil)["claude"]?
         .remainingPercent == 98, "F1 the weighted remaining is GM's own")
+}
+
+// B-2027: a refill reads as a share of the whole pool, not one account's own units.
+do {
+    func share(_ gain: Double, _ size: Int) -> FleetPool.Refill {
+        FleetPool.Refill(at: now, accountLabel: "a", gain: gain, poolSize: size)
+    }
+    expect(share(100, 8).poolShareText == "12.5%", "B-2027 8-account pool, gain 100 -> 12.5%")
+    expect(share(24, 1).poolShareText == "24%", "B-2027 1-account pool, gain 24 -> 24%")
+    expect(share(50, 4).poolShareText == "12.5%", "B-2027 4-account pool, gain 50 -> 12.5%")
+    expect(share(100, 4).poolShareText == "25%", "B-2027 whole numbers drop the .0")
+    expect(share(0, 8).poolShareText == "0%", "B-2027 gain 0 -> 0%")
+    expect(share(100, 0).poolShare == 0 && share(100, 0).poolShareText == "0%",
+           "B-2027 pool capacity 0 does not divide by zero")
+    expect(share(.nan, 3).poolShareText == "0%" && share(.infinity, 1).poolShareText == "0%",
+           "B-2027 non-finite gain reads 0%")
+    expect(share(82.4, 1).poolShareText == "82.4%" && share(100, 8).gainText == "100%",
+           "B-2027 one decimal kept; gainText stays the account's own figure")
+    let eight = (1...8).map { account("c\($0)", metrics: [metric(.weeklyAll, used: 100, resetIn: 3_600 * Double($0))]) }
+    let pool = summarize(eight).first?.pools.first { $0.kind == .weeklyAll }
+    expect(pool?.refills.count == 8 && pool?.refills.allSatisfy { $0.poolSize == 8 } == true,
+           "B-2027 FleetMath stamps the member count on every refill")
+    expect(pool?.refills.first?.poolShareText == "12.5%", "B-2027 first refill of the 8-account pool is +12.5%")
+    let solo = FleetMath.summaries(accounts: [account("c1", metrics: [metric(.weeklyAll, used: 24, resetIn: 3_600)])],
+                                   now: now, minMembers: 1) { $0.accountLabel }
+    expect(solo.first?.pools.first?.refills.first?.poolSize == 1
+               && solo.first?.pools.first?.refills.first?.poolShareText == "24%",
+           "B-2027 a one-account pool refills as +24%")
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

@@ -328,7 +328,7 @@ extension PopoverRootView {
                 rows.append(TallyTooltipRow(
                     refill.accountLabel,
                     UsageFormat.countdownBody(refill.at, now: now) + " · " + UsageFormat.absoluteBody(refill.at)
-                        + " · +\(Int(refill.gain.rounded()))%",
+                        + " · +" + refill.poolShareText,
                     style: .sub))
             }
         }
@@ -345,7 +345,8 @@ extension PopoverRootView {
     ///
     /// A single-account provider has no pool at all (a pool of one is just that account), so its
     /// own binding window stands in - built as a one-member refill, which is exactly what the pool
-    /// math would have made of it: the window's reset instant, and the used percent as the gain.
+    /// math would have made of it: the window's reset instant, and the used percent as the gain
+    /// (a one-member pool, so the pool share is the gain).
     private func upcomingRefills(_ providerID: String, now: Date) -> [FleetPool.Refill] {
         let accounts = store.orderedAccounts.filter { $0.providerID == providerID }
         let summaries = FleetMath.summaries(accounts: accounts, now: now) { usage in
@@ -359,6 +360,6 @@ extension PopoverRootView {
               let at = window.resetsAt, at > now
         else { return [] }
         let label = settings.displayLabel(accountID: single.id, fallback: single.accountLabel)
-        return [FleetPool.Refill(at: at, accountLabel: label, gain: window.usedPercent)]
+        return [FleetPool.Refill(at: at, accountLabel: label, gain: window.usedPercent, poolSize: 1)]
     }
 }

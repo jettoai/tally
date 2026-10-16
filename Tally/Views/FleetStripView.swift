@@ -268,21 +268,33 @@ extension PopoverRootView {
                 // (which account, the date and time, and how long that is from now).
                 .tallyTooltip(String(localized: "next refill \(refill.accountLabel) at \(UsageFormat.absoluteBody(refill.at))",
                                      bundle: AppLocale.bundle)
-                    + " · " + refillText(refill, now: context.date))
+                    + " · " + refillHoverText(refill, now: context.date))
         }
     }
 
     /// Internal: the advisor tooltip lists the same refills in the same words, so the two surfaces
     /// can never phrase one schedule two ways.
-    /// Always says how much comes back: a bare "refill in 19h" read as the whole pool refilling,
-    /// right beside a "runs dry" forecast that already counts it (B-1544 r7).
+    /// Always says how much comes back, as a share of the whole pool ("refill +12.5% in 19h 42m"):
+    /// the row's bar, forecast and label are all pool-wide, and one account's own 100% read as
+    /// "the whole pool" (B-1544 r7, B-2027).
     func refillText(_ refill: FleetPool.Refill, now: Date, compact: Bool = false) -> String {
         let account = refill.accountLabel
         let body = UsageFormat.countdownBody(refill.at, now: now)
-        let gain = "\(Int(refill.gain.rounded()))%"
+        let share = refill.poolShareText
         return compact
-            ? String(localized: "refill +\(gain) in \(body)", bundle: AppLocale.bundle)
-            : String(localized: "next refill \(account) +\(gain) in \(body)", bundle: AppLocale.bundle)
+            ? String(localized: "refill +\(share) in \(body)", bundle: AppLocale.bundle)
+            : String(localized: "next refill \(account) +\(share) in \(body)", bundle: AppLocale.bundle)
+    }
+
+    /// The hover's refill reading: for a multi-account pool it also spells out the single
+    /// account's own gain next to the pool share; a one-account pool has one number, said once.
+    func refillHoverText(_ refill: FleetPool.Refill, now: Date) -> String {
+        guard refill.poolSize > 1 else { return refillText(refill, now: now) }
+        let account = refill.accountLabel
+        let body = UsageFormat.countdownBody(refill.at, now: now)
+        let own = refill.gainText, share = refill.poolShareText
+        return String(localized: "\(account)'s window resets in \(body), refilling \(own) of that account (pool +\(share))",
+                      bundle: AppLocale.bundle)
     }
 
     /// One continuous fill anchored like every meter (used grows left, remaining hugs right),

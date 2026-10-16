@@ -5073,6 +5073,7 @@
       }
     },
     "next refill %@ +%@ in %@": {
+      "comment": "The + figure is the share of the whole pool (one account's refill divided by the pool size).",
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
@@ -5131,6 +5132,7 @@
       }
     },
     "refill +%@ in %@": {
+      "comment": "The + figure is the share of the whole pool (one account's refill divided by the pool size).",
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
@@ -5155,6 +5157,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$@ 후 +%1$@ 충전"
+          }
+        }
+      }
+    },
+    "%@'s window resets in %@, refilling %@ of that account (pool +%@)": {
+      "comment": "Hover on a multi-account pool refill: the one account's own gain, then the pool share.",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的額度視窗 %2$@ 後重置，補回該帳號 %3$@（池子 +%4$@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的额度窗口 %2$@ 后重置，补回该账号 %3$@（池子 +%4$@）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のウィンドウが %2$@後にリセットされ、このアカウントの %3$@ を補充（プール +%4$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 창이 %2$@ 후 재설정되어 이 계정의 %3$@ 충전 (풀 +%4$@)"
           }
         }
       }

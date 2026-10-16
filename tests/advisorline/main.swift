@@ -409,20 +409,28 @@ check("T35c both plans dry: one tag, on the plan that runs dry first",
 check("T35c the row hands the gauge's dry date to the join",
       advisor.contains("dryAt: entry.dry"))
 
-// T36: the refill wording says how much comes back ("refill +82% in 19h 11m"); a bare "refill in
-// 19h" read as the whole pool refilling (B-1544 r7). The hover reuses it, so no second suffix.
-check("T36 refill text carries the gain",
-      fleet.contains("String(localized: \"refill +\\(gain) in \\(body)\"")
-          && fleet.contains("String(localized: \"next refill \\(account) +\\(gain) in \\(body)\"")
-          && fleet.contains("let gain = \"\\(Int(refill.gain.rounded()))%\""))
-check("T36 advisor hover does not append the gain twice", !advisor.contains("(+\\(Int(refill.gain"))
-for (key, gainArg, args) in [("refill +%@ in %@", 1, 2), ("next refill %@ +%@ in %@", 2, 3)] {
+// T36: the refill wording says how much comes back as a share of the WHOLE pool ("refill +12.5% in
+// 19h 42m"; B-1544 r7, B-2027): one account's own 100% read as the whole pool. The advisor hover
+// uses the same figure, and a multi-account pool's row hover also spells out the account's own gain.
+check("T36 refill text carries the pool share",
+      fleet.contains("String(localized: \"refill +\\(share) in \\(body)\"")
+          && fleet.contains("String(localized: \"next refill \\(account) +\\(share) in \\(body)\"")
+          && fleet.contains("let share = refill.poolShareText")
+          && !fleet.contains("Int(refill.gain.rounded())"))
+check("T36 advisor hover uses the same pool share, not the account gain",
+      advisor.contains("\" · +\" + refill.poolShareText") && !advisor.contains("Int(refill.gain.rounded())"))
+check("T36 the row hover goes through refillHoverText",
+      fleet.contains("refillHoverText(refill, now: context.date)")
+          && fleet.contains("func refillHoverText(") && fleet.contains("guard refill.poolSize > 1 else"))
+for (key, shareArg, args) in [("refill +%@ in %@", 1, 2), ("next refill %@ +%@ in %@", 2, 3),
+                              ("%@'s window resets in %@, refilling %@ of that account (pool +%@)", 4, 4)] {
     let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
     let complete = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
         let value = ((locs[lang] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
-        return value.contains("+%\(gainArg)$@") && (1...args).allSatisfy { value.contains("%\($0)$@") }
+        return value.contains("+%\(shareArg)$@") && (1...args).allSatisfy { value.contains("%\($0)$@") }
+            && !value.contains("\u{2014}") && value != key
     }
-    check("T36 \(key) translated with the gain", complete)
+    check("T36 \(key) translated with the pool share", complete)
 }
 check("T36 the gainless refill keys are gone",
       strings["refill in %@"] == nil && strings["next refill %@ in %@"] == nil)

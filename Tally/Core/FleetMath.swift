@@ -30,6 +30,20 @@ struct FleetPool: Hashable {
         var accountLabel: String
         /// Units the pool gains at `at` (the member's current used percent).
         var gain: Double
+        /// Accounts in the pool this refill belongs to (capacity = poolSize x 100 units).
+        var poolSize: Int
+
+        /// `gain` as a share of the whole pool's capacity, in percent (gain / (poolSize x 100) x 100).
+        var poolShare: Double { poolSize > 0 ? gain / Double(poolSize) : 0 }
+        var poolShareText: String { Self.percentText(poolShare) }
+        /// The one account's own gain ("100%"), for the hover that spells out both readings.
+        var gainText: String { Self.percentText(gain) }
+
+        /// One decimal, trailing ".0" dropped: 12.5%, 8%, 24%. Non-finite reads as 0%.
+        static func percentText(_ v: Double) -> String {
+            let r = ((v.isFinite ? v : 0) * 10).rounded() / 10
+            return r == r.rounded() ? "\(Int(r))%" : String(format: "%.1f%%", r)
+        }
     }
 
     var kind: MetricKind
@@ -267,7 +281,8 @@ enum FleetMath {
         let refills = entries
             .compactMap { account, metric in
                 metric.resetsAt.map {
-                    FleetPool.Refill(at: $0, accountLabel: label(account), gain: metric.usedPercent)
+                    FleetPool.Refill(at: $0, accountLabel: label(account), gain: metric.usedPercent,
+                                     poolSize: entries.count)
                 }
             }
             .filter { $0.at > now }

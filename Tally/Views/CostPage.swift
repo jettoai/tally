@@ -62,7 +62,7 @@ struct CostPage: View {
                 CostEmptyState()
             } else {
                 CostHeadline(cost: store.cost, range: store.range)
-                CostTableView(cost: store.cost, range: store.range)
+                CostTableView(cost: store.cost, range: store.range, width: width)
             }
         }
         .padding(12)
@@ -164,6 +164,8 @@ struct CostEmptyState: View {
 struct CostTableView: View {
     var cost: CostSummary
     var range: TokenStatsRange
+    /// The Cost page's width: the row width is this less the page and card padding.
+    var width: CGFloat
 
     /// One project's figures as drawn. Built once so the column widths are measured on exactly the
     /// strings the rows then show.
@@ -173,13 +175,13 @@ struct CostTableView: View {
         var change: (text: String, up: Bool?)?
     }
 
-    private struct Columns { var money, share, tokens, rate, change: CGFloat }
+    private struct Columns { var name, gap, money, share, tokens, rate, change: CGFloat }
 
-    private static let gap: CGFloat = 8
+    private static let minGap: CGFloat = 8
 
     var body: some View {
         let cells = cost.projects.map(cells(for:))
-        let columns = columns(for: cells)
+        let columns = columns(for: cells, names: cost.projects.map(\.name))
         VStack(alignment: .leading, spacing: 7) {
             row(name: Text(L("Project")), cost: Text(L("Cost")), share: Text(L("Share")),
                 tokens: Text(L("Tokens")), rate: Text(L("$/M tok")),
@@ -239,8 +241,10 @@ struct CostTableView: View {
 
     /// Each column is as wide as the widest string it will carry, header included, measured the way
     /// `FleetStripView.poolLabelColumnWidth` does: a translated header or a longer figure widens the
-    /// column instead of wrapping onto a second line. The name column takes what is left.
-    private func columns(for cells: [Cells]) -> Columns {
+    /// column instead of wrapping onto a second line. The name column is its longest name plus a
+    /// little room, kept between 30% and 45% of the row (longer names truncate in the middle); the
+    /// width that frees goes evenly into the gaps around the figures, not into the name.
+    private func columns(for cells: [Cells], names: [String]) -> Columns {
         let body = NSFont.preferredFont(forTextStyle: .footnote)
         let mono = NSFont.monospacedDigitSystemFont(ofSize: body.pointSize, weight: .regular)
         let bold = NSFont.monospacedDigitSystemFont(ofSize: body.pointSize, weight: .semibold)
@@ -251,18 +255,23 @@ struct CostTableView: View {
         func column(_ header: String, _ font: NSFont, _ values: [String]) -> CGFloat {
             max(width(head, [header]), width(font, values)) + 1
         }
-        return Columns(
-            money: column(L("Cost"), bold, cells.map(\.cost)),
-            share: column(L("Share"), mono, cells.map(\.share)),
-            tokens: column(L("Tokens"), mono, cells.map(\.tokens)),
-            rate: column(L("$/M tok"), mono, cells.map(\.rate)),
-            change: column(headerChange, mono, cells.compactMap(\.change?.text)))
+        let money = column(L("Cost"), bold, cells.map(\.cost))
+        let share = column(L("Share"), mono, cells.map(\.share))
+        let tokens = column(L("Tokens"), mono, cells.map(\.tokens))
+        let rate = column(L("$/M tok"), mono, cells.map(\.rate))
+        let change = column(headerChange, mono, cells.compactMap(\.change?.text))
+        let rowWidth = self.width - 24 - 2 * TallyMetrics.cardPaddingH
+        let figures = money + share + tokens + rate + change
+        let room = max(0, rowWidth - figures - 5 * Self.minGap)
+        let name = min(room, min(max(width(body, names + [L("Project")]) + 12, rowWidth * 0.3), rowWidth * 0.45))
+        return Columns(name: name, gap: max(Self.minGap, (rowWidth - name - figures) / 5),
+                       money: money, share: share, tokens: tokens, rate: rate, change: change)
     }
 
     private func row<Change: View>(name: Text, cost: Text, share: Text, tokens: Text, rate: Text,
                                    change: Change, columns: Columns) -> some View {
-        HStack(spacing: Self.gap) {
-            name.lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: columns.gap) {
+            name.lineLimit(1).truncationMode(.middle).frame(width: columns.name, alignment: .leading)
             cost.lineLimit(1).frame(width: columns.money, alignment: .trailing)
             share.lineLimit(1).frame(width: columns.share, alignment: .trailing)
             tokens.lineLimit(1).frame(width: columns.tokens, alignment: .trailing)

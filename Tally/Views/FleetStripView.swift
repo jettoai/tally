@@ -288,7 +288,7 @@ extension PopoverRootView {
 
     /// The hover's refill reading: for a multi-account pool it also spells out the single
     /// account's own gain next to the pool share; a one-account pool has one number, said once.
-    func refillHoverText(_ refill: FleetPool.Refill, now: Date) -> String {
+    private func refillHoverText(_ refill: FleetPool.Refill, now: Date) -> String {
         guard refill.poolSize > 1 else { return refillText(refill, now: now) }
         let account = refill.accountLabel
         let body = UsageFormat.countdownBody(refill.at, now: now)

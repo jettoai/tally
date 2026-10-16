@@ -74,7 +74,9 @@ final class OrphanReclaimStore {
         /// spellings of one checkout compare equal (`round`).
         var resolve: @Sendable (String) -> String
         var gitEntry: @Sendable (String) -> OrphanNotice.GitEntry?
-        var deliver: @Sendable (String, URL, String) -> URL?
+        /// Hands a message over and returns at once: the real one runs the harness's delivery port
+        /// on a background queue, so its result is not available here.
+        var deliver: @Sendable (OrphanNotice.Letter, URL, String) -> Void
         var home: URL
 
         static let real = Machine(
@@ -88,7 +90,12 @@ final class OrphanReclaimStore {
             signals: .real,
             resolve: { MachineLoadRollup.resolvedPath($0) },
             gitEntry: { OrphanNotice.gitEntry($0) },
-            deliver: { OrphanNotice.deliver($0, to: $1, named: $2) },
+            deliver: { letter, inbox, name in
+                let home = FileManager.default.homeDirectoryForCurrentUser
+                DispatchQueue.global(qos: .utility).async {
+                    OrphanNotice.send(letter, to: inbox, named: name, home: home)
+                }
+            },
             home: FileManager.default.homeDirectoryForCurrentUser)
     }
 
@@ -461,18 +468,18 @@ final class OrphanReclaimStore {
         }
     }
 
-    /// Write the message into the owning repository's inbox.
+    /// Send the message to the owning repository's inbox.
     private func deliver(_ report: OrphanNotice.Report, at now: Date) {
         guard !report.project.isEmpty,
               let repository = OrphanNotice.repository(of: report.project, entry: machine.gitEntry)
         else { return }
         let workspace = machine.home.appendingPathComponent("workspace").path
         let key = OrphanNotice.key(for: repository.root, workspace: workspace)
-        let text = OrphanNotice.message(report, to: key, worktree: repository.worktree, at: now)
-        _ = machine.deliver(text,
-                            OrphanNotice.inbox(key, home: machine.home),
-                            OrphanNotice.filename(at: now, pid: getpid(),
-                                                  random: UInt32.random(in: 0 ..< 100_000)))
+        let letter = OrphanNotice.letter(report, to: key, worktree: repository.worktree, at: now)
+        machine.deliver(letter,
+                        OrphanNotice.inbox(key, home: machine.home),
+                        OrphanNotice.filename(at: now, pid: getpid(),
+                                              random: UInt32.random(in: 0 ..< 100_000)))
     }
 
 }

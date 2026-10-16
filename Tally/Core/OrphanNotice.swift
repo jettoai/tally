@@ -213,17 +213,24 @@ enum OrphanNotice {
     /// obligation forever, which the contract's own note calls out as the common mistake.
     static func message(_ report: Report, to key: String, worktree: String?,
                         at instant: Date) -> String {
+        letter(report, to: key, worktree: worktree, at: instant).text
+    }
+
+    /// A MESSAGE IN THE TWO SHAPES IT TRAVELS IN: the whole file (`text`, envelope included, for the
+    /// direct write) and the parts the harness's delivery port wants (`title`, `body`), because it
+    /// builds the envelope itself.
+    struct Letter: Equatable, Sendable {
+        var key: String
+        var worktree: String?
+        var title: String
+        /// Everything under the envelope: the worktree note, the facts, what was done.
+        var body: String
+        var text: String
+    }
+
+    static func letter(_ report: Report, to key: String, worktree: String?,
+                       at instant: Date) -> Letter {
         var lines: [String] = []
-        lines.append("# \(headline(report))")
-        lines.append("")
-        lines.append("**from**: tally-app")
-        lines.append("**to**: \(key)")
-        lines.append("**ts**: \(iso(instant))")
-        lines.append("**type**: notify")
-        lines.append("**reply**: none")
-        lines.append("**thread**: orphan-reclaim")
-        lines.append("**hop**: 0")
-        lines.append("")
         if let worktree {
             lines.append("Worktree: `\(worktree)` (this message goes to the main repository's inbox"
                 + " because a parallel line's own inbox is read only while somebody is working in"
@@ -234,7 +241,18 @@ enum OrphanNotice {
         lines.append("")
         lines.append(contentsOf: closing(report))
         lines.append("")
-        return lines.joined(separator: "\n")
+        let content = lines.joined(separator: "\n")
+        let title = headline(report)
+        let envelope = ["# \(title)", "",
+                        "**from**: tally-app",
+                        "**to**: \(key)",
+                        "**ts**: \(iso(instant))",
+                        "**type**: notify",
+                        "**reply**: none",
+                        "**thread**: orphan-reclaim",
+                        "**hop**: 0", ""]
+        return Letter(key: key, worktree: worktree, title: title, body: content,
+                      text: envelope.joined(separator: "\n") + "\n" + content)
     }
 
     private static func headline(_ report: Report) -> String {
@@ -385,5 +403,59 @@ enum OrphanNotice {
             return nil
         }
         return destination
+    }
+
+    /// Where the harness's delivery port lives, under whichever home the caller means.
+    static func inboxSendScript(home: URL) -> URL {
+        home.appendingPathComponent(".claude/scripts/inbox-send")
+    }
+
+    /// DELIVER THROUGH THE HARNESS'S OWN PORT when this machine has one, and write the file directly
+    /// when it does not. The port holds the 30 minute dedupe, the recipient check and the envelope;
+    /// writing the maildir here instead bypassed all three and delivered one message eight times.
+    /// Blocking (a child process), so callers keep it off the main thread.
+    ///
+    /// - Returns: whether the message is in the inbox now (a duplicate counts: it is there already).
+    @discardableResult
+    static func send(_ letter: Letter, to inbox: URL, named filename: String, home: URL,
+                     timeout: TimeInterval = 5) -> Bool {
+        guard let status = runInboxSend(letter, home: home, timeout: timeout) else {
+            return deliver(letter.text, to: inbox, named: filename) != nil
+        }
+        // 0 = landed, 3 = the same message went in within 30 minutes. 2 (no such recipient) and
+        // anything else are dropped, not retried: a retry cannot make a missing inbox exist.
+        return status == 0 || status == 3
+    }
+
+    /// `inbox-send` as a child process: argv array, no shell, body through a temp file, stdin from
+    /// /dev/null, terminated after `timeout`. Nil when the script is missing or not executable
+    /// (a machine without the harness); -1 when it exists but could not be run.
+    private static func runInboxSend(_ letter: Letter, home: URL, timeout: TimeInterval) -> Int32? {
+        let script = inboxSendScript(home: home)
+        guard FileManager.default.isExecutableFile(atPath: script.path) else { return nil }
+        let bodyFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tally-orphan-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: bodyFile) }
+        guard (try? letter.body.write(to: bodyFile, atomically: true, encoding: .utf8)) != nil
+        else { return -1 }
+        var arguments = ["--to", letter.key, "--from", "tally-app", "--title", letter.title,
+                         "--body-file", bodyFile.path, "--type", "notify", "--reply", "none",
+                         "--thread", "orphan-reclaim"]
+        if letter.worktree != nil { arguments += ["--worktree-of", letter.key] }
+        let child = Process()
+        child.executableURL = script
+        child.arguments = arguments
+        child.environment = ProcessInfo.processInfo.environment.merging(["HOME": home.path]) { $1 }
+        child.standardInput = FileHandle.nullDevice
+        child.standardOutput = FileHandle.nullDevice
+        child.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        child.terminationHandler = { _ in finished.signal() }
+        guard (try? child.run()) != nil else { return -1 }
+        if finished.wait(timeout: .now() + timeout) == .timedOut {
+            child.terminate()
+            finished.wait()
+        }
+        return child.terminationStatus
     }
 }

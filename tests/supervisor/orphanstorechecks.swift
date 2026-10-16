@@ -102,10 +102,9 @@ final class FakeMachine {
                     gitEntries[path] ?? (path == gitRoot + "/.git" ? .directory : nil)
                 }
             },
-            deliver: { [self] text, inbox, name in
+            deliver: { [self] letter, inbox, name in
                 MainActor.assumeIsolated {
-                    delivered.append((text, inbox, name))
-                    return inbox.appendingPathComponent(name)
+                    delivered.append((letter.text, inbox, name))
                 }
             },
             home: home))

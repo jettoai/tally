@@ -795,6 +795,80 @@ private func runOrphanNoticeChecks() {
     check("…and nothing is left behind in the staging directory",
           (try? FileManager.default.contentsOfDirectory(atPath:
               inbox.appendingPathComponent(".tmp").path)) == [])
+
+    // MARK: delivering it through the harness's port
+
+    // A stand-in `inbox-send` in a sandbox home: it records its argv and the body it was handed,
+    // then exits with the code the test chose (or sleeps, for the timeout).
+    let sandbox = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("orphan-home-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: sandbox) }
+    let scripts = sandbox.appendingPathComponent(".claude/scripts")
+    try? FileManager.default.createDirectory(at: scripts, withIntermediateDirectories: true)
+    let record = sandbox.appendingPathComponent("record.txt")
+    let script = OrphanNotice.inboxSendScript(home: sandbox)
+    func install(exit code: Int, sleeping: Bool = false) {
+        let source = "#!/bin/sh\n"
+            + "for a in \"$@\"; do printf '%s\\n' \"$a\" >> '\(record.path)'; done\n"
+            + "while [ $# -gt 0 ]; do if [ \"$1\" = --body-file ]; then cat \"$2\" >> '\(record.path)';"
+            + " printf '%s\\n' \"$2\" > '\(sandbox.path)/bodyfile'; fi; shift; done\n"
+            + (sleeping ? "sleep 30\n" : "") + "exit \(code)\n"
+        try? source.write(to: script, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        try? FileManager.default.removeItem(at: record)
+    }
+    let letter = OrphanNotice.letter(report, to: "bigdata",
+                                     worktree: "/Users/x/workspace/bigdata/.worktrees/feat", at: at)
+    let missing = inbox.appendingPathComponent("missing")
+    check("with no port on the machine the message is written directly, as before",
+          OrphanNotice.send(letter, to: missing, named: name, home: sandbox)
+              && (try? String(contentsOf: missing.appendingPathComponent(name), encoding: .utf8))
+                  == letter.text)
+    install(exit: 0)
+    let direct = inbox.appendingPathComponent("direct")
+    check("with the port present it is handed over and nothing is written directly",
+          OrphanNotice.send(letter, to: direct, named: name, home: sandbox)
+              && !FileManager.default.fileExists(atPath: direct.path))
+    let seen = ((try? String(contentsOf: record, encoding: .utf8)) ?? "").split(separator: "\n")
+        .map(String.init)
+    func argument(_ flag: String) -> String? {
+        seen.firstIndex(of: flag).flatMap { seen.indices.contains($0 + 1) ? seen[$0 + 1] : nil }
+    }
+    check("…as an argv with the recipient, sender, title, no reply and the thread",
+          argument("--to") == "bigdata" && argument("--from") == "tally-app"
+              && argument("--title") == letter.title && argument("--type") == "notify"
+              && argument("--reply") == "none" && argument("--thread") == "orphan-reclaim"
+              && argument("--worktree-of") == "bigdata")
+    check("…with the body and none of the envelope lines the port writes itself",
+          seen.contains("- Program: `node` (pid 900, 4 processes)")
+              && !seen.contains(where: { $0.hasPrefix("**from**") || $0.hasPrefix("**hop**") }))
+    let bodyPath = ((try? String(contentsOf: sandbox.appendingPathComponent("bodyfile"),
+                                 encoding: .utf8)) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    check("…and the temp file it was given is gone afterwards",
+          !bodyPath.isEmpty && !FileManager.default.fileExists(atPath: bodyPath))
+    install(exit: 0)
+    var plainLetter = letter
+    plainLetter.worktree = nil
+    OrphanNotice.send(plainLetter, to: direct, named: name, home: sandbox)
+    check("a message from a repository's own checkout carries no worktree flag",
+          !((try? String(contentsOf: record, encoding: .utf8)) ?? "").contains("--worktree-of"))
+    install(exit: 3)
+    check("a duplicate (3) counts as delivered",
+          OrphanNotice.send(letter, to: direct, named: name, home: sandbox))
+    install(exit: 2)
+    check("a missing recipient (2) is dropped, with no direct write to make up for it",
+          !OrphanNotice.send(letter, to: direct, named: name, home: sandbox)
+              && !FileManager.default.fileExists(atPath: direct.path))
+    install(exit: 1)
+    check("any other failure is dropped as well",
+          !OrphanNotice.send(letter, to: direct, named: name, home: sandbox)
+              && !FileManager.default.fileExists(atPath: direct.path))
+    install(exit: 0, sleeping: true)
+    let started = Date()
+    check("a port that hangs is ended at the timeout and counted as not delivered",
+          !OrphanNotice.send(letter, to: direct, named: name, home: sandbox, timeout: 1)
+              && Date().timeIntervalSince(started) < 10)
 }
 
 /// A process table entry with a start time derived from its pid, so two fixtures of the same pid

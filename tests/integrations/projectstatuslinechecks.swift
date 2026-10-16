@@ -48,10 +48,25 @@ func runProjectStatusLineChecks() throws {
     check("a command that starts with Tally's is Tally's", found(deep) == nil)
     try fm.removeItem(at: deep.appendingPathComponent(".claude"))
 
+    // (a) shared settings.json is read from the session folder only: a parent's is never loaded.
     try write(repo, "settings.json", status("root-line"))
-    check("an ancestor up to the git root overrides",
-          found(deep) == repo.appendingPathComponent(".claude/settings.json").path)
+    check("a shared settings.json at the repo root is not read from a subfolder", found(deep) == nil)
+    check("…but it is read when the session starts at the root",
+          found(repo) == repo.appendingPathComponent(".claude/settings.json").path)
     try fm.removeItem(at: repo.appendingPathComponent(".claude"))
+
+    // (b) the local file lives at the repo root and outranks the cwd's shared file.
+    try write(deep, "settings.json", status(ours))
+    try write(repo, "settings.local.json", status("root-local"))
+    check("a root settings.local.json overrides a Tally settings.json in the subfolder",
+          found(deep) == repo.appendingPathComponent(".claude/settings.local.json").path)
+    try write(deep, "settings.local.json", status("legacy-local"))
+    check("the root's local file outranks a legacy one left in the subfolder",
+          found(deep) == repo.appendingPathComponent(".claude/settings.local.json").path)
+    try fm.removeItem(at: repo.appendingPathComponent(".claude"))
+    check("a legacy local file left in the subfolder is still read",
+          found(deep) == deep.appendingPathComponent(".claude/settings.local.json").path)
+    try fm.removeItem(at: deep.appendingPathComponent(".claude"))
 
     try write(root, "settings.json", status("above-root"))
     check("nothing above the git root is looked at", found(deep) == nil)
@@ -63,11 +78,28 @@ func runProjectStatusLineChecks() throws {
     try write(plain, "settings.json", status("own-line"))
     check("…and the cwd itself still counts", found(plain) == plain.appendingPathComponent(".claude/settings.json").path)
 
+    // (c) a worktree: the local file is the main checkout's root one.
+    let main = try dir("main", git: true)
+    let mainSub = try dir("main/sub")
+    try fm.createDirectory(at: main.appendingPathComponent(".git/worktrees/wt"), withIntermediateDirectories: true)
     let worktree = try dir("wt/sub")
-    try "gitdir: /elsewhere".write(to: root.appendingPathComponent("wt/.git"), atomically: true, encoding: .utf8)
+    try "gitdir: \(main.path)/.git/worktrees/wt\n".write(
+        to: root.appendingPathComponent("wt/.git"), atomically: true, encoding: .utf8)
+    check("a worktree with no settings anywhere is no override", found(worktree) == nil)
+    try write(main, "settings.local.json", status("main-local"))
+    check("a worktree reads the main checkout's root settings.local.json",
+          found(worktree) == main.appendingPathComponent(".claude/settings.local.json").path)
+    check("…and so does a subfolder of the main checkout",
+          found(mainSub) == main.appendingPathComponent(".claude/settings.local.json").path)
     try write(root.appendingPathComponent("wt"), "settings.json", status("wt-line"))
-    check("a .git FILE (worktree) is a root too",
-          found(worktree) == root.appendingPathComponent("wt/.claude/settings.json").path)
+    check("the worktree's own shared file is read only from the session folder", found(worktree) == main.appendingPathComponent(".claude/settings.local.json").path)
+    try fm.removeItem(at: main.appendingPathComponent(".claude"))
+    check("a worktree root's shared settings.json is not read from its subfolder", found(worktree) == nil)
+    try "gitdir: /elsewhere/modules/x".write(
+        to: root.appendingPathComponent("wt/.git"), atomically: true, encoding: .utf8)
+    try write(root.appendingPathComponent("wt"), "settings.local.json", status("sub-local"))
+    check("a .git file that is not a worktree (submodule) is its own root",
+          found(worktree) == root.appendingPathComponent("wt/.claude/settings.local.json").path)
 
     let homeDir = try dir("home", git: true)
     try write(homeDir, "settings.json", status("user-layer"))

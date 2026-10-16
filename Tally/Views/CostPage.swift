@@ -165,29 +165,36 @@ struct CostTableView: View {
     var cost: CostSummary
     var range: TokenStatsRange
 
-    private static let money: CGFloat = 64
-    private static let share: CGFloat = 38
-    private static let tokens: CGFloat = 52
-    private static let rate: CGFloat = 52
-    private static let change: CGFloat = 50
+    /// One project's figures as drawn. Built once so the column widths are measured on exactly the
+    /// strings the rows then show.
+    private struct Cells {
+        var cost: String, share: String, tokens: String, rate: String
+        /// nil: no figure (All, Other). `up` nil: the previous window is incomplete, a placeholder.
+        var change: (text: String, up: Bool?)?
+    }
+
+    private struct Columns { var money, share, tokens, rate, change: CGFloat }
+
+    private static let gap: CGFloat = 8
 
     var body: some View {
+        let cells = cost.projects.map(cells(for:))
+        let columns = columns(for: cells)
         VStack(alignment: .leading, spacing: 7) {
             row(name: Text(L("Project")), cost: Text(L("Cost")), share: Text(L("Share")),
                 tokens: Text(L("Tokens")), rate: Text(L("$/M tok")),
-                change: Text(range == .all ? "" : L("vs prev")))
+                change: Text(headerChange), columns: columns)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .tallyTooltip(L("$/M tok is the blended price per million tokens: high where a project runs on dearer models"))
             Divider()
-            ForEach(cost.projects) { p in
+            ForEach(Array(zip(cost.projects, cells)), id: \.0.id) { p, c in
                 row(name: Text(p.name).foregroundStyle(p.isOther ? Color.secondary.opacity(0.7) : .primary),
-                    cost: Text(CostFormat.dollars(p.cost)).fontWeight(.semibold),
-                    share: Text(UsageFormat.sharePercent(p.share)).foregroundStyle(.secondary),
-                    tokens: Text(UsageFormat.compactCount(p.tokens.total)).foregroundStyle(.secondary),
-                    rate: Text(p.tokens.total > 0 ? CostFormat.dollars(p.cost / Double(p.tokens.total) * 1e6) : "—")
-                        .foregroundStyle(.secondary),
-                    change: changeText(p))
+                    cost: Text(c.cost).fontWeight(.semibold),
+                    share: Text(c.share).foregroundStyle(.secondary),
+                    tokens: Text(c.tokens).foregroundStyle(.secondary),
+                    rate: Text(c.rate).foregroundStyle(.secondary),
+                    change: changeView(c.change), columns: columns)
                     .font(.footnote.monospacedDigit())
                     .tallyTooltip(p.isOther ? L("Scratch directories and sessions with no project") : p.key)
                     .accessibilityElement(children: .combine)
@@ -199,21 +206,68 @@ struct CostTableView: View {
         .tallyCard()
     }
 
-    private func changeText(_ p: CostSummary.ProjectRow) -> Text {
-        guard let label = CostFormat.change(p.cost, previous: p.previousCost) else { return Text("") }
-        let up = (p.previousCost ?? 0) < p.cost
-        return Text((up ? "▲ " : "▼ ") + label.trimmingCharacters(in: CharacterSet(charactersIn: "+-")))
-            .foregroundStyle(up ? TallyColor.warning : TallyColor.normal)
+    private var headerChange: String { range == .all ? "" : L("vs prev") }
+
+    private func cells(for p: CostSummary.ProjectRow) -> Cells {
+        Cells(cost: CostFormat.dollars(p.cost), share: UsageFormat.sharePercent(p.share),
+              tokens: UsageFormat.compactCount(p.tokens.total),
+              rate: p.tokens.total > 0 ? CostFormat.dollars(p.cost / Double(p.tokens.total) * 1e6) : "—",
+              change: changeFigure(p))
     }
 
-    private func row(name: Text, cost: Text, share: Text, tokens: Text, rate: Text, change: Text) -> some View {
-        HStack(spacing: 8) {
+    private func changeFigure(_ p: CostSummary.ProjectRow) -> (text: String, up: Bool?)? {
+        guard range != .all, p.previousCost != nil else { return nil }
+        // The previous window reaches back past what Claude Code still keeps: a percentage against
+        // its remnant (B-2039: "+65482%") says nothing about the project.
+        guard cost.previousWindowCovered else { return ("—", nil) }
+        guard let label = CostFormat.change(p.cost, previous: p.previousCost) else { return nil }
+        let up = (p.previousCost ?? 0) < p.cost
+        return ((up ? "▲ " : "▼ ") + label.trimmingCharacters(in: CharacterSet(charactersIn: "+-")), up)
+    }
+
+    @ViewBuilder
+    private func changeView(_ change: (text: String, up: Bool?)?) -> some View {
+        if let change, let up = change.up {
+            Text(change.text).foregroundStyle(up ? TallyColor.warning : TallyColor.normal)
+        } else if let change {
+            Text(change.text).foregroundStyle(.tertiary)
+                .tallyTooltip(L("Previous period data is incomplete (Claude Code only keeps the last 30 days of transcripts)"))
+        } else {
+            Text("")
+        }
+    }
+
+    /// Each column is as wide as the widest string it will carry, header included, measured the way
+    /// `FleetStripView.poolLabelColumnWidth` does: a translated header or a longer figure widens the
+    /// column instead of wrapping onto a second line. The name column takes what is left.
+    private func columns(for cells: [Cells]) -> Columns {
+        let body = NSFont.preferredFont(forTextStyle: .footnote)
+        let mono = NSFont.monospacedDigitSystemFont(ofSize: body.pointSize, weight: .regular)
+        let bold = NSFont.monospacedDigitSystemFont(ofSize: body.pointSize, weight: .semibold)
+        let head = NSFont.preferredFont(forTextStyle: .caption2)
+        func width(_ font: NSFont, _ strings: [String]) -> CGFloat {
+            ceil(strings.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0)
+        }
+        func column(_ header: String, _ font: NSFont, _ values: [String]) -> CGFloat {
+            max(width(head, [header]), width(font, values)) + 1
+        }
+        return Columns(
+            money: column(L("Cost"), bold, cells.map(\.cost)),
+            share: column(L("Share"), mono, cells.map(\.share)),
+            tokens: column(L("Tokens"), mono, cells.map(\.tokens)),
+            rate: column(L("$/M tok"), mono, cells.map(\.rate)),
+            change: column(headerChange, mono, cells.compactMap(\.change?.text)))
+    }
+
+    private func row<Change: View>(name: Text, cost: Text, share: Text, tokens: Text, rate: Text,
+                                   change: Change, columns: Columns) -> some View {
+        HStack(spacing: Self.gap) {
             name.lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
-            cost.frame(width: Self.money, alignment: .trailing)
-            share.frame(width: Self.share, alignment: .trailing)
-            tokens.frame(width: Self.tokens, alignment: .trailing)
-            rate.frame(width: Self.rate, alignment: .trailing)
-            change.frame(width: Self.change, alignment: .trailing)
+            cost.lineLimit(1).frame(width: columns.money, alignment: .trailing)
+            share.lineLimit(1).frame(width: columns.share, alignment: .trailing)
+            tokens.lineLimit(1).frame(width: columns.tokens, alignment: .trailing)
+            rate.lineLimit(1).frame(width: columns.rate, alignment: .trailing)
+            change.lineLimit(1).frame(width: columns.change, alignment: .trailing)
         }
     }
 }

@@ -10,6 +10,9 @@ struct CostSummary: Sendable {
     var unpricedTurns: Int64 = 0
     var providers: [ProviderRow] = []
     var projects: [ProjectRow] = []
+    /// False when the scan does not reach back to the start of the previous window (see
+    /// `CostChange.previousWindowCovered`): the table then shows no change figures at all.
+    var previousWindowCovered = true
 
     var total: Double { parts.total }
     var isEmpty: Bool { total <= 0 && !providers.contains { !$0.tokens.isEmpty } }
@@ -42,6 +45,7 @@ struct CostSummary: Sendable {
                      today: Int = LocalDayStamper.today()) -> CostSummary {
         let made = tokenStatsSummarizeCost(samples: samples.map(\.ffi), dayCount: range.dayCount.map(UInt32.init),
                                            today: Int64(today), providerOrder: ProviderCatalog.all.map(\.id))
+        let compared = made.projects.filter { $0.previousCost != nil }
         return CostSummary(
             parts: Parts(input: made.parts.input, cacheWrite: made.parts.cacheWrite,
                          cacheRead: made.parts.cacheRead, output: made.parts.output),
@@ -55,7 +59,14 @@ struct CostSummary: Sendable {
                            name: $0.isOther ? TokenProject.displayName(forKey: TokenProject.otherKey) : $0.name,
                            cost: $0.cost, share: $0.share, tokens: TokenTotals($0.tokens),
                            previousCost: $0.previousCost)
-            })
+            },
+            // Only Claude has a price list, so only its transcripts decide how far back the cost
+            // history goes (Codex sessions are kept longer and would hide the gap).
+            previousWindowCovered: CostChange.previousWindowCovered(
+                oldestDay: samples.lazy.filter { $0.providerID == "claude" }.map(\.day).min(),
+                today: today, dayCount: range.dayCount,
+                previous: compared.reduce(0) { $0 + ($1.previousCost ?? 0) },
+                current: compared.reduce(0) { $0 + $1.cost }))
     }
 }
 
@@ -66,7 +77,6 @@ enum CostFormat {
     static func change(_ cost: Double, previous: Double?) -> String? {
         guard let previous else { return nil }
         guard previous > 0.005 else { return cost > 0 ? L("New") : nil }
-        let percent = Int(((cost - previous) / previous * 100).rounded())
-        return percent >= 0 ? "+\(percent)%" : "\(percent)%"
+        return CostChange.percentLabel(Int(((cost - previous) / previous * 100).rounded()))
     }
 }

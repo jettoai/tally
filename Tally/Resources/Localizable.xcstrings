@@ -17363,6 +17363,35 @@
         }
       }
     },
+    "Previous period data is incomplete (Claude Code only keeps the last 30 days of transcripts)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前期資料不完整（Claude Code 只保留最近 30 天的對話紀錄）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前期数据不完整（Claude Code 只保留最近 30 天的对话记录）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の期間のデータが不完全です（Claude Code は直近 30 日分の会話記録しか保持しません）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 기간 데이터가 불완전합니다 (Claude Code는 최근 30일 대화 기록만 보관합니다)"
+          }
+        }
+      }
+    },
     "New": {
       "extractionState": "manual",
       "localizations": {

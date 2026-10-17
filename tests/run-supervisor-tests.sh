@@ -122,7 +122,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \
   tests/supervisor/sessionprojectchecks.swift \
   tests/supervisor/sessionsendverbchecks.swift \
-  tests/supervisor/sessionclearchecks.swift tests/supervisor/providerreopenchecks.swift tests/supervisor/codexhandoffchecks.swift TallyCLI/ProviderReopen.swift tests/supervisor/draftstashchecks.swift \
+  tests/supervisor/sessionclearchecks.swift tests/supervisor/providerreopenchecks.swift tests/supervisor/codexhandoffchecks.swift tests/supervisor/codexwallchecks.swift TallyCLI/CodexWall.swift TallyCLI/ProviderReopen.swift tests/supervisor/draftstashchecks.swift \
   tests/supervisor/quotaknockchecks.swift \
   tests/supervisor/dialoggatechecks.swift tests/supervisor/dialoggatereadingchecks.swift \
   tests/supervisor/knockchannelchecks.swift tests/supervisor/knockhookchecks.swift \

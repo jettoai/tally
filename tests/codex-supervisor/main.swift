@@ -416,6 +416,7 @@ do {
 check("malformed user hooks remain untouched", try Data(contentsOf: hooksURL) == Data("broken".utf8))
 
 try runHandoffChecks()
+try runWallChecks()
 
 print("Codex supervisor checks: \(failures) failures")
 exit(failures == 0 ? 0 : 1)

@@ -67,7 +67,13 @@ struct CodexSessionObserver {
     private(set) var effort: String?
     private(set) var hasTurnContext = false
     private(set) var lastUserTurnAt: Date?
+    /// Whether the newest turn ended with an error (`task_complete.error`, codex-rs 0.163
+    /// `TurnCompleteEvent`), so the person's last prompt got no answer. Only the fact is kept.
+    private(set) var lastTurnFailed = false
     private(set) var planType: String?
+    /// The newest quota reading this launch's rollout carries (`token_count.rate_limits`), whose
+    /// meaning is `codexRolloutWall`'s to say. Never set from a record older than the launch.
+    private(set) var rateReading: CodexRateReading?
     private(set) var lastInputReceiptAt: Date?
     private(set) var inputReceiptsAvailable = false
     private(set) var inputCaughtUp = false
@@ -241,7 +247,9 @@ struct CodexSessionObserver {
         } else if event == "token_count" {
             // The plan the server billed this launch's turns to (pro, team...). A plan, not an
             // account, so it corroborates a hand-off but never decides which account a window is on.
-            planType = (payload["rate_limits"] as? [String: Any])?["plan_type"] as? String ?? planType
+            let limits = payload["rate_limits"] as? [String: Any]
+            planType = limits?["plan_type"] as? String ?? planType
+            rateReading = limits.flatMap { CodexRateReading(limits: $0, at: date) } ?? rateReading
         }
         guard ["task_started", "task_complete", "turn_aborted"].contains(event) else { return }
         guard let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil else {
@@ -252,6 +260,7 @@ struct CodexSessionObserver {
            question.turnID == nil || question.turnID == turn {
             clearPendingQuestion(reason: "turn-ended")
         }
+        lastTurnFailed = event == "task_complete" && payload["error"] is [String: Any]
         if event == "task_started" {
             lastUserTurnAt = max(lastUserTurnAt ?? date, date)
             terminalTurns.remove(turn)
@@ -371,6 +380,51 @@ private struct CodexOpaqueRecordHeader {
         return nil
     }
 }
+
+/// One `rate_limits` record, reduced to its tightest window. Codex 0.162/0.163 report a single weekly
+/// window (`primary`, `secondary` null); a second window is read the same way when one appears.
+/// `reachedType` is the server's own "limit reached" word (never seen non-null in 20,687 recorded
+/// readings, 2026-10-18), so any value there counts as a wall.
+struct CodexRateReading: Equatable {
+    var usedPercent: Double
+    var resetsAt: Date?
+    var reachedType: String?
+    var at: Date
+
+    /// nil when the record names no usable window and no reached type: a malformed record updates
+    /// nothing rather than clearing or raising a wall.
+    init?(limits: [String: Any], at: Date) {
+        let windows = ["primary", "secondary"].compactMap { key -> (Double, Date?)? in
+            guard let window = limits[key] as? [String: Any],
+                  let used = (window["used_percent"] as? NSNumber)?.doubleValue else { return nil }
+            return (used, (window["resets_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) })
+        }
+        let reached = (limits["rate_limit_reached_type"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard let tightest = windows.max(by: { $0.0 < $1.0 }) ?? (reached == nil ? nil : (0, nil)) else { return nil }
+        usedPercent = tightest.0
+        resetsAt = tightest.1
+        reachedType = reached
+        self.at = at
+    }
+}
+
+/// Whether the newest reading says the account's quota is gone right now. Codex finishes the turn
+/// that crosses 100% and refuses the NEXT request, so this is true at the turn boundary a hand-off
+/// waits for. Gone means a window at 100% whose reset is still ahead (a reading past its reset
+/// describes a window that has refilled), or the server naming a reached limit.
+func codexRolloutWall(_ reading: CodexRateReading?, now: Date) -> Bool {
+    guard let reading else { return false }
+    if reading.reachedType != nil { return true }
+    return reading.usedPercent >= codexWallPercent && (reading.resetsAt.map { $0 > now } ?? false)
+}
+
+#if DEBUG
+/// A development build can lower the line to rehearse a move on a live window (the way
+/// `-TallyDemoData` is a development-only switch); a release build has 100 and no switch.
+private let codexWallPercent = Double(ProcessInfo.processInfo.environment["TALLY_DEV_CODEX_WALL_PERCENT"] ?? "") ?? 100
+#else
+private let codexWallPercent = 100.0
+#endif
 
 func codexEventDate(_ value: String) -> Date? {
     let parser = ISO8601DateFormatter()

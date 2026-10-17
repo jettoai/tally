@@ -40,6 +40,21 @@ struct CodexHandoffPlan: Equatable {
     var directory: String
     var targetHome: String
     var spendReserve: Bool
+    /// Set only for a move the supervisor started itself on a usage wall (CodexWall.swift); a plan
+    /// from `tally account` leaves it nil, and the one kill-and-exec path treats both alike.
+    var wall: CodexWallMove? = nil
+}
+
+/// Who the supervisor moved on its own, and what told it to: the words the terminal line and the
+/// audit line are written from. `source` is `rollout` or `snapshot`.
+struct CodexWallMove: Equatable {
+    var source: String
+    var fromID: String
+    var toID: String
+    var fromName: String
+    var toName: String
+    /// Typed into the new window if the turn the wall cut short had no answer (CodexWall.swift).
+    var resumeLine: String? = nil
 }
 
 /// The conversation a hand-off would carry, or why it cannot.
@@ -62,6 +77,16 @@ func codexHandoffArgv(targetHome: String, threadID: String, spendReserve: Bool) 
         + ["resume", threadID, "-c", codexHandoffResumeCwdOverride]
 }
 
+private func codexResolvedSub(_ home: String, _ sub: String) -> String {
+    URL(fileURLWithPath: home).appendingPathComponent(sub).resolvingSymlinksInPath().standardizedFileURL.path
+}
+
+/// Whether a conversation of `sourceHome` can be resumed from `targetHome`: both homes resolve to
+/// one sessions directory. One rule for the refusal above and for choosing a target to ask first.
+func codexSharesHistory(sourceHome: String, targetHome: String) -> Bool {
+    codexResolvedSub(targetHome, "sessions") == codexResolvedSub(sourceHome, "sessions")
+}
+
 /// The conversation this supervisor's window holds, as its own session hook reported it, or why a
 /// hand-off cannot carry it. Nothing is guessed from a file name or a "latest session" scan.
 func codexHandoffSource(pid: String, targetHome: String, fallbackDirectory: String?,
@@ -77,13 +102,10 @@ func codexHandoffSource(pid: String, targetHome: String, fallbackDirectory: Stri
           transcript.lastPathComponent.lowercased().hasSuffix("-" + binding.sessionID.lowercased() + ".jsonl") else {
         return .refused("this window's conversation file is not where Codex keeps its sessions")
     }
-    func resolved(_ home: String, _ sub: String) -> String {
-        URL(fileURLWithPath: home).appendingPathComponent(sub).resolvingSymlinksInPath().standardizedFileURL.path
-    }
-    guard resolved(targetHome, "sessions") == resolved(sourceHome, "sessions") else {
+    guard codexSharesHistory(sourceHome: sourceHome, targetHome: targetHome) else {
         return .refused("the target account does not share this conversation's history")
     }
-    guard !transcript.path.hasPrefix(resolved(sourceHome, "archived_sessions") + "/") else {
+    guard !transcript.path.hasPrefix(codexResolvedSub(sourceHome, "archived_sessions") + "/") else {
         return .refused("this conversation is archived, and resuming an archived one is not supported")
     }
     var isDirectory: ObjCBool = false

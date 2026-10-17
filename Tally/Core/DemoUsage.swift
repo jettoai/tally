@@ -22,6 +22,11 @@ enum DemoUsage {
     /// "Reset passed" line instead of a spent window. A modifier, off by default like the one above.
     static var showsPastReset: Bool { UserDefaults.standard.bool(forKey: "TallyDemoPastReset") }
 
+    /// `-TallyDemoColorLevels YES` (with `-TallyDemoData`): only four Claude fixtures, their weekly
+    /// windows at 15, 40, 70 and 100% left, so one capture shows every colour a menu bar ring and a
+    /// panel bar can wear side by side. A modifier, off by default like the ones above.
+    static var showsColorLevels: Bool { UserDefaults.standard.bool(forKey: "TallyDemoColorLevels") }
+
     /// `-TallyDemoRenewingLogin <account id>` (with `-TallyDemoData`): that fixture reads as having
     /// a login renewal running, so a capture can show the "Browser sign-in…" state on a card or row.
     static var renewingLoginPreview: Set<String> {
@@ -171,6 +176,22 @@ enum DemoUsage {
                   expiresInHours: [220, nil], now: now),
         ]
         var result = fixtures + manyAccountsExtras(now: now)
+        if showsColorLevels {
+            // The weekly windows are every kind the strip or the panel might read for the account.
+            let remaining = ["Claude": 15.0, "Claude 2": 40, "Claude 3": 70, "Claude 4": 100]
+            result = result.compactMap { usage in
+                guard let left = remaining[usage.accountLabel], usage.providerID == "claude" else { return nil }
+                var leveled = usage
+                leveled.metrics = usage.metrics.map { metric in
+                    guard metric.kind != .session else { return metric }
+                    var weekly = metric
+                    weekly.usedPercent = 100 - left
+                    weekly.severity = .fromUsedPercent(100 - left)
+                    return weekly
+                }
+                return leveled
+            }
+        }
         if showsPastReset {
             result = result.map { usage in
                 guard usage.id == "claude:demo-Claude 4" else { return usage }

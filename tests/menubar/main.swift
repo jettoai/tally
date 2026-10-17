@@ -12,10 +12,10 @@ func expect(_ condition: Bool, _ name: String) {
 let now = Date(timeIntervalSince1970: 1_800_000_000)
 
 func metric(_ kind: MetricKind, used: Double, label: String? = nil, model: String? = nil,
-            resetIn: TimeInterval? = nil) -> UsageMetric {
+            resetIn: TimeInterval? = nil, severity: MetricSeverity? = nil) -> UsageMetric {
     let name = label ?? (kind == .session ? "Session" : kind == .weeklyAll ? "Weekly" : (model ?? "Model"))
     return UsageMetric(id: "\(kind.rawValue):\(name)", kind: kind, label: name, modelName: model,
-                       usedPercent: used, severity: .normal,
+                       usedPercent: used, severity: severity ?? .fromUsedPercent(used),
                        resetsAt: resetIn.map { now.addingTimeInterval($0) }, isActive: false)
 }
 

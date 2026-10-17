@@ -3,25 +3,24 @@ import SwiftUI
 
 /// The menu-bar strip, drawn as a single SwiftUI view rendered to an `NSImage`: one ring per pool
 /// with the provider's mark inside, the arc as long as the share of the WEEK that is left, and no
-/// text at all (B-2045). Ink only, so a light or dark menu bar tints the template image; a pool
-/// below `PoolRing.lowBelow` turns red as a whole (see `MenuBarStripRenderer` for how). What each
-/// ring stands for - one account or one provider's pool - is decided in `MenuBarSegments`, and what
-/// it shows (length, red, faded, dashed) in `PoolRing`.
+/// text at all (B-2045). Each ring and its mark wear the colour of the panel bar for the same
+/// window (`MetricSeverity.color`: green from 50% left, amber from 20%, red below); the waiting dot
+/// and the DEV tag are ink, which `MenuBarStripRenderer` picks for the bar's scheme. What each ring
+/// stands for - one account or one provider's pool - is decided in `MenuBarSegments`, and what it
+/// shows (length, colour, faded, dashed) in `PoolRing`.
 private struct MenuBarStripView: View {
     let segments: [MenuBarSegment]
-    /// A session is waiting on the user: one solid dot after the rings, in the same ink as them.
+    /// A session is waiting on the user: one solid dot after the rings, in ink.
     var waiting = false
-    /// Snapshot rendering overrides: the README shot drops the DEV tag and draws white-on-dark
-    /// directly instead of the template mask AppKit tints.
+    /// Snapshot rendering override: the README shot drops the DEV tag.
     var devTag: Bool = BuildVariant.isDev
-    var ink: Color = .black   // template mask (black) - the actual tint is applied by AppKit
-    var red: Color = .red
+    /// The bar's ink for this scheme; also the colour of a ring with no severity to show.
+    var ink: Color = .black
 
     var body: some View {
         HStack(spacing: 0) {
-            // The dev variant announces itself right in the strip (template image is monochrome,
-            // so a text tag, not a colour) - two otherwise identical icons side by side must be
-            // tellable at a glance.
+            // The dev variant announces itself right in the strip - two otherwise identical icons
+            // side by side must be tellable at a glance.
             if devTag {
                 Text("DEV")
                     .font(.system(size: 8, weight: .heavy))
@@ -51,7 +50,7 @@ private struct MenuBarStripView: View {
 
     private func ringUnit(_ segment: MenuBarSegment) -> some View {
         let ring = PoolRing(segment)
-        let color = ring.isLow ? red : ink
+        let color = ring.severity == .unknown ? ink : ring.severity.color
         return ZStack {
             if let fraction = ring.fraction {
                 Circle().strokeBorder(color, lineWidth: 2).opacity(0.28)
@@ -87,20 +86,15 @@ enum MenuBarStripRenderer {
     @MainActor private static var lastSignature: String?
     @MainActor private static var lastImage: NSImage?
 
-    /// The ink and the red a menu bar of each scheme gets. Fixed values rather than dynamic colours:
-    /// the renderer draws each scheme once, and the image picks between the two at draw time.
-    private static func palette(_ scheme: ColorScheme) -> (ink: Color, red: Color) {
-        scheme == .dark
-            ? (.white, Color(red: 1, green: 0.27, blue: 0.23))
-            : (.black, Color(red: 1, green: 0.23, blue: 0.19))
-    }
+    /// The ink a menu bar of each scheme gets. A fixed colour rather than a dynamic one: the
+    /// renderer draws each scheme once, and the image picks between the two at draw time.
+    private static func ink(_ scheme: ColorScheme) -> Color { scheme == .dark ? .white : .black }
 
     @MainActor
     private static func render(_ segments: [MenuBarSegment], waiting: Bool,
                                scheme: ColorScheme) -> CGImage? {
-        let colors = palette(scheme)
         let renderer = ImageRenderer(content: MenuBarStripView(
-            segments: segments, waiting: waiting, ink: colors.ink, red: colors.red))
+            segments: segments, waiting: waiting, ink: ink(scheme)))
         renderer.scale = 2
         return renderer.cgImage
     }
@@ -108,36 +102,27 @@ enum MenuBarStripRenderer {
     /// Renders the segments for the status item, memoized on content so an unchanged strip isn't
     /// re-rendered on every poll tick.
     ///
-    /// A TEMPLATE image (one ink, AppKit tints it for a light or dark bar and inverts it while the
-    /// item is pressed) whenever every ring is ink, which is nearly always. A red pool cannot be a
-    /// template, so then and only then the strip is drawn twice, once per scheme in its own ink,
-    /// into a non-template image that picks one at draw time from the appearance it is drawn into.
-    /// Chosen over one non-template image for everything because it keeps the tint and the pressed
-    /// look for the usual case, and over a separate red layer because a status button holds one image.
+    /// A NON-template image, because the rings are coloured. The strip is drawn twice, once per
+    /// scheme in its own ink, and the image picks one at draw time from the appearance it is drawn
+    /// into, so the white or black parts follow a light or dark bar (and the per-button pin of
+    /// `-TallyMenuBarAppearance`) while green, amber and red stay as they are. Chosen over a template
+    /// image because a template has no colours of its own, and over one fixed-ink image because the
+    /// bar's scheme changes under the app; what it gives up is the press inversion a template gets.
     @MainActor
     static func stripImage(_ segments: [MenuBarSegment], waiting: Bool = false) -> NSImage? {
         let signature = (waiting ? "!" : "") + segments.map {
             let ring = PoolRing($0)
-            return "\($0.providerID):\(ring.fraction ?? -1):\(ring.isLow):\(ring.isFaded)"
+            return "\($0.providerID):\(ring.fraction ?? -1):\(ring.severity.rawValue):\(ring.isFaded)"
         }.joined(separator: "|")
         if signature == lastSignature, let image = lastImage { return image }
 
-        let image: NSImage
-        if segments.contains(where: { PoolRing($0).isLow }) {
-            guard let dark = render(segments, waiting: waiting, scheme: .dark),
-                  let light = render(segments, waiting: waiting, scheme: .light) else { return nil }
-            let size = NSSize(width: CGFloat(dark.width) / 2, height: CGFloat(dark.height) / 2)
-            image = NSImage(size: size, flipped: false) { rect in
-                let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                NSImage(cgImage: isDark ? dark : light, size: size).draw(in: rect)
-                return true
-            }
-        } else {
-            guard let cgImage = render(segments, waiting: waiting, scheme: .light) else { return nil }
-            image = NSImage(
-                cgImage: cgImage,
-                size: NSSize(width: CGFloat(cgImage.width) / 2, height: CGFloat(cgImage.height) / 2))
-            image.isTemplate = true
+        guard let dark = render(segments, waiting: waiting, scheme: .dark),
+              let light = render(segments, waiting: waiting, scheme: .light) else { return nil }
+        let size = NSSize(width: CGFloat(dark.width) / 2, height: CGFloat(dark.height) / 2)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            NSImage(cgImage: isDark ? dark : light, size: size).draw(in: rect)
+            return true
         }
 
         lastSignature = signature
@@ -151,10 +136,8 @@ enum MenuBarStripRenderer {
     /// same data, deterministic. Fired from `-TallyStripSnapshot <path>` in demo mode only.
     @MainActor
     static func writeSnapshot(_ segments: [MenuBarSegment], to path: String, waiting: Bool = false) {
-        let colors = palette(.dark)
         let renderer = ImageRenderer(content:
-            MenuBarStripView(segments: segments, waiting: waiting, devTag: false,
-                             ink: colors.ink, red: colors.red)
+            MenuBarStripView(segments: segments, waiting: waiting, devTag: false, ink: ink(.dark))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color(red: 0.11, green: 0.11, blue: 0.12)))

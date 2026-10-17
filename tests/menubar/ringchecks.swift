@@ -12,25 +12,48 @@ func poolRingChecks() {
         PoolRing(one(used, mode: mode, stale: stale))
     }
 
-    // Normal, red below 20 only, 20 itself ink, 0 red with an empty arc.
-    expect(ring(40) == PoolRing(fraction: 0.6, isLow: false, isFaded: false), "plenty left: ink, arc = remaining")
-    expect(ring(81).isLow && ring(81).fraction == 0.19, "19% left is red")
-    expect(!ring(80).isLow && ring(80).fraction == 0.2, "exactly 20% left stays ink (red is below 20)")
-    expect(ring(100).isLow && ring(100).fraction == 0, "0% left is red with nothing but the track")
+    // Colour: the panel bar's own ramp, green from 50% left, amber from 20%, red below. 50 and 20
+    // themselves sit on the calmer side; 0% is red with an empty arc.
+    func ringOf(_ left: Double) -> PoolRing { ring(100 - left) }
+    expect(ring(40) == PoolRing(fraction: 0.6, severity: .normal, isFaded: false),
+           "plenty left: green, arc = remaining")
+    expect(ringOf(100).severity == .normal && ringOf(100).fraction == 1, "full: green, closed ring")
+    expect(ringOf(70).severity == .normal, "70% left: green")
+    expect(ringOf(50).severity == .normal && ringOf(49).severity == .warning,
+           "exactly 50% left stays green, 49% is amber")
+    expect(ringOf(40).severity == .warning && ringOf(40).fraction == 0.4, "40% left: amber")
+    expect(ringOf(20).severity == .warning && ringOf(19).severity == .critical,
+           "exactly 20% left stays amber, 19% is red")
+    expect(ringOf(15).severity == .critical && ringOf(15).fraction == 0.15, "15% left: red")
+    expect(ringOf(0).severity == .critical && ringOf(0).fraction == 0, "0% left is red with nothing but the track")
     expect(ring(120).fraction == 0, "a pool reported over 100% used clamps to an empty arc")
 
-    // Used mode: the ring is still drawn as what is LEFT, and so is the red test.
+    // The ring wears what the bar wears: the metric's own severity, the provider's word over a threshold.
+    for left in [100.0, 70, 50, 49, 40, 20, 19, 15, 0] {
+        let m = metric(.weeklyAll, used: 100 - left)
+        expect(PoolRing(perAccount([account("p", metrics: [m])], focus: weeklyFocus)[0]).severity == m.severity,
+               "ring severity is the bar's (metric.severity) at \(Int(left))% left")
+    }
+    let told = metric(.weeklyAll, used: 30, severity: .critical)
+    expect(PoolRing(perAccount([account("t", metrics: [told])], focus: weeklyFocus)[0]).severity == .critical,
+           "a severity the provider reported wins over the local threshold, as on the bar")
+    expect(PoolRing(perAccount([account("u", metrics: [metric(.weeklyAll, used: 30, severity: .unknown)])],
+                               focus: weeklyFocus)[0]).severity == .unknown,
+           "no severity to show leaves the ring ink")
+
+    // Used mode: the ring is still drawn as what is LEFT, and so is the colour.
     expect(one(40, mode: .used).lines == ["40%"] && one(40, mode: .used).remaining == 60
            && ring(40, mode: .used) == ring(40), "Used mode: the line prints 40% used, the ring is still 60% long")
-    expect(ring(85, mode: .used).isLow && !ring(70, mode: .used).isLow, "Used mode: red follows what is left")
+    expect(ring(85, mode: .used).severity == .critical && ring(70, mode: .used).severity == .warning
+           && ring(30, mode: .used).severity == .normal, "Used mode: colour follows what is left")
 
-    // Stale: last known length, faded; low stays red.
-    expect(ring(40, stale: true) == PoolRing(fraction: 0.6, isLow: false, isFaded: true),
-           "stale: last-known arc at 40% opacity")
-    expect(ring(90, stale: true).isLow && ring(90, stale: true).isFaded, "stale and low: red and faded")
+    // Stale: last known length and colour, faded.
+    expect(ring(40, stale: true) == PoolRing(fraction: 0.6, severity: .normal, isFaded: true),
+           "stale: last-known arc and colour at 40% opacity")
+    expect(ring(90, stale: true).severity == .critical && ring(90, stale: true).isFaded, "stale and low: red and faded")
 
-    // Offline / unreadable: dashed empty ring, no length, never red.
-    let offline = PoolRing(fraction: nil, isLow: false, isFaded: true)
+    // Offline / unreadable: dashed empty ring, no length, no colour.
+    let offline = PoolRing(fraction: nil, severity: .unknown, isFaded: true)
     let failed = account("e", metrics: [], error: "boom")
     expect(perAccount([failed])[0].remaining == nil && PoolRing(perAccount([failed])[0]) == offline,
            "per-account error: dashed ring")
@@ -42,17 +65,20 @@ func poolRingChecks() {
     heldPassed.lastRefreshFailed = true
     expect(PoolRing(MenuBarSegments.perAccount([heldPassed], mode: .remaining, focusedModel: weeklyFocus,
                                                now: now)[0]) == offline,
-           "a held-over window past its reset is unknown, not the old arc")
+           "a held-over window past its reset is unknown, not the old arc or colour")
 
-    // Pooled layout: the ring reads the pool's average, in either mode.
+    // Pooled layout: the ring reads the pool's average, in either mode, coloured as the fleet gauge's bar.
     let pair = [account("a", metrics: [metric(.weeklyAll, used: 70)]),
                 account("b", metrics: [metric(.weeklyAll, used: 90)])]
     expect(pooled(pair)[0].remaining == 20 && pooled(pair, mode: .used)[0].remaining == 20
-           && !PoolRing(pooled(pair)[0]).isLow, "pooled: average of 30 and 10 left is 20, ink")
+           && PoolRing(pooled(pair)[0]).severity == .warning, "pooled: average of 30 and 10 left is 20, amber")
     let low = [account("a", metrics: [metric(.weeklyAll, used: 80)]),
                account("b", metrics: [metric(.weeklyAll, used: 90)])]
-    expect(PoolRing(pooled(low)[0]).isLow && PoolRing(pooled(low, mode: .used)[0]).isLow,
+    expect(PoolRing(pooled(low)[0]).severity == .critical && PoolRing(pooled(low, mode: .used)[0]).severity == .critical,
            "pooled: 15% left is red in both modes")
+    let rich = [account("a", metrics: [metric(.weeklyAll, used: 20)]),
+                account("b", metrics: [metric(.weeklyAll, used: 40)])]
+    expect(PoolRing(pooled(rich)[0]).severity == .normal, "pooled: 70% left on average is green")
     expect(PoolRing(pooled(pair + [account("s", metrics: [metric(.weeklyAll, used: 10)],
                                            error: "boom", stale: true)])[0]).isFaded,
            "pooled: a stale member fades the pool")

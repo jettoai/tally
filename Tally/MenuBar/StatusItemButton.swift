@@ -9,16 +9,9 @@ extension StatusItemController {
     /// The glyph shown when there is no strip to draw, first of these the running system has.
     private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
 
-    /// THE ONE MARK THAT IS NOT A NUMBER: a red dot beside the strip while any supervised session
-    /// is waiting on the user.
-    ///
-    /// DRAWN AS THE BUTTON'S TITLE RATHER THAN INTO THE IMAGE, and that is the whole design. The
-    /// strip is a TEMPLATE image, which is what lets AppKit tint it for a light or dark menu bar
-    /// and invert it while the item is pressed; a template image has no colours of its own, so a
-    /// red dot composited into it would come out the same grey as everything else, and turning the
-    /// template off to keep the red would cost the tint and the press inversion for the whole
-    /// strip. The title is a separate, coloured layer on the same button, so the numbers keep
-    /// behaving exactly as they always have and the dot is really red.
+    /// The red dot beside the FALLBACK GLYPH while any supervised session is waiting on the user.
+    /// The glyph is a TEMPLATE image (no colours of its own), so the dot is the button's coloured
+    /// title. With a strip the waiting dot is drawn into the strip itself, in ink.
     private static var blockedDot: NSAttributedString {
         NSAttributedString(string: "●", attributes: [
             .foregroundColor: NSColor.systemRed,
@@ -30,11 +23,15 @@ extension StatusItemController {
     }
 
     /// `-TallyDemoRingStates` (demo only): the four things a ring can be, left to right: plenty
-    /// left, under 20% left (red), a stale last-known figure (faded), nothing readable (dashed).
+    /// left (green), under 20% left (red), a stale last-known figure (amber, faded), nothing
+    /// readable (dashed).
     private static let demoRingStates = [
-        MenuBarSegment(providerID: "claude", lines: ["74%"], dimmed: false, badge: nil, remaining: 74),
-        MenuBarSegment(providerID: "claude", lines: ["12%"], dimmed: false, badge: nil, remaining: 12),
-        MenuBarSegment(providerID: "codex", lines: ["48%"], dimmed: true, badge: nil, remaining: 48),
+        MenuBarSegment(providerID: "claude", lines: ["74%"], dimmed: false, badge: nil, remaining: 74,
+                       severity: .normal),
+        MenuBarSegment(providerID: "claude", lines: ["12%"], dimmed: false, badge: nil, remaining: 12,
+                       severity: .critical),
+        MenuBarSegment(providerID: "codex", lines: ["48%"], dimmed: true, badge: nil, remaining: 48,
+                       severity: .warning),
         MenuBarSegment(providerID: "codex", lines: ["!"], dimmed: false, badge: nil),
     ]
 

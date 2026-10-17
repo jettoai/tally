@@ -23,6 +23,10 @@ struct MenuBarSegment: Sendable, Equatable {
     /// toggle says: the ring is always drawn as what is left (`PoolRing`). nil when there is no
     /// figure to draw (the error, no-data and held-over placeholders).
     var remaining: Int? = nil
+    /// How that same window reads on the panel's bar, so the ring wears the bar's colour: the
+    /// metric's own severity per account, the pool average's under the pooled layout. `.unknown`
+    /// when there is no figure.
+    var severity: MetricSeverity = .unknown
 }
 
 /// One pooled segment's inputs: a provider's accounts (or one plan's slice of them) and the pool
@@ -107,12 +111,12 @@ enum MenuBarSegments {
                 account.resetPassed($0, now: now)
                     ? "?" : percent(used: $0.usedPercent, remaining: $0.remainingPercent, mode: mode)
             }
-            let remaining = drawn.last.flatMap { metric in
-                account.resetPassed(metric, now: now) ? nil : wholePercent(metric.remainingPercent)
-            }
+            let weekly = drawn.last.flatMap { account.resetPassed($0, now: now) ? nil : $0 }
             return MenuBarSegment(providerID: account.providerID,
                                   lines: lines.isEmpty ? ["—"] : lines,
-                                  dimmed: account.isStale, badge: badge, remaining: remaining)
+                                  dimmed: account.isStale, badge: badge,
+                                  remaining: weekly.map { wholePercent($0.remainingPercent) },
+                                  severity: weekly?.severity ?? .unknown)
         }
     }
 
@@ -175,7 +179,9 @@ enum MenuBarSegments {
                 dimmed: !missing.isEmpty || !windowGaps(members, pools: drawn).isEmpty
                     || members.contains(where: \.isStale),
                 badge: badge, tag: tag,
-                remaining: drawn.last.map { wholePercent($0.averageRemaining) })
+                remaining: drawn.last.map { wholePercent($0.averageRemaining) },
+                // The fleet gauge's bar colours a pool by its average (FleetStripView).
+                severity: drawn.last.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown)
         }
     }
 

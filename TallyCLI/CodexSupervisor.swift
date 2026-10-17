@@ -10,16 +10,7 @@ func codexLaunchEffort(_ args: [String]) -> String? {
 
 /// Refuse an automatic second writer while a monitored Codex generation owns the conversation.
 func liveCodexConversations(dir: URL = supervisorStateDir) -> Set<String> {
-    var sessions: Set<String> = []
-    for pid in SessionMonitoring.markedPids(dir: dir) {
-        let key = String(pid)
-        guard let identity = SessionMonitoring.read(pid: key, dir: dir), identity.provider == "codex",
-              let bytes = try? Data(contentsOf: dir.appendingPathComponent(key + ".codex-binding")),
-              let binding = try? JSONDecoder().decode(CodexSessionBinding.self, from: bytes),
-              binding.nonce == identity.nonce else { continue }
-        sessions.insert(binding.sessionID)
-    }
-    return sessions
+    Set(liveCodexConversationOwners(dir: dir).map(\.thread))
 }
 
 nonisolated(unsafe) private var codexSupervisorSignal: Int32 = 0
@@ -130,6 +121,12 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     /// PTY leaves it stuck exiting. KILL follows if it is still there after the grace.
     var reopenAs: String?
     var reopenKillAt: Date?
+    /// A `tally account <codex account> --session <this pid>` request that was accepted and waits for
+    /// a turn boundary (CodexHandoff.swift). `handoffTo` is set once the child was sent TERM for it;
+    /// the exec follows the loop, as a reopen's does. A clear and a hand-off are mutually exclusive.
+    var handoff: CodexHandoffPlan?
+    var handoffTo: CodexHandoffPlan?
+    var handoffHeld: String?
     /// What this tick publishes about a launch stuck before its prompt (CodexStartupScreen.swift).
     var screenRecord: CodexStartupScreenRecord?
     while reaper.isRunning {
@@ -185,6 +182,43 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
             initializationDraft?.observe(humanInput: terminal?.lastHumanInputAt,
                 inputReceipt: observer?.lastInputReceiptAt,
                 ready: observer?.canAcceptInput == true && observer?.inputReceiptsAvailable == true)
+            if handoffTo == nil {
+                let busy = reopenAs != nil ? "a clear is already reopening this window"
+                    : handoff != nil ? "a hand-off is already queued for this window" : nil
+                if let plan = serveCodexHandoff(pid: pid, busy: busy, targetHome: { id in
+                    loadSnapshot().0?.accounts.first(where: { $0.id == id && $0.provider == "codex" })?.launchHome
+                }, fallbackDirectory: readSupervisorCwd(pid: pid)) { handoff = plan }
+                if let plan = handoff, metadata.childStart == SessionMonitoring.generation(child) {
+                    let held = codexHandoffGate(
+                        turnEnded: observer?.canAcceptInput == true,
+                        permissionPending: observer?.pendingPermission != nil,
+                        questionPending: observer?.pendingQuestion != nil,
+                        draftSuspected: initializationDraft?.suspected == true || codexInputDraftSuspected(
+                            lastInput: keyboard.lastStamp, userTurnAt: observer?.lastUserTurnAt, launchedAt: launchedAt),
+                        keyboardIdle: keyboard.lastStamp != nil && keyboard.idle(manualMoveIdleSeconds),
+                        inputPending: terminal?.inputPending == true,
+                        inputQueued: readSessionInputRequest(sessionKey: pid) != nil)
+                    if let held {
+                        if held != handoffHeld {
+                            handoffHeld = held
+                            appendSessionInputLine("\(ISO8601DateFormatter().string(from: Date())) pid=\(pid) "
+                                + "input=codex-handoff result=held reason=\(held)\n", to: sessionInputLog)
+                        }
+                    } else if case .ready(let thread, _) = codexHandoffSource(
+                        pid: pid, targetHome: plan.targetHome, fallbackDirectory: readSupervisorCwd(pid: pid)),
+                        thread == plan.threadID {
+                        kill(child, SIGTERM)
+                        handoffTo = plan
+                        reopenKillAt = Date().addingTimeInterval(handoffKillGrace)
+                    } else {
+                        // The window moved to another conversation while the request waited: carrying
+                        // the old one over would not be what was asked.
+                        handoff = nil
+                        appendSessionInputLine("\(ISO8601DateFormatter().string(from: Date())) pid=\(pid) "
+                            + "input=codex-handoff result=dropped reason=conversation-changed\n", to: sessionInputLog)
+                    }
+                }
+            }
             contextWriter.sync(accountID: account.id, launchModel: launchModel,
                                launchEffort: launchEffort, observer: observer, pid: pid)
             if let terminal, let childStart = metadata.childStart {
@@ -203,8 +237,8 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
                 let action = applyCodexSessionInput(&input, observer: observer, keyboard: keyboard,
                     launchedAt: launchedAt, terminalReady: metadata.inputTTY != nil && terminalReady,
                     startupDraftSuspected: initializationDraft?.suspected == true,
-                    reopen: { clearReopenTarget(current: "codex", cwd: identity.directory ?? cwd,
-                                                spendReserve: spendReserve) },
+                    reopen: { handoff != nil ? nil : clearReopenTarget(
+                        current: "codex", cwd: identity.directory ?? cwd, spendReserve: spendReserve) },
                     inject: { text in
                         observer?.poll(home: home)
                         guard observer?.canAcceptInput == true,
@@ -257,14 +291,17 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     let endReason = SessionEndReason(supervisorSignal: codexSupervisorSignal, childStatus: status)
     for event in codexWaits.finish(now: Date(), reason: endReason) { appendSessionWaitEvent(event) }
     maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn, force: true)
-    clearCodexSupervisorState(pid: pid, dir: supervisorStateDir)
+    clearCodexSupervisorState(pid: pid, dir: supervisorStateDir, keepHandoffReceipt: handoffTo != nil)
     postSessionStateChanged(pid: pid)
+    if let handoffTo { execCodexHandoff(handoffTo, spendReserve: spendReserve) }
     if let reopenAs { execProviderReopen(reopenAs, current: "codex", spendReserve: spendReserve) }
     exit(supervisorExitCode(childStatus: status))
 }
 
-func clearCodexSupervisorState(pid: String, dir: URL) {
-    for suffix in [""] + supervisorStateSuffixes {
+/// A hand-off exit keeps its receipt: the asker polls for it after this window is gone and removes it
+/// itself once read (a later orphan sweep still clears one nobody read).
+func clearCodexSupervisorState(pid: String, dir: URL, keepHandoffReceipt: Bool = false) {
+    for suffix in [""] + supervisorStateSuffixes where !(keepHandoffReceipt && suffix == codexHandoffReceiptSuffix) {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(pid + suffix))
     }
 }
@@ -290,4 +327,20 @@ func handleStartupChoice(pid: String, record: CodexStartupScreenRecord?, relay: 
     }
     writeStartupChoiceReceipt(StartupChoiceReceipt(nonce: request.nonce, result: decision.result), pid: pid, dir: dir)
     return decision.result
+}
+
+/// Replaces this process with the launch on the target account, in the conversation's directory.
+/// The old child is already gone and its state swept; on a failed exec the window has ended, so the
+/// way to carry on by hand is printed (a path and an id, nothing secret).
+func execCodexHandoff(_ plan: CodexHandoffPlan, spendReserve: Bool) -> Never {
+    if let binary = selfUpdateBinary() {
+        warn("moving this Codex conversation to \(URL(fileURLWithPath: plan.targetHome).lastPathComponent)")
+        _ = FileManager.default.changeCurrentDirectoryPath(plan.directory)
+        var argv: [UnsafeMutablePointer<CChar>?] = codexHandoffArgv(
+            targetHome: plan.targetHome, threadID: plan.threadID,
+            spendReserve: spendReserve || plan.spendReserve).map { strdup($0) } + [nil]
+        execv(binary, &argv)
+    }
+    warn("could not move this window; resume it with: CODEX_HOME=\(plan.targetHome) codex resume \(plan.threadID)")
+    exit(1)
 }

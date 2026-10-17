@@ -92,11 +92,23 @@ func attemptSwitch(name: String, cwd: String = FileManager.default.currentDirect
 func attemptSwitch(_ intent: SwitchIntent,
                    cwd: String = FileManager.default.currentDirectoryPath,
                    marker: SessionMarkerTrust = .trusted(liveSessionMarker()),
-                   surface: SwitchOrigin = .shell, reserveGate: Bool = false) -> SwitchAttempt {
+                   surface: SwitchOrigin = .shell, reserveGate: Bool = false,
+                   sessionPID: String? = nil) -> SwitchAttempt {
     let (snapshot, problem) = loadSnapshot()
     var notes: [String] = []
     if let problem { notes.append(problem) }
-    // Account mutation remains Claude-only; Codex residents monitor without switching.
+    // A Codex window moves between Codex accounts by its own path (CodexHandoffCommand.swift); the
+    // rest of this function is the Claude path and does not change for it. `--session` names a
+    // Codex window only.
+    switch codexSessionAddressed(sessionPID: sessionPID, cwd: cwd, marker: marker) {
+    case .codex(let pid):
+        return attemptCodexHandoff(intent, pid: pid, snapshot: snapshot, notes: notes, cwd: cwd,
+                                   reserveGate: reserveGate)
+    case .refused(let why):
+        return .refusal(why, notes: notes)
+    case .notCodex:
+        break
+    }
     let provider = providers[0]
     // nil IS the release: everything below reads "no account named" as `--auto`, which keeps the
     // one difference between the two intents in one place instead of branching per step.
@@ -319,6 +331,15 @@ func switchIntent(_ args: [String]) -> SwitchIntent? {
     return .pin(name)
 }
 
+/// `--session <pid>` taken out of the arguments: it addresses a Codex window from outside it. A
+/// dangling flag stays in, which `switchIntent` reads as usage.
+func takeSessionFlag(_ args: [String]) -> (rest: [String], pid: String?) {
+    guard let index = args.firstIndex(of: "--session"), index + 1 < args.count else { return (args, nil) }
+    var rest = args
+    rest.removeSubrange(index ... index + 1)
+    return (rest, args[index + 1])
+}
+
 /// Which of the command's three surfaces an invocation lands on.
 enum SwitchEntry: Equatable {
     /// A name (or `--auto`) was given: do it, do not ask.
@@ -365,8 +386,9 @@ func runSwitch(args: [String]) -> Int32 {
     // Tally's own flag (B-1213): the one way to pin this session onto an account under its line.
     let spendReserve = args.contains(spendReserveFlag)
     let args = args.filter { $0 != spendReserveFlag }
+    let (rest, sessionPID) = takeSessionFlag(args)
     let chosen: SwitchIntent?
-    switch switchEntry(args, interactive: menuIsAvailable(
+    switch switchEntry(rest, interactive: menuIsAvailable(
         stdinIsTTY: isatty(STDIN_FILENO) == 1, stdoutIsTTY: isatty(STDOUT_FILENO) == 1)) {
     case .act(let intent):
         chosen = intent
@@ -384,6 +406,7 @@ func runSwitch(args: [String]) -> Int32 {
     guard let intent = chosen else {
         warn("""
         usage: tally account <account>   (label or config-dir name, as `tally status` lists them)
+               tally account <codex account> --session <pid>   (move a Codex window, at its next turn end)
                tally account --auto
 
         <account> pins THIS session there: it moves at the end of the current turn and STAYS,
@@ -405,7 +428,7 @@ func runSwitch(args: [String]) -> Int32 {
     }
     // `.session` as the surface: a command typed or run INSIDE a session is how a conversation
     // moves itself, and `attemptSwitch` downgrades it when the lookup did not land on the marker.
-    let attempt = attemptSwitch(intent, surface: .session, reserveGate: !spendReserve)
+    let attempt = attemptSwitch(intent, surface: .session, reserveGate: !spendReserve, sessionPID: sessionPID)
     // The one line that answers the command goes to stdout when it worked, so a script can read it;
     // a refusal is stderr, like every other failure here. The notes are always stderr: they qualify
     // the answer rather than being it.

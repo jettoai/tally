@@ -67,6 +67,7 @@ struct CodexSessionObserver {
     private(set) var effort: String?
     private(set) var hasTurnContext = false
     private(set) var lastUserTurnAt: Date?
+    private(set) var planType: String?
     private(set) var lastInputReceiptAt: Date?
     private(set) var inputReceiptsAvailable = false
     private(set) var inputCaughtUp = false
@@ -237,6 +238,10 @@ struct CodexSessionObserver {
             acceptInputReceipt(text, at: date)
         } else if event == "item_completed" {
             acceptPaginatedUserReceipt(payload, at: date)
+        } else if event == "token_count" {
+            // The plan the server billed this launch's turns to (pro, team...). A plan, not an
+            // account, so it corroborates a hand-off but never decides which account a window is on.
+            planType = (payload["rate_limits"] as? [String: Any])?["plan_type"] as? String ?? planType
         }
         guard ["task_started", "task_complete", "turn_aborted"].contains(event) else { return }
         guard let turn = payload["turn_id"] as? String, UUID(uuidString: turn) != nil else {

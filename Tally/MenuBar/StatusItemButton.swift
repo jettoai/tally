@@ -29,6 +29,15 @@ extension StatusItemController {
         ])
     }
 
+    /// `-TallyDemoRingStates` (demo only): the four things a ring can be, left to right: plenty
+    /// left, under 20% left (red), a stale last-known figure (faded), nothing readable (dashed).
+    private static let demoRingStates = [
+        MenuBarSegment(providerID: "claude", lines: ["74%"], dimmed: false, badge: nil, remaining: 74),
+        MenuBarSegment(providerID: "claude", lines: ["12%"], dimmed: false, badge: nil, remaining: 12),
+        MenuBarSegment(providerID: "codex", lines: ["48%"], dimmed: true, badge: nil, remaining: 48),
+        MenuBarSegment(providerID: "codex", lines: ["!"], dimmed: false, badge: nil),
+    ]
+
     /// `updateButton` on the next run-loop turn, with every request before it folded into one. The
     /// refresh job calls this from its tail: drawing the strip there (an `ImageRenderer` built and
     /// torn down) made one main-thread slice of the whole refresh plus the render, which is what
@@ -46,8 +55,23 @@ extension StatusItemController {
 
     func updateButton() {
         guard let button = statusItem?.button else { return }
-        let segments = UsageStore.shared.menuBarSegments
-        let blocked = SessionRosterStore.shared.blockedCount
+        let demo = DemoUsage.isActive
+        let defaults = UserDefaults.standard
+        // Demo capture only: one ring per state the strip can be in (the fixtures reach two of them).
+        let segments = demo && defaults.bool(forKey: "TallyDemoRingStates")
+            ? Self.demoRingStates : UsageStore.shared.menuBarSegments
+        // Demo capture only: `-TallyDemoWaiting YES` makes sure one session is waiting, `NO` that none is
+        // (the fixture roster has one by default), so both states of the dot can be photographed.
+        let real = SessionRosterStore.shared.blockedCount
+        let blocked: Int
+        switch demo ? defaults.string(forKey: "TallyDemoWaiting")?.uppercased() : nil {
+        case "YES"?, "1"?: blocked = max(1, real)
+        case "NO"?, "0"?: blocked = 0
+        default: blocked = real
+        }
+        // The waiting dot is drawn into the strip (one ink); the fallback glyph has no strip to
+        // hold it, so it keeps the red title.
+        let dotInStrip = !segments.isEmpty
         // What the dot MEANS, for the hover and for VoiceOver: a coloured circle with no words is
         // exactly the kind of mark a person has to be told the meaning of once.
         let waiting = blocked > 0
@@ -65,7 +89,7 @@ extension StatusItemController {
         guard face != lastAppliedFace else { return }
         lastAppliedFace = face
         let title = NSMutableAttributedString()
-        if blocked > 0 { title.append(Self.blockedDot) }
+        if blocked > 0 && !dotInStrip { title.append(Self.blockedDot) }
         if let note { title.append(Self.noteMark(note)) }
         button.attributedTitle = title
         button.toolTip = tooltip
@@ -73,22 +97,57 @@ extension StatusItemController {
             // No visible accounts - fall back to the app glyph.
             button.image = Self.symbolImage()
         } else {
-            // The whole strip is rendered as one template image (brand marks + stacked numbers).
-            button.image = MenuBarStripRenderer.stripImage(segments)
+            // The whole strip is rendered as one image of rings (see MenuBarStripRenderer).
+            button.image = MenuBarStripRenderer.stripImage(segments, waiting: blocked > 0)
             button.image?.accessibilityDescription = tooltip
             // README screenshot hook: demo mode + -TallyStripSnapshot <path> writes the strip
             // as a standalone PNG (idempotent - demo data never changes between refreshes).
             if DemoUsage.isActive,
                let path = UserDefaults.standard.string(forKey: "TallyStripSnapshot") {
-                MenuBarStripRenderer.writeSnapshot(segments, to: path)
+                if let scheme = Self.capturedAppearance(button) {
+                    Self.writeButtonSnapshot(button, to: path, dark: scheme == .darkAqua)
+                } else {
+                    MenuBarStripRenderer.writeSnapshot(segments, to: path, waiting: blocked > 0)
+                }
             }
         }
-        // The dot rides AFTER the numbers, which is why the position moves with it: `.imageOnly`
-        // is what suppresses a title, so the strip alone keeps it and the strip-plus-dot asks for
-        // the image to lead instead.
-        button.imagePosition = waiting == nil && note == nil ? .imageOnly : .imageLeading
+        // `.imageOnly` is what suppresses a title, so a strip whose dot is inside the image keeps
+        // it; only the fallback glyph's red title (or a private build's mark) asks the image to lead.
+        button.imagePosition = (waiting == nil || dotInStrip) && note == nil ? .imageOnly : .imageLeading
         // Surface resizing is handled by PopoverRootView.onContentSize (it reports the real content
         // size on every layout change), so nothing to do here.
+    }
+
+    /// `-TallyMenuBarAppearance light|dark` (demo or Dev only): pins THIS status button to one scheme,
+    /// so the item can be judged on a light bar without flipping the system setting, and returns the
+    /// scheme it pinned. The system menu bar cannot be photographed while the screen is locked and
+    /// is not this app's to repaint, so with `-TallyStripSnapshot` the button itself is captured.
+    private static func capturedAppearance(_ button: NSStatusBarButton) -> NSAppearance.Name? {
+        guard DemoUsage.isActive || BuildVariant.isDev,
+              let raw = UserDefaults.standard.string(forKey: "TallyMenuBarAppearance")?.lowercased(),
+              raw == "light" || raw == "dark" else { return nil }
+        let name: NSAppearance.Name = raw == "light" ? .aqua : .darkAqua
+        button.appearance = NSAppearance(named: name)
+        return name
+    }
+
+    /// The real status button, drawn by AppKit under the pinned scheme over a bar-coloured base,
+    /// written as a PNG once its frame has settled. Demo capture only.
+    private static func writeButtonSnapshot(_ button: NSStatusBarButton, to path: String, dark: Bool) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            let bounds = button.bounds
+            guard bounds.width > 0, let rep = button.bitmapImageRepForCachingDisplay(in: bounds) else { return }
+            button.cacheDisplay(in: bounds, to: rep)
+            let base = dark ? NSColor(white: 0.11, alpha: 1) : NSColor(white: 0.93, alpha: 1)
+            let image = NSImage(size: bounds.size)
+            image.lockFocus()
+            base.setFill()
+            NSRect(origin: .zero, size: bounds.size).fill()
+            rep.draw(in: NSRect(origin: .zero, size: bounds.size))
+            image.unlockFocus()
+            guard let tiff = image.tiffRepresentation, let out = NSBitmapImageRep(data: tiff) else { return }
+            try? out.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     /// A private build's mark: a small template symbol, so it follows the menu bar's tint.

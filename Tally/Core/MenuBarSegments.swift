@@ -19,6 +19,10 @@ struct MenuBarSegment: Sendable, Equatable {
     /// layout draws one segment per plan ("P", "T"). Drawn in the badge's corner slot instead of
     /// the count: two identical marks side by side must say WHICH budget each is before how big.
     var tag: String? = nil
+    /// The weekly (last drawn) window's REMAINING share as a whole percent, whatever the Used/Left
+    /// toggle says: the ring is always drawn as what is left (`PoolRing`). nil when there is no
+    /// figure to draw (the error, no-data and held-over placeholders).
+    var remaining: Int? = nil
 }
 
 /// One pooled segment's inputs: a provider's accounts (or one plan's slice of them) and the pool
@@ -96,15 +100,19 @@ enum MenuBarSegments {
                 return MenuBarSegment(providerID: account.providerID, lines: ["!"],
                                       dimmed: false, badge: badge)
             }
-            let lines = metrics(account, focusedModel: focusedModel).map {
+            let drawn = metrics(account, focusedModel: focusedModel)
+            let lines = drawn.map {
                 // A held-over figure its reset has overtaken reads as unknown, never as the old
                 // percentage (`AccountUsage.resetPassed`).
                 account.resetPassed($0, now: now)
                     ? "?" : percent(used: $0.usedPercent, remaining: $0.remainingPercent, mode: mode)
             }
+            let remaining = drawn.last.flatMap { metric in
+                account.resetPassed(metric, now: now) ? nil : wholePercent(metric.remainingPercent)
+            }
             return MenuBarSegment(providerID: account.providerID,
                                   lines: lines.isEmpty ? ["—"] : lines,
-                                  dimmed: account.isStale, badge: badge)
+                                  dimmed: account.isStale, badge: badge, remaining: remaining)
         }
     }
 
@@ -166,7 +174,8 @@ enum MenuBarSegments {
                 // the whole truth" and the tooltip says which.
                 dimmed: !missing.isEmpty || !windowGaps(members, pools: drawn).isEmpty
                     || members.contains(where: \.isStale),
-                badge: badge, tag: tag)
+                badge: badge, tag: tag,
+                remaining: drawn.last.map { wholePercent($0.averageRemaining) })
         }
     }
 
@@ -323,6 +332,9 @@ enum MenuBarSegments {
         }
         return order.map { ($0, grouped[$0] ?? []) }
     }
+
+    /// A remaining share as the whole percent the hover prints (both sources already floor at 0).
+    private static func wholePercent(_ remaining: Double) -> Int { Int(remaining.rounded()) }
 
     /// The strip's one numeric form, following the Used/Left toggle.
     private static func percent(used: Double, remaining: Double, mode: DisplayMode) -> String {

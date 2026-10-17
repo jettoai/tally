@@ -123,6 +123,15 @@ enum CaptureLaunch {
                                "TallyDemoLaunchModel",
                                // Qualifies TallyDemoData: the fixture burn rates multiplied (Debug).
                                "TallyDemoBurnScale",
+                               // Qualifies TallyDemoData: YES makes one session wait on you, NO makes
+                               // none, for the dot after the menu bar rings (B-2045, Debug).
+                               "TallyDemoWaiting",
+                               // Qualifies TallyDemoData: the menu bar rings in four fixed states
+                               // (plenty, under 20%, stale, unreadable) for a capture (B-2045, Debug).
+                               "TallyDemoRingStates",
+                               // Qualifies TallyStripSnapshot (demo or Dev): pins the status button to
+                               // light or dark and captures the button itself (B-2045, Debug).
+                               "TallyMenuBarAppearance",
                                // The pick panel with a row already circled, which is the state its
                                // apply bar exists for and the one state of it no fixture can reach:
                                // the circle rests on the row the session is already on, so a panel

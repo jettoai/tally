@@ -42,8 +42,7 @@ func planSplitChecks() {
                && hoverSource.contains("group.planTier.map"),
                "the hover walks the strip's plan groups and names each plan")
         let stripSource = readSource("Tally/MenuBar/MenuBarStrip.swift")
-        expect(stripSource.contains("segment.tag ?? segment.badge.map(String.init)")
-               && stripSource.contains("\\($0.tag ?? \"\")"),
-               "the strip draws the plan tag in the corner slot and memoizes on it")
+        expect(stripSource.contains("ringUnit(segment)") && !stripSource.contains("segment.tag"),
+               "the strip draws one ring per plan segment; the tag and the count are hover-only now")
     }
 }

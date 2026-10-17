@@ -1,16 +1,21 @@
 import AppKit
 import SwiftUI
 
-/// The menu-bar strip, drawn as a single SwiftUI view rendered to a template `NSImage`. Each segment
-/// is `mark + stacked percents`; same-provider segments sit close, different providers spaced further,
-/// so a glance reads how the fleet stands. Monochrome + `isTemplate` tints it. What each segment
-/// stands for - one account or one provider's pool - is decided in `MenuBarSegments`.
+/// The menu-bar strip, drawn as a single SwiftUI view rendered to an `NSImage`: one ring per pool
+/// with the provider's mark inside, the arc as long as the share of the WEEK that is left, and no
+/// text at all (B-2045). Ink only, so a light or dark menu bar tints the template image; a pool
+/// below `PoolRing.lowBelow` turns red as a whole (see `MenuBarStripRenderer` for how). What each
+/// ring stands for - one account or one provider's pool - is decided in `MenuBarSegments`, and what
+/// it shows (length, red, faded, dashed) in `PoolRing`.
 private struct MenuBarStripView: View {
     let segments: [MenuBarSegment]
+    /// A session is waiting on the user: one solid dot after the rings, in the same ink as them.
+    var waiting = false
     /// Snapshot rendering overrides: the README shot drops the DEV tag and draws white-on-dark
     /// directly instead of the template mask AppKit tints.
     var devTag: Bool = BuildVariant.isDev
-    var tint: Color = .black
+    var ink: Color = .black   // template mask (black) - the actual tint is applied by AppKit
+    var red: Color = .red
 
     var body: some View {
         HStack(spacing: 0) {
@@ -27,63 +32,53 @@ private struct MenuBarStripView: View {
             }
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                 if index > 0 {
-                    Color.clear.frame(width: gap(before: index), height: 0)
+                    // Tight between pools of one provider, wider between providers.
+                    Color.clear.frame(width: segment.providerID == segments[index - 1].providerID ? 3 : 6,
+                                      height: 0)
                 }
-                // 6, not 4: the corner badge hangs 3.5pt past the mark's trailing edge, so a
-                // tighter gap glues it to the number ("5" + "58%" reads as "558%").
-                HStack(spacing: 6) {
-                    icon(segment.providerID)
-                        .overlay(alignment: .bottomTrailing) {
-                            // Identical marks share one glyph - a tiny corner digit is the only
-                            // identity the strip carries (which account, or how many accounts the
-                            // pool sums); the full story lives in the tooltip.
-                            if let corner = segment.tag ?? segment.badge.map(String.init) {
-                                Text(corner)
-                                    .font(.system(size: 7, weight: .heavy))
-                                    .offset(x: 3.5, y: 1.5)
-                            }
-                        }
-                    numbers(segment.lines)
-                }
-                .opacity(segment.dimmed ? 0.5 : 1)
+                ringUnit(segment)
+            }
+            if waiting {
+                Color.clear.frame(width: 4, height: 0)
+                Circle().frame(width: 5, height: 5)
             }
         }
-        .monospacedDigit()
-        .foregroundStyle(tint)   // template mask (black) - actual tint applied by AppKit
+        .foregroundStyle(ink)
         .padding(.horizontal, 2)
         .padding(.vertical, 1)
         .fixedSize()
     }
 
-    /// One bold number when there's a single window, otherwise the windows stacked tight.
-    @ViewBuilder
-    private func numbers(_ lines: [String]) -> some View {
-        if lines.count <= 1 {
-            Text(lines.first ?? "—").font(.system(size: 12, weight: .bold))
-        } else {
-            VStack(alignment: .trailing, spacing: -2) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.system(size: 9, weight: .semibold))
-                }
+    private func ringUnit(_ segment: MenuBarSegment) -> some View {
+        let ring = PoolRing(segment)
+        let color = ring.isLow ? red : ink
+        return ZStack {
+            if let fraction = ring.fraction {
+                Circle().strokeBorder(color, lineWidth: 2).opacity(0.28)
+                Circle().inset(by: 1).trim(from: 0, to: fraction)
+                    .stroke(color, lineWidth: 2)
+                    .rotationEffect(.degrees(-90))
+            } else {
+                // Nothing to read: a dashed track with no arc, the mark stays.
+                Circle().strokeBorder(color, style: StrokeStyle(lineWidth: 2, dash: [2, 2]))
             }
+            icon(segment.providerID, size: 10.5, color: color)
         }
-    }
-
-    /// Tight gap between accounts of the same provider, wider between different providers.
-    private func gap(before index: Int) -> CGFloat {
-        segments[index].providerID != segments[index - 1].providerID ? 11 : 7
+        .frame(width: 18, height: 18)
+        .opacity(ring.isFaded ? 0.4 : 1)
     }
 
     @ViewBuilder
-    private func icon(_ providerID: String) -> some View {
+    private func icon(_ providerID: String, size: CGFloat, color: Color) -> some View {
         if let mark = ProviderMarks.path(for: providerID) {
             ProviderIconShape(pathData: mark, inset: 0.04)
-                .fill(tint)
-                .frame(width: 15, height: 15)
+                .fill(color)
+                .frame(width: size, height: size)
         } else {
             Image(systemName: ProviderCatalog.iconName(for: providerID))
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 15, height: 15)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: size, height: size)
         }
     }
 }
@@ -92,22 +87,58 @@ enum MenuBarStripRenderer {
     @MainActor private static var lastSignature: String?
     @MainActor private static var lastImage: NSImage?
 
-    /// Renders the segments into a template `NSImage` for the status item, memoized on content so an
-    /// unchanged strip isn't re-rendered on every poll tick.
+    /// The ink and the red a menu bar of each scheme gets. Fixed values rather than dynamic colours:
+    /// the renderer draws each scheme once, and the image picks between the two at draw time.
+    private static func palette(_ scheme: ColorScheme) -> (ink: Color, red: Color) {
+        scheme == .dark
+            ? (.white, Color(red: 1, green: 0.27, blue: 0.23))
+            : (.black, Color(red: 1, green: 0.23, blue: 0.19))
+    }
+
     @MainActor
-    static func stripImage(_ segments: [MenuBarSegment]) -> NSImage? {
-        let signature = segments
-            .map { "\($0.providerID):\($0.lines.joined(separator: "/")):\($0.dimmed):\($0.badge ?? 0):\($0.tag ?? "")" }
-            .joined(separator: "|")
+    private static func render(_ segments: [MenuBarSegment], waiting: Bool,
+                               scheme: ColorScheme) -> CGImage? {
+        let colors = palette(scheme)
+        let renderer = ImageRenderer(content: MenuBarStripView(
+            segments: segments, waiting: waiting, ink: colors.ink, red: colors.red))
+        renderer.scale = 2
+        return renderer.cgImage
+    }
+
+    /// Renders the segments for the status item, memoized on content so an unchanged strip isn't
+    /// re-rendered on every poll tick.
+    ///
+    /// A TEMPLATE image (one ink, AppKit tints it for a light or dark bar and inverts it while the
+    /// item is pressed) whenever every ring is ink, which is nearly always. A red pool cannot be a
+    /// template, so then and only then the strip is drawn twice, once per scheme in its own ink,
+    /// into a non-template image that picks one at draw time from the appearance it is drawn into.
+    /// Chosen over one non-template image for everything because it keeps the tint and the pressed
+    /// look for the usual case, and over a separate red layer because a status button holds one image.
+    @MainActor
+    static func stripImage(_ segments: [MenuBarSegment], waiting: Bool = false) -> NSImage? {
+        let signature = (waiting ? "!" : "") + segments.map {
+            let ring = PoolRing($0)
+            return "\($0.providerID):\(ring.fraction ?? -1):\(ring.isLow):\(ring.isFaded)"
+        }.joined(separator: "|")
         if signature == lastSignature, let image = lastImage { return image }
 
-        let renderer = ImageRenderer(content: MenuBarStripView(segments: segments))
-        renderer.scale = 2
-        guard let cgImage = renderer.cgImage else { return nil }
-        let image = NSImage(
-            cgImage: cgImage,
-            size: NSSize(width: CGFloat(cgImage.width) / 2, height: CGFloat(cgImage.height) / 2))
-        image.isTemplate = true
+        let image: NSImage
+        if segments.contains(where: { PoolRing($0).isLow }) {
+            guard let dark = render(segments, waiting: waiting, scheme: .dark),
+                  let light = render(segments, waiting: waiting, scheme: .light) else { return nil }
+            let size = NSSize(width: CGFloat(dark.width) / 2, height: CGFloat(dark.height) / 2)
+            image = NSImage(size: size, flipped: false) { rect in
+                let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                NSImage(cgImage: isDark ? dark : light, size: size).draw(in: rect)
+                return true
+            }
+        } else {
+            guard let cgImage = render(segments, waiting: waiting, scheme: .light) else { return nil }
+            image = NSImage(
+                cgImage: cgImage,
+                size: NSSize(width: CGFloat(cgImage.width) / 2, height: CGFloat(cgImage.height) / 2))
+            image.isTemplate = true
+        }
 
         lastSignature = signature
         lastImage = image
@@ -119,9 +150,11 @@ enum MenuBarStripRenderer {
     /// grants an SSH session can't hold, so the app renders its own strip instead - same view,
     /// same data, deterministic. Fired from `-TallyStripSnapshot <path>` in demo mode only.
     @MainActor
-    static func writeSnapshot(_ segments: [MenuBarSegment], to path: String) {
+    static func writeSnapshot(_ segments: [MenuBarSegment], to path: String, waiting: Bool = false) {
+        let colors = palette(.dark)
         let renderer = ImageRenderer(content:
-            MenuBarStripView(segments: segments, devTag: false, tint: .white)
+            MenuBarStripView(segments: segments, waiting: waiting, devTag: false,
+                             ink: colors.ink, red: colors.red)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color(red: 0.11, green: 0.11, blue: 0.12)))

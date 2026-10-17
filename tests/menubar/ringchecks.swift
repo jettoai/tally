@@ -83,6 +83,35 @@ func poolRingChecks() {
                                            error: "boom", stale: true)])[0]).isFaded,
            "pooled: a stale member fades the pool")
 
+    // The optional inner ring (5-hour window): same rules as the weekly ring, read from the same builders.
+    let both = account("b", metrics: [metric(.session, used: 85), metric(.weeklyAll, used: 40)])
+    let innerSeg = perAccount([both], focus: weeklyFocus)[0]
+    let innerRing = PoolRing(innerSeg)
+    expect(innerSeg.sessionRemaining == 15 && innerRing.innerFraction == 0.15
+           && innerRing.innerSeverity == .critical && innerRing.fraction == 0.6 && innerRing.severity == .normal,
+           "per account: the inner ring is the session window (15% left, red) beside the weekly (60%, green)")
+    let weeklyOnly = PoolRing(one(40))
+    expect(weeklyOnly.innerFraction == nil && weeklyOnly.innerSeverity == .unknown && weeklyOnly.fraction == 0.6,
+           "no session window: no inner figure (dashed inner track), weekly untouched")
+    let heldSession = AccountUsage(id: "claude:held2", providerID: "claude", accountLabel: "held2",
+                                   metrics: [metric(.session, used: 60, resetIn: -70 * 60),
+                                             metric(.weeklyAll, used: 10)],
+                                   refreshedAt: now.addingTimeInterval(-84 * 60), isStale: true)
+    let heldRing = PoolRing(MenuBarSegments.perAccount([heldSession], mode: .remaining, focusedModel: weeklyFocus,
+                                                       now: now)[0])
+    expect(heldRing.innerFraction == nil && heldRing.fraction == 0.9,
+           "a session window past its reset is unreadable (no inner arc) while the weekly still reads")
+    let sessionPair = [account("a", metrics: [metric(.session, used: 70), metric(.weeklyAll, used: 10)]),
+                       account("b", metrics: [metric(.session, used: 90), metric(.weeklyAll, used: 10)])]
+    let pooledRing = PoolRing(pooled(sessionPair)[0])
+    expect(pooledRing.innerFraction == 0.2 && pooledRing.innerSeverity == .warning && pooledRing.fraction == 0.9,
+           "pooled: the inner ring is the session pool's average (20% left, amber)")
+    expect(PoolRing(pooled([failed])[0]).innerFraction == nil && PoolRing(perAccount([failed])[0]).innerFraction == nil,
+           "an error or an empty pool has no inner figure either")
+    expect(PoolRing(fraction: 0.6, severity: .warning, isFaded: false, innerFraction: 0.1, innerSeverity: .critical)
+           != PoolRing(fraction: 0.6, severity: .warning, isFaded: false),
+           "the inner figure takes part in the ring's equality")
+
     // The waiting dot is not a ring state: it rides on the face, which already reapplies when the
     // count changes (statusFaceChecks), so it disappears with the session. No segments, no rings.
     expect(pooled([]).isEmpty && perAccount([]).isEmpty, "no pool to show: no segments, the fallback glyph")

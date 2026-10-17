@@ -102,6 +102,14 @@ final class SettingsStore {
         }
     }
 
+    /// Adds a thinner inner ring (the 5-hour window) to each menu-bar ring. Off by default.
+    var menuBarShowSession: Bool {
+        didSet {
+            UserDefaults.standard.set(menuBarShowSession, forKey: "menuBarShowSession")
+            UsageStore.shared.onChange?()
+        }
+    }
+
     /// Show every model-scoped window, or just the highest-tier headline (default).
     var showAllModels: Bool {
         didSet { UserDefaults.standard.set(showAllModels, forKey: "showAllModels") }
@@ -297,6 +305,8 @@ final class SettingsStore {
         // fallback moves everyone who never expressed a preference and nobody who did.
         menuBarLayout = MenuBarLayout(rawValue: defaults.string(forKey: "menuBarLayout") ?? "")
             ?? .pooled
+        // `bool(forKey:)` reads an unset key as false and also parses a `-menuBarShowSession YES` launch argument.
+        menuBarShowSession = defaults.bool(forKey: "menuBarShowSession")
         showAllModels = defaults.object(forKey: "showAllModels") as? Bool ?? false
         // Default 5 minutes: a public-friendly default - each poll spawns the provider CLIs, so
         // faster ticks trade background CPU for freshness. Users can go down to 1 min (reads run

@@ -11,11 +11,18 @@ struct PoolRing: Equatable {
     var severity: MetricSeverity
     /// Faded to 40%: the figure is the last one known (stale) or there is none (offline).
     var isFaded: Bool
+    /// The optional inner ring (5-hour window): same rules as `fraction` / `severity`; nil draws a
+    /// dashed inner track when the inner ring is switched on.
+    var innerFraction: Double?
+    var innerSeverity: MetricSeverity
 
-    init(fraction: Double?, severity: MetricSeverity, isFaded: Bool) {
+    init(fraction: Double?, severity: MetricSeverity, isFaded: Bool,
+         innerFraction: Double? = nil, innerSeverity: MetricSeverity = .unknown) {
         self.fraction = fraction
         self.severity = severity
         self.isFaded = isFaded
+        self.innerFraction = innerFraction
+        self.innerSeverity = innerSeverity
     }
 
     init(_ segment: MenuBarSegment) {
@@ -29,5 +36,7 @@ struct PoolRing: Equatable {
             severity = .unknown
             isFaded = true
         }
+        innerFraction = segment.sessionRemaining.map { Double($0) / 100 }
+        innerSeverity = segment.sessionRemaining == nil ? .unknown : segment.sessionSeverity
     }
 }

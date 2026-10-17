@@ -53,6 +53,12 @@ extension SettingsView {
 
         rowDivider
 
+        toggleRow(L("Also show the 5-hour limit on the icon"),
+                  subtitle: L("Adds a thinner inner ring to each menu bar ring for the 5-hour window."),
+                  isOn: $settings.menuBarShowSession)
+
+        rowDivider
+
         HStack {
             Text(L("Panel density")).font(.subheadline)
             Spacer()

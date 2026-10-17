@@ -27,6 +27,11 @@ struct MenuBarSegment: Sendable, Equatable {
     /// metric's own severity per account, the pool average's under the pooled layout. `.unknown`
     /// when there is no figure.
     var severity: MetricSeverity = .unknown
+    /// The 5-hour window's remaining share and colour, for the optional inner ring. Same rules as
+    /// `remaining` / `severity`; nil / `.unknown` when the provider has no session window or it
+    /// cannot be read (a held-over figure its reset has overtaken counts as unreadable).
+    var sessionRemaining: Int? = nil
+    var sessionSeverity: MetricSeverity = .unknown
 }
 
 /// One pooled segment's inputs: a provider's accounts (or one plan's slice of them) and the pool
@@ -112,11 +117,15 @@ enum MenuBarSegments {
                     ? "?" : percent(used: $0.usedPercent, remaining: $0.remainingPercent, mode: mode)
             }
             let weekly = drawn.last.flatMap { account.resetPassed($0, now: now) ? nil : $0 }
+            let session = drawn.first { $0.kind == .session }
+                .flatMap { account.resetPassed($0, now: now) ? nil : $0 }
             return MenuBarSegment(providerID: account.providerID,
                                   lines: lines.isEmpty ? ["—"] : lines,
                                   dimmed: account.isStale, badge: badge,
                                   remaining: weekly.map { wholePercent($0.remainingPercent) },
-                                  severity: weekly?.severity ?? .unknown)
+                                  severity: weekly?.severity ?? .unknown,
+                                  sessionRemaining: session.map { wholePercent($0.remainingPercent) },
+                                  sessionSeverity: session?.severity ?? .unknown)
         }
     }
 
@@ -168,6 +177,7 @@ enum MenuBarSegments {
                 // anything is averaged.
                 percent(used: 100 - $0.averageRemaining, remaining: $0.averageRemaining, mode: mode)
             }
+            let session = drawn.first { $0.kind == .session }
             return MenuBarSegment(
                 providerID: providerID, lines: lines.isEmpty ? ["—"] : lines,
                 // Every way a pooled figure stops being the whole truth dims the segment. A STALE
@@ -181,7 +191,9 @@ enum MenuBarSegments {
                 badge: badge, tag: tag,
                 remaining: drawn.last.map { wholePercent($0.averageRemaining) },
                 // The fleet gauge's bar colours a pool by its average (FleetStripView).
-                severity: drawn.last.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown)
+                severity: drawn.last.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown,
+                sessionRemaining: session.map { wholePercent($0.averageRemaining) },
+                sessionSeverity: session.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown)
         }
     }
 
@@ -357,4 +369,6 @@ struct StatusItemFace: Equatable {
     var blocked: Int
     var tooltip: String?
     var note: String? = nil
+    /// The inner 5-hour ring switch: flipping it must repaint even when no segment changed.
+    var showSession: Bool = false
 }

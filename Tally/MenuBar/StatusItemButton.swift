@@ -27,9 +27,9 @@ extension StatusItemController {
     /// readable (dashed).
     private static let demoRingStates = [
         MenuBarSegment(providerID: "claude", lines: ["74%"], dimmed: false, badge: nil, remaining: 74,
-                       severity: .normal),
+                       severity: .normal, sessionRemaining: 30, sessionSeverity: .warning),
         MenuBarSegment(providerID: "claude", lines: ["12%"], dimmed: false, badge: nil, remaining: 12,
-                       severity: .critical),
+                       severity: .critical, sessionRemaining: 90, sessionSeverity: .normal),
         MenuBarSegment(providerID: "codex", lines: ["48%"], dimmed: true, badge: nil, remaining: 48,
                        severity: .warning),
         MenuBarSegment(providerID: "codex", lines: ["!"], dimmed: false, badge: nil),
@@ -82,7 +82,9 @@ extension StatusItemController {
             ? waiting
             : [waiting, UsageStore.shared.menuBarTooltip].compactMap { $0 }.joined(separator: "\n")
         if let note { tooltip = [tooltip, note].compactMap { $0 }.joined(separator: "\n") }
-        let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip, note: note)
+        let showSession = SettingsStore.shared.menuBarShowSession
+        let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip, note: note,
+                                  showSession: showSession)
         guard face != lastAppliedFace else { return }
         lastAppliedFace = face
         let title = NSMutableAttributedString()
@@ -95,7 +97,8 @@ extension StatusItemController {
             button.image = Self.symbolImage()
         } else {
             // The whole strip is rendered as one image of rings (see MenuBarStripRenderer).
-            button.image = MenuBarStripRenderer.stripImage(segments, waiting: blocked > 0)
+            button.image = MenuBarStripRenderer.stripImage(segments, waiting: blocked > 0,
+                                                              showSession: showSession)
             button.image?.accessibilityDescription = tooltip
             // README screenshot hook: demo mode + -TallyStripSnapshot <path> writes the strip
             // as a standalone PNG (idempotent - demo data never changes between refreshes).
@@ -104,7 +107,8 @@ extension StatusItemController {
                 if let scheme = Self.capturedAppearance(button) {
                     Self.writeButtonSnapshot(button, to: path, dark: scheme == .darkAqua)
                 } else {
-                    MenuBarStripRenderer.writeSnapshot(segments, to: path, waiting: blocked > 0)
+                    MenuBarStripRenderer.writeSnapshot(segments, to: path, waiting: blocked > 0,
+                                                       showSession: showSession)
                 }
             }
         }

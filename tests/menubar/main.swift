@@ -488,6 +488,7 @@ planSplitChecks()
 
 statusFaceChecks()
 poolRingChecks()
+showSessionChecks()
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all menu-bar layout tests passed")

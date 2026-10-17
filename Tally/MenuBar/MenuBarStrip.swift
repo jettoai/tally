@@ -16,6 +16,8 @@ private struct MenuBarStripView: View {
     var devTag: Bool = BuildVariant.isDev
     /// The bar's ink for this scheme; also the colour of a ring with no severity to show.
     var ink: Color = .black
+    /// Adds a thinner inner ring for the 5-hour window inside each weekly ring.
+    var showSession = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -61,10 +63,30 @@ private struct MenuBarStripView: View {
                 // Nothing to read: a dashed track with no arc, the mark stays.
                 Circle().strokeBorder(color, style: StrokeStyle(lineWidth: 2, dash: [2, 2]))
             }
-            icon(segment.providerID, size: 10.5, color: color)
+            if showSession {
+                innerRing(ring)
+            }
+            icon(segment.providerID, size: showSession ? 7 : 10.5, color: color)
         }
         .frame(width: 18, height: 18)
         .opacity(ring.isFaded ? 0.4 : 1)
+    }
+
+    /// The 5-hour ring: 1.5 pt wide, 1 pt inside the weekly ring's inner edge, same track, start and
+    /// direction. No reading draws a dashed track, the way the weekly ring does.
+    @ViewBuilder
+    private func innerRing(_ ring: PoolRing) -> some View {
+        let color = ring.innerSeverity == .unknown ? ink : ring.innerSeverity.color
+        let ringSpace: CGFloat = 3.75
+        if let fraction = ring.innerFraction {
+            Circle().inset(by: ringSpace).stroke(color, lineWidth: 1.5).opacity(0.28)
+            Circle().inset(by: ringSpace).trim(from: 0, to: fraction)
+                .stroke(color, lineWidth: 1.5)
+                .rotationEffect(.degrees(-90))
+        } else {
+            Circle().inset(by: ringSpace)
+                .stroke(color, style: StrokeStyle(lineWidth: 1.5, dash: [1.5, 1.5]))
+        }
     }
 
     @ViewBuilder
@@ -91,10 +113,10 @@ enum MenuBarStripRenderer {
     private static func ink(_ scheme: ColorScheme) -> Color { scheme == .dark ? .white : .black }
 
     @MainActor
-    private static func render(_ segments: [MenuBarSegment], waiting: Bool,
+    private static func render(_ segments: [MenuBarSegment], waiting: Bool, showSession: Bool,
                                scheme: ColorScheme) -> CGImage? {
         let renderer = ImageRenderer(content: MenuBarStripView(
-            segments: segments, waiting: waiting, ink: ink(scheme)))
+            segments: segments, waiting: waiting, ink: ink(scheme), showSession: showSession))
         renderer.scale = 2
         return renderer.cgImage
     }
@@ -109,15 +131,18 @@ enum MenuBarStripRenderer {
     /// image because a template has no colours of its own, and over one fixed-ink image because the
     /// bar's scheme changes under the app; what it gives up is the press inversion a template gets.
     @MainActor
-    static func stripImage(_ segments: [MenuBarSegment], waiting: Bool = false) -> NSImage? {
-        let signature = (waiting ? "!" : "") + segments.map {
+    static func stripImage(_ segments: [MenuBarSegment], waiting: Bool = false,
+                           showSession: Bool = false) -> NSImage? {
+        let signature = (waiting ? "!" : "") + (showSession ? "s" : "") + segments.map {
             let ring = PoolRing($0)
             return "\($0.providerID):\(ring.fraction ?? -1):\(ring.severity.rawValue):\(ring.isFaded)"
+                + ":\(ring.innerFraction ?? -1):\(ring.innerSeverity.rawValue)"
         }.joined(separator: "|")
         if signature == lastSignature, let image = lastImage { return image }
 
-        guard let dark = render(segments, waiting: waiting, scheme: .dark),
-              let light = render(segments, waiting: waiting, scheme: .light) else { return nil }
+        guard let dark = render(segments, waiting: waiting, showSession: showSession, scheme: .dark),
+              let light = render(segments, waiting: waiting, showSession: showSession, scheme: .light)
+        else { return nil }
         let size = NSSize(width: CGFloat(dark.width) / 2, height: CGFloat(dark.height) / 2)
         let image = NSImage(size: size, flipped: false) { rect in
             let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -135,9 +160,11 @@ enum MenuBarStripRenderer {
     /// grants an SSH session can't hold, so the app renders its own strip instead - same view,
     /// same data, deterministic. Fired from `-TallyStripSnapshot <path>` in demo mode only.
     @MainActor
-    static func writeSnapshot(_ segments: [MenuBarSegment], to path: String, waiting: Bool = false) {
+    static func writeSnapshot(_ segments: [MenuBarSegment], to path: String, waiting: Bool = false,
+                              showSession: Bool = false) {
         let renderer = ImageRenderer(content:
-            MenuBarStripView(segments: segments, waiting: waiting, devTag: false, ink: ink(.dark))
+            MenuBarStripView(segments: segments, waiting: waiting, devTag: false, ink: ink(.dark),
+                             showSession: showSession)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color(red: 0.11, green: 0.11, blue: 0.12)))

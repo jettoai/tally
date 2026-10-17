@@ -10844,6 +10844,64 @@
         }
       }
     },
+    "Also show the 5-hour limit on the icon": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在圖示上同時顯示 5 小時額度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在图标上同时显示 5 小时额度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンに5時間の上限も表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘에 5시간 한도도 표시"
+          }
+        }
+      }
+    },
+    "Adds a thinner inner ring to each menu bar ring for the 5-hour window.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個選單列圓環內多一圈較細的內環，代表 5 小時額度。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个菜单栏圆环内多一圈较细的内环，代表 5 小时额度。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーの各リングの内側に、5時間枠を示す細いリングを追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대의 각 링 안쪽에 5시간 한도를 나타내는 얇은 링을 추가합니다."
+          }
+        }
+      }
+    },
     "%@ failed: %@": {
       "localizations": {
         "zh-Hant": {

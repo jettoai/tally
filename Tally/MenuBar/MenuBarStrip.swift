@@ -52,19 +52,12 @@ private struct MenuBarStripView: View {
 
     private func ringUnit(_ segment: MenuBarSegment) -> some View {
         let ring = PoolRing(segment)
-        let color = ring.severity == .unknown ? ink : ring.severity.color
+        let color = paint(ring.severity)
         return ZStack {
-            if let fraction = ring.fraction {
-                Circle().strokeBorder(color, lineWidth: 2).opacity(0.28)
-                Circle().inset(by: 1).trim(from: 0, to: fraction)
-                    .stroke(color, lineWidth: 2)
-                    .rotationEffect(.degrees(-90))
-            } else {
-                // Nothing to read: a dashed track with no arc, the mark stays.
-                Circle().strokeBorder(color, style: StrokeStyle(lineWidth: 2, dash: [2, 2]))
-            }
+            arc(ring.fraction, color: color, inset: 1, lineWidth: 2)
             if showSession {
-                innerRing(ring)
+                // The 5-hour ring: 1.5 pt wide, 1 pt inside the weekly ring's inner edge.
+                arc(ring.innerFraction, color: paint(ring.innerSeverity), inset: 3.75, lineWidth: 1.5)
             }
             icon(segment.providerID, size: showSession ? 7 : 10.5, color: color)
         }
@@ -72,20 +65,23 @@ private struct MenuBarStripView: View {
         .opacity(ring.isFaded ? 0.4 : 1)
     }
 
-    /// The 5-hour ring: 1.5 pt wide, 1 pt inside the weekly ring's inner edge, same track, start and
-    /// direction. No reading draws a dashed track, the way the weekly ring does.
+    /// A severity's colour, or ink when there is none to show.
+    private func paint(_ severity: MetricSeverity) -> Color {
+        severity == .unknown ? ink : severity.color
+    }
+
+    /// A faint full track with the arc over it from 12 o'clock clockwise; nothing to read draws a
+    /// dashed track with no arc (the mark stays).
     @ViewBuilder
-    private func innerRing(_ ring: PoolRing) -> some View {
-        let color = ring.innerSeverity == .unknown ? ink : ring.innerSeverity.color
-        let ringSpace: CGFloat = 3.75
-        if let fraction = ring.innerFraction {
-            Circle().inset(by: ringSpace).stroke(color, lineWidth: 1.5).opacity(0.28)
-            Circle().inset(by: ringSpace).trim(from: 0, to: fraction)
-                .stroke(color, lineWidth: 1.5)
+    private func arc(_ fraction: Double?, color: Color, inset: CGFloat, lineWidth: CGFloat) -> some View {
+        if let fraction {
+            Circle().inset(by: inset).stroke(color, lineWidth: lineWidth).opacity(0.28)
+            Circle().inset(by: inset).trim(from: 0, to: fraction)
+                .stroke(color, lineWidth: lineWidth)
                 .rotationEffect(.degrees(-90))
         } else {
-            Circle().inset(by: ringSpace)
-                .stroke(color, style: StrokeStyle(lineWidth: 1.5, dash: [1.5, 1.5]))
+            Circle().inset(by: inset)
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, dash: [lineWidth, lineWidth]))
         }
     }
 

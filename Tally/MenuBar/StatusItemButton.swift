@@ -102,8 +102,7 @@ extension StatusItemController {
             button.image?.accessibilityDescription = tooltip
             // README screenshot hook: demo mode + -TallyStripSnapshot <path> writes the strip
             // as a standalone PNG (idempotent - demo data never changes between refreshes).
-            if DemoUsage.isActive,
-               let path = UserDefaults.standard.string(forKey: "TallyStripSnapshot") {
+            if demo, let path = defaults.string(forKey: "TallyStripSnapshot") {
                 if let scheme = Self.capturedAppearance(button) {
                     Self.writeButtonSnapshot(button, to: path, dark: scheme == .darkAqua)
                 } else {
@@ -140,11 +139,12 @@ extension StatusItemController {
             guard bounds.width > 0, let rep = button.bitmapImageRepForCachingDisplay(in: bounds) else { return }
             button.cacheDisplay(in: bounds, to: rep)
             let base = dark ? NSColor(white: 0.11, alpha: 1) : NSColor(white: 0.93, alpha: 1)
+            let rect = NSRect(origin: .zero, size: bounds.size)
             let image = NSImage(size: bounds.size)
             image.lockFocus()
             base.setFill()
-            NSRect(origin: .zero, size: bounds.size).fill()
-            rep.draw(in: NSRect(origin: .zero, size: bounds.size))
+            rect.fill()
+            rep.draw(in: rect)
             image.unlockFocus()
             guard let tiff = image.tiffRepresentation, let out = NSBitmapImageRep(data: tiff) else { return }
             try? out.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))

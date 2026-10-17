@@ -13,18 +13,12 @@ struct PoolRing: Equatable {
     var isFaded: Bool
     /// The optional inner ring (5-hour window): same rules as `fraction` / `severity`; nil draws a
     /// dashed inner track when the inner ring is switched on.
-    var innerFraction: Double?
-    var innerSeverity: MetricSeverity
+    var innerFraction: Double? = nil
+    var innerSeverity: MetricSeverity = .unknown
+}
 
-    init(fraction: Double?, severity: MetricSeverity, isFaded: Bool,
-         innerFraction: Double? = nil, innerSeverity: MetricSeverity = .unknown) {
-        self.fraction = fraction
-        self.severity = severity
-        self.isFaded = isFaded
-        self.innerFraction = innerFraction
-        self.innerSeverity = innerSeverity
-    }
-
+// In an extension so the memberwise initializer stays synthesized.
+extension PoolRing {
     init(_ segment: MenuBarSegment) {
         // Always the REMAINING share, whatever the Used/Left toggle prints on the hover and panel.
         if let remaining = segment.remaining {

@@ -46,12 +46,12 @@ func stripSummaries(_ accounts: [AccountUsage]) -> [FleetSummary] {
 func pooled(_ accounts: [AccountUsage], mode: DisplayMode = .remaining,
             focus: @escaping (String, [String]) -> String? = flagshipFocus) -> [MenuBarSegment] {
     MenuBarSegments.pooled(accounts, summaries: stripSummaries(accounts), mode: mode,
-                           focusedModel: focus)
+                           focusedModel: focus, now: now)
 }
 
 func perAccount(_ accounts: [AccountUsage], mode: DisplayMode = .remaining,
                 focus: @escaping (String, [String]) -> String? = flagshipFocus) -> [MenuBarSegment] {
-    MenuBarSegments.perAccount(accounts, mode: mode, focusedModel: focus)
+    MenuBarSegments.perAccount(accounts, mode: mode, focusedModel: focus, now: now)
 }
 
 /// Two Claude accounts and one Codex, the shape the pooled strip exists for.
@@ -484,6 +484,7 @@ do {
 }
 
 resetPassedStripChecks()
+resetPassedPooledChecks()
 planSplitChecks()
 
 statusFaceChecks()

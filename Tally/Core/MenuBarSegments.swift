@@ -146,7 +146,8 @@ enum MenuBarSegments {
     /// plans: each plan is its own segment, because an equal-weight average of a Pro and a Team
     /// account is a number neither budget has (`poolGroups`).
     static func pooled(_ accounts: [AccountUsage], summaries: [FleetSummary], mode: DisplayMode,
-                       focusedModel: (String, [String]) -> String?) -> [MenuBarSegment] {
+                       focusedModel: (String, [String]) -> String?,
+                       now: Date = Date()) -> [MenuBarSegment] {
         poolGroups(accounts, summaries: summaries).map { group in
             let providerID = group.providerID, members = group.members, tag = group.tag
             let missing = missingFromPool(members)
@@ -169,15 +170,28 @@ enum MenuBarSegments {
             // whether each of them covers everybody is the other half of "is this figure the whole
             // truth", and only these pools can answer it (the summary may carry others).
             let drawn = pools(summary, focusedModel: focusedModel)
-            let lines = drawn.map {
+            // A pool with any member whose held-over reading of that window its reset has overtaken
+            // is unknown as a whole, the answer the per-account strip gives for that member alone:
+            // an average over a figure that is no longer true is not the pool's figure either.
+            let unknown = drawn.map { pool in
+                members.contains { account in
+                    account.metrics.contains { $0.kind == pool.kind
+                        && ($0.kind != .weeklyModel || ($0.modelName ?? $0.label) == (pool.modelName ?? pool.label))
+                        && account.resetPassed($0, now: now) }
+                }
+            }
+            let lines = zip(drawn, unknown).map { pool, isUnknown in
+                if isUnknown { return "?" }
                 // The pool's average, read the way the gauge's value column reads it: remaining by
                 // default, its complement in Used mode. Both surfaces clamp where a per-account
                 // meter does not - an account the provider reports at 103% used prints 103% on its
                 // own segment and 100% in a pool, because `remainingPercent` floors at zero before
                 // anything is averaged.
-                percent(used: 100 - $0.averageRemaining, remaining: $0.averageRemaining, mode: mode)
+                return percent(used: 100 - pool.averageRemaining, remaining: pool.averageRemaining, mode: mode)
             }
-            let session = drawn.first { $0.kind == .session }
+            let readable = zip(drawn, unknown).filter { !$0.1 }.map(\.0)
+            let weekly = drawn.last.flatMap { last in readable.last == last ? last : nil }
+            let session = readable.first { $0.kind == .session }
             return MenuBarSegment(
                 providerID: providerID, lines: lines.isEmpty ? ["—"] : lines,
                 // Every way a pooled figure stops being the whole truth dims the segment. A STALE
@@ -189,9 +203,9 @@ enum MenuBarSegments {
                 dimmed: !missing.isEmpty || !windowGaps(members, pools: drawn).isEmpty
                     || members.contains(where: \.isStale),
                 badge: badge, tag: tag,
-                remaining: drawn.last.map { wholePercent($0.averageRemaining) },
+                remaining: weekly.map { wholePercent($0.averageRemaining) },
                 // The fleet gauge's bar colours a pool by its average (FleetStripView).
-                severity: drawn.last.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown,
+                severity: weekly.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown,
                 sessionRemaining: session.map { wholePercent($0.averageRemaining) },
                 sessionSeverity: session.map { .fromUsedPercent(100 - $0.averageRemaining) } ?? .unknown)
         }

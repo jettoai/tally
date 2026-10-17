@@ -161,6 +161,45 @@ func runCodexWallChecks() {
     check("T7 a stale snapshot moves nothing, and no readable snapshot holds a rollout wall: no-snapshot",
           !t7b.wall && t7b.plan == nil && t7c.wall && t7c.plan == nil && t7c.held == "no-snapshot")
 
+    // T11: the destination of a move must not inherit the source's last rollout reading as its own wall
+    // (the live rehearsal's finding 1, reproduced end to end up to the tick wiring). The old window's
+    // records, 100% included, predate the new supervisor's launch, which is what keeps them out.
+    let launched = now.addingTimeInterval(60)
+    let rolloutURL = work.appendingPathComponent("rollout-after-move.jsonl")
+    func row(_ type: String, _ payload: [String: Any], at: Date) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: ["type": type, "payload": payload,
+            "timestamp": ISO8601DateFormatter().string(from: at)])
+        return String(decoding: data, as: UTF8.self) + "\n"
+    }
+    let sourceSession = UUID().uuidString, oldTurn = UUID().uuidString
+    let staleLimits: [String: Any] = ["primary": ["used_percent": 100.0, "window_minutes": 10080,
+                                                   "resets_at": launched.timeIntervalSince1970 + 86400]]
+    try? (row("session_meta", ["id": sourceSession, "session_id": sourceSession, "source": "cli"], at: now)
+        + row("event_msg", ["type": "task_started", "turn_id": oldTurn], at: now.addingTimeInterval(1))
+        + row("event_msg", ["type": "token_count", "rate_limits": staleLimits], at: now.addingTimeInterval(2))
+        + row("event_msg", ["type": "task_complete", "turn_id": oldTurn], at: now.addingTimeInterval(3)))
+        .write(to: rolloutURL, atomically: true, encoding: .utf8)
+    let rolloutHome = base.appendingPathComponent("rollout-home")
+    let rolloutDay = rolloutHome.appendingPathComponent("sessions")
+    try? FileManager.default.createDirectory(at: rolloutDay, withIntermediateDirectories: true)
+    let placed = rolloutDay.appendingPathComponent("rollout-after-move.jsonl")
+    try? FileManager.default.copyItem(at: rolloutURL, to: placed)
+    var fresh = CodexSessionObserver(binding: CodexSessionBinding(nonce: "m", sessionID: sourceSession,
+        transcriptPath: placed.path, model: nil), launchedAt: launched)
+    fresh.poll(home: rolloutHome.path)
+    let q11 = quarantineDirectory()
+    var w11 = CodexWallWatch(), f11 = newFuse()
+    // the destination is roomy in the snapshot, but its row is OLDER than the stale reading, so the
+    // overrule cannot be what saves it
+    var olderRoomy = roomy
+    olderRoomy.refreshedAt = now.addingTimeInterval(-300)
+    let t11 = tick(&w11, fresh.rateReading, [cur, olderRoomy], at: launched.addingTimeInterval(5), account: roomy.id,
+                   fuse: &f11, quarantine: q11)
+    check("T11 a window started after a move reads none of the source account's rollout, so the destination is no wall "
+          + "and is not quarantined",
+          !fresh.invalidated && fresh.rateReading == nil && !t11.wall && t11.plan == nil && t11.held == nil
+              && !quarantinedAccounts(forPrimary: nil, now: launched.addingTimeInterval(5), dir: q11).contains(roomy.id))
+
     // T8/T10: one path out of the supervisor, behind the one gate
     let supervisor = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
     func count(_ needle: String) -> Int { supervisor.components(separatedBy: needle).count - 1 }

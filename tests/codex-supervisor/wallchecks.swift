@@ -94,6 +94,31 @@ func runWallChecks() throws {
     failing.poll(home: home.path)
     check("W10 a task_complete with a null error is a clean turn", !failing.lastTurnFailed && failing.state == .idle)
 
+    // W11: the window a move starts is launched AFTER the old account's last reading was written, so that
+    // reading is never its wall; its own account's first reading is, and a later 100% still is.
+    func tokenCount(_ used: Double, after: TimeInterval) throws -> Data {
+        try line("event_msg", ["type": "token_count", "rate_limits": ["primary": [
+            "used_percent": used, "window_minutes": 10080, "resets_at": start.timeIntervalSince1970 + 86400]]], after: after)
+    }
+    let (moveFile, _) = try fixture("wall-after-move", contents: meta() + event("task_started", after: 0.5)
+        + tokenCount(100, after: 1) + event("task_complete", after: 1.5))
+    var moved = CodexSessionObserver(binding: CodexSessionBinding(nonce: "mv", sessionID: sid,
+        transcriptPath: moveFile.path, model: nil), launchedAt: start.addingTimeInterval(10))
+    moved.poll(home: home.path)
+    check("W11 a new window launched after the old account's 100% reading has no reading yet, so no wall",
+          moved.rateReading == nil && !codexRolloutWall(moved.rateReading, now: start.addingTimeInterval(11)))
+    try append(event("task_started", turnID: nextTurn, after: 11) + tokenCount(40, after: 12)
+        + event("task_complete", turnID: nextTurn, after: 13), to: moveFile)
+    moved.poll(home: home.path)
+    check("W11 …its own account's first reading (40%) is read, and is not a wall",
+          moved.rateReading?.usedPercent == 40 && !codexRolloutWall(moved.rateReading, now: start.addingTimeInterval(14)))
+    let thirdTurn = UUID().uuidString
+    try append(event("task_started", turnID: thirdTurn, after: 20) + tokenCount(100, after: 21)
+        + event("task_complete", turnID: thirdTurn, after: 22), to: moveFile)
+    moved.poll(home: home.path)
+    check("W11 …and a 100% reading it writes after its first turn is still a wall",
+          codexRolloutWall(moved.rateReading, now: start.addingTimeInterval(23)))
+
     // W8: malformed quota records update nothing and never invalidate the observer.
     let (file, _) = try fixture("wall-malformed")
     var observer = CodexSessionObserver(binding: CodexSessionBinding(nonce: "m", sessionID: sid,

@@ -4438,6 +4438,64 @@
         }
       }
     },
+    "Installed; overridden in 1 project folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝；1 個專案資料夾自行覆寫"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装；1 个项目文件夹自行覆盖"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済み。1 つのプロジェクトフォルダで上書きされています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치됨. 프로젝트 폴더 1개에서 덮어씀"
+          }
+        }
+      }
+    },
+    "Installed; overridden in %lld project folders": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝；%lld 個專案資料夾自行覆寫"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装；%lld 个项目文件夹自行覆盖"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済み。%lld 個のプロジェクトフォルダで上書きされています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치됨. 프로젝트 폴더 %lld개에서 덮어씀"
+          }
+        }
+      }
+    },
     "Not installed for every account": {
       "extractionState": "manual",
       "localizations": {

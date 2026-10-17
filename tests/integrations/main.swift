@@ -50,6 +50,7 @@ try MainActor.assumeIsolated {
 
     // The status line registration and its settings.json surgery (statuslinechecks.swift).
     try runStatusLineChecks(tmp: tmp)
+    try runProjectStatusLineChecks()
     try runNotificationHookChecks(tmp: tmp)
     try runAgentHookChecks(tmp: tmp)
     try runKnockHookChecks(tmp: tmp)

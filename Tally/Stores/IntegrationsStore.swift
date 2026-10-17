@@ -159,7 +159,7 @@ final class IntegrationsStore {
 
     /// The registered command (provenance marker too: removal only touches an entry that IS
     /// this string). Depends on the CLI tool integration for the stable public path.
-    nonisolated static let statusLineCommand = "/usr/local/bin/tally statusline claude"
+    nonisolated static let statusLineCommand = ProjectStatusLine.ourCommand
 
     /// Every discovered claude config home, NOT deduplicated - the population, as opposed to the
     /// physical-file lists below it.

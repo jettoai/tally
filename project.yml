@@ -148,6 +148,10 @@ targets:
       # record and the one set of thresholds - a drifted second copy would have `tally status`
       # printing a limit the app never alarmed on. Only the record and the pure rules are here;
       # the syscalls and the notification stay in the app (HostHealthReaders/Monitor.swift).
+      # Which project settings file replaces Tally's status line in a session's folder, and the one
+      # spelling of the command Tally registers: the app counts the overridden folders in
+      # Settings, `tally status --json` names the file per session.
+      - path: Tally/Core/ProjectStatusLine.swift
       - path: Tally/Core/HostHealthLogic.swift
       # And the one rule for what may go on a terminal's input queue, which that sentence and the
       # quota knock's account names are both repaired through (KeystrokeText.swift). Compiled by

@@ -184,7 +184,8 @@ extension SettingsView {
             caption: L("Shows the active account at the bottom of every claude session, with its remaining quota when Tally is the only status line. An existing custom status line keeps running with the signal appended, and is restored exactly on removal."),
             status: integrations.statusLineStatus,
             install: integrations.installStatusLine,
-            remove: integrations.removeStatusLine)
+            remove: integrations.removeStatusLine,
+            warning: statusLineOverrideWarning(integrations.statusLineStatus))
         rowDivider
         integrationRow(
             title: L("Claude session board"),
@@ -323,7 +324,8 @@ extension SettingsView {
     private func integrationRow(title: String, caption: String, status: IntegrationsStore.Status,
                                 install: @escaping () -> Void,
                                 remove: @escaping () -> Void,
-                                removable: Bool = true) -> some View {
+                                removable: Bool = true,
+                                warning: (text: String, paths: String)? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -334,6 +336,12 @@ extension SettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let warning {
+                    Text(warning.text)
+                        .font(.caption)
+                        .foregroundStyle(TallyColor.warning)
+                        .help(warning.paths)
+                }
             }
             Spacer()
             // Both answers, whenever both apply. A broken row used to offer the repair alone, which
@@ -354,6 +362,21 @@ extension SettingsView {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    /// "Installed" speaks for the user's settings.json, and a project folder's own `statusLine`
+    /// wins over it (ProjectStatusLine.swift, jettoai/tally#12). Counted over the folders of the
+    /// Claude sessions already on the roster (no scan of its own); nil, and so no change to the row,
+    /// when none is overridden.
+    private func statusLineOverrideWarning(_ status: IntegrationsStore.Status) -> (text: String, paths: String)? {
+        guard status == .installed else { return nil }
+        let files = Set(SessionRosterStore.shared.rows.filter { $0.providerID != "codex" }
+            .compactMap { ($0.cwd ?? $0.directory).flatMap { ProjectStatusLine.overridingFile(cwd: $0) } })
+        guard !files.isEmpty else { return nil }
+        let text = files.count == 1
+            ? L("Installed; overridden in 1 project folder")
+            : String(format: L("Installed; overridden in %lld project folders"), files.count)
+        return (text, files.sorted().joined(separator: "\n"))
     }
 
     @ViewBuilder

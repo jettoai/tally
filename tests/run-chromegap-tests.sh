@@ -90,7 +90,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/SessionInputOccupant.swift \
   TallyCLI/SessionInputRequest.swift \
   TallyCLI/SessionInputTick.swift \
-  TallyCLI/SessionInventory.swift \
+  Tally/Core/ProjectStatusLine.swift TallyCLI/SessionInventory.swift \
   TallyCLI/SessionModel.swift \
   TallyCLI/SessionProjectAddress.swift \
   TallyCLI/SessionQuiet.swift \

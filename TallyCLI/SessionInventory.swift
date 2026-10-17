@@ -152,7 +152,11 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             model: session.context?.observedModel ?? session.context?.runningModel,
             effort: session.context?.runningEffort,
             taskList: readTaskListPin(pid: session.supervisorPid, dir: dir)
-                .map { StatusReport.Session.TaskList(id: $0.id, dir: $0.dir) })
+                .map { StatusReport.Session.TaskList(id: $0.id, dir: $0.dir) },
+            // Where Claude Code actually runs (the supervisor's cwd, which may be below the
+            // checkout), because a subfolder can carry a `.claude/` of its own.
+            statusLineOverride: session.monitoring ? nil : (session.cwd ?? session.state?.directory)
+                .flatMap { ProjectStatusLine.overridingFile(cwd: $0) })
     }
 }
 

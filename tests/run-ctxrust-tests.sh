@@ -107,7 +107,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/SessionInputOccupant.swift \
   TallyCLI/SessionInputRequest.swift \
   TallyCLI/SessionInputTick.swift \
-  TallyCLI/SessionInventory.swift \
+  Tally/Core/ProjectStatusLine.swift TallyCLI/SessionInventory.swift \
   TallyCLI/SessionModel.swift \
   TallyCLI/SessionProjectAddress.swift \
   TallyCLI/SessionQuiet.swift \

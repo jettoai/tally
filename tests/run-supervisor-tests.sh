@@ -163,7 +163,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/TerminalHandover.swift \
   TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/CodexStartupScreenRecord.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/HookNotify.swift TallyCLI/AgentRoster.swift TallyCLI/HookAgents.swift TallyCLI/SessionStateSync.swift TallyCLI/SessionWaitTracker.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
   TallyCLI/SessionWaitEvent.swift TallyCLI/SessionWaitLogic.swift TallyCLI/SessionWaitSpool.swift TallyCLI/EventDeliverySpawn.swift TallyCLI/CodexWaitEvents.swift \
-  TallyCLI/SessionContext.swift TallyCLI/SessionInventory.swift TallyCLI/MessagingSocket.swift \
+  Tally/Core/ProjectStatusLine.swift TallyCLI/SessionContext.swift TallyCLI/SessionInventory.swift TallyCLI/MessagingSocket.swift \
   TallyCLI/SessionInput.swift TallyCLI/AutomaticInput.swift TallyCLI/SessionInputAutomatic.swift TallyCLI/SessionInputTick.swift TallyCLI/SessionInputLanding.swift \
   TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionClear.swift TallyCLI/SessionInputLog.swift \

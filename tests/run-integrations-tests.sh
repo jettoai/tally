@@ -35,6 +35,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/completionchecks.swift tests/integrations/clitoolchecks.swift \
   tests/integrations/smartbadgechecks.swift tests/integrations/loadbadgechecks.swift tests/integrations/sharedloginbadgechecks.swift \
   tests/integrations/claudejsonformatchecks.swift tests/integrations/profilechecks.swift Tally/Core/SharedLogin.swift \
+  tests/integrations/projectstatuslinechecks.swift Tally/Core/ProjectStatusLine.swift \
   Tally/Core/CodexSessionHooks.swift Tally/Stores/IntegrationsCodexSession.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Core/ClaudeJSONFormat.swift Tally/Stores/IntegrationsShim.swift \
   Tally/Stores/IntegrationsCLITool.swift \

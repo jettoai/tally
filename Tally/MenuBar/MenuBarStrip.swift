@@ -3,8 +3,9 @@ import SwiftUI
 
 /// The menu-bar strip, drawn as a single SwiftUI view rendered to an `NSImage`: one ring per pool
 /// with the provider's mark inside, the arc as long as the share of the WEEK that is left, and no
-/// text at all (B-2045). Each ring and its mark wear the colour of the panel bar for the same
-/// window (`MetricSeverity.color`: green from 50% left, amber from 20%, red below); the waiting dot
+/// text at all (B-2045). Each ring wears the colour of the panel bar for the same window
+/// (`MetricSeverity.color`: green from 50% left, amber from 20%, red below); the mark inside wears
+/// its provider's brand colour (`ProviderBrand`), or ink where the brand is single-colour; the waiting dot
 /// and the DEV tag are ink, which `MenuBarStripRenderer` picks for the bar's scheme. What each ring
 /// stands for - one account or one provider's pool - is decided in `MenuBarSegments`, and what it
 /// shows (length, colour, faded, dashed) in `PoolRing`.
@@ -59,10 +60,16 @@ private struct MenuBarStripView: View {
                 // The 5-hour ring: 1.5 pt wide, 1 pt inside the weekly ring's inner edge.
                 arc(ring.innerFraction, color: paint(ring.innerSeverity), inset: 3.75, lineWidth: 1.5)
             }
-            icon(segment.providerID, size: showSession ? 7 : 10.5, color: color)
+            icon(segment.providerID, size: showSession ? 7 : 10.5,
+                 color: ProviderBrand.markHex(for: segment.providerID).map(Self.rgb) ?? ink)
         }
         .frame(width: 18, height: 18)
         .opacity(ring.isFaded ? 0.4 : 1)
+    }
+
+    private static func rgb(_ hex: UInt32) -> Color {
+        Color(red: Double(hex >> 16 & 0xFF) / 255, green: Double(hex >> 8 & 0xFF) / 255,
+              blue: Double(hex & 0xFF) / 255)
     }
 
     /// A severity's colour, or ink when there is none to show.

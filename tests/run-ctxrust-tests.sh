@@ -22,7 +22,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/ChromePreflight.swift \
   TallyCLI/ChromeRun.swift \
   TallyCLI/ChromeRunStream.swift \
-  TallyCLI/SwitchCommand.swift \
+  TallyCLI/SwitchCommand.swift TallyCLI/CodexHandoff.swift TallyCLI/CodexHandoffCommand.swift \
   TallyCLI/TranscriptLineBytes.swift \
   TallyCLI/QuotaKnock.swift \
   TallyCLI/CapResume.swift \

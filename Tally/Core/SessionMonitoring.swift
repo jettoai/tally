@@ -107,7 +107,7 @@ struct SessionMonitoring: Codable, Equatable {
 func sessionControlRefusal(pid: String, dir: URL) -> String? {
     guard SessionMonitoring.isMarked(pid: pid, dir: dir) else { return nil }
     if SessionMonitoring.supportsDirectSend(pid: pid, dir: dir) {
-        return "This Codex session supports monitoring and direct input, not account, model, or reload controls; `tally session clear` reopens it only when this project's default provider is set. Restart with the desired launch settings. Nothing was queued."
+        return "This Codex session supports monitoring and direct input, not model or reload controls; `tally account <codex account> --session <pid>` hands it to another Codex account, and `tally session clear` reopens it only when this project's default provider is set. Restart with the desired launch settings. Nothing was queued."
     }
     return "This session supports monitoring only. Restart it to change its account, model, or supervisor version. Nothing was queued."
 }

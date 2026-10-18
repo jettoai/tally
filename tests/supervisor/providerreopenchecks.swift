@@ -188,7 +188,7 @@ func runProviderReopenChecks() {
     // Both supervisors ask about, and exec, the reopen with the launch's own --spend-reserve.
     check("wiring: the Codex monitor carries the launch's --spend-reserve into its reopen",
           codexSource.contains("runCodexSupervised(provider, account: account, args: args, spendReserve: decision.spendReserve)")
-              && codexSource.contains("cwd: identity.directory ?? cwd,\n                                                spendReserve: spendReserve)")
+              && codexSource.contains(#"current: "codex", cwd: identity.directory ?? cwd, spendReserve: spendReserve)"#)
               && codexSource.contains(#"execProviderReopen(reopenAs, current: "codex", spendReserve: spendReserve)"#))
     check("wiring: the Claude supervisor carries its --spend-reserve into its reopen",
           supervisorSource.contains("clearReopenTarget(current: provider.id, cwd: cwd, spendReserve: spendReserve)")

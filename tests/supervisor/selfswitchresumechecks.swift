@@ -252,7 +252,7 @@ func runSelfSwitchResumeChecks() {
               && switchArm!.lowerBound < exec!.lowerBound)
     let command = (try? String(contentsOfFile: "TallyCLI/SwitchCommand.swift", encoding: .utf8)) ?? ""
     check("`tally account` writes its requests as the session's own",
-          command.contains("attemptSwitch(intent, surface: .session, reserveGate: !spendReserve)"))
+          command.contains("attemptSwitch(intent, surface: .session, reserveGate: !spendReserve, sessionPID: sessionPID)"))
     // B-1213: naming an account under its owner's line is refused, as `--account` is at launch.
     check("…and refuses a target under its owner's reserve unless --spend-reserve",
           command.contains("if reserveGate, let target, let refusal = namedReserveRefusal(target,")

@@ -7,6 +7,8 @@ private struct CodexSessionContext: Codable, Equatable {
     var accountID: String
     var runningModel: String?
     var runningEffort: String?
+    /// The server's plan for this launch's turns, from the first `token_count`; absent before one.
+    var runningPlan: String?
     var updatedAt: Date
 }
 
@@ -20,7 +22,7 @@ struct CodexSessionContextWriter {
         let next = CodexSessionContext(accountID: accountID,
             runningModel: observer?.model ?? launchModel,
             runningEffort: observer?.hasTurnContext == true ? observer?.effort : launchEffort,
-            updatedAt: now)
+            runningPlan: observer?.planType, updatedAt: now)
         if var unchanged = current {
             unchanged.updatedAt = now
             if unchanged == next { return }

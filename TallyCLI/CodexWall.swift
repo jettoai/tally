@@ -76,12 +76,11 @@ func codexWallPlan(watch: inout CodexWallWatch, reading: CodexRateReading?, acco
         watch.nextSnapshotRead = now.addingTimeInterval(codexWallPoll)
     }
     let current = watch.snapshot?.accounts.first { $0.id == accountID && $0.provider == "codex" }
-    let fresh = current.map { $0.error == nil && !$0.isStale && $0.lastRefreshFailed != true } == true
     var byRollout = codexRolloutWall(reading, now: now) && reading.map { $0.at > (watch.settledReading ?? .distantPast) } == true
     // A fresh, roomy reading taken after the rollout's own says a redeem or a reset landed that the
     // rollout has not recorded yet.
-    if byRollout, let reading, fresh, let refreshed = current?.refreshedAt, refreshed > reading.at,
-       let current, headroom(current) > 0 {
+    if byRollout, let reading, let current, current.error == nil, !current.isStale, current.lastRefreshFailed != true,
+       let refreshed = current.refreshedAt, refreshed > reading.at, headroom(current) > 0 {
         watch.settledReading = reading.at
         byRollout = false
     }

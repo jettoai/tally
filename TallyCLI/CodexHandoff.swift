@@ -87,17 +87,25 @@ func codexSharesHistory(sourceHome: String, targetHome: String) -> Bool {
     codexResolvedSub(targetHome, "sessions") == codexResolvedSub(sourceHome, "sessions")
 }
 
+/// A live Codex supervisor's identity and the binding its session hook wrote, only when the binding
+/// carries the supervisor's own nonce (the same proof as the automatic-resume guard).
+private func codexOwnBinding(pid: String, dir: URL) -> (identity: SessionMonitoring, binding: CodexSessionBinding)? {
+    guard let identity = SessionMonitoring.read(pid: pid, dir: dir), identity.provider == "codex",
+          let bytes = try? Data(contentsOf: dir.appendingPathComponent(pid + ".codex-binding")),
+          let binding = try? JSONDecoder().decode(CodexSessionBinding.self, from: bytes),
+          binding.nonce == identity.nonce else { return nil }
+    return (identity, binding)
+}
+
 /// The conversation this supervisor's window holds, as its own session hook reported it, or why a
 /// hand-off cannot carry it. Nothing is guessed from a file name or a "latest session" scan.
 func codexHandoffSource(pid: String, targetHome: String, fallbackDirectory: String?,
                         dir: URL = supervisorStateDir) -> CodexHandoffSource {
-    guard let identity = SessionMonitoring.read(pid: pid, dir: dir), identity.provider == "codex",
-          let bytes = try? Data(contentsOf: dir.appendingPathComponent(pid + ".codex-binding")),
-          let binding = try? JSONDecoder().decode(CodexSessionBinding.self, from: bytes),
-          binding.nonce == identity.nonce, UUID(uuidString: binding.sessionID) != nil else {
+    guard let own = codexOwnBinding(pid: pid, dir: dir), UUID(uuidString: own.binding.sessionID) != nil else {
         return .refused("this Codex window has not reported its conversation yet; send one prompt first")
     }
-    let sourceHome = identity.home
+    let binding = own.binding
+    let sourceHome = own.identity.home
     guard let transcript = codexTranscriptURL(path: binding.transcriptPath, home: sourceHome),
           transcript.lastPathComponent.lowercased().hasSuffix("-" + binding.sessionID.lowercased() + ".jsonl") else {
         return .refused("this window's conversation file is not where Codex keeps its sessions")
@@ -116,19 +124,12 @@ func codexHandoffSource(pid: String, targetHome: String, fallbackDirectory: Stri
     return .ready(threadID: binding.sessionID, directory: directory)
 }
 
-/// Every thread a live Codex supervisor of this machine holds, with the pid that holds it (the
-/// same proof as the automatic-resume guard: a binding whose nonce is the supervisor's own).
+/// Every thread a live Codex supervisor of this machine holds, with the pid that holds it.
 func liveCodexConversationOwners(dir: URL = supervisorStateDir) -> [(thread: String, pid: String)] {
-    var owners: [(thread: String, pid: String)] = []
-    for pid in SessionMonitoring.markedPids(dir: dir) {
+    SessionMonitoring.markedPids(dir: dir).compactMap { pid in
         let key = String(pid)
-        guard let identity = SessionMonitoring.read(pid: key, dir: dir), identity.provider == "codex",
-              let bytes = try? Data(contentsOf: dir.appendingPathComponent(key + ".codex-binding")),
-              let binding = try? JSONDecoder().decode(CodexSessionBinding.self, from: bytes),
-              binding.nonce == identity.nonce else { continue }
-        owners.append((binding.sessionID, key))
+        return codexOwnBinding(pid: key, dir: dir).map { (thread: $0.binding.sessionID, pid: key) }
     }
-    return owners
 }
 
 /// Another live head on the same conversation would be a second writer to one rollout.

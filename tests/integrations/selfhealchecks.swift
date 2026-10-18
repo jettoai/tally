@@ -409,6 +409,15 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     check("…so the pair settles instead of asking for a repair on every event",
           !needsHealing(sharedSkills, [shareA, shareB]))
 
+    // MARK: - ONE DEV INSTANCE AT A TIME
+    check("closing others never includes this process",
+          BuildVariant.devPIDsToClose(others: [10, 20, 30], me: 20) == [10, 30])
+    check("no other instance closes nothing", BuildVariant.devPIDsToClose(others: [], me: 5).isEmpty)
+    check("only this process in the list closes nothing",
+          BuildVariant.devPIDsToClose(others: [5], me: 5).isEmpty)
+    check("duplicate pids are closed once",
+          BuildVariant.devPIDsToClose(others: [7, 7, 9, 7], me: 5) == [7, 9])
+
     // MARK: - THE GATE IN FRONT OF ALL OF IT
     //
     // None of the above may run at all from a build tree. The dev variant was the only build that

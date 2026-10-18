@@ -12,7 +12,29 @@ enum AppTermination {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItemController = StatusItemController()
 
+    /// Dev builds only: close every other "Tally Dev" that started before this one (terminate, then
+    /// force after a short wait), so the newest build is the only one left in the menu bar.
+    private func closeOlderDevInstances() {
+        guard BuildVariant.isDev, let id = Bundle.main.bundleIdentifier else { return }
+        let me = NSRunningApplication.current
+        func order(_ app: NSRunningApplication) -> (Date, Int32) {
+            (app.launchDate ?? .distantPast, app.processIdentifier)
+        }
+        let older = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .filter { $0.processIdentifier != me.processIdentifier && order($0) < order(me) }
+        let doomed = Set(BuildVariant.devPIDsToClose(
+            others: older.map(\.processIdentifier), me: me.processIdentifier))
+        let victims = older.filter { doomed.contains($0.processIdentifier) }
+        victims.forEach { $0.terminate() }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline, victims.contains(where: { !$0.isTerminated }) {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        victims.filter { !$0.isTerminated }.forEach { $0.forceTerminate() }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        closeOlderDevInstances()
         // First, before anything puts a window up: that window taking key is itself a focus change
         // a supervisor must be able to explain (FocusEventRecorder).
         FocusEventRecorder.shared.install()

@@ -51,6 +51,14 @@ enum BuildVariant {
             .contains { lowered.contains($0) }
     }
 
+    /// Which of the other running dev instances a freshly launched one must close, so the menu bar
+    /// never carries more than one "Tally Dev". Dev builds from different DerivedData paths run side
+    /// by side, and every session that opens one adds another. The caller passes only instances that
+    /// started BEFORE this one, so two near-simultaneous launches cannot close each other.
+    static func devPIDsToClose(others: [Int32], me: Int32) -> [Int32] {
+        Array(Set(others)).filter { $0 != me }.sorted()
+    }
+
     /// Where the release pipeline puts the `tally` CLI inside the bundle. One spelling, shared with
     /// `IntegrationsStore.bundledCLIURL`: the check below and the binary the hooks are registered
     /// with have to be talking about the same file or the check means nothing.

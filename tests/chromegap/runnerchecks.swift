@@ -34,6 +34,17 @@ func runRunnerChecks() {
     check("R2c the prompt asks for each new tab on its own tabs_create_mcp call, not in browser_batch",
           prompt.contains("own tabs_create_mcp call, never inside browser_batch"))
 
+    check("R2d the prompt starts with list_connected_browsers and uses only isLocal=true browsers",
+          prompt.contains("first tool call is list_connected_browsers. Use only a browser with isLocal=true"
+                          + " (select_browser it); a browser with isLocal=false is on another machine, so never"
+                          + " open, navigate or close a tab there."))
+    check("R2d with no local browser the prompt says to stop and name the connected ones",
+          prompt.contains("If no listed browser has isLocal=true, stop: do not touch any tab")
+              && prompt.contains("(name them)"))
+    check("R2e the activate script never starts Chrome and only activates it",
+          chromeActivateScript.hasPrefix("if application \"Google Chrome\" is not running then return")
+              && chromeActivateScript.contains("tell application \"Google Chrome\" to activate"))
+
     let provider = providers[0]
     let base = ["CLAUDE_CONFIG_DIR": "/x", "PATH": "/usr/bin:/bin", "HOME": "/Users/x",
                 "CLAUDE_CODE_OAUTH_TOKEN": "t", "ANTHROPIC_API_KEY": "k", "CLAUDE_CODE_SIMPLE": "1",

@@ -60,6 +60,11 @@ func chromeRunPrompt(task: String) -> String {
         + " each saved path in your final reply. Each time you open a tab, note its tab id; before"
         + " your final reply, close every tab you opened with tabs_close_mcp. Open each new tab with its"
         + " own tabs_create_mcp call, never inside browser_batch, so Tally can tell the tab is yours."
+        + " Your first tool call is list_connected_browsers. Use only a browser with isLocal=true"
+        + " (select_browser it); a browser with isLocal=false is on another machine, so never open,"
+        + " navigate or close a tab there. If no listed browser has isLocal=true, stop: do not touch any"
+        + " tab, and make your final reply say that this account is connected only to the listed"
+        + " browsers (name them) and not to this Mac."
         + " End with the result the task asks for.\n\nTask:\n\n"
         + task
 }
@@ -187,6 +192,13 @@ func chromeCloseTabsScript(ids: [Int]) -> String {
     lines += ["end tell", "return closedCount as text"]
     return lines.joined(separator: "\n")
 }
+
+/// Brings this Mac's Chrome to the front; never starts it.
+let chromeActivateScript = """
+if application "Google Chrome" is not running then return ""
+tell application "Google Chrome" to activate
+return ""
+"""
 
 /// Runs one AppleScript with a deadline and stdin on /dev/null; nil when it failed, timed out or
 /// could not start. The first run may stop on macOS asking whether this terminal may control
@@ -389,6 +401,8 @@ func runChromeRun(args: [String],
     let doomed = chromeRunTabsToClose(scanned, before: tabsBefore)
     let closed: Int? = doomed.isEmpty ? 0
         : chromeRunAppleScript(chromeCloseTabsScript(ids: doomed)).flatMap { Int($0) }
+    // A run that opened pages leaves Chrome in front, so the person is not left hunting for it.
+    if result.ok, !scanned.opened.isEmpty { _ = chromeRunAppleScript(chromeActivateScript) }
     let document = chromeRunResultDocument(account: account, outcome: result,
                                            raw: String(decoding: resultData, as: UTF8.self),
                                            rawPath: rawURL.path, errorPath: errorURL.path,

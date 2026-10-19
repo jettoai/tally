@@ -75,8 +75,12 @@ func runChromePreferenceChecks() {
                         case .off: project = ProjectPolicy(chrome: false)
                         case .on: project = ProjectPolicy(chrome: true)
                         }
-                        let settingValue: String? = setting == .none ? nil
-                            : setting == .inSnapshot ? "claude:chrome" : "claude:gone"
+                        let settingValue: String?
+                        switch setting {
+                        case .none: settingValue = nil
+                        case .inSnapshot: settingValue = "claude:chrome"
+                        case .gone: settingValue = "claude:gone"
+                        }
                         let intent = launchIntent(claude, args: spend ? [spendReserveFlag] : [],
                                                   accountFlag: accountFlag, stdoutIsTTY: true,
                                                   environment: env)

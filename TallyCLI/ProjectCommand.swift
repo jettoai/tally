@@ -64,8 +64,8 @@ private func runProjectSet(args: [String]) -> Int32 {
     let effort = optionValue(args, "--effort")
     let account = optionValue(args, "--account")
     let makeDefault = args.contains("--default")
-    let chromeValue = optionValue(args, "--chrome")
-    guard model != nil || effort != nil || account != nil || makeDefault || args.contains("--chrome") else {
+    let chromeGiven = args.contains("--chrome")
+    guard model != nil || effort != nil || account != nil || makeDefault || chromeGiven else {
         warn("nothing to set - pass --model, --effort, --account, --chrome or --default")
         return 2
     }
@@ -85,7 +85,8 @@ private func runProjectSet(args: [String]) -> Int32 {
     }
     // Same rule as the axes above: refused before the file is read. `--chrome` is Claude in Chrome's.
     var chrome: Bool?
-    if args.contains("--chrome") {
+    if chromeGiven {
+        let chromeValue = optionValue(args, "--chrome")
         guard chromeValue == "on" || chromeValue == "off" else {
             warn("--chrome takes on or off, not \"\(chromeValue ?? "")\"; nothing was changed")
             return 2
@@ -100,8 +101,8 @@ private func runProjectSet(args: [String]) -> Int32 {
     guard var file = readProjectPoliciesForWrite() else { return 1 }
     var policy = file.policy(providerID, for: key)
     if let model { policy.model = model }
-    if let chrome { policy.chrome = chrome }
     if let effort { policy.effort = effort }
+    if let chrome { policy.chrome = chrome }
     var accountLabel: String?
     if let account {
         // Resolved to an id NOW, against the fleet as it stands: a label stored verbatim would be a

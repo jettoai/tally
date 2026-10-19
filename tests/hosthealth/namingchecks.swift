@@ -71,6 +71,23 @@ func runNamingChecks() {
     let (again, againNews) = HostHealthLogic.rename(changed, cpuTop: [sameProject], at: at(22))
     expect(!againNews && again.namedLeader == "poc-ai-anchor", "…and the same project again is not")
     expect(!HostHealthLogic.rename(alarm, cpuTop: [], at: at(12)).1, "an empty list says nothing")
+    do {
+        // Handover, publish, restart (through the codec): the restarted app resumes the leader it last
+        // announced, with the alarm's own record intact.
+        var opened = alarm
+        opened.lastAlarm = HostHealthAlarm(at: at(2), load1: 273, freeBytes: gigabyte, top: [], cpuTop: [docker])
+        let (handed, news) = HostHealthLogic.rename(opened, cpuTop: [render], at: at(12))
+        let disk = encodeHostHealthReport(HostHealthLogic.report(handed, reading: starved(), at: at(12)))
+            .flatMap(decodeHostHealthReport)
+        let back = HostHealthLogic.restore(disk, at: at(13))
+        expect(news && back?.namedLeader == "poc-ai-anchor" && back?.namedAt == at(12)
+                && back?.lastAlarm?.cpuTop == [docker],
+               "a restart resumes the leader it last announced, with the alarm's own record intact")
+        expect(back.map { !HostHealthLogic.rename($0, cpuTop: [sameProject], at: at(22)).1 } == true,
+               "…so the restarted app does not announce the same handover again")
+        expect(back.map { HostHealthLogic.rename($0, cpuTop: [docker], at: at(22)).1 } == true,
+               "…while the first leader coming back is news")
+    }
     let handover = HostHealthLogic.handoverReport(report([docker]), cpuTop: [render], at: at(12))
     expect(hostHealthAlarmTitle(handover, localized: en) == "Host under pressure: python3 (poc-1)"
             && hostHealthLogLine(.handover, report: handover, now: at(12))
@@ -112,4 +129,19 @@ func runNamingChecks() {
     var fresh = HostHealthTracker()
     (fresh, events) = run(fresh, [starved(), starved(), starved()])
     expect(events.last! == .alarm, "control: without resuming, the same three samples do announce")
+    do {
+        // A report written before the two fields: restore falls back to the alarm's own leader.
+        var legacy = published(state: .alarmed, sampledMinute: 1)
+        legacy.namedLeader = nil
+        legacy.namedAt = nil
+        let legacyDisk = encodeHostHealthReport(legacy).map { data -> Data in
+            var object = (try! JSONSerialization.jsonObject(with: data)) as! [String: Any]
+            object.removeValue(forKey: "namedLeader")
+            object.removeValue(forKey: "namedAt")
+            return try! JSONSerialization.data(withJSONObject: object)
+        }.flatMap(decodeHostHealthReport)
+        let old = HostHealthLogic.restore(legacyDisk, at: at(2))
+        expect(old?.namedLeader == "Docker" && old?.namedAt == at(1),
+               "a report written before the naming fields resumes from the alarm's own leader")
+    }
 }

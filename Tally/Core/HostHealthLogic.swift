@@ -129,6 +129,11 @@ struct HostHealthReport: Codable, Equatable, Sendable {
     /// The last alarm this app raised, kept across the recovery so a person arriving afterwards can
     /// still read what it was. Absent until one has been raised.
     var lastAlarm: HostHealthAlarm?
+    /// Who the alarm last named and when (`HostHealthTracker.namedLeader`/`namedAt`), so a restarted
+    /// app resumes the naming it announced rather than the one the alarm opened with. Optional and
+    /// last: a report written before them decodes.
+    var namedLeader: String? = nil
+    var namedAt: Date? = nil
 }
 
 /// What one folded sample asks the caller to do about it.
@@ -260,7 +265,8 @@ enum HostHealthLogic {
                        at now: Date) -> HostHealthReport {
         HostHealthReport(sampledAt: now, load1: reading.load1, cores: reading.cores,
                          freeBytes: reading.freeBytes, state: tracker.state,
-                         since: tracker.since ?? now, lastAlarm: tracker.lastAlarm)
+                         since: tracker.since ?? now, lastAlarm: tracker.lastAlarm,
+                         namedLeader: tracker.namedLeader, namedAt: tracker.namedAt)
     }
 }
 

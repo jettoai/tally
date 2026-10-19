@@ -105,7 +105,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     let decision = resolveLaunch(provider, intent: intent, readings: LaunchReadings(
         snapshot: snapshot, policy: policy, pinnedBy: pinnedBy, primaryModel: primaryModel,
         reserves: reserves, quarantined: quarantinedAccounts(forPrimary: primaryModel),
-        clearance: true, now: Date()))
+        clearance: true, now: Date(),
+        chromeAccount: launchChromeAccount(project, setting: chromeAccountSetting())))
 
     // An inherited environment's home and marker go before any exec: the bare fallbacks hand the
     // child `env: nil`, THIS process's environment, and Claude Code reads the marker as "you are a

@@ -105,7 +105,7 @@ func runCompletionChecks() {
     check("the project profile completes the provider the line named",
           accountCallSites.contains { $0.contains("_tally_accounts $provider") })
     // AND IT READS THE WHOLE LINE FOR IT, because the command does: `optionValue` scans the entire
-    // argument list and takes the first match (ProjectPolicy.swift), so `--provider codex` written after
+    // argument list and takes the first match (ProjectCommand.swift), so `--provider codex` written after
     // the account is a legal Codex profile - and a scan stopping at the cursor offered claude accounts
     // to it, which is the command refusing its own suggestion (review, 2026-08-11).
     check("the provider is read off the whole line, not the half left of the cursor",

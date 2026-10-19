@@ -227,7 +227,7 @@ check "…and says nothing about it either" \
   "$([[ $out != *"no worktrees"* && $out != *"not inside"* ]] && print 1)"
 
 # 9. THE PROVIDER IS READ OFF THE WHOLE LINE, because the command reads it that way: `optionValue`
-#    scans the entire argument list (ProjectPolicy.swift), so `--provider codex` written after the
+#    scans the entire argument list (ProjectCommand.swift), so `--provider codex` written after the
 #    account is a legal Codex profile - and a completion that only read left of the cursor offered
 #    claude accounts to it, words that command then refuses (review, 2026-08-11). The stub answers
 #    each provider with names of its own, so the two answers cannot be confused.

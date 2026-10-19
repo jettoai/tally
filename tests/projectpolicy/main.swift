@@ -251,7 +251,7 @@ check("typing --model fable over it moves the LAUNCH, not only the flag",
 // harness cannot call (it execs). What it can pin is that none of them went back to reading the
 // policy directly, which is exactly how the flag stopped reaching the pick the first time.
 let source = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
-let policySource = (try? String(contentsOfFile: "TallyCLI/ProjectPolicy.swift",
+let policySource = (try? String(contentsOfFile: "TallyCLI/ProjectCommand.swift",
                                 encoding: .utf8)) ?? ""
 
 /// One top-level function's text, by name: from its `func` line to the next function declared at
@@ -495,6 +495,8 @@ check("neither does a key nobody has written",
       statusProjectProfile(reporting, key: "/nowhere") == nil)
 
 runDefaultProviderChecks(repoKey: repoKey)
+
+runChromePreferenceChecks()
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

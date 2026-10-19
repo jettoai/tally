@@ -68,6 +68,7 @@ _tally_project_command() {
             "--model[the model every launch in this project runs]:model:_tally_models" \
             "--effort[the depth those launches run at]:effort:_tally_efforts" \
             "--account[the account those launches land on]:account: _tally_accounts $provider" \
+            "--chrome[prefer the account set for Claude in Chrome]:state:(on off)" \
             "--provider[which CLI this profile is for]:provider:_tally_providers" \
             "--default[new windows in this project open with this provider]"
           ;;

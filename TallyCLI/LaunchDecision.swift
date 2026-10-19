@@ -168,6 +168,9 @@ struct LaunchReadings {
     /// (`settleLaunch`). The launcher can tell; the shim cannot.
     var clearance: Bool
     var now: Date
+    /// The account set for Claude in Chrome when this project prefers it (`launchChromeAccount`),
+    /// else nil. Only the headroom pick reads it.
+    var chromeAccount: String? = nil
 }
 
 struct LaunchDecision: Equatable {
@@ -351,7 +354,38 @@ func resolveLaunch(_ provider: Provider, intent: LaunchIntent,
         }
         return bare()
     }
+    if let row = chromeLaunchRow(r.chromeAccount, providerID: provider.id, in: snapshot,
+                                 primaryModel: model, quarantined: r.quarantined,
+                                 reserves: r.reserves, now: r.now) {
+        notices.append(chromeLaunchNotice(row))
+        // No clearance lane: the point of this launch is the account Chrome is signed in to.
+        return decided(.pick, row, stepAside: aside)
+    }
     return decided(.pick, ranked, clearance: r.clearance ? pick(true) : nil, stepAside: aside)
+}
+
+/// The row a launch takes because this project prefers the account set for Claude in Chrome, or
+/// nil to keep the headroom pick. Every gate the automatic pick applies still holds: the account has
+/// to be in the pick's field (eligible for the model, not quarantined), above its owner's reserve
+/// whatever `--spend-reserve` says (that flag is about running out of room, not about naming this
+/// account), and comfortable, because the idle rebalance moves a session off an account that is not
+/// (Rebalance.swift) and would undo this choice on the first quiet tick.
+/// (Comfortable already implies above the reserve, AccountBinding.swift; both guards stay so the
+/// reserve rule is readable here.)
+func chromeLaunchRow(_ id: String?, providerID: String, in snapshot: Snapshot,
+                     primaryModel: String?, quarantined: Set<String>,
+                     reserves: AccountReserves, now: Date) -> Snapshot.Account? {
+    guard let id,
+          let row = pickField(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+                              excluding: quarantined).first(where: { $0.id == id }),
+          aboveReserve(row, primaryModel: primaryModel, reserves: reserves, now: now),
+          accountIsComfortable(row, primaryModel: primaryModel, reserves: reserves, now: now)
+    else { return nil }
+    return row
+}
+
+func chromeLaunchNotice(_ row: Snapshot.Account) -> String {
+    "Claude in Chrome is on for this project: launching on \(row.label), the account set for Chrome"
 }
 
 /// Supervision by route. A one-shot run never gets one; an opt-out never does. Claude's handoff

@@ -58,7 +58,7 @@ enum CPUAlertReaders {
             let worked = work[p.pid] ?? 0
             let path = worked > 0 ? ProcessTree.executablePath(of: p.pid) : nil
             // Asked of OS executables only, the ones a name would otherwise be "System" for.
-            let system = path.map { path in CPUAlertLogic.systemPrefixes.contains(where: path.hasPrefix) } ?? false
+            let system = path.map { CPUAlertLogic.systemPrefixes.contains(where: $0.hasPrefix) } ?? false
             return CPUAlertProcessWork(pid: p.pid, parent: p.parent, seconds: worked,
                                        cwd: MachineLoadRollup.workingDirectory(of: p.pid),
                                        executablePath: path,
@@ -76,11 +76,6 @@ enum CPUAlertReaders {
         guard let lookup = responsibility else { return nil }
         let boss = lookup(pid)
         return boss > 0 && boss != pid ? ProcessTree.executablePath(of: boss) : nil
-    }
-
-    /// The name of that responsible app, nil when it is not inside an app bundle (launchd, a shell).
-    static func responsibleApp(of pid: pid_t) -> String? {
-        responsiblePath(of: pid).flatMap(CPUAlertLogic.appName)
     }
 
     private static let responsibility: (@convention(c) (pid_t) -> pid_t)? = {

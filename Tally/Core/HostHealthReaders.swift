@@ -157,7 +157,8 @@ enum HostHealthReaders {
             return HostHealthCPUProcess(name: path.flatMap(ProcessTree.displayName) ?? "unknown",
                                         percent: percent, project: project.isEmpty ? nil : project,
                                         system: system, session: named[pid],
-                                        app: system ? CPUAlertReaders.responsibleApp(of: pid) : nil)
+                                        app: system ? CPUAlertReaders.responsiblePath(of: pid)
+                                            .flatMap(CPUAlertLogic.appName) : nil)
         }
     }
 

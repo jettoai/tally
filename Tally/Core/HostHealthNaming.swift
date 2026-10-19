@@ -61,11 +61,8 @@ extension HostHealthLogic {
         guard let report, report.state == .alarmed else { return nil }
         let age = now.timeIntervalSince(report.sampledAt)
         guard age >= -sampleInterval, age <= staleAfter else { return nil }
-        var tracker = HostHealthTracker(state: .alarmed, since: report.since,
-                                        lastAlarm: report.lastAlarm)
-        tracker.namedAt = report.sampledAt
-        tracker.namedLeader = leaderKey(report.lastAlarm?.cpuTop)
-        return tracker
+        return HostHealthTracker(state: .alarmed, since: report.since, lastAlarm: report.lastAlarm,
+                                 namedAt: report.sampledAt, namedLeader: leaderKey(report.lastAlarm?.cpuTop))
     }
 
     /// `restore` out of the report file itself. The read lives here, off the main actor's type, so

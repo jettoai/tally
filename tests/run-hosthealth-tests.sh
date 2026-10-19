@@ -1,9 +1,10 @@
 #!/bin/bash
 # Compiles the host-health watch's pure halves (Tally/Core/HostHealthLogic.swift, the state machine
 # and the report both targets read, HostHealthNaming.swift, who an alarm that is still on names next,
-# and TallyCLI/HostHealthKnockLogic.swift, what the supervisor's station decides) together with an assertion harness, and runs it. KeystrokeText.swift comes with
-# them: the sentence a session is told repairs the process names in it through that one rule. All
-# three depend only on Foundation, so no Xcode target is needed; exits non-zero on failure.
+# and TallyCLI/HostHealthKnockLogic.swift, what the supervisor's station decides) together with an
+# assertion harness, and runs it. KeystrokeText.swift comes with them: the sentence a session is
+# told repairs the process names in it through that one rule. All of them depend only on Foundation,
+# so no Xcode target is needed; exits non-zero on failure.
 #
 # The harness is three files, the division tests/supervisor keeps: main.swift holds the fixtures,
 # `expect` and the tally, knockchecks.swift holds the knock's own half (split on size, 2026-09-05)

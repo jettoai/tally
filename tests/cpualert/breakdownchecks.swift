@@ -14,9 +14,13 @@ func runBreakdownChecks() {
     func bIsCheckout(_ dir: String) -> Bool { bCheckouts.contains(dir) || bRoots.contains(dir) }
     func bName(_ path: String) -> String? { (path as NSString).lastPathComponent }
     func work(_ pid: Int32, _ seconds: Double, cwd: String?, path: String? = nil,
-              parent: Int32 = 1) -> CPUAlertProcessWork {
-        CPUAlertProcessWork(pid: pid, parent: parent, seconds: seconds, cwd: cwd, executablePath: path)
+              parent: Int32 = 1, responsible: String? = nil) -> CPUAlertProcessWork {
+        CPUAlertProcessWork(pid: pid, parent: parent, seconds: seconds, cwd: cwd, executablePath: path,
+                            responsiblePath: responsible)
     }
+    // What the kernel says is responsible for the virtual machine, read live on 2026-10-19 (pid 43323
+    // answered 43111): the Docker backend, inside Docker.app.
+    let dockerBackend = "/Applications/Docker.app/Contents/MacOS/com.docker.backend"
     func breakdown(_ scan: CPUAlertScan, busy: Double = 100) -> [CPUAlertCulprit] {
         L.breakdown(scan, busy: busy, roots: bRoots, home: bHome, isCheckout: bIsCheckout, displayName: bName)
     }
@@ -140,7 +144,19 @@ func runBreakdownChecks() {
         expect(own([work(50, 1, cwd: "/", path: "/usr/bin/python3", parent: 51),
                     work(51, 0, cwd: "/", path: "/usr/bin/python3", parent: 50)]) == (.process, "python3"),
                "T21 a parent cycle ends and falls to the path rules")
-        expect(own([work(1, 1, cwd: "/", path: vm)]) == (.system, "System"), "T21 /System is the system")
+        expect(own([work(1, 1, cwd: "/", path: vm)]) == (.system, "System"),
+               "T21 /System is the system when the kernel names nobody responsible")
+        expect(own([work(1, 1, cwd: "/", path: vm, responsible: dockerBackend)]) == (.app, "Docker"),
+               "T21 B-2238 a virtual machine whose responsible process is Docker's is Docker, not the system")
+        expect(own([work(1, 1, cwd: "/", path: vm,
+                         responsible: "/Applications/UTM.app/Contents/MacOS/UTM")]) == (.app, "UTM"),
+               "T21 B-2238 another app's virtual machine is that app's, never Docker")
+        expect(own([work(1, 1, cwd: "/", path: vm, responsible: "/sbin/launchd")]) == (.system, "System"),
+               "T21 B-2238 a responsible process outside any app bundle leaves it the system")
+        expect(own([work(1, 1, cwd: "\(ws)/geo", path: vm, responsible: dockerBackend)]) == (.project, "geo"),
+               "T21 B-2238 a project the process runs in still outranks the responsible app")
+        expect(own([work(1, 1, cwd: "/", path: helper, responsible: "/Applications/UTM.app/Contents/MacOS/UTM")])
+               == (.app, "Google Chrome"), "T21 B-2238 the responsible app is asked of OS executables only")
         expect(own([work(1, 1, cwd: "/", path: helper)]) == (.app, "Google Chrome"), "T21 a helper is its outer app")
         expect(own([work(1, 1, cwd: "/tmp", path: "/usr/bin/python3")]) == (.process, "python3"),
                "T21 /usr/bin/python3 outside any project is python3, not the system")
@@ -154,6 +170,32 @@ func runBreakdownChecks() {
                     work(3, 0, cwd: "\(ws)/geo", path: "/usr/bin/git")], roots: bRoots.union(["/private/tmp/wt"]))
                == (.project, "wt"), "T21 a session root under /private/tmp is still that session")
     }
+
+    // T21b B-2238 the 13:36 crossing replayed (CPU 100, the banner read "System 51%"): the virtual machine
+    // at 16 of the window's 32 CPU-seconds, two projects, and what no readable process accounts for.
+    do {
+        func crossing(responsible: String?) -> CPUAlertBanner {
+            let scan = CPUAlertScan(processes: [
+                work(43323, 16.3, cwd: "/", path: vm, responsible: responsible),
+                work(100, 3.5, cwd: "\(ws)/baton", path: claudeBin),
+                work(101, 3.5, cwd: "\(ws)/finance", path: claudeBin),
+            ], busySeconds: 32)
+            return L.banner(breakdown(scan), busy: 100)
+        }
+        let docker = crossing(responsible: dockerBackend)
+        expect(docker.named.first?.name == "Docker" && docker.named.first?.kind == .app
+               && docker.named.first.map { Int($0.percent.rounded()) } == 51,
+               "T21b the banner leads with Docker at 51%")
+        expect(docker.named.first(where: { $0.kind == .system }).map { $0.percent < 30 } ?? true,
+               "T21b the virtual machine is no longer counted as the system (only the 27% no process accounts for is)")
+        let unknown = crossing(responsible: nil)
+        expect(unknown.named.first?.kind == .system && unknown.named.first?.name == "System",
+               "T21b with no responsible process it reads as the system, as before (failure leans to missing)")
+    }
+    expect(L.appName(of: dockerBackend) == "Docker"
+           && L.appName(of: "/Applications/Docker.app/Contents/MacOS/Docker Desktop.app/Contents/MacOS/x") == "Docker"
+           && L.appName(of: "/sbin/launchd") == nil,
+           "T21b appName is the outermost bundle, or nothing")
 
     // T22 the system is the largest share: it leads the banner
     do {

@@ -56,12 +56,38 @@ enum CPUAlertReaders {
         let cores = Double(ProcessInfo.processInfo.activeProcessorCount)
         let processes = secondList.map { p -> CPUAlertProcessWork in
             let worked = work[p.pid] ?? 0
+            let path = worked > 0 ? ProcessTree.executablePath(of: p.pid) : nil
+            // Asked of OS executables only, the ones a name would otherwise be "System" for.
+            let system = path.map { path in CPUAlertLogic.systemPrefixes.contains(where: path.hasPrefix) } ?? false
             return CPUAlertProcessWork(pid: p.pid, parent: p.parent, seconds: worked,
                                        cwd: MachineLoadRollup.workingDirectory(of: p.pid),
-                                       executablePath: worked > 0 ? ProcessTree.executablePath(of: p.pid) : nil)
+                                       executablePath: path,
+                                       responsiblePath: system ? responsiblePath(of: p.pid) : nil)
         }
         return CPUAlertScan(processes: processes, busySeconds: busyShare / 100 * elapsed * cores)
     }
+
+    /// The executable of the process macOS holds responsible for `pid` (the app an XPC helper or a
+    /// virtual machine was started for), nil when it is `pid` itself or the kernel does not say.
+    /// `responsibility_get_pid_responsible_for_pid` is a private libsystem call, looked up at run
+    /// time so its absence on a future macOS only loses the attribution: a miss reads as "System",
+    /// the answer before this existed, and never as another app.
+    static func responsiblePath(of pid: pid_t) -> String? {
+        guard let lookup = responsibility else { return nil }
+        let boss = lookup(pid)
+        return boss > 0 && boss != pid ? ProcessTree.executablePath(of: boss) : nil
+    }
+
+    /// The name of that responsible app, nil when it is not inside an app bundle (launchd, a shell).
+    static func responsibleApp(of pid: pid_t) -> String? {
+        responsiblePath(of: pid).flatMap(CPUAlertLogic.appName)
+    }
+
+    private static let responsibility: (@convention(c) (pid_t) -> pid_t)? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2),
+                                 "responsibility_get_pid_responsible_for_pid") else { return nil }
+        return unsafeBitCast(symbol, to: (@convention(c) (pid_t) -> pid_t).self)
+    }()
 
     /// Every readable process's own CPU over a two-second window, in share of ONE core (Activity
     /// Monitor's unit), busiest first, ties on the pid.

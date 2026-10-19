@@ -93,12 +93,17 @@ struct HostHealthCPUProcess: Codable, Equatable, Sendable {
     /// it is in none or the session has no name to read (B-693). Optional and last: a report
     /// written before it decodes, and one written by this build carries it only when known.
     var session: String? = nil
+    /// The app macOS holds responsible for an OS executable, by name (a virtual machine started
+    /// for Docker reads `Docker`). Set only for `system` processes whose responsible process is
+    /// inside an app bundle, and nil whenever the kernel does not say (B-2238). Optional and last:
+    /// a report written before it decodes.
+    var app: String? = nil
 
-    /// Who it belongs to: the session, else the checkout, else `system` for an OS executable, else
-    /// nobody (the name already says it). The banner, its title and the log line all name owners by
-    /// this one rule.
+    /// Who it belongs to: the session, else the checkout, else the responsible app, else `system`
+    /// for an OS executable, else nobody (the name already says it). The banner, its title and the
+    /// log line all name owners by this one rule.
     func owner(system label: String) -> String? {
-        (session ?? project).map(keystrokeStripped) ?? (system ? label : nil)
+        (session ?? project ?? app).map(keystrokeStripped) ?? (system ? label : nil)
     }
 }
 
@@ -132,10 +137,13 @@ enum HostHealthEvent: String, Equatable, Sendable {
     case alarm
     /// And back out of it: write a line, tell nobody.
     case clear
+    /// Still in alarm, but the leader of the CPU list is somebody else than the one last named
+    /// (`HostHealthLogic.rename`): write a line, notify once more.
+    case handover
 }
 
-/// The watch's memory between samples. Held in the app's own memory and never persisted: a restart
-/// starts the count again, which is the honest reading of "this process has not been watching".
+/// The watch's memory between samples. Held in the app's own memory. A restart starts the count
+/// again, except for an alarm the previous run published a moment ago (`HostHealthLogic.restore`).
 struct HostHealthTracker: Equatable, Sendable {
     var state: HostHealthPhase = .normal
     /// When the current state began, and nil before the first sample.
@@ -146,6 +154,10 @@ struct HostHealthTracker: Equatable, Sendable {
     var over = 0
     var under = 0
     var lastAlarm: HostHealthAlarm?
+    /// When the alarm last had its CPU leader named (the alarm itself, or a later `rename`), and
+    /// who that leader was (`HostHealthLogic.leaderKey`).
+    var namedAt: Date?
+    var namedLeader: String?
 }
 
 /// The rules over those readings, and the numbers they are decided against.
@@ -238,6 +250,8 @@ enum HostHealthLogic {
         next.since = now
         next.over = 0
         next.under = 0
+        next.namedAt = crossing.phase == .alarmed ? now : nil
+        next.namedLeader = nil
         return (next, crossing.event)
     }
 

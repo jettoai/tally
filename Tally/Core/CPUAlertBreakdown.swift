@@ -20,6 +20,10 @@ struct CPUAlertProcessWork: Equatable, Sendable {
     var seconds: Double
     var cwd: String?
     var executablePath: String?
+    /// The executable of the process macOS holds responsible for this one (a virtual machine's is
+    /// the app that started it), read only for OS executables that worked; nil when the kernel
+    /// does not say (B-2238).
+    var responsiblePath: String? = nil
 }
 
 struct CPUAlertScan: Equatable, Sendable {
@@ -102,7 +106,8 @@ extension CPUAlertLogic {
     /// or running from a Tally bundle); a session root; a checkout; the same three asked of each
     /// ancestor; the first checkout under a scratch location (`tempPrefixes`), which yields to any
     /// of the above up the chain; the OS by path; an app by its outermost bundle; else the
-    /// executable's name.
+    /// executable's name. An OS executable whose responsible process is inside an app bundle is that
+    /// app's: Docker's virtual machine lives under /System and is Docker's work, whoever's app it is.
     static func owner(of pid: Int32, in byPid: [Int32: CPUAlertProcessWork], roots: Set<String>,
                       home: String, isCheckout: (String) -> Bool,
                       displayName: (String) -> String?) -> (kind: CPUAlertKind, name: String) {
@@ -137,12 +142,19 @@ extension CPUAlertLogic {
             cursor = up.parent
         }
         if let scratch { return scratch }
-        if systemPrefixes.contains(where: path.hasPrefix) { return (.system, "System") }
-        if let range = path.range(of: ".app/") {
-            let name = (String(path[..<range.lowerBound]) as NSString).lastPathComponent
-            if !name.isEmpty { return (.app, name) }
+        if systemPrefixes.contains(where: path.hasPrefix) {
+            if let name = work.responsiblePath.flatMap(appName) { return (.app, name) }
+            return (.system, "System")
         }
+        if let name = appName(of: path) { return (.app, name) }
         return (.process, path.isEmpty ? "unknown" : displayName(path) ?? "unknown")
+    }
+
+    /// The outermost app bundle an executable is inside, by name, nil when it is in none.
+    static func appName(of path: String) -> String? {
+        guard let range = path.range(of: ".app/") else { return nil }
+        let name = (String(path[..<range.lowerBound]) as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
     }
 
     /// Every group's share of `busy` (the banner's figure), largest first; the unaccounted

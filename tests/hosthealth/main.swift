@@ -405,6 +405,8 @@ do {
 // The knock's half, next door on size (knockchecks.swift): the sentence, what it repairs, when one
 // is owed, and the structural promises a pure harness cannot drive.
 runKnockChecks()
+// And the alarm that is still on, and the one a restart resumes (B-2238): namingchecks.swift.
+runNamingChecks()
 
 print(failures == 0 ? "all host-health checks passed" : "\(failures) host-health checks failed")
 exit(failures == 0 ? 0 : 1)

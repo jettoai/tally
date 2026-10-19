@@ -10,9 +10,12 @@ import Foundation
 /// minute by the clock (`ProcessFootprintTiming.retime` is where it is called). A second timer
 /// would be a second thing to get wrong for a reading that is one minute coarse.
 ///
-/// THE STATE IS MEMORY AND IS NOT PERSISTED. A restart begins the run count again, which is the
+/// THE STATE IS MEMORY, WITH ONE EXCEPTION. A restart begins the run count again, which is the
 /// honest reading of "this process has not been watching": the alternative is an app that comes up
 /// after an update, reads a run of three from an hour ago and announces a machine that is fine.
+/// The exception is an ALARM the previous run published within `staleAfter`: an update restart
+/// lands in the middle of one, and announcing it a second time tells nobody anything
+/// (`HostHealthLogic.restore`, from the report this file already writes).
 ///
 /// IT ENDS NOTHING. This version samples, publishes, logs and tells. Nothing here kills a process
 /// or stops a supervisor, and the incident that produced it wanted that separated so the reporting
@@ -34,6 +37,8 @@ final class HostHealthMonitor {
     /// two samples never interleave around the alarm scan and two reports can never land on disk
     /// in the opposite order to the one they were taken in.
     private var inFlight: Task<Void, Never>?
+    /// Whether the report a previous run left behind has been looked at, which happens once.
+    private var restoreTried = false
 
     private init() {}
 
@@ -75,6 +80,13 @@ final class HostHealthMonitor {
     /// two seconds at load 40), because the moment this watch has something to say is exactly the
     /// moment the disk and the scheduler are slowest to answer.
     private func sample(at now: Date) async {
+        // The test flag fakes a load to walk the alarm branch, so it must not resume a real alarm.
+        if !restoreTried {
+            restoreTried = true
+            if testLoad == nil, let resumed = await Task.detached(priority: .utility, operation: {
+                HostHealthLogic.restoreFromDisk(at: now)
+            }).value { tracker = resumed }
+        }
         // A machine that will not answer is not a machine that is fine: nothing is folded in,
         // because a reading of zero free bytes would raise an alarm and a reading of zero load
         // would clear one. The next sample asks again.
@@ -82,6 +94,7 @@ final class HostHealthMonitor {
         if let testLoad { reading.load1 = testLoad }
         let (next, event) = HostHealthLogic.advance(tracker, reading: reading, at: now)
         tracker = next
+        var renamedTop: [HostHealthCPUProcess]?
         // THE EXPENSIVE READING HAPPENS HERE AND NOWHERE ELSE: only the sample that RAISES an alarm
         // walks the process table, so the steady state pays for two syscalls a minute and nothing
         // more (`HostHealthReaders.heaviest`).
@@ -89,12 +102,7 @@ final class HostHealthMonitor {
             let (top, threads) = await Task.detached(priority: .utility) {
                 (HostHealthReaders.heaviest(), HostHealthReaders.threadCensus())
             }.value
-            // The board's live sessions, read here on the main actor (memory only) and handed to
-            // the background sample, which resolves each culprit to one of them (B-693).
-            let sessions = SessionRosterStore.shared.rows.compactMap { row in
-                pid_t(row.id).map { HostHealthSession(supervisor: $0, child: row.childPid,
-                                                      accountID: row.accountID) }
-            }
+            let sessions = boardSessions()
             // A load alarm also names what is burning CPU: two seconds of sampling, once per alarm.
             let cpuTop = HostHealthLogic.loadExceeds(reading)
                 ? await Task.detached(priority: .utility) {
@@ -104,9 +112,23 @@ final class HostHealthMonitor {
             tracker.lastAlarm = HostHealthAlarm(at: now, load1: reading.load1,
                                                 freeBytes: reading.freeBytes, top: top, cpuTop: cpuTop,
                                                 threads: threads)
+            tracker.namedLeader = HostHealthLogic.leaderKey(cpuTop)
+        } else if HostHealthLogic.renameDue(tracker, reading: reading, at: now) {
+            // AN ALARM THAT IS STILL ON LOOKS AGAIN every ten minutes: the culprit that started it
+            // is often not the one still burning (2026-10-19, a virtual machine at 13:34, a render
+            // and an encode at 14:07, and the banner named only the first).
+            let sessions = boardSessions()
+            let cpuTop = await Task.detached(priority: .utility) {
+                await HostHealthReaders.busiest(sessions: sessions)
+            }.value
+            let (next, news) = HostHealthLogic.rename(tracker, cpuTop: cpuTop, at: now)
+            tracker = next
+            if news { renamedTop = cpuTop }
         }
         let report = HostHealthLogic.report(tracker, reading: reading, at: now)
+        let handover = renamedTop.map { HostHealthLogic.handoverReport(report, cpuTop: $0, at: now) }
         let line = event.map { hostHealthLogLine($0, report: report, now: now) }
+            ?? handover.map { hostHealthLogLine(.handover, report: $0, now: now) }
         await Task.detached(priority: .utility) {
             Self.publish(report)
             if let line { Self.append(line) }
@@ -114,6 +136,16 @@ final class HostHealthMonitor {
         // A RECOVERY IS WRITTEN DOWN AND NOT ANNOUNCED. Somebody reading the log afterwards needs
         // to know when it ended; nobody needs a banner saying their machine is working again.
         if event == .alarm { post(report) }
+        if let handover { post(handover) }
+    }
+
+    /// The board's live sessions, read on the main actor (memory only) and handed to the background
+    /// sample, which resolves each culprit to one of them (B-693).
+    private func boardSessions() -> [HostHealthSession] {
+        SessionRosterStore.shared.rows.compactMap { row in
+            pid_t(row.id).map { HostHealthSession(supervisor: $0, child: row.childPid,
+                                                  accountID: row.accountID) }
+        }
     }
 
     // MARK: Publishing

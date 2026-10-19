@@ -406,16 +406,28 @@ func runKnockChecks() {
             && source("Tally/Core/HostHealthLogic.swift")
                 .contains("hostHealthTopText(report.lastAlarm?.top ?? [], unit: \"GB\")"),
            "the banner's body is built out of the phrase the names are repaired in")
-    // The CPU sample is the load alarm's, inside the alarm branch like the memory scan.
+    // The CPU sample is the load alarm's, inside the alarm branch like the memory scan, and (B-2238)
+    // the look an alarm that is still on takes every ten minutes, inside the branch only
+    // `renameDue` opens (load still over the line, ten minutes since the last naming).
     if let branch = monitor.range(of: "if event == .alarm {"),
        let call = monitor.range(of: "HostHealthReaders.busiest("),
-       let close = blockEnd(monitor, from: branch.upperBound) {
+       let close = blockEnd(monitor, from: branch.upperBound),
+       let again = monitor.range(of: "} else if HostHealthLogic.renameDue(tracker, reading: reading, at: now) {"),
+       let second = monitor.range(of: "HostHealthReaders.busiest(", range: again.upperBound..<monitor.endIndex),
+       let againClose = blockEnd(monitor, from: again.upperBound) {
         expect(branch.upperBound < call.lowerBound && call.upperBound <= close
                 && monitor.contains("HostHealthLogic.loadExceeds(reading)"),
                "the CPU sample is taken only by a load alarm")
+        expect(monitor.components(separatedBy: "HostHealthReaders.busiest(").count == 3
+                && second.upperBound <= againClose,
+               "…and by the renewed look, which sits inside the branch `renameDue` guards")
     } else {
-        expect(false, "the CPU sample is taken only by a load alarm")
+        expect(false, "the CPU sample is taken only by a load alarm and by the renewed look")
     }
+    // A restart resumes an alarm the previous run published, and never under the test flag.
+    expect(monitor.contains("testLoad == nil, let resumed") && monitor.contains("HostHealthLogic.restoreFromDisk("),
+           "the published report is resumed once, never under the load-faking test flag")
+    expect(monitor.contains("if let handover { post(handover) }"), "a handover is announced")
 
     // THE STATION SPEAKS LAST AND THROUGH THE EXISTING DOOR. Placed after the quota knock, told what
     // that knock typed, and holding entirely when a filed sentence is still sitting unread.

@@ -140,7 +140,8 @@ enum HostHealthReaders {
     /// The busiest processes by CPU, most first, in share of one core. Two seconds of sampling
     /// (`CPUAlertReaders.busiest`), made only by a load alarm. Owner: the session it runs under
     /// (`sessionNames`), else the checkout its working directory is in (`CPUAlertLogic.processName`'s
-    /// walk), else whether the executable is the OS's.
+    /// walk), else for an OS executable the app macOS holds responsible for it (Docker's virtual machine
+    /// is Docker's), else just that it is the OS's.
     static func busiest(_ limit: Int = 3, sessions: [HostHealthSession] = []) async
         -> [HostHealthCPUProcess] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -148,14 +149,15 @@ enum HostHealthReaders {
         let named = sessionNames(of: ranked.map(\.pid), sessions: sessions, home: home)
         return ranked.map { pid, percent in
             let path = ProcessTree.executablePath(of: pid)
+            let system = path.map(hostHealthIsSystemPath) ?? false
             // An empty executable makes the walk answer "" when no checkout encloses the cwd.
             let project = CPUAlertLogic.processName(
                 cwd: MachineLoadRollup.workingDirectory(of: pid), executable: "", home: home
             ) { FileManager.default.fileExists(atPath: $0 + "/.git") }
             return HostHealthCPUProcess(name: path.flatMap(ProcessTree.displayName) ?? "unknown",
                                         percent: percent, project: project.isEmpty ? nil : project,
-                                        system: path.map(hostHealthIsSystemPath) ?? false,
-                                        session: named[pid])
+                                        system: system, session: named[pid],
+                                        app: system ? CPUAlertReaders.responsibleApp(of: pid) : nil)
         }
     }
 

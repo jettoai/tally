@@ -52,6 +52,7 @@ let chromeRunDroppedEnvironment = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY
                                    "CLAUDE_CODE_SIMPLE", "TALLY_SUPERVISOR_PID"]
 
 let chromeRunUsage = "usage: tally chrome run [--max-turns <1-60>] <task> | --file <task file>"
+    + "\nexit: 0 answered, 1 ran and failed, 2 never started, 3 a tool call was refused by the permission classifier"
 
 /// The prompt: the task, wrapped so the answer comes back in a form the asking session can use.
 func chromeRunPrompt(task: String) -> String {
@@ -144,6 +145,11 @@ struct ChromeRunOutcome: Equatable {
     var ok: Bool
     var status: String
     var text: String
+    /// One line per tool call Claude Code's permission classifier refused: the tool name and, when
+    /// the call had one, its url. Never the whole input.
+    var denied: [String] = []
+    /// 0 answered, 1 ran and failed, 3 had a tool call refused (2 is "never started", said by the caller).
+    var exitCode: Int32 { !denied.isEmpty ? 3 : ok ? 0 : 1 }
 }
 
 /// Which tabs to close: the ones the run's receipts say it opened and did not close, minus every tab
@@ -268,6 +274,19 @@ func chromeRunOutcome(stdout: Data, exitCode: Int32, timedOut: Bool,
     guard let object else {
         return ChromeRunOutcome(ok: false, status: "exit \(exitCode), no JSON result", text: "")
     }
+    // A refused call is the run's own verdict, not a model answer: it wins over "ok" and over any
+    // other error, so the asking session can tell it from a plain failure without reading the text.
+    let refused = (object["permission_denials"] as? [[String: Any]] ?? []).map { entry -> String in
+        let name = entry["tool_name"] as? String ?? "unknown tool"
+        let url = (entry["tool_input"] as? [String: Any])?["url"] as? String
+        return url.map { "\(name) \($0)" } ?? name
+    }
+    if !refused.isEmpty {
+        let calls = refused.count == 1 ? "1 tool call" : "\(refused.count) tool calls"
+        return ChromeRunOutcome(ok: false,
+                                status: "denied (\(calls) refused by Claude Code's permission classifier)",
+                                text: text, denied: refused)
+    }
     let isError = object["is_error"] as? Bool ?? true
     if exitCode == 0, !isError, !text.isEmpty { return ChromeRunOutcome(ok: true, status: "ok", text: text) }
     let subtype = object["subtype"] as? String ?? "unknown"
@@ -279,8 +298,11 @@ func chromeRunResultDocument(account: String, outcome: ChromeRunOutcome, raw: St
                              rawPath: String, errorPath: String, tabs: String? = nil) -> String {
     let answer = outcome.text.isEmpty ? "(no answer; see the raw output and \(errorPath))" : outcome.text
     let tabsLine = tabs.map { "tabs: \($0)\n" } ?? ""
+    let refusedSection = outcome.denied.isEmpty ? ""
+        : "## Refused tool calls\n\n" + outcome.denied.map { "- \($0)\n" }.joined() + "\n"
     return "# Claude in Chrome run\n\naccount: \(account)\nstatus: \(outcome.status)\n" + tabsLine
-        + "raw output: \(rawPath)\nstderr: \(errorPath)\n\n## Answer\n\n\(answer)\n\n"
+        + "raw output: \(rawPath)\nstderr: \(errorPath)\n\n" + refusedSection
+        + "## Answer\n\n\(answer)\n\n"
         + "## Raw output\n\n```json\n\(raw)\n```\n"
 }
 
@@ -300,7 +322,8 @@ func runChrome(args: [String]) -> Int32 {
 }
 
 /// The live run. stdout carries the result file's path and nothing else; every complaint goes to
-/// stderr. 0 when the run answered without error, 1 when it ran and failed, 2 when it never started.
+/// stderr. 0 when the run answered without error, 1 when it ran and failed, 2 when it never started,
+/// 3 when Claude Code's permission classifier refused a tool call (nobody was there to answer it).
 func runChromeRun(args: [String],
                   environment: [String: String] = ProcessInfo.processInfo.environment) -> Int32 {
     let task: String, maxTurns: Int
@@ -412,5 +435,5 @@ func runChromeRun(args: [String],
                                                unproven: scanned.unproven.subtracting(tabsBefore ?? []).count))
     try? document.write(to: resultURL, atomically: true, encoding: .utf8)
     print(resultURL.path)
-    return result.ok ? 0 : 1
+    return result.exitCode
 }

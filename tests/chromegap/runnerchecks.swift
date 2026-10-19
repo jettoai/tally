@@ -131,6 +131,29 @@ func runRunnerChecks() {
                                         rawPath: "/r/stdout.json", errorPath: "/r/stderr.log")
     check("R9 an empty answer points at the raw output", empty.contains("(no answer;"))
 
+    // B-2281: the shape is the real `permission_denials` of ~/.tally/chrome-run/20261019T063039Z-20166
+    // and 20261019T062544Z-74237 (tool_name, tool_use_id, tool_input), trimmed to two entries.
+    let refusedJSON = #"{"type":"result","subtype":"success","is_error":false,"result":"I could not open it.","permission_denials":[{"tool_name":"mcp__claude-in-chrome__navigate","tool_use_id":"toolu_1","tool_input":{"url":"https://example.com/?c=1","tabId":7}},{"tool_name":"mcp__claude-in-chrome__tabs_context_mcp","tool_use_id":"toolu_2","tool_input":{"createIfEmpty":true}}]}"#
+    let refusedRun = chromeRunOutcome(stdout: Data(refusedJSON.utf8), exitCode: 0, timedOut: false)
+    check("R8b a refused tool call is denied, not ok, even when the run exits 0 and answers",
+          !refusedRun.ok && refusedRun.exitCode == 3 && refusedRun.text == "I could not open it."
+              && refusedRun.status == "denied (2 tool calls refused by Claude Code's permission classifier)")
+    check("R8b the refusals name the tool and the url, never the whole input",
+          refusedRun.denied == ["mcp__claude-in-chrome__navigate https://example.com/?c=1",
+                                "mcp__claude-in-chrome__tabs_context_mcp"])
+    let noneRefused = chromeRunOutcome(stdout: Data(#"{"result":"done","is_error":false,"permission_denials":[]}"#.utf8),
+                                       exitCode: 0, timedOut: false)
+    check("R8b an empty permission_denials stays ok with exit 0", noneRefused.ok && noneRefused.status == "ok"
+              && noneRefused.exitCode == 0)
+    check("R8b exit codes: failed run 1, answered run 0", maxed.exitCode == 1 && ok.exitCode == 0)
+    let refusedDocument = chromeRunResultDocument(account: "a", outcome: refusedRun, raw: "{}",
+                                                  rawPath: "/r/o", errorPath: "/r/e")
+    check("R9b the result file lists the refusals before the answer",
+          refusedDocument.contains("status: denied (2 tool calls")
+              && refusedDocument.contains("## Refused tool calls\n\n- mcp__claude-in-chrome__navigate https://example.com/?c=1\n- mcp__claude-in-chrome__tabs_context_mcp\n\n## Answer")
+              && !refusedDocument.contains("toolu_"))
+    check("R9b the usage text names exit code 3", chromeRunUsage.contains("3 a tool call was refused"))
+
     check("R10 the run id is a UTC stamp and the pid",
           chromeRunID(now: Date(timeIntervalSince1970: 1_790_000_000), pid: 4242) == "20260921T141320Z-4242")
     runStreamChecks()
@@ -267,8 +290,14 @@ func runStreamChecks() {
     let noise = scanAll(assistant + "\n" + maxed + "\n")
     check("R11c ids outside tool results never count", noise.listed.isEmpty && noise.opened.isEmpty)
     let maxedOutcome = chromeRunOutcome(stdout: noise.result ?? Data(), exitCode: 1, timedOut: false)
-    check("R11d the result line is kept and reads as before (max_turns)",
-          noise.result == Data(maxed.utf8) && !maxedOutcome.ok && maxedOutcome.status.contains("error_max_turns"))
+    // B-2281: this fixture's permission_denials is non-empty, so the run now reads as denied (exit 3).
+    check("R11d the result line is kept; a run that also had a refusal reads as denied",
+          noise.result == Data(maxed.utf8) && !maxedOutcome.ok && maxedOutcome.status.hasPrefix("denied")
+              && maxedOutcome.exitCode == 3)
+    let maxedClean = chromeRunOutcome(stdout: Data(#"{"type":"result","subtype":"error_max_turns","is_error":true,"result":"x"}"#.utf8),
+                                      exitCode: 1, timedOut: false)
+    check("R11d without a refusal, max_turns reads as before", !maxedClean.ok && maxedClean.status.contains("error_max_turns")
+              && maxedClean.exitCode == 1)
     let success = #"{"type":"result","subtype":"success","is_error":false,"result":"done"}"#
     let okOutcome = chromeRunOutcome(stdout: scanAll(success + "\n").result ?? Data(), exitCode: 0, timedOut: false)
     check("R11d the result line is kept and reads as before (success)",

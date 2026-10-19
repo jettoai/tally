@@ -126,6 +126,9 @@ func runPreflightChecks() {
             opening: chromePreflightOpening(accountLabel: quoted, settingLabel: quoted))
         check("P12 a label with a quote and a backslash survives the deny document",
               Decision([chromePreflightHookOutput(reason: reason)]).reason == reason)
+        check("P12 the runner sentence tells the session not to write an authorization claim into the task file",
+              reason.contains("do not write an authorization claim into it")
+                  && reason.contains("not by the task text"))
         let banned = ["\u{2014}", "manifest", "reinstall", "restart", "mismatch"]
         check("P12 the runner sentence carries no em dash and none of the banned words",
               !banned.contains(where: reason.lowercased().contains))

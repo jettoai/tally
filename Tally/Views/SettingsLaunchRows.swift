@@ -30,8 +30,8 @@ extension SettingsLaunchView {
                 get: { launchPolicy.policy(providerID).startMode ?? "new" },
                 set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
             )) {
-                Text(verbatim: "new").tag("new")
-                Text(verbatim: "continue").tag("continue")
+                Text(L("new")).tag("new")
+                Text(L("continue")).tag("continue")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -83,7 +83,7 @@ extension SettingsLaunchView {
                 set: { launchPolicy.setPermissionMode(providerID, $0) }
             )) {
                 ForEach(LaunchPolicyStore.PermissionMode.allCases, id: \.self) { mode in
-                    Text(verbatim: mode.label(providerID)).tag(mode)
+                    Text(L(mode.label(providerID))).tag(mode)
                 }
             }
             .labelsHidden()
@@ -174,7 +174,7 @@ struct ModelEffortRow: View {
                 mainLine
             }
             if selection == "custom" {
-                TextField("Custom" as String, text: Binding(
+                TextField(L("Custom…"), text: Binding(
                     get: { model ?? "" },
                     set: { model = $0.isEmpty ? nil : $0 }
                 ))
@@ -205,10 +205,10 @@ struct ModelEffortRow: View {
                     }
                 }
             )) {
-                Text(verbatim: "Default").tag("")
+                Text(L("Default")).tag("")
                 ForEach(modelOptions, id: \.self) { Text(verbatim: $0).tag($0) }
                 Divider()
-                Text(verbatim: "Custom…").tag("custom")
+                Text(L("Custom…")).tag("custom")
             }
             .labelsHidden()
             .fixedSize()
@@ -216,8 +216,8 @@ struct ModelEffortRow: View {
                 get: { effort ?? "" },
                 set: { effort = $0.isEmpty ? nil : $0 }
             )) {
-                Text(verbatim: "Default").tag("")
-                ForEach(effortLevels, id: \.self) { Text(verbatim: $0).tag($0) }
+                Text(L("Default")).tag("")
+                ForEach(effortLevels, id: \.self) { Text(L($0)).tag($0) }
             }
             .labelsHidden()
             .fixedSize()
@@ -245,7 +245,7 @@ struct ModelSelectRow: View {
             Text(title).font(.subheadline)
             Spacer()
             if selection == "custom" {
-                TextField("Custom" as String, text: Binding(
+                TextField(L("Custom…"), text: Binding(
                     get: { value ?? "" },
                     set: { value = $0.isEmpty ? nil : $0 }
                 ))
@@ -262,10 +262,10 @@ struct ModelSelectRow: View {
                     }
                 }
             )) {
-                Text(verbatim: "Default").tag("")
+                Text(L("Default")).tag("")
                 ForEach(options, id: \.self) { Text(verbatim: $0).tag($0) }
                 Divider()
-                Text(verbatim: "Custom…").tag("custom")
+                Text(L("Custom…")).tag("custom")
             }
             .labelsHidden()
             .fixedSize()

@@ -50,6 +50,7 @@ struct LayoutColumnPicker: View {
                 Text(option == Self.auto ? L("Auto") : "\(option)")
                     .font(.caption2)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             .frame(width: 42)

@@ -111,6 +111,8 @@ extension CostHeadline {
         let share = UsageFormat.sharePercent(value / max(cost.total, 0.000_001))
         return VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.trailing, 4)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(CostFormat.dollars(value)).font(.callout.weight(.medium)).monospacedDigit()
                 Text(share).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)

@@ -1,0 +1,2 @@
+/* The macOS automation permission prompt uses the system's preferred app language. */
+"NSAppleEventsUsageDescription" = "Oturum listesindeki bir oturuma tıkladığınızda Tally, o oturumun terminal penceresini öne getirir. Bir hesabın oturum açma bilgilerini yenilediğinizde ise sağlayıcının kendi oturum açma komutunu çalıştırmak için bir Terminal penceresi açar.";

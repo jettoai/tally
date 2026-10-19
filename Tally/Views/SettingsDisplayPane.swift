@@ -208,6 +208,7 @@ extension SettingsView {
         case "zh-Hans": return "简体中文"
         case "ja": return "日本語"
         case "ko": return "한국어"
+        case "tr": return "Türkçe"
         default: return code
         }
     }

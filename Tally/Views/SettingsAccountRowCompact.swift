@@ -60,7 +60,7 @@ extension SettingsAccountsView {
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .fixedSize()
+            .minimumScaleFactor(0.65)
     }
 
     /// What the marks and colours in the rows mean: the sharing link in its two states and its

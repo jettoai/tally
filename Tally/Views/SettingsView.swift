@@ -294,7 +294,7 @@ struct SettingsView: View {
     private var aboutRows: some View {
         HStack(spacing: 6) {
             TallyWordmarkView(glyphHeight: 11)
-            Text("by").font(.subheadline)
+            Text(L("by")).font(.subheadline)
             ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                 .fill(Color.primary, style: FillStyle(eoFill: true))
                 .frame(width: 53, height: 12)

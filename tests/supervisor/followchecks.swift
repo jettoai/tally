@@ -278,14 +278,14 @@ func runFollowChecks() {
     // Per axis (#14): a typed flag holds its own axis at the typed value and the other axis keeps
     // following. `settle` runs the adoption to the point where it fires (debounce put behind it).
     func settle(_ launchArgs: [String], following: FollowAxes, model: String?, effort: String?,
-                plan: RelaunchPlan? = nil) -> RelaunchPlan? {
+                plan: RelaunchPlan? = nil, fleet: [Snapshot.Account] = [followAccount("A")]) -> RelaunchPlan? {
         var state = FollowState(launchArgs: launchArgs)
         var planned = plan
         adopt(state: &state, plan: &planned, model: model, effort: effort, following: following,
-              launchArgs: launchArgs)
+              launchArgs: launchArgs, fleet: fleet)
         state.pendingSince = state.pendingSince.map { _ in Date().addingTimeInterval(-followDebounce - 1) }
         adopt(state: &state, plan: &planned, model: model, effort: effort, following: following,
-              launchArgs: launchArgs)
+              launchArgs: launchArgs, fleet: fleet)
         return planned
     }
     let heldModelArgs = ["--model", "opus[1m]", "--effort", "high"]
@@ -309,5 +309,13 @@ func runFollowChecks() {
     check("a relaunch already planned takes the followed axis and keeps the held one",
           foldedCap?.followFolded == true && foldedCap?.model == "opus[1m]"
               && foldedCap?.effort == "medium")
+    // The re-pick judges the model the session will RUN: a typed sonnet with fable's window empty
+    // still has room, so an effort-only change lands instead of dead-ending on the default's model.
+    let typedSonnetArgs = ["--model", "sonnet", "--effort", "low"]
+    let fableDrained = settle(typedSonnetArgs, following: FollowAxes(model: false, effort: true),
+                              model: "fable", effort: "xhigh", fleet: [followAccount("A", model: 0)])
+    check("an effort change adopts when only the default's model window is empty",
+          fableDrained?.reason == "follow" && fableDrained?.model == "sonnet"
+              && fableDrained?.effort == "xhigh")
     try? FileManager.default.removeItem(at: followDir)
 }

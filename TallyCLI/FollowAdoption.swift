@@ -140,7 +140,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                 repick = account
             } else {
                 let (snapshot, problem) = loadSnapshotting()
-                let excluded = quarantinedAccounts(forPrimary: policy.model,
+                let excluded = quarantinedAccounts(forPrimary: target.model,
                                                    sessionLocal: quarantine)
                 // Numbers too old to trust move nobody, the rule the cap handoff and the idle
                 // rebalance both follow: a pick made on hours-old quota is how a session lands
@@ -150,7 +150,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                 repick = problem == nil
                     ? snapshot.flatMap {
                         incumbentSeededBest(providerID: providerID, in: $0,
-                                            incumbentID: account.id, primaryModel: policy.model,
+                                            incumbentID: account.id, primaryModel: target.model,
                                             excluding: excluded, reserves: reserves)
                     }
                     : account

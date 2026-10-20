@@ -87,26 +87,24 @@ func takeAccountFlag(_ args: inout [String]) -> String? {
 /// only knows "follows" or "does not" reads as it always did. That also means a production
 /// `following: true` silently means BOTH axes: where one axis is held, build the value from the
 /// launch (`launchIntent`), never from a literal.
-struct FollowAxes: Equatable, ExpressibleByBooleanLiteral {
+struct FollowAxes: Equatable {
     var model: Bool
     var effort: Bool
 
     static let both = FollowAxes(model: true, effort: true)
     static let none = FollowAxes(model: false, effort: false)
 
-    init(model: Bool, effort: Bool) {
-        self.model = model
-        self.effort = effort
-    }
-
-    init(booleanLiteral value: Bool) {
-        self.init(model: value, effort: value)
-    }
-
     var any: Bool { model || effort }
 
     /// `.none` unless `allowed`: the per-tick stand-down (a live model pin, a session pair).
     func gated(by allowed: Bool) -> FollowAxes { allowed ? self : .none }
+}
+
+// In an extension so the memberwise `init(model:effort:)` stays synthesized.
+extension FollowAxes: ExpressibleByBooleanLiteral {
+    init(booleanLiteral value: Bool) {
+        self.init(model: value, effort: value)
+    }
 }
 
 /// What a launch was asked for, read off its own command line, environment and terminal.

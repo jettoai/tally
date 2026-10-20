@@ -208,10 +208,7 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
             [resuperviseFollowModelFlag, resuperviseFollowEffortFlag].contains(argv[$0])
         }
         check("follow \(axes): the axis flags are bare and only beside a marked opt-out",
-              bare.allSatisfy { index in
-                  let next = argv[index + 1]
-                  return next == "--" || next.hasPrefix("--")
-              } && (axes == .both || axes == .none ? bare.isEmpty : argv.contains(resuperviseHandOptOutFlag))
+              bare.allSatisfy { argv[$0 + 1].hasPrefix("--") } && (axes == .both || axes == .none ? bare.isEmpty : argv.contains(resuperviseHandOptOutFlag))
                   && (axes == .both) == argv.contains("--follow")
                   && (axes != .both) == argv.contains("--no-follow"))
     }

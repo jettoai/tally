@@ -170,6 +170,86 @@ func runTranscriptIdentityChecks() {
     check("a test binary is not a shell, so the walk stops on it",
           claudeCodeThatRanUs(from: getpid) == processStamp(getpid()))
 
+    // MARK: - 35a3. A status line wrapped by a program that is not a shell (jettoai/tally#18)
+
+    // The walk crosses such a program only when it cannot be a Claude Code AND is younger than the
+    // wrapper age; after a crossing only a Claude Code-looking process is an answer. Every row here
+    // carries its own start time, and the clock and the executable lookup are injected.
+    let wNow: Int64 = 1_000_000_000_000
+    let young = wNow - 1_000_000
+    let old = wNow - 100_000_000
+    func wrapperChain(_ rows: [(pid_t, pid_t, String, Int64)])
+        -> (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
+        let table = Dictionary(uniqueKeysWithValues: rows.map {
+            ($0.0, (parent: $0.1, name: $0.2, startedAt: $0.3))
+        })
+        return { table[$0] }
+    }
+    func walk(_ rows: [(pid_t, pid_t, String, Int64)], from: pid_t, limit: Int = 8,
+              paths: [pid_t: String] = [:]) -> ProcessStamp? {
+        claudeCodeThatRanUs(from: { from }, limit: limit, process: wrapperChain(rows),
+                            executablePath: { paths[$0] }, now: wNow)
+    }
+    func stamp(_ pid: pid_t, _ startedAt: Int64) -> ProcessStamp {
+        ProcessStamp(pid: pid, startedAt: startedAt)
+    }
+    let behindDeck: [(pid_t, pid_t, String, Int64)] = [(701, 702, "sh", young),
+        (702, 703, "agent-deck", young), (703, 704, "sh", young), (704, 600, "2.1.226", old),
+        (600, 1, "tally", old)]
+    check("35a3 a young non-shell wrapper and the shells around it are crossed",
+          walk(behindDeck, from: 701) == stamp(704, old))
+    check("35a3 an old non-shell is not crossed, which is the behaviour before the fix",
+          walk([(701, 702, "sh", young), (702, 703, "agent-deck", old)], from: 701)
+              == stamp(702, old))
+    check("35a3 after a crossing, reaching tally is no answer",
+          walk([(701, 702, "agent-deck", young), (702, 600, "tally", old)], from: 701) == nil)
+    check("35a3 …and so is reaching an old process that cannot be a Claude Code",
+          walk([(701, 702, "agent-deck", young), (702, 600, "weird", old)], from: 701) == nil)
+    check("35a3 …while a node runtime above the wrapper is taken for the Claude Code",
+          walk([(701, 702, "agent-deck", young), (702, 600, "node", old)], from: 701)
+              == stamp(702, old))
+    check("35a3 a young node is never crossed (a node-based wrapper reads as Claude Code)",
+          walk([(701, 702, "node", young), (702, 600, "2.1.226", old)], from: 701)
+              == stamp(701, young))
+    check("35a3 a young tally is never crossed",
+          walk([(701, 600, "tally", young)], from: 701) == stamp(701, young))
+    let claudePath = "/Users/x/.local/share/claude/versions/2.1.226"
+    check("35a3 a young process whose executable is a Claude Code install stops the walk",
+          walk([(701, 600, "foo", young)], from: 701, paths: [701: claudePath]) == stamp(701, young)
+              && walk([(701, 600, "foo", young)], from: 701, paths: [701: "/opt/homebrew/bin/claude"])
+                  == stamp(701, young))
+    check("35a3 …and one whose executable is something else is crossed",
+          walk([(701, 702, "foo", young), (702, 600, "2.1.226", old)], from: 701,
+               paths: [701: "/opt/homebrew/bin/agent-deck"]) == stamp(702, old))
+    let innerBehindDeck: [(pid_t, pid_t, String, Int64)] = [(701, 702, "agent-deck", young),
+        (702, 703, "2.1.226", old), (703, 704, "zsh", old), (704, 600, "2.1.226", old)]
+    check("35a3 an inner Claude Code behind its own wrapper is the answer, not the outer one",
+          walk(innerBehindDeck, from: 701) == stamp(702, old))
+    check("35a3 shells and wrappers count against the limit, and a bigger limit finds the Claude Code",
+          walk(behindDeck, from: 701, limit: 3) == nil && walk(behindDeck, from: 701, limit: 4)
+              == stamp(704, old))
+    var wrappedPasses = 0
+    check("35a3 a wrapped ancestry still takes two agreeing passes",
+          claudeCodeThatRanUs(from: { wrappedPasses += 1; return 701 }, process: wrapperChain(behindDeck),
+                              executablePath: { _ in nil }, now: wNow) == stamp(704, old)
+              && wrappedPasses == 2)
+    var wrapperLookups = 0
+    func swapped(_ pid: pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
+        wrapperLookups += 1
+        let base = wrapperChain(behindDeck)
+        guard pid == 704, let row = base(pid) else { return base(pid) }
+        return (row.parent, row.name, row.startedAt + (wrapperLookups > 4 ? 1 : 0))
+    }
+    check("35a3 a Claude Code pid that changed hands between the passes is refused",
+          claudeCodeThatRanUs(from: { 701 }, process: swapped, executablePath: { _ in nil },
+                              now: wNow) == nil)
+    check("35a3 couldBeClaudeCode reads runtimes, versions and install paths widely",
+          ["claude", "Claude", "node", "bun", "deno", "2.1.283"].allSatisfy {
+              couldBeClaudeCode(name: $0, path: nil) }
+              && couldBeClaudeCode(name: "x", path: "/a/claude/versions/9")
+              && ["agent-deck", "python3", "tally"].allSatisfy {
+                  !couldBeClaudeCode(name: $0, path: "/usr/local/bin/\($0)") })
+
     // MARK: - 35b. What one render publishes, and when it publishes nothing
 
     // The addressing is the prompt hooks' own rule (`SessionMarkerTrust.corroborated`), and a status

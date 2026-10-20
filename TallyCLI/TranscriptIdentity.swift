@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // WHICH CONVERSATION THIS SESSION IS IN, said by the one process that cannot be wrong about it.
@@ -188,6 +189,39 @@ let statusLineWrapperShells: Set<String> = ["sh", "bash", "zsh", "dash", "ksh", 
 /// render.
 let statusLineAncestorLimit = 8
 
+/// How young, in microseconds, a process must be to be taken for a wrapper of THIS render. A program
+/// that wraps a status line is started for the render and forks us within moments, so it is seconds
+/// old at the most; every Claude Code that has been running for longer than this is older. 30 s.
+let statusLineWrapperMaxAge: Int64 = 30_000_000
+
+/// The executable behind a pid, for the one question a name cannot answer. nil when it cannot be read.
+func processExecutablePath(_ pid: pid_t) -> String? {
+    var buffer = [UInt8](repeating: 0, count: 4 * 1024)
+    let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+    guard length > 0 else { return nil }
+    return String(decoding: buffer.prefix(Int(length)), as: UTF8.self)
+}
+
+/// Whether a process could be a Claude Code, read as widely as the evidence allows: a wrong YES only
+/// costs the walk crossing less (today's behaviour), a wrong NO crosses a Claude Code. A native
+/// install's `p_comm` is its version number; an npm or bun install shows its runtime; a cask install
+/// is called `claude`.
+func couldBeClaudeCode(name: String, path: String?) -> Bool {
+    if ["claude", "node", "bun", "deno"].contains(name.lowercased()) { return true }
+    if claudeCodeVersion(executablePath: name) != nil { return true }
+    guard let path else { return false }
+    return (path as NSString).lastPathComponent.lowercased() == "claude"
+        || path.contains("/claude/versions/")
+}
+
+/// A program that wrapped THIS render: young, not `tally`, and not anything that could be Claude Code.
+/// `path` is a closure so the kernel is only asked when the name and age have not already decided.
+func isStatusLineRenderWrapper(name: String, startedAt: Int64, path: () -> String?,
+                               now: Int64) -> Bool {
+    name != "tally" && startedAt >= now - statusLineWrapperMaxAge
+        && !couldBeClaudeCode(name: name, path: path())
+}
+
 /// The Claude Code that ran this status line, which is NOT always its parent.
 ///
 /// A USER WHO ALREADY HAD A STATUS LINE PUTS A SHELL IN BETWEEN. Tally never clobbers one: it
@@ -200,12 +234,26 @@ let statusLineAncestorLimit = 8
 /// customised anything and is silently wrong for exactly the people who did - no error and no
 /// fallback, just the mtime guess for ever, which is the one failure this whole file exists to end.
 ///
-/// THE SEARCH CROSSES SHELLS AND NOTHING ELSE, and that is the safety rather than a convenience. A
+/// THE SEARCH CROSSES SHELLS, AND PROGRAMS THAT PROVABLY ARE NOT CLAUDE CODE, and nothing else. A
 /// `claude` started from a shell inside another supervised session has the OUTER Claude Code further
 /// up this very chain, and refusing that one is what the corroboration below is for. Stopping at the
-/// first ancestor that is not a shell stops at the process that actually ran us; a search that
+/// first ancestor that is not crossable stops at the process that actually ran us; a search that
 /// climbed until something matched a supervisor's published child would walk straight past an
 /// unsupervised inner session and publish its conversation onto the outer one.
+///
+/// A WRAPPER THAT IS NOT A SHELL (jettoai/tally#18: `agent-deck` between the status line and Claude
+/// Code) used to be taken for Claude Code, so corroboration failed and every render recorded a new
+/// phantom unmanaged head under the wrapper's pid, which then refused the session's own switches. It
+/// is crossed only when two independent signals agree (`isStatusLineRenderWrapper`): its name and
+/// executable cannot be a Claude Code, and it was started within `statusLineWrapperMaxAge` of now,
+/// as a program wrapping this render must have been. `tally` is never crossed. After a crossing, the
+/// next non-crossable ancestor must itself look like a Claude Code or the answer is nil: publishing
+/// nothing is safe, naming the wrong process is not.
+///
+/// KNOWN RESIDUE, stated rather than hidden. A node-based wrapper reads as Claude Code (the runtime
+/// is all the name says), so those users keep the old symptom. And an unrecognisable Claude Code
+/// install younger than 30 s, nested in another supervised session, is crossed and its conversation
+/// is reported to the outer supervisor for that window. Every known install shape is recognised.
 ///
 /// nil is a refusal to guess, and the caller publishes nothing: an ancestry that is shells all the
 /// way up, or one that cannot be read, is not evidence of anything.
@@ -230,26 +278,41 @@ let statusLineAncestorLimit = 8
 /// is still running, and the next one publishes.
 func claudeCodeThatRanUs(from: () -> pid_t = getppid, limit: Int = statusLineAncestorLimit,
                          process: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)?
-                             = processIdentity) -> ProcessStamp? {
-    guard let first = nonShellAncestor(of: from(), limit: limit, process: process),
-          let second = nonShellAncestor(of: from(), limit: limit, process: process),
+                             = processIdentity,
+                         executablePath: (pid_t) -> String? = processExecutablePath,
+                         now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000_000))
+    -> ProcessStamp? {
+    guard let first = ancestorThatRanUs(of: from(), limit: limit, process: process,
+                                        executablePath: executablePath, now: now),
+          let second = ancestorThatRanUs(of: from(), limit: limit, process: process,
+                                         executablePath: executablePath, now: now),
           first == second else { return nil }
     return first
 }
 
-/// One pass of the search above: the nearest ancestor that is not a shell. Entry point is
-/// `claudeCodeThatRanUs`, which is this run twice, because one pass is an observation and an
+/// One pass of the search above: the nearest ancestor that is not a shell or a render wrapper. Entry
+/// point is `claudeCodeThatRanUs`, which is this run twice, because one pass is an observation and an
 /// identity needs two that agree.
-func nonShellAncestor(of start: pid_t, limit: Int,
-                      process: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)?)
-    -> ProcessStamp? {
+func ancestorThatRanUs(of start: pid_t, limit: Int,
+                       process: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)?,
+                       executablePath: (pid_t) -> String?, now: Int64) -> ProcessStamp? {
     var pid = start
+    var crossedWrapper = false
     for _ in 0..<limit {
         // pid 1 is launchd, the top of every chain: reaching it means no Claude Code was found.
         guard pid > 1, let hop = process(pid) else { return nil }
-        guard statusLineWrapperShells.contains(hop.name)
-        else { return ProcessStamp(pid: pid, startedAt: hop.startedAt) }
-        pid = hop.parent
+        let current = pid
+        if statusLineWrapperShells.contains(hop.name) {
+            pid = hop.parent
+        } else if isStatusLineRenderWrapper(name: hop.name, startedAt: hop.startedAt,
+                                            path: { executablePath(current) }, now: now) {
+            crossedWrapper = true
+            pid = hop.parent
+        } else {
+            let found = ProcessStamp(pid: current, startedAt: hop.startedAt)
+            guard crossedWrapper else { return found }
+            return couldBeClaudeCode(name: hop.name, path: executablePath(current)) ? found : nil
+        }
     }
     return nil
 }

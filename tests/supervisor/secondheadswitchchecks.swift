@@ -214,4 +214,91 @@ func runSecondHeadSwitchChecks() {
               && supervisor.contains("let resumesConversation = launchResumesConversation(launchArgs)"))
     check("S14 cap resume, switch resume and restart note stay unarmed for a fork",
           supervisor.components(separatedBy: "fresh: plan.fresh || secondHead").count == 4)
+
+    // MARK: - S15. jettoai/tally#18: a wrapped status line must not make a session its own second head
+    //
+    // The chain is `sh -> agent-deck -> sh -> claude (the supervised child) -> supervisor`: a program
+    // that is not a shell sits between the status line and Claude Code. Real processes stand in for the
+    // live ones (a phantom record only shows if its pid is alive); fake hops use pids no machine hands out.
+    let s15State = tmp.appendingPathComponent("tally-shs15-state-\(UUID().uuidString)")
+    let s15Unmanaged = tmp.appendingPathComponent("tally-shs15-unmanaged-\(UUID().uuidString)")
+    let s15InnerUnmanaged = tmp.appendingPathComponent("tally-shs15-inner-\(UUID().uuidString)")
+    for dir in [s15State, s15Unmanaged, s15InnerUnmanaged] {
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    defer { for dir in [s15State, s15Unmanaged, s15InnerUnmanaged] {
+        try? FileManager.default.removeItem(at: dir)
+    } }
+    func s15Sleeper() -> Process {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        p.arguments = ["30"]
+        try! p.run()
+        return p
+    }
+    let childProc = s15Sleeper(), wrapperProc = s15Sleeper(), innerProc = s15Sleeper()
+    defer { for p in [childProc, wrapperProc, innerProc] { p.terminate(); p.waitUntilExit() } }
+    let childPid = childProc.processIdentifier
+    let wrapperPid = wrapperProc.processIdentifier
+    let innerPid = innerProc.processIdentifier
+    let supKey = String(getpid())
+    markSupervisorLive(pid: supKey, dir: s15State)
+    writeSupervisorCwd(projectCwd.path, pid: supKey, dir: s15State)
+    writeSupervisorChild(childPid, pid: supKey, dir: s15State)
+    check("S15 the supervised child is readable as the supervisor's child",
+          readSupervisorChild(pid: supKey, dir: s15State) == Int(childPid))
+    let s15Now = Int64(Date().timeIntervalSince1970 * 1_000_000)
+    func s15Chain(_ rows: [pid_t: (parent: pid_t, name: String)])
+        -> (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
+        { pid in
+            guard let row = rows[pid] else { return nil }
+            return (row.parent, row.name, processIdentity(pid)?.startedAt ?? s15Now)
+        }
+    }
+    let convS = "15151515-aaaa-bbbb-cccc-000000000001"
+    let wrapped = s15Chain([991003: (wrapperPid, "sh"), wrapperPid: (991001, "agent-deck"),
+                            991001: (childPid, "sh"), childPid: (getpid(), "2.1.283")])
+    publishConversationIdentity(sessionID: convS, cwd: projectCwd.path,
+                                claudeCode: claudeCodeThatRanUs(from: { 991003 }, process: wrapped),
+                                marker: supKey, dir: s15State, unmanagedDir: s15Unmanaged)
+    let s15Holders = conversationHolders(in: projectCwd.path, excluding: supKey, dir: s15State,
+                                         unmanagedDir: s15Unmanaged)
+    check("S15a a wrapped status line writes no unmanaged record under the wrapper",
+          readUnmanagedLaunch(pid: wrapperPid, dir: s15Unmanaged) == nil
+              && liveUnmanagedLaunches(dir: s15Unmanaged).isEmpty)
+    check("S15a the report names the supervised child",
+          readTranscriptIdentity(pid: supKey, dir: s15State)
+              == TranscriptIdentity(id: convS, claudeCode: processStamp(childPid)!))
+    check("S15a so the session holds nothing against itself",
+          s15Holders[convS] == nil
+              && switchSecondHeadRefusal(conversation: convS, holders: s15Holders, target: "GM") == nil)
+
+    // A real second head: unsupervised, inside this session's tree, same conversation. Still refused.
+    let nested = s15Chain([991013: (innerPid, "sh"), innerPid: (991011, "2.1.283"),
+                           991011: (childPid, "zsh"), childPid: (getpid(), "2.1.283")])
+    publishConversationIdentity(sessionID: convS, cwd: projectCwd.path,
+                                claudeCode: claudeCodeThatRanUs(from: { 991013 }, process: nested),
+                                marker: supKey, dir: s15State, unmanagedDir: s15Unmanaged)
+    let nestedHolders = conversationHolders(in: projectCwd.path, excluding: supKey, dir: s15State,
+                                            unmanagedDir: s15Unmanaged)
+    check("S15b a nested unsupervised head on the same conversation still holds it",
+          nestedHolders[convS] == ConversationHolder(pid: String(innerPid), supervised: false)
+              && switchSecondHeadRefusal(conversation: convS, holders: nestedHolders, target: "GM")?
+                  .contains("pid \(innerPid)") == true)
+    check("S15b and does not overwrite the supervised child's report",
+          readTranscriptIdentity(pid: supKey, dir: s15State)?.claudeCode.pid == childPid)
+
+    // The inner session has a wrapper of its own: the walk stops at the inner Claude Code, never the outer.
+    let convInner = "15151515-aaaa-bbbb-cccc-000000000002"
+    let innerWrapped = s15Chain([991023: (991022, "sh"), 991022: (991021, "agent-deck"),
+                                 991021: (innerPid, "sh"), innerPid: (991011, "2.1.283"),
+                                 991011: (childPid, "zsh"), childPid: (getpid(), "2.1.283")])
+    let innerFound = claudeCodeThatRanUs(from: { 991023 }, process: innerWrapped)
+    check("S15c the walk stops at the inner Claude Code behind its own wrapper",
+          innerFound == processStamp(innerPid))
+    publishConversationIdentity(sessionID: convInner, cwd: projectCwd.path, claudeCode: innerFound,
+                                marker: supKey, dir: s15State, unmanagedDir: s15InnerUnmanaged)
+    check("S15c the inner session records itself and the outer report is untouched",
+          readUnmanagedLaunch(pid: innerPid, dir: s15InnerUnmanaged)?.id == convInner
+              && readTranscriptIdentity(pid: supKey, dir: s15State)?.id != convInner)
 }

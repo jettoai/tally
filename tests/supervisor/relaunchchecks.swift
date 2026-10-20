@@ -175,7 +175,7 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // The two halves of that contract are written by DIFFERENT builds, so they are tested as a round
     // trip: what one version writes, the next version's parser must read back unchanged. `dropFirst`
     // removes the binary path and the subcommand, which main.swift consumes before parsing.
-    func roundTrip(id: String, label: String, home: String, follow: Bool,
+    func roundTrip(id: String, label: String, home: String, follow: FollowAxes,
                    recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
                    args: [String]) -> ResuperviseArgs {
         parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
@@ -193,6 +193,32 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
           trip.childArgs == ["--resume", "abc", "--model", "fable"])
     check("--no-follow survives the round trip",
           roundTrip(id: "a", label: "A", home: "/h", follow: false, args: []).follow == false)
+    // #14: each follow value survives the exec, and a partial one is spelled so an old image still
+    // reads the typed flag as held (never `--follow`, always the marked opt-out).
+    let axisValues: [FollowAxes] = [.both, .none, FollowAxes(model: true, effort: false),
+                                    FollowAxes(model: false, effort: true)]
+    for axes in axisValues {
+        let argv = selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h", follow: axes,
+                                  args: ["--model", "x"])
+        let back = parseResuperviseArgs(Array(argv.dropFirst(2)))
+        check("follow \(axes) survives the round trip",
+              resupervisedFollow(back, project: ProjectPolicy(), environmentAllows: true) == axes
+                  && back.childArgs == ["--model", "x"])
+        let bare = argv.indices.filter {
+            [resuperviseFollowModelFlag, resuperviseFollowEffortFlag].contains(argv[$0])
+        }
+        check("follow \(axes): the axis flags are bare and only beside a marked opt-out",
+              bare.allSatisfy { index in
+                  let next = argv[index + 1]
+                  return next == "--" || next.hasPrefix("--")
+              } && (axes == .both || axes == .none ? bare.isEmpty : argv.contains(resuperviseHandOptOutFlag))
+                  && (axes == .both) == argv.contains("--follow")
+                  && (axes != .both) == argv.contains("--no-follow"))
+    }
+    check("an argv from before the axis flags reads as held on both",
+          resupervisedFollow(parseResuperviseArgs(["--id", "a", "--no-follow", "--hand-opt-out",
+                                                   "--", "--model", "x", "--effort", "high"]),
+                             project: ProjectPolicy(), environmentAllows: true) == .none)
     // A label is whatever the previous build wrote, including something that looks like a flag: the
     // value is taken positionally, never re-parsed. An account labelled "--home" must not be able to
     // redirect the session into another config home.

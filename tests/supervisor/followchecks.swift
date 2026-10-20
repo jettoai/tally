@@ -105,7 +105,7 @@ func runFollowChecks() {
 
     func adopt(state: inout FollowState, plan: inout RelaunchPlan?,
                model: String? = "fable", effort: String? = "xhigh", mode: String = "auto",
-               following: Bool = true, steering: Bool = true, launchArgs: [String] = [],
+               following: FollowAxes = .both, steering: Bool = true, launchArgs: [String] = [],
                keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true },
                fleet: [Snapshot.Account] = [followAccount("A")],
                snapshotProblem: String? = nil) {
@@ -274,5 +274,40 @@ func runFollowChecks() {
     check("an opted-out session plans nothing", optedOutPlan == nil)
     check("and its state is untouched",
           optedOut.pendingSince == nil && optedOut.followedModel == "opus")
+
+    // Per axis (#14): a typed flag holds its own axis at the typed value and the other axis keeps
+    // following. `settle` runs the adoption to the point where it fires (debounce put behind it).
+    func settle(_ launchArgs: [String], following: FollowAxes, model: String?, effort: String?,
+                plan: RelaunchPlan? = nil) -> RelaunchPlan? {
+        var state = FollowState(launchArgs: launchArgs)
+        var planned = plan
+        adopt(state: &state, plan: &planned, model: model, effort: effort, following: following,
+              launchArgs: launchArgs)
+        state.pendingSince = state.pendingSince.map { _ in Date().addingTimeInterval(-followDebounce - 1) }
+        adopt(state: &state, plan: &planned, model: model, effort: effort, following: following,
+              launchArgs: launchArgs)
+        return planned
+    }
+    let heldModelArgs = ["--model", "opus[1m]", "--effort", "high"]
+    let heldModel = FollowAxes(model: false, effort: true)
+    let droppedEffort = settle(heldModelArgs, following: heldModel, model: "opus", effort: nil)
+    check("a dropped default effort is adopted and the typed model stays",
+          droppedEffort.map { planLaunchArgs(heldModelArgs, plan: $0) } == ["--model", "opus[1m]"])
+    let otherModel = settle(heldModelArgs, following: heldModel, model: "sonnet", effort: nil)
+    check("a changed default model never moves the held one",
+          otherModel.map { planLaunchArgs(heldModelArgs, plan: $0) } == ["--model", "opus[1m]"])
+    check("an effort that already matches plans nothing",
+          settle(["--model", "opus[1m]"], following: heldModel, model: "sonnet", effort: nil) == nil)
+    let heldEffortArgs = ["--model", "opus", "--effort", "low"]
+    let movedModel = settle(heldEffortArgs, following: FollowAxes(model: true, effort: false),
+                            model: "sonnet", effort: "high")
+    check("a held effort keeps its value while the model follows",
+          movedModel.map { planLaunchArgs(heldEffortArgs, plan: $0) }
+              == ["--model", "sonnet", "--effort", "low"])
+    let foldedCap = settle(heldModelArgs, following: heldModel, model: "sonnet", effort: "medium",
+                           plan: RelaunchPlan(target: here, reason: "cap", countsFuse: true))
+    check("a relaunch already planned takes the followed axis and keeps the held one",
+          foldedCap?.followFolded == true && foldedCap?.model == "opus[1m]"
+              && foldedCap?.effort == "medium")
     try? FileManager.default.removeItem(at: followDir)
 }

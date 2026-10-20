@@ -40,8 +40,8 @@ import Foundation
 /// `primaryModel` comes in as what the session was understood to run and goes out as what it runs
 /// now, which the adoption below can change without any relaunch at all.
 ///
-/// `following` is the session-lifetime opt-out: false when the user typed their own `--model` or
-/// `--effort` at launch, or passed `--no-follow`. The per-tick stand-down for a live model pin is
+/// `following` is the session-lifetime opt-out, per axis: a typed `--model` or `--effort` at launch
+/// holds its own axis, and `--no-follow` holds both. The per-tick stand-down for a live model pin is
 /// decided here rather than by the caller, so the two cannot come apart.
 ///
 /// `steering` is whether Tally may choose an account for this session (AutoSteering.swift), and it
@@ -55,7 +55,7 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                             switchRecord: inout PendingSwitchConsumption?,
                             model: inout SessionModelState,
                             modelRecord: inout PendingModelConsumption?,
-                            follow: inout FollowState, following: Bool,
+                            follow: inout FollowState, following: FollowAxes,
                             policy: inout LaunchPolicy, steering: Bool,
                             account: Snapshot.Account, providerID: String, launchArgs: [String],
                             primaryModel: inout String?,
@@ -123,7 +123,8 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                       watcher: &watcher, childAge: childAge,
                       keyboardIdle: keyboardIdle, request: modelRequest(model.sessionKey))
     plan = planning.plan
-    applyFollowAdoption(plan: &plan, state: &follow, following: following && !model.isPinned,
+    applyFollowAdoption(plan: &plan, state: &follow,
+                        following: following.gated(by: !model.isPinned),
                         policy: policy, account: account, providerID: providerID,
                         steering: steering,
                         launchArgs: launchArgs, quarantine: quarantine, reserves: reserves,

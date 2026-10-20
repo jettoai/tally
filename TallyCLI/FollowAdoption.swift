@@ -64,6 +64,14 @@ struct FollowState {
     }
 }
 
+/// The pair a session should run once its following axes take the policy's value. A held axis (a
+/// typed flag, #14) keeps what the args carry, so a pair built from it never moves that axis.
+private func followTarget(_ axes: FollowAxes, policy: LaunchPolicy,
+                          launchArgs: [String]) -> (model: String?, effort: String?) {
+    (axes.model ? policy.model : flagValue(launchArgs, "--model"),
+     axes.effort ? policy.effort : flagValue(launchArgs, "--effort"))
+}
+
 /// One tick's follow decision. Deliberate, so no fuse. Adoption waits until the desired pair holds
 /// steady for `followDebounce` (model and effort are picked one after the other), UNLESS a relaunch
 /// is already planned this tick - then it folds in for free (one SIGTERM). In auto mode the session
@@ -72,12 +80,13 @@ struct FollowState {
 /// Manual/pinned never switches account, and a dead end (no account can serve the new model) waits
 /// instead of relaunching onto a wall.
 ///
-/// `following` is false when the user typed their own `--model` or passed `--no-follow`: there is no
-/// default to follow then, and the state is left untouched.
+/// `following` names the axes that follow the default: a typed `--model` or `--effort` holds its own
+/// axis at the typed value, and `--no-follow` holds both. With no axis following there is no default
+/// to follow, and the state is left untouched.
 /// `snapshot` is injected for the same reason the keyboard is: the auto-mode re-pick is the one
 /// branch that reads the fleet, and a test that cannot decide what the fleet looks like cannot reach
 /// the dead end deliberately. It defaults to the real read, so the tick calls this unchanged.
-func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, following: Bool,
+func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, following: FollowAxes,
                          policy: LaunchPolicy, account: Snapshot.Account, providerID: String,
                          steering: Bool, launchArgs: [String],
                          quarantine: [String: (model: String?, until: Date)],
@@ -85,8 +94,9 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                          watcher: inout TranscriptWatcher,
                          keyboardIdle: (TimeInterval) -> Bool,
                          snapshot loadSnapshotting: () -> (Snapshot?, String?) = loadSnapshot) {
-    guard following else { return }
-    let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
+    guard following.any else { return }
+    let target = followTarget(following, policy: policy, launchArgs: launchArgs)
+    let desired = (target.model?.lowercased(), target.effort?.lowercased())
     // Nothing to adopt: the pair follow last set, or one that another rewrite already
     // put on the command line while leaving this baseline stale (the reasoning lives
     // with `followAlreadySatisfied` in SupervisorRuntime.swift). Re-point the baseline
@@ -108,12 +118,14 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                               && watcher.isQuiet(followIdleSeconds)
                               && keyboardIdle(followIdleSeconds)) {
         if var existing = plan, !existing.followFolded {
-            existing.model = policy.model
-            existing.effort = policy.effort
+            // A held axis keeps what the plan names or the args carry: the rewrite below strips
+            // both flags, so leaving it nil would drop the typed one.
+            existing.model = following.model ? target.model : existing.model ?? target.model
+            existing.effort = following.effort ? target.effort : existing.effort ?? target.effort
             existing.followFolded = true
             plan = existing
-            warn("also adopting launch default \(policy.model ?? "default")/" +
-                 "\(policy.effort ?? "default")")
+            warn("also adopting launch default \(target.model ?? "default")/" +
+                 "\(target.effort ?? "default")")
             state.adopt(model: desired.0, effort: desired.1)
         } else if plan == nil {
             let repick: Snapshot.Account?
@@ -148,11 +160,11 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                 return
             }
             state.deadEnd = false
-            warn("launch default changed to \(policy.model ?? "default")/" +
-                 "\(policy.effort ?? "default") → adopting it" +
+            warn("launch default changed to \(target.model ?? "default")/" +
+                 "\(target.effort ?? "default") → adopting it" +
                  (repick.id != account.id ? " on \(repick.label)" : ""))
             plan = RelaunchPlan(target: repick, reason: "follow", countsFuse: false,
-                                model: policy.model, effort: policy.effort)
+                                model: target.model, effort: target.effort)
             state.adopt(model: desired.0, effort: desired.1)
         }
     } else {
@@ -172,22 +184,25 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
 /// safeguard restore rewrite the args on purpose without moving that baseline, and a relaunch must
 /// not quietly undo them. A plan that already names a pair (a `tally model`, a fallback, a rescue)
 /// or releases one (`clearsAxes`) is more specific and is left alone, and so is a session that is
-/// not following at all (a hand-typed flag, `--no-follow`, or a live model pin, which the caller
-/// folds into `following`). Returns whether it folded.
+/// not following at all (`--no-follow`, or a live model pin, which the caller folds into
+/// `following`). A hand-typed flag holds its own axis only: the fold keeps that value and moves the
+/// other axis (#14). Returns whether it folded.
 @discardableResult
-func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState, following: Bool,
-                            policy: LaunchPolicy, launchArgs: [String]) -> Bool {
-    guard following, plan.model == nil, plan.effort == nil, !plan.clearsAxes, !plan.followFolded
+func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState,
+                            following: FollowAxes, policy: LaunchPolicy,
+                            launchArgs: [String]) -> Bool {
+    guard following.any, plan.model == nil, plan.effort == nil, !plan.clearsAxes, !plan.followFolded
     else { return false }
-    let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
+    let target = followTarget(following, policy: policy, launchArgs: launchArgs)
+    let desired = (target.model?.lowercased(), target.effort?.lowercased())
     if desired == (state.followedModel, state.followedEffort) { return false }
     if followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                               launchArgs: launchArgs) {
         state.adopt(model: desired.0, effort: desired.1)
         return false
     }
-    plan.model = policy.model
-    plan.effort = policy.effort
+    plan.model = target.model
+    plan.effort = target.effort
     // A nil axis means REMOVE the flag: the effective setting declares none, so the child must not
     // keep one the old args carried.
     plan.clearsAxes = true
@@ -201,7 +216,7 @@ func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState
 /// one follows the same reading and nothing flips the fold back. The account it pins keeps the
 /// reading the supervisor started with: that decides where the session runs, not what it runs.
 func foldEffectiveFollow(_ plan: inout RelaunchPlan, state: inout FollowState,
-                         project: inout ProjectPolicy, following: Bool, providerID: String,
+                         project: inout ProjectPolicy, following: FollowAxes, providerID: String,
                          launchArgs: [String]) {
     let fresh = projectPolicy(providerID)
     (project.model, project.effort) = (fresh.model, fresh.effort)
@@ -214,7 +229,7 @@ func foldEffectiveFollow(_ plan: inout RelaunchPlan, state: inout FollowState,
 /// args, and a build older than B-1091 passed them through without re-deriving the pair, so the
 /// fold above happens once more here, before the spawn, rather than on the first tick, where the
 /// follow would spend a second restart on it.
-func resumedLaunchArgs(_ args: [String], state: inout FollowState, following: Bool,
+func resumedLaunchArgs(_ args: [String], state: inout FollowState, following: FollowAxes,
                        policy: LaunchPolicy, target: Snapshot.Account) -> [String] {
     var plan = RelaunchPlan(target: target, reason: "self-update", countsFuse: false)
     guard foldFollowIntoRelaunch(&plan, state: &state, following: following, policy: policy,

@@ -11,8 +11,8 @@ import Foundation
 
 /// Resident supervision: spawn claude, tail its transcript, hand off on a cap hit.
 ///
-/// `follow`: adopt a later change to the launch-default model at the next quiet moment. The caller
-/// sets it false when the user typed their own `--model` or passed `--no-follow`.
+/// `follow`: the axes that adopt a later change to the launch default at the next quiet moment. The
+/// caller holds an axis when the user typed its flag, and both when they passed `--no-follow`.
 ///
 /// `recoveries`: the recovery fuse this session had already spent, handed over by the supervisor
 /// this process replaced in a self-update. Empty for every normal launch.
@@ -31,7 +31,7 @@ import Foundation
 /// notice a sibling freeing up. `sessionModel`: the pair a `tally model` pinned, on the same terms
 /// and for the same reason as the account pin (SessionModel.swift). Both nil for a normal launch.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
-                   follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false,
+                   follow: FollowAxes = .none, recoveries: [Date] = [], resumed: Bool = false,
                    sessionPin: String? = nil, pinOverride: String? = nil,
                    pendingCap: PendingCapRecovery? = nil,
                    sessionModel: SessionModelPin? = nil,
@@ -87,7 +87,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // A self-update image re-derives the pair before its first spawn (B-1091; FollowAdoption.swift).
     if resumed {
         launchArgs = resumedLaunchArgs(launchArgs, state: &followState,
-                                       following: follow && (sessionModel?.isEmpty ?? true),
+                                       following: follow.gated(by: sessionModel?.isEmpty ?? true),
                                        policy: effectivePolicy(launchPolicy(provider.id),
                                                                project: project),
                                        target: initial)
@@ -1387,7 +1387,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // app declare NOW (FollowAdoption.swift), so it is the only restart that lands it.
                 var plan = plan
                 foldEffectiveFollow(&plan, state: &followState, project: &project,
-                                    following: follow && !sessionModelState.isPinned,
+                                    following: follow.gated(by: !sessionModelState.isPinned),
                                     providerID: provider.id, launchArgs: launchArgs)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)

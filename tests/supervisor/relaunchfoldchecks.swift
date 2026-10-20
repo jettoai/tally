@@ -109,7 +109,7 @@ func runRelaunchFoldChecks() {
     check("…parsed back as one", handParsed.handOptOut && !handParsed.follow
               && handParsed.childArgs == ["--resume", "x"])
     check("…and never overwritten by a project that declares a pair",
-          !resupervisedFollow(handParsed, project: mediumProject, environmentAllows: true))
+          resupervisedFollow(handParsed, project: mediumProject, environmentAllows: true) == .none)
     check("a following session writes no marker (T10)",
           !selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h", follow: true, args: [])
               .contains(resuperviseHandOptOutFlag))
@@ -119,14 +119,14 @@ func runRelaunchFoldChecks() {
                                        "/h", "--no-follow", "--session-pin", "claude:.claude3",
                                        "--"] + sample)
     check("an unmarked --no-follow in a project that declares a pair follows",
-          resupervisedFollow(legacy, project: mediumProject, environmentAllows: true))
+          resupervisedFollow(legacy, project: mediumProject, environmentAllows: true) == .both)
     check("…in a project that declares none stays opted out",
-          !resupervisedFollow(legacy, project: ProjectPolicy(), environmentAllows: true))
+          resupervisedFollow(legacy, project: ProjectPolicy(), environmentAllows: true) == .none)
     check("…and the environment opt-out wins either way",
-          !resupervisedFollow(legacy, project: mediumProject, environmentAllows: false))
+          resupervisedFollow(legacy, project: mediumProject, environmentAllows: false) == .none)
     check("an old --follow is taken as written",
           resupervisedFollow(parseResuperviseArgs(["--home", "/h", "--follow"]),
-                             project: ProjectPolicy(), environmentAllows: true))
+                             project: ProjectPolicy(), environmentAllows: true) == .both)
 
     // T9. The whole chain for the failing sample: one upgrade, one restart, medium.
     var chainState = FollowState(launchArgs: legacy.childArgs)
@@ -146,14 +146,16 @@ func runRelaunchFoldChecks() {
     let decisionSource = (try? String(contentsOfFile: "TallyCLI/LaunchDecision.swift",
                                       encoding: .utf8)) ?? ""
     let executor = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
-    func follows(_ args: [String]) -> Bool {
+    func follows(_ args: [String]) -> FollowAxes {
         launchIntent(providers[0], args: args, accountFlag: nil, stdoutIsTTY: true,
                      environment: [:]).follow
     }
     check("a project profile no longer opts the session out of following",
-          executor.contains("follow: decision.follow") && follows([])
-              && !follows(["--model", "x"]) && !follows(["--effort", "high"])
-              && !follows(["--no-follow"])
+          executor.contains("follow: decision.follow") && follows([]) == .both
+              && follows(["--model", "x"]) == FollowAxes(model: false, effort: true)
+              && follows(["--effort", "high"]) == FollowAxes(model: true, effort: false)
+              && follows(["--model", "x", "--effort", "high"]) == .none
+              && follows(["--no-follow"]) == .none
               && !mainSource.contains("project.model == nil && project.effort == nil")
               && !decisionSource.contains("project.model == nil && project.effort == nil"))
     let fold = loop.range(of: "foldEffectiveFollow(&plan")
@@ -166,4 +168,54 @@ func runRelaunchFoldChecks() {
           loop.contains("launchArgs = resumedLaunchArgs(launchArgs"))
     check("the resupervise entry point reads the follow through the legacy inference",
           entry.contains("resupervisedFollow(parsed, project:"))
+
+    // T14. Issue #14: `--model X` typed, the default effort injected at launch, then the default
+    //      effort goes away. Every relaunch used to keep `--effort high` for the life of the session.
+    let typedModel = "opus[1m]"
+    let sessionID = "6d14659e-0000-0000-0000-000000000000"
+    let typedIntent = launchIntent(providers[0], args: ["--model", typedModel], accountFlag: nil,
+                                   stdoutIsTTY: true, environment: [:])
+    let launched = applyLaunchDefaults(typedIntent.passthrough, policy: LaunchPolicy(effort: "high"),
+                                       providerID: "claude")
+    check("the typed model launch carries the injected effort", count(launched, "--effort", "high") == 1)
+    check("…and follows on the effort axis only",
+          typedIntent.follow == FollowAxes(model: false, effort: true))
+    let noEffort = LaunchPolicy(effort: nil)
+    let resumeArgs = relaunchArgs(launched, sessionID: sessionID, sameAccount: true)
+    let wanted = ["--resume", sessionID, "--model", typedModel]
+    var fixState = FollowState(launchArgs: launched)
+    var fixPlan = RelaunchPlan(target: target, reason: "cap", countsFuse: false)
+    check("a cap relaunch folds the dropped default effort",
+          foldFollowIntoRelaunch(&fixPlan, state: &fixState, following: typedIntent.follow,
+                                 policy: noEffort, launchArgs: launched))
+    let fixed = planLaunchArgs(resumeArgs, plan: fixPlan)
+    check("…and the child runs the typed model verbatim with no --effort", fixed == wanted)
+    var viaResumedState = FollowState(launchArgs: launched)
+    check("a self-update image's first child does the same",
+          resumedLaunchArgs(resumeArgs, state: &viaResumedState, following: typedIntent.follow,
+                            policy: noEffort, target: target) == wanted)
+    // The exec contract in the middle: what the old supervisor writes is what the new image reads.
+    let viaArgv = selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h",
+                                 follow: typedIntent.follow, args: resumeArgs)
+    let viaParsed = parseResuperviseArgs(Array(viaArgv.dropFirst(2)))
+    let viaFollow = resupervisedFollow(viaParsed, project: ProjectPolicy(), environmentAllows: true)
+    var viaContractState = FollowState(launchArgs: launched)
+    check("the contract carries the axis across the self-update exec",
+          viaFollow == typedIntent.follow && !viaArgv.contains("--follow"))
+    check("…so the image's first child runs the typed model with no --effort",
+          resumedLaunchArgs(viaParsed.childArgs, state: &viaContractState, following: viaFollow,
+                            policy: noEffort, target: target) == wanted)
+
+    // T15. The held model never moves, whatever the default becomes.
+    var heldState = FollowState(launchArgs: launched)
+    var heldPlan = RelaunchPlan(target: target, reason: "reload", countsFuse: false)
+    foldFollowIntoRelaunch(&heldPlan, state: &heldState, following: typedIntent.follow,
+                           policy: LaunchPolicy(model: "sonnet", effort: "medium"),
+                           launchArgs: launched)
+    let heldNext = planLaunchArgs(resumeArgs, plan: heldPlan)
+    check("a changed default moves the effort and leaves the typed model",
+          count(heldNext, "--model", typedModel) == 1 && count(heldNext, "--effort", "medium") == 1
+              && heldNext.filter { $0 == "--model" }.count == 1)
+    check("…and the baseline keeps the typed model", heldState.followedModel == typedModel
+              && heldState.followedEffort == "medium")
 }

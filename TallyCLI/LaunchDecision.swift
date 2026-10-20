@@ -79,6 +79,36 @@ func takeAccountFlag(_ args: inout [String]) -> String? {
     return value
 }
 
+/// Which launch-default axes a running session still follows (#14). A typed `--model` holds the model
+/// axis and leaves the effort axis following the default, and the other way round: a deliberate
+/// choice outranks the default for ITS axis only.
+///
+/// A boolean literal speaks for the pair (`true` is `.both`, `false` is `.none`), so a caller that
+/// only knows "follows" or "does not" reads as it always did. That also means a production
+/// `following: true` silently means BOTH axes: where one axis is held, build the value from the
+/// launch (`launchIntent`), never from a literal.
+struct FollowAxes: Equatable, ExpressibleByBooleanLiteral {
+    var model: Bool
+    var effort: Bool
+
+    static let both = FollowAxes(model: true, effort: true)
+    static let none = FollowAxes(model: false, effort: false)
+
+    init(model: Bool, effort: Bool) {
+        self.model = model
+        self.effort = effort
+    }
+
+    init(booleanLiteral value: Bool) {
+        self.init(model: value, effort: value)
+    }
+
+    var any: Bool { model || effort }
+
+    /// `.none` unless `allowed`: the per-tick stand-down (a live model pin, a session pair).
+    func gated(by allowed: Bool) -> FollowAxes { allowed ? self : .none }
+}
+
 /// What a launch was asked for, read off its own command line, environment and terminal.
 struct LaunchIntent: Equatable {
     /// `--account <v>`, already taken out of the args (`takeAccountFlag`).
@@ -92,8 +122,9 @@ struct LaunchIntent: Equatable {
     var oneShot: Bool
     /// One-shot ONLY because stdout is a pipe, the one reason nobody typed: the launcher says so.
     var pipedOnly: Bool
-    /// The running session follows a later Settings change (no `--no-follow`, no typed model/effort).
-    var follow: Bool
+    /// The axes of the running session that follow a later Settings change: none under `--no-follow`,
+    /// and a typed `--model` or `--effort` holds only its own axis.
+    var follow: FollowAxes
     /// The config home exported by hand, or nil (none, or an inherited leak).
     var exportedHome: String?
     /// Claude Code's child marker in a launch somebody typed (`inheritedSessionEnvironment`).
@@ -132,12 +163,15 @@ func launchIntent(_ provider: Provider, args: [String], accountFlag: String?, st
     let spendReserve = optionsOnly(passthrough).contains(spendReserveFlag)
     passthrough = removingOption(passthrough, spendReserveFlag)
     // A running session follows a later Settings change to the default model/effort UNLESS the user
-    // opted out (--no-follow) or typed their own --model or --effort (a deliberate choice outranks
-    // the default, and the follow adopts the pair as a whole). A project profile does not opt the
-    // session out (B-1091): the supervisor follows the EFFECTIVE pair.
-    let follow = autoFollowEnabled(args: passthrough, environment: environment)
-        && !optionsOnly(passthrough).contains("--model")
-        && !optionsOnly(passthrough).contains("--effort")
+    // opted out (--no-follow), and a typed --model or --effort opts out ITS axis only (#14): a
+    // deliberate choice outranks the default, but the axis nobody typed keeps following it. That
+    // includes a lone typed --effort, so the untyped model follows the default then (the twin of a
+    // lone typed --model leaving the effort to follow). A project profile does not opt the session
+    // out (B-1091): the supervisor follows the EFFECTIVE pair.
+    let allowed = autoFollowEnabled(args: passthrough, environment: environment)
+    let typedFlags = optionsOnly(passthrough)
+    let follow = FollowAxes(model: allowed && !typedFlags.contains("--model"),
+                            effort: allowed && !typedFlags.contains("--effort"))
     passthrough = removingOption(passthrough, "--no-follow")
     let leak = inheritedSessionEnvironment(providerID: provider.id, stdoutIsTTY: stdoutIsTTY,
                                            environment: environment)
@@ -214,7 +248,7 @@ struct LaunchDecision: Equatable {
     /// Variables an inherited environment leaves behind, dropped before any exec.
     var envToUnset: [String]
     var spendReserve: Bool
-    var follow: Bool
+    var follow: FollowAxes
 }
 
 /// A config home with no snapshot row, as an account a launch can carry: the row's own id when the

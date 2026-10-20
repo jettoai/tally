@@ -135,6 +135,11 @@ let resuperviseSpendReserveFlag = "--spend-reserve"
 /// older, ambiguous reading (`resupervisedFollow`). Optional by construction: a following session
 /// writes nothing new, so the `--follow` spelling every build has written is unchanged.
 let resuperviseHandOptOutFlag = "--hand-opt-out"
+/// The axis a partly-following session still follows (#14): bare flags, written ONLY beside a marked
+/// `--no-follow`, never beside `--follow` (a build without them would read that as follow-both and
+/// override the typed flag). An old image steps over them and reads the marked opt-out as today.
+let resuperviseFollowModelFlag = "--follow-model"
+let resuperviseFollowEffortFlag = "--follow-effort"
 
 /// The fuse's recoveries as a flag value: absolute epoch seconds, comma separated. Absolute, not
 /// "N seconds ago", because the exec takes real time (and can be delayed by a slow disk mid-install)
@@ -329,16 +334,20 @@ private func decodeResuperviseFields(_ raw: String) -> [String: Any]? {
 /// state the relaunch this exec rides on decided to hand over (`capCarriedAcrossRelaunch`), and
 /// `sessionModel` the pair a `tally model` pinned, so the new image inherits exactly what the next
 /// CHILD would have inherited had there been no upgrade.
-func selfUpdateArgv(binary: String, id: String, label: String, home: String, follow: Bool,
-                    recoveries: [Date] = [], sessionPin: String? = nil,
+func selfUpdateArgv(binary: String, id: String, label: String, home: String,
+                    follow: FollowAxes, recoveries: [Date] = [], sessionPin: String? = nil,
                     pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                     sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                     capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
                     restartNote: RestartNote? = nil, spendReserve: Bool = false,
                     args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
-                follow ? "--follow" : "--no-follow"]
-    if !follow { argv.append(resuperviseHandOptOutFlag) }
+                follow == .both ? "--follow" : "--no-follow"]
+    if follow != .both {
+        argv.append(resuperviseHandOptOutFlag)
+        if follow.model { argv.append(resuperviseFollowModelFlag) }
+        if follow.effort { argv.append(resuperviseFollowEffortFlag) }
+    }
     if spendReserve { argv.append(resuperviseSpendReserveFlag) }
     if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
     if let sessionPin, !sessionPin.isEmpty {
@@ -388,6 +397,8 @@ struct ResuperviseArgs {
     var restartNote: RestartNote?
     var spendReserve = false
     var handOptOut = false
+    var followModel = false
+    var followEffort = false
     var childArgs: [String] = []
 
     var taskList: TaskListPin? {
@@ -450,6 +461,8 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
         case "--follow": parsed.follow = true; index += 1
         case "--no-follow": parsed.follow = false; index += 1
         case resuperviseHandOptOutFlag: parsed.handOptOut = true; index += 1
+        case resuperviseFollowModelFlag: parsed.followModel = true; index += 1
+        case resuperviseFollowEffortFlag: parsed.followEffort = true; index += 1
         case resuperviseSpendReserveFlag: parsed.spendReserve = true; index += 1
         case "--":
             parsed.childArgs = Array(args[(index + 1)...])
@@ -460,14 +473,19 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
     return parsed
 }
 
-/// Whether the session a self-update hands over follows the effective launch default. A `--follow`
-/// and a marked `--no-follow` are taken as written. An UNMARKED `--no-follow` came from a build
+/// Which axes of the effective launch default the session a self-update hands over follows. A
+/// `--follow` and a marked `--no-follow` are taken as written, the latter with the axes its bare
+/// flags name (none, from a build before them: that is cell #14, a typed-model session born under
+/// it stays held). An UNMARKED `--no-follow` came from a build
 /// that also opted a session out because its project declared a model or effort (B-1091), and the
 /// only evidence left is the project itself: if it declares an axis, the opt-out is read as the
 /// project's and the session follows; if it declares none, the opt-out was the user's. The
 /// environment opt-out is honoured either way.
 func resupervisedFollow(_ parsed: ResuperviseArgs, project: ProjectPolicy,
-                        environmentAllows: Bool = autoFollowEnabled(args: [])) -> Bool {
-    if parsed.follow || parsed.handOptOut { return parsed.follow }
-    return environmentAllows && (project.model != nil || project.effort != nil)
+                        environmentAllows: Bool = autoFollowEnabled(args: [])) -> FollowAxes {
+    if parsed.follow { return .both }
+    if parsed.handOptOut {
+        return FollowAxes(model: parsed.followModel, effort: parsed.followEffort)
+    }
+    return environmentAllows && (project.model != nil || project.effort != nil) ? .both : .none
 }

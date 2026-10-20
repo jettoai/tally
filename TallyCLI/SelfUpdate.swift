@@ -117,7 +117,7 @@ func consumeSelfUpdateAttempt() -> String? {
 /// caller records the attempt first, so an unreachable target is tried once, not every minute for
 /// the life of the session; on success nothing after the execv runs. Announced first: an app update
 /// silently restarting a session is exactly the surprise the dialogs elsewhere exist to avoid.
-func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: Bool,
+func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: FollowAxes,
                     recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
                     pendingCap: PendingCapRecovery? = nil, sessionModel: SessionModelPin? = nil,
                     lastConversation: String? = nil, capResume: CapResumeState? = nil,
@@ -219,7 +219,7 @@ func nextSelfUpdateHeldSince(current: Date?, working: Bool, now: Date) -> Date? 
 /// when there was nothing to do or the exec failed, leaving the caller to respawn.
 func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: String)?,
                            attempted: inout String?, target: Snapshot.Account,
-                           follow: Bool, recoveries: [Date], sessionPin: String? = nil,
+                           follow: FollowAxes, recoveries: [Date], sessionPin: String? = nil,
                            pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
                            sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                            capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
@@ -259,7 +259,8 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?,
 }
 
 /// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
-/// [--hand-opt-out] [--fuse <epochs>] [--session-pin <accountID>] [--pin-override <accountID>]
+/// [--hand-opt-out] [--follow-model] [--follow-effort] [--fuse <epochs>]
+/// [--session-pin <accountID>] [--pin-override <accountID>]
 /// [--pending-cap <json>] [--session-model <json>] [--last-conversation <id>]
 /// [--cap-resume <json>] -- <args...>`: the
 /// other side of the exec.

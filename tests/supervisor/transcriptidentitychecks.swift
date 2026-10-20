@@ -228,16 +228,16 @@ func runTranscriptIdentityChecks() {
     check("35a3 shells and wrappers count against the limit, and a bigger limit finds the Claude Code",
           walk(behindDeck, from: 701, limit: 3) == nil && walk(behindDeck, from: 701, limit: 4)
               == stamp(704, old))
+    let deckChain = wrapperChain(behindDeck)
     var wrappedPasses = 0
     check("35a3 a wrapped ancestry still takes two agreeing passes",
-          claudeCodeThatRanUs(from: { wrappedPasses += 1; return 701 }, process: wrapperChain(behindDeck),
+          claudeCodeThatRanUs(from: { wrappedPasses += 1; return 701 }, process: deckChain,
                               executablePath: { _ in nil }, now: wNow) == stamp(704, old)
               && wrappedPasses == 2)
     var wrapperLookups = 0
     func swapped(_ pid: pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
         wrapperLookups += 1
-        let base = wrapperChain(behindDeck)
-        guard pid == 704, let row = base(pid) else { return base(pid) }
+        guard pid == 704, let row = deckChain(pid) else { return deckChain(pid) }
         return (row.parent, row.name, row.startedAt + (wrapperLookups > 4 ? 1 : 0))
     }
     check("35a3 a Claude Code pid that changed hands between the passes is refused",

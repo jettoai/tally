@@ -282,11 +282,11 @@ func claudeCodeThatRanUs(from: () -> pid_t = getppid, limit: Int = statusLineAnc
                          executablePath: (pid_t) -> String? = processExecutablePath,
                          now: Int64 = Int64(Date().timeIntervalSince1970 * 1_000_000))
     -> ProcessStamp? {
-    guard let first = ancestorThatRanUs(of: from(), limit: limit, process: process,
-                                        executablePath: executablePath, now: now),
-          let second = ancestorThatRanUs(of: from(), limit: limit, process: process,
-                                         executablePath: executablePath, now: now),
-          first == second else { return nil }
+    func pass() -> ProcessStamp? {
+        ancestorThatRanUs(of: from(), limit: limit, process: process,
+                          executablePath: executablePath, now: now)
+    }
+    guard let first = pass(), let second = pass(), first == second else { return nil }
     return first
 }
 
@@ -309,9 +309,9 @@ func ancestorThatRanUs(of start: pid_t, limit: Int,
             crossedWrapper = true
             pid = hop.parent
         } else {
-            let found = ProcessStamp(pid: current, startedAt: hop.startedAt)
-            guard crossedWrapper else { return found }
-            return couldBeClaudeCode(name: hop.name, path: executablePath(current)) ? found : nil
+            guard !crossedWrapper || couldBeClaudeCode(name: hop.name, path: executablePath(current))
+            else { return nil }
+            return ProcessStamp(pid: current, startedAt: hop.startedAt)
         }
     }
     return nil

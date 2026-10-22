@@ -224,7 +224,7 @@ func runPickSurfaceChecks() {
     let settingsWindow = (try? String(contentsOfFile: "Tally/MenuBar/SettingsWindowController.swift",
                                       encoding: .utf8)) ?? ""
     check("the Settings window wears the same DEV tag in its title bar on a Debug build",
-          settingsWindow.contains("if BuildVariant.isDev {\n                let badge = NSHostingView(rootView: TallyDevTagView()")
+          settingsWindow.contains("if BuildVariant.isDev { TallyDevTagView() }")
               && settingsWindow.contains("window.addTitlebarAccessoryViewController(accessory)"))
     let launchViews = (try? String(contentsOfFile: "Tally/Views/PopoverLaunchViews.swift",
                                    encoding: .utf8)) ?? ""

@@ -48,3 +48,12 @@ enum PanelDensity: String, Sendable, CaseIterable {
     case cards
     case list
 }
+
+/// What the PINNED panel looks like: the full panel, or a one-account-per-cell strip laid out as a
+/// row or a column (`PinnedCompactView`). Only the pinned panel reads it; the popover and the
+/// dashboard window are always full. Persisted in `SettingsStore`.
+enum PinnedStyle: String, Sendable, CaseIterable {
+    case full
+    case row
+    case column
+}

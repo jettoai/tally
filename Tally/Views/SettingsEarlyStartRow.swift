@@ -1,17 +1,16 @@
 import SwiftUI
 
 /// "Early start": whether Tally keeps each Claude account's 5-hour window turning over, and the
-/// hours it is asked to stay quiet in. It sits near the top of the Launch pane, beside the row about
-/// Tally itself starting at login, because both are about something happening without anybody
-/// pressing anything.
+/// hours it is asked to stay quiet in. It sits in the Launch pane's quota-windows card, because it
+/// is about something happening without anybody pressing anything.
 ///
 /// The pane also stands in for the panel notice: a user who found this row has been told what the
 /// feature does, which is the whole job the notice exists to do, so opening the pane arms the
 /// schedule exactly as dismissing the notice does (`EarlyStartStore.acknowledgeNotice`).
 ///
-/// The day's tally is a row of its own rather than a tooltip: a relay that runs while nobody is
-/// watching has to be able to show what it did, and a feature whose CLI is missing says so here
-/// rather than reading as "on" and doing nothing.
+/// The day's tally is the relay row's own subtitle rather than a tooltip: a relay that runs while
+/// nobody is watching has to be able to show what it did, and a feature whose CLI is missing says
+/// so here rather than reading as "on" and doing nothing.
 struct SettingsEarlyStartRow: View {
     @Bindable var store: EarlyStartStore
     /// Whether the pane this row sits on is the one Settings is showing. Passed in for the reason
@@ -23,14 +22,7 @@ struct SettingsEarlyStartRow: View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
             if store.isEnabled {
-                Divider().padding(.leading, 14)
                 quietHoursRow
-                if store.quietHours.isEnabled {
-                    Divider().padding(.leading, 14)
-                    quietRangeRow
-                }
-                Divider().padding(.leading, 14)
-                tallyRow
             }
         }
         .onChange(of: isVisible, initial: true) { _, visible in
@@ -39,105 +31,76 @@ struct SettingsEarlyStartRow: View {
         }
     }
 
+    /// The relay switch. Its subtitle is the day's tally while it is on: a relay that runs while
+    /// nobody is watching has to be able to show what it did, and a day whose only content is a
+    /// failure says that rather than reading as idle. The full explanation rides in the hover.
     private var headerRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Window relay")).font(.subheadline)
-                Text(L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Leaving this on costs very little and always moves the reset earlier."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        SettingsRow(
+            title: L("Window relay"),
+            subtitle: store.isEnabled
+                ? tallyText
+                : L("Opens each closed 5-hour window early so your next reset lands sooner."),
+            icon: "arrow.triangle.2.circlepath",
+            info: L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Leaving this on costs very little and always moves the reset earlier.")) {
             Toggle(isOn: Binding(get: { store.isEnabled }, set: { store.setEnabled($0) })) {
                 EmptyView()
             }
             .labelsHidden()
             .toggleStyle(.switch)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
+    /// Quiet hours belong to the relay above, so they are its sub-row: the switch, and while it is on
+    /// the two clock fields beside it. The explanation of either state is the row's hover.
     private var quietHoursRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Quiet hours")).font(.subheadline)
-                Text(store.quietHours.isEnabled
+        SettingsSubRow(title: L("Quiet hours")) {
+            HStack(spacing: 8) {
+                if store.quietHours.isEnabled {
+                    Text(L("From")).font(.system(size: 13)).foregroundStyle(.secondary)
+                    picker(hour: store.quietHours.startHour, minute: store.quietHours.startMinute) {
+                        hour, minute in
+                        let held = store.quietHours
+                        store.setQuietHours(EarlyStartQuietHours(
+                            isEnabled: held.isEnabled, startHour: hour, startMinute: minute,
+                            endHour: held.endHour, endMinute: held.endMinute))
+                    }
+                    Text(L("to")).font(.system(size: 13)).foregroundStyle(.secondary)
+                    picker(hour: store.quietHours.endHour, minute: store.quietHours.endMinute) {
+                        hour, minute in
+                        let held = store.quietHours
+                        store.setQuietHours(EarlyStartQuietHours(
+                            isEnabled: held.isEnabled, startHour: held.startHour,
+                            startMinute: held.startMinute, endHour: hour, endMinute: minute))
+                    }
+                }
+                Toggle(isOn: Binding(
+                    get: { store.quietHours.isEnabled },
+                    // Turning it ON adopts the suggested overnight stretch rather than a range of zero
+                    // length, which `EarlyStartQuietHours.contains` reads as no quiet time at all and
+                    // would present as a control that does nothing.
+                    //
+                    // ASKED OF THE RANGE, NOT OF THE SWITCH. Reading "off" as "has no range" is wrong
+                    // on the only machine where the difference shows: the range survives the switch
+                    // being turned off (`EarlyStartStore.setQuietHours` writes all five defaults
+                    // whatever `isEnabled` says), so somebody who set 22:30 to 06:30, turned this off
+                    // and turned it back on the next day got 23:00 to 07:00 and no way back. A fresh
+                    // install already holds the suggested range, so the old test bought nothing there
+                    // either.
+                    set: { on in
+                        var next = store.quietHours
+                        if on, next.startMinutes == next.endMinutes { next = .suggested }
+                        next.isEnabled = on
+                        store.setQuietHours(next)
+                    })) {
+                    EmptyView()
+                }
+                .labelsHidden()
+                .toggleStyle(.switch)
+            }
+        }
+        .tallyTooltip(store.quietHours.isEnabled
                         ? L("Nothing is sent between these times.")
                         : L("Off, so windows are opened at any hour. Turn this on to keep Tally silent overnight."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Toggle(isOn: Binding(
-                get: { store.quietHours.isEnabled },
-                // Turning it ON adopts the suggested overnight stretch rather than a range of zero
-                // length, which `EarlyStartQuietHours.contains` reads as no quiet time at all and
-                // would present as a control that does nothing.
-                //
-                // ASKED OF THE RANGE, NOT OF THE SWITCH. Reading "off" as "has no range" is wrong
-                // on the only machine where the difference shows: the range survives the switch
-                // being turned off (`EarlyStartStore.setQuietHours` writes all five defaults
-                // whatever `isEnabled` says), so somebody who set 22:30 to 06:30, turned this off
-                // and turned it back on the next day got 23:00 to 07:00 and no way back. A fresh
-                // install already holds the suggested range, so the old test bought nothing there
-                // either.
-                set: { on in
-                    var next = store.quietHours
-                    if on, next.startMinutes == next.endMinutes { next = .suggested }
-                    next.isEnabled = on
-                    store.setQuietHours(next)
-                })) {
-                EmptyView()
-            }
-            .labelsHidden()
-            .toggleStyle(.switch)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-
-    private var quietRangeRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(L("From")).font(.subheadline)
-            Spacer()
-            picker(hour: store.quietHours.startHour, minute: store.quietHours.startMinute) {
-                hour, minute in
-                let held = store.quietHours
-                store.setQuietHours(EarlyStartQuietHours(
-                    isEnabled: held.isEnabled, startHour: hour, startMinute: minute,
-                    endHour: held.endHour, endMinute: held.endMinute))
-            }
-            Text(L("to")).font(.caption).foregroundStyle(.secondary)
-            picker(hour: store.quietHours.endHour, minute: store.quietHours.endMinute) {
-                hour, minute in
-                let held = store.quietHours
-                store.setQuietHours(EarlyStartQuietHours(
-                    isEnabled: held.isEnabled, startHour: held.startHour,
-                    startMinute: held.startMinute, endHour: hour, endMinute: minute))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-
-    /// Named like every other row, so the day's count reads as a reading of the relay rather
-    /// than a stray caption left under the quiet hours.
-    private var tallyRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Relay today")).font(.subheadline)
-                Text(tallyText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
     /// One clock field. The picker edits an hour and a minute; the date around them is only a

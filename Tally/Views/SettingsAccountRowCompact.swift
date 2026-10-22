@@ -1,97 +1,62 @@
 import SwiftUI
 
-/// The account row (B-1355, the pane's one layout): one 28pt line per account
-/// in fixed columns, so a long list reads straight down like a table and twenty accounts fit one
-/// screen. Left to right: number, name (renamed in place), address,
-/// plan, 5-hour and weekly figures with thin bars, sharing mark, menu-bar switch, enabled switch,
-/// actions, and the reorder grip the panel's rows carry. Each card opens with a header naming
-/// those columns, and the pane ends on a legend.
+/// The account row (B-1355, the pane's one layout): one line per account in fixed columns, so a
+/// long list reads straight down like a table and twenty accounts fit one screen. Left to right:
+/// number, name (renamed in place), address, plan, 5-hour and weekly figures with thin bars,
+/// sharing mark, menu-bar switch, enabled switch, actions, and the reorder grip the panel's rows
+/// carry. Each card opens with a header naming those columns; what the marks and colours mean is
+/// in the hover on the header names (B-2526 G16), not in a legend under the cards. Type scale, row
+/// height and column widths are one value, `AccountTableStyle`.
 extension SettingsAccountsView {
-    /// Fixed column widths; only the address flexes (it is the longest value and the one that must
-    /// not truncate), so every other column lines up row to row and with the header.
-    private enum Column {
-        static let lead: CGFloat = 28
-        static let name: CGFloat = 96
-        static let plan: CGFloat = 54
-        static let cell: CGFloat = 32
-        static let usage: CGFloat = cell * 2 + 6
-        static let status: CGFloat = plan + 6 + usage
-        // Wide enough for the widest name over them in all five languages at the header's 10pt
-        // (Sharing 37.9 en, Enabled 39.6 en, Menu bar 46.3 en; the ja Menu bar, 57.0, spills into
-        // the short names either side), so no two header names touch and each centres on its column.
-        static let share: CGFloat = 40
-        static let mark: CGFloat = 22
-        static let toggle: CGFloat = 48
-        static let actions: CGFloat = 16
-        static let handle: CGFloat = 12
-    }
+    /// Only the address flexes (it is the longest value and the one that must not truncate), so
+    /// every other column lines up row to row and with the header.
+    private var t: AccountTableStyle { .current }
+    private var markWidth: CGFloat { 22 }
 
-    /// The provider switch in its section header, placed in the rows' "Enabled" column: the same
-    /// width, and the row's trailing inset, actions column and the spacing before it to its right.
-    func headerToggleSlot(_ toggle: some View) -> some View {
-        toggle.frame(width: Column.toggle)
-            .padding(.trailing, 12 + 6 + Column.actions + 6 + Column.handle)
-    }
-
-    /// The column names over a card's rows, in the row's own grid.
+    /// The column names over a card's rows, in the row's own grid. The sharing and figure names
+    /// carry the legend the pane used to end on.
     func compactHeader() -> some View {
-        HStack(spacing: 6) {
-            Color.clear.frame(width: Column.lead, height: 1)
-            headerLabel("Name").frame(width: Column.name, alignment: .leading)
+        HStack(spacing: t.gap) {
+            Color.clear.frame(width: t.lead, height: 1)
+            headerLabel("Name").frame(width: t.nameColumn, alignment: .leading)
             headerLabel("Account").frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
-                headerLabel("Plan").frame(width: Column.plan, alignment: .leading)
-                headerLabel("5 hours").frame(width: Column.cell, alignment: .trailing)
-                headerLabel("Week").frame(width: Column.cell, alignment: .trailing)
+            HStack(spacing: t.gap) {
+                headerLabel("Plan").frame(width: t.plan, alignment: .leading)
+                headerLabel("5 hours", hover: figuresLegend).frame(width: t.cell, alignment: .trailing)
+                headerLabel("Week", hover: figuresLegend).frame(width: t.cell, alignment: .trailing)
             }
-            .frame(width: Column.status, alignment: .leading)
-            headerLabel("Sharing").frame(width: Column.share)
-            headerLabel("Menu bar").frame(width: Column.toggle)
-            headerLabel("Enabled").frame(width: Column.toggle)
-            Color.clear.frame(width: Column.actions, height: 1)
-            Color.clear.frame(width: Column.handle, height: 1)
+            .frame(width: t.status, alignment: .leading)
+            headerLabel("Sharing", hover: sharingLegend).frame(width: t.share)
+            headerLabel("Menu bar").frame(width: t.toggle)
+            headerLabel("Enabled").frame(width: t.toggle)
+            Color.clear.frame(width: t.actions, height: 1)
+            Color.clear.frame(width: t.handle, height: 1)
         }
-        .frame(height: 22)
-        .padding(.horizontal, 12)
+        .frame(height: 26)
+        .padding(.horizontal, t.inset)
     }
 
-    private func headerLabel(_ key: String) -> some View {
+    private func headerLabel(_ key: String, hover: String? = nil) -> some View {
         Text(L(key))
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: t.secondary, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize()
+            .tallyTooltip(hover ?? "")
     }
 
-    /// What the marks and colours in the rows mean: the sharing link in its two states and its
-    /// absence, whether a figure is what is left or what is used, and where the bar turns colour
-    /// (the thresholds MetricSeverity.fromUsedPercent applies).
-    var compactLegend: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 14) {
-                legendItem(sharedMark(full: true), L("Shares the first account's whole setup"))
-                legendItem(sharedMark(full: false), L("Shares part of it"))
-                Text(L("No mark: its own setup"))
-            }
-            HStack(spacing: 14) {
-                Text(L(settings.displayMode == .remaining ? "Percentages show what is left"
-                                                          : "Percentages show what is used"))
-                HStack(spacing: 3) {
-                    ForEach([MetricSeverity.normal, .warning, .critical], id: \.self) { severity in
-                        Capsule().fill(severity.color).frame(width: 10, height: 3)
-                    }
-                    Text(L("Bar: green 50% or more left, orange 20 to 49%, red under 20%"))
-                        .padding(.leading, 2)
-                }
-            }
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 4)
+    /// The sharing link in its two states and its absence.
+    private var sharingLegend: String {
+        [L("Shares the first account's whole setup"), L("Shares part of it"),
+         L("No mark: its own setup")].joined(separator: "\n")
     }
 
-    private func legendItem(_ mark: some View, _ text: String) -> some View {
-        HStack(spacing: 4) { mark; Text(text) }
+    /// Whether a figure is what is left or what is used, and where the bar turns colour (the
+    /// thresholds MetricSeverity.fromUsedPercent applies).
+    private var figuresLegend: String {
+        [L(settings.displayMode == .remaining ? "Percentages show what is left"
+                                              : "Percentages show what is used"),
+         L("Bar: green 50% or more left, orange 20 to 49%, red under 20%")].joined(separator: "\n")
     }
 
     /// Two shapes as well as two colours, so the states hold apart on any screen: a filled accent
@@ -100,7 +65,7 @@ extension SettingsAccountsView {
         Image(systemName: full ? "link.circle.fill" : "link")
             .font(.system(size: full ? 12 : 10, weight: .semibold))
             .foregroundStyle(full ? Color.accentColor : Color.secondary)
-            .frame(width: Column.mark, height: 14)
+            .frame(width: markWidth, height: 14)
     }
 
     func compactRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,
@@ -110,17 +75,16 @@ extension SettingsAccountsView {
         let email = identityEmail(item, usage: usage)
         let homeName = home(of: item).map { AccountIdentity.homeName($0) }
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: t.gap) {
                 Text(badge.map { "\($0)" } ?? "")
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.system(size: t.secondary).monospacedDigit())
                     .foregroundStyle(.tertiary)
-                    .frame(width: Column.lead, alignment: .trailing)
+                    .frame(width: t.lead, alignment: .trailing)
 
-                HStack(spacing: 5) {
-                    nameField(item, font: .system(size: 13, weight: .medium), fieldWidth: Column.name)
-                    if isPersonal(item) { personalBadge }
-                }
-                .frame(width: Column.name, alignment: .leading)
+                // The name alone: the personal mark moved to the reserve line under the row, so a
+                // long name is never shortened to make room for it.
+                nameField(item, font: .system(size: t.name, weight: .medium), fieldWidth: t.nameColumn)
+                    .frame(width: t.nameColumn, alignment: .leading)
 
                 // No address: the config home in its place, faint and small, so two rows given the
                 // same nickname can still be told apart without hovering. A login that just landed
@@ -128,13 +92,13 @@ extension SettingsAccountsView {
                 Group {
                     switch AccountIdentity.column(email: email, signingIn: isSigningIn(item), home: homeName) {
                     case .address(let address):
-                        Text(address).font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(address).font(.system(size: t.secondary)).foregroundStyle(.secondary)
                     case .signingIn:
                         Text(L("Signing in") + "…")
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                            .font(.system(size: t.secondary)).foregroundStyle(.tertiary)
                     case .home(let name):
                         Text(name ?? "")
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                            .font(.system(size: t.secondary)).foregroundStyle(.tertiary)
                     }
                 }
                     .lineLimit(1)
@@ -143,32 +107,32 @@ extension SettingsAccountsView {
                     .tallyTooltip([email, homeName].compactMap { $0 }.joined(separator: "\n"))
 
                 compactStatus(item, usage: usage, enabled: enabled, signIn: signIn)
-                    .frame(width: Column.status, alignment: .leading)
+                    .frame(width: t.status, alignment: .leading)
 
                 // A fixed slot even when empty: a bare frame on an empty branch collapses, and
                 // took the HStack spacing with it, shifting every column to its left.
-                Color.clear.frame(width: Column.share, height: 14).overlay { shareMark(item) }
+                Color.clear.frame(width: t.share, height: 14).overlay { shareMark(item) }
                 menuBarToggle(item.id)
                     .disabled(!enabled)
                     .opacity(enabled ? 1 : 0.35)
-                    .frame(width: Column.toggle)
-                enabledSwitch(item).frame(width: Column.toggle)
+                    .frame(width: t.toggle)
+                enabledSwitch(item).frame(width: t.toggle)
                 actionsMenu(item, moveUp: moveUp, moveDown: moveDown)
                 // The panel row's grip, on the same outer edge (ReorderHandle).
                 ReorderHandle(bright: hoveredAccountID == item.id || rowLift?.id == item.id)
                     .font(.caption)
-                    .frame(width: Column.handle)
+                    .frame(width: t.handle)
             }
-            .frame(height: 28)
+            .frame(height: t.rowHeight)
             .opacity(enabled ? 1 : 0.6)
 
             AccountLoginHealthView(accountID: item.id, owner: rowOwner(item, usage: usage),
                 canRenew: RenewLoginStore.shared.canRenew(accountID: item.id,
                     providerID: item.providerID, home: item.launchHome),
                 showsExpiry: signIn == .signedIn)
-                .padding(.leading, 34)
+                .padding(.leading, t.lead + t.gap)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, t.inset)
     }
 
     /// The plan and the two figures, or in their place the one thing that matters more: a login
@@ -179,33 +143,34 @@ extension SettingsAccountsView {
         if signIn != .signedIn {
             signInState(signIn, item, usage: usage)
         } else if !enabled {
-            Text(L("Disabled")).font(.caption2).foregroundStyle(.tertiary)
+            Text(L("Disabled")).font(.system(size: t.secondary)).foregroundStyle(.tertiary)
         } else if let usage {
-            HStack(spacing: 6) {
+            HStack(spacing: t.gap) {
                 Text(usage.planName ?? "")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: t.secondary, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(.quaternary).opacity(usage.planName == nil ? 0 : 1))
-                    .frame(width: Column.plan, alignment: .leading)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Capsule().fill(Color.primary.opacity(0.08))
+                        .opacity(usage.planName == nil ? 0 : 1))
+                    .frame(width: t.plan, alignment: .leading)
                 if usage.metrics.isEmpty, let error = usage.error {
-                    Text(error).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(error).font(.system(size: t.secondary)).foregroundStyle(.secondary).lineLimit(1)
                         .tallyTooltip(error)
                 } else {
                     let columns = UsageMetric.columns(usage.metrics)
                     let cells = [columns.session, columns.weekly]
-                    HStack(spacing: 6) {
+                    HStack(spacing: t.gap) {
                         // Each window under its own header; a missing one keeps its width empty.
                         ForEach(cells.indices, id: \.self) { index in
                             if let metric = cells[index] {
                                 usageCell(metric, usage)
                             } else {
-                                Color.clear.frame(width: Column.cell, height: 1)
+                                Color.clear.frame(width: t.cell, height: 1)
                             }
                         }
                     }
-                    .frame(width: Column.usage, alignment: .leading)
+                    .frame(width: t.usage, alignment: .leading)
                     // Figure plus bar, centred as one block, sat 1.5pt below the name's midline
                     // (measured on the 2x capture, 2026-10-10): lifted to meet it.
                     .offset(y: -1.5)
@@ -214,7 +179,7 @@ extension SettingsAccountsView {
         } else {
             HStack(spacing: 4) {
                 ProgressView().controlSize(.mini)
-                Text(L("Loading…")).font(.caption2).foregroundStyle(.secondary)
+                Text(L("Loading…")).font(.system(size: t.secondary)).foregroundStyle(.secondary)
             }
         }
     }
@@ -225,10 +190,10 @@ extension SettingsAccountsView {
         let mode = settings.displayMode
         return VStack(alignment: .trailing, spacing: 2) {
             Text(UsageFormat.percent(metric, mode: mode, resetPassed: passed))
-                .font(.system(size: 11).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(.system(size: t.figure, weight: .medium).monospacedDigit())
+                .foregroundStyle(.primary)
             Capsule().fill(Color.primary.opacity(0.1))
-                .frame(height: 2.5)
+                .frame(height: 3)
                 .overlay(alignment: .leading) {
                     GeometryReader { proxy in
                         Capsule().fill(passed ? Color.secondary : metric.severity.color)
@@ -237,7 +202,7 @@ extension SettingsAccountsView {
                     }
                 }
         }
-        .frame(width: Column.cell)
+        .frame(width: t.cell)
         .tallyTooltip(passed
             ? "\(L(metric.label)) ? · \(L("Reset passed, awaiting refresh"))"
             : "\(L(metric.label)) \(UsageFormat.percent(metric, mode: mode)) \(UsageFormat.modeWord(mode))")
@@ -245,7 +210,7 @@ extension SettingsAccountsView {
 
     /// The link mark alone (the panel's path and words move into its hover): a filled accent disc
     /// when the account shares the primary's whole setup, a plain grey link when only some of it,
-    /// nothing when it keeps its own (the legend under the cards says which is which).
+    /// nothing when it keeps its own (the hover on the "Sharing" header says which is which).
     @ViewBuilder
     private func shareMark(_ item: ProviderAccount) -> some View {
         let primary = discovered(for: item.providerID).first

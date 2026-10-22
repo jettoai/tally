@@ -155,7 +155,11 @@ enum CaptureLaunch {
                                // Qualify TallyCodexUpdateCLI (Debug): the background update's
                                // pause between runs, the `--codex` it passes, and one environment
                                // pair for the helper. Without the stand-in the schedule never starts.
-                               "TallyCodexUpdateEvery", "TallyCodexUpdateCodex", "TallyCodexUpdateEnv"]
+                               "TallyCodexUpdateEvery", "TallyCodexUpdateCodex", "TallyCodexUpdateEnv",
+                               // Qualify TallySettingsCapture (Debug, Dev build or demo data), the same
+                               // way TallyChipPhase does: the Integrations header's states, its Remove
+                               // all question held open, and one button's hover callout held open.
+                               "TallyDemoIntegrations", "TallyIntegrationsConfirm", "TallyIntegrationsTip"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

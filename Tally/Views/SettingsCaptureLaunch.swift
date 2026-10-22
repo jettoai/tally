@@ -1,8 +1,7 @@
 import Foundation
 
-/// Which Settings pane a capture launch opens on, and which page of it (`-TallySettingsCapture
-/// integrations` or `-TallySettingsCapture integrations:sessions`, demo and dev builds only,
-/// argument domain so nothing persists).
+/// Which Settings pane a capture launch opens on (`-TallySettingsCapture integrations`, demo and dev
+/// builds only, argument domain so nothing persists).
 ///
 /// The other half of `-TallySettingsCapture`, written with it for the reason `SurfaceTabLaunch` is
 /// written with `-TallyPanelCapture`: that flag decides that the window is up at all without anybody
@@ -37,20 +36,6 @@ enum SettingsCaptureLaunch {
     static var openingSection: SettingsView.Section? {
         guard let word = words.first else { return nil }
         return SettingsView.Section(rawValue: word)
-    }
-
-    /// And WHICH PAGE of the Integrations pane, for a value that names one after a colon
-    /// (`-TallySettingsCapture integrations:sessions`).
-    ///
-    /// The pane grew pages, so the promise in this flag's own note - that it puts one ROW in front
-    /// of a reviewer rather than leaving them to find it - stopped holding the moment the row they
-    /// wanted was on the second page. A second word rather than a second flag because the two
-    /// answers are one address, and the pages have no meaning apart from the pane they are in.
-    ///
-    /// Ignored rather than refused when it names no page this app has, exactly as the pane word is.
-    static var openingIntegrationsGroup: SettingsView.IntegrationsGroup? {
-        guard words.count > 1 else { return nil }
-        return SettingsView.IntegrationsGroup.allCases.first { $0.rawValue.lowercased() == words[1] }
     }
 
     /// The value split into its address parts, each folded to the case-and-spacing-free shape both

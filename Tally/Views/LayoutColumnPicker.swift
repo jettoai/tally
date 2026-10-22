@@ -22,17 +22,21 @@ struct LayoutColumnPicker: View {
     /// 2026-08-15). Said in the words the tile is described in, so the promise is the one the board
     /// can keep in every width.
     var atMost: Bool = false
+    /// The Settings pane's size (B-2526 G19): 48-wide tiles, 12pt numbers, and the selection drawn as
+    /// the thumbnail cards draw theirs, a 2pt ring standing off the tile. The panel's view options
+    /// are a 268-wide popover and keep the compact tile.
+    var roomy: Bool = false
 
     @State private var hovered: Int?
 
     private static let auto = 0
     private var options: [Int] { [Self.auto] + Array(1 ... maxColumns) }
-    private static let glyphWidth: CGFloat = 26
-    private static let glyphHeight: CGFloat = 14
+    private var glyphWidth: CGFloat { roomy ? 30 : 26 }
+    private var glyphHeight: CGFloat { roomy ? 16 : 14 }
     private static let tileRadius: CGFloat = 6
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: roomy ? 10 : 6) {
             ForEach(options, id: \.self) { option in
                 tile(option)
             }
@@ -48,17 +52,25 @@ struct LayoutColumnPicker: View {
             VStack(spacing: 4) {
                 glyph(option, active: isSelected)
                 Text(option == Self.auto ? L("Auto") : "\(option)")
-                    .font(.caption2)
+                    .font(roomy ? .system(size: 12, weight: isSelected ? .semibold : .regular).monospacedDigit()
+                                : .caption2)
                     .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-            .frame(width: 42)
-            .padding(.vertical, 6)
+            .foregroundStyle(isSelected ? (roomy ? Color.primary : Color.accentColor) : Color.secondary)
+            .frame(width: roomy ? 48 : 42)
+            .padding(.vertical, roomy ? 8 : 6)
             .background(shape.fill(fillColor(option, selected: isSelected)))
             // Selected reads on the border as well as the fill: over the panel's glass a tinted
             // fill alone is easy to lose, and the border survives whatever shows through.
-            .overlay(shape.strokeBorder(isSelected ? Color.accentColor.opacity(0.55) : .clear,
+            .overlay(shape.strokeBorder(isSelected && !roomy ? Color.accentColor.opacity(0.55) : .clear,
                                         lineWidth: 1))
+            .overlay {
+                if roomy, isSelected {
+                    RoundedRectangle(cornerRadius: Self.tileRadius + 5, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(-5)
+                }
+            }
             .contentShape(shape)
         }
         .buttonStyle(.plain)
@@ -90,10 +102,10 @@ struct LayoutColumnPicker: View {
                     .fill(active ? Color.accentColor : Color.secondary.opacity(0.6))
                     .frame(maxWidth: .infinity)
                     .frame(height: option == Self.auto && index == 1
-                           ? Self.glyphHeight * 0.62 : Self.glyphHeight)
+                           ? glyphHeight * 0.62 : glyphHeight)
             }
         }
-        .frame(width: Self.glyphWidth, height: Self.glyphHeight, alignment: .top)
+        .frame(width: glyphWidth, height: glyphHeight, alignment: .top)
     }
 
     /// What a tile is called, for the callout under the pointer and for VoiceOver alike: one

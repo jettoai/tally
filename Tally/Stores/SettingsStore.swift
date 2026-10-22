@@ -203,6 +203,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(panelDensity.rawValue, forKey: "panelDensity") }
     }
 
+    /// How the pinned panel is drawn (see `PinnedStyle`). Full by default, so nobody's pinned panel
+    /// changes until they pick a strip.
+    var pinnedStyle: PinnedStyle {
+        didSet { UserDefaults.standard.set(pinnedStyle.rawValue, forKey: "pinnedStyle") }
+    }
+
     /// The compact list's own column count, same vocabulary as `panelColumns` (0 = auto, 1...4 an
     /// explicit width). Its OWN setting rather than a shared one, because a comfortable number of
     /// 263pt cards is not a comfortable number of rows nearly twice that wide: sharing it would have
@@ -340,6 +346,7 @@ final class SettingsStore {
         // land on auto where its neighbours landed on the widest tile.
         panelColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "panelColumns"), max: 4)
         panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .list
+        pinnedStyle = PinnedStyle(rawValue: defaults.string(forKey: "pinnedStyle") ?? "") ?? .full
         listColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "listColumns"),
                                                   max: SettingsStore.maxListColumns)
         sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),

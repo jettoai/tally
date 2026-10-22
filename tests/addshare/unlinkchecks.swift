@@ -487,8 +487,8 @@ func runUnlinkChecks(root: URL) {
     // THE CLOSURE'S BODY, whitespace collapsed and cut at its own brace, not a line matched
     // verbatim: these ask what the hand-off DOES, and a closure that grew a statement is the same
     // answer (verbatim, this went red the first time one was added, 60a4fe7); a body it cannot find
-    // is "", which fails both rather than passing. The second is the PAGE, of the three 01078c2
-    // split Integrations into: the sharing control is on the first.
+    // is "", which fails both rather than passing. The second is the GROUP the sharing control is
+    // in (Integrations is one scrolling page).
     let flat = ((try? String(contentsOfFile: "Tally/Views/SettingsView.swift", encoding: .utf8))
         ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
     // SPLIT at the hand-off rather than searched for, so the COUNT comes with it: reading one body
@@ -500,6 +500,6 @@ func runUnlinkChecks(root: URL) {
     let handOff = sites.count > 1 ? String(sites[1].prefix { $0 != "}" }) : ""
     check("…wired to the section selection this window already has, not to a notion of its own",
           handOff.contains("select(.integrations)"))
-    check("…and onto the page the sharing control is on, not whichever was open last",
-          handOff.contains("integrationsGroup = .commandLine"))
+    check("…and scrolled to the group the sharing control is in, not left at the top of a long page",
+          handOff.contains("scrollTarget = Self.sharedHarnessAnchor"))
 }

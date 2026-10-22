@@ -17,76 +17,57 @@ struct SettingsUpdateRows: View {
 
     var body: some View {
         if UpdateAvailability.shared.updaterActive {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Automatically check for updates")).font(.subheadline)
-                    // Check Now sits on the "last checked" line rather than on a row of its own,
-                    // and stays enabled while the switch is off: a manual check is not automatic.
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        if let last = UpdaterController.shared.lastUpdateCheckDate {
-                            Text(L("Last checked") + ": "
-                                 + last.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
-                                     .locale(AppLocale.current)))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
-                            .controlSize(.mini)
-                    }
-                }
-                Spacer()
-                Toggle(isOn: Binding(
+            SettingsToggleRow(
+                title: L("Automatically check for updates"),
+                icon: "arrow.down.circle",
+                isOn: Binding(
                     get: { autoChecks },
                     set: { value in
                         UpdaterController.shared.automaticallyChecksForUpdates = value
                         sync()
                     }
-                )) { EmptyView() }
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+                ))
 
-            divider
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Install updates automatically")).font(.subheadline)
-                    Text(L("Downloads new versions in the background, then installs while you are away from the keyboard or the next time Tally quits."))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Toggle(isOn: Binding(
+            SettingsDivider()
+
+            SettingsToggleRow(
+                title: L("Install updates automatically"),
+                subtitle: L("Downloads in the background and installs when you are away or Tally quits."),
+                icon: "square.and.arrow.down",
+                info: L("Downloads new versions in the background, then installs while you are away from the keyboard or the next time Tally quits."),
+                isOn: Binding(
                     get: { autoInstalls },
                     set: { value in
                         UpdaterController.shared.automaticallyDownloadsUpdates = value
                         sync()
                     }
-                )) { EmptyView() }
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .disabled(!autoChecks)
-            .opacity(autoChecks ? 1 : 0.5)
-            .onAppear { sync() }
-        } else {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L("This build has no update feed; download new versions from GitHub Releases."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Link("GitHub", destination: URL(string: "https://github.com/jettoai/tally/releases")!)
-                    .font(.caption)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-        }
-    }
+                ))
+                .disabled(!autoChecks)
+                .opacity(autoChecks ? 1 : 0.5)
+                .onAppear { sync() }
 
-    private var divider: some View {
-        Divider().padding(.leading, 14)
+            SettingsDivider()
+
+            // Stays enabled while the automatic-check switch is off: a manual check is not automatic.
+            SettingsRow(title: L("Last checked"),
+                        subtitle: UpdaterController.shared.lastUpdateCheckDate.map {
+                            $0.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
+                                .locale(AppLocale.current))
+                        },
+                        icon: "clock") {
+                Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
+                    .buttonStyle(.bordered)
+            }
+        } else {
+            // The link to GitHub Releases is on the identity card, beside the version.
+            Text(OverlayApp.noUpdateNote
+                 ?? L("This build has no update feed; download new versions from GitHub Releases."))
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, SettingsChrome.rowInsetH)
+                .padding(.vertical, SettingsChrome.rowInsetV)
+        }
     }
 
     private func sync() {

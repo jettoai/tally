@@ -5,7 +5,26 @@ import SwiftUI
 /// step darker than the white cards on it, section headers that run a hairline to the edge. Values
 /// follow Jetto Voice's settings so the two apps read as one family.
 enum SettingsChrome {
-    static let sidebarWidth: CGFloat = 180
+    static let sidebarWidth: CGFloat = 220
+    /// The pages' rhythm (B-2526, Voice's values): the gap between sections, a section title to its
+    /// card, a row's insets and floor, and the identity card's inset.
+    static let sectionGap: CGFloat = 28
+    static let headerToCard: CGFloat = 10
+    static let rowInsetH: CGFloat = 20
+    static let rowInsetV: CGFloat = 10
+    static let rowMinHeight: CGFloat = 52
+    static let heroInset: CGFloat = 20
+    /// Where a row's divider starts: under the title column (20 inset + 24 icon + 12 gap), or at the
+    /// inset when the row has no icon.
+    static let dividerInsetIcon: CGFloat = 56
+    static let dividerInsetPlain: CGFloat = 20
+    /// The page's inset inside the scroll view, and the content column it sits in: window content
+    /// width = sidebar 220 + column, the column being a card plus two insets (the card is 732
+    /// wide, `AccountTableStyle`, so the column is 788).
+    static let paneInsetH: CGFloat = 28
+    static let paneInsetTop: CGFloat = 30
+    static let paneInsetBottom: CGFloat = 32
+    static var contentWidth: CGFloat { AccountTableStyle.current.cardWidth + 2 * paneInsetH }
     static let sidebar = adaptive(light: 0xEBEBED, dark: 0x28282A)
     static let page = adaptive(light: 0xF3F3F5, dark: 0x1C1C1E)
     /// The "Sign in again" chip: a dark red on a pale wash in light mode, a pale red on a deep one in
@@ -26,45 +45,18 @@ enum SettingsChrome {
 
 /// A grouped card: white on the page in light mode with a faint shadow, a 6% white wash in dark.
 struct SettingsCardSurface: ViewModifier {
+    var cornerRadius: CGFloat = 12
+    /// A raised card under the pointer (a page-level action button), one step brighter.
+    var highlighted = false
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let dark = scheme == .dark
         content
-            .background(shape.fill(dark ? Color.white.opacity(0.06) : Color.white)
-                .shadow(color: .black.opacity(dark ? 0 : 0.05), radius: 3, y: 1))
+            .background(shape.fill(dark ? Color.white.opacity(highlighted ? 0.09 : 0.06) : Color.white)
+                .shadow(color: .black.opacity(dark ? 0 : (highlighted ? 0.09 : 0.05)),
+                        radius: highlighted ? 5 : 3, y: 1))
             .overlay(shape.strokeBorder(Color.primary.opacity(dark ? 0.09 : 0.08), lineWidth: 0.5))
-    }
-}
-
-/// The line between two rows in a card.
-struct SettingsCardDivider: View {
-    var leading: CGFloat = 0
-
-    var body: some View {
-        Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5).padding(.leading, leading)
-    }
-}
-
-/// A section title over its card: line icon, 15pt semibold title, an optional count, a hairline
-/// running to the trailing edge, then whatever controls belong to the section as a whole.
-struct SettingsSectionHeader<Icon: View, Trailing: View>: View {
-    let title: String
-    var count: Int?
-    @ViewBuilder var icon: Icon
-    @ViewBuilder var trailing: Trailing
-
-    var body: some View {
-        HStack(spacing: 8) {
-            icon.frame(width: 18)
-            Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
-            if let count {
-                Text("\(count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.tertiary)
-            }
-            Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 0.5).padding(.horizontal, 2)
-            trailing
-        }
-        .padding(.leading, 4)
     }
 }

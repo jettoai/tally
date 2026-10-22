@@ -345,7 +345,7 @@ func checkPanelSummon() {
     // The floor under a short pane is the sidebar, MEASURED. A constant here is only ever wrong on
     // the shortest pane, which is exactly where nobody looks - and it goes stale on a new section.
     check("…with the sidebar measured as the floor rather than allowed for with a number",
-          settingsView.contains("max((paneHeights[item] ?? 0) + 2 * Self.paneInset, sidebarHeight)")
+          settingsView.contains("max((paneHeights[item] ?? 0) + Self.paneInsetV, sidebarHeight + sidebarFooterHeight)")
               && !settingsView.contains("max(height, 250)"))
     // And the sidebar's measurement stops before the spacer that fills the window: measuring that
     // one would be measuring the window's height and reporting it back as the content's.

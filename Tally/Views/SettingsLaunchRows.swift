@@ -3,6 +3,9 @@ import SwiftUI
 /// The per-provider launch-default rows (start mode, permissions, model, effort), split out of
 /// SettingsLaunchView for file size. All of them write LaunchPolicyStore and follow one
 /// contract: empty/default injects nothing, and flags the user types always win (CLI-side).
+///
+/// Each row is a `SettingsRow` (B-2526): a one-line `subtitle`, with the longer explanation in the
+/// row's hover (`info`). Anything the user has to act on stays a line of its own.
 extension SettingsLaunchView {
     func launchDefaultBinding(_ providerID: String,
                               _ keyPath: WritableKeyPath<LaunchPolicyStore.ProviderPolicy, String?>)
@@ -17,15 +20,10 @@ extension SettingsLaunchView {
     /// One-off escape: `tally <provider> --new`.
     func startModeRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
-        return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Start with")).font(.subheadline)
-                Text(L("Applies to bare launches; tally claude --new starts fresh once.")
-                    .replacingOccurrences(of: "tally claude", with: "tally \(providerID)"))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        return SettingsRow(
+            title: L("Start with"), subtitle: L("Applies to bare launches."), icon: "arrow.uturn.forward",
+            info: L("Applies to bare launches; tally claude --new starts fresh once.")
+                .replacingOccurrences(of: "tally claude", with: "tally \(providerID)")) {
             Picker("", selection: Binding(
                 get: { launchPolicy.policy(providerID).startMode ?? "new" },
                 set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
@@ -35,22 +33,16 @@ extension SettingsLaunchView {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .fixedSize()
         }
-        .settingsRowPadding()
     }
 
     /// Extra flags appended ONLY when the supervisor relaunches the session on the fallback
     /// pairing (e.g. compensating a weaker model with extra system-prompt instructions).
     func fallbackArgsRow(_ providerID: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Fallback args")).font(.subheadline)
-                Text(L("Appended only when the session is relaunched on the fallback model."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        SettingsRow(
+            title: L("Fallback args"), subtitle: L("Added only when relaunched on the fallback model."),
+            icon: "text.append",
+            info: L("Appended only when the session is relaunched on the fallback model.")) {
             TextField("--append-system-prompt …" as String, text: Binding(
                 get: { LaunchPolicyStore.shared.policy(providerID).fallbackArgs ?? "" },
                 set: { LaunchPolicyStore.shared.setLaunchDefault(providerID, \.fallbackArgs, $0) }
@@ -58,7 +50,6 @@ extension SettingsLaunchView {
             .textFieldStyle(.roundedBorder)
             .frame(width: 210)
         }
-        .settingsRowPadding()
     }
 
     /// The permission mode injected by the tally launcher, offered to every provider because it is
@@ -70,26 +61,20 @@ extension SettingsLaunchView {
     func permissionRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
         let codex = providerID == "codex"
-        return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(codex ? L("Codex permissions") : L("Claude permissions")).font(.subheadline)
-                Text(L("Applied when launching through tally; flags you type yourself win."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        return SettingsRow(
+            title: codex ? L("Codex permissions") : L("Claude permissions"),
+            subtitle: L("Flags you type yourself win."), icon: "lock.shield",
+            info: L("Applied when launching through tally; flags you type yourself win.")) {
             Picker("", selection: Binding(
                 get: { launchPolicy.policy(providerID).permissionMode ?? .standard },
                 set: { launchPolicy.setPermissionMode(providerID, $0) }
             )) {
                 ForEach(LaunchPolicyStore.PermissionMode.allCases, id: \.self) { mode in
-                    Text(verbatim: mode.label(providerID)).tag(mode)
+                    Text(verbatim: mode.displayName(providerID)).tag(mode)
                 }
             }
             .labelsHidden()
-            .fixedSize()
         }
-        .settingsRowPadding()
     }
 
 }
@@ -102,7 +87,8 @@ extension SettingsLaunchView {
 struct StagedModelEffortRow: View {
     let providerID: String
     let title: String
-    let caption: String
+    let subtitle: String
+    let info: String
     let modelOptions: [String]
     let effortLevels: [String]
 
@@ -116,21 +102,19 @@ struct StagedModelEffortRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ModelEffortRow(title: title, caption: caption, modelOptions: modelOptions,
-                           effortLevels: effortLevels,
+            ModelEffortRow(title: title, subtitle: subtitle, icon: "sparkles", info: info,
+                           modelOptions: modelOptions, effortLevels: effortLevels,
                            model: $stagedModel, effort: $stagedEffort)
             if dirty {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(L("Not applied. Running sessions keep the current model and effort until you apply."))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
+                // The next step is the user's, so it is a line of its own, not a hover.
+                SettingsSubRow(title: L("Not applied. Running sessions keep the current model and effort until you apply."),
+                               tint: TallyColor.warning) {
                     Button(L("Apply")) {
                         LaunchPolicyStore.shared.setLaunchPair(providerID, model: stagedModel,
                                                               effort: stagedEffort)
                     }
+                    .buttonStyle(.borderedProminent)
                 }
-                .settingsRowPadding()
             }
         }
         .onAppear {
@@ -148,9 +132,9 @@ struct StagedModelEffortRow: View {
 /// with a Custom escape; effort levels from the installed claude CLI's help / codex docs.
 struct ModelEffortRow: View {
     let title: String
-    /// Optional behavior note rendered under the title, in the left column like every other
-    /// captioned row (a full-width footnote under the row read as a stray paragraph).
-    var caption: String? = nil
+    var subtitle: String?
+    var icon: String?
+    var info: String?
     let modelOptions: [String]
     let effortLevels: [String]
     @Binding var model: String?
@@ -165,120 +149,59 @@ struct ModelEffortRow: View {
     }
 
     var body: some View {
-        // The custom field lives on its own second line: sharing the main line with both pickers
-        // squeezed the caption column to ~80pt (an eight-line sliver), and the window follows the
-        // tallest pane, so every pane paid for it. Off the line, the main row's geometry is
-        // identical in both modes, and the field gets room enough for real model ids.
-        VStack(alignment: .trailing, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                mainLine
-            }
-            if selection == "custom" {
-                TextField("Custom" as String, text: Binding(
-                    get: { model ?? "" },
-                    set: { model = $0.isEmpty ? nil : $0 }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
+        // The custom field lives on its own second line under the two menus, so the row's main line
+        // is identical in both modes and the field gets room enough for real model ids.
+        SettingsRow(title: title, subtitle: subtitle, icon: icon, info: info) {
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 6) { mainLine }
+                if selection == "custom" {
+                    TextField("Custom" as String, text: Binding(
+                        get: { model ?? "" },
+                        set: { model = $0.isEmpty ? nil : $0 }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                }
             }
         }
-        .settingsRowPadding()
     }
 
     @ViewBuilder
     private var mainLine: some View {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline)
-                if let caption {
-                    Text(caption).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        Picker("", selection: Binding(
+            get: { selection },
+            set: { picked in
+                switch picked {
+                case "": customMode = false; model = nil
+                case "custom": customMode = true
+                default: customMode = false; model = picked
                 }
             }
-            Spacer()
-            Picker("", selection: Binding(
-                get: { selection },
-                set: { picked in
-                    switch picked {
-                    case "": customMode = false; model = nil
-                    case "custom": customMode = true
-                    default: customMode = false; model = picked
-                    }
-                }
-            )) {
-                Text(verbatim: "Default").tag("")
-                ForEach(modelOptions, id: \.self) { Text(verbatim: $0).tag($0) }
-                Divider()
-                Text(verbatim: "Custom…").tag("custom")
-            }
-            .labelsHidden()
-            .fixedSize()
-            Picker("", selection: Binding(
-                get: { effort ?? "" },
-                set: { effort = $0.isEmpty ? nil : $0 }
-            )) {
-                Text(verbatim: "Default").tag("")
-                ForEach(effortLevels, id: \.self) { Text(verbatim: $0).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
-    }
-}
-
-/// A select-first launch default: the curated/authoritative options in a menu, with a Custom
-/// entry that reveals a free-text field - model ids drift server-side, so the menu is a
-/// convenience, never a gate.
-struct ModelSelectRow: View {
-    let title: String
-    let options: [String]
-    @Binding var value: String?
-
-    @State private var customMode = false
-
-    private var selection: String {
-        if customMode { return "custom" }
-        guard let value else { return "" }
-        return options.contains(value) ? value : "custom"
-    }
-
-    var body: some View {
-        HStack {
-            Text(title).font(.subheadline)
-            Spacer()
-            if selection == "custom" {
-                TextField("Custom" as String, text: Binding(
-                    get: { value ?? "" },
-                    set: { value = $0.isEmpty ? nil : $0 }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 150)
-            }
-            Picker("", selection: Binding(
-                get: { selection },
-                set: { picked in
-                    switch picked {
-                    case "": customMode = false; value = nil
-                    case "custom": customMode = true
-                    default: customMode = false; value = picked
-                    }
-                }
-            )) {
-                Text(verbatim: "Default").tag("")
-                ForEach(options, id: \.self) { Text(verbatim: $0).tag($0) }
-                Divider()
-                Text(verbatim: "Custom…").tag("custom")
-            }
-            .labelsHidden()
-            .fixedSize()
+        )) {
+            Text(verbatim: "Default").tag("")
+            ForEach(modelOptions, id: \.self) { Text(verbatim: $0).tag($0) }
+            Divider()
+            Text(verbatim: "Custom…").tag("custom")
         }
-        .settingsRowPadding()
+        .labelsHidden()
+        .fixedSize()
+        Picker("", selection: Binding(
+            get: { effort ?? "" },
+            set: { effort = $0.isEmpty ? nil : $0 }
+        )) {
+            Text(verbatim: "Default").tag("")
+            ForEach(effortLevels, id: \.self) { Text(verbatim: $0).tag($0) }
+        }
+        .labelsHidden()
+        .fixedSize()
     }
 }
 
-extension View {
-    /// The shared row inset of the nested provider-group rows in Settings.
-    func settingsRowPadding() -> some View {
-        padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .padding(.leading, 18)
+extension LaunchPolicyStore.PermissionMode {
+    /// What the picker and the panel chip show. Full access is the one step with a translation (the
+    /// others are the CLIs' own words); the store's table stays free of the app's string catalog so
+    /// the launcher and its tests can compile it alone.
+    func displayName(_ providerID: String) -> String {
+        self == .bypass ? L("Full access") : label(providerID)
     }
 }

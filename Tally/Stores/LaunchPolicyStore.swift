@@ -33,8 +33,9 @@ final class LaunchPolicyStore {
         case standard = "default", plan, acceptEdits, bypass
 
         /// This mode in `providerID`'s own vocabulary, which is the wording the person will see the
-        /// session come up in: the same steps are plan / accept edits / bypass in Claude Code and
-        /// read-only / workspace-write / full access in codex. Offering codex claude's words would
+        /// session come up in: the same steps are plan / accept edits / full access in Claude Code
+        /// and read-only / workspace-write / full access in codex. The screens show
+        /// `displayName` (the last step translated); this table is the English key. Offering codex claude's words would
         /// name modes codex does not have; giving it its own enum would make one setting into two.
         ///
         /// ONE table for both readers, the Settings picker that offers the choice
@@ -46,7 +47,7 @@ final class LaunchPolicyStore {
             case .standard: return "default"
             case .plan: return codex ? "read-only" : "plan"
             case .acceptEdits: return codex ? "workspace-write" : "accept edits"
-            case .bypass: return codex ? "full access" : "bypass"
+            case .bypass: return "Full access"
             }
         }
     }

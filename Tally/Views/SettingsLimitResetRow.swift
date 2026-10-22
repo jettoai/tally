@@ -3,7 +3,7 @@ import SwiftUI
 /// "Auto reset session limit": whether Tally answers a Claude account's 5-hour wall by spending that
 /// account's own weekly reset instead of moving the conversation to another account.
 ///
-/// It sits on the Launch pane beside the window relay, because both are about something happening
+/// It sits in the Launch pane's quota-windows card beside the window relay, because both are about something happening
 /// without anybody pressing anything, and because both are about the same window - one keeps it
 /// turning over, this one clears it when it fills.
 ///
@@ -15,15 +15,11 @@ struct SettingsLimitResetRow: View {
     @Bindable var store: LimitResetStore
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Auto reset session limit")).font(.subheadline)
-                Text(L("When a Claude session hits its 5-hour limit, Tally spends one of that account's own resets to clear it instead of moving the conversation to another account. Claude Code says a reset counts toward the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        SettingsRow(
+            title: L("Auto reset session limit"),
+            subtitle: L("Spends the account's own weekly reset to clear a full 5-hour window."),
+            icon: "gauge.with.needle",
+            info: L("When a Claude session hits its 5-hour limit, Tally spends one of that account's own resets to clear it instead of moving the conversation to another account. Claude Code says a reset counts toward the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using.")) {
             Toggle(isOn: Binding(get: { store.settings.autoReset },
                                  set: { store.setAutoReset($0) })) {
                 EmptyView()
@@ -31,7 +27,5 @@ struct SettingsLimitResetRow: View {
             .labelsHidden()
             .toggleStyle(.switch)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 }

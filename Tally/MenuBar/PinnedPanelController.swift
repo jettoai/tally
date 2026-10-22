@@ -359,14 +359,14 @@ final class PinnedPanelController {
         sizer = SurfaceSizer(window: panel, host: .panel,
                              autosaveName: "TallyPinnedUsagePanel",
                              acceptsFirstMouse: true) { sizer in
+            // The root picks the full surface or a compact strip from `SettingsStore.pinnedStyle`
+            // and draws the same backdrop under either; both report through the one sizer.
             AnyView(
-                PopoverRootView(store: .shared, settings: .shared,
+                PinnedPanelRoot(settings: .shared, store: .shared,
                                 onContentSize: sizer.onContentSize,
                                 hostScreen: sizer.screen,
                                 hostTopEdge: sizer.topEdge,
-                                tabState: surfaceTab, host: sizer.host)
-                    .background(PanelBackdrop(settings: .shared))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
+                                tabState: surfaceTab, host: sizer.host))
         }
         return panel
     }

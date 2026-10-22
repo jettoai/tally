@@ -23,14 +23,10 @@ struct SettingsChromeAccountRow: View {
 
     var body: some View {
         let launch = LaunchPolicyStore.shared
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Claude in Chrome account")).font(.subheadline)
-                Text(L("The account the Claude in Chrome extension is signed in to. A session on another account hands its browser steps to a one-off run on this account and keeps its own."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        SettingsRow(title: L("Claude in Chrome account"),
+                    subtitle: L("Which account the Claude in Chrome extension is signed in to."),
+                    icon: "globe",
+                    info: L("The account the Claude in Chrome extension is signed in to. A session on another account hands its browser steps to a one-off run on this account and keeps its own.")) {
             Picker("", selection: Binding(
                 get: { launch.chromeAccount },
                 set: { launch.setChromeAccount($0) }
@@ -41,9 +37,6 @@ struct SettingsChromeAccountRow: View {
                 }
             }
             .labelsHidden()
-            .fixedSize()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 }

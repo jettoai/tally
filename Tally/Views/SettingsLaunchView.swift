@@ -7,10 +7,10 @@ import SwiftUI
 /// when I launch" are different questions, and one pane answering both buried each.
 /// The row builders live in SettingsLaunchRows.swift.
 ///
-/// One row here is about a different launch: whether macOS starts TALLY at login
-/// (SettingsLaunchAtLoginRow). It leads the pane, unindented and outside every provider group,
-/// because it is the only setting on it that applies before any provider exists, and it is the
-/// one this pane's title reads as first.
+/// Laid out as a page (B-2526): header, then one titled card per group, none over five rows. The
+/// first group is about a different launch: whether macOS starts TALLY at login
+/// (SettingsLaunchAtLoginRow). It leads the pane and stands outside every provider group, because
+/// it is the only setting on it that applies before any provider exists.
 struct SettingsLaunchView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
@@ -23,40 +23,50 @@ struct SettingsLaunchView: View {
 
     var body: some View {
         let descriptors = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
-        SettingsLaunchAtLoginRow(isVisible: visible)
-        // The morning schedule, beside the login item because both are about something happening
-        // with nobody at the machine. Only while Claude is on: it is the one provider whose limits
-        // work this way, so with Claude off the row would be a switch over nothing.
-        if settings.isEnabled(EarlyStartLogic.providerID) {
-            rowDivider
-            SettingsEarlyStartRow(store: EarlyStartStore.shared, isVisible: visible)
-            // And the other end of the same window: the relay above keeps a 5-hour window turning
-            // over, this clears one that has filled. Under the same provider gate and for the same
-            // reason - Claude is the only provider whose limits work this way.
-            rowDivider
-            SettingsLimitResetRow(store: LimitResetStore.shared)
-        }
-        // Codex's counterpart: a banked reset spent on a weekly window that is already empty.
-        // Under the Codex provider gate for the reason the Claude rows sit under theirs.
-        if settings.isEnabled(CodexAutoRedeemLogic.providerID) {
-            rowDivider
-            SettingsCodexAutoRedeemRow(store: CodexAutoRedeemStore.shared)
-        }
-        rowDivider
-        if descriptors.isEmpty {
-            Text(L("Enable a provider in Accounts to configure launches."))
-                .font(.caption).foregroundStyle(.secondary)
-                .padding(14)
-        } else {
-            ForEach(Array(descriptors.enumerated()), id: \.element.id) { index, descriptor in
-                if index > 0 { rowDivider }
-                providerGroup(id: descriptor.id, name: descriptor.name)
+        let claudeOn = settings.isEnabled(EarlyStartLogic.providerID)
+        let codexOn = settings.isEnabled(CodexAutoRedeemLogic.providerID)
+        SettingsPage {
+            VStack(alignment: .leading, spacing: 16) {
+                SettingsPageHeader(title: L("Launch"),
+                                   subtitle: L("How tally claude and tally codex start sessions, and what runs while you are away."))
+                // The login item is the one row here a dev build may not operate (SettingsLaunchAtLoginRow);
+                // a preview launch stands on a fixture and operates it, so it needs no apology.
+                if LoginItemPreview.fixture == nil {
+                    SettingsDevBanner(message: L("Start at login is managed by the installed release app."))
+                }
+            }
+            SettingsSection(L("Startup"), symbol: "power") {
+                SettingsLaunchAtLoginRow(isVisible: visible)
+            }
+            // The morning schedule and the resets, beside the login item because all of them are about
+            // something happening with nobody at the machine. Each sits under its own provider gate:
+            // Claude is the one provider whose 5-hour window works this way, and the banked-reset
+            // redeem is Codex's counterpart, so with the provider off the row would be a switch over
+            // nothing.
+            if claudeOn || codexOn {
+                SettingsSection(L("Quota windows"), symbol: "clock.arrow.circlepath") {
+                    if claudeOn {
+                        SettingsEarlyStartRow(store: EarlyStartStore.shared, isVisible: visible)
+                        SettingsDivider()
+                        SettingsLimitResetRow(store: LimitResetStore.shared)
+                    }
+                    if claudeOn && codexOn { SettingsDivider() }
+                    if codexOn { SettingsCodexAutoRedeemRow(store: CodexAutoRedeemStore.shared) }
+                }
+            }
+            if descriptors.isEmpty {
+                SettingsCard {
+                    Text(L("Enable a provider in Accounts to configure launches."))
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(20)
+                }
+            } else {
+                ForEach(descriptors, id: \.id) { descriptor in
+                    providerGroup(id: descriptor.id, name: descriptor.name)
+                }
             }
         }
-    }
-
-    private var rowDivider: some View {
-        Divider().padding(.leading, 14)
     }
 
     /// This provider's accounts by EXISTENCE (discovery), in the user's order - the launch mode
@@ -67,69 +77,70 @@ struct SettingsLaunchView: View {
         return order.compactMap { id in mine.first { $0.id == id } }
     }
 
+    /// One card for the provider's launch behaviour, and for Claude a second card for its models
+    /// (a Codex card holds its single model row, which keeps it at five rows).
     @ViewBuilder
     private func providerGroup(id: String, name: String) -> some View {
         let items = discovered(for: id)
         let claude = id == "claude"
-        HStack(spacing: 10) {
-            ProviderIconView(providerID: id, size: 16)
-                .frame(width: 20)
-            Text(name).font(.subheadline.weight(.semibold))
-            Spacer()
+        SettingsSection(name, icon: { ProviderIconView(providerID: id, size: 16) }) {
+            // Launch policy only surfaces once there are two accounts to choose between - with one
+            // account every mode launches the same place, so the control would just be noise.
+            if items.count > 1 {
+                launchPolicyRow(id)
+                SettingsDivider()
+                sharingRow(id, items: items)
+                SettingsDivider()
+            }
+            startModeRow(id)
+            // Every provider: the permission mode is one setting with a flag on both CLIs
+            // (`applyLaunchDefaults`). Each provider resolves the start mode in its own history.
+            SettingsDivider()
+            permissionRow(id)
+            if !claude {
+                SettingsDivider()
+                defaultModelRow(id, claude: false)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        if claude {
+            SettingsSection(L("Claude models"), symbol: "cpu") {
+                defaultModelRow(id, claude: true)
+                SettingsDivider()
+                ModelEffortRow(title: L("Fallback & effort"), icon: "arrow.down.circle",
+                               modelOptions: ModelCatalog.claudeAliases,
+                               effortLevels: EffortLevels.shared.claude,
+                               model: launchDefaultBinding(id, \.fallbackModel),
+                               effort: launchDefaultBinding(id, \.fallbackEffort))
+                SettingsDivider()
+                fallbackArgsRow(id)
+            }
+        }
+    }
 
-        // Launch policy only surfaces once there are two accounts to choose between - with one
-        // account every mode launches the same place, so the control would just be noise.
-        if items.count > 1 {
-            rowDivider
-            launchPolicyRow(id)
-            rowDivider
-            sharingRow(id, items: items)
-        }
-        rowDivider
-        startModeRow(id)
-        // Every provider: the permission mode is one setting with a flag on both CLIs
-        // (`applyLaunchDefaults`). Each provider resolves the start mode in its own history.
-        rowDivider
-        permissionRow(id)
-        rowDivider
-        // The caption spells out the follow behavior: defaults bind at launch, and a supervised
-        // running session also adopts a changed default at its next quiet moment (a model the
-        // user typed themselves is left alone). That follow only holds for claude - codex is a
-        // monitoring-only resident for interactive launches, so a running Codex session never follows.
+    /// The caption spells out the follow behavior: defaults bind at launch, and a supervised
+    /// running session also adopts a changed default at its next quiet moment (a model the
+    /// user typed themselves is left alone). That follow only holds for claude - codex is a
+    /// monitoring-only resident for interactive launches, so a running Codex session never follows.
+    private func defaultModelRow(_ id: String, claude: Bool) -> some View {
         StagedModelEffortRow(providerID: id, title: L("Default model & effort"),
-                             caption: claude
+                             subtitle: claude
+                                 ? L("Also applies to running sessions at their next quiet moment.")
+                                 : L("New sessions only; a running session keeps its model."),
+                             info: claude
                                  ? L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins.")
                                  : L("Applies to new sessions only; a running codex session keeps its model and effort until you start it again. A model you typed yourself always wins."),
                              modelOptions: claude ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
                              effortLevels: claude ? EffortLevels.shared.claude : EffortLevels.shared.codex)
-        if claude {
-            rowDivider
-            ModelEffortRow(title: L("Fallback & effort"),
-                           modelOptions: ModelCatalog.claudeAliases,
-                           effortLevels: EffortLevels.shared.claude,
-                           model: launchDefaultBinding(id, \.fallbackModel),
-                           effort: launchDefaultBinding(id, \.fallbackEffort))
-            rowDivider
-            fallbackArgsRow(id)
-        }
     }
 
     /// Which account new `tally` sessions launch on: Off (observe only), Manual (pin a card in
     /// the panel), Smart (burn-rate pick - time and remaining both count - re-run every launch).
     func launchPolicyRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
-        return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Launch account")).font(.subheadline)
-                Text(L("Smart starts new sessions on the account whose quota goes furthest (reset times and remaining both count); Manual uses the card you pick in the panel."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+        return SettingsRow(
+            title: L("Launch account"), subtitle: L("Smart picks the account whose quota lasts longest."),
+            icon: "person.2.wave.2",
+            info: L("Smart starts new sessions on the account whose quota goes furthest (reset times and remaining both count); Manual uses the card you pick in the panel.")) {
             Picker("", selection: Binding(
                 get: { launchPolicy.mode(providerID) },
                 set: { launchPolicy.setMode(providerID, $0) }
@@ -140,9 +151,7 @@ struct SettingsLaunchView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .fixedSize()
         }
-        .settingsRowPadding()
     }
 
     /// Read-only: whether this provider's homes share their harness (skills/config/transcripts).
@@ -169,15 +178,9 @@ struct SettingsLaunchView: View {
         let detail = independent.isEmpty
             ? Set(reports.flatMap(\.sharedItems)).sorted().joined(separator: ", ")
             : "\(L("Independent")): \(independent)"
-        return HStack(spacing: 8) {
-            Text(L("Shared configuration")).font(.subheadline)
-            Spacer()
-            Text(label).font(.caption).foregroundStyle(.secondary)
+        return SettingsRow(title: L("Shared configuration"), subtitle: label, icon: "link", info: detail) {
             Button(L("Manage in Integrations"), action: showIntegrations)
                 .buttonStyle(.link)
-                .font(.caption)
         }
-        .help(detail)
-        .settingsRowPadding()
     }
 }

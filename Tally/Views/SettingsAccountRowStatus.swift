@@ -26,7 +26,7 @@ extension SettingsAccountsView {
                 ProgressView().controlSize(.mini)
                 Text(L("Browser sign-in…"))
             }
-            .font(.caption2)
+            .font(.system(size: AccountTableStyle.current.secondary))
             .foregroundStyle(.secondary)
         case .needsSignIn:
             Group {
@@ -57,13 +57,13 @@ extension SettingsAccountsView {
     /// The "Sign in again" chip, in colours that hold 4.5:1 in both appearances (SettingsChrome).
     private var signInChip: some View {
         HStack(spacing: 3) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
+            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
             Text(L("Sign in again")).lineLimit(1)
         }
         .fixedSize()
-        .font(.caption2.weight(.semibold))
+        .font(.system(size: AccountTableStyle.current.secondary, weight: .semibold))
         .foregroundStyle(SettingsChrome.signInText)
-        .padding(.horizontal, 5).padding(.vertical, 1)
+        .padding(.horizontal, 6).padding(.vertical, 2)
         .background(Capsule().fill(SettingsChrome.signInFill))
         .contentShape(Capsule())
     }

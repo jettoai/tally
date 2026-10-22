@@ -96,8 +96,11 @@ final class SettingsWindowController {
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
             // Dev flavour says so in the title bar strip, top right over the pane, visible from
             // every pane and not just About: the panel header's own tag, as a titlebar accessory.
-            if BuildVariant.isDev {
-                let badge = NSHostingView(rootView: TallyDevTagView().padding(.trailing, 8))
+            if BuildVariant.isDev || OverlayApp.menuBarEditionText != nil {
+                let badge = NSHostingView(rootView: HStack(spacing: 6) {
+                    if BuildVariant.isDev { TallyDevTagView() }
+                    OverlayApp.titlebarEditionBadge
+                }.padding(.trailing, 8))
                 badge.frame.size = badge.fittingSize
                 let accessory = NSTitlebarAccessoryViewController()
                 accessory.view = badge

@@ -21,14 +21,22 @@ struct SettingsView: View {
     /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER, reported as their maximum. The sidebar is
     /// measured, not guessed at: a constant would go stale on a new section, and go stale silently.
     @State private var sidebarHeight: CGFloat = 0
+    /// The footer a private build pins under the sidebar list (`overlaySidebarFooter`); 0 while
+    /// there is none. Counted into every reported height, or a short pane would clip it.
+    @State private var sidebarFooterHeight: CGFloat = 0
 
     /// Every pane's own natural height, measured while collapsed too, so a switch knows the height
     /// it is going to BEFORE the pane is on screen.
     @State private var paneHeights: [Section: CGFloat] = [:]
     /// The sidebar row under the pointer, for its hover wash.
     @State private var hoveredSection: Section?
-    /// The pane's inset inside the scroll view, counted into every reported height.
-    private static let paneInset: CGFloat = 16
+    /// The pane's vertical inset inside the scroll view (top 30 + bottom 32), counted into every
+    /// reported height; the horizontal 28 is `SettingsChrome.paneInsetH`.
+    private static let paneInsetV = SettingsChrome.paneInsetTop + SettingsChrome.paneInsetBottom
+    /// A request to scroll the pane in front to the group tagged with this id (`.id(...)` on the
+    /// group); consumed on arrival. Set it together with `select(_:)` to land on a group of another
+    /// pane. Not private: the panes live in other files, and `@State` cannot be added by extension.
+    @State var scrollTarget: String?
 
     enum Section: String, CaseIterable {
         /// `overlay` is a pane a private build names and fills (`overlayPaneTitle`, OverlayApp.swift);
@@ -61,21 +69,9 @@ struct SettingsView: View {
     /// The pane this window opens on. A state preview wins over a capture launch that named one,
     /// the rule `SurfaceTabLaunch` states about its own pair: the preview is the more specific
     /// instruction, since it puts a particular ROW on screen and the pane follows from it.
-    @State private var section: Section = LoginItemPreview.settingsOpening.onLaunchPane
+    @State var section: Section = LoginItemPreview.settingsOpening.onLaunchPane
         ? .launch
         : (SettingsCaptureLaunch.openingSection ?? .accounts)
-
-    /// Which page of the Integrations pane is in front (SettingsIntegrationsPane.swift). Held here
-    /// with `section` because a `@State` is a stored property and an extension cannot add one; not
-    /// private for the same reason `displayRows` is not - the pane it belongs to is another file.
-    ///
-    /// Deliberately NOT remembered across launches. The window opens on a pane, and a pane opening
-    /// on whichever page was last read is a second remembered position nobody asked for. A capture
-    /// launch that named a page is the exception, for the reason `SettingsCaptureLaunch` gives about
-    /// naming a pane: a flag whose job is putting one row on screen has not done it if the row is on
-    /// a page the launch left behind.
-    @State var integrationsGroup: IntegrationsGroup =
-        SettingsCaptureLaunch.openingIntegrationsGroup ?? .commandLine
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -86,17 +82,26 @@ struct SettingsView: View {
                 .background(SettingsChrome.sidebar.ignoresSafeArea())
             // The ScrollView is inert at the natural size; it only actually scrolls when the
             // content outgrows the screen cap applied by the controller.
-            ScrollView {
-                pane
-                    .padding(Self.paneInset)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    pane
+                        .padding(.horizontal, SettingsChrome.paneInsetH)
+                        .padding(.top, SettingsChrome.paneInsetTop)
+                        .padding(.bottom, SettingsChrome.paneInsetBottom)
+                }
+                .onChange(of: scrollTarget) { _, target in
+                    guard let target else { return }
+                    proxy.scrollTo(target, anchor: .top)
+                    scrollTarget = nil
+                }
             }
-            // 680 rather than 580 (B-1355): the dense account rows need the room for a full
-            // address beside the name, plan, both figures and two switches; 630 cut a 32-character
-            // address short.
-            .frame(width: 680)
+            // 704 = 28 + a 648 card + 28 (B-2526, was 680 under 16 insets): the dense account rows
+            // need the room for an address beside the name, plan, both figures and two switches.
+            .frame(width: SettingsChrome.contentWidth)
             .background(SettingsChrome.page.ignoresSafeArea())
         }
-        .controlSize(.small)
+        // No window-wide control size (it was `.small`): switches, menus and buttons are regular, and
+        // the account table, the one place that wants small switches, sets its own.
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every
         // label (see PopoverRootView for why a bare read isn't enough).
         .id(settings.languageOverride ?? "system")
@@ -135,7 +140,7 @@ struct SettingsView: View {
 
     private var benchShown: SettingsTabBench.Shown {
         SettingsTabBench.Shown(section: section.rawValue,
-                               height: (paneHeights[section] ?? 0) + 2 * Self.paneInset)
+                               height: (paneHeights[section] ?? 0) + Self.paneInsetV)
     }
 
     private var sidebar: some View {
@@ -144,11 +149,13 @@ struct SettingsView: View {
                 .padding(10)
                 .background(heightProbe { sidebarHeight = $0 })
             Spacer(minLength: 0)   // outside the probe: it fills the window being measured for
+            overlaySidebarFooter
+                .background(heightProbe { sidebarFooterHeight = $0 })
         }
     }
 
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(shownSections, id: \.self) { item in
                 let selected = section == item
                 Button {
@@ -156,13 +163,13 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: sidebarSymbol(item))
-                            .font(.system(size: 14))
-                            .frame(width: 20)
-                        Text(sidebarTitle(item)).font(.system(size: 14, weight: selected ? .medium : .regular))
+                            .font(.system(size: 15))
+                            .frame(width: 22)
+                        Text(sidebarTitle(item)).font(.system(size: 15, weight: selected ? .medium : .regular))
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 8)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -190,7 +197,7 @@ struct SettingsView: View {
 
     /// The height the window has to cover for `item`: its pane plus inset, or the sidebar when taller.
     private func reportedHeight(for item: Section) -> CGFloat {
-        max((paneHeights[item] ?? 0) + 2 * Self.paneInset, sidebarHeight)
+        max((paneHeights[item] ?? 0) + Self.paneInsetV, sidebarHeight + sidebarFooterHeight)
     }
 
     /// THE ONE WAY A PANE CHANGES (sidebar click and the Launch pane's link to Integrations).
@@ -236,110 +243,35 @@ struct SettingsView: View {
     private func paneContent(_ item: Section) -> some View {
         switch item {
         // Its own cards, one per provider under a section header, rather than one shared card.
+        // The page is regular; only the table inside each card is small (SettingsAccountsView).
         case .accounts: SettingsAccountsView(store: store, settings: settings)
         // The sharing row reports a state whose switch lives on another pane; it is handed the way
         // there rather than describing it, because a reader who has to be told where a control is
         // has already lost the time this saves them.
         //
-        // THE PAGE TOO, NOT JUST THE PANE. Integrations has held three pages since it was split,
-        // and the shared harness row is on the first of them; a link that lands on whichever page
-        // was last read has delivered somebody to a pane where the row they pressed for is not on
-        // screen, which is the state this link exists to end.
-        case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings,
-                                                       visible: section == item,
-                                                       showIntegrations: {
-                                                           select(.integrations)
-                                                           integrationsGroup = .commandLine
-                                                       }) }
-        case .display: sectionCard { displayRows }
-        case .integrations: sectionCard { integrationsRows }
-        case .overlay: sectionCard { overlayPaneRows }
-        case .about: sectionCard { aboutRows }
-        }
-    }
-
-    // MARK: Section chrome
-
-    private func sectionCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0, content: content)
-            .modifier(SettingsCardSurface())
-    }
-
-    /// The row chrome every pane shares. Not private: the Display pane lives in its own file
-    /// (SettingsDisplayPane.swift) and `private` in Swift is file-scoped - copying these per file
-    /// is how two panes end up with rows that no longer line up.
-    var rowDivider: some View {
-        Divider().padding(.leading, 14)
-    }
-
-
-    func toggleRow(_ title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        // THE GROUP TOO, NOT JUST THE PANE. Integrations is one scrolling page and the shared
+        // harness row is in its first group; a link that landed at the top of a pane taller than
+        // the screen could leave the row they pressed for below the fold, which is the state this
+        // link exists to end.
+        case .launch: SettingsLaunchView(store: store, settings: settings,
+                                         visible: section == item,
+                                         showIntegrations: {
+                                             select(.integrations)
+                                             scrollTarget = Self.sharedHarnessAnchor
+                                         })
+        case .display: displayPane
+        case .integrations: integrationsRows
+        // The private build's pane: the shared header, then its own titled groups.
+        case .overlay:
+            SettingsPage {
+                SettingsPageHeader(title: overlayPaneTitle ?? "", subtitle: overlayPaneSubtitle)
+                overlayPaneRows
             }
-            Spacer()
-            Toggle(isOn: isOn) { EmptyView() }
-                .labelsHidden()
-                .toggleStyle(.switch)
+        case .about: aboutPane
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
-    // MARK: About - brand + version (brand names stay unlocalized).
-
-    @ViewBuilder
-    private var aboutRows: some View {
-        HStack(spacing: 6) {
-            TallyWordmarkView(glyphHeight: 11)
-            Text("by").font(.subheadline)
-            ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
-                .fill(Color.primary, style: FillStyle(eoFill: true))
-                .frame(width: 53, height: 12)
-            Spacer()
-            // Which of the look-alike builds is this? DEV for the Debug flavour, "Local build"
-            // for a source-built release (dormant updater, stuck on its version forever); the
-            // installed stable shows nothing extra, its update rows below are the tell.
-            if BuildVariant.isDev {
-                Text(verbatim: "DEV")
-                    .font(.caption2)
-                    .foregroundStyle(TallyColor.warning)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
-                    .help(L("Development build - runs beside the installed app and never self-updates"))
-            } else if !UpdateAvailability.shared.updaterActive {
-                Text(L("Local build"))
-                    .font(.caption2)
-                    .foregroundStyle(TallyColor.warning)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
-                    .help(L("Built from source without an update feed - it cannot update itself"))
-            }
-            Text("v\(BuildVariant.version ?? "—")")
-                .font(.caption).foregroundStyle(.secondary)
-            Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)
-                .font(.caption)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-
-        rowDivider
-
-        overlayAboutRows
-
-        // The Sparkle rows live in their own file (SettingsUpdateRows): the two switches carry a
-        // hidden Sparkle-side dependency that needs truthful local state, not computed bindings.
-        SettingsUpdateRows()
-
-        rowDivider
-
-        SettingsErrorReportingRow()
-
-        rowDivider
-
-        SettingsUsagePingRow()
-    }
-
+    /// The `.id` the Integrations pane tags its Shared harness group with (the Launch pane's link
+    /// scrolls there through `scrollTarget`).
+    static let sharedHarnessAnchor = "integrations.sharedHarness"
 }

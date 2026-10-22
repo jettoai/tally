@@ -2,8 +2,8 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// "Start at login": whether macOS starts Tally when the user logs in. It sits at the top of the
-/// Launch pane, above the per-provider groups, and it is the one row there about THIS app
+/// "Start at login": whether macOS starts Tally when the user logs in. It sits in the Launch pane's
+/// first card, above the per-provider groups, and it is the one row there about THIS app
 /// starting rather than about what a `tally` launch does.
 ///
 /// The switch is drawn from `SMAppService.mainApp.status` and from nothing else, re-read when the
@@ -66,43 +66,40 @@ struct SettingsLaunchAtLoginRow: View {
     private var manageable: Bool { fixture != nil || !BuildVariant.isUnshipped }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Start at login")).font(.subheadline)
-                Text(L("Tally is in the menu bar as soon as you log in, so a fresh boot still shows your quota."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if manageable {
-                    if let key = state.noticeKey { notice(L(key)) }
-                    if let failure { notice(failure.message) }
-                    // Both lines above are reasons for this button, not just the state's own.
-                    if LaunchAtLoginState.offersSystemSettings(for: state, failure: failure) {
-                        // One label for both reasons on purpose: it names a DESTINATION, and the
-                        // sentence above it supplies the meaning ("allow it" under a held-back
-                        // registration, "see whether it is even there" under a refused one). A
-                        // label that changed with the state would read as a different button
-                        // leading somewhere else, when it is the same place either way.
-                        Button(L("Open Login Items")) { openLoginItems() }
-                            .controlSize(.small)
-                            .padding(.top, 2)
-                    }
-                } else {
-                    notice(L("Start at login is managed by the installed release app."))
-                }
-            }
-            Spacer()
+        VStack(alignment: .leading, spacing: 0) {
             // Both closures written out rather than passed as method references: a bare
             // `set: setRegistered` crashes swift-frontend in IRGen while building the isolation
             // thunk for it (Swift 6.3.3, "While emitting IR SIL function @$sSbScA_pSg…_TR").
-            Toggle(isOn: Binding(get: { state.isRegistered },
-                                 set: { setRegistered($0) })) { EmptyView() }
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .disabled(!manageable)
+            SettingsRow(title: L("Start at login"),
+                        subtitle: L("Shows your quota in the menu bar right after you log in."),
+                        icon: "menubar.rectangle",
+                        info: L("Tally is in the menu bar as soon as you log in, so a fresh boot still shows your quota.")) {
+                Toggle(isOn: Binding(get: { state.isRegistered },
+                                     set: { setRegistered($0) })) { EmptyView() }
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(!manageable)
+            }
+            // A build nobody installed says why on the page's dev banner (SettingsLaunchView); what
+            // is here is what the user has to act on, so it stays a line of its own.
+            if manageable {
+                let lines = [state.noticeKey.map { L($0) }, failure?.message].compactMap { $0 }
+                // Both lines above are reasons for this button, not just the state's own.
+                let offersButton = LaunchAtLoginState.offersSystemSettings(for: state, failure: failure)
+                ForEach(Array((lines.isEmpty && offersButton ? [""] : lines).enumerated()), id: \.offset) { index, line in
+                    SettingsSubRow(title: line, tint: TallyColor.warning) {
+                        if offersButton, index == max(lines.count, 1) - 1 {
+                            // One label for both reasons on purpose: it names a DESTINATION, and the
+                            // sentence above it supplies the meaning ("allow it" under a held-back
+                            // registration, "see whether it is even there" under a refused one). A
+                            // label that changed with the state would read as a different button
+                            // leading somewhere else, when it is the same place either way.
+                            Button(L("Open Login Items")) { openLoginItems() }
+                        }
+                    }
+                }
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
         .onAppear { refresh() }
         // Keyed on BEING SHOWN rather than on appearing, and the difference is the whole point:
         // every Settings pane is built into one stack and the hidden ones only differ by opacity,
@@ -127,13 +124,6 @@ struct SettingsLaunchAtLoginRow: View {
               let startup = LaunchAtLoginDefault.takeAttemptFailure() else { return }
         failure = startup
         refresh()   // filtered against the live state, like any other failed attempt
-    }
-
-    private func notice(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(TallyColor.warning)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Ask what is true, from the fixture on a preview launch and from macOS otherwise.

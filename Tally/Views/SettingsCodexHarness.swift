@@ -1,49 +1,49 @@
 import SwiftUI
 
+/// The Harness group's one row: the shared harness skill and inbox reminders for Claude Code and
+/// Codex together. Everything the user has to act on (an error, a hook to review) is its own line
+/// under the row; the explanations ride in the row's hover.
 struct SettingsCodexHarness: View {
     var active = true
     @State private var harness = CodexHarnessStore()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(L("Harness tools")).font(.subheadline)
-                        Text(statusTitle).font(.caption2).foregroundStyle(harness.state == "installed" ? TallyColor.normal : .secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsRow(title: L("Harness tools"), subtitle: L("Skill and inbox reminders for Claude Code and Codex together."),
+                        icon: "wrench.and.screwdriver", info: info) {
+                HStack(spacing: 10) {
+                    if harness.busy { ProgressView().controlSize(.small) }
+                    SettingsStatusBadge(text: statusTitle, tone: statusTone)
+                    if !harness.hasInstallation {
+                        Button(L("Install")) { harness.install() }
+                            .disabled(!harness.mayWrite || harness.busy || harness.state == "not-inspected")
+                            .accessibilityIdentifier("harness-install")
+                    } else {
+                        Button(L("Remove")) { harness.remove() }
+                            .disabled(!harness.mayWrite || harness.busy).accessibilityIdentifier("harness-remove")
                     }
-                    Text(L("Installs the Tally harness skill and inbox reminders for Claude Code and Codex together. Ask either assistant to adapt your harness or handle messages in the current project."))
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                if !harness.hasInstallation {
-                    Button(L("Install")) { harness.install() }
-                        .disabled(!harness.mayWrite || harness.busy || harness.state == "not-inspected")
-                        .accessibilityIdentifier("harness-install")
-                } else {
-                    Button(L("Remove")) { harness.remove() }
-                        .disabled(!harness.mayWrite || harness.busy).accessibilityIdentifier("harness-remove")
-                }
-                if harness.busy { ProgressView().controlSize(.small) }
-            }.controlSize(.small)
-            if harness.hasInstallation {
-                Text(L("The skill works across projects and determines the relevant harness from your current directory and request. Existing project adaptations are removed separately."))
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if harness.nativeHomes.contains(where: { $0["state"] != "trusted-enabled" }) {
-                    Text(L("For Codex inbox reminders, review the new hooks in each account's /hooks menu."))
-                        .font(.caption).foregroundStyle(TallyColor.warning).fixedSize(horizontal: false, vertical: true)
-                }
+            }
+            if harness.hasInstallation, harness.nativeHomes.contains(where: { $0["state"] != "trusted-enabled" }) {
+                SettingsSubRow(title: L("For Codex inbox reminders, review the new hooks in each account's /hooks menu."),
+                               tint: TallyColor.warning) { EmptyView() }
             }
             if let error = harness.error {
-                Text(error).font(.caption).foregroundStyle(TallyColor.warning).textSelection(.enabled)
+                SettingsSubRow(title: error, tint: TallyColor.warning) { EmptyView() }
+                    .textSelection(.enabled)
             }
             if harness.previewRoot != nil {
-                Text(L("Isolated preview: changes stay in the temporary fixture.")).font(.caption).foregroundStyle(.secondary)
+                SettingsSubRow(title: L("Isolated preview: changes stay in the temporary fixture.")) { EmptyView() }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
         .task { harness.inspect() }
         .onChange(of: active) { if active { harness.inspect() } }
+    }
+
+    private var info: String {
+        let what = L("Installs the Tally harness skill and inbox reminders for Claude Code and Codex together. Ask either assistant to adapt your harness or handle messages in the current project.")
+        guard harness.hasInstallation else { return what }
+        return what + " " + L("The skill works across projects and determines the relevant harness from your current directory and request. Existing project adaptations are removed separately.")
     }
 
     private var statusTitle: String {
@@ -52,6 +52,14 @@ struct SettingsCodexHarness: View {
         case "incomplete": return L("Needs attention")
         case "not-installed": return L("Not installed")
         default: return L("Checking…")
+        }
+    }
+
+    private var statusTone: SettingsStatusBadge.Tone {
+        switch harness.state {
+        case "installed": return .good
+        case "incomplete": return .attention
+        default: return .neutral
         }
     }
 }

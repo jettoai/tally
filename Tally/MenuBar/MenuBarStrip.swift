@@ -15,6 +15,8 @@ private struct MenuBarStripView: View {
     var waiting = false
     /// Snapshot rendering override: the README shot drops the DEV tag.
     var devTag: Bool = BuildVariant.isDev
+    /// The edition tag a private build adds after DEV (the README shot keeps it: it is the edition).
+    var editionText: String? = OverlayApp.menuBarEditionText
     /// The bar's ink for this scheme; also the colour of a ring with no severity to show.
     var ink: Color = .black
     /// Adds a thinner inner ring for the 5-hour window inside each weekly ring.
@@ -25,11 +27,11 @@ private struct MenuBarStripView: View {
             // The dev variant announces itself right in the strip - two otherwise identical icons
             // side by side must be tellable at a glance.
             if devTag {
-                Text("DEV")
-                    .font(.system(size: 8, weight: .heavy))
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 1.5)
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 1))
+                outlinedTag("DEV")
+                Color.clear.frame(width: editionText == nil ? 7 : 3, height: 0)
+            }
+            if let editionText {
+                outlinedTag(editionText)
                 Color.clear.frame(width: 7, height: 0)
             }
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
@@ -49,6 +51,14 @@ private struct MenuBarStripView: View {
         .padding(.horizontal, 2)
         .padding(.vertical, 1)
         .fixedSize()
+    }
+
+    private func outlinedTag(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(.system(size: 8, weight: .heavy))
+            .padding(.horizontal, 3)
+            .padding(.vertical, 1.5)
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 1))
     }
 
     private func ringUnit(_ segment: MenuBarSegment) -> some View {

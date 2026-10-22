@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// THE PERSONAL ACCOUNT'S OWN TWO PIECES OF THE ACCOUNTS PANE, split out of SettingsAccountsView for
-/// file size: the mark on the account's name line, and the water line under it.
+/// file size: the mark, and the water line it opens. Both sit on the one line under the account's
+/// row (B-2526 G17), which is why the name column never has to give up room to a badge.
 ///
 /// What the marking means, and why one account gets it, is in Tally/Core/AccountReserve.swift. What
 /// this file adds is the surface: the pane is where somebody comes to say "this one is the account I
@@ -11,9 +12,9 @@ extension SettingsAccountsView {
     /// mode (the panel's Smart purple and Pinned orange are), it is a fact about the account.
     var personalBadge: some View {
         Text(L("Personal"))
-            .font(.caption2.weight(.semibold))
+            .font(.system(size: AccountTableStyle.current.secondary - 1, weight: .medium))
             .foregroundStyle(TallyColor.ai)
-            .padding(.horizontal, 5).padding(.vertical, 1)
+            .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
             .fixedSize()   // a badge must never wrap
             // Tally's own callout, like every other hover on this row since 2026-08-24: the badge
@@ -48,33 +49,31 @@ extension SettingsAccountsView {
         let shown = DemoUsage.isActive ? DemoUsage.personalReserve
             : LaunchPolicyStore.shared.reserve(home: home)
         let explanation = L("Tally leaves this much of the account's weekly, 5-hour and flagship-model quota alone when it picks or moves sessions by itself, because your browser draws on all three. The flagship window holds the same line rather than being emptied under it, and launching on it yourself always works.")
-        return HStack(alignment: .firstTextBaseline) {
+        let style = AccountTableStyle.current
+        let sentence = String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown)
+        return HStack(spacing: 6) {
             // One line among twenty that look alike, so it says whose setting it is: a turn arrow
-            // off the row above and that account's name. The explanation rides the hover.
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Image(systemName: "arrow.turn.down.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                Text(owner).fontWeight(.semibold)
-                Text(String(format: L("Keep at least %lld%% of the week, the 5h window and the flagship one for web use"), shown))
-                    .tallyTooltip(explanation)
-            }
-            .font(.caption)
+            // off the row above, then the mark. The explanation rides the hover.
+            Image(systemName: "arrow.turn.down.right")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            personalBadge
+            Text(sentence)
+                .font(.system(size: style.secondary))
+                .foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.tail)
+                .tallyTooltip(sentence + "\n" + explanation)
+                .accessibilityLabel(owner + ": " + sentence)
             Spacer(minLength: 12)
             ReserveCellBar(value: shown) { LaunchPolicyStore.shared.setReserve(home, $0) }
                 .disabled(DemoUsage.isActive)
                 .tallyTooltipAroundControl(L("Each cell is 10%. The striped cells are the share kept for the web; click a cell to change it."))
-                // CENTRED ON THE SENTENCE'S FIRST LINE. The strip is not text and has no baseline
-                // of its own, so the row's baseline alignment would fall back to its bottom edge
-                // and hang it low against the line it belongs to.
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.trailing, 14)
-        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
         // ALIGNED WITH THE ACCOUNT'S NAME, not merely indented past it: this row is a property of
-        // the row above and the eye reads that from one shared left edge (the row's 12pt inset plus
-        // its 28pt number column and 6pt gap, SettingsAccountRowCompact).
-        .padding(.leading, 46)
+        // the row above and the eye reads that from one shared left edge; the strip ends on the
+        // table's right edge, under the grip.
+        .padding(.leading, style.nameLeading)
+        .padding(.trailing, style.inset)
     }
 }

@@ -25,11 +25,14 @@ struct SettingsAccountsView: View {
     private let flow = AddAccountStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: SettingsChrome.sectionGap) {
+            SettingsPageHeader(title: L("Accounts"),
+                               subtitle: L("Every Claude and Codex account Tally reads, side by side.")) {
+                addAccountAction
+            }
             ForEach(ProviderCatalog.descriptors, id: \.id) { descriptor in
                 providerGroup(id: descriptor.id, name: descriptor.name)
             }
-            compactLegend
         }
         // One sheet for both provider groups: which one opened it is a preselection, not a
         // different flow, and the sheet lets the user change their mind about it anyway.
@@ -55,9 +58,10 @@ struct SettingsAccountsView: View {
         .onDisappear { rowLift = nil }
     }
 
-    /// Starts under the row's text column, so the number column reads as one unbroken strip.
+    /// Starts under the name column, so the number column reads as one unbroken strip.
     private var rowDivider: some View {
-        SettingsCardDivider(leading: 14)
+        let style = AccountTableStyle.current
+        return SettingsDivider(inset: style.inset + style.lead)
     }
 
     /// The line standing in for a provider's account rows while there are none, saying which of the
@@ -100,17 +104,12 @@ struct SettingsAccountsView: View {
     @ViewBuilder
     private func providerGroup(id: String, name: String) -> some View {
         let items = discovered(for: id)
-        VStack(alignment: .leading, spacing: 8) {
-            // Count only when there is something to count - a "1" badge said nothing.
-            SettingsSectionHeader(title: name, count: items.count > 1 ? items.count : nil) {
-                ProviderIconView(providerID: id, size: 14)
-            } trailing: {
-                if settings.isEnabled(id) { addAccountButton(id) }
-                Text(String(format: L("Track %@"), name))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                headerToggleSlot(providerToggle(id))
-            }
+        VStack(alignment: .leading, spacing: SettingsChrome.headerToCard) {
+            // Count only when there is something to count - a "1" badge said nothing. Nothing sits
+            // to the title's right: the provider switch is the card's first row, the add-account
+            // entry is the page header's.
+            SettingsSectionTitle(title: name, count: items.count > 1 ? items.count : nil,
+                                 icon: ProviderIconView(providerID: id, size: 14))
             // Re-asked whenever the list or its order changes: the first account is the primary.
             .task(id: items.map(\.id) + items.compactMap(\.launchHome)) {
                 // Merged like the real reports: each provider group reports only its own rows, and
@@ -125,19 +124,29 @@ struct SettingsAccountsView: View {
                 }
             }
 
-            if settings.isEnabled(id) {
-                VStack(spacing: 0) { accountList(id, items) }
-                    .modifier(SettingsCardSurface())
-                    // On the stable card, never on a row: a live reorder moves the rows, and SwiftUI
-                    // cancels a gesture whose view that diff tears down (the panel's lesson,
-                    // PopoverRootView). High priority after 4pt of travel, so a press that stays put
-                    // is still the switch's, the menu's or the name's own click.
-                    .highPriorityGesture(reorderDrag(siblings: items.map(\.id)))
+            // The card is always there now: switched off it holds just the provider's own switch.
+            VStack(spacing: 0) {
+                SettingsRow(title: String(format: L("Track %@"), name)) { providerToggle(id) }
+                if settings.isEnabled(id) {
+                    SettingsDivider(inset: SettingsChrome.dividerInsetPlain)
+                    // The table's switches, menus and spinners are small: seventeen regular
+                    // switches in a column would outweigh the figures they sit beside.
+                    accountList(id, items).controlSize(.small)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .modifier(SettingsCardSurface())
+            // On the stable card, never on a row: a live reorder moves the rows, and SwiftUI
+            // cancels a gesture whose view that diff tears down (the panel's lesson,
+            // PopoverRootView). High priority after 4pt of travel, so a press that stays put
+            // is still the switch's, the menu's or the name's own click. Switched off there are no
+            // rows to grab, so a drag on the lone switch row lifts nothing.
+            .highPriorityGesture(reorderDrag(siblings: items.map(\.id)))
         }
     }
 
-    /// The provider's own switch, at the end of its section header.
+    /// The provider's own switch, at the end of its card's first row.
     private func providerToggle(_ id: String) -> some View {
         Toggle(isOn: Binding(
             // userInitiated:false so toggling one provider can't force-reread another provider's
@@ -155,7 +164,6 @@ struct SettingsAccountsView: View {
         )) { EmptyView() }
         .labelsHidden()
         .toggleStyle(.switch)
-        .controlSize(.mini)
     }
 
     @ViewBuilder
@@ -169,34 +177,37 @@ struct SettingsAccountsView: View {
         }
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
             rowDivider
-            // Same numbering the menu-bar strip uses for same-provider accounts, so the
-            // settings row visibly maps to a strip segment.
-            compactRow(
-                item,
-                usage: store.accounts.first { $0.id == item.id },
-                badge: items.count > 1 ? index + 1 : nil,
-                moveUp: index > 0 ? { swapAccounts(items, index, index - 1) } : nil,
-                moveDown: index < items.count - 1 ? { swapAccounts(items, index, index + 1) } : nil)
+            // The account's row and, under the marked account, its reserve line are one block: one
+            // hover wash and no divider between them (B-2526 G17).
+            VStack(alignment: .leading, spacing: 0) {
+                // Same numbering the menu-bar strip uses for same-provider accounts, so the
+                // settings row visibly maps to a strip segment.
+                compactRow(
+                    item,
+                    usage: store.accounts.first { $0.id == item.id },
+                    badge: items.count > 1 ? index + 1 : nil,
+                    moveUp: index > 0 ? { swapAccounts(items, index, index - 1) } : nil,
+                    moveDown: index < items.count - 1 ? { swapAccounts(items, index, index + 1) } : nil)
+                // The row in hand leaves its seat empty; the floating copy is what moves.
+                .opacity(rowLift?.id == item.id ? 0 : 1)
+                .contentShape(Rectangle())
+                .cardFrame(id: item.id, in: Self.reorderSpace)
+                // The reserve belongs to the marked account and appears NOWHERE ELSE - not greyed
+                // on the other rows, not a line the pane always carries. A machine with one
+                // account, or one where nobody has marked theirs, has nothing to reserve quota
+                // from, and a control standing there anyway is a question the user cannot answer.
+                if let home = PersonalAccount.home(accountID: item.id, launchHome: item.launchHome),
+                   PersonalAccount.isPersonal(accountID: item.id, home: home) {
+                    reserveRow(home,
+                               owner: settings.displayLabel(accountID: item.id, fallback: item.label))
+                }
+            }
             .background(Rectangle()
                 .fill(hoveredAccountID == item.id && rowLift == nil ? Color.primary.opacity(0.03)
                       : .clear))
-            // The row in hand leaves its seat empty; the floating copy is what moves.
-            .opacity(rowLift?.id == item.id ? 0 : 1)
             .onHover { inside in
                 if inside { hoveredAccountID = item.id }
                 else if hoveredAccountID == item.id { hoveredAccountID = nil }
-            }
-            .contentShape(Rectangle())
-            .cardFrame(id: item.id, in: Self.reorderSpace)
-            // The reserve belongs to the marked account and appears NOWHERE ELSE - not greyed on
-            // the other rows, not a line the pane always carries. A machine with one account, or
-            // one where nobody has marked theirs, has nothing to reserve quota from, and a
-            // control standing there anyway is a question the user cannot answer.
-            if let home = PersonalAccount.home(accountID: item.id, launchHome: item.launchHome),
-               PersonalAccount.isPersonal(accountID: item.id, home: home) {
-                rowDivider
-                reserveRow(home,
-                           owner: settings.displayLabel(accountID: item.id, fallback: item.label))
             }
         }
         // The add in flight, at the end of the list where its account will land, until that
@@ -211,23 +222,45 @@ struct SettingsAccountsView: View {
     /// The entry to the add-account flow (SettingsAddAccountView): Tally creates the next free
     /// `~/.claudeN` / `~/.codexN`, optionally shares the main account's setup into it, and starts
     /// the provider's own sign-in in the browser. The copyable terminal command it replaced is
-    /// still one click away - the sheet offers it whenever a run does not finish. A header button
-    /// rather than a row of its own: with twenty accounts a full row per provider is room lost.
-    private func addAccountButton(_ providerID: String) -> some View {
-        Button {
-            // Provider and reset in one call: a login still out there owns both, and this
-            // button must not repoint the flow at another provider while it does (the sheet
-            // would then offer that provider's command for this one's home).
-            flow.beginEntry(providerID: providerID)
-            addingAccount = true
-        } label: {
-            Label(L("Add account…"), systemImage: "plus").font(.system(size: 12))
+    /// still one click away - the sheet offers it whenever a run does not finish. One button in the
+    /// page header: it opens the flow for the only tracked provider, or asks which of two.
+    @ViewBuilder
+    private var addAccountAction: some View {
+        let tracked = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
+        let hint = L("Tally creates the next config home and opens the provider's sign-in in your browser.")
+        if tracked.count == 1, let only = tracked.first {
+            PageActionButton(title: L("Add account…"), symbol: "plus") { beginAddAccount(only.id) }
+                .disabled(!canAddAccount(only.id))
+                .tallyTooltip(hint)
+        } else if tracked.count > 1 {
+            Menu {
+                ForEach(tracked, id: \.id) { descriptor in
+                    Button(descriptor.name) { beginAddAccount(descriptor.id) }
+                        .disabled(!canAddAccount(descriptor.id))
+                }
+            } label: {
+                PageActionLabel(title: L("Add account…"), symbol: "plus")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .tallyTooltip(hint)
         }
-        .buttonStyle(.borderless)
-        // Demo fixtures have no config home behind them, so the flow could only ever leave a
-        // stray directory: a button that cannot work must not look like one that can.
-        .disabled(!flow.canAdd(providerID: providerID) || flow.isRunning)
-        .tallyTooltip(L("Tally creates the next config home and opens the provider's sign-in in your browser."))
+    }
+
+    /// Demo fixtures have no config home behind them, so the flow could only ever leave a stray
+    /// directory: a button that cannot work must not look like one that can.
+    private func canAddAccount(_ providerID: String) -> Bool {
+        flow.canAdd(providerID: providerID) && !flow.isRunning
+    }
+
+    private func beginAddAccount(_ providerID: String) {
+        // Provider and reset in one call: a login still out there owns both, and this
+        // entry must not repoint the flow at another provider while it does (the sheet
+        // would then offer that provider's command for this one's home).
+        flow.beginEntry(providerID: providerID)
+        addingAccount = true
     }
 
     private func launchHomes(_ providerID: String) -> [String] {

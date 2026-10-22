@@ -317,5 +317,56 @@ func runFollowChecks() {
     check("an effort change adopts when only the default's model window is empty",
           fableDrained?.reason == "follow" && fableDrained?.model == "sonnet"
               && fableDrained?.effort == "xhigh")
+
+    // Held-axis fallback survival (收 9d9fce7): a fallback or restore rewrites the args and leaves the
+    // baseline alone; the held axis must not make that read as a Settings change. The baseline is
+    // (fable, xhigh); `degraded` args are what the quota fallback left on the command line.
+    let degraded = ["--model", "opus", "--effort", "low"]
+    let undegraded = ["--model", "fable", "--effort", "xhigh"]
+    // Runs both paths for one state; returns (adoption plan, reload fold changed the plan).
+    func heldCase(_ following: FollowAxes, args: [String], model: String, effort: String)
+        -> (adopted: RelaunchPlan?, folded: RelaunchPlan?) {
+        var state = FollowState(launchArgs: [])
+        state.adopt(model: "fable", effort: "xhigh")
+        var planned: RelaunchPlan?
+        adopt(state: &state, plan: &planned, model: model, effort: effort, following: following,
+              launchArgs: args)
+        state.pendingSince = state.pendingSince.map { _ in Date().addingTimeInterval(-followDebounce - 1) }
+        adopt(state: &state, plan: &planned, model: model, effort: effort, following: following,
+              launchArgs: args)
+        var fold = RelaunchPlan(target: here, reason: "reload", countsFuse: false)
+        var foldState = FollowState(launchArgs: [])
+        foldState.adopt(model: "fable", effort: "xhigh")
+        let did = foldFollowIntoRelaunch(&fold, state: &foldState, following: following,
+                                         policy: LaunchPolicy(mode: "auto", model: model, effort: effort),
+                                         launchArgs: args)
+        return (planned, did ? fold : nil)
+    }
+    let onlyModel = FollowAxes(model: true, effort: false)
+    let onlyEffort = FollowAxes(model: false, effort: true)
+    for (name, axes) in [("both", FollowAxes.both), ("model", onlyModel), ("effort", onlyEffort)] {
+        for (label, args) in [("undegraded", undegraded), ("degraded", degraded)] {
+            let r = heldCase(axes, args: args, model: "fable", effort: "xhigh")
+            check("\(name) following, \(label), settings unchanged: no adoption, no fold",
+                  r.adopted == nil && r.folded == nil)
+        }
+    }
+    let none = heldCase(false, args: degraded, model: "sonnet", effort: "high")
+    check("nothing following: no adoption even when settings changed",
+          none.adopted == nil && none.folded == nil)
+    for args in [undegraded, degraded] {
+        let both = heldCase(.both, args: args, model: "sonnet", effort: "high")
+        check("both following, settings changed: adopts and folds",
+              both.adopted?.model == "sonnet" && both.folded?.model == "sonnet")
+    }
+    let modelMoved = heldCase(onlyModel, args: degraded, model: "sonnet", effort: "xhigh")
+    check("only model following, model changed: adopts and the effort comes from the args",
+          modelMoved.adopted?.model == "sonnet" && modelMoved.adopted?.effort == "low"
+              && modelMoved.folded?.model == "sonnet" && modelMoved.folded?.effort == "low")
+    let effortMoved = heldCase(onlyEffort, args: degraded, model: "fable", effort: "high")
+    check("only effort following, effort changed: adopts and the model comes from the args",
+          effortMoved.adopted?.effort == "high" && effortMoved.adopted?.model == "opus"
+              && effortMoved.folded?.effort == "high" && effortMoved.folded?.model == "opus")
+
     try? FileManager.default.removeItem(at: followDir)
 }

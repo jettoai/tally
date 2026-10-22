@@ -72,6 +72,13 @@ private func followTarget(_ axes: FollowAxes, policy: LaunchPolicy,
      axes.effort ? policy.effort : flagValue(launchArgs, "--effort"))
 }
 
+/// Whether the policy moved on an axis that is FOLLOWING. A held axis is excluded: `followTarget`
+/// fills it from the args, so comparing it against the baseline would read a fallback or restore
+/// rewrite (which leaves the baseline alone on purpose) as a Settings change and undo it (#14).
+private func followMoved(_ axes: FollowAxes, desired: (String?, String?), state: FollowState) -> Bool {
+    (axes.model && desired.0 != state.followedModel) || (axes.effort && desired.1 != state.followedEffort)
+}
+
 /// One tick's follow decision. Deliberate, so no fuse. Adoption waits until the desired pair holds
 /// steady for `followDebounce` (model and effort are picked one after the other), UNLESS a relaunch
 /// is already planned this tick - then it folds in for free (one SIGTERM). In auto mode the session
@@ -101,7 +108,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
     // put on the command line while leaving this baseline stale (the reasoning lives
     // with `followAlreadySatisfied` in SupervisorRuntime.swift). Re-point the baseline
     // and say nothing - queueing here promises a relaunch that would change nothing.
-    if desired == (state.followedModel, state.followedEffort)
+    if !followMoved(following, desired: desired, state: state)
         || followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                                   launchArgs: launchArgs) {
         state.adopt(model: desired.0, effort: desired.1)
@@ -195,7 +202,7 @@ func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState
     else { return false }
     let target = followTarget(following, policy: policy, launchArgs: launchArgs)
     let desired = (target.model?.lowercased(), target.effort?.lowercased())
-    if desired == (state.followedModel, state.followedEffort) { return false }
+    if !followMoved(following, desired: desired, state: state) { return false }
     if followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                               launchArgs: launchArgs) {
         state.adopt(model: desired.0, effort: desired.1)

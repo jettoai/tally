@@ -149,7 +149,10 @@ struct ChromeRunOutcome: Equatable {
     /// the call had one, its url. Never the whole input.
     var denied: [String] = []
     /// 0 answered, 1 ran and failed, 3 had a tool call refused (2 is "never started", said by the caller).
-    var exitCode: Int32 { !denied.isEmpty ? 3 : ok ? 0 : 1 }
+    var exitCode: Int32 {
+        if !denied.isEmpty { return 3 }
+        return ok ? 0 : 1
+    }
 }
 
 /// Which tabs to close: the ones the run's receipts say it opened and did not close, minus every tab

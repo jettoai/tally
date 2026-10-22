@@ -26,14 +26,14 @@ struct SettingsCodexHarness: View {
             }
             if harness.hasInstallation, harness.nativeHomes.contains(where: { $0["state"] != "trusted-enabled" }) {
                 SettingsSubRow(title: L("For Codex inbox reminders, review the new hooks in each account's /hooks menu."),
-                               tint: TallyColor.warning) { EmptyView() }
+                               tint: TallyColor.warning)
             }
             if let error = harness.error {
-                SettingsSubRow(title: error, tint: TallyColor.warning) { EmptyView() }
+                SettingsSubRow(title: error, tint: TallyColor.warning)
                     .textSelection(.enabled)
             }
             if harness.previewRoot != nil {
-                SettingsSubRow(title: L("Isolated preview: changes stay in the temporary fixture.")) { EmptyView() }
+                SettingsSubRow(title: L("Isolated preview: changes stay in the temporary fixture."))
             }
         }
         .task { harness.inspect() }

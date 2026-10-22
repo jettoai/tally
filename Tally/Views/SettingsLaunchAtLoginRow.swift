@@ -86,9 +86,11 @@ struct SettingsLaunchAtLoginRow: View {
                 let lines = [state.noticeKey.map { L($0) }, failure?.message].compactMap { $0 }
                 // Both lines above are reasons for this button, not just the state's own.
                 let offersButton = LaunchAtLoginState.offersSystemSettings(for: state, failure: failure)
-                ForEach(Array((lines.isEmpty && offersButton ? [""] : lines).enumerated()), id: \.offset) { index, line in
+                // The button rides on the last line; with no line to say, it gets an empty one.
+                let shown = lines.isEmpty && offersButton ? [""] : lines
+                ForEach(Array(shown.enumerated()), id: \.offset) { index, line in
                     SettingsSubRow(title: line, tint: TallyColor.warning) {
-                        if offersButton, index == max(lines.count, 1) - 1 {
+                        if offersButton, index == shown.count - 1 {
                             // One label for both reasons on purpose: it names a DESTINATION, and the
                             // sentence above it supplies the meaning ("allow it" under a held-back
                             // registration, "see whether it is even there" under a refused one). A

@@ -30,7 +30,7 @@ extension PopoverRootView {
         let policy = LaunchPolicyStore.shared.policy(descriptor.id)
         var chips: [String] = []
         if policy.startMode == "continue" { chips.append("continue") }
-        // In the provider's own words, the way Settings offers them (`PermissionMode.label`):
+        // In the provider's own words, the way Settings offers them (`PermissionMode.displayName`):
         // a chip over codex in claude's spelling would name a mode whose flag is spelled somewhere
         // else entirely. The default mode is not a setting, so it is not a chip.
         if let mode = policy.permissionMode, mode != .standard {

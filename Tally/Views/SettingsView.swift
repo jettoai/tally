@@ -95,7 +95,7 @@ struct SettingsView: View {
                     scrollTarget = nil
                 }
             }
-            // 704 = 28 + a 648 card + 28 (B-2526, was 680 under 16 insets): the dense account rows
+            // A card plus the two insets (`SettingsChrome.contentWidth`): the dense account rows
             // need the room for an address beside the name, plan, both figures and two switches.
             .frame(width: SettingsChrome.contentWidth)
             .background(SettingsChrome.page.ignoresSafeArea())

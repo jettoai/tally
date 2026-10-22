@@ -79,19 +79,19 @@ struct SettingsIdentityCard<Mark: View, Backdrop: View, Footer: View>: View {
     @ViewBuilder
     private var buildTag: some View {
         if BuildVariant.isDev {
-            Text(verbatim: "DEV")
-                .font(.caption2)
-                .foregroundStyle(TallyColor.warning)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
+            capsuleTag(Text(verbatim: "DEV"))
         } else if !UpdateAvailability.shared.updaterActive {
-            Text(L("Local build"))
-                .font(.caption2)
-                .foregroundStyle(TallyColor.warning)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
+            capsuleTag(Text(L("Local build")))
                 .tallyTooltip(L("Built from source without an update feed - it cannot update itself"))
         }
+    }
+
+    private func capsuleTag(_ text: Text) -> some View {
+        text
+            .font(.caption2)
+            .foregroundStyle(TallyColor.warning)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
     }
 
     private var versionColumn: some View {

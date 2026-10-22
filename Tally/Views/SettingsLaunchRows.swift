@@ -56,7 +56,7 @@ extension SettingsLaunchView {
     /// ONE setting (one enum, one state.json field) that every provider's CLI has flags for.
     ///
     /// Worded in each CLI's own vocabulary, though, because that is what the person will see the
-    /// session come up in - the wording itself is `PermissionMode.label`, one table shared with the
+    /// session come up in - the wording itself is `PermissionMode.displayName`, shared with the
     /// panel chip that reports the same choice.
     func permissionRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared

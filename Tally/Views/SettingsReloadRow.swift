@@ -30,7 +30,7 @@ struct SettingsReloadRow: View {
             // the feature is explained, so it is where that has to be said. Same sentence as the
             // command, the alert, and the footer tooltip (ReloadAction.readinessNote).
             if case .legacyOnly(let count) = readiness {
-                SettingsSubRow(title: reloadLegacyNotice(count, localize: L), tint: TallyColor.warning) { EmptyView() }
+                SettingsSubRow(title: reloadLegacyNotice(count, localize: L), tint: TallyColor.warning)
             }
         }
         .onAppear { SessionRosterStore.shared.refresh() }

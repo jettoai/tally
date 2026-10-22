@@ -281,6 +281,12 @@ struct SettingsSubRow<Accessory: View>: View {
     }
 }
 
+extension SettingsSubRow where Accessory == EmptyView {
+    init(title: String, tint: Color? = nil) {
+        self.init(title: title, tint: tint) { EmptyView() }
+    }
+}
+
 // MARK: - Status, notices
 
 /// "● Installed", "● Needs attention": a 6pt dot and 12 medium text, no fill and no frame.

@@ -281,11 +281,11 @@ extension SettingsView {
             // Why a row is broken, or that a project folder wins over it: said on the row, because
             // it is the user's next step and a hover is not where a next step lives.
             if case .broken(let reason) = status, !reason.isEmpty {
-                SettingsSubRow(title: reason, tint: TallyColor.warning) { EmptyView() }
+                SettingsSubRow(title: reason, tint: TallyColor.warning)
                     .tallyTooltip(reason)
             }
             if let warning {
-                SettingsSubRow(title: warning.text, tint: TallyColor.warning) { EmptyView() }
+                SettingsSubRow(title: warning.text, tint: TallyColor.warning)
                     .tallyTooltip(warning.paths)
             }
         }

@@ -190,6 +190,8 @@ struct SettingsRowLabel: View {
     var subtitle: String?
     var icon: String?
     var info: String?
+    /// Holds the hover open for a design capture (`-TallyTooltipPreview <target>`).
+    var tooltipPreview: TallyTooltip.PreviewTarget?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -211,7 +213,7 @@ struct SettingsRowLabel: View {
             }
         }
         .multilineTextAlignment(.leading)
-        .tallyTooltip(info ?? "")
+        .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? false)
     }
 }
 
@@ -222,12 +224,14 @@ struct SettingsRow<Accessory: View>: View {
     var subtitle: String?
     var icon: String?
     var info: String?
+    var tooltipPreview: TallyTooltip.PreviewTarget?
     @ViewBuilder var accessory: Accessory
     @State private var hovered = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
-            SettingsRowLabel(title: title, subtitle: subtitle, icon: icon, info: info)
+            SettingsRowLabel(title: title, subtitle: subtitle, icon: icon, info: info,
+                             tooltipPreview: tooltipPreview)
             Spacer(minLength: 12)
             accessory.fixedSize()
         }
@@ -262,15 +266,24 @@ struct SettingsToggleRow: View {
 struct SettingsSubRow<Accessory: View>: View {
     let title: String
     var tint: Color?
+    /// The explanation, as a hover on the title only (like `SettingsRowLabel`). Never on the whole
+    /// row: a callout hugs its target, and a full-width row centres the chip across the card, far
+    /// from the pointer and over the row above (B-2649).
+    var info: String?
+    var tooltipPreview: TallyTooltip.PreviewTarget?
     @ViewBuilder var accessory: Accessory
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(title)
-                .font(.system(size: 13))
-                .foregroundStyle(tint ?? Color.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(tint ?? Color.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let info, !info.isEmpty { SettingsInfoGlyph() }
+            }
+            .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? false)
             Spacer(minLength: 12)
             accessory.fixedSize()
         }

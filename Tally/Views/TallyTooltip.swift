@@ -91,6 +91,8 @@ enum TallyTooltip {
         case topcpu
         /// Same for the memory figure.
         case topmemory
+        /// Settings > Launch > Quota windows, one callout per row (B-2649).
+        case settingsrelay, settingsquiet, settingssessionreset, settingscodexredeem
     }
 
     static func previewForced(_ target: PreviewTarget) -> Bool {

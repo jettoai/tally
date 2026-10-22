@@ -41,7 +41,8 @@ struct SettingsEarlyStartRow: View {
                 ? tallyText
                 : L("Opens each closed 5-hour window early so your next reset lands sooner."),
             icon: "arrow.triangle.2.circlepath",
-            info: L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Leaving this on costs very little and always moves the reset earlier.")) {
+            info: L("Whenever a Claude account's 5-hour window is closed, Tally opens it with one short message, so the next reset lands earlier in your day. At most one message per account every 5 hours, and any account already working is left alone. Leaving this on costs very little and always moves the reset earlier."),
+            tooltipPreview: .settingsrelay) {
             Toggle(isOn: Binding(get: { store.isEnabled }, set: { store.setEnabled($0) })) {
                 EmptyView()
             }
@@ -51,9 +52,13 @@ struct SettingsEarlyStartRow: View {
     }
 
     /// Quiet hours belong to the relay above, so they are its sub-row: the switch, and while it is on
-    /// the two clock fields beside it. The explanation of either state is the row's hover.
+    /// the two clock fields beside it. The explanation of either state is the title's hover.
     private var quietHoursRow: some View {
-        SettingsSubRow(title: L("Quiet hours")) {
+        SettingsSubRow(title: L("Quiet hours"),
+                       info: store.quietHours.isEnabled
+                        ? L("Nothing is sent between these times.")
+                        : L("Off, so windows are opened at any hour. Turn this on to keep Tally silent overnight."),
+                       tooltipPreview: .settingsquiet) {
             HStack(spacing: 8) {
                 if store.quietHours.isEnabled {
                     Text(L("From")).font(.system(size: 13)).foregroundStyle(.secondary)
@@ -98,9 +103,6 @@ struct SettingsEarlyStartRow: View {
                 .toggleStyle(.switch)
             }
         }
-        .tallyTooltip(store.quietHours.isEnabled
-                        ? L("Nothing is sent between these times.")
-                        : L("Off, so windows are opened at any hour. Turn this on to keep Tally silent overnight."))
     }
 
     /// One clock field. The picker edits an hour and a minute; the date around them is only a

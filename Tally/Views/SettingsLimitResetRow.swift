@@ -19,7 +19,8 @@ struct SettingsLimitResetRow: View {
             title: L("Auto reset session limit"),
             subtitle: L("Spends the account's own weekly reset to clear a full 5-hour window."),
             icon: "gauge.with.needle",
-            info: L("When a Claude session hits its 5-hour limit, Tally spends one of that account's own resets to clear it instead of moving the conversation to another account. Claude Code says a reset counts toward the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using.")) {
+            info: L("When a Claude session hits its 5-hour limit, Tally spends one of that account's own resets to clear it instead of moving the conversation to another account. Claude Code says a reset counts toward the weekly limit, so Tally only does this on a 5-hour wall and only while the account still has weekly quota worth using."),
+            tooltipPreview: .settingssessionreset) {
             Toggle(isOn: Binding(get: { store.settings.autoReset },
                                  set: { store.setAutoReset($0) })) {
                 EmptyView()

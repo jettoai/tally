@@ -217,7 +217,7 @@ func runPickSurfaceChecks() {
     // reads this machine's real ~/.tally/state.json, which no fixture covers). The DEV tag stays:
     // a demo launched from a Debug build is still a test instance (B-1388).
     check("demo mode draws no version in the popover header",
-          popover.contains("if let version = BuildVariant.version, !DemoUsage.isActive {"))
+          popover.contains("if let version = BuildVariant.version, !DemoUsage.isActive, UsageLayout.active == nil {"))
     check("…but a Debug build keeps its DEV tag in demo mode too",
           popover.contains("if BuildVariant.isDev {\n                    TallyDevTagView()")
               && !popover.contains("if BuildVariant.isDev, !DemoUsage.isActive {"))

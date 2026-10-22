@@ -40,8 +40,11 @@ struct LayoutWindows {
         flagship = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
     }
 
+    /// The column names, in that order. Computed, not stored: the app language can change at runtime.
+    static var names: [String] { [L("5h"), L("Week"), L("Flagship")] }
+
     var all: [(name: String, metric: UsageMetric?)] {
-        [(L("5h"), session), (L("Week"), weekly), (L("Flagship"), flagship)]
+        zip(Self.names, [session, weekly, flagship]).map { (name: $0, metric: $1) }
     }
 }
 

@@ -16,11 +16,8 @@ extension PopoverRootView {
     /// Every provider's heading and tiles, in the order and folding the default layout uses.
     @ViewBuilder
     var trayAccounts: some View {
-        let groups: [AccountGroup] = PanelSections.sections(
-            store.orderedAccounts, providerID: \.providerID,
-            pooled: pooledProviderIDs, collapsed: settings.collapsedProviders)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(groups) { group in trayGroup(group) }
+            ForEach(accountGroups) { group in trayGroup(group) }
         }
     }
 
@@ -30,6 +27,8 @@ extension PopoverRootView {
         let summaries = fleetSummaries.filter { $0.providerID == providerID && !displayedPools($0).isEmpty }
         let split = summaries.filter { $0.planTier != nil }
         let autoPick = AccountFacts.autoPickID(providerID: providerID)
+        // Three columns are too narrow for name and bar on one line: stack them.
+        let stacked = split.count > 2
         return VStack(alignment: .leading, spacing: 6) {
             trayHeading(group, pool: split.isEmpty ? summaries.first : nil)
             if !group.isFolded {
@@ -38,8 +37,6 @@ extension PopoverRootView {
                     HStack(alignment: .top, spacing: Self.trayGap) {
                         ForEach(split, id: \.id) { summary in
                             VStack(alignment: .leading, spacing: 6) {
-                                // Three columns are too narrow for name and bar on one line: stack them.
-                                let stacked = split.count > 2
                                 let planHeader = HStack(spacing: 5) {
                                     (Text(summary.planTier?.name ?? L("Unknown plan")).foregroundStyle(Color.secondary)
                                      + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
@@ -81,7 +78,7 @@ extension PopoverRootView {
                             .frame(width: 3, height: CGFloat(height))
                     }
                 }
-                Text(verbatim: [L("5h"), L("Week"), L("Flagship")].joined(separator: " · "))
+                Text(verbatim: LayoutWindows.names.joined(separator: " · "))
                     .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
             }
             .accessibilityHidden(true)
@@ -118,13 +115,10 @@ extension PopoverRootView {
 
     /// Tiles in rows of `columns`, a short last row padded so the columns keep their lines.
     private func trayGrid(_ accounts: [AccountUsage], columns: Int, autoPick: String?) -> some View {
-        let rows = stride(from: 0, to: accounts.count, by: columns).map { start in
-            Array(accounts[start ..< min(start + columns, accounts.count)])
-        }
-        return VStack(alignment: .leading, spacing: 6) {
-            ForEach(rows, id: \.first?.id) { row in
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(rows(accounts, columns: columns)) { row in
                 HStack(spacing: Self.trayGap) {
-                    ForEach(row) { usage in
+                    ForEach(row.items) { usage in
                         let facts = AccountFacts(usage: usage, settings: settings)
                         TrayTile(facts: facts,
                                  isSmartPick: facts.hasSiblings && facts.launchMode == .auto && autoPick == usage.id,

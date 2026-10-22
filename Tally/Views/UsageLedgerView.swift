@@ -34,35 +34,33 @@ extension PopoverRootView {
     /// is judged on screen, not dragged.
     @ViewBuilder
     var ledgerAccounts: some View {
-        let groups = PanelSections.sections(store.orderedAccounts, providerID: \.providerID,
-                                            pooled: pooledProviderIDs, collapsed: settings.collapsedProviders)
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(groups) { group in
+            ForEach(accountGroups) { group in
                 ledgerSection(group)
             }
         }
         .padding(.horizontal, 2)
     }
 
-    private func ledgerSection(_ group: PanelSections.Section<AccountUsage>) -> some View {
+    private func ledgerSection(_ group: AccountGroup) -> some View {
         let providerID = group.providerID
         let plans = Self.ledgerPlans(group.items)
         let split = plans.count > 1
         // Once per provider: each pick walks every account (TALLY-7Z), same rule as the card grid.
         let pick = AccountFacts.autoPickID(providerID: providerID)
-        let toggle = { if pooledProviderIDs.contains(providerID) { settings.toggleCollapsed(providerID) } }
+        let foldable = pooledProviderIDs.contains(providerID)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 providerLabel(providerID, count: group.items.count).font(.system(size: 12, weight: .semibold))
                 if !split, let plan = plans.first?.name {
                     Text(plan).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                if pooledProviderIDs.contains(providerID) { foldChevron(providerID) }
+                if foldable { foldChevron(providerID) }
                 Spacer(minLength: 8)
                 if !split { ledgerPool(providerID, plan: nil) }
             }
             .contentShape(Rectangle())
-            .onTapGesture(perform: toggle)
+            .onTapGesture { if foldable { settings.toggleCollapsed(providerID) } }
             if !group.isFolded {
                 if group.items.contains(where: { LayoutWindows($0).all.filter { $0.metric != nil }.count > 1 }) {
                     ledgerColumnNames
@@ -107,7 +105,7 @@ extension PopoverRootView {
     private var ledgerColumnNames: some View {
         HStack(spacing: LedgerMetrics.gap) {
             Color.clear.frame(width: LedgerMetrics.nameWidth, height: 1)
-            ForEach([L("5h"), L("Week"), L("Flagship")], id: \.self) { name in
+            ForEach(LayoutWindows.names, id: \.self) { name in
                 Text(name).frame(width: LedgerMetrics.barWidth, alignment: .leading)
             }
         }
@@ -122,8 +120,8 @@ extension PopoverRootView {
         let summary = fleetSummaries.first {
             $0.providerID == providerID && (plan == nil || $0.planTier?.name == plan)
         }
-        if let summary,
-           let pool = displayedPools(summary).first(where: { $0.kind == .weeklyAll }) ?? displayedPools(summary).first {
+        let pools = summary.map(displayedPools) ?? []
+        if let summary, let pool = pools.first(where: { $0.kind == .weeklyAll }) ?? pools.first {
             let now = Date()
             let tint = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining).color
             HStack(spacing: 6) {

@@ -191,7 +191,7 @@ extension PopoverRootView {
         }
     }
 
-    private struct AccountRow: Identifiable {
+    struct AccountRow: Identifiable {
         let items: [AccountUsage]
         var id: String { items.map(\.id).joined(separator: "|") }
     }
@@ -266,7 +266,7 @@ extension PopoverRootView {
 
     /// Accounts chunked into rows of `columns` items - one implementation for both densities, so
     /// the card grid and the list can never disagree about reading order.
-    private func rows(_ accounts: [AccountUsage], columns: Int) -> [AccountRow] {
+    func rows(_ accounts: [AccountUsage], columns: Int) -> [AccountRow] {
         stride(from: 0, to: accounts.count, by: columns).map { start in
             AccountRow(items: Array(accounts[start ..< min(start + columns, accounts.count)]))
         }
@@ -276,7 +276,7 @@ extension PopoverRootView {
     /// heading alone, so it has to still be in the list. Provider order follows first appearance in
     /// the user's own card order, and each bucket keeps that order inside it, so grouping re-seats
     /// the cards without inventing a second ordering the user never chose.
-    private var accountGroups: [AccountGroup] {
+    var accountGroups: [AccountGroup] {
         PanelSections.sections(store.orderedAccounts, providerID: \.providerID,
                                pooled: pooledProviderIDs, collapsed: settings.collapsedProviders)
     }

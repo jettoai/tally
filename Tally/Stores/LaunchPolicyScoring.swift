@@ -18,17 +18,25 @@ extension LaunchPolicyStore {
     /// declared primary model IS that tier, so a drained fable window never vetoes an account
     /// whose primary is sonnet. Keep both sides in lockstep.
     static func headroom(_ usage: AccountUsage, primaryModel: String? = nil) -> Double? {
+        bindingWindow(usage, primaryModel: primaryModel)?.remainingPercent
+    }
+
+    /// WHICH window `headroom` is the remaining percent of: the tightest of the account's session,
+    /// weekly and (when the primary model is that tier) flagship windows. The usage layouts
+    /// (`AccountFacts.bindingWindow`) read this one so the number they print and the gate the smart
+    /// pick applies can never be two answers; a tie goes to the earlier of session, weekly, flagship.
+    static func bindingWindow(_ usage: AccountUsage, primaryModel: String? = nil) -> UsageMetric? {
         var windows = [
-            usage.metrics.first { $0.kind == .session }?.remainingPercent,
-            usage.metrics.first { $0.kind == .weeklyAll }?.remainingPercent,
+            usage.metrics.first { $0.kind == .session },
+            usage.metrics.first { $0.kind == .weeklyAll },
         ].compactMap { $0 }
         let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
         let windowModel = model?.modelName?.lowercased()
         let primary = primaryModel?.lowercased()
         let modelWindowCounts = primary == nil || windowModel == nil
             || windowModel!.contains(primary!) || primary!.contains(windowModel!)
-        if modelWindowCounts, let remaining = model?.remainingPercent { windows.append(remaining) }
-        return windows.min()
+        if modelWindowCounts, let model { windows.append(model) }
+        return windows.min { $0.remainingPercent < $1.remainingPercent }
     }
 
     /// Mirror of the CLI's burn-rate scoring (TallyCLI/AccountPick.swift `ratedWindows`): each

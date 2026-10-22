@@ -52,7 +52,7 @@ extension PopoverRootView {
                 // amount of reordering that line fixed whose number it was. Beside the product's
                 // own name it can only be read one way. Not localized: a dotted version is a token.
                 // Demo mode is for screenshots and promo footage: a version in them dates the shot.
-                if let version = BuildVariant.version, !DemoUsage.isActive {
+                if let version = BuildVariant.version, !DemoUsage.isActive, UsageLayout.active == nil {
                     Text(version).font(.caption2).foregroundStyle(.tertiary)
                 }
                 }
@@ -392,7 +392,8 @@ extension PopoverRootView {
         if form == .short {
             return store.isRefreshing ? nil : UsageFormat.updatesInFigure(store.nextRefreshAt, now: now)
         }
-        return store.isRefreshing ? L("refreshing…") : UsageFormat.updatesIn(store.nextRefreshAt, now: now)
+        if store.isRefreshing { return UsageLayout.active == nil ? L("refreshing…") : nil }
+        return UsageFormat.updatesIn(store.nextRefreshAt, now: now)
     }
 
     /// The counter's string width changes every second; hidden templates (the widest forms,

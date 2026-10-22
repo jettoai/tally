@@ -51,13 +51,15 @@ extension PopoverRootView {
             // Used before Left, mirroring the meters' geometry: the used portion fills from the
             // track's left edge and the remainder hugs the right, so the toggle order matches
             // where each quantity lives in the bar.
-            NeutralSegmentedPicker(selection: $settings.displayMode,
-                                   options: [.used, .remaining],
-                                   size: .mini) { $0 == .used ? L("Used") : L("Left") }
-                .tallyTooltip(L("Meters show"))
-                .background { widthProbe { footerWidths.picker = $0 } }
-            if showsCredit {
-                jettoCredit.padding(.leading, Self.creditLead)
+            if UsageLayout.active == nil {
+                NeutralSegmentedPicker(selection: $settings.displayMode,
+                                       options: [.used, .remaining],
+                                       size: .mini) { $0 == .used ? L("Used") : L("Left") }
+                    .tallyTooltip(L("Meters show"))
+                    .background { widthProbe { footerWidths.picker = $0 } }
+                if showsCredit {
+                    jettoCredit.padding(.leading, Self.creditLead)
+                }
             }
             Spacer(minLength: 12)
             footerIcons

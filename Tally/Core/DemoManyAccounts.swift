@@ -108,8 +108,9 @@ extension DemoUsage {
         #endif
     }
 
-    /// `-TallyDemoProviders codex` and `-TallyDemoAccountLimit claude=1,codex=2` (Debug builds only):
-    /// the fixture fleet cut to the providers named and to the first N fixtures of each, so a
+    /// `-TallyDemoProviders codex` and `-TallyDemoAccountLimit claude=1,codex=2` or `codex=1+4`
+    /// (Debug builds only): the fixture fleet cut to the providers named and to the first N fixtures
+    /// of each (or to the 1-based ordinals joined by `+`), so a
     /// capture can show a Codex-only panel or a single account. Applied after every other fixture
     /// flag; a provider the limit does not name keeps all of its fixtures.
     static func scoped(_ all: [AccountUsage]) -> [AccountUsage] {
@@ -121,16 +122,25 @@ extension DemoUsage {
                 .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
         }
         let providers = Set(list("TallyDemoProviders"))
-        var limits: [String: Int] = [:]
+        var limits: [String: Set<Int>] = [:]
         for pair in list("TallyDemoAccountLimit") {
             let parts = pair.split(separator: "=")
-            if parts.count == 2, let count = Int(parts[1]) { limits[String(parts[0])] = count }
+            guard parts.count == 2 else { continue }
+            if let count = Int(parts[1]) {
+                limits[String(parts[0])] = Set(stride(from: 1, through: count, by: 1))
+            } else {
+                // `codex=1+4`: the 1-based ordinals kept (here the first Pro and the Team).
+                let ordinals = parts[1].split(separator: "+").map { Int($0) }
+                if !ordinals.isEmpty, !ordinals.contains(where: { $0 == nil }) {
+                    limits[String(parts[0])] = Set(ordinals.compactMap { $0 })
+                }
+            }
         }
         var kept: [String: Int] = [:]
         return all.filter { usage in
             guard providers.isEmpty || providers.contains(usage.providerID) else { return false }
             kept[usage.providerID, default: 0] += 1
-            return kept[usage.providerID]! <= limits[usage.providerID] ?? .max
+            return limits[usage.providerID]?.contains(kept[usage.providerID]!) ?? true
         }
         #else
         return all

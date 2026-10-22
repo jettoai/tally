@@ -216,6 +216,21 @@ struct AccountFacts {
             reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
     }
 
+    /// The window this account's usage layouts print one number for: its tightest, exactly the one
+    /// the smart pick's eligibility gate weighs (`LaunchPolicyStore.bindingWindow`), with the primary
+    /// model read from the same place `smartPickTooltip` reads it. The ONE entry the layouts use, so
+    /// a row cannot print a figure the badge beside it did not judge by.
+    var bindingWindow: UsageMetric? {
+        LaunchPolicyStore.bindingWindow(
+            usage, primaryModel: LaunchPolicyStore.shared.policy(usage.providerID).model)
+    }
+
+    /// How tight that window is, on the product's one ramp (`MetricSeverity.fromUsedPercent`);
+    /// `.unknown` when the account reports no window at all.
+    var bindingSeverity: MetricSeverity {
+        bindingWindow.map { MetricSeverity.fromUsedPercent($0.usedPercent) } ?? .unknown
+    }
+
     /// The one switch both surfaces offer: hollow circle pins this account, checked releases it back
     /// to Smart.
     func togglePin() {

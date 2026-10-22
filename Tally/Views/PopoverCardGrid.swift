@@ -27,6 +27,16 @@ extension PopoverRootView {
     /// panel was showing → index out of range).
     @ViewBuilder
     var accountLayout: some View {
+        switch UsageLayout.active {
+        case .ledger?: ledgerAccounts
+        case .tray?: trayAccounts
+        case nil: defaultAccountLayout
+        }
+    }
+
+    /// The shipped layout, unchanged: what `accountLayout` draws when no preview layout is asked for.
+    @ViewBuilder
+    private var defaultAccountLayout: some View {
         let groups = accountGroups
         if settings.groupByProvider {
             let headed = PanelSections.showsHeadings(sectionCount: groups.count)

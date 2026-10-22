@@ -12,7 +12,7 @@ extension PopoverRootView {
     /// panel, the job the launch strip's empty run used to do.
     @ViewBuilder
     var accountPoolTitle: some View {
-        if store.contentState == .hasAccounts {
+        if store.contentState == .hasAccounts, UsageLayout.active == nil {
             HStack(spacing: 0) {
                 Text(L("Account Pool")).fontWeight(.semibold)
                 Color.clear

@@ -47,62 +47,6 @@ enum TallyTooltip {
     /// reads as one long strip across the panel; the narrowest host (the 380pt panel) still fits it
     /// with room, and a short line keeps hugging its own text.
     static let linesMaxWidth: CGFloat = 300
-
-    /// Which callout a design capture is holding open (`-TallyTooltipPreview fleet` /
-    /// `-TallyTooltipPreview identity`, demo or dev builds only, argument domain so nothing
-    /// persists): the named one shows with no pointer involved.
-    ///
-    /// It exists because the alternative is worse. A callout only appears under a real hover, so
-    /// capturing one otherwise means synthesizing mouse events into the app, which takes the
-    /// user's desktop away from them for as long as the verification runs (the rule, and the
-    /// incident behind it, are in ~/.claude/docs/patterns/macos-app-verification.md: a dev-only
-    /// flag that puts the state on screen IS the sanctioned answer). Same family as
-    /// `-TallyUpdateChip`, `-TallyEmptyStatePreview` and `-TallyDryNotifyTest`.
-    ///
-    /// It names ONE target rather than switching every forcible callout on, because all of them
-    /// publish into a single preference slot: two forced at once would race for it, and the capture
-    /// would show whichever the layout traversal reached last.
-    enum PreviewTarget: String {
-        case fleet
-        case identity
-        /// The kept account's shared-login mark (#6): one fixture under `-TallyDemoSharedLogin`.
-        case sharedlogin
-        /// The session board's update badge (`SessionCardView.supervisorBadge`), which forces itself
-        /// only while the FIXTURES are on: exactly one demo session is watched by a build other than
-        /// the installed one, so the demo board draws exactly one of these badges and there is
-        /// nothing for a second forced callout to race with (`DemoSessions`). A dev build watching
-        /// real sessions can have several behind at once, which is a race rather than a preview, so
-        /// the card asks `DemoUsage.isActive` alongside this. Same guarantee the identity target
-        /// buys by naming one fixture account, bought by a different means.
-        case supervisor
-        /// The session board's leftovers mark (`SessionLeftoversMark`), on the same terms as the
-        /// badge above and for the same reason: a real machine can have several checkouts with work
-        /// nobody is answering for, and every one of those marks would publish into this single
-        /// slot. The demo board carries leftovers in exactly ONE project by construction
-        /// (`DemoSessions.strayReadings`), so under the fixtures there is nothing to race with.
-        case leftovers
-        /// The session board's away badge (B-1540): `-TallyDemoPinAway` puts exactly one on the board.
-        case pinaway
-        /// The machine table's lid switch (a private build's pool strip). Shows on every MacBook row
-        /// at once, so a capture wants a pool with exactly one MacBook in it.
-        case lid
-        /// The machine table's CPU figure on this Mac's row (a private build's pool strip). Only one
-        /// row is local, so it does not race for the single preference slot.
-        case topcpu
-        /// Same for the memory figure.
-        case topmemory
-        /// Settings > Launch > Quota windows, one callout per row (B-2649).
-        case settingsrelay, settingsquiet, settingssessionreset, settingscodexredeem
-    }
-
-    static func previewForced(_ target: PreviewTarget) -> Bool {
-        guard DemoUsage.isActive || BuildVariant.isDev else { return false }
-        let raw = (UserDefaults.standard.string(forKey: "TallyTooltipPreview") ?? "").lowercased()
-        // `YES` predates the flag naming a target, and meant the fleet gauge - the only forcible
-        // callout there was then. Kept working so an older capture command still captures.
-        if target == .fleet, ["yes", "true", "1"].contains(raw) { return true }
-        return raw == target.rawValue
-    }
 }
 
 /// A live tooltip request: what to say and where its target is, in the surface's coordinate space.
@@ -113,6 +57,9 @@ private struct TallyTooltipItem: Equatable {
     /// (`TooltipPlacement.farEdgeStretch`). Empty for every callout that does not hug a row.
     var seams: [CGFloat] = []
     var stretchLimit: CGFloat = 0
+    /// Beside the target rather than above or below it, clear of these (the card's other labels and
+    /// controls, in the surface's space; `TooltipPlacement.besideSlot`). Empty: hug the target.
+    var obstacles: [CGRect] = []
 }
 
 /// The callout content's offset inside its stretched background. Summed: only the background sets
@@ -178,11 +125,15 @@ extension View {
     ///   - forced: hold it open with no pointer, for a design capture. The caller decides rather
     ///     than the flag alone, because a text callout can have many targets on one surface and
     ///     they would all publish at once (`TallyTooltip.previewForced`).
-    func tallyTooltip(_ text: String, detail: String? = nil, forced: Bool = false) -> some View {
+    /// - Parameter beside: sit to the right of this element, clear of its card's other labels and
+    ///   controls (`tallyTooltipObstacles()`), instead of above or below it: a settings row is
+    ///   shorter than its explanation, so above or below always covers a neighbouring row (B-2649).
+    func tallyTooltip(_ text: String, detail: String? = nil, forced: Bool = false,
+                      beside: Bool = false) -> some View {
         let lines = [text, detail ?? ""]
             .flatMap { $0.components(separatedBy: "\n") }
             .filter { !$0.isEmpty }
-        return modifier(TallyTooltipTarget(resolve: { .lines(lines) }, forced: forced))
+        return modifier(TallyTooltipTarget(resolve: { .lines(lines) }, forced: forced, beside: beside))
     }
 
     /// The same callout for a control that can be DISABLED. SwiftUI stops routing interaction into a
@@ -223,7 +174,9 @@ struct TallyTooltipTarget: ViewModifier {
     /// Held open with no pointer, for a design capture (`TallyTooltip.previewForced`).
     var forced = false
     var hugsRow = false
+    var beside = false
 
+    @Environment(\.tallyTooltipObstacles) private var obstacles
     @Environment(\.hasTallyTooltipLayer) private var hosted
     @Environment(\.tallyTooltipRowFrame) private var rowFrame
     @Environment(\.tallyTooltipSeams) private var seams
@@ -279,12 +232,19 @@ struct TallyTooltipTarget: ViewModifier {
             GeometryReader { proxy in
                 let own = proxy.frame(in: .named(TallyTooltip.space))
                 let row = hugsRow ? rowFrame : nil
+                // The obstacles are measured in the card's space (stable under scrolling); this
+                // target is the one thing known in both, so the difference carries them over.
+                let card = proxy.frame(in: .named(TallyTooltip.cardSpace))
+                let spaceShift = beside ? CGPoint(x: own.minX - card.minX, y: own.minY - card.minY) : .zero
                 Color.clear.preference(
                     key: TallyTooltipKey.self,
                     value: TallyTooltipItem(content: payload,
                                             anchor: TooltipPlacement.rowAnchor(target: own, row: row, gap: TallyTooltip.gap),
                                             seams: hugsRow ? seams : [],
-                                            stretchLimit: row?.height ?? 0))
+                                            stretchLimit: row?.height ?? 0,
+                                            obstacles: beside ? obstacles.map {
+                                                $0.offsetBy(dx: spaceShift.x, dy: spaceShift.y)
+                                            } : []))
             }
         }
     }
@@ -350,7 +310,8 @@ private struct TallyTooltipCallout: View {
     private static let insetH: CGFloat = 8
 
     var body: some View {
-        content
+        let slot = besideSlot
+        return content(slot: slot)
             // Moved, not laid out again: the chip's measured height, and so the stretch, stay the same.
             .offset(y: shift)
             .padding(.horizontal, Self.insetH)
@@ -358,7 +319,7 @@ private struct TallyTooltipCallout: View {
             .background(GeometryReader { proxy in
                 // The far edge's stretch to the nearest seam: the background reaches it and the
                 // content moves half way (contentShift), so the near edge stays where `originY` put it.
-                let stretch = TooltipPlacement.farEdgeStretch(top: originY(height: proxy.size.height),
+                let stretch = TooltipPlacement.farEdgeStretch(top: originY(height: proxy.size.height, slot: slot),
                                                               height: proxy.size.height, anchor: item.anchor,
                                                               seams: item.seams, limit: item.stretchLimit)
                 ZStack {
@@ -372,13 +333,32 @@ private struct TallyTooltipCallout: View {
             .onPreferenceChange(TallyTooltipShiftKey.self) { shift = $0 }
             .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.22), radius: 7, x: 0, y: 2)
             .fixedSize()
-            .alignmentGuide(.leading) { dimensions in -originX(width: dimensions.width) }
-            .alignmentGuide(.top) { dimensions in -originY(height: dimensions.height) }
+            .alignmentGuide(.leading) { dimensions in -originX(width: dimensions.width, slot: slot) }
+            .alignmentGuide(.top) { dimensions in -originY(height: dimensions.height, slot: slot) }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Where a beside-the-target callout lands (`TooltipPlacement.besideSlot`), or nil to hug the
+    /// target. The height it is tried with is the text measured at that width, a little generous.
+    private var besideSlot: (x: CGFloat, width: CGFloat)? {
+        guard !item.obstacles.isEmpty, case .lines(let lines) = item.content else { return nil }
+        let font = NSFont.preferredFont(forTextStyle: .caption1)
+        let widest = linesMaxWidth + 2 * Self.insetH
+        return TooltipPlacement.besideSlot(
+            anchor: item.anchor, obstacles: item.obstacles, bounds: bounds, gap: TallyTooltip.gap,
+            margin: TallyTooltip.margin, widths: [widest, 260, 210, 170, 140, 120].filter { $0 <= widest },
+            height: { width in
+                let inner = CGSize(width: width - 2 * Self.insetH, height: .greatestFiniteMagnitude)
+                let text = lines.reduce(CGFloat(lines.count - 1)) {
+                    $0 + ceil(($1 as NSString).boundingRect(with: inner, options: .usesLineFragmentOrigin,
+                                                            attributes: [.font: font]).height)
+                }
+                return text + 8 + 6
+            })
+    }
+
     @ViewBuilder
-    private var content: some View {
+    private func content(slot: (x: CGFloat, width: CGFloat)?) -> some View {
         switch item.content {
         case .lines(let lines):
             // Tight leading between them: the second line qualifies the first rather than following
@@ -386,7 +366,7 @@ private struct TallyTooltipCallout: View {
             // A ceiling, not a width: a line that fits keeps hugging its own text, and a longer one
             // wraps onto more lines instead of stretching the chip across the surface or losing its
             // tail (B-1057). See `TallyTooltipCappedWidth` for why not `frame(maxWidth:)`.
-            TallyTooltipCappedWidth(cap: linesMaxWidth) {
+            TallyTooltipCappedWidth(cap: slot.map { $0.width - 2 * Self.insetH } ?? linesMaxWidth) {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                         Text(line)
@@ -487,13 +467,18 @@ private struct TallyTooltipCallout: View {
     /// `nonisolated` because an alignment guide is resolved by the layout engine outside the view's
     /// own actor: both stored properties these read are immutable and `Sendable`, so the geometry is
     /// pure arithmetic on values, not a hop back to the view.
-    private nonisolated func originX(width: CGFloat) -> CGFloat {
-        TooltipPlacement.originX(width: width, anchor: item.anchor, bounds: bounds,
+    private nonisolated func originX(width: CGFloat, slot: (x: CGFloat, width: CGFloat)?) -> CGFloat {
+        if let slot { return slot.x }
+        return TooltipPlacement.originX(width: width, anchor: item.anchor, bounds: bounds,
                                  margin: TallyTooltip.margin)
     }
 
-    private nonisolated func originY(height: CGFloat) -> CGFloat {
-        TooltipPlacement.originY(height: height, anchor: item.anchor, bounds: bounds,
+    private nonisolated func originY(height: CGFloat, slot: (x: CGFloat, width: CGFloat)?) -> CGFloat {
+        if slot != nil {
+            return TooltipPlacement.besideY(height: height, anchor: item.anchor, bounds: bounds,
+                                            margin: TallyTooltip.margin)
+        }
+        return TooltipPlacement.originY(height: height, anchor: item.anchor, bounds: bounds,
                                  gap: TallyTooltip.gap, margin: TallyTooltip.margin)
     }
 }

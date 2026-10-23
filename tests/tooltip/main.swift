@@ -137,6 +137,33 @@ check("the content moves half the stretch toward it: up when the top stretched, 
       TooltipPlacement.contentShift((12, 0)) == -6 && TooltipPlacement.contentShift((0, 4)) == 2
       && TooltipPlacement.contentShift((0, 0)) == 0)
 
+// Beside the target (a settings row label, B-2649): the chip sits right of the label, centred on it,
+// and only where it touches no other label or control of the card.
+let label = CGRect(x: 56, y: 100, width: 140, height: 40)              // the hovered row's label
+let rowAbove = CGRect(x: 56, y: 40, width: 300, height: 44)            // a wider subtitle above
+let rowBelow = CGRect(x: 56, y: 156, width: 300, height: 44)
+let toggles = [CGRect(x: 640, y: 50, width: 40, height: 24), CGRect(x: 640, y: 108, width: 40, height: 24)]
+let card = CGSize(width: 730, height: 400)
+let obstacles = [label, rowAbove, rowBelow] + toggles
+let short = TooltipPlacement.besideSlot(anchor: label, obstacles: obstacles, bounds: card, gap: gap,
+                                        margin: margin, widths: [316, 210, 120], height: { _ in 30 })
+check("a short chip sits one gap right of the label at the widest width",
+      short?.x == label.maxX + gap && short?.width == 316)
+let tall = TooltipPlacement.besideSlot(anchor: label, obstacles: obstacles, bounds: card, gap: gap,
+                                       margin: margin, widths: [316, 210, 120], height: { _ in 110 })
+check("a chip taller than its row jumps past the neighbours' text and narrows to fit before the controls",
+      tall != nil && tall!.x > rowAbove.maxX && tall!.x + tall!.width < toggles[0].minX)
+check("a slot is only ever clear of every other obstacle",
+      [short, tall].compactMap { $0 }.allSatisfy { slot in
+          let h: CGFloat = slot.width == 316 ? 30 : 110
+          let rect = CGRect(x: slot.x, y: TooltipPlacement.besideY(height: h, anchor: label, bounds: card, margin: margin),
+                            width: slot.width, height: h)
+          return !(obstacles.dropFirst().contains { $0.intersects(rect) })
+      })
+check("no clear slot gives nil, so the caller hugs the target",
+      TooltipPlacement.besideSlot(anchor: label, obstacles: obstacles, bounds: card, gap: gap,
+                                  margin: margin, widths: [316], height: { _ in 110 }) == nil)
+
 print(failures == 0 ? "\nAll tooltip placement assertions passed."
                     : "\n\(failures) assertion(s) failed.")
 exit(failures == 0 ? 0 : 1)

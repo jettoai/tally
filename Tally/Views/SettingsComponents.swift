@@ -122,6 +122,7 @@ struct SettingsCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .tallyTooltipObstacles()
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .modifier(SettingsCardSurface())
     }
@@ -213,7 +214,9 @@ struct SettingsRowLabel: View {
             }
         }
         .multilineTextAlignment(.leading)
-        .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? false)
+        .tallyTooltipObstacle()
+        .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? TallyTooltip.previewRowForced(title: title),
+                      beside: true)
     }
 }
 
@@ -233,7 +236,7 @@ struct SettingsRow<Accessory: View>: View {
             SettingsRowLabel(title: title, subtitle: subtitle, icon: icon, info: info,
                              tooltipPreview: tooltipPreview)
             Spacer(minLength: 12)
-            accessory.fixedSize()
+            accessory.fixedSize().tallyTooltipObstacle()
         }
         .padding(.horizontal, SettingsChrome.rowInsetH)
         .padding(.vertical, SettingsChrome.rowInsetV)
@@ -283,9 +286,10 @@ struct SettingsSubRow<Accessory: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let info, !info.isEmpty { SettingsInfoGlyph() }
             }
-            .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? false)
+            .tallyTooltipObstacle()
+            .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? false, beside: true)
             Spacer(minLength: 12)
-            accessory.fixedSize()
+            accessory.fixedSize().tallyTooltipObstacle()
         }
         .padding(.leading, SettingsChrome.dividerInsetIcon)
         .padding(.trailing, SettingsChrome.rowInsetH)

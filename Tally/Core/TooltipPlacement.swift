@@ -34,6 +34,37 @@ enum TooltipPlacement {
         return min(anchor.maxY + gap, lowest)
     }
 
+    /// Beside the target instead of above or below it (a settings row label, B-2649): a row is
+    /// shorter than its explanation, so above or below always lands on a neighbouring row's text.
+    /// The chip sits to the right of the target, vertically centred on it, at the nearest left edge
+    /// (the target's own right edge, then each obstacle's right edge) and the widest of `widths`
+    /// (descending, chip widths) where its estimated rect touches no obstacle. `obstacles` are
+    /// every other label and control of the card, in the same space as `anchor`. Nil: no slot
+    /// is clear, and the caller falls back to the hug-the-target rule.
+    static func besideSlot(anchor: CGRect, obstacles: [CGRect], bounds: CGSize, gap: CGFloat,
+                           margin: CGFloat, widths: [CGFloat],
+                           height: (CGFloat) -> CGFloat) -> (x: CGFloat, width: CGFloat)? {
+        let mid = CGPoint(x: anchor.midX, y: anchor.midY)
+        let others = obstacles.filter { !$0.contains(mid) }.map { $0.insetBy(dx: -2, dy: -2) }
+        let lefts = ([anchor.maxX] + others.map { $0.maxX }.filter { $0 > anchor.maxX }).sorted()
+        for left in lefts {
+            for width in widths {
+                let h = height(width)
+                let rect = CGRect(x: left + gap, y: besideY(height: h, anchor: anchor, bounds: bounds, margin: margin),
+                                  width: width, height: h)
+                if rect.maxX <= bounds.width - margin, !others.contains(where: { $0.intersects(rect) }) {
+                    return (rect.minX, width)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Centred on the target's own midline, held inside the surface.
+    static func besideY(height: CGFloat, anchor: CGRect, bounds: CGSize, margin: CGFloat) -> CGFloat {
+        min(max(anchor.midY - height / 2, margin), max(margin, bounds.height - height - margin))
+    }
+
     /// What a callout hugs when its target asks for its row (`tallyTooltip(blocks:hugsRow:)`): the
     /// target's own columns, the row's top and bottom pulled in by `gap`, so the chip's edge lands
     /// ON the seam between two rows. A figure in a table row is shorter than the row, and a table's

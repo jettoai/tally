@@ -32,7 +32,7 @@ extension SettingsAccountsView {
             Color.clear.frame(width: t.actions, height: 1)
             Color.clear.frame(width: t.handle, height: 1)
         }
-        .frame(height: 26)
+        .frame(height: 22)
         .padding(.horizontal, t.inset)
     }
 

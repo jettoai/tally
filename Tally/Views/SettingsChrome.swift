@@ -8,11 +8,11 @@ enum SettingsChrome {
     static let sidebarWidth: CGFloat = 220
     /// The pages' rhythm (B-2526, Voice's values): the gap between sections, a section title to its
     /// card, a row's insets and floor, and the identity card's inset.
-    static let sectionGap: CGFloat = 28
+    static let sectionGap: CGFloat = 20
     static let headerToCard: CGFloat = 10
     static let rowInsetH: CGFloat = 20
     static let rowInsetV: CGFloat = 10
-    static let rowMinHeight: CGFloat = 52
+    static let rowMinHeight: CGFloat = 44
     static let heroInset: CGFloat = 20
     /// Where a row's divider starts: under the title column (20 inset + 24 icon + 12 gap), or at the
     /// inset when the row has no icon.
@@ -22,8 +22,8 @@ enum SettingsChrome {
     /// width = sidebar 220 + column, the column being a card plus two insets (the card is 732
     /// wide, `AccountTableStyle`, so the column is 788).
     static let paneInsetH: CGFloat = 28
-    static let paneInsetTop: CGFloat = 30
-    static let paneInsetBottom: CGFloat = 32
+    static let paneInsetTop: CGFloat = 22
+    static let paneInsetBottom: CGFloat = 24
     static var contentWidth: CGFloat { AccountTableStyle.current.cardWidth + 2 * paneInsetH }
     static let sidebar = adaptive(light: 0xEBEBED, dark: 0x28282A)
     static let page = adaptive(light: 0xF3F3F5, dark: 0x1C1C1E)

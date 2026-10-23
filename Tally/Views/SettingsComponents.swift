@@ -201,13 +201,13 @@ struct SettingsRowLabel: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(title).font(.system(size: 15, weight: .medium)).lineLimit(1)
+                    Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1)
                     if let info, !info.isEmpty { SettingsInfoGlyph() }
                 }
                 .tallyTooltipTitle()
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -281,7 +281,7 @@ struct SettingsSubRow<Accessory: View>: View {
         HStack(alignment: .center, spacing: 16) {
             HStack(spacing: 4) {
                 Text(title)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .foregroundStyle(tint ?? Color.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)

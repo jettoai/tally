@@ -220,14 +220,14 @@ struct TallyTooltipTarget: ViewModifier {
                 guard !Task.isCancelled else { return }
                 isShown = true
             }
-            .background(probe)
+            .backgroundPreferenceValue(TallyTooltipTitleKey.self) { probe(title: $0) }
             .accessibilityHint(Text(payload.spoken))
     }
 
     /// Publishes this target's frame while it is showing, and nothing at all otherwise - so the layer
     /// follows whichever target is hovered without the surface having to arbitrate between them.
     @ViewBuilder
-    private var probe: some View {
+    private func probe(title: CGRect?) -> some View {
         if isShown || (forced && !payload.isEmpty) {
             GeometryReader { proxy in
                 let own = proxy.frame(in: .named(TallyTooltip.space))
@@ -236,10 +236,13 @@ struct TallyTooltipTarget: ViewModifier {
                 // target is the one thing known in both, so the difference carries them over.
                 let card = proxy.frame(in: .named(TallyTooltip.cardSpace))
                 let spaceShift = beside ? CGPoint(x: own.minX - card.minX, y: own.minY - card.minY) : .zero
+                // A label's callout hangs on its title line (`tallyTooltipTitle()`), not on the whole label:
+                // its description is often the wider line and would push the chip away from the pointer.
+                let target = beside ? title.map { $0.offsetBy(dx: spaceShift.x, dy: spaceShift.y) } ?? own : own
                 Color.clear.preference(
                     key: TallyTooltipKey.self,
                     value: TallyTooltipItem(content: payload,
-                                            anchor: TooltipPlacement.rowAnchor(target: own, row: row, gap: TallyTooltip.gap),
+                                            anchor: TooltipPlacement.rowAnchor(target: target, row: row, gap: TallyTooltip.gap),
                                             seams: hugsRow ? seams : [],
                                             stretchLimit: row?.height ?? 0,
                                             obstacles: beside ? obstacles.map {
@@ -340,7 +343,7 @@ private struct TallyTooltipCallout: View {
 
     /// Where a beside-the-target callout lands (`TooltipPlacement.besideSlot`), or nil to hug the
     /// target. The height it is tried with is the text measured at that width, a little generous.
-    private var besideSlot: (x: CGFloat, width: CGFloat)? {
+    private var besideSlot: TooltipPlacement.BesideSlot? {
         guard !item.obstacles.isEmpty, case .lines(let lines) = item.content else { return nil }
         let font = NSFont.preferredFont(forTextStyle: .caption1)
         let widest = linesMaxWidth + 2 * Self.insetH
@@ -358,7 +361,7 @@ private struct TallyTooltipCallout: View {
     }
 
     @ViewBuilder
-    private func content(slot: (x: CGFloat, width: CGFloat)?) -> some View {
+    private func content(slot: TooltipPlacement.BesideSlot?) -> some View {
         switch item.content {
         case .lines(let lines):
             // Tight leading between them: the second line qualifies the first rather than following
@@ -467,16 +470,16 @@ private struct TallyTooltipCallout: View {
     /// `nonisolated` because an alignment guide is resolved by the layout engine outside the view's
     /// own actor: both stored properties these read are immutable and `Sendable`, so the geometry is
     /// pure arithmetic on values, not a hop back to the view.
-    private nonisolated func originX(width: CGFloat, slot: (x: CGFloat, width: CGFloat)?) -> CGFloat {
+    private nonisolated func originX(width: CGFloat, slot: TooltipPlacement.BesideSlot?) -> CGFloat {
         if let slot { return slot.x }
         return TooltipPlacement.originX(width: width, anchor: item.anchor, bounds: bounds,
                                  margin: TallyTooltip.margin)
     }
 
-    private nonisolated func originY(height: CGFloat, slot: (x: CGFloat, width: CGFloat)?) -> CGFloat {
-        if slot != nil {
+    private nonisolated func originY(height: CGFloat, slot: TooltipPlacement.BesideSlot?) -> CGFloat {
+        if let slot {
             return TooltipPlacement.besideY(height: height, anchor: item.anchor, bounds: bounds,
-                                            margin: TallyTooltip.margin)
+                                            margin: TallyTooltip.margin, align: slot.align)
         }
         return TooltipPlacement.originY(height: height, anchor: item.anchor, bounds: bounds,
                                  gap: TallyTooltip.gap, margin: TallyTooltip.margin)

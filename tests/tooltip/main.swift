@@ -164,6 +164,20 @@ check("no clear slot gives nil, so the caller hugs the target",
       TooltipPlacement.besideSlot(anchor: label, obstacles: obstacles, bounds: card, gap: gap,
                                   margin: margin, widths: [316], height: { _ in 110 }) == nil)
 
+// The title line is the anchor, the label around it holds the description (B-2649 r4): the hovered
+// row's own description is not an obstacle (the chip may cover it), a neighbouring row's still is.
+let title = CGRect(x: 56, y: 100, width: 140, height: 20)
+let ownLabel = CGRect(x: 56, y: 100, width: 300, height: 44)           // wider description under the title
+let neighbours = [CGRect(x: 56, y: 40, width: 300, height: 44), CGRect(x: 56, y: 150, width: 300, height: 44)]
+let hung = TooltipPlacement.besideSlot(anchor: title, obstacles: [ownLabel] + neighbours, bounds: card, gap: gap,
+                                       margin: margin, widths: [316], height: { _ in 40 })
+check("a long chip hangs one gap right of the title even when its own description is wider",
+      hung?.x == title.maxX + gap && hung?.width == 316)
+let blocked = TooltipPlacement.besideSlot(anchor: title, obstacles: [ownLabel] + neighbours, bounds: card, gap: gap,
+                                          margin: margin, widths: [316], height: { _ in 110 })
+check("a chip too tall for the gap between neighbouring rows' text is pushed past them, never over them",
+      blocked.map { $0.x > neighbours[0].maxX } ?? false)
+
 print(failures == 0 ? "\nAll tooltip placement assertions passed."
                     : "\n\(failures) assertion(s) failed.")
 exit(failures == 0 ? 0 : 1)

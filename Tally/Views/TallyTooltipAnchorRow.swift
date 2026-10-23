@@ -25,6 +25,13 @@ private struct TallyTooltipObstacleKey: PreferenceKey {
     static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
 }
 
+/// The title line of a settings row label, in the card's space (`tallyTooltipTitle()`): what a
+/// beside-the-target callout hangs on, so it lands next to the pointer.
+struct TallyTooltipTitleKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = value ?? nextValue() }
+}
+
 private struct TallyTooltipObstaclesKey: EnvironmentKey {
     static let defaultValue: [CGRect] = []
 }
@@ -74,6 +81,13 @@ extension View {
         background(GeometryReader { proxy in
             Color.clear.preference(key: TallyTooltipObstacleKey.self,
                                    value: [proxy.frame(in: .named(TallyTooltip.cardSpace))])
+        })
+    }
+
+    /// Marks this view as the title line its enclosing label's callout is placed against.
+    func tallyTooltipTitle() -> some View {
+        background(GeometryReader { proxy in
+            Color.clear.preference(key: TallyTooltipTitleKey.self, value: proxy.frame(in: .named(TallyTooltip.cardSpace)))
         })
     }
 

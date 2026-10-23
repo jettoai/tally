@@ -204,6 +204,7 @@ struct SettingsRowLabel: View {
                     Text(title).font(.system(size: 15, weight: .medium)).lineLimit(1)
                     if let info, !info.isEmpty { SettingsInfoGlyph() }
                 }
+                .tallyTooltipTitle()
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.system(size: 13))

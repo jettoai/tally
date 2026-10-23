@@ -235,19 +235,17 @@ struct TallyTooltipTarget: ViewModifier {
                 // The obstacles are measured in the card's space (stable under scrolling); this
                 // target is the one thing known in both, so the difference carries them over.
                 let card = proxy.frame(in: .named(TallyTooltip.cardSpace))
-                let spaceShift = beside ? CGPoint(x: own.minX - card.minX, y: own.minY - card.minY) : .zero
+                let toSurface = { (rect: CGRect) in rect.offsetBy(dx: own.minX - card.minX, dy: own.minY - card.minY) }
                 // A label's callout hangs on its title line (`tallyTooltipTitle()`), not on the whole label:
                 // its description is often the wider line and would push the chip away from the pointer.
-                let target = beside ? title.map { $0.offsetBy(dx: spaceShift.x, dy: spaceShift.y) } ?? own : own
+                let target = beside ? (title.map(toSurface) ?? own) : own
                 Color.clear.preference(
                     key: TallyTooltipKey.self,
                     value: TallyTooltipItem(content: payload,
                                             anchor: TooltipPlacement.rowAnchor(target: target, row: row, gap: TallyTooltip.gap),
                                             seams: hugsRow ? seams : [],
                                             stretchLimit: row?.height ?? 0,
-                                            obstacles: beside ? obstacles.map {
-                                                $0.offsetBy(dx: spaceShift.x, dy: spaceShift.y)
-                                            } : []))
+                                            obstacles: beside ? obstacles.map(toSurface) : []))
             }
         }
     }

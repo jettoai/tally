@@ -53,16 +53,21 @@ extension TallyTooltip {
     /// `-TallyTooltipPreview "row:Start with"`: the settings row of that title, for capturing every
     /// row's callout without a named target each (B-2649). Duplicate titles race for the one slot.
     static func previewRowForced(title: String) -> Bool {
-        guard DemoUsage.isActive || BuildVariant.isDev else { return false }
-        return UserDefaults.standard.string(forKey: "TallyTooltipPreview")?.lowercased() == "row:" + title.lowercased()
+        guard let raw = previewFlag else { return false }
+        return raw == "row:" + title.lowercased()
     }
 
     static func previewForced(_ target: PreviewTarget) -> Bool {
-        guard DemoUsage.isActive || BuildVariant.isDev else { return false }
-        let raw = (UserDefaults.standard.string(forKey: "TallyTooltipPreview") ?? "").lowercased()
+        guard let raw = previewFlag else { return false }
         // `YES` predates the flag naming a target, and meant the fleet gauge - the only forcible
         // callout there was then. Kept working so an older capture command still captures.
         if target == .fleet, ["yes", "true", "1"].contains(raw) { return true }
         return raw == target.rawValue
+    }
+
+    /// The flag's value, lowercased; nil outside demo and dev builds, so a shipped build never holds one open.
+    private static var previewFlag: String? {
+        guard DemoUsage.isActive || BuildVariant.isDev else { return nil }
+        return (UserDefaults.standard.string(forKey: "TallyTooltipPreview") ?? "").lowercased()
     }
 }

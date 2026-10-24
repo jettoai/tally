@@ -37,14 +37,13 @@ extension PopoverRootView {
                     HStack(alignment: .top, spacing: Self.trayGap) {
                         ForEach(split, id: \.id) { summary in
                             VStack(alignment: .leading, spacing: 6) {
-                                let planHeader = HStack(spacing: 5) {
-                                    (Text(summary.planTier?.name ?? L("Unknown plan")).foregroundStyle(Color.secondary)
-                                     + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
-                                        .font(.caption).lineLimit(1).fixedSize()
-                                    if !stacked { trayPool(summary) }
-                                }
                                 VStack(alignment: .leading, spacing: 3) {
-                                    planHeader
+                                    HStack(spacing: 5) {
+                                        (Text(summary.planTier?.name ?? L("Unknown plan")).foregroundStyle(Color.secondary)
+                                         + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
+                                            .font(.caption).lineLimit(1).fixedSize()
+                                        if !stacked { trayPool(summary) }
+                                    }
                                     if stacked { trayPool(summary, showsRefill: false) }
                                 }
                                 trayGrid(group.items.filter { $0.planName == summary.planTier?.name },
@@ -95,7 +94,7 @@ extension PopoverRootView {
     private func trayPool(_ summary: FleetSummary, showsRefill: Bool = true) -> some View {
         if let pool = displayedPools(summary).first {
             let remaining = pool.averageRemaining
-            let tint = LayoutTint.fill(MetricSeverity.fromUsedPercent(100 - remaining), calmWhenHealthy: false)
+            let tint = MetricSeverity.fromUsedPercent(100 - remaining).color
             HStack(spacing: 5) {
                 ZStack(alignment: .leading) {
                     Capsule().fill(LayoutTint.track)

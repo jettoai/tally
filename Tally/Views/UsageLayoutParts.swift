@@ -46,6 +46,15 @@ struct LayoutWindows {
     var all: [(name: String, metric: UsageMetric?)] {
         zip(Self.names, [session, weekly, flagship]).map { (name: $0, metric: $1) }
     }
+
+    /// The windows the plan reports, in the same order.
+    var present: [(name: String, metric: UsageMetric?)] { all.filter { $0.metric != nil } }
+
+    /// Whether `metric` is the account's binding window. A missing window never is, even when the
+    /// account has no binding window either (two nil ids are not a match).
+    static func isBinding(_ metric: UsageMetric?, _ binding: UsageMetric?) -> Bool {
+        metric != nil && metric?.id == binding?.id
+    }
 }
 
 /// One window as a bar showing what is LEFT. 0% keeps a 1pt line of its colour and no data draws a
@@ -100,7 +109,7 @@ struct LayoutMicroBars: View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(Array(windows.all.enumerated()), id: \.offset) { _, window in
                 LayoutBar(metric: window.metric, axis: .vertical, length: 18, thickness: 4,
-                          isBinding: window.metric != nil && window.metric?.id == binding?.id)
+                          isBinding: LayoutWindows.isBinding(window.metric, binding))
             }
         }
     }

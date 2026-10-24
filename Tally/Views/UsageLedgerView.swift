@@ -62,7 +62,7 @@ extension PopoverRootView {
             .contentShape(Rectangle())
             .onTapGesture { if foldable { settings.toggleCollapsed(providerID) } }
             if !group.isFolded {
-                if group.items.contains(where: { LayoutWindows($0).all.filter { $0.metric != nil }.count > 1 }) {
+                if group.items.contains(where: { LayoutWindows($0).present.count > 1 }) {
                     ledgerColumnNames
                 }
                 ForEach(Array(plans.enumerated()), id: \.offset) { _, plan in
@@ -158,19 +158,19 @@ struct LedgerAccountRow: View {
         let facts = AccountFacts(usage: usage, settings: settings)
         let windows = LayoutWindows(usage)
         let binding = facts.bindingWindow
-        let present = windows.all.filter { $0.metric != nil }
+        let present = windows.present
         HStack(spacing: LedgerMetrics.gap) {
             Text(facts.label).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
                 .frame(width: LedgerMetrics.nameWidth, alignment: .leading)
                 .tallyTooltip(facts.markOwner, detail: facts.identityDetail)
             if present.count == 1, let only = present.first?.metric {
                 LayoutBar(metric: only, length: LedgerMetrics.spanWidth, thickness: LedgerMetrics.barHeight,
-                          isBinding: only.id == binding?.id, calmWhenHealthy: true)
+                          isBinding: LayoutWindows.isBinding(only, binding), calmWhenHealthy: true)
             } else {
                 ForEach(Array(windows.all.enumerated()), id: \.offset) { _, window in
                     LayoutBar(metric: window.metric, length: LedgerMetrics.barWidth,
                               thickness: LedgerMetrics.barHeight,
-                              isBinding: window.metric != nil && window.metric?.id == binding?.id,
+                              isBinding: LayoutWindows.isBinding(window.metric, binding),
                               calmWhenHealthy: true)
                 }
             }

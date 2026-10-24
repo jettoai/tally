@@ -52,7 +52,7 @@ struct SettingsIdentityCard<Mark: View, Backdrop: View, Footer: View>: View {
                     }
                     TallyBatonView(segments: 3, carrying: 1, width: 40, thickness: 4)
                     HStack(spacing: 6) {
-                        Text("by").font(.subheadline).foregroundStyle(.secondary)
+                        Text(L("by")).font(.subheadline).foregroundStyle(.secondary)
                         ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                             .fill(Color.secondary, style: FillStyle(eoFill: true))
                             .frame(width: 44, height: 10)

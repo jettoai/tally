@@ -402,7 +402,7 @@ extension PopoverRootView {
     /// above measures.
     private func counterSlot(_ counter: String?, _ form: CountdownForm) -> some View {
         ZStack(alignment: .trailing) {
-            ForEach(form == .full ? UsageFormat.updatesInTemplates : ["59m"], id: \.self) {
+            ForEach(form == .full ? UsageFormat.updatesInTemplates : UsageFormat.updatesInFigureTemplates, id: \.self) {
                 Text($0).hidden()
             }
             if let counter { Text(counter) }

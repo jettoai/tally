@@ -94,7 +94,7 @@ extension PopoverRootView {
     /// the credit fits is once again about the credit alone.
     private var jettoCredit: some View {
         HStack(spacing: 4) {
-            Text("by").font(.caption2).foregroundStyle(.tertiary)
+            Text(L("by")).font(.caption2).foregroundStyle(.tertiary)
             ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                 .fill(Color.secondary, style: FillStyle(eoFill: true))
                 .frame(width: 40, height: 9)

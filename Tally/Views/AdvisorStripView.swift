@@ -315,8 +315,8 @@ extension PopoverRootView {
             rows.append(TallyTooltipRow("\(tierName(tier)) ×\(tier.accountCount)",
                                         String(localized: "\(figure) acct/wk", bundle: AppLocale.bundle)))
         }
-        let starved = String(format: "%.1fh", reading.starvedHoursPerWeek)
-        rows.append(TallyTooltipRow(L("Active burn"), "\(Int(reading.activeBurnPerHour.rounded()))%/h"))
+        let starved = UsageFormat.hoursBody(reading.starvedHoursPerWeek)
+        rows.append(TallyTooltipRow(L("Active burn"), UsageFormat.percentPerHour(reading.activeBurnPerHour)))
         rows.append(TallyTooltipRow(L("Starved"), String(localized: "\(starved)/wk", bundle: AppLocale.bundle)))
         // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
         // last month's average?), so every rung sits in one column.

@@ -206,12 +206,12 @@ extension SessionCardView {
     /// "how long has this been true", and past a day the answer is "a long time".
     func sessionAge(_ since: Date, now: Date = Date()) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(since)))
-        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 60 { return String(localized: "\(seconds)s", bundle: AppLocale.bundle) }
         let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes)m" }
+        if minutes < 60 { return String(localized: "\(minutes)m", bundle: AppLocale.bundle) }
         let hours = minutes / 60
-        if hours < 24 { return "\(hours)h \(minutes % 60)m" }
-        return "\(hours / 24)d"
+        if hours < 24 { return String(localized: "\(hours)h \(minutes % 60)m", bundle: AppLocale.bundle) }
+        return String(localized: "\(hours / 24)d", bundle: AppLocale.bundle)
     }
 
     /// What a blocked session is waiting for. ONLY while it is blocked: `reason` is what Claude Code

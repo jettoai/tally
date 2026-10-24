@@ -12,6 +12,7 @@ options:
     - zh-Hans
     - ja
     - ko
+    - tr
 
 packages:
   # In-app auto-updates (appcast + EdDSA-signed downloads). Pinned exactly because the generated

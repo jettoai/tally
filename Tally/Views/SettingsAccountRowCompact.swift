@@ -41,7 +41,7 @@ extension SettingsAccountsView {
             .font(.system(size: t.secondary, weight: .medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            .fixedSize()
+            .minimumScaleFactor(0.65)
             .tallyTooltip(hover ?? "")
     }
 

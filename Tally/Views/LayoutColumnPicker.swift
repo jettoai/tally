@@ -55,6 +55,7 @@ struct LayoutColumnPicker: View {
                     .font(roomy ? .system(size: 12, weight: isSelected ? .semibold : .regular).monospacedDigit()
                                 : .caption2)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .foregroundStyle(isSelected ? (roomy ? Color.primary : Color.accentColor) : Color.secondary)
             .frame(width: roomy ? 48 : 42)

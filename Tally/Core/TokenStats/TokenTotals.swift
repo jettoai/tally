@@ -80,13 +80,12 @@ enum TokenStatsRange: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Segmented-control label. The numeric ones are verbatim (a "7D" needs no translation and a
-    /// translated one would break the control's even column widths).
+    /// Compact segmented-control label, including the localized day abbreviation.
     var label: String {
         switch self {
         case .today: return L("Today")
-        case .sevenDays: return "7D"
-        case .thirtyDays: return "30D"
+        case .sevenDays: return L("7D")
+        case .thirtyDays: return L("30D")
         case .all: return L("All")
         }
     }

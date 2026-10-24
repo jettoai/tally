@@ -148,6 +148,8 @@ struct TokenStatsView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.trailing, 4)
             Text(UsageFormat.compactCount(value))
                 .font(.callout.weight(.medium))
                 .monospacedDigit()

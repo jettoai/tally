@@ -49,9 +49,17 @@ enum UsageFormat {
         let days = Int(seconds) / 86_400
         let hours = (Int(seconds) % 86_400) / 3_600
         let minutes = (Int(seconds) % 3_600) / 60
-        if days > 0 { return hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
-        if hours > 0 { return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h" }
-        return "\(max(1, minutes))m"
+        if days > 0 {
+            return hours > 0
+                ? String(localized: "\(days)d \(hours)h", bundle: AppLocale.bundle)
+                : String(localized: "\(days)d", bundle: AppLocale.bundle)
+        }
+        if hours > 0 {
+            return minutes > 0
+                ? String(localized: "\(hours)h \(minutes)m", bundle: AppLocale.bundle)
+                : String(localized: "\(hours)h", bundle: AppLocale.bundle)
+        }
+        return String(localized: "\(max(1, minutes))m", bundle: AppLocale.bundle)
     }
 
     /// Compact countdown to a reset instant, e.g. "resets in 4d 17h" / "resets in 42m".
@@ -71,14 +79,27 @@ enum UsageFormat {
         return f
     }()
 
+    // Keep the existing compact date for other languages, but avoid the ambiguous
+    // month/day order in Turkish. Selected at read time so live language changes work.
+    private static let turkishResetFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "tr_TR")
+        f.dateFormat = "dd.MM HH:mm"
+        return f
+    }()
+
     /// Exact reset instant, e.g. "resets at 07/18 21:36" (local time, fixed MM/dd HH:mm).
     static func resetAbsolute(_ date: Date?) -> String? {
         guard let date else { return nil }
-        return String(localized: "resets at \(resetFormatter.string(from: date))", bundle: AppLocale.bundle)
+        return String(localized: "resets at \(absoluteBody(date))", bundle: AppLocale.bundle)
     }
 
     /// Bare "07/18 21:36" (local time) - for labels that carry their own verb (the fleet refill).
-    static func absoluteBody(_ date: Date) -> String { resetFormatter.string(from: date) }
+    static func absoluteBody(_ date: Date) -> String {
+        let formatter = AppLocale.current.language.languageCode?.identifier == "tr"
+            ? turkishResetFormatter : resetFormatter
+        return formatter.string(from: date)
+    }
 
     /// The hover form of a reset: how long, then when. "resets in 1d 4h · 10/03 17:59". The
     /// countdown is what every reset label shows; the hover adds the clock beside it.
@@ -105,8 +126,21 @@ enum UsageFormat {
     /// (hidden templates) so the per-second string changes never push neighboring views around.
     /// Localized, so the reservation is right in every UI language.
     static var updatesInTemplates: [String] {
-        [String(localized: "refreshes in \("59m")", bundle: AppLocale.bundle),
+        [String(localized: "refreshes in \(durationBody(59 * 60))", bundle: AppLocale.bundle),
          L("refreshing…")]
+    }
+
+    /// Reserve both compact units, not a hardcoded English minute abbreviation.
+    static var updatesInFigureTemplates: [String] { [figure(59), figure(59 * 60)] }
+
+    /// Fractional hours in the advisor's weekly summary, with the app's decimal separator.
+    static func hoursBody(_ hours: Double) -> String {
+        let number = hours.formatted(.number.precision(.fractionLength(1)).locale(AppLocale.current))
+        return String(localized: "\(number)h", bundle: AppLocale.bundle)
+    }
+
+    static func percentPerHour(_ rate: Double) -> String {
+        String(localized: "\(Int(rate.rounded()))%/h", bundle: AppLocale.bundle)
     }
 
     /// Countdown to the next scheduled poll, e.g. "refreshes in 42s". Once the deadline passes the
@@ -130,6 +164,8 @@ enum UsageFormat {
     }
 
     private static func figure(_ seconds: Int) -> String {
-        seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
+        seconds < 60
+            ? String(localized: "\(seconds)s", bundle: AppLocale.bundle)
+            : String(localized: "\(seconds / 60)m", bundle: AppLocale.bundle)
     }
 }

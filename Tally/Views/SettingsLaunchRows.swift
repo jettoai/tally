@@ -28,8 +28,8 @@ extension SettingsLaunchView {
                 get: { launchPolicy.policy(providerID).startMode ?? "new" },
                 set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
             )) {
-                Text(verbatim: "new").tag("new")
-                Text(verbatim: "continue").tag("continue")
+                Text(L("new")).tag("new")
+                Text(L("continue")).tag("continue")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -155,7 +155,7 @@ struct ModelEffortRow: View {
             VStack(alignment: .trailing, spacing: 6) {
                 HStack(spacing: 6) { mainLine }
                 if selection == "custom" {
-                    TextField("Custom" as String, text: Binding(
+                    TextField(L("Custom…"), text: Binding(
                         get: { model ?? "" },
                         set: { model = $0.isEmpty ? nil : $0 }
                     ))
@@ -178,10 +178,10 @@ struct ModelEffortRow: View {
                 }
             }
         )) {
-            Text(verbatim: "Default").tag("")
+            Text(L("Default")).tag("")
             ForEach(modelOptions, id: \.self) { Text(verbatim: $0).tag($0) }
             Divider()
-            Text(verbatim: "Custom…").tag("custom")
+            Text(L("Custom…")).tag("custom")
         }
         .labelsHidden()
         .fixedSize()
@@ -189,8 +189,8 @@ struct ModelEffortRow: View {
             get: { effort ?? "" },
             set: { effort = $0.isEmpty ? nil : $0 }
         )) {
-            Text(verbatim: "Default").tag("")
-            ForEach(effortLevels, id: \.self) { Text(verbatim: $0).tag($0) }
+            Text(L("Default")).tag("")
+            ForEach(effortLevels, id: \.self) { Text(L($0)).tag($0) }
         }
         .labelsHidden()
         .fixedSize()
@@ -198,10 +198,10 @@ struct ModelEffortRow: View {
 }
 
 extension LaunchPolicyStore.PermissionMode {
-    /// What the picker and the panel chip show. Full access is the one step with a translation (the
-    /// others are the CLIs' own words); the store's table stays free of the app's string catalog so
-    /// the launcher and its tests can compile it alone.
+    /// What the picker and the panel chip show: the store's English label run through the string
+    /// catalog (Full access has its own wording); the store's table stays free of the app's string
+    /// catalog so the launcher and its tests can compile it alone.
     func displayName(_ providerID: String) -> String {
-        self == .bypass ? L("Full access") : label(providerID)
+        self == .bypass ? L("Full access") : L(label(providerID))
     }
 }

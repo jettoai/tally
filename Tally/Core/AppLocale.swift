@@ -9,7 +9,7 @@ enum AppLocale {
     static let overrideKey = "appLanguage"
 
     /// The language codes Tally ships translations for (must match project.yml `localizations:`).
-    static let supported = ["en", "zh-Hant", "zh-Hans", "ja", "ko"]
+    static let supported = ["en", "zh-Hant", "zh-Hans", "ja", "ko", "tr"]
 
     /// The user's explicit override, or `nil` to follow the system.
     static var override: String? {

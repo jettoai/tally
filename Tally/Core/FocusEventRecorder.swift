@@ -31,10 +31,15 @@ final class FocusEventRecorder {
         }
     }
 
+    /// Serial, so events land in the order they were taken. The read-merge-write runs here and not
+    /// on the main thread: a busy disk once stalled the main thread for 2+ seconds in the file
+    /// create (TALLY-1M).
+    private static let writeQueue = DispatchQueue(label: "ai.jetto.tally.focus-events", qos: .utility)
+
     /// The time is taken before anything else so the file write cannot age it.
     func record(now: Date = Date()) {
         if let last, now.timeIntervalSince(last) < Self.dedupe { return }
         last = now
-        try? appendFocusEvent(now)
+        Self.writeQueue.async { try? appendFocusEvent(now) }
     }
 }

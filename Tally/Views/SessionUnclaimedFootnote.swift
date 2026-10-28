@@ -214,12 +214,16 @@ extension SessionUnclaimedFootnote {
 
     /// WHICH SESSION AND AGENT A LEFTOVER CAME FROM, as the line under its row: the session's name
     /// (the repository and its parallel line) and, in brackets, the account and model serving it,
-    /// spelled as the session's own card spells them. Nothing at all when the entry names no
-    /// session or the board no longer holds it: a leftover whose owner cannot be read is not
-    /// guessed at.
+    /// spelled as the session's own card spells them. When the entry names no session or the board
+    /// no longer holds it, the line says so rather than going missing: a blank under a row reads as
+    /// "not looked at", and the owner is not guessed at either (B-3185).
     static func attributionRow(_ session: pid_t?) -> [TallyTooltipRow] {
+        [TallyTooltipRow(attribution(session), "", tailTruncated: true, style: .sub)]
+    }
+
+    static func attribution(_ session: pid_t?) -> String {
         guard let session, let row = SessionRosterStore.shared.rows.first(where: { $0.id == String(session) })
-        else { return [] }
+        else { return L("Unknown owner (session ended)") }
         let account = row.accountName { id in
             UsageStore.shared.orderedAccounts.first { $0.id == id }
                 .map { SettingsStore.shared.displayLabel(accountID: id, fallback: $0.accountLabel) }
@@ -227,7 +231,7 @@ extension SessionUnclaimedFootnote {
         let agent = [account, row.model].compactMap { $0 }.joined(separator: " · ")
         let name = row.title
         let line = agent.isEmpty ? name : name.isEmpty ? agent : "\(name) (\(agent))"
-        return line.isEmpty ? [] : [TallyTooltipRow(line, "", tailTruncated: true, style: .sub)]
+        return line.isEmpty ? L("Unknown owner (session ended)") : line
     }
 
     /// THE WHOLE READING AS A CALLOUT, which is what the mark on a session card answers a hover

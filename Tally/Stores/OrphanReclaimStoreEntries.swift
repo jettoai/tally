@@ -62,12 +62,17 @@ extension OrphanReclaimStore {
                   doubts: [], session: session(0)),
             Watch(project: project, program: "next-server", pid: 90_102, cpuPercent: 41,
                   memoryBytes: 620_000_000, doubts: [], session: session(1)),
+            // No session on the board answers for this one: the callout says so (B-3185).
+            Watch(project: project, program: "webpack", pid: 90_105, cpuPercent: 17,
+                  memoryBytes: 410_000_000, doubts: [], session: nil),
         ]
         let records = [
             Record(at: now, project: project, program: "vite", pid: 90_103, processes: 3,
                    outcome: .reclaimedBySustained, session: session(2)),
             Record(at: now.addingTimeInterval(-90), project: project, program: "storybook", pid: 90_104,
                    processes: 2, outcome: .reported(doubts: []), session: session(1)),
+            Record(at: now.addingTimeInterval(-300), project: project, program: "esbuild", pid: 90_106,
+                   processes: 1, outcome: .reclaimedByLease, session: nil),
         ]
         return (watches, records)
     }

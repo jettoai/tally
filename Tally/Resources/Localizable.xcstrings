@@ -11904,6 +11904,41 @@
         }
       }
     },
+    "Unknown owner (session ended)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歸屬不明（session 已結束）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归属不明（session 已结束）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者不明（セッション終了）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소유자 불명 (세션 종료됨)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sahibi bilinmiyor (oturum sona erdi)"
+          }
+        }
+      }
+    },
     "Unknown plan": {
       "extractionState": "manual",
       "localizations": {

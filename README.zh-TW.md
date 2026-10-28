@@ -78,6 +78,18 @@ Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 
 
 ## 安裝
 
+把這段話貼給你的 AI，它會自己裝好 Tally 並跑出結果：
+
+```text
+下載 https://github.com/jettoai/tally/releases/latest/download/Tally.dmg，
+把裡面的 Tally.app 複製到 /Applications 並啟動。接著用
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
+把內附的 CLI 連到我的 PATH，執行 `tally`，把結果給我看。
+若某一步需要我的密碼，先停下來告訴我該執行哪個指令。
+```
+
+或自己安裝：
+
 ```sh
 curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
 ```

@@ -78,6 +78,18 @@ Usage is read through the providers' own official CLIs (`claude -p "/usage"` and
 
 ## Install
 
+Paste this to your AI agent. It installs Tally and shows you the result:
+
+```text
+Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
+copy Tally.app from it into /Applications and launch it. Then link the bundled
+CLI onto my PATH with `ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`,
+run `tally` and show me the result. If a step needs my password, stop and tell
+me which command to run.
+```
+
+Or install it yourself:
+
 ```sh
 curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
 ```

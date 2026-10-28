@@ -82,10 +82,13 @@ Paste this to your AI agent. It installs Tally and shows you the result:
 
 ```text
 Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
-copy Tally.app from it into /Applications and launch it. Then link the bundled
-CLI onto my PATH with `ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`,
-run `tally` and show me the result. If a step needs my password, stop and tell
-me which command to run.
+copy Tally.app from it into /Applications and launch it. If macOS blocks the
+app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
+it is missing and link the bundled CLI onto my PATH with
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
+Wait about 10 seconds, run `tally` and show me the result. If it shows no
+accounts, tell me to sign in to Claude or Codex first. If a step needs my
+password, stop and tell me which command to run.
 ```
 
 Or install it yourself:

@@ -82,9 +82,11 @@ Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 
 
 ```text
 下載 https://github.com/jettoai/tally/releases/latest/download/Tally.dmg，
-把裡面的 Tally.app 複製到 /Applications 並啟動。接著用
+把裡面的 Tally.app 複製到 /Applications 並啟動。若 macOS 擋下這個 app，
+先停下來告訴我從 Finder 開一次。接著若 /usr/local/bin 不存在就先建立，再用
 `ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
-把內附的 CLI 連到我的 PATH，執行 `tally`，把結果給我看。
+把內附的 CLI 連到我的 PATH。等約 10 秒後執行 `tally`，把結果給我看。
+若它顯示沒有任何帳號，告訴我先登入 Claude 或 Codex。
 若某一步需要我的密碼，先停下來告訴我該執行哪個指令。
 ```
 

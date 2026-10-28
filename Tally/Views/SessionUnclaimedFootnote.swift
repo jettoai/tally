@@ -212,6 +212,24 @@ extension SessionUnclaimedFootnote {
         }
     }
 
+    /// WHICH SESSION AND AGENT A LEFTOVER CAME FROM, as the line under its row: the session's name
+    /// (the repository and its parallel line) and, in brackets, the account and model serving it,
+    /// spelled as the session's own card spells them. Nothing at all when the entry names no
+    /// session or the board no longer holds it: a leftover whose owner cannot be read is not
+    /// guessed at.
+    static func attributionRow(_ session: pid_t?) -> [TallyTooltipRow] {
+        guard let session, let row = SessionRosterStore.shared.rows.first(where: { $0.id == String(session) })
+        else { return [] }
+        let account = row.accountName { id in
+            UsageStore.shared.orderedAccounts.first { $0.id == id }
+                .map { SettingsStore.shared.displayLabel(accountID: id, fallback: $0.accountLabel) }
+        }
+        let agent = [account, row.model].compactMap { $0 }.joined(separator: " · ")
+        let name = row.title
+        let line = agent.isEmpty ? name : name.isEmpty ? agent : "\(name) (\(agent))"
+        return line.isEmpty ? [] : [TallyTooltipRow(line, "", tailTruncated: true, style: .sub)]
+    }
+
     /// THE WHOLE READING AS A CALLOUT, which is what the mark on a session card answers a hover
     /// with (`SessionLeftoversMark`) and what a listener is told in place of it.
     ///
@@ -238,15 +256,17 @@ extension SessionUnclaimedFootnote {
         let watched = watching(in: project.root)
         if !watched.isEmpty {
             blocks.append(TallyTooltipBlock(title: L("Watching"),
-                                            rows: watched.map {
-                                                TallyTooltipRow($0.program, spent($0))
+                                            rows: watched.flatMap {
+                                                [TallyTooltipRow($0.program, spent($0))]
+                                                    + attributionRow($0.session)
                                             }))
         }
         let done = records(in: project.root)
         if !done.isEmpty {
             blocks.append(TallyTooltipBlock(title: L("Handled"),
-                                            rows: done.map {
-                                                TallyTooltipRow($0.program, outcome($0))
+                                            rows: done.flatMap {
+                                                [TallyTooltipRow($0.program, outcome($0))]
+                                                    + attributionRow($0.session)
                                             }))
         }
         return .blocks(blocks)

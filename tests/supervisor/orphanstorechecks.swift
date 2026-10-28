@@ -60,6 +60,8 @@ final class FakeMachine {
     /// which is every path in every other fixture here; the one that needs this is the checkout
     /// whose two spellings have to disagree (`resolve`).
     var resolvedPaths: [String: String] = [:]
+    /// Each pid's inherited `TALLY_SUPERVISOR_PID`; absent means the environment was unreadable.
+    var markers: [pid_t: pid_t] = [:]
 
     func store(home: URL = URL(fileURLWithPath: "/Users/x")) -> OrphanReclaimStore {
         OrphanReclaimStore(machine: OrphanReclaimStore.Machine(
@@ -110,7 +112,8 @@ final class FakeMachine {
                     recipients.append(letter.recipient)
                 }
             },
-            home: home))
+            home: home,
+            marker: { [self] pid in MainActor.assumeIsolated { markers[pid] } }))
     }
 }
 
@@ -416,6 +419,28 @@ func runOrphanStoreChecks() {
                    at: round2.addingTimeInterval(OrphanReclaim.roundInterval))
     check("…and not said a second time the same day",
           doubted.delivered.count == 1 && eighth.records.count == 1)
+
+    // MARK: which session a leftover came from (B-3185): named only when the marker names a board session
+    for (label, markers, board, expected) in [
+        ("a marker naming a live session", [root: pid_t(4242)], Set<pid_t>([4242]), pid_t?.some(4242)),
+        ("a marker naming a session no longer on the board", [root: 4242], Set<pid_t>([77]), nil),
+        ("an environment that could not be read", [:], Set<pid_t>([4242]), nil)] {
+        let owned = FakeMachine()
+        busyServer(owned)
+        owned.programs = [root: "/usr/local/bin/mystery", worker: "/usr/local/bin/mystery"]
+        owned.markers = markers
+        owned.times = [root: 100, worker: 0]
+        let attributed = owned.store()
+        attributed.observe(strays: [root: web, worker: web], processes: owned.table,
+                           sessions: OrphanReclaim.Sessions(), at: t0, supervisors: board)
+        owned.times = [root: 400, worker: 0]
+        attributed.observe(strays: [root: web, worker: web], processes: owned.table,
+                           sessions: OrphanReclaim.Sessions(), at: round2, supervisors: board)
+        check("\(label): the watch is attributed to \(String(describing: expected))",
+              attributed.watching.first?.session == expected)
+        check("…and so is the record of it",
+              attributed.records.first?.session == expected && attributed.records.count == 1)
+    }
 
     // MARK: 🔴 a descriptor table the machine would not read (codex review, 2026-09-02)
 

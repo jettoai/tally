@@ -32,28 +32,6 @@ final class OrphanReclaimStore {
     /// reclaim itself.
     private(set) var watching: [Watch] = []
 
-    /// One thing that happened.
-    struct Record: Equatable, Identifiable {
-        var at: Date
-        var project: String
-        var program: String
-        var pid: pid_t
-        var processes: Int
-        var outcome: OrphanNotice.Outcome
-        var id: String { "\(pid)-\(at.timeIntervalSince1970)" }
-    }
-
-    /// One tree under consideration.
-    struct Watch: Equatable, Identifiable {
-        var project: String
-        var program: String
-        var pid: pid_t
-        var cpuPercent: Double?
-        var memoryBytes: UInt64
-        var doubts: [OrphanReclaim.Veto]
-        var id: pid_t { pid }
-    }
-
     /// How many records are kept. A menu bar panel is not a log; what a reader wants is "did
     /// something happen recently", and the inbox messages are the durable record.
     static let keptRecords = 12
@@ -78,6 +56,9 @@ final class OrphanReclaimStore {
         /// on a background queue, so its result is not available here.
         var deliver: @Sendable (OrphanNotice.Letter, URL, String) -> Void
         var home: URL
+        /// The supervisor pid a process's inherited `TALLY_SUPERVISOR_PID` names; nil when unset or
+        /// unreadable. The default answers nothing, so a harness never reads a real environment.
+        var marker: @Sendable (pid_t) -> pid_t? = { _ in nil }
 
         static let real = Machine(
             program: { ProcessTree.executablePath(of: $0) },
@@ -96,7 +77,8 @@ final class OrphanReclaimStore {
                     OrphanNotice.send(letter, to: inbox, named: name, home: home)
                 }
             },
-            home: FileManager.default.homeDirectoryForCurrentUser)
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            marker: { processEnvironmentValue(ofProcess: Int($0), key: hostHealthSupervisorEnvKey).flatMap { Int32($0) } })
     }
 
     // THE FOUR BELOW ARE NOT `private` BECAUSE THE KILL IS NEXT DOOR. When this file passed the
@@ -120,6 +102,8 @@ final class OrphanReclaimStore {
     private var lastRound: Date?
     /// Kills in flight.
     var sweeps: [Sweep] = []
+    /// The live session each tree was attributed to, by root pid (`attribute`).
+    var owners: [pid_t: pid_t] = [:]
     /// The timer that watches them, which exists only while they do (`watch`).
     @ObservationIgnored var sweep: Timer?
 
@@ -139,9 +123,11 @@ final class OrphanReclaimStore {
     ///     could not place a row leaves the whole round in doubt (`Veto.sessionUnknown`).
     ///   - leases: the leases, when the caller already read them off the main thread for this round
     ///     (`leaseReaderIfDue`); nil reads them here.
+    ///   - supervisors: the supervisor pids of the sessions on the board, which a leftover is
+    ///     attributed to when its inherited marker names one of them.
     func observe(strays: [pid_t: String], processes: [ProcessIdentity],
                  sessions: OrphanReclaim.Sessions, at now: Date,
-                 leases prefetched: [OrphanLease]? = nil) {
+                 leases prefetched: [OrphanLease]? = nil, supervisors: Set<pid_t> = []) {
         expireSuccessfulRecords(at: now)
         advance(at: now)
         // A CAPTURE MUST NEVER REACH THIS. The demo flag fabricates the board's readings
@@ -156,7 +142,7 @@ final class OrphanReclaimStore {
         var acted = fromLeases.claimed
         acted.formUnion(sweeps.flatMap(\.targets))
         round(strays: strays.filter { !acted.contains($0.key) }, processes: processes,
-              table: table, sessions: sessions, leased: fromLeases.tended, at: now)
+              table: table, sessions: sessions, leased: fromLeases.tended, supervisors: supervisors, at: now)
     }
 
     /// Whether `observe` at this instant takes a round. A CAPTURE NEVER DOES (`DemoUsage`).
@@ -246,7 +232,7 @@ final class OrphanReclaimStore {
     /// only the evidence-based tier that has to defer to somebody being here.
     private func round(strays: [pid_t: String], processes: [ProcessIdentity],
                        table: [pid_t: ProcessIdentity], sessions: OrphanReclaim.Sessions,
-                       leased: Set<pid_t>, at now: Date) {
+                       leased: Set<pid_t>, supervisors: Set<pid_t>, at now: Date) {
         let parents = table.mapValues(\.parent)
         // THE CHECKOUTS SOMEBODY IS WORKING IN, folded to their repositories once for the round
         // rather than once per tree: the fold is a walk of the filesystem, and the answer is the
@@ -267,6 +253,7 @@ final class OrphanReclaimStore {
             let reading = read(tree, identities: table, parents: parents, occupied: occupied,
                                leased: leased, at: now)
             seen.insert(tree.root)
+            let session = attribute(tree.root, parents: parents, supervisors: supervisors)
             let decided = OrphanReclaim.verdict(for: reading, previous: sightings[tree.root])
             sightings[tree.root] = decided.keep
             switch decided.verdict {
@@ -274,13 +261,13 @@ final class OrphanReclaimStore {
                 begin(kill: tree, table: table, reason: .sustained, lease: nil,
                       ports: reading.listeningPorts, at: now)
             case .notify:
-                watches.append(watch(reading))
+                watches.append(watch(reading, session: session))
                 report(reading, at: now)
             case .wait:
                 // Worth showing only once it is a candidate rather than merely old: a first
                 // sighting of something heavy is exactly what a reader wants warning of.
                 if reading.age >= OrphanReclaim.minimumAge, OrphanReclaim.heavy(reading) {
-                    watches.append(watch(reading))
+                    watches.append(watch(reading, session: session))
                 }
             case .leave:
                 break
@@ -291,6 +278,7 @@ final class OrphanReclaimStore {
         // sighting already refuses it; this keeps the dictionaries from growing all day).
         sightings = sightings.filter { seen.contains($0.key) }
         counters = counters.filter { seen.contains($0.key) }
+        pruneOwners(seen: seen)
         // 🔴 AND `told` IS SWEPT BY IDENTITY RATHER THAN BY MEMBERSHIP OF THIS ROUND'S STRAYS
         // (codex review of 80faa73). `seen` holds the roots of the trees built from the strays, and
         // the strays are what no card is counting - a set a LIVE tree leaves and rejoins on its
@@ -379,10 +367,10 @@ final class OrphanReclaimStore {
         machine.resolve(OrphanReclaim.checkout(of: directory, entry: machine.gitEntry))
     }
 
-    private func watch(_ reading: OrphanReclaim.Reading) -> Watch {
+    private func watch(_ reading: OrphanReclaim.Reading, session: pid_t?) -> Watch {
         Watch(project: reading.tree.project, program: reading.name ?? "?", pid: reading.tree.root,
               cpuPercent: reading.cpuPercent, memoryBytes: reading.memoryBytes,
-              doubts: reading.vetoes.sorted())
+              doubts: reading.vetoes.sorted(), session: session)
     }
 
     /// The ports a set of processes is waiting on, ascending. A table that would not be read is not
@@ -449,9 +437,14 @@ final class OrphanReclaimStore {
         expireSuccessfulRecords(at: now)
         records.insert(Record(at: now, project: report.project, program: report.program,
                               pid: report.pid, processes: report.processes,
-                              outcome: report.outcome), at: 0)
+                              outcome: report.outcome, session: owners[report.pid]), at: 0)
         if records.count > Self.keptRecords { records.removeLast(records.count - Self.keptRecords) }
         deliver(report, at: now)
+    }
+
+    /// A capture's panel, set once and never by a round (`demoEntries`).
+    func showDemo(_ entries: ([Watch], [Record])) {
+        if watching.isEmpty && records.isEmpty { (watching, records) = entries }
     }
 
     /// Only panel history expires here; reclaim evidence and inbox delivery keep their own state.

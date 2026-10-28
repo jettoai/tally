@@ -330,11 +330,16 @@ extension ProcessFootprintStore {
         // carry: a roster row that published no directory at all is dropped by the map above
         // (`ProjectLoadAccounting.boardUnreadable`), and a dropped row is indistinguishable from a
         // machine with one session fewer. Named, the round fails closed instead of inferring.
+        let supervisors = Set(board.compactMap { pid_t($0.id) })
+        if DemoUsage.isActive, let project = load.projects.first(where: { $0.strayProcesses > 0 })?.root {
+            OrphanReclaimStore.shared.showDemo(OrphanReclaimStore.demoEntries(
+                project: project, sessions: supervisors.sorted(), at: now))
+        }
         OrphanReclaimStore.shared.observe(
             strays: unattributed, processes: processes,
             sessions: OrphanReclaim.Sessions(checkouts: Set(rootOfSession.values),
                                              unreadable: rollup.boardUnreadable),
-            at: now, leases: machine.leases)
+            at: now, leases: machine.leases, supervisors: supervisors)
         previousSample = readings
         cpuCarry = carried
         alertState = painted.alerts

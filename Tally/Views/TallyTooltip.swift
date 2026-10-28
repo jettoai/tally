@@ -382,12 +382,16 @@ private struct TallyTooltipCallout: View {
             // panel: a width that grew with the longest account name would eventually reach the
             // margins with no way to give anything back. Rows truncate instead, and every block
             // then shares one column, which is what makes the values line up.
-            VStack(alignment: .leading, spacing: 7) {
+            // Air under a block's title (+4, rows stay tight to each other) and more between blocks
+            // (12): at 2 and 7 the title read as one more row and nobody could tell which heading a
+            // program sat under.
+            VStack(alignment: .leading, spacing: 12) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(block.title)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(primaryInk)
+                            .padding(.bottom, 4)
                             // Up to three lines: the advisor's title is its whole conclusion, and
                             // the English sentence needs a third at the fixed width (B-1570).
                             .lineLimit(3)

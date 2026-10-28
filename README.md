@@ -36,7 +36,7 @@ https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
 
 ## Why Tally
 
-If you pay for two Claude Max seats and a Codex plan, the question all day is "which account still has room?" Single-account meters answer it for one account at a time. Tally answers it for all of them at once, then acts on the answer.
+If you pay for two Claude Max seats and a Codex plan, the question all day is "which account still has room?" Tally answers it for all of them at once, then acts on the answer.
 
 ### 1. Every account, side by side
 
@@ -124,7 +124,7 @@ Your other Macs and Linux boxes are sitting idle while this one grinds through a
   combined weekly budget, the total in accounts' worth ("2.9/5 left"), and the next staggered
   refill. A forecast estimates how long the pool lasts at your recently measured pace, counting
   the quota each reset brings back: "runs dry in about 4d 10h" when you are outspending the refill
-  cycle, "won't run dry at this pace ✓" when you are not. Single-account meters have nothing to pool.
+  cycle, "won't run dry at this pace ✓" when you are not.
 - **The usage advisor.** Do you need another account? One line per provider under the gauges: a
   filled pip per account you own, a hollow one when your measured pace asks for another, and the
   running weekly demand as the figure to read ("5.8 acct/wk"). A fleet on two plans reads per tier

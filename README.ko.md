@@ -8,6 +8,10 @@
 <h3 align="center">결제 중인 모든 Claude와 Codex 구독을 메뉴 막대에서 한눈에.<br>새 세션은 매번 여유가 가장 많은 계정에서 시작됩니다.</h3>
 
 <p align="center">
+Tally는 무료 오픈 소스 macOS 메뉴 막대 앱으로, Mac에 있는 모든 Claude(Pro, Max)와 OpenAI Codex 계정의 5시간, 주간, 플래그십 모델 사용 한도를 나란히 보여 주고, 새 Claude Code 또는 Codex 세션을 쿼터가 가장 많이 남은 계정에서 시작합니다. 사용량은 공식 <code>claude</code>, <code>codex</code> CLI를 통해 읽습니다. 읽기 전용이며, 본인이 결제한 구독만 대상으로 합니다.
+</p>
+
+<p align="center">
   <a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><img alt="macOS용 다운로드" src="assets/download-macos.svg" width="300"></a>
 </p>
 
@@ -77,6 +81,21 @@ Tally가 띄운 대화는 저마다 카드가 됩니다: 계정, 모델, 컨텍�
 사용량은 각 프로바이더의 공식 CLI(`claude -p "/usage"`와 `codex app-server`)를 통해 읽습니다. Tally는 접근 권한을 프록시하거나 공유하거나 재판매하지 않고, 토큰을 기록하거나 전송하지 않으며, Electron 없이 하나의 네이티브 Swift 앱으로 동작하며, 대화 기록을 읽는 핵심은 Rust로 작성되어 있습니다. [무엇을 읽고, 무엇을 조금 쓰는지](#동작-방식-그리고-절대-하지-않는-것).
 
 ## 설치
+
+아래 내용을 AI 에이전트에게 붙여 넣으세요. Tally를 설치하고 결과까지 보여 줍니다.
+
+```text
+Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
+copy Tally.app from it into /Applications and launch it. If macOS blocks the
+app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
+it is missing and link the bundled CLI onto my PATH with
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
+Wait about 10 seconds, run `tally` and show me the result. If it shows no
+accounts, tell me to sign in to Claude or Codex first. If a step needs my
+password, stop and tell me which command to run.
+```
+
+또는 직접 설치:
 
 ```sh
 curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
@@ -473,16 +492,37 @@ PR은 하나의 의도로 좁히고, 「왜」를 설명에 적어 주세요.
 
 ## FAQ
 
+**macOS 메뉴 막대에서 여러 Claude Max 계정의 사용 한도를 한꺼번에 보려면?**
+각 계정을 서로 다른 설정 디렉터리로 Claude Code에 로그인시킵니다(예:
+`CLAUDE_CONFIG_DIR=~/.claude2 claude`를 실행한 뒤 로그인). Tally는 모든 `~/.claude*` 로그인과
+모든 Codex 설치를 찾아 계정마다 한 줄에 5시간, 주간, 플래그십 모델 윈도우를 보여 주고,
+프로바이더별 계정을 하나의 예산으로 합쳐 메뉴 막대에 표시합니다.
+
+**Tally는 프록시나 계정 공유 도구인가요?**
+아닙니다. Tally는 Claude Code와 Anthropic 사이에 끼어들지 않으며, 접근 권한을 프록시, 공유,
+재판매하지도 않습니다. 공식 CLI를 통해 각 계정의 사용량을 읽고, `tally claude`는 여유가 가장
+많은 계정의 설정 디렉터리로 공식 CLI를 실행합니다. 모든 계정은 본인의 Mac에서 쓰는, 본인이
+결제한 구독입니다.
+
 **Tally는 ccusage나 다른 사용량 트래커와 무엇이 다른가요?**
 [ccusage](https://github.com/ryoppippi/ccusage) 같은 도구는 로컬 로그에서 토큰 지출을
-추정하는 터미널 CLI이고, 대부분의 메뉴 막대 미터는 단일 계정만 지원합니다. Tally는 벤더가
-실제로 적용하는 쿼터 윈도우(5시간, 주간, 플래그십 모델)를 여러 Claude / Codex 계정에 걸쳐
-동시에 보여주는 네이티브 GUI이며, 그 숫자에 따라 동작하는 런처도 제공합니다. 토큰 뷰는
+추정하는 터미널 CLI입니다. Tally는 벤더가 실제로 적용하는 쿼터 윈도우(5시간, 주간,
+플래그십 모델)를 모든 Claude / Codex 계정에 대해 동시에 보여주는 네이티브 메뉴 막대 앱이며,
+그 숫자에 따라 동작하는 런처도 제공합니다. 토큰 뷰는
 「얼마나 썼고 어디에 썼는가」라는 질문까지 프로젝트 단위로, 로컬 트랜스크립트에서 곧바로
-다룹니다. 금액 추정은 하지 않습니다. 그리고 세션 보드는 ccusage나 단일 계정 미터보다 한 단계 더
+다룹니다. 금액 추정은 하지 않습니다. 그리고 세션 보드는 ccusage나 다른 사용량 미터보다 한 단계 더
 들어갑니다: 실행 중인 모든 세션이 카드가 되어, 어느 것이 당신을 기다리며 막혀 있는지,
 각각이 기기를 얼마나 쓰고 있는지를 메모리를 붙잡고 있는 프로세스까지 보여 줍니다. 읽기
 전용이며, 본인이 결제한 구독만 대상으로 합니다.
+
+**Tally는 CodexBar, Claude Usage Tracker, Usage4Claude와 무엇이 다른가요?**
+2026년 10월 기준으로 이들은 모두 네이티브 메뉴 막대 미터이며, 일부는 이제 여러 계정도 표시합니다.
+Tally가 더하는 점은 다음과 같습니다. 사용량을 공식 `claude`, `codex` CLI로만 읽기 때문에 세션 키나
+브라우저 쿠키를 제공할 필요가 없습니다. 프로바이더별 계정을 하나의 예산으로 합치고, 지금 속도로
+언제 바닥나는지 예측합니다. 그리고 `tally claude`는 남은 쿼터와 리셋 시각으로 새 세션의 계정을
+고르고, 어느 계정이 한도에 닿으면 다음 계정에서 같은 대화를 이어 갑니다. CodexBar는 더 많은
+서비스(Cursor, Copilot, Gemini 등)를 지원하므로, 하나의 계정을 여러 AI 도구에서 쓴다면 그쪽이
+더 맞을 수 있습니다.
 
 **Tally는 Keychain에 어떻게 접근하나요?**
 사용량은 공식 CLI를 통해 가져오며 계정 탐지는 속성만 확인합니다. Claude 로그인 기한 리더는

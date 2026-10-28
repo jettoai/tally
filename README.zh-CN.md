@@ -8,6 +8,10 @@
 <h3 align="center">你付费的每一个 Claude 与 Codex 订阅，在菜单栏一眼看尽。<br>每个新会话都从余量最多的账号开始。</h3>
 
 <p align="center">
+Tally 是免费、开源的 macOS 菜单栏 app，把你 Mac 上每个 Claude（Pro、Max）与 OpenAI Codex 账号的 5 小时、每周与旗舰模型用量上限并排显示，并让每个新的 Claude Code 或 Codex 会话从余量最多的账号开始。它通过官方的 <code>claude</code> 与 <code>codex</code> CLI 读取用量：只读，仅用于你自己付费的订阅。
+</p>
+
+<p align="center">
   <a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><img alt="下载 macOS 版" src="assets/download-macos.svg" width="300"></a>
 </p>
 
@@ -77,6 +81,21 @@ Tally 启动的每一段对话都会成为一张卡片：账号、模型、conte
 用量通过各家自己的官方 CLI 读取（`claude -p "/usage"` 与 `codex app-server`）。Tally 从不代理、共享或转售访问权，从不记录或发送任何 token，并以单一原生 Swift app 运行，没有 Electron，读取对话记录的核心用 Rust 编写。[它读取什么，以及它写入的少数几样东西](#工作原理以及它绝不做的事)。
 
 ## 安装
+
+把下面这段话贴给你的 AI，它会自己装好 Tally 并跑出结果：
+
+```text
+Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
+copy Tally.app from it into /Applications and launch it. If macOS blocks the
+app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
+it is missing and link the bundled CLI onto my PATH with
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
+Wait about 10 seconds, run `tally` and show me the result. If it shows no
+accounts, tell me to sign in to Claude or Codex first. If a step needs my
+password, stop and tell me which command to run.
+```
+
+或自己安装：
 
 ```sh
 curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg && open Tally.dmg
@@ -402,14 +421,31 @@ Tally 内置 English、繁體中文、简体中文、日本語、한국어，设
 
 ## 常见问题
 
+**怎么在 macOS 菜单栏同时看多个 Claude Max 账号的额度？**
+让每个账号各自登录 Claude Code，各用自己的配置目录（例如
+`CLAUDE_CONFIG_DIR=~/.claude2 claude`，再登录）。Tally 会找出每一个 `~/.claude*` 登录与每一个
+Codex 安装，每个账号各占一行显示 5 小时、每周与旗舰模型窗口，并把同一家的账号合成一个余量池
+显示在菜单栏。
+
+**Tally 是 proxy 或账号共享工具吗？**
+不是。Tally 不介入 Claude Code 与 Anthropic 之间，也不代理、不共享、不转售任何访问权限。它通过官方
+CLI 读取每个账号的用量，`tally claude` 则用余量最多那个账号的配置目录启动官方 CLI。每个账号
+都是你自己付费订阅、跑在你自己的 Mac 上。
+
 **Tally 和 ccusage 或其他用量工具有什么不同？**
 [ccusage](https://github.com/ryoppippi/ccusage) 这类工具是终端 CLI，从本地 log 估算 token
-花费；多数菜单栏仪表也只看单个账号。Tally 是原生 GUI，显示的是厂商实际强制的额度窗口
-（5 小时、每周、旗舰模型），同时覆盖多个 Claude 与 Codex 账号，还附带一个依据这些数字
-行动的启动器。Token 视图也把「我到底烧了多少、烧在哪」这题一并覆盖，按项目拆分，直接读
-本地 transcript，不做金额猜测。而会话看板又比 ccusage 与单账号仪表都再深一层：每一段运行中的会话都是一张
+花费。Tally 是原生菜单栏 app，显示厂商实际强制的额度窗口（5 小时、每周、旗舰模型），
+一次覆盖每个 Claude 与 Codex 账号，还附带一个依据这些数字行动的启动器。Token 视图也把「我到底烧了多少、烧在哪」这题一并覆盖，按项目拆分，直接读
+本地 transcript，不做金额猜测。而会话看板又比 ccusage 与其他用量仪表都再深一层：每一段运行中的会话都是一张
 卡片，谁卡住在等你、每一段又占了机器多少资源，细到是哪个进程占着内存。只读，仅用于你自己
 付费的订阅。
+
+**Tally 和 CodexBar、Claude Usage Tracker、Usage4Claude 有什么不同？**
+截至 2026 年 10 月，它们都是原生菜单栏仪表，其中几个现在也能显示多个账号。Tally 多做的是：
+只通过官方 `claude` 与 `codex` CLI 读取用量，所以不需要提供 session key 或浏览器 cookie；
+把每一家的账号合成一个余量池，并预测按你当前的速度何时用完；`tally claude` 依剩余额度与重置
+时间为每个新会话选账号，某个账号撞到上限时，在下一个账号上续跑同一段对话。CodexBar 覆盖
+更多服务（Cursor、Copilot、Gemini 等），如果你是用同一个账号跨多个 AI 工具，它可能更适合你。
 
 **Tally 如何访问 Keychain？**
 用量通过官方 CLI 获取，账号检测只检查属性。Claude 登录期限的读取程序也会读取凭证文件，

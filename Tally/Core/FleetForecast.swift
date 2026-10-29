@@ -109,9 +109,9 @@ enum FleetForecast {
         for rows in Dictionary(grouping: weekly, by: \.account).values {
             let sorted = rows.sorted { $0.ts < $1.ts }
             let rollovers = zip(sorted, sorted.dropFirst()).filter { before, after in
-                before.used - after.used >= UsageAdvisor.restartDrop
-                    || (before.resetAt.flatMap { b in after.resetAt.map { $0.timeIntervalSince(b) } } ?? 0)
-                        > UsageAdvisor.earlyResetLead
+                if before.used - after.used >= UsageAdvisor.restartDrop { return true }
+                guard let was = before.resetAt, let next = after.resetAt else { return false }
+                return next.timeIntervalSince(was) > UsageAdvisor.earlyResetLead
             }.map(\.1.ts)
             for (a, b) in zip(rollovers, rollovers.dropFirst()) {
                 gaps[sorted[0].provider, default: []].append(b.timeIntervalSince(a))

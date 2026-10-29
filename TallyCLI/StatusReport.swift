@@ -257,9 +257,6 @@ struct StatusReport: Encodable {
         var activeBurnPerHour: Double
         var starvedHoursPerWeek: Double
         var daysOfData: Double
-        /// Weekly counters keep restarting early, so `demandPerWeek` is unreliable; `verdict` is unchanged.
-        var resetsIrregular: Bool
-        var earlyResets: Int
 
         struct Tier: Encodable {
             /// nil for the accounts whose plan the snapshot does not name, which the synthesized
@@ -357,8 +354,7 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
             },
             activeBurnPerHour: reading.activeBurnPerHour,
             starvedHoursPerWeek: reading.starvedHoursPerWeek,
-            daysOfData: reading.daysOfData,
-            resetsIrregular: reading.resetsIrregular, earlyResets: reading.earlyResets))
+            daysOfData: reading.daysOfData))
     })
     // Known providers first (with a launch pick), then any provider this CLI doesn't know yet:
     // the JSON mirrors the snapshot, it never silently drops an account.

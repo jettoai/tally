@@ -99,7 +99,6 @@ extension PopoverRootView {
         switch conclusion {
         case .enough, .collecting: return nil
         case .shortAtPace: return sentence
-        case .resetsIrregular: return L("resets irregular")
         case .add(_, let plan), .nearCapacity(_, _, let plan):
             return conclusion.tagAdd(fourWeek: fourWeekFigures(plan: plan, reading: reading),
                                      dryPools: joinPools(dryPools))
@@ -146,8 +145,7 @@ extension PopoverRootView {
             pooledDemandPerWeek: reading.demandPerWeek, tierDemands: reading.tierDemands,
             ownedAccounts: ownedAccountCount(reading.provider),
             dryPools: joinPools(dryPools),
-            starvedHoursPerWeek: reading.starvedHoursPerWeek,
-            resetsIrregular: reading.resetsIrregular)
+            starvedHoursPerWeek: reading.starvedHoursPerWeek)
     }
 
     /// The conclusion in words: the row's text, the hover's first line, and VoiceOver's label.
@@ -170,8 +168,6 @@ extension PopoverRootView {
         case .nearCapacity(let demand, let owned, let plan):
             guard let demand else { return L("near limit over 4 wks") }
             return twoScaleSentence(demand, owned: owned, plan: plan, dryPools: dryPools)
-        case .resetsIrregular:
-            return L("resets irregular: demand figure unreliable")
         case .shortAtPace(let plans):
             guard !plans.isEmpty else { return L("short at this pace") }
             let names = plans.map { $0 ?? L("Unknown plan") }.joined(separator: " · ")
@@ -220,7 +216,7 @@ extension PopoverRootView {
         case .enough, .collecting: return .secondary
         // Near capacity only draws a tag when it asks to add (`tagAdd`), the same action in the
         // same words as "add", so it takes the same amber (B-1544).
-        case .add, .nearCapacity, .shortAtPace, .resetsIrregular: return TallyColor.warning
+        case .add, .nearCapacity, .shortAtPace: return TallyColor.warning
         }
     }
 
@@ -308,10 +304,8 @@ extension PopoverRootView {
         }
         // Near capacity IS the four-week reading, already the title with its figure; "4-week
         // average: add 1 account" under it would bring the contradiction back.
-        // The same goes for irregular resets: the title already says the figure cannot back advice.
-        switch state.conclusion {
-        case .nearCapacity, .resetsIrregular: break
-        default: rows.append(TallyTooltipRow(L("4-week average"), verdictSentence(reading)))
+        if case .nearCapacity = state.conclusion {} else {
+            rows.append(TallyTooltipRow(L("4-week average"), verdictSentence(reading)))
         }
         // Each tier's four-week figure, named the way the gauge names a plan (plan ×N), with the
         // reason they are not added up closing the block.

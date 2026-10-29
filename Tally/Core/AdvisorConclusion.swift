@@ -32,11 +32,6 @@ enum AdvisorConclusion: Equatable {
     /// some of a split provider's tiers are short; empty means the whole provider.
     /// A nil entry is a tier whose plan this machine cannot name.
     case shortAtPace(plans: [String?])
-    /// The four-week verdict asks for more accounts, but the weekly counters keep restarting ahead
-    /// of their reset time (`UsageAdvisor.Reading.resetsIrregular`), so the demand figure is
-    /// measured against capacity that returns on no schedule and cannot back a purchase. Wins over
-    /// every other reading of an `addAccount` verdict, as `UsageAdvisor.englishHeadline` does.
-    case resetsIrregular
 
     /// One plan tier as the row needs it. For an unsplit provider this is a single tier whose
     /// `plan` is nil and whose numbers are the provider's.
@@ -61,9 +56,7 @@ enum AdvisorConclusion: Equatable {
     /// `split` is true when the tiers carry two or more named plans; the row then names the plan.
     /// `starvedHoursPerWeek` is the reading's own, the second thing that can back "add".
     static func decide(verdict: UsageAdvisor.Verdict, daysOfData: Double, tiers: [Tier],
-                       split: Bool, starvedHoursPerWeek: Double,
-                       resetsIrregular: Bool = false) -> AdvisorConclusion {
-        if verdict == .addAccount, resetsIrregular { return .resetsIrregular }
+                       split: Bool, starvedHoursPerWeek: Double) -> AdvisorConclusion {
         let dry = tiers.filter(\.runsDry)
         if verdict == .addAccount {
             // "Add" has to be backed by something the reader can see this week: a pool the gauge
@@ -145,8 +138,7 @@ enum AdvisorConclusion: Equatable {
     /// demand, so a short pool is never dropped for lack of a matching tier.
     static func join(verdict: UsageAdvisor.Verdict, daysOfData: Double, pooledDemandPerWeek: Double,
                      tierDemands: [UsageAdvisor.TierDemand], ownedAccounts: Int,
-                     dryPools: [DryPool], starvedHoursPerWeek: Double,
-                     resetsIrregular: Bool = false) -> AdvisorConclusion {
+                     dryPools: [DryPool], starvedHoursPerWeek: Double) -> AdvisorConclusion {
         let planPools = dryPools.filter(\.byPlan)
         // The soonest dry date among `plan`'s pools.
         func soonest(_ plan: String?) -> Date? {
@@ -171,7 +163,7 @@ enum AdvisorConclusion: Equatable {
         let split = Set(tiers.compactMap(\.plan)).count >= 2
             || Set(planPools.compactMap(\.plan)).count >= 2
         return decide(verdict: verdict, daysOfData: daysOfData, tiers: tiers, split: split,
-                      starvedHoursPerWeek: starvedHoursPerWeek, resetsIrregular: resetsIrregular)
+                      starvedHoursPerWeek: starvedHoursPerWeek)
     }
 
     /// A plan's join key: case-insensitive, "?" for an unnamed plan (`FleetSummary.Tier.key`'s rule).

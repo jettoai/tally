@@ -195,28 +195,6 @@ extension UsageAdvisor {
         return (total, activeBurn, activeSeconds)
     }
 
-    /// How many times each account's weekly counter was reset ahead of its schedule (accounts
-    /// with none are absent): two adjacent readings of one account's series where `used` fell by `restartDrop` or more while the earlier reading's own
-    /// reset time was still more than `earlyResetLead` away. A counter that rolls over at its
-    /// reported reset is the calendar working; one that restarts days early is the provider (or a
-    /// redeemed reset) moving the week, and capacity that returns on no schedule cannot be priced
-    /// as "one account-week per week". A nil earlier reset time says nothing about the schedule and
-    /// never counts. Only readings at or after `since` are counted; the pair straddling it still is.
-    /// Pass the account-wide weekly rows: model windows are not looked at.
-    static func earlyResets(_ samples: [Sample], since: Date) -> [String: Int] {
-        var count: [String: Int] = [:]
-        for (account, rows) in Dictionary(grouping: samples.filter { $0.window == weeklyAllWindow },
-                                          by: \.account) {
-            let sorted = rows.sorted { $0.ts < $1.ts }
-            for (before, after) in zip(sorted, sorted.dropFirst()) where after.ts >= since {
-                guard let due = before.resetAt, before.used - after.used >= restartDrop,
-                      due.timeIntervalSince(after.ts) > earlyResetLead else { continue }
-                count[account, default: 0] += 1
-            }
-        }
-        return count
-    }
-
     /// Whether an account is still on this machine. A nil live set means nobody told us, which is
     /// every account the history holds - the reading every caller got before the fleet was joined
     /// in, and the one the tests mean. One place answers this because four call sites ask it and a

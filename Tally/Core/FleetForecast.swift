@@ -6,9 +6,8 @@ struct FleetRate: Hashable, Sendable {
     var perHour: Double
     /// How much history backs the estimate - surfaced so a young estimate can say so.
     var sampledHours: Double
-    /// The weekly window as measured on the accounts that feed THIS pool
-    /// (`FleetForecast.cycleHours`): what the steady refill speed divides a full window by. 168
-    /// until those accounts have shown two rollovers.
+    /// The provider's weekly window as measured (`FleetForecast.measuredCycleHours`): what the
+    /// steady refill speed divides a full window by. 168 until two rollovers have been seen.
     var cycleHours: Double = FleetForecast.nominalCycleHours
 }
 
@@ -24,7 +23,7 @@ enum FleetForecast {
     /// Forecasts beyond this read as false precision; a pool that survives it is "sustainable".
     static let horizon: TimeInterval = 14 * 86_400
     /// A weekly window's nominal cycle, which is what the steady refill speed assumed for every
-    /// account until the cycle was measured (`cycleHours`).
+    /// account until the cycle was measured (`measuredCycleHours`).
     static let nominalCycleHours: Double = 168
     /// The shortest cycle a measurement may report: a window refilling faster than daily is a
     /// glitch in the history, and the refill speed it would imply is not a budget anyone has.
@@ -57,8 +56,7 @@ enum FleetForecast {
             $0.ts >= paceFloor
                 && ($0.window == MetricKind.weeklyAll.rawValue || $0.window == MetricKind.weeklyModel.rawValue)
         }
-        let gaps = cycleGaps(samples: samples, now: now)
-        var accountsOf: [String: Set<String>] = [:]
+        let cycles = measuredCycleHours(samples: samples, now: now)
         var consumed: [String: Double] = [:]
         var earliest: [String: Date] = [:]
         let bySeries = Dictionary(grouping: weekly) {
@@ -82,7 +80,6 @@ enum FleetForecast {
             for key in keys {
                 earliest[key] = min(earliest[key] ?? first.ts, first.ts)
                 consumed[key, default: 0] += used
-                accountsOf[key, default: []].insert(first.account)
             }
         }
         var rates: [String: FleetRate] = [:]
@@ -90,44 +87,39 @@ enum FleetForecast {
             let hours = min(lookbackHours, now.timeIntervalSince(start) / 3_600)
             guard hours >= minimumSampleHours else { continue }
             rates[key] = FleetRate(perHour: (consumed[key] ?? 0) / hours, sampledHours: hours,
-                                   cycleHours: cycleHours(of: accountsOf[key] ?? [], gaps: gaps))
+                                   cycleHours: cycles[String(key.prefix { $0 != "|" })] ?? nominalCycleHours)
         }
         return rates
     }
 
-    /// The gaps between each account's consecutive weekly rollovers over the last
-    /// `cycleLookbackDays`, by account (accounts without two rollovers are absent). A rollover is
-    /// a restart `UsageAdvisor.confirmedRestarts` confirms, by drop or by the reset time jumping
-    /// forward by more than a day (Codex's idle reset time creeps forward a few minutes per poll,
-    /// which is neither).
-    static func cycleGaps(samples: [UsageHistory.Sample], now: Date) -> [String: [TimeInterval]] {
+    /// The weekly window's measured cycle length per provider, in hours: the mean gap between one
+    /// account's consecutive rollovers over the last `cycleLookbackDays`, clamped to
+    /// [`minimumCycleHours`, `nominalCycleHours`]. A rollover is the account-wide weekly counter
+    /// restarting (`used` fell by `UsageAdvisor.restartDrop` or more) or its reset time jumping
+    /// forward by more than a day (`UsageAdvisor.earlyResetLead`; Codex's idle reset time creeps
+    /// forward a few minutes per poll, which is not one). A provider with no account that rolled
+    /// over twice is absent, so the caller's `nominalCycleHours` stands: a calendar that was never
+    /// seen to misbehave is the 7 days it says it is. The steady refill speed is
+    /// `members x 100 / cycle`; a provider that resets every 2.2 days refills 3x faster than the
+    /// 168 hours the forecast used to assume (B-429).
+    static func measuredCycleHours(samples: [UsageHistory.Sample], now: Date) -> [String: Double] {
         let since = now.addingTimeInterval(-cycleLookbackDays * 86_400)
+        var gaps: [String: [TimeInterval]] = [:]
         let weekly = samples.filter { $0.window == MetricKind.weeklyAll.rawValue && $0.ts >= since }
-        var out: [String: [TimeInterval]] = [:]
-        for (account, rows) in Dictionary(grouping: weekly, by: \.account) {
-            let times = UsageAdvisor.confirmedRestarts(rows.map {
-                UsageAdvisor.Sample(ts: $0.ts, account: $0.account, provider: $0.provider,
-                                    window: $0.window, model: $0.model, used: $0.used, resetAt: $0.resetAt)
-            }).map(\.at)
-            let gaps = zip(times, times.dropFirst()).map { $1.timeIntervalSince($0) }
-            if !gaps.isEmpty { out[account] = gaps }
+        for rows in Dictionary(grouping: weekly, by: \.account).values {
+            let sorted = rows.sorted { $0.ts < $1.ts }
+            let rollovers = zip(sorted, sorted.dropFirst()).filter { before, after in
+                if before.used - after.used >= UsageAdvisor.restartDrop { return true }
+                guard let was = before.resetAt, let next = after.resetAt else { return false }
+                return next.timeIntervalSince(was) > UsageAdvisor.earlyResetLead
+            }.map(\.1.ts)
+            for (a, b) in zip(rollovers, rollovers.dropFirst()) {
+                gaps[sorted[0].provider, default: []].append(b.timeIntervalSince(a))
+            }
         }
-        return out
-    }
-
-    /// The weekly window's cycle in hours for the pool these `accounts` feed: the mean of THEIR
-    /// rollover gaps, clamped to [`minimumCycleHours`, `nominalCycleHours`]. Each rate key brings
-    /// its own account set (the provider's for the unsplit pool, one plan's for a plan's pool, the
-    /// accounts reporting a model window for that window), so one plan resetting every two days
-    /// never speeds up another plan's refill. No gap among them means no measurement and the
-    /// calendar's `nominalCycleHours` stands. The steady refill speed is `members x 100 / cycle`;
-    /// a pool that resets every 2.2 days refills 3x faster than the 168 hours assumed before
-    /// (B-429).
-    static func cycleHours(of accounts: Set<String>, gaps: [String: [TimeInterval]]) -> Double {
-        let pooled = accounts.flatMap { gaps[$0] ?? [] }
-        guard !pooled.isEmpty else { return nominalCycleHours }
-        return min(nominalCycleHours,
-                   max(minimumCycleHours, pooled.reduce(0, +) / Double(pooled.count) / 3_600))
+        return gaps.mapValues { list in
+            min(nominalCycleHours, max(minimumCycleHours, list.reduce(0, +) / Double(list.count) / 3_600))
+        }
     }
 
     /// When the pool runs dry at `perHour`, or nil when it survives the horizon.

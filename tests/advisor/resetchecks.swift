@@ -14,12 +14,9 @@ private func w(_ account: String, _ used: Double, at: Date, due: Date?,
 private let due = now.addingTimeInterval(-10 * 86_400)
 private func pair(drop: Double = 50, lead: TimeInterval, account: String = "a1",
               window: String = "weeklyAll", dueAt: Date? = due) -> [UsageAdvisor.Sample] {
-    let restart = due.addingTimeInterval(-lead)
-    let next = due.addingTimeInterval(7 * 86_400)
-    return [w(account, 60, at: due.addingTimeInterval(-3 * 86_400), due: dueAt, window: window),
-            w(account, 60 - drop, at: restart, due: next, window: window),
-            // The next poll still reads low: that is what confirms the restart.
-            w(account, 60 - drop, at: restart.addingTimeInterval(600), due: next, window: window)]
+    [w(account, 60, at: due.addingTimeInterval(-3 * 86_400), due: dueAt, window: window),
+     w(account, 60 - drop, at: due.addingTimeInterval(-lead), due: due.addingTimeInterval(7 * 86_400),
+       window: window)]
 }
 
 /// `n` three-day-and-a-half cycles ending now, each reporting a reset a week after it started, so
@@ -30,7 +27,6 @@ private func earlyCycles(_ n: Int) -> [UsageAdvisor.Sample] {
         let start = now.addingTimeInterval(-Double(n - i) * length)
         let reset = start.addingTimeInterval(7 * 86_400)
         return [w("a1", 5, at: start, due: reset),
-                w("a1", 6, at: start.addingTimeInterval(600), due: reset),
                 w("a1", 95, at: start.addingTimeInterval(length - 600), due: reset)]
     }
 }
@@ -55,21 +51,6 @@ func runResetChecks() {
     }
     check("the count is kept per account", most(pair(lead: 3 * long, account: "a1")
         + pair(lead: 3 * long, account: "a2")) == 1)
-    // codex review of a185363, Critical 1: a counter that bounces straight back is a provider
-    // serving the wrong figures for a poll, not a reset (`oneLow`, `nilBlips` in main.swift).
-    let blips: [UsageAdvisor.Sample] = [60, 0, 60, 0, 60, 0, 60].enumerated().map { i, used in
-        w("a1", used, at: now.addingTimeInterval(-Double(7 - i) * 86_400), due: now.addingTimeInterval(5 * 86_400))
-    }
-    check("60,0,60,0,60,0,60 a day apart is no reset at all", early(blips) == 0)
-    check("…so it cannot make the resets irregular", reading(blips)?.resetsIrregular == false)
-    check("a drop is not confirmed by the next reading being missing",
-          early(Array(pair(lead: 3 * long).dropLast())) == 0)
-    let stays = pair(lead: 3 * long)
-    check("the same drop confirmed by a low next reading counts", early(stays) == 1)
-    check("…and a next reading that recovers to 10 points under the high still confirms",
-          early([stays[0], stays[1], w("a1", 50, at: stays[1].ts.addingTimeInterval(600), due: stays[1].resetAt)]) == 1)
-    check("…but one that recovers to 9 under does not",
-          early([stays[0], stays[1], w("a1", 51, at: stays[1].ts.addingTimeInterval(600), due: stays[1].resetAt)]) == 0)
     let restart = due.addingTimeInterval(-3 * long)
     check("a restart before `since` is not counted", early(pair(lead: 3 * long), since: restart.addingTimeInterval(60)) == 0)
     check("a restart at `since` is", early(pair(lead: 3 * long), since: restart) == 1)

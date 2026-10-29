@@ -195,56 +195,23 @@ extension UsageAdvisor {
         return (total, activeBurn, activeSeconds)
     }
 
-    /// A weekly counter restart that the readings after it confirm.
-    struct Restart {
-        /// The first reading of the new cycle.
-        var at: Date
-        /// The reset time the reading before it promised, nil when it gave none.
-        var due: Date?
-        /// True for a counter that fell (`restartDrop`), false for a reset time that only jumped.
-        var byDrop: Bool
-    }
-
-    /// The restarts in ONE account's weekly series that the NEXT reading confirms. The two B-429
-    /// detectors (`earlyResets`, `FleetForecast.cycleGaps`) share this rule so a one-poll blip can
-    /// never be a reset in one and not in the other. It is `consumption`'s two-readings-in-a-row
-    /// rule seen from the restart: the counter fell `restartDrop` or more AND the next reading is
-    /// still `restartDrop` under the earlier high, or the reset time jumped forward by more than
-    /// `earlyResetLead` AND the next reading reports that same time (within `resetTolerance`). A
-    /// reading that bounces straight back (`60, 0, 60`) is a provider serving the wrong figures for
-    /// a poll, not a restart. The last reading has no next one and never confirms anything
-    /// (fail-closed; the next poll settles it). Rows may come in any order.
-    static func confirmedRestarts(_ rows: [Sample]) -> [Restart] {
-        let sorted = rows.sorted { $0.ts < $1.ts }
-        guard sorted.count >= 3 else { return [] }
-        return (1..<(sorted.count - 1)).compactMap { i in
-            let (before, after, next) = (sorted[i - 1], sorted[i], sorted[i + 1])
-            let dropped = before.used - after.used >= restartDrop
-                && next.used <= before.used - restartDrop
-            var moved = false
-            if let was = before.resetAt, let now = after.resetAt, let later = next.resetAt {
-                moved = now.timeIntervalSince(was) > earlyResetLead
-                    && abs(later.timeIntervalSince(now)) <= resetTolerance
-            }
-            return dropped || moved ? Restart(at: after.ts, due: before.resetAt, byDrop: dropped) : nil
-        }
-    }
-
     /// How many times each account's weekly counter was reset ahead of its schedule (accounts
-    /// with none are absent): a confirmed restart by drop (`confirmedRestarts`) whose earlier
-    /// reading's own reset time was still more than `earlyResetLead` away. A counter that rolls
-    /// over at its reported reset is the calendar working; one that restarts days early is the
-    /// provider (or a redeemed reset) moving the week, and capacity that returns on no schedule
-    /// cannot be priced as "one account-week per week". A nil earlier reset time says nothing about
-    /// the schedule and never counts. Only restarts at or after `since` are counted.
+    /// with none are absent): two adjacent readings of one account's series where `used` fell by
+    /// `restartDrop` or more while the earlier reading's own reset time was still more than
+    /// `earlyResetLead` away. A counter that rolls over at its
+    /// reported reset is the calendar working; one that restarts days early is the provider (or a
+    /// redeemed reset) moving the week, and capacity that returns on no schedule cannot be priced
+    /// as "one account-week per week". A nil earlier reset time says nothing about the schedule and
+    /// never counts. Only readings at or after `since` are counted; the pair straddling it still is.
     /// Pass the account-wide weekly rows: model windows are not looked at.
     static func earlyResets(_ samples: [Sample], since: Date) -> [String: Int] {
         var count: [String: Int] = [:]
         for (account, rows) in Dictionary(grouping: samples.filter { $0.window == weeklyAllWindow },
                                           by: \.account) {
-            for restart in confirmedRestarts(rows) where restart.byDrop && restart.at >= since {
-                guard let due = restart.due,
-                      due.timeIntervalSince(restart.at) > earlyResetLead else { continue }
+            let sorted = rows.sorted { $0.ts < $1.ts }
+            for (before, after) in zip(sorted, sorted.dropFirst()) where after.ts >= since {
+                guard let due = before.resetAt, before.used - after.used >= restartDrop,
+                      due.timeIntervalSince(after.ts) > earlyResetLead else { continue }
                 count[account, default: 0] += 1
             }
         }

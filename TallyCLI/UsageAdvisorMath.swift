@@ -196,9 +196,8 @@ extension UsageAdvisor {
     }
 
     /// How many times each account's weekly counter was reset ahead of its schedule (accounts
-    /// with none are absent): two adjacent readings of one account's series where `used` fell by
-    /// `restartDrop` or more while the earlier reading's own reset time was still more than
-    /// `earlyResetLead` away. A counter that rolls over at its
+    /// with none are absent): two adjacent readings of one account's series where `used` fell by `restartDrop` or more while the earlier reading's own
+    /// reset time was still more than `earlyResetLead` away. A counter that rolls over at its
     /// reported reset is the calendar working; one that restarts days early is the provider (or a
     /// redeemed reset) moving the week, and capacity that returns on no schedule cannot be priced
     /// as "one account-week per week". A nil earlier reset time says nothing about the schedule and

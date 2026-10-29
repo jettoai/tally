@@ -63,9 +63,9 @@ enum AdvisorConclusion: Equatable {
     static func decide(verdict: UsageAdvisor.Verdict, daysOfData: Double, tiers: [Tier],
                        split: Bool, starvedHoursPerWeek: Double,
                        resetsIrregular: Bool = false) -> AdvisorConclusion {
+        if verdict == .addAccount, resetsIrregular { return .resetsIrregular }
         let dry = tiers.filter(\.runsDry)
         if verdict == .addAccount {
-            guard !resetsIrregular else { return .resetsIrregular }
             // "Add" has to be backed by something the reader can see this week: a pool the gauge
             // shows running dry, or hours the whole fleet sat at zero. The four-week ratio alone
             // is "near capacity". Same strict comparison the verdict itself uses.

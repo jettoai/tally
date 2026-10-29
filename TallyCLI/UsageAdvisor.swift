@@ -39,6 +39,15 @@ enum UsageAdvisor {
     /// the counter counts as restarted (a redeemed or provider-wide reset that kept the reset time).
     /// Rounding dips are at most 1 point on this machine's history (2,194 of 2,265 same-cycle drops).
     static let restartDrop: Double = 10
+    /// A weekly counter that restarts this far ahead of its own reported reset was reset early by
+    /// the provider, not by the calendar (`earlyResets`).
+    static let earlyResetLead: TimeInterval = 86_400
+    /// This many early resets of ONE account inside the lookback make the reset schedule irregular:
+    /// the weekly demand is then measured against capacity that comes back on no schedule, so the
+    /// figure cannot carry an "add an account" verdict (B-429: Codex, 12 and 9 early resets per
+    /// account in 28 days). Per account because one-off redeemed resets across a fleet are the
+    /// calendar working (this machine's eight Claude accounts have 3 between them, 1 each at most).
+    static let irregularResetCount = 3
     /// Recommend another account once weekly demand reaches this fraction of pooled capacity...
     static let demandTriggerRatio: Double = 0.9
     /// ...or once the fleet sits starved more than this many hours in a week.
@@ -123,6 +132,12 @@ enum UsageAdvisor {
         /// clickable figure cycles through. The `lookbackDays` entry is `demandPerWeek` itself, by
         /// construction rather than by coincidence: same samples, same denominator.
         var windowDemands: [WindowDemand] = []
+        /// Early resets of the account-wide weekly counters over the lookback, all accounts added
+        /// (`earlyResets`).
+        var earlyResets: Int = 0
+        /// True once any one account's early resets reach `irregularResetCount`. The `verdict` keeps its meaning;
+        /// surfaces read this to withhold the add-an-account advice the figure can no longer back.
+        var resetsIrregular: Bool = false
     }
 
     private static let decoder: JSONDecoder = {
@@ -275,6 +290,9 @@ enum UsageAdvisor {
         }
         let starvedHoursPerWeek = starvedSeconds / 3_600 / weeks
 
+        let early = earlyResets(weeklyAll, since: now.addingTimeInterval(-lookbackDays * 86_400))
+        let mostEarly = early.values.max() ?? 0
+
         let verdict: Verdict
         if days < minimumDays {
             verdict = .collecting
@@ -289,7 +307,9 @@ enum UsageAdvisor {
                        tierDemands: tierDemands(weeklyAll, weeks: weeks, live: liveAccounts,
                                                 planOf: planOf),
                        windowDemands: windowDemands(weeklyAll, days: days, now: now,
-                                                    live: liveAccounts, planOf: planOf))
+                                                    live: liveAccounts, planOf: planOf),
+                       earlyResets: early.values.reduce(0, +),
+                       resetsIrregular: mostEarly >= irregularResetCount)
     }
 
     /// English one-liner for the CLI and the --json `headline` field. The panel builds its own
@@ -305,6 +325,9 @@ enum UsageAdvisor {
             // would read as a contradiction.
             return "collecting data (\(Int(r.daysOfData)) of \(Int(minimumDays)) days)"
         case .addAccount:
+            // Same rule as the panel's `resetsIrregular` conclusion: no purchase advice, and no
+            // near-capacity figure, from a demand number the resets have made unreliable.
+            guard !r.resetsIrregular else { return "resets irregular: demand figure unreliable" }
             guard poolsDry == false, r.starvedHoursPerWeek <= starvedTriggerHours else {
                 return "consider adding an account"
             }

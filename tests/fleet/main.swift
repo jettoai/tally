@@ -436,6 +436,7 @@ do {
 
 runPlanSplitTests()
 runCapWeightTests()
+runCycleTests()
 
 // F1 (jettoai/tally#6): a home signed into another home's Claude login is published as a failure
 // row with no numbers, so the pool counts that login once without a check of its own.

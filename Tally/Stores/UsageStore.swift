@@ -385,7 +385,7 @@ final class UsageStore {
         let now = Date()
         let planKeys = FleetMath.planTiers(accounts: labeled).mapValues(\.key) // split gauges' plans
         UsageHistory.shared.samples(
-            since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in
+            since: now.addingTimeInterval(-FleetForecast.cycleLookbackDays * 86_400)) { samples in
             let rates = FleetForecast.weeklyRates(samples: samples, now: now, planOf: { planKeys[$0] })
             Task { @MainActor in
                 UsageStore.shared.fleetRates = rates

@@ -263,7 +263,8 @@ for starved in [0.0, 2.0, 3.0] {
 check("T27 add iff dry or starved (\(t27Cases) cases)", t27Bad == 0 && t27Cases == 18)
 
 // T28: the near-capacity strings exist in every shipped language, and the tint is one step under add.
-for key in ["near limit over 4 wks", "5-hour pool",
+for key in ["near limit over 4 wks", "5-hour pool", "resets irregular",
+            "resets irregular: demand figure unreliable",
             "lasts at this pace", "runs dry in about %@"] {
     let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
     let complete = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
@@ -276,7 +277,7 @@ for key in ["near limit over 4 wks", "5-hour pool",
 // Codex's dry-pool one alike, is the same action in the same words, so it takes the same amber
 // (B-1544 r4: one grey and one amber "add 1 account" read as two different kinds of advice).
 check("T28 every add tag shown is drawn in the one purchase amber",
-      advisor.contains("case .add, .nearCapacity, .shortAtPace: return TallyColor.warning")
+      advisor.contains("case .add, .nearCapacity, .shortAtPace, .resetsIrregular: return TallyColor.warning")
           && !advisor.contains("case .nearCapacity: return .primary"))
 // T29: near capacity's tag states the four-week figures, the hover's first line word for word,
 // instead of a "near limit" verdict that sat over a row reading "won't run dry" (B-1544).
@@ -445,6 +446,20 @@ check("T37 the provider's name holds the advisor hover when there is no tag",
 check("T37 the name's hover stands down while the tag is showing",
       advisor.contains("func advisorHeadingTooltip(")
           && advisor.contains("guard let state = advisorState(providerID), state.tag == nil else { return [] }"))
+
+// B-429: irregular weekly resets withdraw the purchase advice, in the panel as in the CLI headline.
+let irregularTiers = [AdvisorConclusion.Tier(plan: nil, demandPerWeek: 2.5, accountCount: 2, runsDry: true)]
+check("B-429 an add-account verdict with irregular resets reads as resetsIrregular, even with a dry pool",
+      AdvisorConclusion.decide(verdict: .addAccount, daysOfData: 28, tiers: irregularTiers, split: false,
+                               starvedHoursPerWeek: 5, resetsIrregular: true) == .resetsIrregular)
+check("B-429 the same verdict with regular resets still asks for accounts",
+      AdvisorConclusion.decide(verdict: .addAccount, daysOfData: 28, tiers: irregularTiers, split: false,
+                               starvedHoursPerWeek: 5) == .add(count: 1, plan: nil))
+check("B-429 a sufficient verdict is not rewritten by irregular resets",
+      AdvisorConclusion.decide(verdict: .sufficient, daysOfData: 28, tiers: irregularTiers, split: false,
+                               starvedHoursPerWeek: 0, resetsIrregular: true) == .shortAtPace(plans: []))
+check("B-429 the row's decision is fed the reading's flag",
+      advisor.contains("resetsIrregular: reading.resetsIrregular"))
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

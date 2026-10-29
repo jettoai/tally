@@ -803,5 +803,7 @@ check("…and it joins the flagship window off the snapshot rather than guessing
       cliAdvisorCallSite.contains("flagshipModelOf: { flagship[$0] }")
           && cliAdvisorCallSite.contains("account.modelWindowName"))
 
+runResetChecks()
+
 print(failures == 0 ? "\nAll advisor tests passed." : "\n\(failures) advisor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

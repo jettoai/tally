@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 28
+    nonisolated static let skillVersion = 29
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -78,6 +78,11 @@ extension IntegrationsStore {
           `dryAt` and the fleet was not starved: the four weeks ran close to what the
           accounts hold, yet nothing runs short at this pace, so report it as close to the
           limit rather than advising another account.
+        - `resetsIrregular: true` means the weekly counters keep restarting ahead of their
+          reset time (`earlyResets` of them in the last four weeks), so capacity comes back on
+          no schedule and `demandPerWeek` cannot be priced against it. `verdict` is unchanged
+          but `headline` then says the resets are irregular: report that, and do not advise
+          adding an account from the figure.
         - The numbers behind it: `demandPerWeek` is the pooled weekly burn in account-weeks
           (1.0 is one full account's weekly quota spent per week, so 2.4 needs three
           accounts), `starvedHoursPerWeek` is how many hours a week every account in a pool

@@ -229,7 +229,7 @@ extension PopoverRootView {
             remaining: pool.totalRemaining,
             refills: pool.refills.map { ($0.at, $0.gain) },
             perHour: rate.perHour,
-            steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
+            steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: rate.cycleHours),
             now: now))
     }
 

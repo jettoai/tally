@@ -1,5 +1,8 @@
 import Foundation
 
+private let cycleRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .deletingLastPathComponent().deletingLastPathComponent()
+
 // B-429: the weekly window's measured cycle length (FleetForecast.cycleGaps / cycleHours) and the
 // rate each pool carries from it.
 private func at(_ account: String, _ hoursAgo: Double, used: Double, resetInDays: Double = 3,
@@ -91,4 +94,29 @@ func runCycleTests() {
     expect(close(rates["codex|weeklyAll"]?.cycleHours, 108), "cycle: the unsplit pool is the mean of its accounts (108)")
     expect(close(rates["codex|weeklyModel|m"]?.cycleHours, 48), "cycle: a model pool takes its own accounts' cycle")
     expect(close(rates["codex|weeklyModel|m|plan=a"]?.cycleHours, 48), "cycle: …and so does its plan's")
+
+    // Call-site lock: both products compute the dry date with the pool's measured cycle, not 168.
+    let sites = ["Tally/Stores/UsageStorePublishing.swift", "Tally/Views/FleetStripView.swift"]
+    let texts = sites.map { (try? String(contentsOf: cycleRoot.appendingPathComponent($0), encoding: .utf8)) ?? "" }
+    let populace = ["Tally", "TallyCLI"].flatMap { dir in
+        (FileManager.default.enumerator(atPath: cycleRoot.appendingPathComponent(dir).path)?.allObjects as? [String] ?? [])
+            .filter { $0.hasSuffix(".swift") }
+            .map { (try? String(contentsOf: cycleRoot.appendingPathComponent(dir + "/" + $0), encoding: .utf8)) ?? "" }
+    }.reduce(0) { $0 + $1.components(separatedBy: "FleetForecast.depletion(").count - 1 }
+    expect(populace == 2, "cycle: exactly two FleetForecast.depletion call sites (a third needs this lock extended), got \(populace)")
+    expect(texts.allSatisfy { $0.contains("steadyRefillPerHour(windowHours: rate.cycleHours)") && !$0.contains("windowHours: 168") },
+           "cycle: both depletion call sites pass rate.cycleHours, never 168")
+
+    // Product chain: a 52.8 hour Codex cycle through weeklyRates into the call-site expression. One
+    // account holding 50 units, spending 1.5/hour: refill is 100/52.8 = 1.89/h measured (net < 0,
+    // never dry) but 100/168 = 0.60/h on the nominal week (net 0.90, dry in 55 hours).
+    let chain = FleetForecast.weeklyRates(samples: rollovers("a", gap: 52.8), now: now)["codex|weeklyAll"]
+    let one = FleetPool(kind: .weeklyAll, label: "Weekly", modelName: nil,
+                        members: [.init(accountLabel: "a", remaining: 50, severity: .normal, resetsAt: nil)], refills: [])
+    func dry(_ hours: Double?) -> Date? {
+        FleetForecast.depletion(remaining: one.totalRemaining, refills: [], perHour: 1.5,
+                                steadyRefillPerHour: one.steadyRefillPerHour(windowHours: hours ?? 0), now: now)
+    }
+    expect(chain != nil && dry(chain?.cycleHours) == nil && dry(168) != nil,
+           "cycle: the measured cycle changes the dry date the call sites compute")
 }

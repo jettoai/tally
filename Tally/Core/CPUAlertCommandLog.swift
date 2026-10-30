@@ -31,8 +31,9 @@ enum CPUAlertCommandMask {
     private static let embeddedValue = "(\"[^\"]*\"|'[^']*'|[^\\s\"';&|]+)"
     private static let embeddedAssignment = try! NSRegularExpression(
         pattern: "\\b([A-Za-z_][A-Za-z0-9_]*)=" + embeddedValue)
-    private static let embeddedFlag = try! NSRegularExpression(
-        pattern: "(\\s--?[A-Za-z][A-Za-z0-9_-]*)(=|\\s+)" + embeddedValue)
+    /// A flag name alone, so a flag that is not sensitive never swallows the next one as its value.
+    private static let embeddedFlagName = try! NSRegularExpression(pattern: "\\s--?[A-Za-z][A-Za-z0-9_-]*")
+    private static let embeddedFlagValue = try! NSRegularExpression(pattern: "(?:=|\\s+)" + embeddedValue)
     private static let bearer = try! NSRegularExpression(
         pattern: "(bearer\\s+(?:bearer\\s+)?|authorization(?::\\s*|\\s+)(?:(?:basic|bearer|token)\\s+)?)[^\\s\"';&|]+",
         options: .caseInsensitive)
@@ -56,8 +57,12 @@ enum CPUAlertCommandMask {
         for raw in arguments {
             if redactNext {
                 redactNext = false
-                out.append(redacted)  // whatever follows a sensitive flag is its value, even "-abc"
-                continue
+                // whatever follows a sensitive flag is its value, even "-abc", unless it is itself a
+                // sensitive flag (`--auth-no-challenge --password x`): then the first one took no value
+                if !isSensitiveFlag(raw) {
+                    out.append(redacted)
+                    continue
+                }
             }
             var arg = home.isEmpty ? raw : raw.replacingOccurrences(of: home, with: "~")
             if arg.hasPrefix("-") {
@@ -88,15 +93,37 @@ enum CPUAlertCommandMask {
 
     private static func redactEmbedded(_ text: String) -> String {
         var result = text
-        for (regex, valueGroup) in [(embeddedAssignment, 2), (embeddedFlag, 3)] {
-            for match in regex.matches(in: result, range: whole(result)).reversed() {
-                guard let name = Range(match.range(at: 1), in: result),
-                      matches(sensitiveName, String(result[name])),
-                      let value = Range(match.range(at: valueGroup), in: result) else { continue }
-                result.replaceSubrange(value, with: redacted)
-            }
+        for match in embeddedAssignment.matches(in: result, range: whole(result)).reversed() {
+            guard let name = Range(match.range(at: 1), in: result),
+                  matches(sensitiveName, String(result[name])),
+                  let value = Range(match.range(at: 2), in: result) else { continue }
+            result.replaceSubrange(value, with: redacted)
         }
-        return replaced(bearer, in: result, with: "$1" + redacted)
+        return replaced(bearer, in: redactEmbeddedFlags(result), with: "$1" + redacted)
+    }
+
+    /// Walks flag names left to right; only a sensitive one takes the separator and value after it,
+    /// and not when that value is itself a sensitive flag.
+    private static func redactEmbeddedFlags(_ text: String) -> String {
+        let result = NSMutableString(string: text)
+        var location = 0
+        while let name = embeddedFlagName.firstMatch(
+            in: result as String, range: NSRange(location: location, length: result.length - location)) {
+            location = NSMaxRange(name.range)
+            guard matches(sensitiveName, result.substring(with: name.range)),
+                  let value = embeddedFlagValue.firstMatch(
+                      in: result as String, options: .anchored,
+                      range: NSRange(location: location, length: result.length - location)),
+                  !isSensitiveFlag(result.substring(with: value.range(at: 1))) else { continue }
+            result.replaceCharacters(in: value.range(at: 1), with: redacted)
+            location = value.range(at: 1).location + (redacted as NSString).length
+        }
+        return result as String
+    }
+
+    /// `-x...` whose name (before any `=`) is sensitive.
+    private static func isSensitiveFlag(_ arg: String) -> Bool {
+        arg.hasPrefix("-") && matches(sensitiveName, String(arg.prefix { $0 != "=" }))
     }
 
     private static func redactQuery(_ text: String) -> String {

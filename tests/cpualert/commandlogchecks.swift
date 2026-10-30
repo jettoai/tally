@@ -78,6 +78,47 @@ func runCommandLogChecks() {
         expect(!masked.contains(value) && masked.contains(flag), "M4d argv \(flag) \(value)")
     }
 
+    // M4e the enumeration matrix: form x sensitive flag x separator x value x preceding flag x
+    // following flag, every cell generated. The boolean flag (--auth-no-challenge) is followed by
+    // --password <value>, whose value is the secret. Each cell: the secret is gone, the flag names stay.
+    var cells = 0, red = 0
+    for form in ["argv", "shell", "shell single-quoted value", "shell double-quoted value"] {
+        for flag in ["--password", "--api-key", "--token", "--auth-no-challenge"] {
+            let boolean = flag == "--auth-no-challenge"
+            for sep in ["=", " ", "  ", "\t"] where !(boolean && sep == "=") {
+                for secret in ["hunter2", "-abc123", "--looks-like-a-flag"] {
+                    for before in [[], ["--verbose"], ["-v"]] {
+                        for after in [[], ["--port", "1"]] {
+                            let names = boolean ? [flag, "--password"] : [flag]
+                            let masked: String
+                            if form == "argv" {
+                                let pair = sep == "=" ? [flag + "=" + secret] : [flag, secret]
+                                masked = mask(["client"] + before + (boolean ? [flag, "--password", secret] : pair) + after)
+                            } else {
+                                let value = form.contains("single") ? "'\(secret)'"
+                                    : form.contains("double") ? "\"\(secret)\"" : secret
+                                let core = names.joined(separator: sep) + sep + value
+                                masked = mask(["/bin/zsh", "-c", (["client"] + before + [core] + after).joined(separator: " ")])
+                            }
+                            cells += 1
+                            if masked.contains(secret) || !names.allSatisfy(masked.contains) {
+                                red += 1
+                                expect(false, "M4e \(form) \(before) \(flag) sep=\(sep.debugDescription) \(secret) \(after): \(masked)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // the two review samples verbatim
+    let wget = mask(["wget", "--auth-no-challenge", "--password", "hunter2"])
+    let verbose = mask(["/bin/zsh", "-c", "client --verbose  --password hunter2"])
+    expect(!wget.contains("hunter2") && wget.contains("--password"), "M4e sample: \(wget)")
+    expect(!verbose.contains("hunter2") && verbose.contains("--verbose  --password"), "M4e sample: \(verbose)")
+    print("M4e matrix: \(cells) cells, \(red) red")
+    expect(cells == 1080 && red == 0, "M4e every cell of the masking matrix")
+
     // M5 home
     expect(mask(["ls", "/Users/a/x"]) == "ls ~/x", "M5 the home directory is ~")
 

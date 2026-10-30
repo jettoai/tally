@@ -19248,251 +19248,6 @@
         }
       }
     },
-    "%1$@ (%2$@%% of the machine)": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（佔 %2$@%%）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（占 %2$@%%）"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（全体の %2$@%%）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@(전체의 %2$@%%)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ (bilgisayarın %%%2$@ kadarı)"
-          }
-        }
-      }
-    },
-    "%1$@ (%2$@%% · %3$@)": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（佔 %2$@%% · %3$@）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（占 %2$@%% · %3$@）"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@（全体の %2$@%% · %3$@）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@(전체의 %2$@%% · %3$@)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ (bilgisayarın %%%2$@ kadarı · %3$@)"
-          }
-        }
-      }
-    },
-    "service": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "服務"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "服务"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サービス"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "서비스"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "hizmet"
-          }
-        }
-      }
-    },
-    "command": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "指令"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "指令"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンド"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "명령"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "komut"
-          }
-        }
-      }
-    },
-    "VM": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "虛擬機"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "虚拟机"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仮想マシン"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가상 머신"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sanal makine"
-          }
-        }
-      }
-    },
-    "browser": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "瀏覽器"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "浏览器"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "브라우저"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "tarayıcı"
-          }
-        }
-      }
-    },
-    "app": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "앱"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "uygulama"
-          }
-        }
-      }
-    },
     "CPU %1$@%% for %2$@ seconds · no single cause: %3$@": {
       "extractionState": "manual",
       "localizations": {
@@ -20788,107 +20543,72 @@
         }
       }
     },
-    "Tally itself": {
+    "other projects": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 本身"
+            "value": "其他專案"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 本身"
+            "value": "其他项目"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 自体"
+            "value": "その他のプロジェクト"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 자체"
+            "value": "기타 프로젝트"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally uygulaması"
+            "value": "diğer projeler"
           }
         }
       }
     },
-    "other projects (%@%% of the machine)": {
+    "other": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "其他專案（佔 %@%%）"
+            "value": "其他"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "其他项目（占 %@%%）"
+            "value": "其他"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "その他のプロジェクト（全体の %@%%）"
+            "value": "その他"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기타 프로젝트(전체의 %@%%)"
+            "value": "기타"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "diğer projeler (bilgisayarın %%%@ kadarı)"
-          }
-        }
-      }
-    },
-    "other (%@%% of the machine)": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他（佔 %@%%）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他（占 %@%%）"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他（全体の %@%%）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기타(전체의 %@%%)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "diğer (bilgisayarın %%%@ kadarı)"
+            "value": "diğer"
           }
         }
       }

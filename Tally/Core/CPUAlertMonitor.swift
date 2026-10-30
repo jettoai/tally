@@ -113,31 +113,18 @@ final class CPUAlertMonitor {
         func display(_ entry: (culprit: CPUAlertCulprit, name: String, share: Int)) -> String {
             switch entry.culprit.kind {
             case .system: L("System")
-            case .tally: L("Tally itself")
+            case .tally: "Tally"
             default: entry.name
             }
         }
-        // What kind of work it is, for the kinds that do not say so themselves.
-        func category(_ culprit: CPUAlertCulprit) -> String? {
-            switch (culprit.kind, culprit.role) {
-            case (.vm, _): L("VM")
-            case (.browser, _): L("browser")
-            case (.app, _): L("app")
-            case (_, .service): L("service")
-            case (_, .command): L("command")
-            default: nil
-            }
-        }
-        var parts = shares.map { entry in
-            category(entry.culprit).map {
-                String(format: L("%1$@ (%2$@%% · %3$@)"), display(entry), String(entry.share), $0)
-            } ?? String(format: L("%1$@ (%2$@%% of the machine)"), display(entry), String(entry.share))
-        }
+        // Name and percent only, so a collapsed banner (about four lines) still shows all five groups;
+        // the kind of work stays in the log (`cpu-alert.log`, `cpu-alert-commands.log`).
+        var parts = shares.map { "\(display($0)) \($0.share)%" }
         if banner.otherProjects > 0 {
-            parts.append(String(format: L("other projects (%@%% of the machine)"), String(banner.otherProjects)))
+            parts.append("\(L("other projects")) \(banner.otherProjects)%")
         }
         if banner.other > 0 {
-            parts.append(String(format: L("other (%@%% of the machine)"), String(banner.other)))
+            parts.append("\(L("other")) \(banner.other)%")
         }
         // Every part carries its percent, so the banner adds up to its title; only the opening
         // wording ("mostly" or "no single cause") follows `namedShares`' leader test. Nothing at all

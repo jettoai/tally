@@ -362,10 +362,9 @@ do {
                 "CPU still running hot: %@",
                 "CPU %1$@%% for %2$@ seconds · mostly %3$@", "CPU %1$@%% · now mostly %2$@",
                 "CPU %1$@%% for %2$@ seconds · no single cause: %3$@",
-                "CPU %1$@%% · no single cause: %2$@", "%1$@ (%2$@%% of the machine)", ", ",
+                "CPU %1$@%% · no single cause: %2$@", ", ",
                 "CPU alert", "Notify when CPU stays above 90% for 30 seconds, naming the project behind it.",
-                "System", "Tally itself", "other projects (%@%% of the machine)", "other (%@%% of the machine)",
-                "%1$@ (%2$@%% · %3$@)", "service", "command", "VM", "browser", "app"]
+                "System", "other projects", "other"]
     for key in keys {
         let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
         let ok = ["zh-Hant", "zh-Hans", "ja", "ko", "tr"].allSatisfy { lang in
@@ -384,21 +383,23 @@ do {
         }
         expect(ok, "S5 \"\(key)\" keeps every placeholder and the percent sign")
     }
-    for key in keys where key.contains("(%@%%") {
-        let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
-        let ok = !locs.isEmpty && locs.values.allSatisfy { loc in
-            let value = ((loc as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
-            return value.components(separatedBy: "%@").count == 2 && value.contains("%%")
-        }
-        expect(ok, "S5 \"\(key)\" keeps its placeholder and the percent sign")
+    // The retired wording (kind-of-work words, "of the machine", "Tally itself") is gone from the catalog.
+    for key in ["Tally itself", "%1$@ (%2$@%% of the machine)", "%1$@ (%2$@%% · %3$@)",
+                "other projects (%@%% of the machine)", "other (%@%% of the machine)",
+                "service", "command", "VM", "browser", "app"] {
+        expect(strings[key] == nil, "S5 the retired key \"\(key)\" is not left behind")
     }
 }
 
 // S6 the banner prints the rest, and names Tally's and the OS's work in words
-for key in ["L(\"other (%@%% of the machine)\")", "L(\"other projects (%@%% of the machine)\")",
-            "L(\"Tally itself\")", "L(\"System\")", "L(\"service\")", "L(\"command\")", "L(\"VM\")",
-            "L(\"browser\")", "L(\"app\")", "L(\"%1$@ (%2$@%% · %3$@)\")"] {
+for key in ["L(\"other\")", "L(\"other projects\")", "L(\"System\")", "\"Tally\"",
+            "\"\\(display($0)) \\($0.share)%\""] {
     expect(monitor.contains(key), "S6 the monitor prints \(key)")
+}
+// a group is its name and percent only: no kind-of-work word, no "of the machine"
+for retired in ["L(\"service\")", "L(\"command\")", "L(\"VM\")", "L(\"browser\")", "L(\"app\")",
+                "of the machine", "Tally itself"] {
+    expect(!monitor.contains(retired), "S6 the monitor no longer prints \(retired)")
 }
 
 // S7 the command-line record: arguments reach the file only masked, the file is 0600, and no

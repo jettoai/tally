@@ -240,7 +240,7 @@ do {
                                     CPUAlertCulprit(name: "tally", percent: 12)], now: t0)
     expect(line.filter { $0 == "\n" }.count == 1 && line.hasSuffix("\n"), "T14 one line, newline last")
     expect(line.contains("cpu-alert=alarm") && line.contains("announced=no reason=host")
-           && line.contains("top=bigdata:61,tally:12") && line.contains("cpu=94 cores=16"),
+           && line.contains("top=bigdata:61:project,tally:12:project") && line.contains("cpu=94 cores=16"),
            "T14 fields and names")
     let clear = L.logLine(.clear, busy: 40, cores: 16, culprits: [], now: t0)
     expect(clear.contains("cpu-alert=clear") && !clear.contains("announced") && !clear.contains("top="),
@@ -297,6 +297,8 @@ do {
 
 // T18 to T25, the whole-machine breakdown (CPUAlertBreakdown.swift): breakdownchecks.swift
 runBreakdownChecks()
+runRealSampleChecks()
+runCommandLogChecks()
 
 // MARK: - structural promises, read as text
 
@@ -351,7 +353,7 @@ for banned in ["KERN_PROCARGS", "commandLine(", "proc_listallpids", "Process()",
     expect(!readers.contains(banned), "S4 the readers never use \(banned)")
 }
 
-// S5 the seven strings, in every language
+// S5 the banner's strings, in every language
 do {
     let data = (try? Data(contentsOf: URL(fileURLWithPath: "Tally/Resources/Localizable.xcstrings"))) ?? Data()
     let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -362,14 +364,15 @@ do {
                 "CPU %1$@%% for %2$@ seconds · no single cause: %3$@",
                 "CPU %1$@%% · no single cause: %2$@", "%1$@ (%2$@%% of the machine)", ", ",
                 "CPU alert", "Notify when CPU stays above 90% for 30 seconds, naming the project behind it.",
-                "System", "Tally itself", "other projects (%@%% of the machine)", "other (%@%% of the machine)"]
+                "System", "Tally itself", "other projects (%@%% of the machine)", "other (%@%% of the machine)",
+                "%1$@ (%2$@%% · %3$@)", "service", "command", "VM", "browser", "app"]
     for key in keys {
         let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]
-        let ok = ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { lang in
+        let ok = ["zh-Hant", "zh-Hans", "ja", "ko", "tr"].allSatisfy { lang in
             let unit = (locs[lang] as? [String: Any])?["stringUnit"] as? [String: Any]
             return unit?["state"] as? String == "translated" && !((unit?["value"] as? String) ?? "").isEmpty
         }
-        expect(ok, "S5 \"\(key)\" is translated in four languages")
+        expect(ok, "S5 \"\(key)\" is translated in five languages")
     }
     // The format strings keep their placeholders in every language.
     for key in keys where key.contains("%1$@") {
@@ -393,8 +396,38 @@ do {
 
 // S6 the banner prints the rest, and names Tally's and the OS's work in words
 for key in ["L(\"other (%@%% of the machine)\")", "L(\"other projects (%@%% of the machine)\")",
-            "L(\"Tally itself\")", "L(\"System\")"] {
+            "L(\"Tally itself\")", "L(\"System\")", "L(\"service\")", "L(\"command\")", "L(\"VM\")",
+            "L(\"browser\")", "L(\"app\")", "L(\"%1$@ (%2$@%% · %3$@)\")"] {
     expect(monitor.contains(key), "S6 the monitor prints \(key)")
+}
+
+// S7 the command-line record: arguments reach the file only masked, the file is 0600, and no
+// upload path knows its name
+do {
+    let commandReaders = read("Tally/Core/CPUAlertCommandReaders.swift")
+    let commandLog = read("Tally/Core/CPUAlertCommandLog.swift")
+    expect(!commandReaders.isEmpty && !commandLog.isEmpty, "S7 the sources are readable")
+    for banned in ["print(", "NSLog", "Logger(", "os_log", "SentrySDK", "ErrorReporting", "URLSession"] {
+        expect(!commandReaders.contains(banned) && !commandLog.contains(banned), "S7 the record never uses \(banned)")
+    }
+    expect(commandLog.contains("0o600") && commandLog.contains("posixPermissions: 0o600"), "S7 the file is made 0600")
+    expect(commandReaders.contains("CPUAlertCommandLog.argvField(") && !commandReaders.contains("joined("),
+           "S7 an argument vector leaves the reader only through the masker")
+    expect(commandReaders.contains("CPUAlertCommandMask.arguments(procargs:") && !commandReaders.contains("environmentValue("),
+           "S7 only the argument half of the process buffer is used")
+    expect(!readers.contains("CPUAlertCommand"), "S7 the names-only readers know nothing of the record")
+    expect(monitor.components(separatedBy: "CPUAlertCommandReaders.write(").count == 2
+           && monitor.range(of: "CPUAlertCommandReaders.write(").map { $0.lowerBound > monitor.range(of: "if announce {")!.upperBound } == true,
+           "S7 the record is written from the announcing branch, once")
+    let upload = ["Tally/Core/ErrorReporting.swift", "TallyCLI"].flatMap { path -> [String] in
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { return [] }
+        guard isDir.boolValue else { return [read(path)] }
+        return ((try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []).filter { $0.hasSuffix(".swift") }
+            .map { read(path + "/" + $0) }
+    }
+    expect(upload.count > 1 && !upload.contains { $0.contains("cpu-alert-commands") || $0.contains("cpuAlertCommandsFile") },
+           "S7 neither error reporting nor the CLI (knock, reports) names the record's file")
 }
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")

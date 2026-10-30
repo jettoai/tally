@@ -9,7 +9,13 @@ import Foundation
 // Darwin-heavy files (`ProcessTree.displayName`) are passed in so the harness compiles this alone.
 
 enum CPUAlertKind: String, Equatable, Sendable {
-    case project, system, tally, app, process
+    case project, system, tally, app, process, vm, browser
+}
+
+/// What a project's or an executable's work is, for the banner's category word: a process holding
+/// a TCP LISTEN socket is a service (a dev server), anything else is a command that ran long.
+enum CPUAlertRole: String, Equatable, Sendable {
+    case service, command
 }
 
 /// One process over the scan window.
@@ -24,6 +30,8 @@ struct CPUAlertProcessWork: Equatable, Sendable {
     /// the app that started it), read only for OS executables that worked; nil when the kernel
     /// does not say (B-2238).
     var responsiblePath: String? = nil
+    /// Holds a TCP LISTEN socket; read only for processes that worked outside the OS.
+    var listening: Bool = false
 }
 
 struct CPUAlertScan: Equatable, Sendable {
@@ -33,7 +41,7 @@ struct CPUAlertScan: Equatable, Sendable {
     var busySeconds: Double
 }
 
-/// What the banner prints: up to three names, then the rest in two sums.
+/// What the banner prints: up to five names, then the rest in two sums.
 struct CPUAlertBanner: Equatable, Sendable {
     var named: [CPUAlertCulprit]
     var otherProjects: Int
@@ -105,12 +113,14 @@ extension CPUAlertLogic {
     /// Who one process's work belongs to, first rule that holds: Tally's own (cwd under `~/.tally`
     /// or running from a Tally bundle); a session root; a checkout; the same three asked of each
     /// ancestor; the first checkout under a scratch location (`tempPrefixes`), which yields to any
-    /// of the above up the chain; the OS by path; an app by its outermost bundle; else the
-    /// executable's name. An OS executable whose responsible process is inside an app bundle is that
-    /// app's: Docker's virtual machine lives under /System and is Docker's work, whoever's app it is.
+    /// of the above up the chain; a virtual machine by path; the OS by path; an app by its outermost
+    /// bundle (a browser when `browsers` names it); else the executable's name. A virtual machine is
+    /// named for the app whose process macOS holds responsible for it or whose bundle it runs from:
+    /// Docker's lives under /System and is Docker's work, whoever's app it is.
     static func owner(of pid: Int32, in byPid: [Int32: CPUAlertProcessWork], roots: Set<String>,
                       home: String, isCheckout: (String) -> Bool,
-                      displayName: (String) -> String?) -> (kind: CPUAlertKind, name: String) {
+                      displayName: (String) -> String?,
+                      browsers: Set<String> = []) -> (kind: CPUAlertKind, name: String) {
         func project(_ work: CPUAlertProcessWork) -> (kind: CPUAlertKind, name: String)? {
             guard let cwd = work.cwd else { return nil }
             if cwd == home + "/.tally" || cwd.hasPrefix(home + "/.tally/") { return (.tally, "Tally") }
@@ -142,12 +152,24 @@ extension CPUAlertLogic {
             cursor = up.parent
         }
         if let scratch { return scratch }
+        if isVirtualMachine(path) {
+            return (.vm, work.responsiblePath.flatMap(appName) ?? appName(of: path) ?? "Virtual machine")
+        }
         if systemPrefixes.contains(where: path.hasPrefix) {
             if let name = work.responsiblePath.flatMap(appName) { return (.app, name) }
             return (.system, "System")
         }
-        if let name = appName(of: path) { return (.app, name) }
+        if let name = appName(of: path) { return (browsers.contains(name) ? .browser : .app, name) }
         return (.process, path.isEmpty ? "unknown" : displayName(path) ?? "unknown")
+    }
+
+    /// Apple's hypervisor framework, and the other hypervisors' executables by name. A hypervisor
+    /// outside this list reads as an app or a process (a named blind spot).
+    static let vmExecutables = ["prl_vm_app", "vmware-vmx", "VBoxHeadless", "VirtualBoxVM"]
+    static func isVirtualMachine(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        return path.contains("/Virtualization.framework/") || vmExecutables.contains(name)
+            || name.hasPrefix("qemu-system-")
     }
 
     /// The outermost app bundle an executable is inside, by name, nil when it is in none.
@@ -163,27 +185,37 @@ extension CPUAlertLogic {
     /// negative.
     static func breakdown(_ scan: CPUAlertScan, busy: Double, roots: Set<String>, home: String,
                           isCheckout: (String) -> Bool,
-                          displayName: (String) -> String?) -> [CPUAlertCulprit] {
+                          displayName: (String) -> String?,
+                          browsers: Set<String> = []) -> [CPUAlertCulprit] {
         let byPid = Dictionary(scan.processes.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a })
-        struct Key: Hashable { var kind: CPUAlertKind; var name: String }
+        // The role splits one project's dev server from its commands into two groups: a partition,
+        // so the sum is unchanged.
+        struct Key: Hashable { var kind: CPUAlertKind; var name: String; var role: CPUAlertRole? }
         var seconds: [Key: Double] = [:]
         var accounted = 0.0
         for work in scan.processes where work.seconds > 0 {
             let (kind, name) = owner(of: work.pid, in: byPid, roots: roots, home: home,
-                                     isCheckout: isCheckout, displayName: displayName)
-            seconds[Key(kind: kind, name: name), default: 0] += work.seconds
+                                     isCheckout: isCheckout, displayName: displayName, browsers: browsers)
+            seconds[Key(kind: kind, name: name, role: role(kind, work)), default: 0] += work.seconds
             accounted += work.seconds
         }
         let residual = scan.busySeconds - accounted
-        if residual > 0 { seconds[Key(kind: .system, name: "System"), default: 0] += residual }
+        if residual > 0 { seconds[Key(kind: .system, name: "System", role: nil), default: 0] += residual }
         let denominator = max(scan.busySeconds, accounted)
         guard denominator > 0 else { return [] }
         return ranked(seconds.map {
-            CPUAlertCulprit(name: $0.key.name, percent: $0.value / denominator * busy, kind: $0.key.kind)
+            CPUAlertCulprit(name: $0.key.name, percent: $0.value / denominator * busy, kind: $0.key.kind,
+                            role: $0.key.role)
         })
     }
 
-    /// The three names and what the rest adds up to, in whole percents that sum to `busy` rounded:
+    /// Only a project's or a bare executable's work is a service or a command; the other kinds
+    /// say what they are.
+    static func role(_ kind: CPUAlertKind, _ work: CPUAlertProcessWork) -> CPUAlertRole? {
+        kind == .project || kind == .process ? (work.listening ? .service : .command) : nil
+    }
+
+    /// The five names and what the rest adds up to, in whole percents that sum to `busy` rounded:
     /// each part takes its floor and the points left go to the largest fractions (largest
     /// remainder), so no set of parts rounds past the title. Named shares come back whole.
     static func banner(_ groups: [CPUAlertCulprit], busy: Double) -> CPUAlertBanner {

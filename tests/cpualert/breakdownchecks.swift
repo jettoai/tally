@@ -124,10 +124,11 @@ func runBreakdownChecks() {
 
     // T21 owner, rule by rule
     do {
-        func own(_ list: [CPUAlertProcessWork], roots: Set<String> = bRoots) -> (CPUAlertKind, String) {
+        func own(_ list: [CPUAlertProcessWork], roots: Set<String> = bRoots,
+                 browsers: Set<String> = ["Google Chrome"]) -> (CPUAlertKind, String) {
             let byPid = Dictionary(uniqueKeysWithValues: list.map { ($0.pid, $0) })
             let r = L.owner(of: list[0].pid, in: byPid, roots: roots, home: bHome,
-                            isCheckout: bIsCheckout, displayName: bName)
+                            isCheckout: bIsCheckout, displayName: bName, browsers: browsers)
             return (r.kind, r.name)
         }
         expect(own([work(1, 1, cwd: "/Users/a/.tally/probe", path: claudeBin)]) == (.tally, "Tally"),
@@ -144,20 +145,26 @@ func runBreakdownChecks() {
         expect(own([work(50, 1, cwd: "/", path: "/usr/bin/python3", parent: 51),
                     work(51, 0, cwd: "/", path: "/usr/bin/python3", parent: 50)]) == (.process, "python3"),
                "T21 a parent cycle ends and falls to the path rules")
-        expect(own([work(1, 1, cwd: "/", path: vm)]) == (.system, "System"),
-               "T21 /System is the system when the kernel names nobody responsible")
-        expect(own([work(1, 1, cwd: "/", path: vm, responsible: dockerBackend)]) == (.app, "Docker"),
+        expect(own([work(1, 1, cwd: "/", path: vm)]) == (.vm, "Virtual machine"),
+               "T21 the hypervisor framework is a virtual machine, not the system, when the kernel names nobody")
+        expect(own([work(1, 1, cwd: "/", path: vm, responsible: dockerBackend)]) == (.vm, "Docker"),
                "T21 B-2238 a virtual machine whose responsible process is Docker's is Docker, not the system")
         expect(own([work(1, 1, cwd: "/", path: vm,
-                         responsible: "/Applications/UTM.app/Contents/MacOS/UTM")]) == (.app, "UTM"),
+                         responsible: "/Applications/UTM.app/Contents/MacOS/UTM")]) == (.vm, "UTM"),
                "T21 B-2238 another app's virtual machine is that app's, never Docker")
-        expect(own([work(1, 1, cwd: "/", path: vm, responsible: "/sbin/launchd")]) == (.system, "System"),
-               "T21 B-2238 a responsible process outside any app bundle leaves it the system")
+        expect(own([work(1, 1, cwd: "/", path: vm, responsible: "/sbin/launchd")]) == (.vm, "Virtual machine"),
+               "T21 B-2238 a responsible process outside any app bundle leaves it an unnamed virtual machine")
+        expect(own([work(1, 1, cwd: "/", path: "/Applications/Parallels Desktop.app/Contents/MacOS/prl_vm_app")]) == (.vm, "Parallels Desktop")
+               && own([work(1, 1, cwd: "/", path: "/opt/homebrew/bin/qemu-system-aarch64")]) == (.vm, "Virtual machine"),
+               "T21 another hypervisor is a virtual machine by its executable, named for its bundle when it has one")
         expect(own([work(1, 1, cwd: "\(ws)/geo", path: vm, responsible: dockerBackend)]) == (.project, "geo"),
                "T21 B-2238 a project the process runs in still outranks the responsible app")
         expect(own([work(1, 1, cwd: "/", path: helper, responsible: "/Applications/UTM.app/Contents/MacOS/UTM")])
-               == (.app, "Google Chrome"), "T21 B-2238 the responsible app is asked of OS executables only")
-        expect(own([work(1, 1, cwd: "/", path: helper)]) == (.app, "Google Chrome"), "T21 a helper is its outer app")
+               == (.browser, "Google Chrome"), "T21 B-2238 the responsible app is asked of OS executables only")
+        expect(own([work(1, 1, cwd: "/", path: helper)]) == (.browser, "Google Chrome"),
+               "T21 a helper is its outer app, a browser when the OS says that app opens https links")
+        expect(own([work(1, 1, cwd: "/", path: helper)], browsers: []) == (.app, "Google Chrome"),
+               "T21 with no browser list it stays an app")
         expect(own([work(1, 1, cwd: "/tmp", path: "/usr/bin/python3")]) == (.process, "python3"),
                "T21 /usr/bin/python3 outside any project is python3, not the system")
         expect(own([work(1, 1, cwd: nil, path: nil)]) == (.process, "unknown"), "T21 an unreadable process is unknown")
@@ -183,14 +190,14 @@ func runBreakdownChecks() {
             return L.banner(breakdown(scan), busy: 100)
         }
         let docker = crossing(responsible: dockerBackend)
-        expect(docker.named.first?.name == "Docker" && docker.named.first?.kind == .app
+        expect(docker.named.first?.name == "Docker" && docker.named.first?.kind == .vm
                && docker.named.first.map { Int($0.percent.rounded()) } == 51,
                "T21b the banner leads with Docker at 51%")
         expect(docker.named.first(where: { $0.kind == .system }).map { $0.percent < 30 } ?? true,
                "T21b the virtual machine is no longer counted as the system (only the 27% no process accounts for is)")
         let unknown = crossing(responsible: nil)
-        expect(unknown.named.first?.kind == .system && unknown.named.first?.name == "System",
-               "T21b with no responsible process it reads as the system, as before (failure leans to missing)")
+        expect(unknown.named.first?.kind == .vm && unknown.named.first?.name == "Virtual machine",
+               "T21b with no responsible process it is its own group, a virtual machine, no longer folded into the system")
     }
     expect(L.appName(of: dockerBackend) == "Docker"
            && L.appName(of: "/Applications/Docker.app/Contents/MacOS/Docker Desktop.app/Contents/MacOS/x") == "Docker"
@@ -239,7 +246,7 @@ func runBreakdownChecks() {
     do {
         let named = [CPUAlertCulprit(name: "onemark", percent: 25), CPUAlertCulprit(name: "System", percent: 15, kind: .system)]
         let line = L.logLine(.alarm(silence: nil), busy: 100, cores: 16, culprits: named, rest: (21, 30), now: t0)
-        expect(line.contains(" top=onemark:25,System:15 rest=projects:21,other:30\n"), "T25 rest after top")
+        expect(line.contains(" top=onemark:25:project,System:15:system rest=projects:21,other:30\n"), "T25 rest after top")
         let bare = L.logLine(.alarm(silence: nil), busy: 100, cores: 16, culprits: named, now: t0)
         expect(!bare.contains("rest="), "T25 no rest when both are zero")
         let half = L.logLine(.clear, busy: 40, cores: 16, culprits: [], rest: (0, 5), now: t0)

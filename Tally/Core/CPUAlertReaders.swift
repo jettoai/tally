@@ -62,7 +62,9 @@ enum CPUAlertReaders {
             return CPUAlertProcessWork(pid: p.pid, parent: p.parent, seconds: worked,
                                        cwd: MachineLoadRollup.workingDirectory(of: p.pid),
                                        executablePath: path,
-                                       responsiblePath: system ? responsiblePath(of: p.pid) : nil)
+                                       responsiblePath: system ? responsiblePath(of: p.pid) : nil,
+                                       listening: worked > 0 && !system && path != nil
+                                           && !ProcessTree.listeningPorts(of: [p.pid]).isEmpty)
         }
         return CPUAlertScan(processes: processes, busySeconds: busyShare / 100 * elapsed * cores)
     }

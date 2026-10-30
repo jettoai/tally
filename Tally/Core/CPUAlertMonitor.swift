@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import UserNotifications
 
@@ -65,6 +66,12 @@ final class CPUAlertMonitor {
         case .clear: false
         }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        // Asked of the OS, not listed here: the apps that can open an https link. The workspace
+        // call belongs on the main actor, so it is read before the detached task.
+        let browsers: Set<String> = announce
+            ? Set(NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
+                .map { $0.deletingPathExtension().lastPathComponent })
+            : []
         Task {
             // THE EXPENSIVE READING HAPPENS ONLY HERE: a banner is going out, and it accounts for
             // the whole machine so its names and its "other" add up to the figure in its title.
@@ -72,13 +79,17 @@ final class CPUAlertMonitor {
             // The breakdown stats every ancestor's ".git", so it runs off the main actor too (TALLY-94).
             var groups = projects
             if announce {
-                let found = await Task.detached(priority: .utility) {
-                    await CPUAlertReaders.scan().map {
-                        CPUAlertLogic.breakdown(
-                            $0, busy: busy, roots: roots, home: home,
-                            isCheckout: { FileManager.default.fileExists(atPath: $0 + "/.git") },
-                            displayName: { ProcessTree.displayName(forPath: $0) })
-                    }
+                let found = await Task.detached(priority: .utility) { () -> [CPUAlertCulprit]? in
+                    guard let scan = await CPUAlertReaders.scan() else { return nil }
+                    let isCheckout: (String) -> Bool = { FileManager.default.fileExists(atPath: $0 + "/.git") }
+                    let displayName: (String) -> String? = { ProcessTree.displayName(forPath: $0) }
+                    // The command lines of the busiest processes, to a file of their own (0600).
+                    CPUAlertCommandReaders.write(scan, event: event, busy: busy, cores: cores, roots: roots,
+                                                 home: home, isCheckout: isCheckout, displayName: displayName,
+                                                 browsers: browsers, now: now)
+                    return CPUAlertLogic.breakdown(scan, busy: busy, roots: roots, home: home,
+                                                   isCheckout: isCheckout, displayName: displayName,
+                                                   browsers: browsers)
                 }.value
                 if let found, !found.isEmpty { groups = found }
             }
@@ -106,8 +117,21 @@ final class CPUAlertMonitor {
             default: entry.name
             }
         }
-        var parts = shares.map {
-            String(format: L("%1$@ (%2$@%% of the machine)"), display($0), String($0.share))
+        // What kind of work it is, for the kinds that do not say so themselves.
+        func category(_ culprit: CPUAlertCulprit) -> String? {
+            switch (culprit.kind, culprit.role) {
+            case (.vm, _): L("VM")
+            case (.browser, _): L("browser")
+            case (.app, _): L("app")
+            case (_, .service): L("service")
+            case (_, .command): L("command")
+            default: nil
+            }
+        }
+        var parts = shares.map { entry in
+            category(entry.culprit).map {
+                String(format: L("%1$@ (%2$@%% · %3$@)"), display(entry), String(entry.share), $0)
+            } ?? String(format: L("%1$@ (%2$@%% of the machine)"), display(entry), String(entry.share))
         }
         if banner.otherProjects > 0 {
             parts.append(String(format: L("other projects (%@%% of the machine)"), String(banner.otherProjects)))

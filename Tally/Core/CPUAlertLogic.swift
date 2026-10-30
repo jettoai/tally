@@ -29,6 +29,11 @@ struct CPUAlertCulprit: Equatable, Sendable {
     var name: String
     var percent: Double
     var kind: CPUAlertKind = .project
+    /// Set by the whole-machine breakdown; nil for kinds that say what they are and for the
+    /// rollup's projects.
+    var role: CPUAlertRole? = nil
+    /// The log's word for what this is.
+    var category: String { role?.rawValue ?? kind.rawValue }
 }
 
 /// One project as the rollup reads it, reduced to what this file needs. A plain value rather than
@@ -95,7 +100,7 @@ enum CPUAlertLogic {
     static let minimumShare = 5.0
     /// A project must hold this share to be the leader a handover is decided on.
     static let leaderShare = 10.0
-    static let maxNames = 3
+    static let maxNames = 5
 
     /// The Settings switch (`SettingsStore.cpuAlertEnabled` writes it). Read here as well so the
     /// monitor needs no store behind it; on unless somebody turned it off.
@@ -262,7 +267,7 @@ enum CPUAlertLogic {
     /// an emptied name left out), each with its own rounded percent and the culprit it came from,
     /// plus the single-cause test: `leading` when the first culprit clears `leaderShare` AND
     /// outweighs the other names combined. Otherwise the caller says "no single cause" rather than
-    /// calling one of three projects at 30% each the cause; the percents print either way, so the
+    /// calling one of five projects at 30% each the cause; the percents print either way, so the
     /// banner always adds up.
     static func namedShares(_ culprits: [CPUAlertCulprit])
         -> (names: [(culprit: CPUAlertCulprit, name: String, share: Int)], leading: Bool) {
@@ -277,8 +282,8 @@ enum CPUAlertLogic {
     }
 
     /// One line for `~/.tally/logs/cpu-alert.log`: ISO instant, fixed `key=value` fields, the names
-    /// last, then what the banner summed outside them (`rest=`, zero parts left out). Names only,
-    /// never arguments.
+    /// last (`name:percent:category`), then what the banner summed outside them (`rest=`, zero parts
+    /// left out). Names only, never arguments (those go to a file of their own, CPUAlertCommandLog.swift).
     static func logLine(_ event: CPUAlertEvent, busy: Double, cores: Int,
                         culprits: [CPUAlertCulprit], rest: (projects: Int, other: Int) = (0, 0),
                         now: Date) -> String {
@@ -289,7 +294,7 @@ enum CPUAlertLogic {
         case .clear: ("clear", "")
         }
         let names = culprits.map {
-            "\(keystrokeStripped($0.name)):\(Int($0.percent.rounded()))"
+            "\(keystrokeStripped($0.name)):\(Int($0.percent.rounded())):\($0.category)"
         }.joined(separator: ",")
         let restParts = [("projects", rest.projects), ("other", rest.other)]
             .filter { $0.1 > 0 }.map { "\($0.0):\($0.1)" }.joined(separator: ",")

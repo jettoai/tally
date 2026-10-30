@@ -51,6 +51,19 @@ func runCommandLogChecks() {
            && !script.contains("zzz") && script.contains("PORT=3000") && script.contains("--port 80"),
            "M4b secrets inside a shell script argument are masked, ordinary settings stay")
 
+    // M4c an Authorization header keeps its scheme word and loses the credential, as one argument
+    // and inside a shell string
+    for (header, expected) in [("Authorization: Basic dXNlcjpwdw", "Authorization: Basic <redacted>"),
+                               ("Authorization: Token abc123xyz", "Authorization: Token <redacted>"),
+                               ("Proxy-Authorization: Basic dXNlcjpwdw", "Proxy-Authorization: Basic <redacted>"),
+                               ("Authorization:Basic dXNlcjpwdw", "Authorization:Basic <redacted>")] {
+        let credential = String(header.split(separator: " ").last ?? "")
+        for (form, masked) in [("argv", mask(["curl", "-H", header])),
+                               ("shell", mask(["/bin/zsh", "-c", "curl -s -H \"\(header)\" https://h/x"]))] {
+            expect(!masked.contains(credential) && masked.contains(expected), "M4c \(form) form: \(header)")
+        }
+    }
+
     // M5 home
     expect(mask(["ls", "/Users/a/x"]) == "ls ~/x", "M5 the home directory is ~")
 

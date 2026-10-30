@@ -34,7 +34,8 @@ enum CPUAlertCommandMask {
     private static let embeddedFlag = try! NSRegularExpression(
         pattern: "(\\s--?[A-Za-z][A-Za-z0-9_-]*)([= ])" + embeddedValue)
     private static let bearer = try! NSRegularExpression(
-        pattern: "((?:bearer|authorization:?)\\s+(?:bearer\\s+)?)[^\\s\"';&|]+", options: .caseInsensitive)
+        pattern: "(bearer\\s+(?:bearer\\s+)?|authorization(?::\\s*|\\s+)(?:(?:basic|bearer|token)\\s+)?)[^\\s\"';&|]+",
+        options: .caseInsensitive)
     private static let longRun = try! NSRegularExpression(pattern: "[A-Za-z0-9+/_-]{32,}={0,2}")
     private static let uuid = try! NSRegularExpression(
         pattern: "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")

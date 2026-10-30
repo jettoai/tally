@@ -212,7 +212,8 @@ extension CPUAlertLogic {
     /// Only a project's or a bare executable's work is a service or a command; the other kinds
     /// say what they are.
     static func role(_ kind: CPUAlertKind, _ work: CPUAlertProcessWork) -> CPUAlertRole? {
-        kind == .project || kind == .process ? (work.listening ? .service : .command) : nil
+        guard kind == .project || kind == .process else { return nil }
+        return work.listening ? .service : .command
     }
 
     /// The five names and what the rest adds up to, in whole percents that sum to `busy` rounded:

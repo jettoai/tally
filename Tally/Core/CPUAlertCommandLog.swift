@@ -86,11 +86,11 @@ enum CPUAlertCommandMask {
 
     private static func redactEmbedded(_ text: String) -> String {
         var result = text
-        for (regex, nameGroup) in [(embeddedAssignment, 1), (embeddedFlag, 1)] {
+        for (regex, valueGroup) in [(embeddedAssignment, 2), (embeddedFlag, 3)] {
             for match in regex.matches(in: result, range: whole(result)).reversed() {
-                guard let name = Range(match.range(at: nameGroup), in: result),
+                guard let name = Range(match.range(at: 1), in: result),
                       matches(sensitiveName, String(result[name])),
-                      let value = Range(match.range(at: regex === embeddedFlag ? 3 : 2), in: result) else { continue }
+                      let value = Range(match.range(at: valueGroup), in: result) else { continue }
                 result.replaceSubrange(value, with: redacted)
             }
         }
@@ -143,10 +143,11 @@ enum CPUAlertCommandMask {
         guard procargs.count > header else { return nil }
         let argc = procargs.withUnsafeBytes { Int($0.loadUnaligned(fromByteOffset: 0, as: Int32.self)) }
         guard argc >= 0 else { return nil }
+        if argc == 0 { return [] }
         let fields = procargs.dropFirst(header).split(separator: 0, omittingEmptySubsequences: false)
         var index = 1
         while index < fields.count, fields[index].isEmpty { index += 1 }
-        guard argc > 0, index + argc <= fields.count else { return argc == 0 ? [] : nil }
+        guard index + argc <= fields.count else { return nil }
         return fields[index..<(index + argc)].map { String(decoding: $0, as: UTF8.self) }
     }
 

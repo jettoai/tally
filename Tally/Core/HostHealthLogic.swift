@@ -167,6 +167,17 @@ struct HostHealthTracker: Equatable, Sendable {
 
 /// The rules over those readings, and the numbers they are decided against.
 enum HostHealthLogic {
+    static let alertEnabledKey = "hostHealthAlertEnabled"
+
+    /// A separate preference from sustained CPU alerts. Before this switch existed, CPU alert was
+    /// the only machine-alert control: preserve an explicit opt-out when seeding the new setting.
+    /// SettingsStore persists the resolved value at initialization so subsequent CPU changes do
+    /// not silently change this independent choice.
+    static func alertsEnabled(_ defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: alertEnabledKey) as? Bool
+            ?? defaults.object(forKey: "cpuAlertEnabled") as? Bool
+            ?? true
+    }
 
     /// How much load per core counts as too much. Three times the core count is the line the
     /// incident was read against: this machine has 16 cores, so 48, and it was sitting at 273.

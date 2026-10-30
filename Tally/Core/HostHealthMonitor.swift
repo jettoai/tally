@@ -193,6 +193,11 @@ final class HostHealthMonitor {
     private func post(_ report: HostHealthReport) {
         let body = hostHealthAlarmBody(report, localized: L)
         let title = hostHealthAlarmTitle(report, localized: L)
-        Task { _ = await SystemAlert.post(title: title, body: body) }
+        Task {
+            // Check at delivery, not at the start of the potentially slow culprit scan. Sampling,
+            // reports, logs and the host-alarm mirror still run when banners are disabled.
+            guard HostHealthLogic.alertsEnabled(.standard) else { return }
+            _ = await SystemAlert.post(title: title, body: body)
+        }
     }
 }

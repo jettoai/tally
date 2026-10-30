@@ -133,6 +133,11 @@ extension SettingsView {
                               subtitle: L("Notify when CPU stays above 90% for 30 seconds, naming the project behind it."),
                               icon: "cpu",
                               isOn: $settings.cpuAlertEnabled)
+            SettingsDivider()
+            SettingsToggleRow(title: L("System pressure alert"),
+                              subtitle: L("Notify about sustained high system load or low free memory, naming the busiest processes."),
+                              icon: "exclamationmark.triangle",
+                              isOn: $settings.hostHealthAlertEnabled)
         }
     }
 

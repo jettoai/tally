@@ -19353,6 +19353,76 @@
         }
       }
     },
+    "System pressure alert": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統壓力通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统压力通知"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム負荷の通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 부하 알림"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem baskısı uyarısı"
+          }
+        }
+      }
+    },
+    "Notify about sustained high system load or low free memory, naming the busiest processes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統持續高負載或可用記憶體不足時通知，並列出最忙碌的程序。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统持续高负载或可用内存不足时通知，并列出最繁忙的进程。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムの高負荷や空きメモリ不足が続くと、負荷の高いプロセス名を通知します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "높은 시스템 부하나 여유 메모리 부족이 지속되면 가장 바쁜 프로세스와 함께 알립니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem yükü uzun süre yüksek kaldığında veya boş bellek azaldığında en yoğun işlemleri belirterek bildir."
+          }
+        }
+      }
+    },
     "CPU alert": {
       "extractionState": "manual",
       "localizations": {

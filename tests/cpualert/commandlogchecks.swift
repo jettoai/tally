@@ -24,7 +24,7 @@ func runCommandLogChecks() {
     expect(mask(["x", "--api-key=abc123"]) == "x --api-key=<redacted>", "M2 --api-key=value is masked")
     expect(mask(["x", "--password", "hunter2", "--port", "1"]) == "x --password <redacted> --port 1",
            "M2 the value after a sensitive flag is masked, the next flag is not")
-    expect(mask(["x", "--no-auth", "--port", "1"]) == "x --no-auth --port 1", "M2 a flag followed by a flag takes nothing")
+    expect(mask(["x", "--no-auth", "--port", "1"]) == "x --no-auth <redacted> 1", "M2 the argument after a sensitive flag is masked even when it starts with a dash")
     expect(mask(["docker", "run", "-e", "OPENAI_API_KEY=zzz", "img"]).contains("OPENAI_API_KEY=<redacted>"),
            "M2 -e NAME=value is masked")
 
@@ -62,6 +62,20 @@ func runCommandLogChecks() {
                                ("shell", mask(["/bin/zsh", "-c", "curl -s -H \"\(header)\" https://h/x"]))] {
             expect(!masked.contains(credential) && masked.contains(expected), "M4c \(form) form: \(header)")
         }
+    }
+
+    // M4d a sensitive flag's value is masked whatever separates it (any whitespace run) and whatever
+    // it looks like (a value starting with "-" is still the value)
+    for (form, command, secret) in [("two spaces", "client --api-key  hunter2 --port 1", "hunter2"),
+                                    ("tab", "client --token\tabc123 --port 1", "abc123"),
+                                    ("three spaces", "client --password   s3cret --port 1", "s3cret")] {
+        let masked = mask(["/bin/zsh", "-c", command])
+        let flag = String(command.split(whereSeparator: \.isWhitespace)[1])
+        expect(!masked.contains(secret) && masked.contains(flag) && masked.contains("--port 1"), "M4d shell \(form)")
+    }
+    for (flag, value) in [("--password", "-abc123"), ("--api-key", "-x"), ("--token", "--verbose")] {
+        let masked = mask(["client", flag, value])
+        expect(!masked.contains(value) && masked.contains(flag), "M4d argv \(flag) \(value)")
     }
 
     // M5 home

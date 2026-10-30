@@ -32,7 +32,7 @@ enum CPUAlertCommandMask {
     private static let embeddedAssignment = try! NSRegularExpression(
         pattern: "\\b([A-Za-z_][A-Za-z0-9_]*)=" + embeddedValue)
     private static let embeddedFlag = try! NSRegularExpression(
-        pattern: "(\\s--?[A-Za-z][A-Za-z0-9_-]*)([= ])" + embeddedValue)
+        pattern: "(\\s--?[A-Za-z][A-Za-z0-9_-]*)(=|\\s+)" + embeddedValue)
     private static let bearer = try! NSRegularExpression(
         pattern: "(bearer\\s+(?:bearer\\s+)?|authorization(?::\\s*|\\s+)(?:(?:basic|bearer|token)\\s+)?)[^\\s\"';&|]+",
         options: .caseInsensitive)
@@ -56,7 +56,8 @@ enum CPUAlertCommandMask {
         for raw in arguments {
             if redactNext {
                 redactNext = false
-                if !raw.hasPrefix("-") { out.append(redacted); continue }
+                out.append(redacted)  // whatever follows a sensitive flag is its value, even "-abc"
+                continue
             }
             var arg = home.isEmpty ? raw : raw.replacingOccurrences(of: home, with: "~")
             if arg.hasPrefix("-") {

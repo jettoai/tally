@@ -19,6 +19,10 @@ func runCapWeightTests() {
         return (r.value, r.source)
     }
     expect(w("claude", "Max 20x") == (20, .detected), "weight: Claude Max 20x = 20 detected")
+    expect(w("claude", "Ultra") == (20, .detected) && w("claude", "ultra") == (20, .detected)
+               && w("claude", "ULTRA") == (20, .detected)
+               && w("claude", "Claude Ultra") == (20, .detected),
+           "weight: Claude Ultra (any case) = 20 detected")
     expect(w("claude", "Max 5x") == (5, .detected), "weight: Claude Max 5x = 5 detected")
     expect(w("claude", "Pro") == (1, .detected), "weight: Claude Pro = 1 detected")
     expect(w("claude", nil) == (1, .assumed), "weight: Claude without a plan = 1 assumed")

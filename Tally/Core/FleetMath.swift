@@ -316,7 +316,9 @@ enum PlanWeight {
         // "Max 20x", "max_20x" and "MAX 20X" name the same tier.
         let plan = (planName ?? "").lowercased().filter { !$0.isWhitespace && $0 != "_" }
         switch (providerID, plan) {
-        case ("claude", "max20x"): return (20, .detected)
+        // Anthropic renamed Max 20x to Ultra (2026-10-31).
+        case ("claude", "max20x"), ("claude", "ultra"), ("claude", "claudeultra"):
+            return (20, .detected)
         case ("claude", "max5x"): return (5, .detected)
         case ("claude", "pro"): return (1, .detected)
         // Business (formerly Team) carries the same Codex allowance as Plus.

@@ -107,23 +107,14 @@ enum PanelGeometry {
         return 2 * contentPadding + count * rowWidth + (count - 1) * columnGap
     }
 
-    /// How a list row's meter clusters share the width they are given. The row lays its windows on
-    /// `slots` equal columns (the most windows any row in its block reports), and a row with fewer
-    /// windows lets its LEADING window span the columns it has no window for. The figures therefore
-    /// stay in the columns they always stood in, right-aligned as before, and a one-window account
-    /// draws one long bar instead of one short bar beside a blank the width of two windows.
-    ///
-    /// Returns one width per cluster, in order; the clusters and the `gap` between them fill
-    /// `width` exactly. Empty when there is nothing to lay out.
-    static func meterClusterWidths(in width: CGFloat, count: Int, slots: Int,
-                                   gap: CGFloat) -> [CGFloat] {
-        guard count > 0 else { return [] }
-        let columns = max(slots, count)
+    /// Where each of a block's meter columns starts and how wide it is: `columns` equal columns and
+    /// the `gap` between them fill `width` exactly. A row places each window in its own column and
+    /// leaves the columns it has no window for empty, so a column stands at one x down the block.
+    static func meterColumnFrames(in width: CGFloat, columns: Int,
+                                  gap: CGFloat) -> [(x: CGFloat, width: CGFloat)] {
+        guard columns > 0 else { return [] }
         let slot = max(0, (width - gap * CGFloat(columns - 1)) / CGFloat(columns))
-        return (0 ..< count).map { index in
-            let span = index == 0 ? columns - count + 1 : 1
-            return slot * CGFloat(span) + gap * CGFloat(span - 1)
-        }
+        return (0 ..< columns).map { (x: CGFloat($0) * (slot + gap), width: slot) }
     }
 
     /// How many columns of `columnWidth` a display of `usableWidth` can seat. Never fewer than one:

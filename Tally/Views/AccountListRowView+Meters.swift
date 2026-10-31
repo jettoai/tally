@@ -1,5 +1,17 @@
 import SwiftUI
 
+extension MetricKind {
+    /// The column role a window of this kind takes in a list row (`MeterColumns`).
+    var meterRole: MeterWindowRole {
+        switch self {
+        case .weeklyModel: .model
+        case .session: .session
+        case .weeklyAll: .weekly
+        case .other: .other
+        }
+    }
+}
+
 /// The list row's meter clusters (track, figure, water line, hover text), split out of AccountListRowView for file size.
 extension AccountListRowView {
     /// One window this account reports, as a track plus a figure, in the card's order; the window's

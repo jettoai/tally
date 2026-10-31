@@ -98,14 +98,14 @@ extension PopoverRootView {
         let columns = listColumnCount
         let width = listColumnWidth
         // One identity column and one set of meter columns per block, so every row's figures and
-        // track lengths line up down the block. A grouped layout calls this once per provider,
-        // which is what lets a one-window provider lay one long bar per row.
+        // track lengths line up down the block. Each window kind keeps its own column down the
+        // block (a row without a 5-hour window leaves that column empty), and a grouped layout
+        // calls this once per provider, so each provider's block keeps its own columns.
         let identityWidth = accounts.compactMap { listIdentityWidths[$0.id] }.max()
-        let meterSlots = accounts
+        let meterColumns = MeterColumns.block(accounts
             .map { AccountFacts(usage: $0, settings: settings) }
             .filter { !$0.isHardError }
-            .map(\.orderedMetrics.count)
-            .max() ?? 0
+            .map { MeterColumns.keys($0.orderedMetrics.map(\.kind.meterRole)) })
         // Once per provider rather than once per row: each pick walks every account (TALLY-7Z).
         let autoPicks = Set(Set(accounts.map(\.providerID)).compactMap { AccountFacts.autoPickID(providerID: $0) })
         // Row-major, the same chunking the card grid uses, so the reading order is the one the eye
@@ -119,7 +119,7 @@ extension PopoverRootView {
                             // the columns are separate runs of accounts, and one line through both
                             // would read as a single row cut in half.
                             if band > 0 { Divider() }
-                            listRow(usage, identityWidth: identityWidth, meterSlots: meterSlots,
+                            listRow(usage, identityWidth: identityWidth, meterColumns: meterColumns,
                                     isAutoPick: autoPicks.contains(usage.id))
                         }
                         .frame(width: width)
@@ -136,9 +136,9 @@ extension PopoverRootView {
     }
 
     private func listRow(_ usage: AccountUsage, identityWidth: CGFloat?,
-                         meterSlots: Int, isAutoPick: Bool) -> some View {
+                         meterColumns: [MeterColumnKey], isAutoPick: Bool) -> some View {
         AccountListRowView(usage: usage, settings: settings, showsDragHandle: true,
-                           identityWidth: identityWidth, meterSlots: meterSlots,
+                           identityWidth: identityWidth, meterColumns: meterColumns,
                            onIdentityWidth: { width in
                                if listIdentityWidths[usage.id] != width {
                                    listIdentityWidths[usage.id] = width

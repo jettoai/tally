@@ -657,6 +657,15 @@ func runAccountRowChecks() {
     check("both meters ask the shared reading rather than the store directly",
           facts.contains("PersonalAccount.isPersonal(") && facts.contains("PersonalAccount.reserve(")
               && !cardMeter.contains("LaunchPolicyStore") && !listMeter.contains("LaunchPolicyStore"))
+    // The list row's height and its meter columns (B-3445): a row is about 20pt tall, and each window
+    // stands in the column of its kind rather than the leading window spanning a missing one.
+    let listRow = readSource("Tally/Views/AccountListRowView.swift")
+    check("the list row's vertical padding is 2.5pt, which keeps the row about 20pt tall",
+          listRow.contains(".padding(.vertical, 2.5)") && !listRow.contains(".padding(.vertical, 5)"))
+    check("the list row places each meter in its kind's column",
+          listRow.contains("MeterSlots(columns: columnKeys.count, gap: 8)")
+              && listRow.contains(".layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))")
+              && !listRow.contains("meterSlots"))
     // AND THEY ASK IT PER BAR. The reserve is held back from the three windows the account shares with
     // the user's browser - its weekly all-models one, its 5h one and its flagship model's - and from no
     // other (Albert's ruling, 2026-09-05; the top of AccountReserve.swift states it), so a hatch on a

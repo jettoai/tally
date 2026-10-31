@@ -23,9 +23,9 @@ struct AccountListRowView: View {
     /// at one x and their tracks come out one length (see `PopoverRootView.rowStack`). Nil lays the
     /// identity at its own width, which is what the floating drag preview does.
     var identityWidth: CGFloat? = nil
-    /// How many meter columns this row's block lays out: the most windows any of its rows reports
-    /// (`PanelGeometry.meterClusterWidths`). Zero means this row's own count.
-    var meterSlots: Int = 0
+    /// The meter columns of this row's block (`MeterColumns.block`): each window stands in the column
+    /// of its kind, so a kind keeps one x down the block. Empty means this row's own windows.
+    var meterColumns: [MeterColumnKey] = []
     /// Reports this row's identity group width, measured at the group's own size, so the block can
     /// take the widest as its shared column.
     var onIdentityWidth: ((CGFloat) -> Void)? = nil
@@ -53,7 +53,7 @@ struct AccountListRowView: View {
     static let columnGap: CGFloat = PanelGeometry.columnGap
 
     /// The SHORTEST a meter track gets. The track itself stretches with the room its row has left
-    /// (`PanelGeometry.meterClusterWidths`); this floor is what three windows plus the identity were
+    /// (`PanelGeometry.meterColumnFrames`); this floor is what three windows plus the identity were
     /// fitted to at the panel's list width, and what a very long nickname still leaves the meters.
     nonisolated static let barWidth: CGFloat = 34
     static let barHeight: CGFloat = 4
@@ -63,6 +63,10 @@ struct AccountListRowView: View {
     /// The badge slot, reserved whether or not this row has a badge, so the pin circles stay in one
     /// column instead of stepping left and right with the smart pick.
     static let badgeWidth: CGFloat = 11
+
+    /// Each of this row's windows by the column it belongs in, and the columns it lays them on.
+    private var ownKeys: [MeterColumnKey] { MeterColumns.keys(facts.orderedMetrics.map(\.kind.meterRole)) }
+    private var columnKeys: [MeterColumnKey] { meterColumns.isEmpty ? MeterColumns.block([ownKeys]) : meterColumns }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -77,9 +81,10 @@ struct AccountListRowView: View {
                 // The meters take whatever the identity column and the trailing controls leave, and
                 // take it LAST: a long nickname truncates against the meters' minimum rather than
                 // pushing them off the row (`MeterSlots`).
-                MeterSlots(slots: meterSlots, gap: 8) {
-                    ForEach(facts.orderedMetrics) { metric in
+                MeterSlots(columns: columnKeys.count, gap: 8) {
+                    ForEach(Array(zip(facts.orderedMetrics, ownKeys)), id: \.0.id) { metric, key in
                         meterCluster(metric)
+                            .layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))
                     }
                 }
                 .layoutPriority(-1)
@@ -87,7 +92,7 @@ struct AccountListRowView: View {
             trailingControls
         }
         .padding(.horizontal, TallyMetrics.cardPaddingH)
-        .padding(.vertical, 5)
+        .padding(.vertical, 2.5)
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())

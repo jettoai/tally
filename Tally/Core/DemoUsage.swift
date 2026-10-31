@@ -144,11 +144,11 @@ enum DemoUsage {
             // Claude's session sits at the wall: the fixture limitResetPressPathOpen offers.
             claude("Claude", plan: "Max 20x", model: 3, session: 100, weekly: 8,
                    modelResetDays: 6.4, sessionResetHours: 4.6, weeklyResetDays: 6.4, now: now),
-            claude("Claude 2", plan: "Max 20x", model: 52, session: 25, weekly: 39,
+            claude("Claude 2", plan: "Max 20x", model: 52, session: nil, weekly: 39,
                    modelResetDays: 1.2, sessionResetHours: 3.1, weeklyResetDays: 1.2, now: now),
-            claude("Claude 3", plan: "Max 20x", model: 88, session: 66, weekly: 82,
+            claude("Claude 3", plan: "Max 20x", model: 88, session: nil, weekly: 82,
                    modelResetDays: 0.8, sessionResetHours: 1.4, weeklyResetDays: 0.8, now: now),
-            claude("Claude 4", plan: "Max 20x", model: 27, session: 12, weekly: 20,
+            claude("Claude 4", plan: "Max 20x", model: 27, session: nil, weekly: 20,
                    modelResetDays: 4.2, sessionResetHours: 2.3, weeklyResetDays: 4.2, now: now),
             // The one card whose login has run out (LoginStatusStore.demoExpiredAccountID puts the
             // red "Login expired" chip on it). It keeps its numbers: the last-good figures are
@@ -390,8 +390,9 @@ enum DemoUsage {
 
     /// A Claude account shaped exactly like ClaudeUsageCLI's mapping: a model-scoped weekly window
     /// (the headline), the 5h session, and the all-model weekly. A nil session reset mirrors the
-    /// untouched-account case ("5h starts on first use").
-    static func claude(_ label: String, plan: String, model: Double, session: Double,
+    /// untouched-account case ("5h starts on first use"). A nil `session` is an account with no 5h
+    /// window at all, which the list rows leave as an empty column.
+    static func claude(_ label: String, plan: String, model: Double, session: Double?,
                                weekly: Double, modelResetDays: Double?, sessionResetHours: Double?,
                                weeklyResetDays: Double?, now: Date) -> AccountUsage {
         // Fixture identity for the header's hover tooltip ("Claude 2" → alex2@example.com), derived
@@ -407,11 +408,12 @@ enum DemoUsage {
                                    severity: .fromUsedPercent(used),
                                    resetsAt: modelResetDays.map { now.addingTimeInterval($0 * 86_400) },
                                    isActive: false)
-            } + [
-                UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
-                            usedPercent: session, severity: .fromUsedPercent(session),
-                            resetsAt: sessionResetHours.map { now.addingTimeInterval($0 * 3_600) },
-                            isActive: false),
+            } + (session.map { session in
+                [UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
+                             usedPercent: session, severity: .fromUsedPercent(session),
+                             resetsAt: sessionResetHours.map { now.addingTimeInterval($0 * 3_600) },
+                             isActive: false)]
+            } ?? []) + [
                 UsageMetric(id: "weekly_all", kind: .weeklyAll, label: "Weekly", modelName: nil,
                             usedPercent: weekly, severity: .fromUsedPercent(weekly),
                             resetsAt: weeklyResetDays.map { now.addingTimeInterval($0 * 86_400) },

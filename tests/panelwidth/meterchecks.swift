@@ -17,16 +17,14 @@ func checkMeterColumns() {
     check(PanelGeometry.meterColumnFrames(in: 272, columns: 0, gap: gap).isEmpty,
           "no columns lays out nothing")
 
-    typealias K = MeterColumnKey
-    let own = MeterColumns.keys([.model, .session, .weekly])
-    check(MeterColumns.block([own]) == own, "a row's own block is its own keys, in order")
+    let withSession = MeterColumns.keys([.model, .session, .weekly])
+    check(MeterColumns.block([withSession]) == withSession, "a row's own block is its own keys, in order")
 
     // Fable and the weekly window stand at one x with or without a 5-hour window.
-    let withSession = MeterColumns.keys([.model, .session, .weekly])
     let without = MeterColumns.keys([.model, .weekly])
     let cols = MeterColumns.block([withSession, without])
     let f = PanelGeometry.meterColumnFrames(in: 272, columns: cols.count, gap: gap)
-    func frame(_ key: K) -> (x: CGFloat, width: CGFloat) { f[cols.firstIndex(of: key)!] }
+    func frame(_ key: MeterColumnKey) -> (x: CGFloat, width: CGFloat) { f[cols.firstIndex(of: key)!] }
     check(frame(withSession[0]).x == frame(without[0]).x, "the flagship window has one x with and without a 5-hour window")
     check(frame(withSession[2]).x == frame(without[1]).x && frame(withSession[2]).width == frame(without[1]).width,
           "the weekly window has one x and one length with and without a 5-hour window")
@@ -38,8 +36,7 @@ func checkMeterColumns() {
     check(MeterColumns.block([without, without]) == [.model(0), .weekly],
           "a block with no 5-hour window at all has two columns")
     let weeklyFirst = MeterColumns.keys([.weekly, .session])
-    check(MeterColumns.block([withSession, weeklyFirst]) == [.model(0), .session, .weekly]
-          && MeterColumns.block([withSession, weeklyFirst]).firstIndex(of: .weekly) == 2,
+    check(MeterColumns.block([withSession, weeklyFirst]) == [.model(0), .session, .weekly],
           "a row with no flagship window keeps its weekly window in the rightmost column, by kind not position")
     check(MeterColumns.keys([.model, .model, .session, .weekly]) == [.model(0), .model(1), .session, .weekly],
           "showAllModels: two model windows take two columns")

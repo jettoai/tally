@@ -116,6 +116,8 @@ enum CaptureLaunch {
                                "TallyDemoLaunchChip",
                                // Qualifies TallyDemoData: the Claude fixtures' model windows (Debug).
                                "TallyDemoModelWindows",
+                               // Qualifies TallyDemoData: no Claude fixture has a 5-hour window (Debug).
+                               "TallyDemoNoSessionWindow",
                                // Qualifies TallyDemoData: fixtures kept per provider (Debug).
                                "TallyDemoAccountLimit",
                                // Qualifies TallyDemoData: only the named providers' fixtures (Debug).

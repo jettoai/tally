@@ -408,7 +408,7 @@ enum DemoUsage {
                                    severity: .fromUsedPercent(used),
                                    resetsAt: modelResetDays.map { now.addingTimeInterval($0 * 86_400) },
                                    isActive: false)
-            } + (session.map { session in
+            } + ((noSessionWindow ? nil : session).map { session in
                 [UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
                              usedPercent: session, severity: .fromUsedPercent(session),
                              resetsAt: sessionResetHours.map { now.addingTimeInterval($0 * 3_600) },

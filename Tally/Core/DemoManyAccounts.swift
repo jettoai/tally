@@ -83,6 +83,17 @@ extension DemoUsage {
         return ["Fable"]
     }
 
+    /// `-TallyDemoNoSessionWindow YES` (Debug builds only): every Claude fixture reports no 5-hour
+    /// window, so a capture can show a whole block that has none (the list rows then keep two
+    /// columns, the flagship and the weekly window). False without it, and always false outside demo.
+    static var noSessionWindow: Bool {
+        #if DEBUG
+        return isActive && UserDefaults.standard.bool(forKey: "TallyDemoNoSessionWindow")
+        #else
+        return false
+        #endif
+    }
+
     /// `-TallyDemoLaunchModel sonnet` (Debug builds only): the launch model the gauge focuses on,
     /// in place of this Mac's own launch policy, so a capture can put a given model pool on screen
     /// whatever the machine running it has declared. Nil without it, and always nil outside demo.

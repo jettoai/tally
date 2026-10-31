@@ -653,6 +653,7 @@ func runAccountRowChecks() {
     // One reading for every surface, so a bar cannot draw a water line the pane says is not there.
     let cardMeter = readSource("Tally/Views/MetricRowView.swift")
     let listMeter = readSource("Tally/Views/AccountListRowView.swift")
+        + readSource("Tally/Views/AccountListRowView+Meters.swift")
     check("both meters ask the shared reading rather than the store directly",
           facts.contains("PersonalAccount.isPersonal(") && facts.contains("PersonalAccount.reserve(")
               && !cardMeter.contains("LaunchPolicyStore") && !listMeter.contains("LaunchPolicyStore"))

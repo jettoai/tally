@@ -286,7 +286,11 @@ func runSmartBadgeChecks() {
     // Source text because these are SwiftUI bodies this suite does not compile: crude, and still
     // the difference between the rule going quietly and a failing check.
     for view in ["Tally/Views/AccountCardView.swift", "Tally/Views/AccountListRowView.swift"] {
-        let source = (try? String(contentsOfFile: view, encoding: .utf8)) ?? ""
+        var source = (try? String(contentsOfFile: view, encoding: .utf8)) ?? ""
+        // The list row's badge slot lives in its Controls extension.
+        if view.hasSuffix("AccountListRowView.swift") {
+            source += (try? String(contentsOfFile: "Tally/Views/AccountListRowView+Controls.swift", encoding: .utf8)) ?? ""
+        }
         check("\(view) draws the pinned badge from the pin, not from the pick",
               source.contains("facts.launchMode == .manual, facts.isPinnedActive")
                   && (source.contains("facts.launchMode == .auto, facts.isAutoPick")

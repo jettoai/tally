@@ -356,6 +356,7 @@ expect(fresh.isEmpty,
 
 let cardSource = readSource("Tally/Views/AccountCardView.swift")
 let rowSource = readSource("Tally/Views/AccountListRowView.swift")
+    + readSource("Tally/Views/AccountListRowView+Controls.swift")
 // The derivations both account surfaces run on - which home an action touches, whether the login is
 // still good, which launch affordances apply - live in AccountFacts now, because the compact list
 // row asks the very same questions and a second copy would be free to answer differently. So the

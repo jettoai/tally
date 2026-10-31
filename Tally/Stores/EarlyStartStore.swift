@@ -193,6 +193,7 @@ final class EarlyStartStore {
                 readingIsUsable: EarlyStartLogic.readingIsUsable(usage),
                 readingKeepsFailing: EarlyStartLogic.readingKeepsFailing(usage),
                 windowIsOpen: EarlyStartLogic.windowIsOpen(usage, now: now),
+                hasSessionWindow: usage.metrics.contains { $0.kind == .session },
                 underReserve: PersonalAccount.underReserve(usage, home: launchHomes[usage.id],
                                                            now: now))
         }

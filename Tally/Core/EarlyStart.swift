@@ -55,6 +55,9 @@ struct EarlyStartCandidate: Equatable {
     var readingKeepsFailing: Bool
     /// Whether the 5-hour window is already counting down (`EarlyStartLogic.windowIsOpen`).
     var windowIsOpen: Bool
+    /// Whether the reading carries a 5-hour window at all. Some plans report only the weekly one;
+    /// for those a missing window means "there is none", not "it is closed".
+    var hasSessionWindow: Bool = true
     /// Whether the account is under its owner's reserve line (B-1213).
     var underReserve: Bool = false
 }
@@ -78,6 +81,8 @@ enum EarlyStartSkip: String, Equatable {
     /// The window is already counting down. The commonest pass by far, and the one the feature is
     /// for: somebody who is working gets nothing sent on their behalf.
     case windowOpen
+    /// The reading has no 5-hour window to open, so a message would start nothing.
+    case noSessionWindow
     /// This account has had its message inside the last `EarlyStartLogic.retryInterval`.
     case alreadyStarted
     /// The user asked for silence at this hour.
@@ -105,7 +110,7 @@ enum EarlyStartSkip: String, Equatable {
     var countsAsSkip: Bool {
         switch self {
         case .otherProvider, .accountOff, .pollMissed, .windowOpen, .alreadyStarted,
-             .quietHours, .underReserve: return false
+             .quietHours, .underReserve, .noSessionWindow: return false
         case .notLaunchable, .unreadable: return true
         }
     }
@@ -261,6 +266,7 @@ enum EarlyStartLogic {
         if !candidate.readingIsUsable {
             return candidate.readingKeepsFailing ? .unreadable : .pollMissed
         }
+        if !candidate.hasSessionWindow { return .noSessionWindow }
         if candidate.windowIsOpen { return .windowOpen }
         if candidate.underReserve { return .underReserve }
         if quietHours.contains(now, calendar: calendar) { return .quietHours }

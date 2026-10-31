@@ -332,6 +332,13 @@ unsetenv("CLAUDE_SECURESTORAGE_CONFIG_DIR")
 
 // Pure verdicts, no process.
 expect(ClaudeUsageCLI.isolatedVerdict(nil, shapeVerified: true) == .fallBack(.noOutput), "nil is a transient fallback")
+// B-3402: an account with no 5-hour window prints only the week; that is a complete reading.
+expect(ClaudeUsageCLI.isolatedVerdict("Current week (all models): 2% used", shapeVerified: true) == .accept(sawModelWindow: false),
+       "a reading with only the all-models week is complete")
+expect(ClaudeUsageCLI.isolatedVerdict("Current session: 1% used", shapeVerified: true) == .fallBack(.incomplete),
+       "a reading without the all-models week is still incomplete")
+expect(ClaudeUsageCLI.memoryUpdate(reason: .incomplete, legacy: "Current week (all models): 2% used") == .holdLegacy,
+       "an old read with only the week can convict the isolated read")
 expect(ClaudeUsageCLI.memoryUpdate(reason: .noOutput, legacy: "Current session: 1% used\nCurrent week (all models): 2% used") == .none,
        "a transient failure never holds")
 expect(ClaudeUsageCLI.memoryUpdate(reason: .noOutput, legacy: nil) == .skipLegacy

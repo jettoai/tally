@@ -158,9 +158,9 @@ enum ClaudeUsageCLI {
         case noOutput
         /// The CLI found no login from the isolated home: the override is not honoured.
         case notLoggedIn
-        /// Signed in, but the session or the all-models week is missing.
+        /// Signed in, but the all-models week is missing.
         case incomplete
-        /// Both main windows, no model window, and this account's shape is not yet confirmed.
+        /// The all-models week is present, no model window, and this account's shape is not yet confirmed.
         case unconfirmedModelWindow
     }
 
@@ -178,11 +178,11 @@ enum ClaudeUsageCLI {
         return .accept(sawModelWindow: found.model)
     }
 
-    /// Which windows a reading carries: both main ones (session and all-models week), and any
-    /// model week.
+    /// Which windows a reading carries: the main one (the all-models week; accounts without a
+    /// 5-hour window print no session line), and any model week.
     private static func windows(in text: String) -> (main: Bool, model: Bool) {
         let ids = Set(ClaudeUsageTextMapper.map(text: text).map(\.id))
-        return (ids.contains("session") && ids.contains("weekly_all"),
+        return (ids.contains("weekly_all"),
                 ids.contains { $0.hasPrefix("weekly_model:") })
     }
 

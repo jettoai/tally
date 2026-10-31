@@ -131,6 +131,11 @@ func runRelayChecks() {
                "…and one whose polls keep failing is passed for the reason that gets reported")
         expect(pass(candidate("a", windowOpen: true)) == .windowOpen,
                "an account already working is left alone")
+        // B-3402: a plan with no 5-hour window is not a "closed window" to be opened.
+        expect(pass(candidate("a", hasSession: false)) == .noSessionWindow,
+               "an account whose reading has no 5-hour window is not started")
+        expect(pass(candidate("a", windowOpen: false, hasSession: true)) == nil,
+               "…while an account with a closed 5-hour window still is")
         // B-1213: a closed window on an account under its owner's line stays closed.
         var reserved = candidate("a")
         reserved.underReserve = true
@@ -171,14 +176,14 @@ func runRelayChecks() {
                "a day already under way holds back only the accounts it wrote a mark for")
     }
 
-    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all nine reasons (the ninth, B-1213's reserve),
+    // 9. WHICH PASSES COUNT AS SKIPS. One axis over all ten reasons (B-1213's reserve, B-3402's no-window),
     //    listed exhaustively from `everyReason` so a reason added later cannot slip past the table.
     //    It used to be two axes: the second asked what a pass PROVED about the provider's side,
     //    which is how an account suppressed by the arming stamp was let out early. Nothing is
     //    inferred from a pass any more.
     do {
-        expect(everyReason.count == 9 && Set(everyReason.map(\.rawValue)).count == 9,
-               "all nine reasons are named here, once each")
+        expect(everyReason.count == 10 && Set(everyReason.map(\.rawValue)).count == 10,
+               "all ten reasons are named here, once each")
 
         expect(EarlyStartSkip.notLaunchable.countsAsSkip && EarlyStartSkip.unreadable.countsAsSkip,
                "the two that mean an account gets nothing while the switch reads on are reported")

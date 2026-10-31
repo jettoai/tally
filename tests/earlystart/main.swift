@@ -57,10 +57,11 @@ func usage(_ id: String, session: UsageMetric?, error: String? = nil,
 
 func candidate(_ id: String, provider: String = "claude", home: String? = "/Users/tester/.claude2",
                enabled: Bool = true, readable: Bool = true, keepsFailing: Bool = false,
-               windowOpen: Bool = false) -> EarlyStartCandidate {
+               windowOpen: Bool = false, hasSession: Bool = true) -> EarlyStartCandidate {
     EarlyStartCandidate(accountID: id, providerID: provider, home: home,
                         isEnabled: enabled, readingIsUsable: readable,
-                        readingKeepsFailing: keepsFailing, windowIsOpen: windowOpen)
+                        readingKeepsFailing: keepsFailing, windowIsOpen: windowOpen,
+                        hasSessionWindow: hasSession)
 }
 
 /// Quiet hours switched off, which is the shipping default and the state most of these checks want.
@@ -70,7 +71,7 @@ let loud = EarlyStartQuietHours()
 /// cover the cases somebody remembered.
 let everyReason: [EarlyStartSkip] = [.otherProvider, .accountOff, .notLaunchable, .pollMissed,
                                      .unreadable, .windowOpen, .alreadyStarted, .quietHours,
-                                     .underReserve]
+                                     .underReserve, .noSessionWindow]
 
 // 1. THE FIRST-RUN GATE. The feature ships on, so the switch alone must not be enough: nothing may
 //    be sent before the one-time notice has been answered. All four rows, because the interesting

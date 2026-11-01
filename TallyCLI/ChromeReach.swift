@@ -12,8 +12,8 @@ import Foundation
 // The ledger only chooses the wording. It proves an account reached Chrome once, not that the
 // extension is signed in to it now, so it never silences a notice.
 //
-// Where the step goes next is decided by the user's setting alone (`chromeAccountSetting`, the
-// Settings row "Claude in Chrome account"): with none set the sentence above is all a session gets;
+// Where the step goes next is decided by the user's setting alone (`chromeAccountSetting`, in
+// ProjectPolicy.swift; the Settings row "Claude in Chrome account"): with none set the sentence above is all a session gets;
 // with one set and this session on another account, it is told to hand the step to a one-off run on
 // that account (`tally chrome run`, ChromeRun.swift) and never moved (ChromePreflight.swift says the
 // same before the call is sent). The ledger still only chooses the wording of the sentence above.
@@ -163,19 +163,6 @@ func chromeGapMessage(accountLabel: String, reachedBefore: Bool,
     }
     return text + " Verify the extension is open and signed in to the same claude.ai account as"
         + " this session. Accounts observed connecting previously: \(observed)."
-}
-
-/// The account the user set as the one Claude in Chrome is signed in to, or nil when none is set.
-/// Mirror of the app's `LaunchPolicyStore.StateFile.chromeAccount`; the schema only gains keys.
-/// ONLY THIS decides routing. The chrome-reach ledger never does (it proves an account reached
-/// Chrome once, not which account the extension is signed in to now).
-func chromeAccountSetting(_ url: URL = stateURL) -> String? {
-    struct StateFile: Decodable { var chromeAccount: String? }
-    guard let data = try? Data(contentsOf: url),
-          let file = try? JSONDecoder().decode(StateFile.self, from: data),
-          let chosen = file.chromeAccount?.trimmingCharacters(in: .whitespaces),
-          chosen.hasPrefix("claude:") else { return nil }
-    return chosen
 }
 
 enum ChromeGapRoute: Equatable {

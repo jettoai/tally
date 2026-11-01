@@ -32,6 +32,8 @@ func runChromePreferenceChecks() {
     enum Named: CaseIterable { case none, accountFlag, exportedHome, projectPin, appPin, pinStepAside }
 
     var cells = 0, agreed = 0, landedCells = 0
+    var shimCells = 0, shimAgreed = 0, shimLanded = 0, shimNoticed = 0
+    var shimMisses: [String] = []
     var misses: [String] = []
     for flag in Flag.allCases {
         for setting in Setting.allCases {
@@ -92,6 +94,32 @@ func runChromePreferenceChecks() {
                         let got = resolveLaunch(claude, intent: intent,
                                                 readings: readings(launchChromeAccount(project, setting: settingValue)))
                         let plain = resolveLaunch(claude, intent: intent, readings: readings(nil))
+                        // B-3308: the PATH shim (`launch-dir`, `best-dir`) asks the same question with no
+                        // typed arguments, so it must land where `tally claude` just did. `got` is that
+                        // launch; the shim's side is `steeredLaunch` fed the same Chrome account.
+                        if !spend && (named == .none || named == .appPin || named == .projectPin
+                                      || named == .pinStepAside) {
+                            let shim = steeredLaunch(claude, in: snapshot, policy: policy, reserves: reserves,
+                                                     quarantined: quarantined, now: now,
+                                                     chromeAccount: launchChromeAccount(project, setting: settingValue))
+                            let want = got.refusal == nil && got.route != .bare ? got.account?.launchHome : nil
+                            let chromeCell = flag == .on && setting == .inSnapshot && state == .healthy
+                                && (named == .none || named == .pinStepAside)
+                            var same = shim?.home == want
+                            if chromeCell {
+                                shimLanded += 1
+                                same = same && shim?.home == home(claude, "chrome")
+                                // The shim says why, like `tally claude` does, unless the pin's own
+                                // step-aside sentence already holds the one dip line.
+                                if named == .none, shim?.dip == got.account.map(chromeLaunchNotice) { shimNoticed += 1 }
+                                if named == .pinStepAside, shim?.dip?.isEmpty == false { shimNoticed += 1 }
+                            }
+                            shimCells += 1
+                            if same { shimAgreed += 1 } else if shimMisses.count < 5 {
+                                shimMisses.append("flag=\(flag) setting=\(setting) state=\(state) named=\(named): "
+                                    + "shim \(shim?.home ?? "nil") vs tally \(want ?? "nil")")
+                            }
+                        }
                         let lands = flag == .on && setting == .inSnapshot && state == .healthy
                             && (named == .none || named == .pinStepAside)
                         var ok: Bool
@@ -127,6 +155,20 @@ func runChromePreferenceChecks() {
     check("the table has landing cells (4 of them: on, in snapshot, healthy, two ways to be unnamed, spend or not)"
           + " so an all-unchanged table cannot pass",
           landedCells == 4)
+
+    shimMisses.forEach { print("  MISS \($0)") }
+    check("the PATH shim lands where `tally claude` does in every cell it can meet (\(shimAgreed)/\(shimCells))",
+          shimCells == 216 && shimAgreed == shimCells)
+    check("…with 2 Chrome-landing cells, so an all-bare table cannot pass, each saying why it landed there",
+          shimLanded == 2 && shimNoticed == 2)
+    // `= nil` on `chromeAccount` lets a caller forget it and still compile (that is how 71e4460 missed
+    // the shim), so the three functions that carry it are pinned by their text.
+    let shimSource = (try? String(contentsOfFile: "TallyCLI/LaunchDir.swift", encoding: .utf8)) ?? ""
+    let wired = "launchChromeAccount(project, setting: chromeAccountSetting())"
+    check("launch-dir and best-dir both hand the shim's decision the project's Chrome account",
+          topLevelFunction("runLaunchDir", in: shimSource).contains(wired)
+              && topLevelFunction("runBestDir", in: shimSource).contains(wired)
+              && topLevelFunction("steeredDecision", in: shimSource).contains("chromeAccount: chromeAccount"))
 
     // Codex: the setting names a claude account, so a codex launch never finds it in its field.
     let codexSnapshot = Snapshot(version: 2, generatedAt: now, accounts: [

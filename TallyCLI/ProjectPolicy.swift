@@ -222,6 +222,19 @@ func statusProjectProfile(_ file: ProjectPolicyFile, key: String) -> StatusRepor
         })
 }
 
+/// The account the user set as the one Claude in Chrome is signed in to, or nil when none is set.
+/// Mirror of the app's `LaunchPolicyStore.StateFile.chromeAccount`; the schema only gains keys.
+/// ONLY THIS decides routing. The chrome-reach ledger never does (it proves an account reached
+/// Chrome once, not which account the extension is signed in to now).
+func chromeAccountSetting(_ url: URL = stateURL) -> String? {
+    struct StateFile: Decodable { var chromeAccount: String? }
+    guard let data = try? Data(contentsOf: url),
+          let file = try? JSONDecoder().decode(StateFile.self, from: data),
+          let chosen = file.chromeAccount?.trimmingCharacters(in: .whitespaces),
+          chosen.hasPrefix("claude:") else { return nil }
+    return chosen
+}
+
 /// The account a launch in this project should prefer for Claude in Chrome: the setting, read only
 /// when the project turned the preference on. nil when off or when no account is set.
 func launchChromeAccount(_ project: ProjectPolicy, setting: @autoclosure () -> String?) -> String? {

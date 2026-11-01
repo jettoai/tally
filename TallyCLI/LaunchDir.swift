@@ -41,16 +41,20 @@ struct SteeredLaunch {
 /// quarantine directory or a clock on the machine running the test.
 func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                    reserves: AccountReserves = accountReserves(),
-                   quarantined: Set<String>? = nil, now: Date = Date()) -> SteeredLaunch? {
+                   quarantined: Set<String>? = nil, now: Date = Date(),
+                   chromeAccount: String? = nil) -> SteeredLaunch? {
     let decision = steeredDecision(provider, in: snapshot, policy: policy, reserves: reserves,
-                                   quarantined: quarantined, now: now)
+                                   quarantined: quarantined, now: now, chromeAccount: chromeAccount)
     // A refusal is `steeredRefusal`'s to say; nothing eligible leaves the shim to run the bare CLI.
     guard decision.refusal == nil, decision.route != .bare,
           let account = decision.account, let home = account.launchHome else { return nil }
     // A pin over an account that is out of quota steps aside to the smart pick (B-1540); the shim
     // cannot bring the session back later, but it no longer launches it onto the wall either.
+    // The Chrome sentence is the launcher's own (`chromeLaunchNotice`), said here too so a launch
+    // from the shim also tells the person why it left the top-ranked account.
     return SteeredLaunch(home: home,
                          dip: decision.stepAside.map { pinStepAsideNotice($0, pinnedBy: "pinned") }
+                             ?? decision.notices.first { $0 == chromeLaunchNotice(account) }
                              ?? (decision.route == .pick
                                  ? reserveDipNotice(account, primaryModel: policy.model,
                                                     reserves: reserves, now: now) : nil))
@@ -61,12 +65,12 @@ func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchP
 /// launch opens a new conversation).
 private func steeredDecision(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                              reserves: AccountReserves, quarantined: Set<String>?,
-                             now: Date) -> LaunchDecision {
+                             now: Date, chromeAccount: String?) -> LaunchDecision {
     resolveLaunch(provider, intent: .shim, readings: LaunchReadings(
         snapshot: snapshot, policy: policy, pinnedBy: "pinned", primaryModel: policy.model,
         reserves: reserves,
         quarantined: quarantined ?? quarantinedAccounts(forPrimary: policy.model),
-        clearance: false, now: now))
+        clearance: false, now: now, chromeAccount: chromeAccount))
 }
 
 /// Why a launch `steeredLaunch` resolved nothing for must be REFUSED rather than run bare, or nil to
@@ -74,9 +78,10 @@ private func steeredDecision(_ provider: Provider, in snapshot: Snapshot?, polic
 /// reserves emptied (B-1213).
 func steeredRefusal(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
                     reserves: AccountReserves = accountReserves(),
-                    quarantined: Set<String>? = nil, now: Date = Date()) -> String? {
+                    quarantined: Set<String>? = nil, now: Date = Date(),
+                    chromeAccount: String? = nil) -> String? {
     switch steeredDecision(provider, in: snapshot, policy: policy, reserves: reserves,
-                           quarantined: quarantined, now: now).refusal {
+                           quarantined: quarantined, now: now, chromeAccount: chromeAccount).refusal {
     case .named(let refusal)?: return bareLaunchRefusal(refusal, provider)
     case .hold(let notice)?: return notice
     default: return nil
@@ -251,15 +256,17 @@ func runBestDir(_ providerID: String) {
     }
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
-    let (policy, model) = launchSteering(provider, appPolicy: launchPolicy(provider.id),
-                                        project: projectPolicy(provider.id))
+    let project = projectPolicy(provider.id)
+    let (policy, model) = launchSteering(provider, appPolicy: launchPolicy(provider.id), project: project)
+    let chromeAccount = launchChromeAccount(project, setting: chromeAccountSetting())
     // Printed to stderr and exited, never as script lines: this output is eval'd into a person's own
     // shell, and an `exit` there would close it.
-    if let refusal = steeredRefusal(provider, in: snapshot, policy: policy) {
+    if let refusal = steeredRefusal(provider, in: snapshot, policy: policy, chromeAccount: chromeAccount) {
         warn(refusal)
         exit(1)
     }
-    guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else {
+    guard let steered = steeredLaunch(provider, in: snapshot, policy: policy,
+                                      chromeAccount: chromeAccount) else {
         warn("no eligible \(providerID) account")
         exit(1)
     }
@@ -321,17 +328,19 @@ func runLaunchDir(_ providerID: String, arguments: [String] = []) {
     // not about what any one project runs.
     let appPolicy = launchPolicy(provider.id)
     guard appPolicy.mode != "off" else { return }
-    let (policy, model) = launchSteering(provider, appPolicy: appPolicy,
-                                        project: projectPolicy(provider.id, cwd: here))
+    let project = projectPolicy(provider.id, cwd: here)
+    let (policy, model) = launchSteering(provider, appPolicy: appPolicy, project: project)
+    let chromeAccount = launchChromeAccount(project, setting: chromeAccountSetting())
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     // A reserve emptied the field, or the pin sits under its line: the script itself refuses.
-    if let refusal = steeredRefusal(provider, in: snapshot, policy: policy) {
+    if let refusal = steeredRefusal(provider, in: snapshot, policy: policy, chromeAccount: chromeAccount) {
         launchRefusalLines(refusal).forEach { print($0) }
         return
     }
     // Nothing eligible - stay silent, the shim runs the bare CLI.
-    guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else { return }
+    guard let steered = steeredLaunch(provider, in: snapshot, policy: policy,
+                                      chromeAccount: chromeAccount) else { return }
     printLaunchExports(provider, home: steered.home, model: model, notice: steered.dip)
     // After the environment, because it is the same launch being described and the export lines are
     // what every reader of this command already expects to find first.

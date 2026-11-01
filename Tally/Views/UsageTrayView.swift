@@ -65,19 +65,20 @@ extension PopoverRootView {
         let foldable = pooledProviderIDs.contains(providerID)
         // In the narrowest region the refill does not fit beside the legend: it goes, the level stays.
         return ViewThatFits(in: .horizontal) {
-            trayHeadingRow(group, pool: pool, showsRefill: true)
-            trayHeadingRow(group, pool: pool, showsRefill: false)
+            trayHeadingRow(group, pool: pool, foldable: foldable, showsRefill: true)
+            trayHeadingRow(group, pool: pool, foldable: foldable, showsRefill: false)
         }
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { if foldable { settings.toggleCollapsed(providerID) } }
     }
 
-    private func trayHeadingRow(_ group: AccountGroup, pool: FleetSummary?, showsRefill: Bool) -> some View {
+    private func trayHeadingRow(_ group: AccountGroup, pool: FleetSummary?, foldable: Bool,
+                                showsRefill: Bool) -> some View {
         let providerID = group.providerID
         return HStack(spacing: 6) {
             providerLabel(providerID, count: group.items.count).font(.footnote)
-            if pooledProviderIDs.contains(providerID) { foldChevron(providerID) }
+            if foldable { foldChevron(providerID) }
             HStack(spacing: 4) {
                 HStack(alignment: .bottom, spacing: 1.5) {
                     ForEach([6, 9, 7], id: \.self) { height in

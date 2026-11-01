@@ -94,6 +94,8 @@ func runChromePreferenceChecks() {
                         let got = resolveLaunch(claude, intent: intent,
                                                 readings: readings(launchChromeAccount(project, setting: settingValue)))
                         let plain = resolveLaunch(claude, intent: intent, readings: readings(nil))
+                        let lands = flag == .on && setting == .inSnapshot && state == .healthy
+                            && (named == .none || named == .pinStepAside)
                         // B-3308: the PATH shim (`launch-dir`, `best-dir`) asks the same question with no
                         // typed arguments, so it must land where `tally claude` just did. `got` is that
                         // launch; the shim's side is `steeredLaunch` fed the same Chrome account.
@@ -103,10 +105,8 @@ func runChromePreferenceChecks() {
                                                      quarantined: quarantined, now: now,
                                                      chromeAccount: launchChromeAccount(project, setting: settingValue))
                             let want = got.refusal == nil && got.route != .bare ? got.account?.launchHome : nil
-                            let chromeCell = flag == .on && setting == .inSnapshot && state == .healthy
-                                && (named == .none || named == .pinStepAside)
                             var same = shim?.home == want
-                            if chromeCell {
+                            if lands {
                                 shimLanded += 1
                                 same = same && shim?.home == home(claude, "chrome")
                                 // The shim says why, like `tally claude` does, unless the pin's own
@@ -120,8 +120,6 @@ func runChromePreferenceChecks() {
                                     + "shim \(shim?.home ?? "nil") vs tally \(want ?? "nil")")
                             }
                         }
-                        let lands = flag == .on && setting == .inSnapshot && state == .healthy
-                            && (named == .none || named == .pinStepAside)
                         var ok: Bool
                         if lands {
                             landedCells += 1

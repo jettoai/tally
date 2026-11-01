@@ -13,10 +13,11 @@ import Foundation
 // extension is signed in to it now, so it never silences a notice.
 //
 // Where the step goes next is decided by the user's setting alone (`chromeAccountSetting`, in
-// ProjectPolicy.swift; the Settings row "Claude in Chrome account"): with none set the sentence above is all a session gets;
-// with one set and this session on another account, it is told to hand the step to a one-off run on
-// that account (`tally chrome run`, ChromeRun.swift) and never moved (ChromePreflight.swift says the
-// same before the call is sent). The ledger still only chooses the wording of the sentence above.
+// ProjectPolicy.swift; the Settings row "Claude in Chrome account"): with none set the sentence
+// above is all a session gets; with one set and this session on another account, it is told to hand
+// the step to a one-off run on that account (`tally chrome run`, ChromeRun.swift) and never moved
+// (ChromePreflight.swift says the same before the call is sent). The ledger still only chooses the
+// wording of the sentence above.
 
 let chromeToolPrefix = "mcp__claude-in-chrome__"
 

@@ -102,12 +102,14 @@ extension PopoverRootView {
         // block (a row without a 5-hour window leaves that column empty), and a grouped layout
         // calls this once per provider, so each provider's block keeps its own columns.
         let identityWidth = accounts.compactMap { listIdentityWidths[$0.id] }.max()
-        let meterColumns = MeterColumns.block(accounts
-            .map { AccountFacts(usage: $0, settings: settings) }
+        let rowFacts = accounts.map { AccountFacts(usage: $0, settings: settings) }
+        let meterColumns = MeterColumns.block(rowFacts
             .filter { !$0.isHardError }
             .map { MeterColumns.keys($0.orderedMetrics.map(\.kind.meterRole)) })
         // Once per provider rather than once per row: each pick walks every account (TALLY-7Z).
         let autoPicks = Set(Set(accounts.map(\.providerID)).compactMap { AccountFacts.autoPickID(providerID: $0) })
+        // Once per block, like autoPicks: which row's reset is the soonest in each column.
+        let soonest = soonestResets(rowFacts)
         // Row-major, the same chunking the card grid uses, so the reading order is the one the eye
         // already learned here: across, then down.
         return VStack(spacing: 0) {
@@ -120,7 +122,8 @@ extension PopoverRootView {
                             // would read as a single row cut in half.
                             if band > 0 { Divider() }
                             listRow(usage, identityWidth: identityWidth, meterColumns: meterColumns,
-                                    isAutoPick: autoPicks.contains(usage.id))
+                                    isAutoPick: autoPicks.contains(usage.id),
+                                    soonestResets: soonest[usage.id] ?? [])
                         }
                         .frame(width: width)
                     }
@@ -135,15 +138,35 @@ extension PopoverRootView {
         .tallyCard()
     }
 
+    /// Per account id, the meter columns whose reset is the soonest of its provider's rows. Grouped
+    /// by provider so a flat layout (one block, several providers) and a grouped one agree, and rows
+    /// that draw no meters (hard error, renewing login) neither compete nor light.
+    private func soonestResets(_ rowFacts: [AccountFacts]) -> [String: Set<MeterColumnKey>] {
+        var result: [String: Set<MeterColumnKey>] = [:]
+        let drawing = rowFacts.filter { !$0.isHardError && !$0.isRenewingLogin }
+        for group in Dictionary(grouping: drawing, by: \.usage.providerID).values {
+            let states = group.map { f in
+                Dictionary(uniqueKeysWithValues: zip(
+                    MeterColumns.keys(f.orderedMetrics.map(\.kind.meterRole)),
+                    f.orderedMetrics.map { UsageFormat.resetState($0, resetPassed: f.usage.resetPassed($0)) }))
+            }
+            for (f, lit) in zip(group, UsageFormat.soonestResets(states)) where !lit.isEmpty {
+                result[f.usage.id] = lit
+            }
+        }
+        return result
+    }
+
     private func listRow(_ usage: AccountUsage, identityWidth: CGFloat?,
-                         meterColumns: [MeterColumnKey], isAutoPick: Bool) -> some View {
+                         meterColumns: [MeterColumnKey], isAutoPick: Bool,
+                         soonestResets: Set<MeterColumnKey>) -> some View {
         AccountListRowView(usage: usage, settings: settings, showsDragHandle: true,
                            identityWidth: identityWidth, meterColumns: meterColumns,
                            onIdentityWidth: { width in
                                if listIdentityWidths[usage.id] != width {
                                    listIdentityWidths[usage.id] = width
                                }
-                           }, isAutoPick: isAutoPick)
+                           }, isAutoPick: isAutoPick, soonestResets: soonestResets)
             .opacity(cardLift?.id == usage.id ? 0 : 1)
             .contentShape(Rectangle())
             // Same frame registration the cards use, so the one drag gesture reorders both

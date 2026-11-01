@@ -17,7 +17,7 @@ extension AccountListRowView {
     /// One window this account reports, as a track, a figure and a one-unit reset countdown, in the
     /// card's order; the window's NAME and the exact reset time live in the cluster's tooltip,
     /// because spelling them out per window is what makes the card as tall as it is.
-    func meterCluster(_ metric: UsageMetric) -> some View {
+    func meterCluster(_ metric: UsageMetric, emphasized: Bool = false) -> some View {
         let passed = usage.resetPassed(metric)
         let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
         let reset = UsageFormat.resetState(metric, resetPassed: passed)
@@ -31,7 +31,7 @@ extension AccountListRowView {
                 // seconds from being replaced, so that is a wait rather than a warning.
                 .foregroundStyle(figureColor(metric, resetPassed: passed))
                 .frame(width: Self.valueWidth, alignment: .trailing)
-            ResetCaption(state: reset, style: .compact)
+            ResetCaption(state: reset, style: .compact, emphasized: emphasized)
         }
         .tallyTooltip(meterHelp(metric, reset: reset))
         .accessibilityElement(children: .combine)

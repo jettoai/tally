@@ -8,6 +8,11 @@ struct ResetCaption: View {
 
     let state: UsageFormat.ResetState
     let style: Style
+    /// The soonest reset of its column (`UsageFormat.soonestResets`): primary and semibold instead of
+    /// secondary. Only a countdown takes it; the compact style alone uses it.
+    var emphasized: Bool = false
+
+    private var isCountdown: Bool { if case .countdown = state { true } else { false } }
 
     var body: some View {
         switch style {
@@ -29,7 +34,8 @@ struct ResetCaption: View {
             }
         }
         .font(.caption2.monospacedDigit())
-        .foregroundStyle(.secondary)
+        .fontWeight(emphasized && isCountdown ? .semibold : nil)
+        .foregroundStyle(emphasized && isCountdown ? HierarchicalShapeStyle.primary : .secondary)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .frame(width: AccountListRowView.resetWidth, alignment: .leading)

@@ -187,6 +187,33 @@ enum UsageFormat {
         [durationBody(29 * 86_400), durationBody(23 * 3_600), durationBody(59 * 60)]
     }
 
+    /// Per row, the columns whose countdown is its column's soonest (within a minute: ties all light).
+    /// Only `.countdown` competes; a column lights nothing unless one of its countdowns is later.
+    static func soonestResets<Column: Hashable>(_ rows: [[Column: ResetState]]) -> [Set<Column>] {
+        var earliest: [Column: Date] = [:]
+        for row in rows {
+            for (column, state) in row {
+                if case .countdown(let date) = state { earliest[column] = min(earliest[column] ?? date, date) }
+            }
+        }
+        // The cut is the soonest plus a minute, and exists only where something falls at or past it.
+        var cut: [Column: Date] = [:]
+        for (column, soonest) in earliest {
+            let limit = soonest.addingTimeInterval(60)
+            let hasLater = rows.contains { row in
+                if case .countdown(let date) = row[column] { return date >= limit }
+                return false
+            }
+            if hasLater { cut[column] = limit }
+        }
+        return rows.map { row in
+            Set(row.compactMap { column, state -> Column? in
+                if case .countdown(let date) = state, let limit = cut[column], date < limit { return column }
+                return nil
+            })
+        }
+    }
+
     /// The widest strings the countdown can realistically show, for reserving layout width
     /// (hidden templates) so the per-second string changes never push neighboring views around.
     /// Localized, so the reservation is right in every UI language.

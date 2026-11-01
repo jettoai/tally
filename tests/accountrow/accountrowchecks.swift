@@ -672,7 +672,7 @@ func runAccountRowChecks() {
     // move the figures beside it. The sentences live in the formatter alone, never in a view.
     let caption = readSource("Tally/Views/ResetCaption.swift")
     check("the list cluster and the card both draw the one reset caption",
-          listMeter.contains("ResetCaption(state: reset, style: .compact)")
+          listMeter.contains("ResetCaption(state: reset, style: .compact, emphasized: emphasized)")
               && cardMeter.contains("ResetCaption(state: resetState, style: .line)"))
     check("the row's spoken label carries the reset sentence",
           listMeter.contains("UsageFormat.resetSentence(reset)"))
@@ -681,6 +681,18 @@ func runAccountRowChecks() {
               && !cardMeter.contains("sessionNotStarted"))
     check("the caption's column is fixed and sits outside its timeline",
           caption.contains(".frame(width: AccountListRowView.resetWidth, alignment: .leading)"))
+    // THE SOONEST RESET IS EMPHASISED (B-3511): decided once per block and per provider by the grid,
+    // handed to each row, drawn by the caption only while it is a countdown; the drag preview is a
+    // single row with nothing to compare, so it never lights.
+    let grid = readSource("Tally/Views/PopoverCardGrid.swift")
+    check("the grid decides the soonest resets once per block and hands each row its own",
+          grid.contains("let soonest = soonestResets(rowFacts)")
+              && grid.contains("soonestResets: soonest[usage.id] ?? []")
+              && grid.contains("!$0.isRenewingLogin") && grid.contains("Dictionary(grouping:")
+              && !listRow.contains("UsageFormat.soonestResets"))
+    check("only a countdown caption takes the emphasis, and the drag preview never lights",
+          caption.contains("emphasized && isCountdown")
+              && !readSource("Tally/Views/CardReorder.swift").contains("soonestResets"))
 
     // AND THEY ASK IT PER BAR. The reserve is held back from the three windows the account shares with
     // the user's browser - its weekly all-models one, its 5h one and its flagship model's - and from no

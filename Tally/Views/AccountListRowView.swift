@@ -32,6 +32,10 @@ struct AccountListRowView: View {
     /// Whether this row is the provider's auto pick, answered once for the whole block by its list
     /// (`AccountFacts.autoPickID`). Nil asks on its own, which is what the floating drag preview does.
     var isAutoPick: Bool? = nil
+    /// The columns whose reset countdown is the soonest of this row's provider, answered once for the
+    /// whole block by the grid. Empty lights nothing, which is what the floating
+    /// drag preview does.
+    var soonestResets: Set<MeterColumnKey> = []
 
     @State private var isHovering = false
     @State private var redeemBusy = false
@@ -91,7 +95,7 @@ struct AccountListRowView: View {
                 // pushing them off the row (`MeterSlots`).
                 MeterSlots(columns: columnKeys.count, gap: Self.meterGap) {
                     ForEach(Array(zip(facts.orderedMetrics, ownKeys)), id: \.0.id) { metric, key in
-                        meterCluster(metric)
+                        meterCluster(metric, emphasized: soonestResets.contains(key))
                             .layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))
                     }
                 }

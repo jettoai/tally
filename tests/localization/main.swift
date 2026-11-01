@@ -107,7 +107,7 @@ check("resetState reads no label, id, model or provider", !stateBody.isEmpty
       && !["metric.label", "metric.modelName", "metric.id", "providerID"].contains { stateBody.contains($0) })
 let listRow = try String(contentsOf: appRoot.appendingPathComponent("Tally/Views/AccountListRowView.swift"), encoding: .utf8)
 check("the list row draws a cluster for every window the account reports",
-      listRow.contains("facts.orderedMetrics") && listRow.contains("meterCluster(metric)"))
+      listRow.contains("facts.orderedMetrics") && listRow.contains("meterCluster(metric, emphasized: soonestResets.contains(key))"))
 
 // The reserved column is built to hold the widest caption in English, and in Turkish after the
 // caption's 0.8 minimum scale. The width itself is read from the view's source (the view lives in
@@ -122,9 +122,37 @@ func widest(_ strings: [String]) -> Double {
     Double(strings.map { ($0 as NSString).size(withAttributes: [.font: captionFont]).width }.max() ?? .infinity)
 }
 check("the widest English caption fits the reset column", widest(UsageFormat.resetCompactTemplates) <= resetWidth)
+// B-3511: the soonest-reset emphasis is semibold, so the column must hold the semibold widths too.
+let boldFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .semibold)
+func boldWidest() -> Double {
+    Double(UsageFormat.resetCompactTemplates.map { ($0 as NSString).size(withAttributes: [.font: boldFont]).width }.max() ?? .infinity)
+}
+check("the widest English caption fits the reset column in semibold", boldWidest() <= resetWidth)
 language("tr")
 check("the widest Turkish caption fits the reset column after the 0.8 scale", widest(UsageFormat.resetCompactTemplates) * 0.8 <= resetWidth)
+check("the widest Turkish caption fits the reset column in semibold after the 0.8 scale", boldWidest() * 0.8 <= resetWidth)
 check("Live switch back to Turkish invalidates the cached bundle", L("Language") == "Dil")
+
+// B-3511: which rows light, per column. `.countdown` alone competes; a column lights only when one of
+// its countdowns is at least a minute later than the soonest; ties within a minute all light.
+func cd(_ s: Double) -> UsageFormat.ResetState { .countdown(now.addingTimeInterval(s)) }
+let h = 3_600.0, d = 86_400.0
+func lit(_ rows: [[String: UsageFormat.ResetState]]) -> [Set<String>] { UsageFormat.soonestResets(rows) }
+check("soonest: 2d beats 4d", lit([["w": cd(2 * d)], ["w": cd(4 * d)]]) == [["w"], []])
+check("soonest: a tie within a minute lights both, the later one stays dark",
+      lit([["w": cd(17 * h + 10)], ["w": cd(17 * h + 40)], ["w": cd(2 * d)]]) == [["w"], ["w"], []])
+check("soonest: +59s ties, +60s does not",
+      lit([["w": cd(h)], ["w": cd(h + 59)], ["w": cd(h + 60)]]) == [["w"], ["w"], []])
+check("soonest: everyone in one minute lights nothing", lit([["w": cd(h)], ["w": cd(h + 30)]]) == [[], []])
+check("soonest: a lone countdown next to a passed one lights nothing",
+      lit([["w": cd(h)], ["w": .passed(now.addingTimeInterval(-h))]]) == [[], []])
+check("soonest: passed neither lights nor competes",
+      lit([["w": .passed(now.addingTimeInterval(-h))], ["w": cd(2 * h)], ["w": cd(5 * h)]]) == [[], ["w"], []])
+check("soonest: notStarted and absent neither light nor compete",
+      lit([["w": .notStarted], ["w": cd(3 * h)], ["w": .absent]]) == [[], [], []])
+check("soonest: columns are independent",
+      lit([["s": cd(h), "w": cd(6 * d)], ["s": cd(3 * h), "w": cd(2 * d)]]) == [["s"], ["w"]])
+check("soonest: no rows, no answer", lit([]).isEmpty)
 
 let display = try String(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])
     .appendingPathComponent("Tally/Views/SettingsDisplayPane.swift"), encoding: .utf8)

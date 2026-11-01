@@ -25,7 +25,7 @@ struct ResetCaption: View {
         // The width is fixed OUTSIDE the timeline so a minute tick can never move the neighbours;
         // `.absent` keeps the frame so the column stays reserved.
         Group {
-            if case .countdown = state {
+            if isCountdown {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     Text(verbatim: UsageFormat.resetCompact(state, now: context.date))
                 }

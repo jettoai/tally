@@ -118,19 +118,16 @@ let resetWidth = rowSource.components(separatedBy: "static let resetWidth: CGFlo
     .flatMap { Double($0.prefix(while: { $0.isNumber })) } ?? 0
 check("the reset column width is readable from the view", resetWidth > 0)
 let captionFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .regular)
-func widest(_ strings: [String]) -> Double {
-    Double(strings.map { ($0 as NSString).size(withAttributes: [.font: captionFont]).width }.max() ?? .infinity)
-}
-check("the widest English caption fits the reset column", widest(UsageFormat.resetCompactTemplates) <= resetWidth)
 // B-3511: the soonest-reset emphasis is semibold, so the column must hold the semibold widths too.
 let boldFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .semibold)
-func boldWidest() -> Double {
-    Double(UsageFormat.resetCompactTemplates.map { ($0 as NSString).size(withAttributes: [.font: boldFont]).width }.max() ?? .infinity)
+func widest(_ strings: [String], font: NSFont = captionFont) -> Double {
+    Double(strings.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? .infinity)
 }
-check("the widest English caption fits the reset column in semibold", boldWidest() <= resetWidth)
+check("the widest English caption fits the reset column", widest(UsageFormat.resetCompactTemplates) <= resetWidth)
+check("the widest English caption fits the reset column in semibold", widest(UsageFormat.resetCompactTemplates, font: boldFont) <= resetWidth)
 language("tr")
 check("the widest Turkish caption fits the reset column after the 0.8 scale", widest(UsageFormat.resetCompactTemplates) * 0.8 <= resetWidth)
-check("the widest Turkish caption fits the reset column in semibold after the 0.8 scale", boldWidest() * 0.8 <= resetWidth)
+check("the widest Turkish caption fits the reset column in semibold after the 0.8 scale", widest(UsageFormat.resetCompactTemplates, font: boldFont) * 0.8 <= resetWidth)
 check("Live switch back to Turkish invalidates the cached bundle", L("Language") == "Dil")
 
 // B-3511: which rows light, per column. `.countdown` alone competes; a column lights only when one of

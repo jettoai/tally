@@ -190,21 +190,18 @@ enum UsageFormat {
     /// Per row, the columns whose countdown is its column's soonest (within a minute: ties all light).
     /// Only `.countdown` competes; a column lights nothing unless one of its countdowns is later.
     static func soonestResets<Column: Hashable>(_ rows: [[Column: ResetState]]) -> [Set<Column>] {
-        var earliest: [Column: Date] = [:]
+        var span: [Column: (soonest: Date, latest: Date)] = [:]
         for row in rows {
             for (column, state) in row {
-                if case .countdown(let date) = state { earliest[column] = min(earliest[column] ?? date, date) }
+                guard case .countdown(let date) = state else { continue }
+                let known = span[column] ?? (date, date)
+                span[column] = (min(known.soonest, date), max(known.latest, date))
             }
         }
-        // The cut is the soonest plus a minute, and exists only where something falls at or past it.
-        var cut: [Column: Date] = [:]
-        for (column, soonest) in earliest {
-            let limit = soonest.addingTimeInterval(60)
-            let hasLater = rows.contains { row in
-                if case .countdown(let date) = row[column] { return date >= limit }
-                return false
-            }
-            if hasLater { cut[column] = limit }
+        // The cut is the soonest plus a minute, and exists only where the latest falls at or past it.
+        let cut = span.compactMapValues { range -> Date? in
+            let limit = range.soonest.addingTimeInterval(60)
+            return range.latest >= limit ? limit : nil
         }
         return rows.map { row in
             Set(row.compactMap { column, state -> Column? in

@@ -40,18 +40,10 @@ struct ResetCaption: View {
         switch state {
         case .countdown(let date):
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                Text(UsageFormat.resetSentence(state, now: context.date) ?? "")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .tallyTooltip(UsageFormat.resetHover(date, now: context.date) ?? "")
+                sentence(now: context.date, tooltip: UsageFormat.resetHover(date, now: context.date))
             }
         case .passed(let date):
-            Text(UsageFormat.resetSentence(state) ?? "")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .tallyTooltip(UsageFormat.resetAbsolute(date) ?? "")
+            sentence(tooltip: UsageFormat.resetAbsolute(date))
         case .notStarted:
             Text(UsageFormat.resetSentence(state) ?? "")
                 .font(.caption2)
@@ -59,5 +51,13 @@ struct ResetCaption: View {
         case .absent:
             EmptyView()
         }
+    }
+
+    private func sentence(now: Date = Date(), tooltip: String?) -> some View {
+        Text(UsageFormat.resetSentence(state, now: now) ?? "")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .tallyTooltip(tooltip ?? "")
     }
 }

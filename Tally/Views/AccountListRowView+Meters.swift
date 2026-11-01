@@ -33,9 +33,9 @@ extension AccountListRowView {
                 .frame(width: Self.valueWidth, alignment: .trailing)
             ResetCaption(state: reset, style: .compact)
         }
-        .tallyTooltip(meterHelp(metric))
+        .tallyTooltip(meterHelp(metric, reset: reset))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(([L(metric.label), figure] + [UsageFormat.resetSentence(reset)].compactMap { $0 })
+        .accessibilityLabel([L(metric.label), figure, UsageFormat.resetSentence(reset)].compactMap { $0 }
             .joined(separator: ", "))
     }
 
@@ -78,11 +78,10 @@ extension AccountListRowView {
 
     /// The window's name and its own reset, countdown and exact time both, the words the card's
     /// own reset hover gives, so hovering a row answers exactly what reading a card does.
-    func meterHelp(_ metric: UsageMetric) -> String {
-        let name = L(metric.label)
-        var text = name
-        if let reset = UsageFormat.resetHelp(UsageFormat.resetState(metric, resetPassed: usage.resetPassed(metric))) {
-            text += " · \(reset)"
+    func meterHelp(_ metric: UsageMetric, reset: UsageFormat.ResetState) -> String {
+        var text = L(metric.label)
+        if let help = UsageFormat.resetHelp(reset) {
+            text += " · \(help)"
         }
         // What the hatching at the end of the track is. The card can afford to let the mark speak
         // for itself beside a 100pt bar; on a track this short the words have to be somewhere, and this callout is

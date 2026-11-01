@@ -41,7 +41,7 @@ struct LayoutWindows {
     }
 
     /// The column names, in that order. Computed, not stored: the app language can change at runtime.
-    static var names: [String] { [L("5h"), L("Week"), L("Flagship")] }
+    static var names: [String] { [MetricKind.session, .weeklyAll, .weeklyModel].map(UsageLayout.windowName) }
 
     var all: [(name: String, metric: UsageMetric?)] {
         zip(Self.names, [session, weekly, flagship]).map { (name: $0, metric: $1) }

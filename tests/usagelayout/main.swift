@@ -26,18 +26,20 @@ func legacyHeadroom(_ usage: AccountUsage, primaryModel: String? = nil) -> Doubl
     return windows.min()
 }
 
-func window(_ id: String, _ kind: MetricKind, left: Double, name: String? = nil) -> UsageMetric {
+func window(_ id: String, _ kind: MetricKind, left: Double, name: String? = nil, reset: Date? = nil)
+    -> UsageMetric {
     UsageMetric(id: id, kind: kind, label: name ?? id, modelName: name, usedPercent: 100 - left,
-                severity: .fromUsedPercent(100 - left), resetsAt: nil, isActive: false)
+                severity: .fromUsedPercent(100 - left), resetsAt: reset, isActive: false)
 }
 
-func account(session: Double? = nil, weekly: Double? = nil, model: (String, Double)? = nil)
+func account(session: Double? = nil, weekly: Double? = nil, model: (String, Double)? = nil,
+             id: String = "claude:t", plan: String? = "Max 20x", weeklyReset: Date? = nil)
     -> AccountUsage {
     var metrics: [UsageMetric] = []
     if let model { metrics.append(window("weekly_model:\(model.0)", .weeklyModel, left: model.1, name: model.0)) }
     if let session { metrics.append(window("session", .session, left: session)) }
-    if let weekly { metrics.append(window("weekly_all", .weeklyAll, left: weekly)) }
-    return AccountUsage(id: "claude:t", providerID: "claude", accountLabel: "t", planName: "Max 20x",
+    if let weekly { metrics.append(window("weekly_all", .weeklyAll, left: weekly, reset: weeklyReset)) }
+    return AccountUsage(id: id, providerID: "claude", accountLabel: id, planName: plan,
                         accountEmail: nil, metrics: metrics, refreshedAt: Date())
 }
 
@@ -99,6 +101,52 @@ MainActor.assumeIsolated {
           UsageLayout.parse(nil) == nil && UsageLayout.parse("") == nil
           && UsageLayout.parse("no") == nil && UsageLayout.parse("orbit") == nil)
     check("this (non-DEBUG) build answers nil without a flag", UsageLayout.active == nil)
+
+    // 6. Ledger pools (B-3461). The unknown-plan row draws its OWN pool, never another plan's.
+    let now = Date()
+    func at(_ hours: Double) -> Date { now.addingTimeInterval(hours * 3600) }
+    let fleet = [account(weekly: 70, id: "m1", plan: "Max 20x", weeklyReset: at(10)),
+                 account(weekly: 60, id: "m2", plan: "Max 20x", weeklyReset: at(11)),
+                 account(weekly: 30, id: "p1", plan: "Pro", weeklyReset: at(12)),
+                 account(weekly: 90, id: "u1", plan: nil, weeklyReset: at(5))]
+    let split = FleetMath.summaries(accounts: fleet, now: now, byPlan: true) { $0.accountLabel }
+    let unknown = UsageLayout.poolSummary(split, providerID: "claude", tier: FleetSummary.Tier(name: nil))
+    let unknownWeek = unknown?.pools.first { $0.kind == .weeklyAll }
+    check("the unknown-plan row reads its own pool: 90% left", unknownWeek?.averageRemaining == 90)
+    check("and its own refill, not the Max plan's",
+          unknownWeek?.refills.first?.at == at(5) && unknown?.accountCount == 1)
+    check("a named plan row reads that plan's pool",
+          UsageLayout.poolSummary(split, providerID: "claude", tier: FleetSummary.Tier(name: "Pro"))?
+              .pools.first?.averageRemaining == 30)
+    check("a split provider has no whole-provider pool for its heading",
+          UsageLayout.poolSummary(split, providerID: "claude", tier: nil) == nil)
+    let noReading = Array(fleet.dropLast()) + [account(id: "u2", plan: nil)]
+    let noReadingSplit = FleetMath.summaries(accounts: noReading, now: now, byPlan: true) { $0.accountLabel }
+    check("an unknown-plan account with no reading has no pool (the row says No reading)",
+          UsageLayout.poolSummary(noReadingSplit, providerID: "claude", tier: FleetSummary.Tier(name: nil)) == nil
+          && UsageLayout.poolSummary(noReadingSplit, providerID: "claude", tier: FleetSummary.Tier(name: "Pro")) != nil)
+    let oneNamed = [fleet[0], fleet[1], fleet[3]]
+    let oneNamedSummaries = FleetMath.summaries(accounts: oneNamed, now: now, byPlan: true) { $0.accountLabel }
+    check("one named plan plus an unknown one does not split: the layout agrees with FleetMath",
+          FleetMath.planTiers(accounts: oneNamed).isEmpty
+          && UsageLayout.poolSummary(oneNamedSummaries, providerID: "claude", tier: nil) != nil)
+    let fableFleet = FleetMath.summaries(
+        accounts: [account(session: 50, weekly: 70, model: ("Fable", 20), id: "f1"),
+                   account(session: 40, weekly: 60, model: ("Fable", 30), id: "f2")],
+        now: now) { $0.accountLabel }
+    check("a flagship-focused pool is the flagship kind and is not named Week",
+          fableFleet.first?.headline(focusedModel: "Fable")?.kind == .weeklyModel
+          && UsageLayout.windowName(.weeklyModel) == L("Flagship")
+          && UsageLayout.windowName(.weeklyModel) != L("Week")
+          && UsageLayout.windowName(.weeklyAll) == L("Week")
+          && UsageLayout.windowName(.session) == L("5h"))
+
+    // 7. Widths: both layouts fit the narrowest region, from the very numbers the views use.
+    check("premise: the narrowest region is the 356pt single card column", UsageLayout.regionWidth == 356)
+    check("a ledger row fits the region", UsageLayout.Ledger.rowWidth <= UsageLayout.regionWidth
+          && UsageLayout.Ledger.barWidth > 0)
+    check("a tray row fits the region", UsageLayout.Tray.rowWidth <= UsageLayout.regionWidth
+          && UsageLayout.Tray.columns >= 1)
 }
 
 // 5. Source locks for the files that cannot be compiled here.
@@ -138,6 +186,23 @@ if let lines = code("Tally/Core/UsageLayout.swift") {
           has(lines, #"^\s*#if DEBUG"#) && has(lines, #"^\s*#else"#)
           && has(lines, #"static let active: UsageLayout\? = nil"#))
 }
+// B-3461: the ledger and tray views take their pools, window names and widths from the layout maths.
+if let lines = code("Tally/Views/UsageLedgerView.swift") {
+    check("the ledger no longer lets a nil plan match any plan", !has(lines, #"plan == nil \|\|"#))
+    check("the ledger never prints the week for a pool of another window", !has(lines, #"Text\(L\("Week"\)\)"#))
+    check("the ledger picks its pool through poolSummary and names it by its kind",
+          has(lines, #"UsageLayout\.poolSummary\("#) && has(lines, #"UsageLayout\.windowName\(pool\.kind\)"#))
+    check("the ledger splits by plan on FleetMath's own rule", has(lines, #"FleetMath\.planTiers\("#))
+    check("the ledger's pool bar has no width of its own", !has(lines, #"width: 120"#))
+}
+if let lines = code("Tally/Views/UsageLayoutParts.swift") {
+    check("the column names come from windowName", has(lines, #"UsageLayout\.windowName"#))
+}
+if let lines = code("Tally/Views/UsageTrayView.swift") {
+    check("the tray seats its tiles by UsageLayout.Tray.columns, not a fixed count",
+          !has(lines, #"columns: [0-9]"#) && has(lines, #"UsageLayout\.Tray\.columns"#))
+}
+
 // The flag's spelling stays in the one reader and the launch-flag list.
 var spellers: [String] = []
 if let walker = FileManager.default.enumerator(atPath: "Tally") {

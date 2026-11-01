@@ -9,9 +9,10 @@ import SwiftUI
 // Not draggable by design: this preview mounts no `reorderGesture`.
 
 extension PopoverRootView {
-    private static let trayTileWidth: CGFloat = 110
-    private static let trayTileHeight: CGFloat = 34
-    private static let trayGap: CGFloat = 8
+    // Tile size, gap and tiles per row come from UsageLayout.Tray, fitted to the 356pt region (B-3461).
+    private static let trayTileWidth = UsageLayout.Tray.tileWidth
+    private static let trayTileHeight = UsageLayout.Tray.tileHeight
+    private static let trayGap = UsageLayout.Tray.gap
 
     /// Every provider's heading and tiles, in the order and folding the default layout uses.
     @ViewBuilder
@@ -27,36 +28,31 @@ extension PopoverRootView {
         let summaries = fleetSummaries.filter { $0.providerID == providerID && !displayedPools($0).isEmpty }
         let split = summaries.filter { $0.planTier != nil }
         let autoPick = AccountFacts.autoPickID(providerID: providerID)
-        // Three columns are too narrow for name and bar on one line: stack them.
-        let stacked = split.count > 2
+        let columns = UsageLayout.Tray.columns
         return VStack(alignment: .leading, spacing: 6) {
             trayHeading(group, pool: split.isEmpty ? summaries.first : nil)
             if !group.isFolded {
                 if split.count > 1 {
-                    // Several plans: one column each, its own pool on top, then its tiles.
-                    HStack(alignment: .top, spacing: Self.trayGap) {
-                        ForEach(split, id: \.id) { summary in
-                            VStack(alignment: .leading, spacing: 6) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 5) {
-                                        (Text(summary.planTier?.name ?? L("Unknown plan")).foregroundStyle(Color.secondary)
-                                         + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
-                                            .font(.caption).lineLimit(1).fixedSize()
-                                        if !stacked { trayPool(summary) }
-                                    }
-                                    if stacked { trayPool(summary, showsRefill: false) }
-                                }
-                                trayGrid(group.items.filter { $0.planName == summary.planTier?.name },
-                                         columns: 2, autoPick: autoPick)
+                    // Several plans: one section each, stacked (side by side no tile row fits the
+                    // narrowest region), its own pool on top, then its tiles.
+                    ForEach(split, id: \.id) { summary in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 5) {
+                                (Text(summary.planTier?.name ?? L("Unknown plan")).foregroundStyle(Color.secondary)
+                                 + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
+                                    .font(.caption).lineLimit(1).fixedSize()
+                                trayPool(summary)
                             }
+                            trayGrid(group.items.filter { $0.planName == summary.planTier?.name },
+                                     columns: columns, autoPick: autoPick)
                         }
                     }
-                    // An account on a plan no column names must still be on screen.
+                    // An account on a plan no section names must still be on screen.
                     let named = Set(split.map { $0.planTier?.name })
                     let rest = group.items.filter { !named.contains($0.planName) }
-                    if !rest.isEmpty { trayGrid(rest, columns: 4, autoPick: autoPick) }
+                    if !rest.isEmpty { trayGrid(rest, columns: columns, autoPick: autoPick) }
                 } else {
-                    trayGrid(group.items, columns: 4, autoPick: autoPick)
+                    trayGrid(group.items, columns: columns, autoPick: autoPick)
                 }
             }
         }
@@ -67,9 +63,21 @@ extension PopoverRootView {
     private func trayHeading(_ group: AccountGroup, pool: FleetSummary?) -> some View {
         let providerID = group.providerID
         let foldable = pooledProviderIDs.contains(providerID)
+        // In the narrowest region the refill does not fit beside the legend: it goes, the level stays.
+        return ViewThatFits(in: .horizontal) {
+            trayHeadingRow(group, pool: pool, showsRefill: true)
+            trayHeadingRow(group, pool: pool, showsRefill: false)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
+        .onTapGesture { if foldable { settings.toggleCollapsed(providerID) } }
+    }
+
+    private func trayHeadingRow(_ group: AccountGroup, pool: FleetSummary?, showsRefill: Bool) -> some View {
+        let providerID = group.providerID
         return HStack(spacing: 6) {
             providerLabel(providerID, count: group.items.count).font(.footnote)
-            if foldable { foldChevron(providerID) }
+            if pooledProviderIDs.contains(providerID) { foldChevron(providerID) }
             HStack(spacing: 4) {
                 HStack(alignment: .bottom, spacing: 1.5) {
                     ForEach([6, 9, 7], id: \.self) { height in
@@ -82,11 +90,8 @@ extension PopoverRootView {
             }
             .accessibilityHidden(true)
             Spacer(minLength: 6)
-            if let pool { trayPool(pool) }
+            if let pool { trayPool(pool, showsRefill: showsRefill) }
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .contentShape(Rectangle())
-        .onTapGesture { if foldable { settings.toggleCollapsed(providerID) } }
     }
 
     /// One pool as a short bar, what is left in it and when the next refill lands.

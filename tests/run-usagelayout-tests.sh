@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)
 swiftc -target "$(uname -m)-apple-macos14.0" -o "$out/run" tests/usagelayout/main.swift \
-  Tally/Core/UsageLayout.swift \
+  Tally/Core/UsageLayout.swift Tally/Core/UsageLayoutMath.swift Tally/Core/FleetMath.swift Tally/Core/PanelGeometry.swift \
   Tally/Stores/LaunchPolicyStore.swift Tally/Stores/LaunchPolicyStore+AutoPick.swift Tally/Stores/LaunchPolicyScoring.swift \
   Tally/Views/UsageFormatting.swift Tally/Stores/DisplaySettings.swift \
   Tally/Core/AccountReserve.swift Tally/Core/PersonalAccount.swift \

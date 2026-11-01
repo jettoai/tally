@@ -8,12 +8,16 @@ import SwiftUI
 // holds no threshold and takes no minimum of its own (tests/usagelayout locks both).
 
 private enum LedgerMetrics {
-    static let nameWidth: CGFloat = 76
-    static let barWidth: CGFloat = 92
+    // Widths come from UsageLayout.Ledger, derived from the 356pt single-column region (B-3461).
+    static let nameWidth = UsageLayout.Ledger.nameWidth
+    static let barWidth = UsageLayout.Ledger.barWidth
     static let barHeight: CGFloat = 5
-    static let numberWidth: CGFloat = 30
-    static let badgeWidth: CGFloat = 16
-    static let gap: CGFloat = 10
+    /// A heading's pool bar is two thirds of a column bar: beside the label, the level and the
+    /// refill it is what makes room for the longest window name ("Flagship") in one region.
+    static let poolBarWidth = barWidth * 2 / 3
+    static let numberWidth = UsageLayout.Ledger.numberWidth
+    static let badgeWidth = UsageLayout.Ledger.badgeWidth
+    static let gap = UsageLayout.Ledger.gap
     static let rowHeight: CGFloat = 24
     /// A single-window account draws its one bar across the width of all three columns.
     static let spanWidth: CGFloat = barWidth * 3 + gap * 2
@@ -39,25 +43,26 @@ extension PopoverRootView {
                 ledgerSection(group)
             }
         }
-        .padding(.horizontal, 2)
+        .padding(.horizontal, UsageLayout.Ledger.inset)
     }
 
     private func ledgerSection(_ group: AccountGroup) -> some View {
         let providerID = group.providerID
         let plans = Self.ledgerPlans(group.items)
-        let split = plans.count > 1
+        // The rule FleetMath splits its summaries by, so a row never looks for a pool that is not there.
+        let split = !FleetMath.planTiers(accounts: group.items).isEmpty
         // Once per provider: each pick walks every account (TALLY-7Z), same rule as the card grid.
         let pick = AccountFacts.autoPickID(providerID: providerID)
         let foldable = pooledProviderIDs.contains(providerID)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 providerLabel(providerID, count: group.items.count).font(.system(size: 12, weight: .semibold))
-                if !split, let plan = plans.first?.name {
+                if !split, plans.count == 1, let plan = plans.first?.name {
                     Text(plan).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 if foldable { foldChevron(providerID) }
                 Spacer(minLength: 8)
-                if !split { ledgerPool(providerID, plan: nil) }
+                if !split { ledgerPool(providerID, tier: nil) }
             }
             .contentShape(Rectangle())
             .onTapGesture { if foldable { settings.toggleCollapsed(providerID) } }
@@ -71,7 +76,7 @@ extension PopoverRootView {
                             Text(plan.name ?? L("Unknown plan")).font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 8)
-                            ledgerPool(providerID, plan: plan.name)
+                            ledgerPool(providerID, tier: FleetSummary.Tier(name: plan.name))
                         }
                     }
                     // Leading, not the default centre: the 0.5pt separator is as wide as the region, which
@@ -106,31 +111,31 @@ extension PopoverRootView {
         HStack(spacing: LedgerMetrics.gap) {
             Color.clear.frame(width: LedgerMetrics.nameWidth, height: 1)
             ForEach(LayoutWindows.names, id: \.self) { name in
-                Text(name).frame(width: LedgerMetrics.barWidth, alignment: .leading)
+                Text(name).lineLimit(1).frame(width: LedgerMetrics.barWidth, alignment: .leading)
             }
         }
         .font(.system(size: 10)).foregroundStyle(.secondary)
     }
 
-    /// The weekly pool of one provider (or of one plan when the provider is split): bar, level, then
-    /// `⧗` when it runs dry before it refills, `↻` with the next refill otherwise. Nothing is drawn
-    /// for a provider with no pool (a single account), exactly as the default heading.
+    /// The leading pool of one provider (`tier` nil) or of one plan (a tier, the unknown plan included
+    /// when the provider is split), labelled by its own window: bar, level, then `⧗` when it runs dry
+    /// before it refills, `↻` with the next refill otherwise. A plan with no pool reads "No reading"
+    /// rather than another plan's figures; an unsplit provider with no pool (a single account) draws
+    /// nothing, exactly as the default heading.
     @ViewBuilder
-    private func ledgerPool(_ providerID: String, plan: String?) -> some View {
-        let summary = fleetSummaries.first {
-            $0.providerID == providerID && (plan == nil || $0.planTier?.name == plan)
-        }
+    private func ledgerPool(_ providerID: String, tier: FleetSummary.Tier?) -> some View {
+        let summary = UsageLayout.poolSummary(fleetSummaries, providerID: providerID, tier: tier)
         let pools = summary.map(displayedPools) ?? []
         if let summary, let pool = pools.first(where: { $0.kind == .weeklyAll }) ?? pools.first {
             let now = Date()
             let tint = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining).color
             HStack(spacing: 6) {
-                Text(L("Week")).foregroundStyle(.secondary)
+                Text(UsageLayout.windowName(pool.kind)).foregroundStyle(.secondary).fixedSize()
                 RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(LayoutTint.track)
-                    .frame(width: 120, height: LedgerMetrics.barHeight)
+                    .frame(width: LedgerMetrics.poolBarWidth, height: LedgerMetrics.barHeight)
                     .overlay(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(tint)
-                            .frame(width: max(1, 120 * pool.averageRemaining / 100))
+                            .frame(width: max(1, LedgerMetrics.poolBarWidth * pool.averageRemaining / 100))
                     }
                 Text(verbatim: "\(Int(pool.averageRemaining.rounded()))%").monospacedDigit()
                 if case .some(.some(let dry)) = poolDryDate(summary, pool, now: now) {
@@ -142,6 +147,8 @@ extension PopoverRootView {
             }
             .font(.system(size: 11))
             .lineLimit(1)
+        } else if tier != nil {
+            Text(L("No reading")).font(.system(size: 11)).foregroundStyle(.tertiary)
         }
     }
 }

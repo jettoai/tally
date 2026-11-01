@@ -83,6 +83,32 @@ check("sentence: absent is nil", UsageFormat.resetSentence(.absent) == nil)
 check("hover keeps the exact clock for a countdown", UsageFormat.resetHelp(.countdown(future), now: now) == UsageFormat.resetHover(future, now: now))
 check("hover explains a window that has not started", UsageFormat.resetHelp(.notStarted) == "5h starts on first use")
 
+// B-3511: a window from a provider this code has never heard of shows its reset with no display
+// code written for it. The state function reads the reset instant, the used share and the kind
+// only; labels, ids and model names never reach it, and `.other` (what a new provider's windows
+// map to) takes the same path as the named kinds.
+let soon = now.addingTimeInterval(6 * 3_600 + 20 * 60)
+let invented = [
+    UsageMetric(id: "acme.daily-credits", kind: .other, label: "Daily credits", modelName: "acme-1", usedPercent: 40, severity: .normal, resetsAt: soon, isActive: false),
+    UsageMetric(id: "acme.burst", kind: .other, label: "Burst (10 min)", modelName: nil, usedPercent: 0, severity: .normal, resetsAt: soon, isActive: true),
+    UsageMetric(id: "zzz", kind: .weeklyModel, label: "Some future tier", modelName: "future-9", usedPercent: 95, severity: .critical, resetsAt: soon, isActive: false),
+]
+for m in invented {
+    let state = UsageFormat.resetState(m, resetPassed: false)
+    check("invented window '\(m.label)' counts down", state == .countdown(soon))
+    check("invented window '\(m.label)' reads 6h in the list caption", UsageFormat.resetCompact(state, now: now) == "6h")
+    check("invented window '\(m.label)' reads the card sentence", UsageFormat.resetSentence(state, now: now) == "resets in 6h 20m")
+}
+let appRoot = URL(fileURLWithPath: CommandLine.arguments[1])
+let formatting = try String(contentsOf: appRoot.appendingPathComponent("Tally/Views/UsageFormatting.swift"), encoding: .utf8)
+let stateBody = formatting.components(separatedBy: "static func resetState(").dropFirst().first?
+    .components(separatedBy: "static func resetCompact").first ?? ""
+check("resetState reads no label, id, model or provider", !stateBody.isEmpty
+      && !["metric.label", "metric.modelName", "metric.id", "providerID"].contains { stateBody.contains($0) })
+let listRow = try String(contentsOf: appRoot.appendingPathComponent("Tally/Views/AccountListRowView.swift"), encoding: .utf8)
+check("the list row draws a cluster for every window the account reports",
+      listRow.contains("facts.orderedMetrics") && listRow.contains("meterCluster(metric)"))
+
 // The reserved column is built to hold the widest caption in English, and in Turkish after the
 // caption's 0.8 minimum scale. The width itself is read from the view's source (the view lives in
 // the app target), so a unit that grows past the column fails here rather than clipping on screen.

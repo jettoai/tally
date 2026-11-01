@@ -663,9 +663,25 @@ func runAccountRowChecks() {
     check("the list row's vertical padding is 2.5pt, which keeps the row about 20pt tall",
           listRow.contains(".padding(.vertical, 2.5)") && !listRow.contains(".padding(.vertical, 5)"))
     check("the list row places each meter in its kind's column",
-          listRow.contains("MeterSlots(columns: columnKeys.count, gap: 8)")
+          listRow.contains("MeterSlots(columns: columnKeys.count, gap: Self.meterGap)")
               && listRow.contains(".layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))")
               && !listRow.contains("meterSlots"))
+    // THE RESET COUNTDOWN IS ONE SHARED PIECE (B-3511): the list row's cluster and the card's context
+    // line both draw `ResetCaption` from `UsageFormat.resetState`, the row's spoken label carries the
+    // sentence, and the caption sits in a fixed column OUTSIDE its timeline so a minute tick cannot
+    // move the figures beside it. The sentences live in the formatter alone, never in a view.
+    let caption = readSource("Tally/Views/ResetCaption.swift")
+    check("the list cluster and the card both draw the one reset caption",
+          listMeter.contains("ResetCaption(state: reset, style: .compact)")
+              && cardMeter.contains("ResetCaption(state: resetState, style: .line)"))
+    check("the row's spoken label carries the reset sentence",
+          listMeter.contains("UsageFormat.resetSentence(reset)"))
+    check("the card no longer words the reset on its own",
+          !cardMeter.contains("5h starts on first use") && !cardMeter.contains("resetLabel(")
+              && !cardMeter.contains("sessionNotStarted"))
+    check("the caption's column is fixed and sits outside its timeline",
+          caption.contains(".frame(width: AccountListRowView.resetWidth, alignment: .leading)"))
+
     // AND THEY ASK IT PER BAR. The reserve is held back from the three windows the account shares with
     // the user's browser - its weekly all-models one, its 5h one and its flagship model's - and from no
     // other (Albert's ruling, 2026-09-05; the top of AccountReserve.swift states it), so a hatch on a

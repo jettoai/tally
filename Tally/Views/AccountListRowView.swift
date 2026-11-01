@@ -8,9 +8,9 @@ import SwiftUI
 ///
 /// It hides words, never facts. Every window a card shows is here (the same `showAllModels` filter
 /// decides), every state a card can be in has a mark here, and the words the card spells out (the
-/// window's name, how long until its reset and the exact time, what the pin does) move into hover
-/// tooltips rather than disappearing (B-650: the countdown is the hover's first words, never a
-/// second line that would make the row taller).
+/// window's name, the exact reset time, what the pin does) move into hover tooltips rather than
+/// disappearing (B-650: the row never gets a second line). The reset countdown sits on the line
+/// itself, one unit wide (B-3511).
 struct AccountListRowView: View {
     let usage: AccountUsage
     @Bindable var settings: SettingsStore
@@ -41,14 +41,18 @@ struct AccountListRowView: View {
     var facts: AccountFacts { AccountFacts(usage: usage, settings: settings) }
 
     /// The narrowest a row still reads as one line rather than a squeeze, and so the width of ONE
-    /// list column. Built from what a row has to carry: the identity (provider mark, name, plan)
-    /// around 150pt, three meter clusters at the 34pt minimum track plus a 32pt figure plus their gaps around
-    /// 230pt, the trailing controls (badge slot, pin, grip) around 60pt, and a little slack between
-    /// the identity and the meters so a long nickname does not touch the first bar. Checked against
-    /// the demo fleet on screen: at 460 the one row carrying a status mark (the warning triangle
-    /// travels with the identity) truncated its plan to "Max…", so the slack has to cover a mark
-    /// too (2026-08-04).
-    static let minComfortableWidth: CGFloat = 480
+    /// list column: what is not a meter (`nonMeterWidth`) plus three meter clusters at their
+    /// shortest (`MeterSlots.minimumWidth`), 564pt since B-3511 (480pt before the reset column).
+    static let minComfortableWidth: CGFloat = nonMeterWidth + MeterSlots.minimumWidth(columns: 3, gap: meterGap)
+    /// The gap between the meter columns.
+    static let meterGap: CGFloat = 8
+    /// Everything in the row that is not a meter: the identity (provider mark, name, plan) around
+    /// 150pt, the trailing controls (badge slot, pin, grip) around 60pt, 2 x 14pt of padding, 2 x 8pt
+    /// of row gaps, and a little slack between the identity and the meters so a long nickname does
+    /// not touch the first bar. Checked against the demo fleet on screen: at 460 the one row carrying
+    /// a status mark (the warning triangle travels with the identity) truncated its plan to "Max…",
+    /// so the slack has to cover a mark too (2026-08-04).
+    static let nonMeterWidth: CGFloat = 254
     /// The gutter between list columns, which is the card grid's own (see `PanelGeometry`).
     static let columnGap: CGFloat = PanelGeometry.columnGap
 
@@ -60,6 +64,10 @@ struct AccountListRowView: View {
     /// The percentage column: "100%" at caption size, so the figures line up down the panel the way
     /// the cards' do.
     nonisolated static let valueWidth: CGFloat = 32
+    /// The reset countdown column: one unit ("29d", "23h", "59m") at caption2 with monospaced digits
+    /// measures 21.7pt at the widest in English; Turkish ("59 dk") is 27.6pt and the caption scales
+    /// to 0.8 there (22.1pt). A fixed width, so a minute tick never moves the figures beside it.
+    nonisolated static let resetWidth: CGFloat = 24
     /// The badge slot, reserved whether or not this row has a badge, so the pin circles stay in one
     /// column instead of stepping left and right with the smart pick.
     static let badgeWidth: CGFloat = 11
@@ -81,7 +89,7 @@ struct AccountListRowView: View {
                 // The meters take whatever the identity column and the trailing controls leave, and
                 // take it LAST: a long nickname truncates against the meters' minimum rather than
                 // pushing them off the row (`MeterSlots`).
-                MeterSlots(columns: columnKeys.count, gap: 8) {
+                MeterSlots(columns: columnKeys.count, gap: Self.meterGap) {
                     ForEach(Array(zip(facts.orderedMetrics, ownKeys)), id: \.0.id) { metric, key in
                         meterCluster(metric)
                             .layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))

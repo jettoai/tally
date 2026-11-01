@@ -122,6 +122,71 @@ enum UsageFormat {
         return (countdownBody(date, now: now), clock)
     }
 
+    /// What a window's reset slot says. Decided once, here, so the card's line, the list row's
+    /// caption, its hover and its spoken label can never disagree about the state; the renderers
+    /// below only choose the words. A new window kind or provider needs no reset code of its own:
+    /// it has a `resetsAt` or it does not.
+    enum ResetState: Equatable {
+        /// A reset is coming at this instant.
+        case countdown(Date)
+        /// The reset already happened but the figure is held over from before it (`AccountUsage.resetPassed`).
+        case passed(Date?)
+        /// A session window nobody has used: the provider starts the 5h clock on the first message,
+        /// so there is no instant yet. The slot states the fact rather than sitting empty (the
+        /// product's promise is "% + time"; a blank reads as a bug).
+        case notStarted
+        /// Nothing to say, and the slot stays reserved so the columns still line up.
+        case absent
+    }
+
+    /// The glyph for a slot with no clock to show (the one allowed no-data glyph, escaped so the
+    /// source holds no literal dash).
+    static let noResetGlyph = "\u{2014}"
+
+    static func resetState(_ metric: UsageMetric, resetPassed: Bool) -> ResetState {
+        if resetPassed { return .passed(metric.resetsAt) }
+        if let date = metric.resetsAt { return .countdown(date) }
+        if metric.kind == .session && metric.usedPercent == 0 { return .notStarted }
+        return .absent
+    }
+
+    /// The list row's caption: ONE unit, floored ("4d", "17h", "42m", never under "1m"), so the
+    /// column stays narrow enough that the panel does not outgrow small displays. The exact time
+    /// stays in the hover. The units reuse the single-unit keys `durationBody` already localizes.
+    static func resetCompact(_ state: ResetState, now: Date = Date()) -> String {
+        switch state {
+        case .countdown(let date):
+            let seconds = Int(max(60, date.timeIntervalSince(now)))
+            if seconds >= 86_400 { return durationBody(TimeInterval(seconds / 86_400 * 86_400)) }
+            if seconds >= 3_600 { return durationBody(TimeInterval(seconds / 3_600 * 3_600)) }
+            return durationBody(TimeInterval(seconds))
+        case .passed, .notStarted: return noResetGlyph
+        case .absent: return ""
+        }
+    }
+
+    /// The full sentence (the card's reset line and the row's spoken label): "resets in 4d 17h".
+    static func resetSentence(_ state: ResetState, now: Date = Date()) -> String? {
+        switch state {
+        case .countdown(let date): resetCountdown(date, now: now)
+        case .passed: L("Reset passed, awaiting refresh")
+        case .notStarted: L("5h starts on first use")
+        case .absent: nil
+        }
+    }
+
+    /// The row's hover: the sentence, plus the exact clock while a reset is still ahead.
+    static func resetHelp(_ state: ResetState, now: Date = Date()) -> String? {
+        if case .countdown(let date) = state { return resetHover(date, now: now) }
+        return resetSentence(state, now: now)
+    }
+
+    /// The widest captions `resetCompact` can produce, which a test measures against the reserved
+    /// column (`AccountListRowView.resetWidth`).
+    static var resetCompactTemplates: [String] {
+        [durationBody(29 * 86_400), durationBody(23 * 3_600), durationBody(59 * 60)]
+    }
+
     /// The widest strings the countdown can realistically show, for reserving layout width
     /// (hidden templates) so the per-second string changes never push neighboring views around.
     /// Localized, so the reservation is right in every UI language.

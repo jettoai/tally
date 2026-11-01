@@ -21,8 +21,8 @@ func check(_ actual: CGFloat, _ expected: CGFloat, _ label: String, tolerance: C
 }
 
 /// The comfortable list row, copied from `AccountListRowView` - the view lives in the app target
-/// and this harness compiles the geometry alone (same shape as tests/windowanchor).
-let listRowWidth: CGFloat = 480
+/// and this harness compiles the geometry alone (same shape as tests/windowanchor); pinned below.
+let listRowWidth: CGFloat = 564
 
 /// `ScreenFitStack.maxWidth(on:)`, the reading the panel is bounded by: the display's usable width
 /// less the margin the surface keeps off the edges, and never below one comfortable column.
@@ -36,9 +36,16 @@ check(PanelGeometry.cardPanelWidth(columns: 4), 1108, "four columns")
 check(PanelGeometry.cardPanelWidth(columns: 0), 380, "a nonsense count falls to one column")
 
 print("panel widths, list density")
-check(PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth), 504, "one row column")
-check(PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth), 994, "two row columns")
-check(PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth), 1484, "three row columns")
+check(PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth), 588, "one row column")
+check(PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth), 1162, "two row columns")
+check(PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth), 1736, "three row columns")
+// THE ROW WIDTH IS ARITHMETIC (B-3511): non-meter room plus three shortest clusters and their gaps,
+// pinned to the app-target lines this harness does not compile.
+let listRowSource = (try? String(contentsOfFile: "Tally/Views/AccountListRowView.swift", encoding: .utf8)) ?? ""
+let rowConstants = ["resetWidth: CGFloat = 24", "barWidth: CGFloat = 34", "valueWidth: CGFloat = 32",
+                    "nonMeterWidth: CGFloat = 254", "meterGap: CGFloat = 8"]
+check(rowConstants.allSatisfy { listRowSource.contains("static let " + $0) }, "the row's width constants are the view's own")
+check(listRowWidth, 254 + 3 * (34 + 4 + 32 + 4 + 24) + 2 * 8, "the row is the non-meter room plus three clusters and gaps")
 
 print("a card stays the same size as columns are added")
 for columns in 2 ... 4 {
@@ -63,9 +70,12 @@ check(PanelGeometry.cardPanelWidth(
                                       in: usableWidth(display: 2048))) == 1108,
       "and the panel is still 1108pt")
 
-// A laptop display cannot seat three 480pt rows (1484pt of panel), so the chosen count gives.
+// A laptop display cannot seat three 564pt rows (1736pt of panel), so the chosen count gives.
 check(PanelGeometry.seated(3, columnWidth: listRowWidth, in: usableWidth(display: 1280)) == 2,
       "1280pt display bounds a chosen three list columns to two")
+check(PanelGeometry.seated(3, columnWidth: listRowWidth, in: usableWidth(display: 1680)) == 2, "1680pt display still bounds a chosen three to two")
+check(PanelGeometry.seated(3, columnWidth: listRowWidth, in: usableWidth(display: 1920)) == 3, "1920pt display seats all three")
+check(PanelGeometry.seated(2, columnWidth: listRowWidth, in: usableWidth(display: 1152)) == 1, "1152pt bounds two to one")
 check(PanelGeometry.seated(1, columnWidth: listRowWidth, in: usableWidth(display: 1280)) == 1,
       "and leaves a chosen one alone")
 
@@ -299,9 +309,9 @@ func laidOutBoard(chosen: Int?, cards: Int = 4,
 // The card takes the room now. This is the assertion the old arithmetic fails.
 let reported = PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth)
 check(laidOutBoard(chosen: 1, panel: reported).card, 480,
-      "504pt panel, one column: the card is the width it is given, not 263")
+      "588pt panel, one column: the card is the width it is given up to the cap, not 263")
 check(laidOutBoard(chosen: 1, panel: reported).width, 480,
-      "…and the board with it, so nothing is left over at that width")
+      "…and the board stops at the cap, 84pt left to the surface")
 // AND THE OTHER END OF THE SAME ARITHMETIC, which is the 2026-08-17 complaint: a lone card must not
 // stretch across a wide panel. 834pt offers 810pt of grid and the card stops at the cap.
 check(laidOutBoard(chosen: 1, panel: PanelGeometry.cardPanelWidth(columns: 3)).card, sessionCardCap,
@@ -313,10 +323,10 @@ check(laidOutBoard(chosen: 1, panel: PanelGeometry.cardPanelWidth(columns: 4)).c
 check(laidOutBoard(chosen: 1, panel: reported, cap: 356).card, 356,
       "a capture asking for a 356pt cap gets a 356pt card in that same panel")
 check(laidOutBoard(chosen: 1, panel: reported, cap: 356).width, 356,
-      "…and a board that leaves the remaining 124pt to the surface")
+      "…and a board that leaves the remaining 208pt to the surface")
 // The two-column readings the same panels produce.
-check(laidOutBoard(chosen: 2, panel: reported).card, 236,
-      "504pt panel, two columns: two 236pt cards")
+check(laidOutBoard(chosen: 2, panel: reported).card, 278,
+      "588pt panel, two columns: two 278pt cards")
 check(laidOutBoard(chosen: 2, panel: PanelGeometry.cardPanelWidth(columns: 2)).card, 264,
       "560pt panel, two columns: two 264pt cards")
 check(laidOutBoard(chosen: 1, panel: PanelGeometry.cardPanelWidth(columns: 2)).card, sessionCardCap,

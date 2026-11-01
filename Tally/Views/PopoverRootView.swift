@@ -302,7 +302,7 @@ struct PopoverRootView: View {
     /// 2026-09-28). More columns are available, they just have to be chosen.
     var listColumnCount: Int {
         guard (1 ... SettingsStore.maxListColumns).contains(settings.listColumns) else { return 1 }
-        // Chosen, and still bounded by the display: three 480pt rows need 1484pt of panel, which a
+        // Chosen, and still bounded by the display: three 564pt rows need 1736pt of panel, which a
         // laptop screen does not have (see `PanelGeometry`).
         return min(settings.listColumns,
                    PanelGeometry.seats(columnWidth: AccountListRowView.minComfortableWidth,

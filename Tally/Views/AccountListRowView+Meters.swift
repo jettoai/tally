@@ -14,12 +14,13 @@ extension MetricKind {
 
 /// The list row's meter clusters (track, figure, water line, hover text), split out of AccountListRowView for file size.
 extension AccountListRowView {
-    /// One window this account reports, as a track plus a figure, in the card's order; the window's
-    /// NAME, its reset countdown and the exact time live in the cluster's tooltip, because spelling
-    /// them out per window is what makes the card as tall as it is.
+    /// One window this account reports, as a track, a figure and a one-unit reset countdown, in the
+    /// card's order; the window's NAME and the exact reset time live in the cluster's tooltip,
+    /// because spelling them out per window is what makes the card as tall as it is.
     func meterCluster(_ metric: UsageMetric) -> some View {
         let passed = usage.resetPassed(metric)
         let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
+        let reset = UsageFormat.resetState(metric, resetPassed: passed)
         return HStack(spacing: 4) {
             bar(metric, resetPassed: passed)
             Text(figure)
@@ -30,10 +31,12 @@ extension AccountListRowView {
                 // seconds from being replaced, so that is a wait rather than a warning.
                 .foregroundStyle(figureColor(metric, resetPassed: passed))
                 .frame(width: Self.valueWidth, alignment: .trailing)
+            ResetCaption(state: reset, style: .compact)
         }
         .tallyTooltip(meterHelp(metric))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(L(metric.label)), \(figure)")
+        .accessibilityLabel(([L(metric.label), figure] + [UsageFormat.resetSentence(reset)].compactMap { $0 })
+            .joined(separator: ", "))
     }
 
     func figureColor(_ metric: UsageMetric, resetPassed: Bool) -> Color {
@@ -78,8 +81,7 @@ extension AccountListRowView {
     func meterHelp(_ metric: UsageMetric) -> String {
         let name = L(metric.label)
         var text = name
-        if let reset = usage.resetPassed(metric) ? L("Reset passed, awaiting refresh")
-            : UsageFormat.resetHover(metric.resetsAt) {
+        if let reset = UsageFormat.resetHelp(UsageFormat.resetState(metric, resetPassed: usage.resetPassed(metric))) {
             text += " · \(reset)"
         }
         // What the hatching at the end of the track is. The card can afford to let the mark speak

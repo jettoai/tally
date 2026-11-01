@@ -52,9 +52,10 @@ extension PopoverRootView {
     /// without a ceiling a board of one in a four-column panel would be a single 1084pt band across
     /// the page - the shape the count was added to get rid of (Albert, 2026-08-17).
     ///
-    /// 480 is the comfortable width this app already reads a line of text at
-    /// (`AccountListRowView.minComfortableWidth`), which is the closest thing the repo has to a
-    /// ruling on how long a line may get before it stops being easy to come back to. What a cap
+    /// 480 is the comfortable width this app read a line of text at when the list row was built at
+    /// that width (`AccountListRowView.minComfortableWidth` until B-3511), which is the closest
+    /// thing the repo has to a ruling on how long a line may get before it stops being easy to come
+    /// back to. What a cap
     /// leaves over stays empty rather than being handed to the cards.
     static let defaultSessionCardCap: CGFloat = 480
 

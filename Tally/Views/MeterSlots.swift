@@ -15,8 +15,15 @@ struct MeterSlots: Layout {
     var columns: Int
     var gap: CGFloat
 
-    /// A cluster at its shortest: minimum track, the 4pt inside the cluster, the figure column.
+    /// A cluster at its shortest: minimum track, the figure column, the reset column, and the 4pt
+    /// between each of the three.
     static let minimumCluster: CGFloat = AccountListRowView.barWidth + 4 + AccountListRowView.valueWidth
+        + 4 + AccountListRowView.resetWidth
+
+    /// The least `columns` clusters and the `gap`s between them take; a row's width floor.
+    static func minimumWidth(columns: Int, gap: CGFloat) -> CGFloat {
+        CGFloat(columns) * minimumCluster + gap * CGFloat(max(0, columns - 1))
+    }
 
     private func columnCount(_ subviews: Subviews) -> Int {
         let placed = subviews.enumerated().map { ($1[MeterColumn.self] ?? $0) + 1 }.max() ?? 0
@@ -25,7 +32,7 @@ struct MeterSlots: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let count = columnCount(subviews)
-        let floor = CGFloat(count) * Self.minimumCluster + gap * CGFloat(max(0, count - 1))
+        let floor = Self.minimumWidth(columns: count, gap: gap)
         let width: CGFloat
         if let proposed = proposal.width, proposed.isFinite {
             width = max(proposed, floor)

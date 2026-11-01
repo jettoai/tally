@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // AppLocale's only app dependency. Never start discovery, login or telemetry in a test.
@@ -50,13 +51,53 @@ let october = Calendar.current.date(from: DateComponents(year: 2026, month: 10, 
 check("Turkish exact reset date is day first", UsageFormat.absoluteBody(october) == "23.10 18:05")
 check("A past reset is not reported as successful", L("Reset passed, awaiting refresh") == "Yenilenme zamanı geçti, güncel veri bekleniyor")
 
+// B-3511: the reset slot's state and words. One state function, three renderers.
+check("Turkish single-unit reset caption (days)", UsageFormat.resetCompact(.countdown(now.addingTimeInterval(2 * 86_400 + 5_000)), now: now) == "2 g")
+check("Turkish single-unit reset caption (hours)", UsageFormat.resetCompact(.countdown(now.addingTimeInterval(23 * 3_600 + 59 * 60)), now: now) == "23 sa")
+check("Turkish single-unit reset caption (minutes)", UsageFormat.resetCompact(.countdown(now.addingTimeInterval(59 * 60 + 30)), now: now) == "59 dk")
+
 language("tr-TR")
 check("Regional Turkish resolves to Turkish", L("Language") == "Dil")
 language("en")
 check("Live switch to English invalidates the cached bundle", L("Language") == "Language")
 check("English duration units are unchanged", UsageFormat.durationBody(90_000) == "1d 1h")
 check("English absolute reset dates are unchanged", UsageFormat.absoluteBody(october) == "10/23 18:05")
+func metric(_ kind: MetricKind, used: Double, resetsAt: Date?) -> UsageMetric {
+    UsageMetric(id: "m", kind: kind, label: "m", modelName: nil, usedPercent: used, severity: .normal, resetsAt: resetsAt, isActive: false)
+}
+let future = now.addingTimeInterval(4 * 86_400 + 17 * 3_600)
+check("passed wins over a future reset", UsageFormat.resetState(metric(.weeklyAll, used: 10, resetsAt: future), resetPassed: true) == .passed(future))
+check("a reset ahead is a countdown", UsageFormat.resetState(metric(.weeklyAll, used: 10, resetsAt: future), resetPassed: false) == .countdown(future))
+check("an untouched session window is not started", UsageFormat.resetState(metric(.session, used: 0, resetsAt: nil), resetPassed: false) == .notStarted)
+check("a used session window without a reset says nothing", UsageFormat.resetState(metric(.session, used: 5, resetsAt: nil), resetPassed: false) == .absent)
+check("a weekly window without a reset says nothing", UsageFormat.resetState(metric(.weeklyAll, used: 0, resetsAt: nil), resetPassed: false) == .absent)
+check("caption: days only", UsageFormat.resetCompact(.countdown(future), now: now) == "4d")
+check("caption: hours only", UsageFormat.resetCompact(.countdown(now.addingTimeInterval(17 * 3_600 + 1_800)), now: now) == "17h")
+check("caption: minutes only", UsageFormat.resetCompact(.countdown(now.addingTimeInterval(42 * 60 + 10)), now: now) == "42m")
+check("caption: a past instant floors at one minute", UsageFormat.resetCompact(.countdown(now.addingTimeInterval(-500)), now: now) == "1m")
+check("caption: passed and not started show the no-data glyph", UsageFormat.resetCompact(.passed(nil), now: now) == "\u{2014}" && UsageFormat.resetCompact(.notStarted, now: now) == "\u{2014}")
+check("caption: absent is empty", UsageFormat.resetCompact(.absent, now: now) == "")
+check("sentence: countdown", UsageFormat.resetSentence(.countdown(future), now: now) == "resets in 4d 17h")
+check("sentence: passed and not started", UsageFormat.resetSentence(.passed(nil)) == "Reset passed, awaiting refresh" && UsageFormat.resetSentence(.notStarted) == "5h starts on first use")
+check("sentence: absent is nil", UsageFormat.resetSentence(.absent) == nil)
+check("hover keeps the exact clock for a countdown", UsageFormat.resetHelp(.countdown(future), now: now) == UsageFormat.resetHover(future, now: now))
+check("hover explains a window that has not started", UsageFormat.resetHelp(.notStarted) == "5h starts on first use")
+
+// The reserved column is built to hold the widest caption in English, and in Turkish after the
+// caption's 0.8 minimum scale. The width itself is read from the view's source (the view lives in
+// the app target), so a unit that grows past the column fails here rather than clipping on screen.
+let rowSource = try String(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])
+    .appendingPathComponent("Tally/Views/AccountListRowView.swift"), encoding: .utf8)
+let resetWidth = rowSource.components(separatedBy: "static let resetWidth: CGFloat = ").dropFirst().first
+    .flatMap { Double($0.prefix(while: { $0.isNumber })) } ?? 0
+check("the reset column width is readable from the view", resetWidth > 0)
+let captionFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .regular)
+func widest(_ strings: [String]) -> Double {
+    Double(strings.map { ($0 as NSString).size(withAttributes: [.font: captionFont]).width }.max() ?? .infinity)
+}
+check("the widest English caption fits the reset column", widest(UsageFormat.resetCompactTemplates) <= resetWidth)
 language("tr")
+check("the widest Turkish caption fits the reset column after the 0.8 scale", widest(UsageFormat.resetCompactTemplates) * 0.8 <= resetWidth)
 check("Live switch back to Turkish invalidates the cached bundle", L("Language") == "Dil")
 
 let display = try String(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])

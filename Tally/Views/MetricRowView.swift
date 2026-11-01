@@ -76,11 +76,10 @@ struct MetricRowView: View {
         .tallyTooltip(barReserve > 0 ? L("Kept for web use") : "")
     }
 
-    /// An untouched session window: the provider starts the 5h clock on the first message, so there
-    /// is no reset instant yet. The time slot must never sit empty ("% + time" is the product's
-    /// promise - a blank reads as a bug), so it states the fact instead.
-    private var sessionNotStarted: Bool {
-        metric.kind == .session && metric.resetsAt == nil && metric.usedPercent == 0
+    /// What this window's reset slot says (an untouched session window included: the provider starts
+    /// the 5h clock on the first message), decided once for every surface (`UsageFormat.resetState`).
+    private var resetState: UsageFormat.ResetState {
+        UsageFormat.resetState(metric, resetPassed: resetPassed)
     }
 
     /// A tiny line under every window's bar: a critical warning on the left, ITS OWN reset on the
@@ -88,7 +87,7 @@ struct MetricRowView: View {
     /// The reset reads as a countdown; hovering it adds the exact time.
     @ViewBuilder
     private var contextLine: some View {
-        if resetPassed || metric.severity == .critical || metric.resetsAt != nil || sessionNotStarted {
+        if resetState != .absent || metric.severity == .critical {
             HStack(spacing: 6) {
                 // A window that has already reset is not at its limit, whatever the held-over
                 // figure says: "Limit reached" there is exactly the line that got misread.
@@ -96,19 +95,7 @@ struct MetricRowView: View {
                     criticalNote
                 }
                 Spacer(minLength: 0)
-                if resetPassed {
-                    Text(L("Reset passed, awaiting refresh"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .tallyTooltip(UsageFormat.resetAbsolute(metric.resetsAt) ?? "")
-                } else if let resetsAt = metric.resetsAt {
-                    resetLabel(resetsAt)
-                } else if sessionNotStarted {
-                    Text(L("5h starts on first use"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                ResetCaption(state: resetState, style: .line)
             }
         }
     }
@@ -126,16 +113,6 @@ struct MetricRowView: View {
             Text(metric.usedPercent >= 100 ? L("Limit reached") : L("Near limit"))
                 .font(.caption2)
                 .foregroundStyle(TallyColor.critical)
-        }
-    }
-
-    private func resetLabel(_ resetsAt: Date) -> some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            Text(UsageFormat.resetCountdown(resetsAt, now: context.date) ?? "")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .tallyTooltip(UsageFormat.resetHover(resetsAt, now: context.date) ?? "")
         }
     }
 }

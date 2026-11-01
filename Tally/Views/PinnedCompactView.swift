@@ -26,7 +26,8 @@ struct PinnedPanelRoot: View {
             case .row, .column:
                 PinnedCompactView(store: store, settings: settings,
                                   vertical: settings.pinnedStyle == .column,
-                                  onContentSize: onContentSize)
+                                  onContentSize: onContentSize,
+                                  hostScreen: hostScreen, hostTopEdge: hostTopEdge)
             }
         }
         .background(PanelBackdrop(settings: .shared))
@@ -45,9 +46,14 @@ struct PinnedCompactCell: Equatable, Identifiable {
     var percent: String
     /// Time to the weekly reset: "3:12" inside a day, "2d 4h" beyond; nil when unknown or passed.
     var reset: String?
+    /// Same-provider index from the menu bar's own segment (nil for a lone account of its provider).
+    var badge: Int?
+    /// The label the user sees everywhere else (their rename first), so same-provider cells tell apart.
+    var name: String
 
     @MainActor
-    static func make(_ accounts: [AccountUsage], mode: DisplayMode, now: Date) -> [PinnedCompactCell] {
+    static func make(_ accounts: [AccountUsage], mode: DisplayMode, now: Date,
+                     label: (AccountUsage) -> String) -> [PinnedCompactCell] {
         let focus = UsageStore.focusedModel
         let segments = MenuBarSegments.perAccount(accounts, mode: mode, focusedModel: focus, now: now)
         return zip(accounts, segments).map { account, segment in
@@ -61,7 +67,8 @@ struct PinnedCompactCell: Equatable, Identifiable {
             let resetsAt = weekly.flatMap { account.resetPassed($0, now: now) ? nil : $0.resetsAt }
             return PinnedCompactCell(id: account.id, providerID: account.providerID, ring: ring,
                                      percent: segment.lines.last ?? "—",
-                                     reset: resetsAt.flatMap { Self.countdown($0, now: now) })
+                                     reset: resetsAt.flatMap { Self.countdown($0, now: now) },
+                                     badge: segment.badge, name: label(account))
         }
     }
 
@@ -78,14 +85,26 @@ struct PinnedCompactView: View {
     @Bindable var settings: SettingsStore
     var vertical: Bool
     var onContentSize: ((CGSize) -> Void)?
+    var hostScreen: () -> NSScreen? = { NSScreen.main }
+    var hostTopEdge: () -> CGFloat? = { nil }
 
     @Environment(\.colorScheme) private var scheme
+
+    /// Width of a column cell, and of the grip, waiting dot and bottom margin that share its column.
+    private static let columnWidth: CGFloat = 84
+    /// What the display allows, re-read when the panel moves or the displays change (the same
+    /// mechanism as `PopoverRootView.screenCap`). Nil until the first read.
+    @State private var screenCap: CGFloat?
+    @State private var screenWidth: CGFloat?
+    @State private var scrollerGutter = ScreenFitStack.scrollerGutter
 
     var body: some View {
         // Minute-grained countdowns: a 30s tick keeps "3:12" honest without a timer of our own.
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
             strip(PinnedCompactCell.make(store.orderedAccounts, mode: settings.displayMode,
-                                         now: timeline.date))
+                                         now: timeline.date) {
+                settings.displayLabel(accountID: $0.id, fallback: $0.accountLabel)
+            })
         }
         .fixedSize()
         .overlay(
@@ -97,6 +116,26 @@ struct PinnedCompactView: View {
         // The surface stays against the corner the host holds while the host catches up with the
         // size just reported (see `HostAnchored`).
         .anchoredInHost(enabled: onContentSize != nil)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { _ in
+            refreshScreenCap()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didChangeScreenParametersNotification)) { _ in refreshScreenCap() }
+        .onReceive(NotificationCenter.default.publisher(for: PanelDrag.ended)) { _ in
+            refreshScreenCap()
+        }
+        .trackingScrollerGutter($scrollerGutter)
+        .onAppear { DispatchQueue.main.async { refreshScreenCap() } }
+    }
+
+    /// Same rule as `PopoverRootView.refreshScreenCap`: not while the panel is being carried (the
+    /// cap follows the top edge, so every drag frame would resize it), re-read when the hand lets go.
+    private func refreshScreenCap() {
+        guard !PanelDrag.isActive else { return }
+        let height = ScreenFitStack.maxHeight(on: hostScreen(), topEdge: hostTopEdge())
+        if screenCap != height { screenCap = height }
+        let width = ScreenFitStack.maxWidth(on: hostScreen())
+        if screenWidth != width { screenWidth = width }
     }
 
     private var sizeReporter: some View {
@@ -114,18 +153,27 @@ struct PinnedCompactView: View {
         let dot = Circle().fill(Color.primary).frame(width: 6, height: 6)
         return Group {
             if vertical {
-                VStack(spacing: 0) {
-                    gripDots(columns: 3, rows: 2).frame(width: 84, height: 14).windowDragSurface()
-                    items
-                    if waiting { dot.frame(width: 84, alignment: .trailing).padding(.trailing, 8).padding(.top, 4) }
-                    Color.clear.frame(width: 84, height: 8)
+                // Grip, dot and margin stay put; the accounts scroll once the column would outgrow
+                // the screen (a column that fits lays out exactly as a plain VStack would).
+                let width = Self.columnWidth
+                ScreenFitStack(maxHeight: screenCap
+                                ?? ScreenFitStack.maxHeight(on: hostScreen(), topEdge: hostTopEdge())) {
+                    gripDots(columns: 3, rows: 2).frame(width: width, height: 14).windowDragSurface()
+                    ScrollView(.vertical) { VStack(spacing: 0) { items } }
+                        .frame(width: width + scrollerGutter, alignment: .leading)
+                        .screenFitFlexible()
+                    if waiting { dot.frame(width: width, alignment: .trailing).padding(.trailing, 8).padding(.top, 4) }
+                    Color.clear.frame(width: width, height: 8)
                 }
             } else {
+                let grip: CGFloat = 14, tail: CGFloat = 8, dotWidth: CGFloat = waiting ? 14 : 0
+                let cap = (screenWidth ?? ScreenFitStack.maxWidth(on: hostScreen())) - grip - tail - dotWidth
                 HStack(spacing: 0) {
-                    gripDots(columns: 2, rows: 3).frame(width: 14, height: 40).windowDragSurface()
-                    items
+                    gripDots(columns: 2, rows: 3).frame(width: grip, height: 40).windowDragSurface()
+                    ScrollView(.horizontal) { HStack(spacing: 0) { items } }
+                        .frame(maxWidth: max(0, cap.rounded(.down)))
                     if waiting { dot.padding(.leading, 8) }
-                    Color.clear.frame(width: 8, height: 40)
+                    Color.clear.frame(width: tail, height: 40)
                 }
             }
         }
@@ -171,22 +219,34 @@ private struct PinnedCompactCellView: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            PinnedRing(cell: cell)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(cell.percent)
-                    .font(.callout.weight(.semibold).monospacedDigit())
-                    .lineLimit(1)
-                Text(cell.reset ?? " ")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                PinnedRing(cell: cell)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(cell.percent)
+                        .font(.callout.weight(.semibold).monospacedDigit())
+                        .lineLimit(1)
+                    Text(cell.reset ?? " ")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+                .frame(width: 40, alignment: .leading)
             }
-            .frame(width: 40, alignment: .leading)
+            // Which account this is: the same-provider number, then the name. Pinned to the ring
+            // plus figure width (22 + 6 + 40) so a long name truncates instead of widening the cell.
+            (Text(verbatim: cell.badge.map { "\($0) " } ?? "").foregroundStyle(.tertiary).monospacedDigit()
+                + Text(verbatim: cell.name))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 68, alignment: .leading)
         }
         .padding(.horizontal, horizontalPadding)
-        .frame(height: 32)
+        .frame(height: 46)
+        .help(cell.name)
         .background(RoundedRectangle(cornerRadius: TallyMetrics.calloutRadius, style: .continuous)
             .fill(Color.primary.opacity(hovering ? 0.08 : 0)))
         .opacity(cell.ring.isFaded ? 0.4 : 1)

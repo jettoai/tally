@@ -29,11 +29,6 @@ func autoFollowEnabled(args: [String],
     return environment["TALLY_AUTO_FOLLOW"] != "0"
 }
 
-/// The two halves of `sessionFlags` (Snapshot.swift), partitioned rather than listed again so a flag
-/// added there lands in one of them instead of being silently uncovered (`resumeFlags`,
-/// LaunchFlags.swift).
-let printFlags: Set<String> = ["--print", "-p"]
-
 /// Whether a launch gets a resident supervisor at all, or is left to `exec` on its own.
 ///
 /// Supervision earns its keep by outliving a conversation: it moves the session between accounts,

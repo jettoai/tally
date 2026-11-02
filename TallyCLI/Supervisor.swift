@@ -305,7 +305,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         let environment = supervisedChildEnvironment(
             provider: provider, home: account.launchHome!, supervisorVersion: supervisorVersion,
             supervisorPID: supervisorPID, supervisorStartedAt: supervisorStartedAt,
-            taskListID: provider.id == "claude" ? taskList.id : nil)
+            taskListID: provider.id == "claude" ? taskList.id : nil, launchArgs: launchArgs)
         // A relaunch inherits a terminal whose reader was just killed, and everything queued on it
         // since - the answer to a query the dead child never collected, a keystroke typed into the
         // gap - would arrive as the first thing the new child reads and land in its prompt box

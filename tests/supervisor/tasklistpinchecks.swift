@@ -40,6 +40,18 @@ func runTaskListPinChecks() {
               && ((try? String(contentsOfFile: "TallyCLI/Snapshot.swift", encoding: .utf8)) ?? "")
                   .contains("for key in unsupervisedLaunchUnsets(ProcessInfo.processInfo.environment) { unsetenv(key) }"))
 
+    // B-3646: an interactive window must not inherit an unattended-looking entrypoint marker.
+    let polluted = ["CLAUDE_CODE_ENTRYPOINT": "sdk-cli", "CLAUDECODE": "1"]
+    func entry(_ args: [String], _ p: Provider = providers[0]) -> String? {
+        supervisedChildEnvironment(provider: p, home: "/tmp/A", supervisorVersion: nil,
+                                   supervisorPID: "1", supervisorStartedAt: nil, launchArgs: args,
+                                   base: polluted)["CLAUDE_CODE_ENTRYPOINT"]
+    }
+    check("an interactive Claude launch drops an inherited entrypoint marker",
+          entry([]) == nil && entry(["--continue"]) == nil)
+    check("a print run keeps its entrypoint marker",
+          entry(["-p", "hi"]) == "sdk-cli" && entry(["--print", "hi"]) == "sdk-cli")
+
     // T3
     check("a user-exported list is honoured when nothing supervises the parent",
           initialTaskListPin(home: "/tmp/A", base: [taskListEnvKey: "shared_1"],

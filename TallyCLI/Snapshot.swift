@@ -263,6 +263,8 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
         setenv(key, value, 1)
     }
     for key in unsupervisedLaunchUnsets(ProcessInfo.processInfo.environment) { unsetenv(key) }
+    if clearsEntrypointMarker(provider: providers[0], args: args, stdoutIsTTY: isatty(STDOUT_FILENO) == 1),
+       cli == providers[0].cli { unsetenv(claudeEntrypointKey) }
     let argv = [cli] + args
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
@@ -330,6 +332,11 @@ func defaultHome(_ provider: Provider) -> String {
 /// stands down for any of them; `--print`/`-p` is here because a one-shot run is not a session.
 let sessionFlags: Set<String> = ["--continue", "-c", "--resume", "-r", "--print", "-p"]
 
+/// The two halves of `sessionFlags` (Snapshot.swift), partitioned rather than listed again so a flag
+/// added there lands in one of them instead of being silently uncovered (`resumeFlags`,
+/// LaunchFlags.swift).
+let printFlags: Set<String> = ["--print", "-p"]
+
 /// The part of an argument vector that is still OPTIONS: everything before the first bare `--`.
 ///
 /// claude's CLI takes `claude [options] [command] [prompt]` and parses it the POSIX way, so a bare
@@ -345,6 +352,16 @@ let sessionFlags: Set<String> = ["--continue", "-c", "--resume", "-r", "--print"
 func optionsOnly(_ args: [String]) -> [String] {
     guard let end = args.firstIndex(of: "--") else { return args }
     return Array(args[..<end])
+}
+
+/// Claude Code's launch-surface marker. The inbox hook reads `sdk-*` as an unattended run and stops
+/// delivering mail, so a window a person opens must not inherit one from a polluted tmux or an outer
+/// SDK process (B-3646). Print runs (`-p`, `--print`, or stdout not a terminal) keep it untouched.
+let claudeEntrypointKey = "CLAUDE_CODE_ENTRYPOINT"
+
+func clearsEntrypointMarker(provider: Provider, args: [String], stdoutIsTTY: Bool) -> Bool {
+    provider.id == "claude" && stdoutIsTTY
+        && !optionsOnly(args).contains(where: { printFlags.contains($0) })
 }
 
 /// `args` with Tally's own flags inserted where they will be READ: before the first bare `--`, not

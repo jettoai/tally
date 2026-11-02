@@ -76,11 +76,14 @@ func spawnChild(_ argv: [String], environment: [String: String],
 /// (Snapshot.swift explains why).
 func supervisedChildEnvironment(provider: Provider, home: String, supervisorVersion: String?,
                                 supervisorPID: String, supervisorStartedAt: String?,
-                                taskListID: String? = nil,
+                                taskListID: String? = nil, launchArgs: [String] = [],
                                 base: [String: String] = ProcessInfo.processInfo.environment)
     -> [String: String] {
     var environment = base
     environment.removeValue(forKey: provider.envKey)
+    if clearsEntrypointMarker(provider: provider, args: launchArgs, stdoutIsTTY: true) {
+        environment.removeValue(forKey: claudeEntrypointKey)
+    }
     environment["TALLY_LAUNCHED"] = "1"
     environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion
     environment["TALLY_SUPERVISED"] = "1"

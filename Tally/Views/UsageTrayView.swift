@@ -1,7 +1,8 @@
 import SwiftUI
 
-// THE TRAY PREVIEW LAYOUT (`-TallyUsageLayout tray`, B-2625): one small tile per account, three upright
-// micro bars (5h, week, flagship) and the name, with a number only when the tightest window is tight.
+// THE TRAY PREVIEW LAYOUT (`-TallyUsageLayout tray`, B-2625): one small tile per account, the 5h and
+// flagship windows it has as upright bars, the week as a bar along the bottom, and the name, with a
+// number only when the tightest window is tight.
 // Reached only through the launch flag, so the default panel never draws it.
 //
 // The tightest window and its severity come from `AccountFacts.bindingWindow` / `bindingSeverity`, the
@@ -80,11 +81,16 @@ extension PopoverRootView {
             providerLabel(providerID, count: group.items.count).font(.footnote)
             if foldable { foldChevron(providerID) }
             HStack(spacing: 4) {
-                HStack(alignment: .bottom, spacing: 1.5) {
-                    ForEach([6, 9, 7], id: \.self) { height in
-                        RoundedRectangle(cornerRadius: 1).fill(Color.secondary.opacity(0.6))
-                            .frame(width: 3, height: CGFloat(height))
+                // The legend glyph mirrors a tile: two upright bars over one along the bottom.
+                VStack(spacing: 1.5) {
+                    HStack(spacing: 1.5) {
+                        ForEach(0..<2, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 1).fill(Color.secondary.opacity(0.6))
+                                .frame(width: 3, height: 7)
+                        }
                     }
+                    RoundedRectangle(cornerRadius: 1).fill(Color.secondary.opacity(0.6))
+                        .frame(width: 10, height: 2)
                 }
                 Text(verbatim: LayoutWindows.names.joined(separator: " · "))
                     .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -147,19 +153,30 @@ private struct TrayTile: View {
         let severity = facts.bindingSeverity
         let binding = facts.bindingWindow
         let shape = RoundedRectangle(cornerRadius: TallyMetrics.calloutRadius, style: .continuous)
-        HStack(spacing: 5) {
-            LayoutMicroBars(windows: LayoutWindows(facts.usage), binding: binding)
-            Text(facts.label).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            // A number only when the tightest window is tight: a healthy row stays quiet.
-            if let binding, severity == .warning || severity == .critical {
-                Text(verbatim: "\(Int(binding.remainingPercent.rounded()))")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(layoutNumberInk(severity))
+        let windows = LayoutWindows(facts.usage)
+        VStack(alignment: .leading, spacing: UsageLayout.Tray.rowGap) {
+            HStack(spacing: UsageLayout.Tray.rowSpacing) {
+                if !windows.upright.isEmpty { LayoutMicroBars(windows: windows, binding: binding) }
+                Text(facts.label).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                // A number only when the tightest window is tight: a healthy row stays quiet.
+                if let binding, severity == .warning || severity == .critical {
+                    Text(verbatim: "\(Int(binding.remainingPercent.rounded()))")
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(layoutNumberInk(severity))
+                }
             }
+            .frame(height: UsageLayout.Tray.rowHeight)
+            // The week along the bottom, always drawn: a plan without one, or a tile with no reading at
+            // all, gets LayoutBar's dashed outline here, so no tile is ever blank.
+            LayoutBar(metric: windows.weekly, length: UsageLayout.Tray.contentWidth,
+                      thickness: UsageLayout.Tray.weekThickness,
+                      isBinding: LayoutWindows.isBinding(windows.weekly, binding))
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, UsageLayout.Tray.inset)
+        .padding(.top, UsageLayout.Tray.topInset)
+        .padding(.bottom, UsageLayout.Tray.bottomInset)
         .frame(width: size.width, height: size.height)
         .background(shape.fill(Color.primary.opacity(0.05)))
         .overlay(shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))

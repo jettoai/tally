@@ -147,6 +147,52 @@ MainActor.assumeIsolated {
           && UsageLayout.Ledger.barWidth > 0)
     check("a tray row fits the region", UsageLayout.Tray.rowWidth <= UsageLayout.regionWidth
           && UsageLayout.Tray.columns >= 1)
+
+    // 8. Tray glyph (B-3461): the 5h and flagship windows stand upright at the left, only the ones the
+    //    plan has; the week lies along the bottom, always drawn.
+    typealias Tray = UsageLayout.Tray
+    let demo = DemoUsage.accounts()
+    func demoAccount(_ label: String) -> AccountUsage? { demo.first { $0.accountLabel == label } }
+    func uprightKinds(_ usage: AccountUsage) -> [MetricKind] { LayoutWindows(usage).upright.map { $0.metric.kind } }
+    let claude2 = demoAccount("Claude 2"), claude5 = demoAccount("Claude 5"), codex1 = demoAccount("Codex")
+    check("premise: the demo has a Claude without a 5h window, one with it, and a Codex",
+          claude2 != nil && claude5 != nil && codex1 != nil
+          && claude2?.metrics.contains { $0.kind == .session } == false
+          && claude5?.metrics.contains { $0.kind == .session } == true)
+    if let claude2, let claude5, let codex1 {
+        check("a Claude without a 5h window draws only the flagship upright, no empty slot",
+              uprightKinds(claude2) == [.weeklyModel] && LayoutWindows(claude2).weekly != nil)
+        check("a Codex account draws its 5h upright", uprightKinds(codex1) == [.session])
+        check("an account with all three draws 5h before flagship",
+              uprightKinds(claude5) == [.session, .weeklyModel] && LayoutWindows(claude5).weekly != nil)
+    }
+    check("a week-only plan draws nothing upright and has its week for the bottom",
+          LayoutWindows(account(weekly: 40)).upright.isEmpty && LayoutWindows(account(weekly: 40)).weekly != nil)
+    check("an account with no window draws nothing upright and no week (the bottom bar is dashed)",
+          LayoutWindows(account()).upright.isEmpty && LayoutWindows(account()).weekly == nil)
+    @MainActor func ringed(_ usage: AccountUsage) -> (week: Bool, upright: [Bool]) {
+        let windows = LayoutWindows(usage), binding = LaunchPolicyStore.bindingWindow(usage)
+        return (LayoutWindows.isBinding(windows.weekly, binding),
+                windows.upright.map { LayoutWindows.isBinding($0.metric, binding) })
+    }
+    let weekBinds = ringed(account(session: 80, weekly: 30))
+    check("the ring goes to the bottom bar when the week is the tightest window",
+          weekBinds.week && !weekBinds.upright.contains(true))
+    let sessionBinds = ringed(account(session: 55, weekly: 55, model: ("Opus", 55)))
+    check("and to the 5h bar when that one is, never to the week as well",
+          !sessionBinds.week && sessionBinds.upright == [true, false])
+    check("the tile's rows add up to its height", Tray.stackHeight == Tray.tileHeight)
+    check("the week bar spans the tile's content", Tray.contentWidth == Tray.tileWidth - 2 * Tray.inset)
+    check("an upright bar fits its row and two rings do not touch",
+          Tray.uprightLength <= Tray.rowHeight
+          && Tray.rowGap + (Tray.rowHeight - Tray.uprightLength) / 2 > 2 * UsageLayout.ringOutset)
+    check("a ring stays inside the tile's padding",
+          Tray.inset > UsageLayout.ringOutset && Tray.bottomInset > UsageLayout.ringOutset)
+    check("two upright bars still leave the name and a number room",
+          Tray.uprightWidth(2) + 3 * Tray.rowSpacing + Tray.nameFloor + Tray.numberAllowance <= Tray.contentWidth
+          && Tray.uprightWidth(0) == 0 && Tray.uprightWidth(1) == Tray.uprightThickness)
+    check("the window names are the localized 5h, Week, Flagship",
+          LayoutWindows.names == [L("5h"), L("Week"), L("Flagship")])
 }
 
 // 5. Source locks for the files that cannot be compiled here.
@@ -162,7 +208,7 @@ func has(_ lines: [String], _ pattern: String) -> Bool {
 // The layouts take the tightest window and its colour from the one place; none may compute its own.
 let ownMath = #"\.min\(|headroom\(|<\s*(20|50)\b|>=?\s*(20|50)\b|remainingPercent\s*\}"#
 for path in ["Tally/Views/UsageLayoutParts.swift", "Tally/Views/UsageLedgerView.swift",
-             "Tally/Views/UsageTrayView.swift"] {
+             "Tally/Views/UsageTrayView.swift", "Tally/Core/UsageLayoutMath.swift"] {
     guard let lines = code(path) else {
         print("SKIP \(path) is not written yet"); continue
     }
@@ -195,12 +241,30 @@ if let lines = code("Tally/Views/UsageLedgerView.swift") {
     check("the ledger splits by plan on FleetMath's own rule", has(lines, #"FleetMath\.planTiers\("#))
     check("the ledger's pool bar has no width of its own", !has(lines, #"width: 120"#))
 }
-if let lines = code("Tally/Views/UsageLayoutParts.swift") {
+if let lines = code("Tally/Core/UsageLayoutMath.swift") {
     check("the column names come from windowName", has(lines, #"UsageLayout\.windowName"#))
+}
+if let lines = code("Tally/Views/UsageLayoutParts.swift") {
+    check("the upright bars come only from LayoutWindows.upright, with no size of their own",
+          has(lines, #"ForEach\(windows\.upright"#) && !has(lines, #"length: [0-9]"#)
+          && has(lines, #"padding\(-UsageLayout\.ringOutset\)"#))
 }
 if let lines = code("Tally/Views/UsageTrayView.swift") {
     check("the tray seats its tiles by UsageLayout.Tray.columns, not a fixed count",
           !has(lines, #"columns: [0-9]"#) && has(lines, #"UsageLayout\.Tray\.columns"#))
+    check("the tile's week bar is the week window, ringed by the same rule, as wide as the content",
+          has(lines, #"LayoutBar\(metric: windows\.weekly"#)
+          && has(lines, #"isBinding: LayoutWindows\.isBinding\(windows\.weekly, binding\)"#)
+          && has(lines, #"UsageLayout\.Tray\.contentWidth"#))
+    check("the tile has no size or padding of its own",
+          !has(lines, #"length: [0-9]"#) && !has(lines, #"\.padding\(\.horizontal, [0-9]"#))
+    // The week bar is drawn whatever the plan reports: a nil week is LayoutBar's dashed outline.
+    if let at = lines.firstIndex(where: { $0.contains("LayoutBar(metric: windows.weekly") }) {
+        let before = lines[..<at].last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+        check("the week bar is not behind a condition", !before.trimmingCharacters(in: .whitespaces).hasPrefix("if "))
+    } else {
+        check("the week bar is not behind a condition", false)
+    }
 }
 
 // The flag's spelling stays in the one reader and the launch-flag list.

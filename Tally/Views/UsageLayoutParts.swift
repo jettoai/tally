@@ -26,37 +26,6 @@ enum LayoutTint {
     }
 }
 
-/// The three windows an account can report, in the order both layouts read them (5h, week,
-/// flagship). A window the plan does not have is nil, which draws differently from an empty one.
-struct LayoutWindows {
-    let session: UsageMetric?
-    let weekly: UsageMetric?
-    let flagship: UsageMetric?
-
-    init(_ usage: AccountUsage) {
-        let columns = UsageMetric.columns(usage.metrics)
-        session = columns.session
-        weekly = columns.weekly
-        flagship = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
-    }
-
-    /// The column names, in that order. Computed, not stored: the app language can change at runtime.
-    static var names: [String] { [MetricKind.session, .weeklyAll, .weeklyModel].map(UsageLayout.windowName) }
-
-    var all: [(name: String, metric: UsageMetric?)] {
-        zip(Self.names, [session, weekly, flagship]).map { (name: $0, metric: $1) }
-    }
-
-    /// The windows the plan reports, in the same order.
-    var present: [(name: String, metric: UsageMetric?)] { all.filter { $0.metric != nil } }
-
-    /// Whether `metric` is the account's binding window. A missing window never is, even when the
-    /// account has no binding window either (two nil ids are not a match).
-    static func isBinding(_ metric: UsageMetric?, _ binding: UsageMetric?) -> Bool {
-        metric != nil && metric?.id == binding?.id
-    }
-}
-
 /// One window as a bar showing what is LEFT. 0% keeps a 1pt line of its colour and no data draws a
 /// dashed outline, so "empty" and "unknown" never look alike. The window the account's one printed
 /// number belongs to wears a 1pt ring in its own colour (`isBinding`).
@@ -88,7 +57,7 @@ struct LayoutBar: View {
                     .frame(width: axis == .horizontal ? filled : thickness,
                            height: axis == .horizontal ? thickness : filled)
                 if isBinding {
-                    shape.strokeBorder(tint, lineWidth: 1).padding(-1.5)
+                    shape.strokeBorder(tint, lineWidth: 1).padding(-UsageLayout.ringOutset)
                         .frame(width: size.width, height: size.height)
                 }
             } else {
@@ -100,15 +69,17 @@ struct LayoutBar: View {
     }
 }
 
-/// The account's three windows as three upright bars, bottom aligned, in 5h / week / flagship order.
+/// The windows the plan reports among 5h and flagship, as upright bars, bottom aligned. A window the
+/// plan lacks takes no room and draws nothing; the week is the tile's bottom bar, not one of these.
 struct LayoutMicroBars: View {
     let windows: LayoutWindows
     let binding: UsageMetric?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(Array(windows.all.enumerated()), id: \.offset) { _, window in
-                LayoutBar(metric: window.metric, axis: .vertical, length: 18, thickness: 4,
+        HStack(alignment: .bottom, spacing: UsageLayout.Tray.uprightSpacing) {
+            ForEach(windows.upright, id: \.name) { window in
+                LayoutBar(metric: window.metric, axis: .vertical, length: UsageLayout.Tray.uprightLength,
+                          thickness: UsageLayout.Tray.uprightThickness,
                           isBinding: LayoutWindows.isBinding(window.metric, binding))
             }
         }

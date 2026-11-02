@@ -2,7 +2,8 @@ import SwiftUI
 
 // THE TRAY PREVIEW LAYOUT (`-TallyUsageLayout tray`, B-2625): one small tile per account, the 5h and
 // flagship windows it has as upright bars, the week as a bar along the bottom, and the name, with a
-// number only when the tightest window is tight.
+// number only when the tightest window is tight. Each row fills the region: a short last row splits it
+// rather than leaving the right side empty, unlike the card grid, which keeps its columns (B-3461).
 // Reached only through the launch flag, so the default panel never draws it.
 //
 // The tightest window and its severity come from `AccountFacts.bindingWindow` / `bindingSeverity`, the
@@ -10,8 +11,8 @@ import SwiftUI
 // Not draggable by design: this preview mounts no `reorderGesture`.
 
 extension PopoverRootView {
-    // Tile size, gap and tiles per row come from UsageLayout.Tray, fitted to the 356pt region (B-3461).
-    private static let trayTileWidth = UsageLayout.Tray.tileWidth
+    // Tile height and gap come from UsageLayout.Tray; widths from the region actually given (listWidth),
+    // so every row ends at its right edge (B-3461).
     private static let trayTileHeight = UsageLayout.Tray.tileHeight
     private static let trayGap = UsageLayout.Tray.gap
 
@@ -29,7 +30,7 @@ extension PopoverRootView {
         let summaries = fleetSummaries.filter { $0.providerID == providerID && !displayedPools($0).isEmpty }
         let split = summaries.filter { $0.planTier != nil }
         let autoPick = AccountFacts.autoPickID(providerID: providerID)
-        let columns = UsageLayout.Tray.columns
+        let columns = UsageLayout.Tray.columns(in: listWidth)
         return VStack(alignment: .leading, spacing: 6) {
             trayHeading(group, pool: split.isEmpty ? summaries.first : nil)
             if !group.isFolded {
@@ -124,16 +125,18 @@ extension PopoverRootView {
         }
     }
 
-    /// Tiles in rows of `columns`, a short last row padded so the columns keep their lines.
+    /// Tiles in rows of `columns`, every row, the short last one too, filling `listWidth`: its tiles
+    /// split the whole width between them.
     private func trayGrid(_ accounts: [AccountUsage], columns: Int, autoPick: String?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(rows(accounts, columns: columns)) { row in
+                let tileWidth = UsageLayout.Tray.tileWidth(tiles: row.items.count, in: listWidth)
                 HStack(spacing: Self.trayGap) {
                     ForEach(row.items) { usage in
                         let facts = AccountFacts(usage: usage, settings: settings)
                         TrayTile(facts: facts,
                                  isSmartPick: facts.hasSiblings && facts.launchMode == .auto && autoPick == usage.id,
-                                 size: CGSize(width: Self.trayTileWidth, height: Self.trayTileHeight))
+                                 size: CGSize(width: tileWidth, height: Self.trayTileHeight))
                     }
                 }
             }
@@ -156,7 +159,7 @@ private struct TrayTile: View {
         let windows = LayoutWindows(facts.usage)
         VStack(alignment: .leading, spacing: UsageLayout.Tray.rowGap) {
             HStack(spacing: UsageLayout.Tray.rowSpacing) {
-                if !windows.upright.isEmpty { LayoutMicroBars(windows: windows, binding: binding) }
+                if !windows.upright.isEmpty { LayoutMicroBars(windows: windows) }
                 Text(facts.label).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -170,9 +173,8 @@ private struct TrayTile: View {
             .frame(height: UsageLayout.Tray.rowHeight)
             // The week along the bottom, always drawn: a plan without one, or a tile with no reading at
             // all, gets LayoutBar's dashed outline here, so no tile is ever blank.
-            LayoutBar(metric: windows.weekly, length: UsageLayout.Tray.contentWidth,
-                      thickness: UsageLayout.Tray.weekThickness,
-                      isBinding: LayoutWindows.isBinding(windows.weekly, binding))
+            LayoutBar(metric: windows.weekly, length: UsageLayout.Tray.contentWidth(tile: size.width),
+                      thickness: UsageLayout.Tray.weekThickness)
         }
         .padding(.horizontal, UsageLayout.Tray.inset)
         .padding(.top, UsageLayout.Tray.topInset)

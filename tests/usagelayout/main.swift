@@ -143,10 +143,39 @@ MainActor.assumeIsolated {
 
     // 7. Widths: both layouts fit the narrowest region, from the very numbers the views use.
     check("premise: the narrowest region is the 356pt single card column", UsageLayout.regionWidth == 356)
-    check("a ledger row fits the region", UsageLayout.Ledger.rowWidth <= UsageLayout.regionWidth
-          && UsageLayout.Ledger.barWidth > 0)
-    check("a tray row fits the region", UsageLayout.Tray.rowWidth <= UsageLayout.regionWidth
-          && UsageLayout.Tray.columns >= 1)
+    // The widths a panel really gives: 356 (one column), less a permanent scroller, and wider panels.
+    let regions: [CGFloat] = [UsageLayout.regionWidth, UsageLayout.regionWidth - 15, 536, 521, 810, 1084]
+    check("a ledger row fills every region it can be given, to within the bars' whole-point rounding",
+          regions.allSatisfy { w in
+              UsageLayout.Ledger.rowWidth(in: w) <= w && w - UsageLayout.Ledger.rowWidth(in: w) < 3
+                  && UsageLayout.Ledger.barWidth(in: w) > 0
+          })
+    var rowMisfits = 0
+    for w in stride(from: CGFloat(110), through: 1200, by: 0.5) {
+        let columns = UsageLayout.Tray.columns(in: w)
+        for count in 1...12 {
+            var left = count
+            while left > 0 {
+                let k = min(columns, left)
+                let tile = UsageLayout.Tray.tileWidth(tiles: k, in: w)
+                if abs(CGFloat(k) * tile + CGFloat(k - 1) * UsageLayout.Tray.gap - w) >= 0.01
+                    || tile < UsageLayout.Tray.minTileWidth - 0.001 { rowMisfits += 1 }
+                left -= k
+            }
+        }
+    }
+    check("a tray row fits the region", rowMisfits == 0)
+    typealias TrayCols = UsageLayout.Tray
+    check("the 356pt region seats three, so Claude's five accounts are a row of three and a row of two, both ending at the right edge",
+          TrayCols.columns(in: 356) == 3
+          && abs(3 * TrayCols.tileWidth(tiles: 3, in: 356) + 2 * TrayCols.gap - 356) < 0.01
+          && abs(2 * TrayCols.tileWidth(tiles: 2, in: 356) + TrayCols.gap - 356) < 0.01)
+    check("a lone tile takes the whole row and two split it in half",
+          TrayCols.tileWidth(tiles: 1, in: 356) == 356 && TrayCols.tileWidth(tiles: 2, in: 356) == 174)
+    check("a permanent scroller's narrower region drops to two tiles instead of overflowing",
+          TrayCols.columns(in: UsageLayout.regionWidth - 15) == 2)
+    check("a wider panel seats more tiles rather than leaving the right side empty",
+          TrayCols.columns(in: 536) == 4)
 
     // 8. Tray glyph (B-3461): the 5h and flagship windows stand upright at the left, only the ones the
     //    plan has; the week lies along the bottom, always drawn.
@@ -170,26 +199,20 @@ MainActor.assumeIsolated {
           LayoutWindows(account(weekly: 40)).upright.isEmpty && LayoutWindows(account(weekly: 40)).weekly != nil)
     check("an account with no window draws nothing upright and no week (the bottom bar is dashed)",
           LayoutWindows(account()).upright.isEmpty && LayoutWindows(account()).weekly == nil)
-    @MainActor func ringed(_ usage: AccountUsage) -> (week: Bool, upright: [Bool]) {
-        let windows = LayoutWindows(usage), binding = LaunchPolicyStore.bindingWindow(usage)
-        return (LayoutWindows.isBinding(windows.weekly, binding),
-                windows.upright.map { LayoutWindows.isBinding($0.metric, binding) })
-    }
-    let weekBinds = ringed(account(session: 80, weekly: 30))
-    check("the ring goes to the bottom bar when the week is the tightest window",
-          weekBinds.week && !weekBinds.upright.contains(true))
-    let sessionBinds = ringed(account(session: 55, weekly: 55, model: ("Opus", 55)))
-    check("and to the 5h bar when that one is, never to the week as well",
-          !sessionBinds.week && sessionBinds.upright == [true, false])
+    check("the tile's number is the week's when the week is the tightest window",
+          LaunchPolicyStore.bindingWindow(account(session: 80, weekly: 30))?.kind == .weeklyAll)
+    check("and the 5h's when that one is",
+          LaunchPolicyStore.bindingWindow(account(session: 55, weekly: 55, model: ("Opus", 55)))?.kind == .session)
     check("the tile's rows add up to its height", Tray.stackHeight == Tray.tileHeight)
-    check("the week bar spans the tile's content", Tray.contentWidth == Tray.tileWidth - 2 * Tray.inset)
-    check("an upright bar fits its row and two rings do not touch",
-          Tray.uprightLength <= Tray.rowHeight
-          && Tray.rowGap + (Tray.rowHeight - Tray.uprightLength) / 2 > 2 * UsageLayout.ringOutset)
-    check("a ring stays inside the tile's padding",
-          Tray.inset > UsageLayout.ringOutset && Tray.bottomInset > UsageLayout.ringOutset)
-    check("two upright bars still leave the name and a number room",
-          Tray.uprightWidth(2) + 3 * Tray.rowSpacing + Tray.nameFloor + Tray.numberAllowance <= Tray.contentWidth
+    check("the week bar spans the tile's content, whatever width the tile comes out",
+          [Tray.minTileWidth, 113, 174, 356].allSatisfy { Tray.contentWidth(tile: $0) == $0 - 2 * Tray.inset })
+    check("an upright bar fits its row and stays clear of the week bar",
+          Tray.uprightLength <= Tray.rowHeight && Tray.rowGap > 0)
+    check("the bars stay inside the tile's padding",
+          Tray.inset > 0 && Tray.bottomInset > 0 && Tray.topInset > 0)
+    check("two upright bars still leave the name and a number room in the narrowest tile",
+          Tray.uprightWidth(2) + 3 * Tray.rowSpacing + Tray.nameFloor + Tray.numberAllowance
+              <= Tray.contentWidth(tile: Tray.minTileWidth)
           && Tray.uprightWidth(0) == 0 && Tray.uprightWidth(1) == Tray.uprightThickness)
     check("the window names are the localized 5h, Week, Flagship",
           LayoutWindows.names == [L("5h"), L("Week"), L("Flagship")])
@@ -240,22 +263,34 @@ if let lines = code("Tally/Views/UsageLedgerView.swift") {
           has(lines, #"UsageLayout\.poolSummary\("#) && has(lines, #"UsageLayout\.windowName\(pool\.kind\)"#))
     check("the ledger splits by plan on FleetMath's own rule", has(lines, #"FleetMath\.planTiers\("#))
     check("the ledger's pool bar has no width of its own", !has(lines, #"width: 120"#))
+    check("the ledger's bars wear no ring", !has(lines, #"isBinding"#))
+    let labelAt = lines.firstIndex { $0.contains("providerLabel(") }
+    let ledgerFoldAt = lines.firstIndex { $0.contains("if !group.isFolded") }
+    check("the ledger heading (and its provider mark) is drawn folded or not, and its bars are as wide as the region allows",
+          labelAt != nil && ledgerFoldAt != nil && labelAt! < ledgerFoldAt!
+          && has(lines, #"UsageLayout\.Ledger\.barWidth\(in: listWidth\)"#))
 }
 if let lines = code("Tally/Core/UsageLayoutMath.swift") {
     check("the column names come from windowName", has(lines, #"UsageLayout\.windowName"#))
 }
 if let lines = code("Tally/Views/UsageLayoutParts.swift") {
     check("the upright bars come only from LayoutWindows.upright, with no size of their own",
-          has(lines, #"ForEach\(windows\.upright"#) && !has(lines, #"length: [0-9]"#)
-          && has(lines, #"padding\(-UsageLayout\.ringOutset\)"#))
+          has(lines, #"ForEach\(windows\.upright"#) && !has(lines, #"length: [0-9]"#))
+    check("no bar wears a ring", !has(lines, #"isBinding|ringOutset|padding\(-"#))
 }
 if let lines = code("Tally/Views/UsageTrayView.swift") {
     check("the tray seats its tiles by UsageLayout.Tray.columns, not a fixed count",
           !has(lines, #"columns: [0-9]"#) && has(lines, #"UsageLayout\.Tray\.columns"#))
-    check("the tile's week bar is the week window, ringed by the same rule, as wide as the content",
-          has(lines, #"LayoutBar\(metric: windows\.weekly"#)
-          && has(lines, #"isBinding: LayoutWindows\.isBinding\(windows\.weekly, binding\)"#)
-          && has(lines, #"UsageLayout\.Tray\.contentWidth"#))
+    check("the tile's week bar is the week window, without a ring, as wide as this tile's content",
+          has(lines, #"LayoutBar\(metric: windows\.weekly"#) && !has(lines, #"isBinding"#)
+          && has(lines, #"UsageLayout\.Tray\.contentWidth\(tile: size\.width\)"#))
+    check("the tray sizes each row's tiles from the region it is given, short rows included",
+          has(lines, #"UsageLayout\.Tray\.tileWidth\(tiles: row\.items\.count, in: listWidth\)"#)
+          && !has(lines, #"trayTileWidth"#))
+    let headingAt = lines.firstIndex { $0.contains("trayHeading(group") }
+    let foldAt = lines.firstIndex { $0.contains("if !group.isFolded") }
+    check("the tray heading (and its provider mark) is drawn folded or not",
+          headingAt != nil && foldAt != nil && headingAt! < foldAt! && has(lines, #"providerLabel\("#))
     check("the tile has no size or padding of its own",
           !has(lines, #"length: [0-9]"#) && !has(lines, #"\.padding\(\.horizontal, [0-9]"#))
     // The week bar is drawn whatever the plan reports: a nil week is LayoutBar's dashed outline.

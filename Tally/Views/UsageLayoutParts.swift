@@ -27,8 +27,8 @@ enum LayoutTint {
 }
 
 /// One window as a bar showing what is LEFT. 0% keeps a 1pt line of its colour and no data draws a
-/// dashed outline, so "empty" and "unknown" never look alike. The window the account's one printed
-/// number belongs to wears a 1pt ring in its own colour (`isBinding`).
+/// dashed outline, so "empty" and "unknown" never look alike. No bar wears a ring: the tightest window
+/// is the printed number (B-3461).
 struct LayoutBar: View {
     enum Axis { case horizontal, vertical }
 
@@ -36,7 +36,6 @@ struct LayoutBar: View {
     var axis: Axis = .horizontal
     var length: CGFloat
     var thickness: CGFloat
-    var isBinding = false
     var calmWhenHealthy = false
 
     private var radius: CGFloat { axis == .horizontal ? thickness / 2 : 1.5 }
@@ -56,10 +55,6 @@ struct LayoutBar: View {
                 shape.fill(tint)
                     .frame(width: axis == .horizontal ? filled : thickness,
                            height: axis == .horizontal ? thickness : filled)
-                if isBinding {
-                    shape.strokeBorder(tint, lineWidth: 1).padding(-UsageLayout.ringOutset)
-                        .frame(width: size.width, height: size.height)
-                }
             } else {
                 shape.strokeBorder(Color.secondary, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
             }
@@ -73,14 +68,12 @@ struct LayoutBar: View {
 /// plan lacks takes no room and draws nothing; the week is the tile's bottom bar, not one of these.
 struct LayoutMicroBars: View {
     let windows: LayoutWindows
-    let binding: UsageMetric?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: UsageLayout.Tray.uprightSpacing) {
             ForEach(windows.upright, id: \.name) { window in
                 LayoutBar(metric: window.metric, axis: .vertical, length: UsageLayout.Tray.uprightLength,
-                          thickness: UsageLayout.Tray.uprightThickness,
-                          isBinding: LayoutWindows.isBinding(window.metric, binding))
+                          thickness: UsageLayout.Tray.uprightThickness)
             }
         }
     }

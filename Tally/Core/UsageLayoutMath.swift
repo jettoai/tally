@@ -24,10 +24,11 @@ extension UsageLayout {
         }
     }
 
-    /// The narrowest account region a layout is drawn into: one card column, less its padding.
+    /// The single card column's region without a permanent scroller: the premise the width tests start
+    /// from. The layouts themselves lay out at the region they are actually given (`listWidth`).
     static let regionWidth = PanelGeometry.cardPanelWidth(columns: 1) - 2 * PanelGeometry.contentPadding
 
-    /// The ledger row: name, three bars, the tightest number, a badge, all in `regionWidth`.
+    /// The ledger row: name, three bars, the tightest number, a badge, all in the region given.
     enum Ledger {
         static let nameWidth: CGFloat = 76
         static let numberWidth: CGFloat = 30
@@ -35,25 +36,29 @@ extension UsageLayout {
         static let gap: CGFloat = 10
         /// The panel's own horizontal padding around the ledger, each side.
         static let inset: CGFloat = 2
-        /// What is left for the three bars once everything else in the row is laid out.
-        static var barWidth: CGFloat {
-            floor((regionWidth - 2 * inset - nameWidth - numberWidth - badgeWidth - 5 * gap) / 3)
+        /// What is left for the three bars in a region `width` wide once everything else in the row is
+        /// laid out (whole points, so the three are equal).
+        static func barWidth(in width: CGFloat) -> CGFloat {
+            floor((width - 2 * inset - nameWidth - numberWidth - badgeWidth - 5 * gap) / 3)
         }
-        static var rowWidth: CGFloat {
-            2 * inset + nameWidth + 3 * barWidth + numberWidth + badgeWidth + 5 * gap
+        static func rowWidth(in width: CGFloat) -> CGFloat {
+            2 * inset + nameWidth + 3 * barWidth(in: width) + numberWidth + badgeWidth + 5 * gap
         }
     }
 
-    /// How far a binding window's ring stands outside its bar (LayoutBar), in every layout.
-    static let ringOutset: CGFloat = 1.5
-
-    /// The tray tile grid: as many tiles per row as fit in `regionWidth`.
+    /// The tray tile grid: as many tiles per row as fit at their narrowest in the region the panel
+    /// actually gives, every row, the short last one included, filling it edge to edge (B-3461).
     enum Tray {
-        static let tileWidth: CGFloat = 110
+        /// The narrowest a tile may be: it decides how many fit in a row, not how wide they come out.
+        static let minTileWidth: CGFloat = 110
         static let tileHeight: CGFloat = 34
         static let gap: CGFloat = 8
-        static var columns: Int { max(1, Int((regionWidth + gap) / (tileWidth + gap))) }
-        static var rowWidth: CGFloat { CGFloat(columns) * tileWidth + CGFloat(columns - 1) * gap }
+        static func columns(in width: CGFloat) -> Int { max(1, Int((width + gap) / (minTileWidth + gap))) }
+        /// One row of `tiles` tiles fills `width` exactly, the short last row too: its tiles split the
+        /// whole width (the same equal-columns arithmetic the list's meter columns use).
+        static func tileWidth(tiles: Int, in width: CGFloat) -> CGFloat {
+            PanelGeometry.meterColumnFrames(in: width, columns: max(1, tiles), gap: gap).first?.width ?? width
+        }
 
         // Inside a tile (B-3461): a top row (upright bars, name, number) over the week's bar.
         static let inset: CGFloat = 6
@@ -70,7 +75,7 @@ extension UsageLayout {
         static let nameFloor: CGFloat = 50
         static let numberAllowance: CGFloat = 16
 
-        static var contentWidth: CGFloat { tileWidth - 2 * inset }
+        static func contentWidth(tile: CGFloat) -> CGFloat { tile - 2 * inset }
         static var stackHeight: CGFloat { topInset + rowHeight + rowGap + weekThickness + bottomInset }
         static func uprightWidth(_ count: Int) -> CGFloat {
             CGFloat(count) * uprightThickness + CGFloat(max(0, count - 1)) * uprightSpacing
@@ -109,11 +114,5 @@ struct LayoutWindows {
         [(Self.names[0], session), (Self.names[2], flagship)].compactMap { name, metric in
             metric.map { (name: name, metric: $0) }
         }
-    }
-
-    /// Whether `metric` is the account's binding window. A missing window never is, even when the
-    /// account has no binding window either (two nil ids are not a match).
-    static func isBinding(_ metric: UsageMetric?, _ binding: UsageMetric?) -> Bool {
-        metric != nil && metric?.id == binding?.id
     }
 }

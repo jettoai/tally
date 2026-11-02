@@ -47,18 +47,20 @@ extension UsageLayout {
     }
 
     /// The tray tile grid: as many tiles per row as fit at their narrowest in the region the panel
-    /// actually gives, every row, the short last one included, filling it edge to edge (B-3461).
+    /// actually gives. Every tile in the panel is the same width, the short last row and a lone
+    /// tile included: they sit at the left and leave the right side empty (B-3461).
     enum Tray {
         /// The narrowest a tile may be: it decides how many fit in a row, not how wide they come out.
         static let minTileWidth: CGFloat = 110
         static let tileHeight: CGFloat = 34
         static let gap: CGFloat = 8
         static func columns(in width: CGFloat) -> Int { max(1, Int((width + gap) / (minTileWidth + gap))) }
-        /// One row of `tiles` tiles fills `width` exactly, the short last row too: its tiles split the
-        /// whole width (the same equal-columns arithmetic the list's meter columns use).
+        /// `tiles` tiles split `width` exactly (the same equal-columns arithmetic the list's meter columns use).
         static func tileWidth(tiles: Int, in width: CGFloat) -> CGFloat {
             PanelGeometry.meterColumnFrames(in: width, columns: max(1, tiles), gap: gap).first?.width ?? width
         }
+        /// The one width every tile in a region `width` wide has: a full row's share of it.
+        static func tileWidth(in width: CGFloat) -> CGFloat { tileWidth(tiles: columns(in: width), in: width) }
 
         // Inside a tile (B-3461): a top row (upright bars, name, number) over the week's bar.
         static let inset: CGFloat = 6

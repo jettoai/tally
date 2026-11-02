@@ -125,12 +125,11 @@ extension PopoverRootView {
         }
     }
 
-    /// Tiles in rows of `columns`, every row, the short last one too, filling `listWidth`: its tiles
-    /// split the whole width between them.
+    /// Tiles in rows of `columns`, all one width; the short last row sits at the left.
     private func trayGrid(_ accounts: [AccountUsage], columns: Int, autoPick: String?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(rows(accounts, columns: columns)) { row in
-                let tileWidth = UsageLayout.Tray.tileWidth(tiles: row.items.count, in: listWidth)
+                let tileWidth = UsageLayout.Tray.tileWidth(in: listWidth)
                 HStack(spacing: Self.trayGap) {
                     ForEach(row.items) { usage in
                         let facts = AccountFacts(usage: usage, settings: settings)
@@ -139,6 +138,7 @@ extension PopoverRootView {
                                  size: CGSize(width: tileWidth, height: Self.trayTileHeight))
                     }
                 }
+                .frame(width: listWidth, alignment: .leading)
             }
         }
     }

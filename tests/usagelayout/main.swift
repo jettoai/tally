@@ -153,25 +153,28 @@ MainActor.assumeIsolated {
     var rowMisfits = 0
     for w in stride(from: CGFloat(110), through: 1200, by: 0.5) {
         let columns = UsageLayout.Tray.columns(in: w)
+        let tile = UsageLayout.Tray.tileWidth(in: w)
+        // One width for every tile: a full row fills the region, and no row (short or lone) is wider.
+        if abs(CGFloat(columns) * tile + CGFloat(columns - 1) * UsageLayout.Tray.gap - w) >= 0.01
+            || tile < UsageLayout.Tray.minTileWidth - 0.001 { rowMisfits += 1 }
         for count in 1...12 {
             var left = count
             while left > 0 {
                 let k = min(columns, left)
-                let tile = UsageLayout.Tray.tileWidth(tiles: k, in: w)
-                if abs(CGFloat(k) * tile + CGFloat(k - 1) * UsageLayout.Tray.gap - w) >= 0.01
-                    || tile < UsageLayout.Tray.minTileWidth - 0.001 { rowMisfits += 1 }
+                if CGFloat(k) * tile + CGFloat(k - 1) * UsageLayout.Tray.gap > w + 0.01 { rowMisfits += 1 }
                 left -= k
             }
         }
     }
-    check("a tray row fits the region", rowMisfits == 0)
+    check("a tray row fits the region, and every tile is one width", rowMisfits == 0)
     typealias Tray = UsageLayout.Tray
-    check("the 356pt region seats three, so Claude's five accounts are a row of three and a row of two, both ending at the right edge",
+    check("the 356pt region seats three, so Claude's five accounts are a row of three and a row of two, the two the same width as the three and at the left",
           Tray.columns(in: 356) == 3
-          && abs(3 * Tray.tileWidth(tiles: 3, in: 356) + 2 * Tray.gap - 356) < 0.01
-          && abs(2 * Tray.tileWidth(tiles: 2, in: 356) + Tray.gap - 356) < 0.01)
-    check("a lone tile takes the whole row and two split it in half",
-          Tray.tileWidth(tiles: 1, in: 356) == 356 && Tray.tileWidth(tiles: 2, in: 356) == 174)
+          && abs(3 * Tray.tileWidth(in: 356) + 2 * Tray.gap - 356) < 0.01
+          && Tray.tileWidth(in: 356) == Tray.tileWidth(tiles: 3, in: 356)
+          && 2 * Tray.tileWidth(in: 356) + Tray.gap < 356)
+    check("a lone tile is one column wide, not the whole row",
+          Tray.tileWidth(in: 356) < 120 && Tray.tileWidth(in: 356) < Tray.tileWidth(tiles: 1, in: 356))
     check("a permanent scroller's narrower region drops to two tiles instead of overflowing",
           Tray.columns(in: UsageLayout.regionWidth - 15) == 2)
     check("a wider panel seats more tiles rather than leaving the right side empty",
@@ -283,8 +286,9 @@ if let lines = code("Tally/Views/UsageTrayView.swift") {
     check("the tile's week bar is the week window, without a ring, as wide as this tile's content",
           has(lines, #"LayoutBar\(metric: windows\.weekly"#) && !has(lines, #"isBinding"#)
           && has(lines, #"UsageLayout\.Tray\.contentWidth\(tile: size\.width\)"#))
-    check("the tray sizes each row's tiles from the region it is given, short rows included",
-          has(lines, #"UsageLayout\.Tray\.tileWidth\(tiles: row\.items\.count, in: listWidth\)"#)
+    check("the tray sizes every tile from the region it is given, not from its row's count, and seats a short row at the left",
+          has(lines, #"UsageLayout\.Tray\.tileWidth\(in: listWidth\)"#)
+          && !has(lines, #"tileWidth\(tiles:"#) && has(lines, #"\.frame\(width: listWidth, alignment: \.leading\)"#)
           && !has(lines, #"trayTileWidth"#))
     let headingAt = lines.firstIndex { $0.contains("trayHeading(group") }
     let foldAt = lines.firstIndex { $0.contains("if !group.isFolded") }

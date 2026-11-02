@@ -345,11 +345,12 @@ check((heldTall.strip ?? 0) > 300,
 check(scrolledTall.strip == 487 && (scrolledTall.region ?? 999) <= 300,
       "a strip taller than the room scrolls: it keeps its height and its scroll view stays within the cap (\(String(describing: scrolledTall.strip)), region \(String(describing: scrolledTall.region)))")
 // The source: the strip and the title are inside the scroll view, after the notices that stay fixed.
-let beforeStrip = rootSource.components(separatedBy: "overlayStrip").first ?? ""
+let aroundStrip = rootSource.components(separatedBy: "overlayStrip")
+let beforeStrip = aroundStrip.first ?? ""
 let scrollOpen = beforeStrip.range(of: "ScrollView(.vertical) {", options: .backwards)
 let openToStrip = scrollOpen.map { String(beforeStrip[$0.upperBound...]) } ?? ""
 check(scrollOpen != nil && !openToStrip.contains("}")
-        && (rootSource.components(separatedBy: "overlayStrip").dropFirst().first ?? "").contains("accountPoolTitle"),
+        && (aroundStrip.dropFirst().first ?? "").contains("accountPoolTitle"),
       "the panel puts its machine strip inside the scroll view, with the account title right after it")
 let noticesPart = beforeStrip.components(separatedBy: "ScrollView(.vertical) {").dropLast().last ?? ""
 check(noticesPart.contains("ErrorReportingNoticeStrip()") && noticesPart.contains(".fixedSize(horizontal: false, vertical: true)"),

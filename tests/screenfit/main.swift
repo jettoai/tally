@@ -254,18 +254,23 @@ check(ScreenFitStack.placement(width: 100, height: 300, squeezed: false)
         == ProposedViewSize(width: 100, height: 120),
       "the placement rule itself: measured proposal, or the squeezed height")
 
-section("what sits above the account region keeps its height across a fold (B-1570)")
+section("the machine strip never leaves the surface and never gives way (B-1570, B-3570)")
 
 // Folding a provider is what carries a fleet back under the cap. While it was over, the tab's stack
-// was handed a definite height and a VStack shares that among ALL its children, so the machine strip
-// above the cards gave way (its table rows are `frame(minHeight:)`, which yields under a definite
-// height) and sprang back when the fold let the surface fit. Laid out for real, as above.
-final class HeightLog { var placed: [CGFloat] = [] }
-/// Yields under a definite height down to `floor`, the way the machine table's rows do.
+// was handed a definite height and a VStack shares that among ALL its children, so a machine strip
+// standing there gave way (its table rows are `frame(minHeight:)`, which yields under a definite
+// height) and sprang back when the fold let the surface fit (B-1570). Holding it at its own height
+// fixed that and broke the other way (B-3570): a strip taller than the room (cards two to a row)
+// was drawn past the cap, under the footer, where no scrolling could bring it back. The strip now
+// sits inside the scroll view, which is handed the definite height and shows the rest by scrolling.
+// Laid out for real, as above.
+final class HeightLog { var placed: [CGFloat] = []; var scrollRegion: [CGFloat] = [] }
+/// Yields under a definite height down to 100, the way the machine table's rows do.
 struct Compressible: Layout {
     let log: HeightLog
+    var ideal: CGFloat = 200
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        CGSize(width: 100, height: proposal.height.map { max(100, min($0, 200)) } ?? 200)
+        CGSize(width: 100, height: proposal.height.map { max(100, min($0, ideal)) } ?? ideal)
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
                        cache: inout ()) { log.placed.append(bounds.height) }
@@ -279,34 +284,76 @@ struct CardRegion: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
                        cache: inout ()) {}
 }
-func stripHeight(cards: CGFloat, held: Bool) -> CGFloat? {
+/// A scroll view's layout: its content's ideal height when asked for one, the height it is given
+/// otherwise, and its children always offered no height at all, so they keep their own.
+struct ScrollRegion: Layout {
+    let log: HeightLog
+    private func ideals(_ subviews: Subviews) -> [CGFloat] {
+        subviews.map { $0.sizeThatFits(ProposedViewSize(width: 100, height: nil)).height }
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: 100, height: proposal.height ?? ideals(subviews).reduce(0, +))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {
+        log.scrollRegion.append(bounds.height)
+        var y = bounds.minY
+        for (subview, height) in zip(subviews, ideals(subviews)) {
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: 100, height: nil))
+            y += height
+        }
+    }
+}
+enum StripMode { case bare, held, scrolled }
+/// The strip's placed height and the scroll region's, in a surface capped at 300.
+func stripHeights(strip: CGFloat = 200, cards: CGFloat, mode: StripMode) -> (strip: CGFloat?, region: CGFloat?) {
     let log = HeightLog()
     let host = NSHostingView(rootView: ScreenFitStack(maxHeight: 300) {
         VStack(spacing: 0) {
-            if held {
-                VStack(spacing: 0) { Compressible(log: log) { Color.clear } }
+            switch mode {
+            case .bare:
+                Compressible(log: log, ideal: strip) { Color.clear }
+                CardRegion(ideal: cards) { Color.clear }
+            case .held:
+                VStack(spacing: 0) { Compressible(log: log, ideal: strip) { Color.clear } }
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Compressible(log: log) { Color.clear }
+                CardRegion(ideal: cards) { Color.clear }
+            case .scrolled:
+                ScrollRegion(log: log) {
+                    Compressible(log: log, ideal: strip) { Color.clear }
+                    CardRegion(ideal: cards) { Color.clear }
+                }
             }
-            CardRegion(ideal: cards) { Color.clear }
         }
         .screenFitFlexible()
     })
     host.frame = CGRect(x: 0, y: 0, width: 100, height: 300)
     host.layoutSubtreeIfNeeded()
-    return log.placed.last
+    return (log.placed.last, log.scrollRegion.last)
 }
-let bareFolded = stripHeight(cards: 50, held: false), bareOpen = stripHeight(cards: 2_000, held: false)
+let bareFolded = stripHeights(cards: 50, mode: .bare).strip, bareOpen = stripHeights(cards: 2_000, mode: .bare).strip
 check(bareFolded == 200 && (bareOpen ?? 200) < 200,
       "control: a bare strip gives way while the cards overflow (\(String(describing: bareFolded)) folded, \(String(describing: bareOpen)) open)")
-let heldFolded = stripHeight(cards: 50, held: true), heldOpen = stripHeight(cards: 2_000, held: true)
-check(heldFolded == 200 && heldOpen == 200,
-      "a strip held at its own height is the same folded and open (\(String(describing: heldFolded)), \(String(describing: heldOpen)))")
-let aboveCards = rootSource.components(separatedBy: "overlayStrip").dropFirst().first?
-    .components(separatedBy: "accountPoolTitle").first ?? ""
-check(aboveCards.contains(".fixedSize(horizontal: false, vertical: true)"),
-      "the panel holds its notices and machine strip at their own height")
+let scrolledFolded = stripHeights(cards: 50, mode: .scrolled), scrolledOpen = stripHeights(cards: 2_000, mode: .scrolled)
+check(scrolledFolded.strip == 200 && scrolledOpen.strip == 200,
+      "a strip inside the scroll view is the same folded and open (\(String(describing: scrolledFolded.strip)), \(String(describing: scrolledOpen.strip)))")
+// A strip taller than the whole surface (large cards two to a row, 487 in a 300 pt room).
+let heldTall = stripHeights(strip: 487, cards: 50, mode: .held), scrolledTall = stripHeights(strip: 487, cards: 50, mode: .scrolled)
+check((heldTall.strip ?? 0) > 300,
+      "control: a strip held outside the scroll view runs past the cap (\(String(describing: heldTall.strip)) in 300)")
+check(scrolledTall.strip == 487 && (scrolledTall.region ?? 999) <= 300,
+      "a strip taller than the room scrolls: it keeps its height and its scroll view stays within the cap (\(String(describing: scrolledTall.strip)), region \(String(describing: scrolledTall.region)))")
+// The source: the strip and the title are inside the scroll view, after the notices that stay fixed.
+let beforeStrip = rootSource.components(separatedBy: "overlayStrip").first ?? ""
+let scrollOpen = beforeStrip.range(of: "ScrollView(.vertical) {", options: .backwards)
+let openToStrip = scrollOpen.map { String(beforeStrip[$0.upperBound...]) } ?? ""
+check(scrollOpen != nil && !openToStrip.contains("}")
+        && (rootSource.components(separatedBy: "overlayStrip").dropFirst().first ?? "").contains("accountPoolTitle"),
+      "the panel puts its machine strip inside the scroll view, with the account title right after it")
+let noticesPart = beforeStrip.components(separatedBy: "ScrollView(.vertical) {").dropLast().last ?? ""
+check(noticesPart.contains("ErrorReportingNoticeStrip()") && noticesPart.contains(".fixedSize(horizontal: false, vertical: true)"),
+      "the panel holds its notices at their own height, above the scroll view")
 
 print(failures == 0 ? "\nAll screen-fit cap tests passed." : "\n\(failures) screen-fit cap test(s) failed.")
 exit(failures == 0 ? 0 : 1)

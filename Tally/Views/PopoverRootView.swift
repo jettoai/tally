@@ -118,13 +118,11 @@ struct PopoverRootView: View {
                 ZStack(alignment: .topLeading) {
                     if tab == .usage {
                         VStack(spacing: 0) {
-                            // Everything above the account region at its own height, always
-                            // (B-1570). Once a fleet outgrows the display this stack is handed a
-                            // definite height (`screenFitFlexible` below), and a VStack shares a
-                            // definite height among ALL its children: the machine strip was
-                            // offered a slice and its rows gave way, then folding a provider let
-                            // the surface fit again and the strip sprang back. Only the scroll
-                            // view below may give or take height.
+                            // The notices stay at their own height, always: they are small, and the
+                            // gate in front of the first morning message must not scroll away. Once a
+                            // fleet outgrows the display this stack is handed a definite height
+                            // (`screenFitFlexible` below) and a VStack shares it among ALL its
+                            // children, so only the scroll view below may give or take height.
                             VStack(spacing: 0) {
                                 // Above everything, and only once: the gate in front of the very
                                 // first morning message (EarlyStartNoticeStrip.swift).
@@ -132,29 +130,33 @@ struct PopoverRootView: View {
                                 // Below it when both are due: the one-time crash-report question
                                 // (ErrorReportingNoticeStrip.swift). Both stay visible.
                                 ErrorReportingNoticeStrip()
-                                // The private build's machine strip, then this region's own title:
-                                // the two regions stand one over the other under matching titles.
-                                // Each provider's summary is the heading of its own section below
-                                // (ProviderSectionHeader.swift), not a strip of its own up here.
-                                overlayStrip
                             }
                             .fixedSize(horizontal: false, vertical: true)
-                            accountPoolTitle
-                            // Nothing at all to show skips the card container entirely: its 12pt
-                            // padding read as a hollow band (see `showsAccountRegion`).
-                            if store.contentState != .hasAccounts || showsAccountRegion {
-                                // The cards are what gives way when the surface hits the screen's
-                                // height, and only then: at any height that fits, a scroll view is
-                                // laid out at its content's ideal size and shows no scroller, so
-                                // this is invisible until a fleet actually outgrows the display.
-                                // Pinned to the surface's width, leading edge first: what a scroll
-                                // view reports is its content plus whatever scroller is in the
-                                // layout, so left to itself the region sits centred and the cards
-                                // step sideways the moment a fleet outgrows the display. A no-op
-                                // under overlay scrollers (see `scrollContentWidth`).
-                                ScrollView(.vertical) { content }
-                                    .frame(width: popoverWidth, alignment: .leading)
+                            // The machine strip, this region's title and the cards share one scroll
+                            // view (B-3570). The strip and the title used to stand above it at a fixed
+                            // height, and a strip that outgrew the room (cards two to a row) was drawn
+                            // under the footer where no scrolling could bring it back. At any height
+                            // that fits, a scroll view is laid out at its content's ideal size and shows
+                            // no scroller, so this is invisible until the page outgrows the display.
+                            // Pinned to the surface's width, leading edge first: what a scroll view
+                            // reports is its content plus whatever scroller is in the layout, so left
+                            // to itself the region sits centred and the cards step sideways the moment
+                            // a fleet outgrows the display. A no-op under overlay scrollers (see
+                            // `scrollContentWidth`).
+                            ScrollView(.vertical) {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    // The private build's machine strip, then this region's own title:
+                                    // the two regions stand one over the other under matching titles.
+                                    // Each provider's summary is the heading of its own section below
+                                    // (ProviderSectionHeader.swift), not a strip of its own up here.
+                                    overlayStrip
+                                    accountPoolTitle
+                                    // Nothing at all to show skips the card container entirely: its 12pt
+                                    // padding read as a hollow band (see `showsAccountRegion`).
+                                    if store.contentState != .hasAccounts || showsAccountRegion { content }
+                                }
                             }
+                            .frame(width: popoverWidth, alignment: .leading)
                         }
                         .transition(Self.tabTransition)
                     }

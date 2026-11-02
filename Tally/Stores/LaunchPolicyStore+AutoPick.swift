@@ -1,6 +1,14 @@
 import Foundation
 
 // The badge-side mirror of the launcher pick, split out of LaunchPolicyStore.swift (line limit).
+
+/// A pick and how it was reached. `decidedBy` is nil for the clearance lane, which does not rank.
+struct AutoPickDecision {
+    let id: String
+    let othersTied: Int
+    let decidedBy: SmartPickDecider?
+}
+
 extension LaunchPolicyStore {
     /// The badge the panel shows. Two steps, exactly as the launcher picks (`launchPick` on the
     /// CLI side): the cap quarantine is applied first, and when it empties the field the
@@ -21,8 +29,8 @@ extension LaunchPolicyStore {
     /// launch, counted from the same live-session read the clearance lane uses.
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
                     reserves: [String: Double] = [:], now: Date = Date()) -> String? {
-        autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                   reserves: reserves, occupancy: liveSessionsNow(now: now), now: now)
+        autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                         reserves: reserves, now: now)?.id
     }
 
     /// The same pick with the live session counts handed in. nil (not read yet) reads every
@@ -30,10 +38,8 @@ extension LaunchPolicyStore {
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
                     reserves: [String: Double] = [:], occupancy: [String: Int]?,
                     now: Date = Date()) -> String? {
-        autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                   reserves: reserves,
-                   quarantined: quarantinedNow(primaryModel: policy(providerID).model, now: now),
-                   occupancy: occupancy, now: now)
+        autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                         reserves: reserves, occupancy: occupancy, now: now)?.id
     }
 
     /// The quarantine step with the quarantine handed in, mirroring `launchPick`: when it empties
@@ -41,17 +47,42 @@ extension LaunchPolicyStore {
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
                     reserves: [String: Double], quarantined: Set<String>,
                     occupancy: [String: Int]?, now: Date) -> String? {
-        autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                   reserves: reserves, excluding: quarantined, clearance: true,
-                   occupancy: occupancy, now: now)
-            ?? autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                          reserves: reserves, excluding: [], clearance: false,
-                          occupancy: occupancy, now: now)
+        autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                         reserves: reserves, quarantined: quarantined, occupancy: occupancy,
+                         now: now)?.id
     }
 
-    private func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
-                            reserves: [String: Double], excluding: Set<String>, clearance: Bool,
-                            occupancy: [String: Int]?, now: Date) -> String? {
+    /// The pick plus how it was reached (B-3570), for the hover text: how many accounts were about
+    /// as urgent and what broke the tie. Same chain as `autoPickID`, which reads only the id.
+    func autoPickDecision(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                          reserves: [String: Double] = [:], now: Date = Date()) -> AutoPickDecision? {
+        autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                         reserves: reserves, occupancy: liveSessionsNow(now: now), now: now)
+    }
+
+    func autoPickDecision(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                          reserves: [String: Double] = [:], occupancy: [String: Int]?,
+                          now: Date = Date()) -> AutoPickDecision? {
+        autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                         reserves: reserves,
+                         quarantined: quarantinedNow(primaryModel: policy(providerID).model, now: now),
+                         occupancy: occupancy, now: now)
+    }
+
+    func autoPickDecision(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                          reserves: [String: Double], quarantined: Set<String>,
+                          occupancy: [String: Int]?, now: Date) -> AutoPickDecision? {
+        autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                         reserves: reserves, excluding: quarantined, clearance: true,
+                         occupancy: occupancy, now: now)
+            ?? autoPickDecision(providerID: providerID, accounts: accounts, launchable: launchable,
+                                reserves: reserves, excluding: [], clearance: false,
+                                occupancy: occupancy, now: now)
+    }
+
+    private func autoPickDecision(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                                  reserves: [String: Double], excluding: Set<String>, clearance: Bool,
+                                  occupancy: [String: Int]?, now: Date) -> AutoPickDecision? {
         let primary = policy(providerID).model
         // The CLI's nearly-dry gate, from the file both targets compile (AccountComfort.swift):
         // the badge has to predict the launch, so the same accounts leave before the ordering.
@@ -89,28 +120,19 @@ extension LaunchPolicyStore {
         }
         if clearance, let clearance = clearancePick(above, now: now, windows: {
             Self.clearanceWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
-        }, sessions: sessions) { return clearance.id }
+        }, sessions: sessions) {
+            return AutoPickDecision(id: clearance.id, othersTied: 0, decidedBy: nil)
+        }
         // The CLI's load gate, in the order `best` applies it (TallyCLI/AccountPick.swift, #4).
         let candidates = preferringUncrowded(preferringComfortable(above, now: now, windows: windows),
                                              now: now, windows: windows, sessions: sessions)
-        guard var leader = candidates.first else { return nil }
-        var leaderScore = Self.smartScore(leader, primaryModel: primary,
-                                          reserve: reserves[leader.id] ?? 0, now: now)
-        for candidate in candidates.dropFirst() {
-            let score = Self.smartScore(candidate, primaryModel: primary,
-                                        reserve: reserves[candidate.id] ?? 0, now: now)
-            if score > leaderScore * Self.smartPickMargin,
-               score > leaderScore + Self.smartPickMinGain {
-                leader = candidate
-                leaderScore = score
-            } else if score >= leaderScore,
-                      (candidate.resetCreditsAvailable ?? 0) > (leader.resetCreditsAvailable ?? 0) {
-                // Mirror of the CLI's near-tie tie-breaker: a wall with banked resets behind
-                // it is softer. Reads the count only; never spends.
-                leader = candidate
-                leaderScore = score
-            }
-        }
-        return leader.id
+        // The same last step as the launcher's `best` (AccountComfort.swift `smartPickLeader`): one
+        // copy of the tie rule, so the badge cannot break a tie differently from the launch.
+        guard let result = smartPickLeader(candidates,
+            score: { Self.smartScore($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now) },
+            weeklyResetsAt: { $0.metrics.first { $0.kind == .weeklyAll }?.resetsAt },
+            resetCredits: { $0.resetCreditsAvailable ?? 0 }) else { return nil }
+        return AutoPickDecision(id: result.leader.id, othersTied: result.othersTied,
+                                decidedBy: result.decidedBy)
     }
 }

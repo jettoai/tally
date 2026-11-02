@@ -204,3 +204,67 @@ func requiringUncrowded<T>(_ candidates: [T], now: Date, windows: (T) -> [Comfor
         hasRunway(windows($0), floor: runwayPercent, now: now) || sessions($0) < clearanceMaxSessions
     }
 }
+
+// THE SMART PICK'S LAST STEP, ONE COPY (B-3570). The launcher (`best`) and the panel badge
+// (`autoPickID`) both end here, so a tie cannot be broken one way on screen and another at launch.
+//
+// A quota score is coarse and refresh-lagged, so near-equal scores must not flip the pick on noise.
+// An account is TIED with the top score unless the top beats it by BOTH gates: the ratio alone lies
+// at the low end (2% vs 3% remaining reads as +50%), so the absolute gate keeps two nearly-drained
+// accounts from deciding on one noise-level point. Sticking with a nearly-drained pick is safe:
+// the cap-hit handoff is the net.
+let smartPickMargin = 1.15
+let smartPickMinGain = 0.05   // %/h
+
+enum SmartPickDecider: Equatable {
+    case alone          // the only candidate
+    case score          // nobody else is within the margin of the top score
+    case earliestReset  // tied accounts differ in their published weekly reset
+    case bankedResets   // same reset (or none published), more banked resets
+    case listOrder      // nothing told the tied accounts apart
+}
+
+struct SmartPickResult<T> {
+    let leader: T
+    let othersTied: Int
+    let decidedBy: SmartPickDecider
+}
+
+/// "x is tied with the top" is the negation of the two gates above.
+func smartPickTied(_ score: Double, top: Double) -> Bool {
+    !(top > score * smartPickMargin && top > score + smartPickMinGain)
+}
+
+/// The leader among candidates that already passed every gate, in list order. The accounts tied
+/// with the TOP score form the band (each is compared to the top, never to each other, so the band
+/// has no cycles); inside it the account whose PUBLISHED weekly reset comes first wins, because that
+/// is where unspent quota is lost soonest. A reset the provider never published sorts last: an
+/// estimate slides with the clock, and ranking by it would flip the pick without any account being
+/// used (06c8fbc). More banked resets come next (a capped wall with a redeemable reset behind it is softer; the pick only reads the count, it never spends one), then list order. The reset is the WEEKLY one on
+/// purpose: a session window refills itself within hours and wastes nothing.
+func smartPickLeader<T>(_ candidates: [T], score: (T) -> Double, weeklyResetsAt: (T) -> Date?,
+                        resetCredits: (T) -> Int) -> SmartPickResult<T>? {
+    guard !candidates.isEmpty else { return nil }
+    let scores = candidates.map(score)
+    let top = scores.max() ?? 0
+    let band = candidates.indices.filter { smartPickTied(scores[$0], top: top) }
+    let resets = candidates.map { weeklyResetsAt($0) ?? .distantFuture }
+    let credits = candidates.map(resetCredits)
+    let ordered = band.sorted { lhs, rhs in
+        if resets[lhs] != resets[rhs] { return resets[lhs] < resets[rhs] }
+        if credits[lhs] != credits[rhs] { return credits[lhs] > credits[rhs] }
+        return lhs < rhs
+    }
+    let winner = ordered[0]
+    let decidedBy: SmartPickDecider
+    if band.count == 1 {
+        decidedBy = candidates.count == 1 ? .alone : .score
+    } else if resets[ordered[1]] != resets[winner] {
+        decidedBy = .earliestReset
+    } else if credits[ordered[1]] != credits[winner] {
+        decidedBy = .bankedResets
+    } else {
+        decidedBy = .listOrder
+    }
+    return SmartPickResult(leader: candidates[winner], othersTied: band.count - 1, decidedBy: decidedBy)
+}

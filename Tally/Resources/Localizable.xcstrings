@@ -4971,37 +4971,212 @@
         }
       }
     },
-    "Smart: new sessions start on the account whose quota goes furthest right now.": {
+    "Smart: new sessions start on the account that most needs using before its weekly reset.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "智慧選擇：新工作階段用「額度用起來最划算」的帳號啟動。"
+            "value": "智慧選擇：新工作階段開在最需要趕在週重置前用掉的帳號。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能选择：新会话用「额度用起来最划算」的账号启动。"
+            "value": "智能选择：新会话开在最需要赶在周重置前用掉的账号。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマート選択：今クォータを最も有効に使えるアカウントで新しいセッションを開始します。"
+            "value": "スマート選択：週のリセット前に最も使い切る必要があるアカウントで新しいセッションを開始します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스마트 선택: 지금 쿼터를 가장 효율적으로 쓸 수 있는 계정에서 새 세션을 시작합니다."
+            "value": "스마트 선택: 주간 초기화 전에 가장 많이 써야 하는 계정에서 새 세션을 시작합니다."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Akıllı: yeni oturumlar, şu anda kotası en verimli kullanılabilecek hesapta başlar."
+            "value": "Akıllı: yeni oturumlar, haftalık sıfırlamadan önce en çok kullanılması gereken hesapta başlar."
+          }
+        }
+      }
+    },
+    "Needs about %lld%% a day so none of it goes unused.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天要用掉約 %lld%% 才不浪費。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天要用掉约 %lld%% 才不浪费。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無駄にしないには 1 日あたり約 %lld%% 使う必要があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "낭비하지 않으려면 하루에 약 %lld%%를 써야 합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşa gitmemesi için günde yaklaşık %%%lld kullanılmalı."
+          }
+        }
+      }
+    },
+    "%lld%% kept for you": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留給你 %lld%%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留给你 %lld%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% はあなた用に確保"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%는 직접 쓰도록 보류"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%%%lld size ayrıldı"
+          }
+        }
+      }
+    },
+    "Others about as urgent: %lld. This one resets soonest.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 個帳號差不多急，這個最早重置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 个账号差不多急，这个最早重置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほぼ同じ緊急度のアカウントが他に %lld 件。このアカウントが最も早くリセットされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비슷하게 급한 계정이 %lld개 더 있으며, 이 계정이 가장 먼저 초기화됩니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benzer aciliyette %lld hesap daha var. Bu hesap en erken sıfırlanıyor."
+          }
+        }
+      }
+    },
+    "Others about as urgent: %lld. This one has the most banked resets.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 個帳號差不多急，這個可兌換的重置次數最多。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 个账号差不多急，这个可兑换的重置次数最多。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほぼ同じ緊急度のアカウントが他に %lld 件。このアカウントは使えるリセットが最も多くあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비슷하게 급한 계정이 %lld개 더 있으며, 이 계정의 남은 초기화 횟수가 가장 많습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benzer aciliyette %lld hesap daha var. Bu hesapta en çok biriktirilmiş sıfırlama var."
+          }
+        }
+      }
+    },
+    "Others about as urgent: %lld.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 個帳號差不多急。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 个账号差不多急。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほぼ同じ緊急度のアカウントが他に %lld 件あります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비슷하게 급한 계정이 %lld개 더 있습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benzer aciliyette %lld hesap daha var."
           }
         }
       }

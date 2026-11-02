@@ -144,8 +144,8 @@ func runSmartBadgeChecks() {
 
     let personal = account("personal", session: 90, weekly: 90)
     let sibling = account("sibling", session: 70, weekly: 70)
-    // LISTED FIRST, so it is the incumbent leader and the sibling has to clear both hysteresis
-    // gates to take the badge off it - the same push the launcher demands.
+    // Both reset in 3 days, so a tie goes to the account listed first and the sibling has to clear
+    // both gates to take the badge off the top - the same push the launcher demands.
     let field = [personal, sibling]
     check("without a reserve the badge sits on the fuller account (guard the premise)",
           pick(field) == "personal")
@@ -279,6 +279,40 @@ func runSmartBadgeChecks() {
     check("A12 a dry 5h window is never cleared",
           pick([rich, account("clearing", session: 2, weekly: 50, weeklyResetDays: 18.4 / 24)])
               == "rich")
+
+    // B-3570: INSIDE THE TIE BAND THE EARLIEST PUBLISHED WEEKLY RESET TAKES THE BADGE, and the
+    // launcher says the same (tests/smartpick/tiebreakchecks.swift runs these numbers through
+    // `best`). The 2026-11-02T04:18:35Z snapshot: albert (top score, earliest reset) went unmarked
+    // and doro took the badge. Session is 100% everywhere so the 3 hour window never binds.
+    func hours(_ id: String, _ weekly: Double, _ hours: Double) -> AccountUsage {
+        account(id, session: 100, weekly: weekly, weeklyResetDays: hours / 24)
+    }
+    let tieField = [hours("doro", 94, 127.7), hours("albert", 98, 125.7),
+                    hours("albert5", 100, 132.7), hours("666", 100, 136.7),
+                    hours("hyde", 71, 84.7), hours("albert2", 21, 60.7),
+                    hours("albert4", 10, 35.7), hours("albert3", 12, 61.7)]
+    check("B3570 the badge goes to the earliest-resetting account of the tie band, not the first listed",
+          pick(tieField, reserves: ["hyde": 20]) == "albert"
+              && pick(tieField.reversed(), reserves: ["hyde": 20]) == "albert")
+    let tieDecision = policy.autoPickDecision(
+        providerID: "claude", accounts: tieField, launchable: Set(tieField.map(\.id)),
+        reserves: ["hyde": 20], occupancy: [:])
+    check("B3570 …and the decision says three others were as urgent and the earliest reset broke it",
+          tieDecision?.id == "albert" && tieDecision?.othersTied == 3
+              && tieDecision?.decidedBy == .earliestReset)
+    // The hover's "needs about N% a day" is the ranking's own rate (reserve taken off) times 24.
+    let need = { (id: String, reserve: Double) in
+        LaunchPolicyStore.smartDailyNeed(tieField.first { $0.id == id }!, primaryModel: nil,
+                                         reserve: reserve)
+    }
+    check("B3570 the hover's daily need is the binding window's rate over a day, reserve off",
+          need("albert", 0) == 19 && need("hyde", 20) == 14 && need("hyde", 0) == 20)
+    check("B3570 …and a 5 hour session window binding gives no per-day figure",
+          LaunchPolicyStore.smartDailyNeed(account("s", session: 2, weekly: 100), primaryModel: nil,
+                                           reserve: 0) == nil)
+    let codexField = [hours("codex2", 51, 87.1), hours("codex1", 26, 50.4)]
+    check("B3570 two tied Codex-shaped accounts: the one resetting first takes the badge",
+          pick(codexField) == "codex1")
 
     // AND A PINNED CARD NEVER ASKS. Both surfaces draw the pinned badge from the pin itself and
     // only consult the reserve-aware pick in auto mode, which is the app end of "naming an account

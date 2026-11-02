@@ -344,9 +344,10 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     return windows
 }
 
-/// An account's score is its TIGHTEST window's rate - the binding constraint. `best()` then picks
-/// the account whose binding constraint is loosest, which naturally prefers an account whose low
-/// session quota resets in minutes over one hoarding a bigger but slower-refreshing allowance.
+/// An account's score is its TIGHTEST window's rate - the binding constraint. `best()` then ranks
+/// accounts by how loose that constraint is, so a window that refills in minutes does not hold an
+/// account back, while one hoarding a bigger but slower-refreshing allowance does. Accounts within
+/// the tie margin of the top score are then ordered by their earliest published weekly reset.
 func smartScore(_ account: Snapshot.Account, primaryModel: String?,
                 reserves: AccountReserves = .none, now: Date = Date()) -> Double {
     ratedWindows(account, primaryModel: primaryModel, reserves: reserves, now: now)
@@ -368,20 +369,8 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
     return windowReason(binding, now: now)
 }
 
-/// Hysteresis: near-equal scores must not flip the pick. Quota percentages are coarse and
-/// refresh-lagged, so the account just used dips a point below its idle sibling - without a
-/// margin every new launch would bounce between the two (scattering conversation history
-/// across accounts) for zero real gain. A later account only takes the lead by beating the
-/// current leader by BOTH gates; ties and noise-level differences stay with the earlier
-/// account in the (stable) list order.
-///
-/// Two gates because one ratio lies at the low end: at 2% vs 3% remaining the relative gap is
-/// 50% yet the real difference is one noise-level point - two nearly-drained accounts would
-/// ping-pong on it. The absolute gate (~8 weekly points over a full week) keeps them put; a
-/// genuinely healthier sibling clears both gates easily. Sticking with a nearly-drained leader
-/// is safe: the cap-hit handoff is the net.
-let smartPickMargin = 1.15
-let smartPickMinGain = 0.05   // %/h
+// The tie rule (margin, minimum gain, the earliest-published-reset tie-break) lives in
+// `smartPickLeader`, AccountComfort.swift, shared with the panel badge.
 
 /// The provider's accounts eligible for the model, minus `excluding`: the field `best`,
 /// `incumbentSeededBest` and `launchPick` start from.
@@ -412,7 +401,7 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     let eligibleAccounts = pickField(providerID: providerID, in: snapshot,
                                      primaryModel: primaryModel, excluding: excluding)
     // Anybody above their line leaves the accounts under it out of the field (B-1213): ranked in,
-    // an under-line account's negative rate could hold the lead through the hysteresis gates.
+    // an under-line account's negative rate could sit in the tie band.
     let above = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
                              now: now)
     let comfortable = preferringComfortable(above, primaryModel: primaryModel, reserves: reserves,
@@ -421,23 +410,10 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     // conversations takes no third while somebody else can. After the comfort gate, never before.
     let candidates = preferringUncrowded(comfortable, primaryModel: primaryModel,
                                          reserves: reserves, now: now)
-    guard var leader = candidates.first else { return nil }
-    var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)
-    for candidate in candidates.dropFirst() {
-        let score = smartScore(candidate, primaryModel: primaryModel, reserves: reserves, now: now)
-        if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
-            leader = candidate
-            leaderScore = score
-        } else if score >= leaderScore,
-                  (candidate.resetCreditsAvailable ?? 0) > (leader.resetCreditsAvailable ?? 0) {
-            // Near-tie tie-breaker: a wall with banked resets behind it is SOFTER (capped =
-            // redeemable), so burn that account and preserve the one whose wall is terminal.
-            // Reads the banked count only - the smart pick never spends a reset.
-            leader = candidate
-            leaderScore = score
-        }
-    }
-    return leader
+    return smartPickLeader(candidates,
+        score: { smartScore($0, primaryModel: primaryModel, reserves: reserves, now: now) },
+        weeklyResetsAt: { $0.weeklyResetsAt },
+        resetCredits: { $0.resetCreditsAvailable ?? 0 })?.leader
 }
 
 /// The account an automatic launch would actually land on: `best` with the live cap quarantine

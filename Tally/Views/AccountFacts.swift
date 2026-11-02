@@ -208,12 +208,23 @@ struct AccountFacts {
     /// The list asks once per provider and hands each row its answer (`PopoverRootView.rowStack`).
     static func autoPickID(providerID: String) -> String? {
         let store = UsageStore.shared
-        let launchable = DemoUsage.isActive
+        return LaunchPolicyStore.shared.autoPickID(
+            providerID: providerID, accounts: store.accounts, launchable: launchableIDs(store),
+            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
+    }
+
+    /// The same pick with how it was reached, for the smart-pick hover only (it sits on one card).
+    static func autoPickDecision(providerID: String) -> AutoPickDecision? {
+        let store = UsageStore.shared
+        return LaunchPolicyStore.shared.autoPickDecision(
+            providerID: providerID, accounts: store.accounts, launchable: launchableIDs(store),
+            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
+    }
+
+    private static func launchableIDs(_ store: UsageStore) -> Set<String> {
+        DemoUsage.isActive
             ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
             : Set(store.discoveredAccounts.compactMap { $0.launchableHome != nil ? $0.id : nil })
-        return LaunchPolicyStore.shared.autoPickID(
-            providerID: providerID, accounts: store.accounts, launchable: launchable,
-            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
     }
 
     /// The window this account's usage layouts print one number for: its tightest, exactly the one
@@ -273,11 +284,34 @@ struct AccountFacts {
             usage, primaryModel: primary, reserve: Double(reservePercent), now: now), now: now) != nil {
             return L("Smart, clearing leftovers: the next new session starts here to use up what this account has left before its weekly reset.")
         }
-        let base = L("Smart: new sessions start on the account whose quota goes furthest right now.")
-        guard let reason = LaunchPolicyStore.smartReason(usage, primaryModel: primary) else {
-            return base
+        var lines = [L("Smart: new sessions start on the account that most needs using before its weekly reset.")]
+        if let need = LaunchPolicyStore.smartDailyNeed(usage, primaryModel: primary,
+                                                       reserve: Double(reservePercent), now: now) {
+            lines.append(String(localized: "Needs about \(need)% a day so none of it goes unused.",
+                                bundle: AppLocale.bundle))
         }
-        return base + "\n" + reason
+        if var reason = LaunchPolicyStore.smartReason(usage, primaryModel: primary) {
+            if reservePercent > 0 {
+                reason += " · " + String(localized: "\(reservePercent)% kept for you", bundle: AppLocale.bundle)
+            }
+            lines.append(reason)
+        }
+        if let decision = Self.autoPickDecision(providerID: usage.providerID),
+           decision.id == usage.id, decision.othersTied > 0 {
+            let k = decision.othersTied
+            switch decision.decidedBy {
+            case .earliestReset:
+                lines.append(String(localized: "Others about as urgent: \(k). This one resets soonest.",
+                                    bundle: AppLocale.bundle))
+            case .bankedResets:
+                lines.append(String(localized: "Others about as urgent: \(k). This one has the most banked resets.",
+                                    bundle: AppLocale.bundle))
+            case .listOrder:
+                lines.append(String(localized: "Others about as urgent: \(k).", bundle: AppLocale.bundle))
+            case .alone, .score, nil: break
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Whether this account can start a login renewal right now (a demo fixture cannot: it has no

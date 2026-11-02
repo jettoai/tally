@@ -26,7 +26,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/smartpick/main.swift tests/smartpick/launchchecks.swift \
   tests/smartpick/conversationchecks.swift tests/smartpick/reservechecks.swift \
   tests/smartpick/codexstartchecks.swift tests/smartpick/comfortchecks.swift tests/smartpick/clearancechecks.swift \
-  tests/smartpick/loadchecks.swift tests/smartpick/sharedloginchecks.swift \
+  tests/smartpick/loadchecks.swift tests/smartpick/sharedloginchecks.swift tests/smartpick/tiebreakchecks.swift \
   TallyCLI/CodexStartMode.swift \
   TallyCLI/Snapshot.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/CodexLaunchArgs.swift TallyCLI/AccountPick.swift TallyCLI/AccountPick+Handoff.swift \
   TallyCLI/LaunchResume.swift TallyCLI/LastConversation.swift \

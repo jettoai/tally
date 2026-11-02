@@ -183,4 +183,16 @@ extension LaunchPolicyStore {
             text += " · " + String(localized: "resets in \(body)", bundle: AppLocale.bundle)
         }
         return text
+    }
+
+    /// The percentage points a day this account's binding window needs spent for none of it to go
+    /// unused, on the same reserve-aware scale the ranking uses (B-3570): the figure has to agree
+    /// with the pick, and a reserve the owner holds back is not waste. nil for a 5 hour window,
+    /// where a per-day figure means nothing.
+    static func smartDailyNeed(_ usage: AccountUsage, primaryModel: String?, reserve: Double,
+                               now: Date = Date()) -> Int? {
+        guard let binding = ratedWindows(usage, primaryModel: primaryModel, reserve: reserve, now: now)
+            .min(by: { $0.rate < $1.rate }),
+              binding.name != AccountRoles.sessionWindowName else { return nil }
+        return max(1, Int((binding.rate * 24).rounded()))
     }}

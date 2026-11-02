@@ -325,15 +325,6 @@ final class LaunchPolicyStore {
 
     // MARK: Auto-pick preview
 
-    /// The account auto mode would launch right now - the same rule as the CLI's `launchPick()`
-    /// (burn-rate scoring; capped/stale/errored/quarantined accounts are out), so the panel's
-    /// badge always predicts what `tally` will actually do.
-    /// Mirror of the CLI's `smartPickMargin` / `smartPickMinGain` - keep in lockstep.
-    /// Two gates: the ratio alone lies at the low end (2% vs 3% remaining reads as +50%), so a
-    /// challenger must also win by an absolute rate gain or nearly-drained siblings ping-pong.
-    static let smartPickMargin = 1.15
-    static let smartPickMinGain = 0.05   // %/h
-
     /// How long a quarantine read is reused. `autoPickID` runs inside a SwiftUI body (once per
     /// account card, on every redraw) and the records are files, so reading them straight would
     /// put a directory scan plus a read per record on the render path. Missing a cap for a few

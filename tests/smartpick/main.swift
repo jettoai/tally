@@ -120,12 +120,13 @@ let dryFlagshipNoAnchor = account("A", session: (80, inHours(3)), weekly: (50, n
 check("…and with nothing to borrow the same window still drops the account (guard the premise)",
       !accountIsComfortable(dryFlagshipNoAnchor, primaryModel: nil, now: now))
 
-// 6. Hysteresis: a tie stays with the first account (stable, not random), and using the leader
-//    down a point must NOT bounce the pick to the idle sibling - only a meaningful advantage
-//    (beyond smartPickMargin) flips it.
+// 6. Near-equal scores must not flip the pick: a tie with the SAME reset moment stays with the
+//    first account in the list (stable, not random), and using the leader down a point must NOT
+//    bounce the pick to the idle sibling - only a meaningful advantage (beyond smartPickMargin)
+//    takes it off the top.
 let evenA = account("A", session: (100, inHours(3)), weekly: (100, inHours(120)))
 let evenB = account("B", session: (100, inHours(3)), weekly: (100, inHours(120)))
-check("exact tie stays with the first account", pick([evenA, evenB]) == "A")
+check("an exact tie with the same reset stays with the first account", pick([evenA, evenB]) == "A")
 let dippedA = account("A", session: (99, inHours(3)), weekly: (99, inHours(120)))
 check("a one-point dip after use does not flip the pick", pick([dippedA, evenB]) == "A")
 let drainedA = account("A", session: (90, inHours(3)), weekly: (30, inHours(120)))
@@ -157,7 +158,8 @@ check("banked resets never outvote a real score gap", pick([betterNoHatch, hatch
 //     confirmed against the live fleet 2026-08-12, where an account at 100% of its week already
 //     carried a reset 3d11h out rather than 7d). A weekly window with no reset time is therefore
 //     never "not started yet" - it is only ever "nobody has read one": a v1 snapshot, or an account
-//     the app has not polled. So the near-tie band leaves the pick where it was.
+//     the app has not polled. So inside the tie band a missing reset buys nothing: it sorts AFTER
+//     every published one (B-3570), and it never wins a tie on being unknown.
 //
 //     SCOPE, since 7d: this covers a window that was SPENT and whose reset nobody has read, which
 //     is what the rivals below are (95% left). A window still at 100% has not been opened at all
@@ -177,10 +179,10 @@ check("and it really was inside the band, not simply losing on score (guard the 
       score(resetlessRival) >= score(openedLeader)
           && !(score(resetlessRival) > score(openedLeader) * smartPickMargin
                && score(resetlessRival) > score(openedLeader) + smartPickMinGain))
-// The same account listed FIRST still leads, which is the other half of "the band decides nothing":
-// order alone carries it, and no property of the reset-less account is consulted either way.
-check("and it leads when it is listed first, on list order alone",
-      pick([resetlessRival, openedLeader]) == "B")
+// Listed FIRST it still gives way: inside the band the published reset outranks a missing one
+// whatever the list order (B-3570; before, the first account in the list led the band).
+check("a published reset outranks a missing one inside the band, whichever is listed first",
+      pick([resetlessRival, openedLeader]) == "A")
 
 // A spent weekly with no reset reads as a full 168h window (`ratedWindows`), which is the
 // conservative degradation and not a claim about the account: it must not out-score a real
@@ -192,7 +194,7 @@ check("a missing weekly reset does not outvote a real score advantage",
 // A running weekly clock at the same numbers is treated identically: with the tie-breaker gone,
 // "reset known" and "reset unknown" are the same thing to the pick at equal score.
 let openedRival = account("B", weekly: (95, inHours(168)))
-check("a known reset and a missing one at the same score both keep the leader",
+check("a known reset and a missing one at the same score both lose to the earlier published reset",
       pick([openedLeader, openedRival]) == "A" && pick([openedLeader, resetlessRival]) == "A")
 check("…and those two rivals really do score the same (guard the premise)",
       score(openedRival) == score(resetlessRival))
@@ -208,12 +210,14 @@ check("a one-point difference between two reset-less accounts keeps the list ord
 check("and the pair swapped keeps it too (the rounder number buys nothing)",
       pick([v1Second, v1First]) == "B")
 
-// 7c. The banked-reset tie-breaker is the one that stayed, and it still decides the same band the
-//     removed one used to take first - including when the challenger is the reset-less account,
-//     which is where the two rules used to disagree.
+// 7c. Banked resets are the SECOND key inside the band: they decide only when the tied accounts
+//     share a reset moment or none has published one. A published reset comes first because it is
+//     the hard deadline on unspent quota; a banked reset only softens the wall behind it.
 let bankedResetless = account("B", weekly: (95, nil), resets: 2)
-check("banked resets still break a near-tie, reset time or no reset time",
-      pick([openedLeader, bankedResetless]) == "B")
+check("a published reset outranks banked resets inside the band",
+      pick([openedLeader, bankedResetless]) == "A")
+check("banked resets still decide when neither has published a reset",
+      pick([account("A", weekly: (95, nil)), bankedResetless]) == "B")
 
 // 7d. AN UNTOUCHED FIXED-CYCLE WINDOW IS RATED AGAINST HALF ITS LENGTH, not all of it (the session
 //     window is the exception, 7e). The provider publishes a reset only once usage opens the
@@ -434,5 +438,6 @@ check("a quarantine on an ineligible account changes nothing",
 runLaunchChecks()
 runCodexStartChecks()
 runReserveChecks()
+runTieBreakChecks()
 
 exit(failures == 0 ? 0 : 1)

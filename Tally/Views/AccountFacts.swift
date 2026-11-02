@@ -207,24 +207,18 @@ struct AccountFacts {
     /// account, so asking it once per row made a list O(rows²) on every redraw (Sentry TALLY-7Z).
     /// The list asks once per provider and hands each row its answer (`PopoverRootView.rowStack`).
     static func autoPickID(providerID: String) -> String? {
-        let store = UsageStore.shared
-        return LaunchPolicyStore.shared.autoPickID(
-            providerID: providerID, accounts: store.accounts, launchable: launchableIDs(store),
-            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
+        autoPickDecision(providerID: providerID)?.id
     }
 
-    /// The same pick with how it was reached, for the smart-pick hover only (it sits on one card).
+    /// The same pick with how it was reached; the smart-pick hover reads the tie details.
     static func autoPickDecision(providerID: String) -> AutoPickDecision? {
         let store = UsageStore.shared
-        return LaunchPolicyStore.shared.autoPickDecision(
-            providerID: providerID, accounts: store.accounts, launchable: launchableIDs(store),
-            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
-    }
-
-    private static func launchableIDs(_ store: UsageStore) -> Set<String> {
-        DemoUsage.isActive
+        let launchable = DemoUsage.isActive
             ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
             : Set(store.discoveredAccounts.compactMap { $0.launchableHome != nil ? $0.id : nil })
+        return LaunchPolicyStore.shared.autoPickDecision(
+            providerID: providerID, accounts: store.accounts, launchable: launchable,
+            reserves: PersonalAccount.reserves(store.accounts, discovered: store.discoveredAccounts))
     }
 
     /// The window this account's usage layouts print one number for: its tightest, exactly the one

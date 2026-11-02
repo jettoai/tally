@@ -240,8 +240,9 @@ func smartPickTied(_ score: Double, top: Double) -> Bool {
 /// has no cycles); inside it the account whose PUBLISHED weekly reset comes first wins, because that
 /// is where unspent quota is lost soonest. A reset the provider never published sorts last: an
 /// estimate slides with the clock, and ranking by it would flip the pick without any account being
-/// used (06c8fbc). More banked resets come next (a capped wall with a redeemable reset behind it is softer; the pick only reads the count, it never spends one), then list order. The reset is the WEEKLY one on
-/// purpose: a session window refills itself within hours and wastes nothing.
+/// used (06c8fbc). More banked resets come next (a capped wall with a redeemable reset behind it
+/// is softer; the pick only reads the count, it never spends one), then list order. The reset is
+/// the WEEKLY one on purpose: a session window refills itself within hours and wastes nothing.
 func smartPickLeader<T>(_ candidates: [T], score: (T) -> Double, weeklyResetsAt: (T) -> Date?,
                         resetCredits: (T) -> Int) -> SmartPickResult<T>? {
     guard !candidates.isEmpty else { return nil }

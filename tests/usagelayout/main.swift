@@ -165,21 +165,20 @@ MainActor.assumeIsolated {
         }
     }
     check("a tray row fits the region", rowMisfits == 0)
-    typealias TrayCols = UsageLayout.Tray
+    typealias Tray = UsageLayout.Tray
     check("the 356pt region seats three, so Claude's five accounts are a row of three and a row of two, both ending at the right edge",
-          TrayCols.columns(in: 356) == 3
-          && abs(3 * TrayCols.tileWidth(tiles: 3, in: 356) + 2 * TrayCols.gap - 356) < 0.01
-          && abs(2 * TrayCols.tileWidth(tiles: 2, in: 356) + TrayCols.gap - 356) < 0.01)
+          Tray.columns(in: 356) == 3
+          && abs(3 * Tray.tileWidth(tiles: 3, in: 356) + 2 * Tray.gap - 356) < 0.01
+          && abs(2 * Tray.tileWidth(tiles: 2, in: 356) + Tray.gap - 356) < 0.01)
     check("a lone tile takes the whole row and two split it in half",
-          TrayCols.tileWidth(tiles: 1, in: 356) == 356 && TrayCols.tileWidth(tiles: 2, in: 356) == 174)
+          Tray.tileWidth(tiles: 1, in: 356) == 356 && Tray.tileWidth(tiles: 2, in: 356) == 174)
     check("a permanent scroller's narrower region drops to two tiles instead of overflowing",
-          TrayCols.columns(in: UsageLayout.regionWidth - 15) == 2)
+          Tray.columns(in: UsageLayout.regionWidth - 15) == 2)
     check("a wider panel seats more tiles rather than leaving the right side empty",
-          TrayCols.columns(in: 536) == 4)
+          Tray.columns(in: 536) == 4)
 
     // 8. Tray glyph (B-3461): the 5h and flagship windows stand upright at the left, only the ones the
     //    plan has; the week lies along the bottom, always drawn.
-    typealias Tray = UsageLayout.Tray
     let demo = DemoUsage.accounts()
     func demoAccount(_ label: String) -> AccountUsage? { demo.first { $0.accountLabel == label } }
     func uprightKinds(_ usage: AccountUsage) -> [MetricKind] { LayoutWindows(usage).upright.map { $0.metric.kind } }

@@ -21,7 +21,7 @@ extension AccountListRowView {
                 Image(systemName: "sparkles")
                     .font(.system(size: 9))
                     .foregroundStyle(TallyColor.ai)
-                    .tallyTooltip(facts.smartPickTooltip)
+                    .tallyTooltip(facts.smartPickTooltip, forced: facts.forcesSmartTooltip)
                     .accessibilityLabel(L("Smart"))
             }
         }

@@ -20,6 +20,9 @@ extension TallyTooltip {
     enum PreviewTarget: String {
         case fleet
         case identity
+        /// The smart-pick badge's callout on the Claude pick; `DemoUsage.showsSmartTie` reshapes
+        /// three fixtures so its tie-break line shows too (B-3570).
+        case smart
         /// The kept account's shared-login mark (#6): one fixture under `-TallyDemoSharedLogin`.
         case sharedlogin
         /// The session board's update badge (`SessionCardView.supervisorBadge`), which forces itself

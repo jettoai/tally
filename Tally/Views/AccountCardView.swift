@@ -231,7 +231,7 @@ struct AccountCardView: View {
         .foregroundStyle(TallyColor.ai)
         .padding(.horizontal, 5).padding(.vertical, 1)
         .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
-        .tallyTooltip(facts.smartPickTooltip)
+        .tallyTooltip(facts.smartPickTooltip, forced: facts.forcesSmartTooltip)
     }
 
     // MARK: Reset banking - manual redeem (the only write Tally ever performs; see CodexAutoRedeemStore for the automatic one)

@@ -72,6 +72,12 @@ struct AccountFacts {
         TallyTooltip.previewForced(.identity) && usage.id == DemoUsage.tooltipPreviewAccountID
     }
 
+    /// Hold the smart-pick callout open on the Claude account the badge marks (B-3570). One
+    /// provider only: Codex has a pick of its own, and two forced at once would race for the slot.
+    var forcesSmartTooltip: Bool {
+        TallyTooltip.previewForced(.smart) && usage.providerID == "claude" && isAutoPick
+    }
+
     /// Whether this is the account the user is also signed into on claude.ai, and the slice of each
     /// shared window Tally's own choices must leave standing (0 on every other account; which
     /// windows that covers is `PersonalAccount.reserved`, and the meters ask it per bar). Both

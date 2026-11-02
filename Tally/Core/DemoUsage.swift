@@ -27,6 +27,20 @@ enum DemoUsage {
     /// panel bar can wear side by side. A modifier, off by default like the ones above.
     static var showsColorLevels: Bool { UserDefaults.standard.bool(forKey: "TallyDemoColorLevels") }
 
+    /// `-TallyTooltipPreview smart` (with `-TallyDemoData`): Claude 2, 3 and 4 are reshaped so their
+    /// scores sit inside the smart pick's tie margin and Claude 3, not the first in the list, resets
+    /// soonest. The callout then shows its tie-break line ("Others about as urgent: 2. This one
+    /// resets soonest."). Only under that flag, so the README grid keeps every card's numbers.
+    static var showsSmartTie: Bool {
+        isActive && UserDefaults.standard.string(forKey: "TallyTooltipPreview")?.lowercased() == "smart"
+    }
+
+    private static let smartTieFixtures: [String: (weekly: Double, model: Double, resetDays: Double?)] = [
+        "claude:demo-Claude 2": (72, 52, nil),
+        "claude:demo-Claude 3": (82, 70, nil),
+        "claude:demo-Claude 4": (55, 27, 2.0),
+    ]
+
     /// `-TallyDemoRenewingLogin <account id>` (with `-TallyDemoData`): that fixture reads as having
     /// a login renewal running, so a capture can show the "Browser sign-in…" state on a card or row.
     static var renewingLoginPreview: Set<String> {
@@ -176,6 +190,21 @@ enum DemoUsage {
                   expiresInHours: [220, nil], now: now),
         ]
         var result = fixtures + manyAccountsExtras(now: now)
+        if showsSmartTie {
+            result = result.map { usage in
+                guard let tie = smartTieFixtures[usage.id] else { return usage }
+                var tied = usage
+                tied.metrics = usage.metrics.map { metric in
+                    guard metric.kind == .weeklyAll || metric.kind == .weeklyModel else { return metric }
+                    var weekly = metric
+                    weekly.usedPercent = metric.kind == .weeklyAll ? tie.weekly : tie.model
+                    weekly.severity = .fromUsedPercent(weekly.usedPercent)
+                    if let days = tie.resetDays { weekly.resetsAt = now.addingTimeInterval(days * 86_400) }
+                    return weekly
+                }
+                return tied
+            }
+        }
         if showsColorLevels {
             // The weekly windows are every kind the strip or the panel might read for the account.
             let remaining = ["Claude": 15.0, "Claude 2": 40, "Claude 3": 70, "Claude 4": 100]

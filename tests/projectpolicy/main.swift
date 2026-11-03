@@ -49,6 +49,7 @@ check("a directory outside any repository keys on itself",
       projectPolicyKey(cwd: plain.path) == realpathString(plain.path))
 // The other end of "which directory is this": one that is not there at all (deletedcwdchecks.swift).
 runDeletedCwdChecks()
+runFreshMacChecks()
 
 // MARK: - The file: round trip, pruning, and a fail-open read
 

@@ -272,7 +272,9 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
     // chosen the account, and the shim, seeing the default home's unset CLAUDE_CONFIG_DIR, would
     // read that as a fresh launch and choose again (session c80ebeb2, 2026-07-26). ClaudeStableExecutable.swift: B-565.
     execvp(claudeStableExecutable(resolveProviderExecutable(cli)), cargs)
-    warn("cannot exec `\(cli)`: \(String(cString: strerror(errno)))")
+    let failure = errno
+    warn("cannot exec `\(cli)`: \(String(cString: strerror(failure)))")
+    if failure == ENOENT { missingCLIHint(cli)?.forEach(warn) }
     exit(127)
 }
 

@@ -71,11 +71,14 @@ func runShimChecks() {
     // 3. Nothing but the shim (or nothing at all): fall back to the bare name, so a machine with no
     //    shim installed, and one whose only claude IS the shim, both behave exactly as before.
     check("no non-shim match falls back to the bare name",
-          resolveProviderExecutable("claude", path: shimDir.path, shimDirectory: shimDir) == "claude")
+          resolveProviderExecutable("claude", path: shimDir.path, shimDirectory: shimDir,
+                                    fallbackDirectories: []) == "claude")
     check("an empty PATH falls back to the bare name",
-          resolveProviderExecutable("claude", path: "", shimDirectory: shimDir) == "claude")
+          resolveProviderExecutable("claude", path: "", shimDirectory: shimDir,
+                                    fallbackDirectories: []) == "claude")
     check("an absent PATH falls back to the bare name",
-          resolveProviderExecutable("claude", path: nil, shimDirectory: shimDir) == "claude")
+          resolveProviderExecutable("claude", path: nil, shimDirectory: shimDir,
+                                    fallbackDirectories: []) == "claude")
 
     // 4. The walk matches what the system would do with the same PATH: a non-executable file and a
     //    directory of that name are both passed over rather than returned as the program.

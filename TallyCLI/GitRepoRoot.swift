@@ -33,12 +33,45 @@ func workingDirectoryURL(_ path: String) -> URL? {
     return URL(fileURLWithPath: path, isDirectory: true)
 }
 
+/// Whether `/usr/bin/git` is a real git rather than Apple's stub. On a Mac without Xcode or the
+/// Command Line Tools that path is a shim which, when run, asks the person to install developer
+/// tools in a system dialog; Tally starts git on every launch, so a fresh Mac would see that
+/// dialog from a command that never needed git. `xcode-select -p` never shows it: it answers with
+/// the developer directory, or fails when there is none. Only a positive answer is remembered (a
+/// supervisor can outlive the install), so a machine without the tools pays one cheap probe per call.
+func developerGitIsInstalled() -> Bool {
+    if developerGitFound { return true }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
+    process.arguments = ["-p"]
+    let outPipe = Pipe()
+    process.standardOutput = outPipe
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return false }
+    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    let directory = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard process.terminationStatus == 0, !directory.isEmpty,
+          FileManager.default.isExecutableFile(atPath: directory + "/usr/bin/git") else { return false }
+    developerGitFound = true
+    return true
+}
+
+// Only ever flips false to true, so a race between threads is harmless (both read the same answer).
+nonisolated(unsafe) private var developerGitFound = false
+
 /// Run git and collect its output. Never throws: a git that cannot be run is reported as exit 127
 /// with the reason on `err`, because every caller here is already prepared for a non-zero code.
 /// A `cwd` that is no longer a directory is one of those cases rather than a crash, for the reason
 /// `workingDirectoryURL` gives; nil `cwd` inherits this process's own, and git reports a deleted one
-/// itself ("unable to read current working directory") as an ordinary non-zero exit.
-func runGit(_ args: [String], cwd: String? = nil) -> (out: String, err: String, code: Int32) {
+/// itself ("unable to read current working directory") as an ordinary non-zero exit. So is a Mac
+/// with no developer tools (`developerGitIsInstalled`): git is not started at all there.
+/// `gitIsInstalled` is injectable so a test can stand in for a machine without the tools.
+func runGit(_ args: [String], cwd: String? = nil,
+            gitIsInstalled: () -> Bool = developerGitIsInstalled) -> (out: String, err: String, code: Int32) {
+    guard gitIsInstalled() else {
+        return ("", "cannot run git: the developer tools are not installed", 127)
+    }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     process.arguments = args

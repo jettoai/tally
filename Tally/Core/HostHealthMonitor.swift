@@ -92,6 +92,12 @@ final class HostHealthMonitor {
         // would clear one. The next sample asks again.
         guard var reading = HostHealthReaders.reading() else { return }
         if let testLoad { reading.load1 = testLoad }
+        // The minute line for the load history. A faked load (-TallyHostHealthTest) never goes in:
+        // it would be counted as a real minute over the gate.
+        let loadSample = testLoad == nil
+            ? HostLoadSample(at: now, load1: reading.load1, freeBytes: reading.freeBytes,
+                             memPct: HostHealthReaders.memoryFreePercent(), cores: reading.cores)
+            : nil
         let (next, event) = HostHealthLogic.advance(tracker, reading: reading, at: now)
         tracker = next
         var renamedTop: [HostHealthCPUProcess]?
@@ -132,6 +138,7 @@ final class HostHealthMonitor {
         await Task.detached(priority: .utility) {
             Self.publish(report)
             if let line { Self.append(line) }
+            if let loadSample { HostLoadHistoryWriter.append(loadSample) }
         }.value
         // A RECOVERY IS WRITTEN DOWN AND NOT ANNOUNCED. Somebody reading the log afterwards needs
         // to know when it ended; nobody needs a banner saying their machine is working again.

@@ -124,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             restoredWindow: MainWindowController.shared.isWindowVisible
                 || SettingsWindowController.shared.isWindowOpen || isPanelCaptureLaunch,
             hadLaunchedBefore: hadLaunchedBefore, activating: mayTakeForeground)
+        TallyCommandWindowController.shared.showPreviewIfRequested()
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
         // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state,
         // -TallyUpdateChipBusy updating|restarting for the two working faces), so the nudge can be

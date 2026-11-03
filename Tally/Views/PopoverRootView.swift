@@ -408,6 +408,8 @@ struct PopoverRootView: View {
                     if !active { cardLift = nil }
                 }
                 .onDisappear { cardLift = nil }
+            // The two one-time nudges, under the cards (PanelHints).
+            PanelHintsSection(store: store, width: scrollContentWidth)
         }
     }
 

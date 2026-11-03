@@ -228,6 +228,28 @@ private func computeGitFacts(cwd: String?, run: GitFactsCache.Runner) -> GitDire
                              toplevel: top.code == 0 && !top.out.isEmpty ? top.out : nil)
 }
 
+/// Environment variables that change which repository git answers for, whatever directory it is
+/// asked from. `git rev-parse --local-env-vars` lists the repo-local ones (git 2.54.0, 15 names);
+/// the last two are discovery settings outside that list: `GIT_CEILING_DIRECTORIES` can turn a
+/// repository into "not a repository" and `GIT_DISCOVERY_ACROSS_FILESYSTEM` the reverse. A git hook
+/// exports some of them (a linked worktree's commit hooks export an absolute GIT_DIR), and so does
+/// `git --git-dir ... --work-tree ...`. Listing one too many only costs git calls; missing one lets a
+/// wrong answer reach other processes. tests/gitfacts (G8 e) checks this set against the git on the
+/// machine running the tests.
+let gitIdentityEnvironmentKeys: Set<String> = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE", "GIT_PREFIX",
+    "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+]
+
+/// Whether a process with this environment gets git answers that differ from a plain shell's.
+/// Set at all counts, an empty value included: git reads some of them even when empty.
+func inheritsGitIdentity(_ environment: [String: String]) -> Bool {
+    gitIdentityEnvironmentKeys.contains { environment[$0] != nil }
+}
+
 /// Short-lived memory of `computeGitFacts`, keyed by realpath, safe to ask from many threads.
 ///
 /// Two locks, never held together in the other order: `lock` guards the dictionary and is dropped as
@@ -248,11 +270,13 @@ final class GitFactsCache: @unchecked Sendable {
         runGit(args, cwd: cwd)
     }
     private static func defaultClock() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+    private static func defaultEnvironment() -> [String: String] { ProcessInfo.processInfo.environment }
 
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     private var runner: Runner = GitFactsCache.defaultRunner
     private var clockFn: () -> TimeInterval = GitFactsCache.defaultClock
+    private var environmentFn: () -> [String: String] = GitFactsCache.defaultEnvironment
     private var disk: URL?
     private var diskRead = false
     private var freshKeys: Set<String> = []   // positive answers computed by THIS process
@@ -273,6 +297,13 @@ final class GitFactsCache: @unchecked Sendable {
         get { lock.lock(); defer { lock.unlock() }; return disk }
         set { lock.lock(); disk = newValue; lock.unlock() }
     }
+    /// The environment this process's git calls inherit. A process started with a git identity
+    /// override (`inheritsGitIdentity`) keeps its answers to itself: it neither reads the shared file
+    /// nor writes to it, because its answers are not the ones a plain process would get.
+    var environment: () -> [String: String] {
+        get { lock.lock(); defer { lock.unlock() }; return environmentFn }
+        set { lock.lock(); environmentFn = newValue; lock.unlock() }
+    }
 
     /// Forget everything this process knows and put the seams back. `diskFile` stays, so a test can
     /// play "a new process" against the same file.
@@ -280,6 +311,7 @@ final class GitFactsCache: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         entries = [:]; freshKeys = []; diskRead = false
         runner = GitFactsCache.defaultRunner; clockFn = GitFactsCache.defaultClock
+        environmentFn = GitFactsCache.defaultEnvironment
     }
 
     private func entry(forKey key: String) -> Entry {
@@ -323,6 +355,9 @@ final class GitFactsCache: @unchecked Sendable {
 
     private func isDirectory(_ path: String) -> Bool { workingDirectoryURL(path) != nil }
 
+    /// Caller holds `lock` (so `environmentFn` is read directly, never through `environment`).
+    private func overridesGitIdentity() -> Bool { inheritsGitIdentity(environmentFn()) }
+
     /// What `file` holds that is still inside the lifetime. A file that is missing, unreadable or
     /// of another version is an empty answer, never an error.
     private func readDisk(_ file: URL) -> [String: DiskEntry] {
@@ -336,9 +371,11 @@ final class GitFactsCache: @unchecked Sendable {
     /// Caller holds `lock`. Once per process, on the first question: the other process's answers
     /// become entries aged by how long ago they were given. An answer is only trusted while the
     /// directories it names are still there, which catches a repo that was moved or removed.
+    /// Skipped by a process whose git answers differ from a plain one's (`inheritsGitIdentity`).
     private func loadDiskIfNeeded() {
         guard !diskRead, let file = disk else { return }
         diskRead = true
+        guard !overridesGitIdentity() else { return }
         let wallNow = Date().timeIntervalSince1970, uptime = clockFn()
         for (key, item) in readDisk(file) {
             guard isDirectory(item.common), isDirectory(item.gitDir),
@@ -354,9 +391,11 @@ final class GitFactsCache: @unchecked Sendable {
     /// "not a repository" that outlived a `git init` would be wrong for the next five seconds in
     /// every other process. Re-reads and merges, newest answer per directory wins, expired ones are
     /// dropped, and a failed write costs the next process one git call and nothing else.
+    /// Nothing is written by a process with a git identity override: its answers are right for it and
+    /// wrong for everyone else.
     func flush() {
         lock.lock()
-        guard let file = disk else { lock.unlock(); return }
+        guard let file = disk, !overridesGitIdentity() else { lock.unlock(); return }
         let mine = freshKeys.compactMap { key in entries[key].map { (key, $0) } }
         lock.unlock()
         guard !mine.isEmpty else { return }

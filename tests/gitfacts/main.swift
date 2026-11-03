@@ -260,6 +260,7 @@ func newProcess() {
     gitFactsCache.reset()
     gitFactsCache.run = countingRunner(g7)
     gitFactsCache.diskFile = diskFile
+    gitFactsCache.environment = { [:] }   // G7 is about the disk layer, not about the shell it runs in
 }
 g7.reset(); newProcess()
 _ = gitDirectoryFacts(cwd: repoB.path)          // positive
@@ -313,6 +314,108 @@ let realBefore = mtime(realFile)
 _ = gitDirectoryFacts(cwd: repoA.path)
 gitFactsCache.flush()
 check("G7 with no diskFile nothing is written to ~/.tally/git-facts.json", mtime(realFile) == realBefore)
+
+// MARK: - G8: a process with a git identity override keeps its answers to itself
+
+// What a linked worktree's commit hooks export (git 2.54, measured 2026-11-03): an absolute GIT_DIR
+// naming the line's admin dir. Under it git answers for repo A from ANY directory.
+let hookEnv = ["GIT_DIR": repoA.appendingPathComponent(".git/worktrees/A-l1").path]
+let bSub = repoB.appendingPathComponent("sub").path
+let aCommon = realpathString(repoA.appendingPathComponent(".git").path)
+check("G8 fixture: the linked line's admin dir exists",
+      FileManager.default.fileExists(atPath: hookEnv["GIT_DIR"]!))
+
+/// Real /usr/bin/git with `extra` on top of this process's environment, counting like countingRunner.
+func overrideRunner(_ counter: Counter, _ extra: [String: String]) -> GitFactsCache.Runner {
+    { args, cwd in
+        if args.contains("rev-parse") { counter.hit() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = args
+        process.environment = ProcessInfo.processInfo.environment.merging(extra) { _, new in new }
+        if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true) }
+        let out = Pipe(), err = Pipe()
+        process.standardOutput = out; process.standardError = err
+        guard (try? process.run()) != nil else { return ("", "cannot run git", 127) }
+        let o = out.fileHandleForReading.readDataToEndOfFile()
+        let e = err.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let trim = { (d: Data) in String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
+        return (trim(o), trim(e), process.terminationStatus)
+    }
+}
+func diskKeys(_ file: URL) -> Set<String> {
+    Set(((try? JSONSerialization.jsonObject(with: Data(contentsOf: file)))
+        .flatMap { ($0 as? [String: Any])?["entries"] as? [String: Any] } ?? [:]).keys)
+}
+/// A new process: its git sees `runner`'s environment, the guard sees `env`.
+func g8Process(_ runner: @escaping GitFactsCache.Runner, env: [String: String], file: URL) {
+    gitFactsCache.reset()
+    gitFactsCache.run = runner
+    gitFactsCache.environment = { env }
+    gitFactsCache.diskFile = file
+}
+let g8 = Counter()
+
+// Control: with the guard looking at a clean environment, the polluted answers do travel through the
+// file, so the other checks measure something.
+let g8Control = tmp.appendingPathComponent("g8-control.json")
+g8.reset(); g8Process(overrideRunner(g8, hookEnv), env: [:], file: g8Control)
+_ = gitDirectoryFacts(cwd: bSub); _ = gitDirectoryFacts(cwd: plain1.path)
+gitFactsCache.flush()
+g8.reset(); g8Process(countingRunner(g8), env: [:], file: g8Control)
+let controlB = gitDirectoryFacts(cwd: bSub), controlPlain = gitDirectoryFacts(cwd: plain1.path)
+check("G8 control: with the guard bypassed, a clean process reads repo A's answer for B/sub and an answer for a non-repository from disk (0 rev-parse)",
+      g8.count == 0 && controlB.map { realpathString($0.commonDir) } == aCommon && controlPlain != nil)
+
+// a: the writer carries GIT_DIR.
+let g8A = tmp.appendingPathComponent("g8-a.json")
+g8.reset(); g8Process(overrideRunner(g8, hookEnv), env: hookEnv, file: g8A)
+let polluted = gitDirectoryFacts(cwd: bSub); _ = gitDirectoryFacts(cwd: plain1.path)
+gitFactsCache.flush()
+check("G8 a: the override reaches git (this process's own answer is repo A's, as before c889d0a)",
+      polluted.map { realpathString($0.commonDir) } == aCommon)
+check("G8 a: a process with GIT_DIR writes nothing to the shared file",
+      !FileManager.default.fileExists(atPath: g8A.path)
+      && diskKeys(g8A).isDisjoint(with: [realpathString(bSub), realpathString(plain1.path)]))
+
+// b: a clean process afterwards gets git's real answers.
+g8.reset(); g8Process(countingRunner(g8), env: [:], file: g8A)
+let bCheckout = gitCheckout(cwd: bSub), bMain = resolveMainRepo(cwd: bSub), bPlain = gitCheckout(cwd: plain1.path)
+check("G8 b: a clean process after it gets B and \"not a repository\", asking git (2 rev-parse)",
+      bCheckout == realpathString(repoB.path) && bMain == realpathString(repoB.path)
+      && bPlain == nil && g8.count == 2)
+
+// c: a clean writer, then a reader that carries GIT_DIR.
+let g8C = tmp.appendingPathComponent("g8-c.json")
+g8.reset(); g8Process(countingRunner(g8), env: [:], file: g8C)
+_ = gitDirectoryFacts(cwd: repoB.path)
+gitFactsCache.flush()
+check("G8 c: the clean writer's answer is on disk", diskKeys(g8C) == [realpathString(repoB.path)])
+g8.reset(); g8Process(overrideRunner(g8, hookEnv), env: hookEnv, file: g8C)
+_ = gitDirectoryFacts(cwd: repoB.path)
+check("G8 c: a process with GIT_DIR does not read the shared file (1 rev-parse)", g8.count == 1)
+
+// d: variables that do not change the answer leave the disk layer on.
+let g8D = tmp.appendingPathComponent("g8-d.json")
+let quiet = ["GIT_EDITOR": "vi", "GIT_EXEC_PATH": "/Library/Developer/CommandLineTools/usr/libexec/git-core"]
+g8.reset(); g8Process(countingRunner(g8), env: quiet, file: g8D)
+_ = gitDirectoryFacts(cwd: repoB.path)
+gitFactsCache.flush()
+g8.reset(); g8Process(countingRunner(g8), env: quiet, file: g8D)
+let quietTop = gitDirectoryFacts(cwd: repoB.path)?.toplevel
+check("G8 d: GIT_EDITOR and GIT_EXEC_PATH alone keep the disk layer (0 rev-parse)",
+      g8.count == 0 && quietTop == realpathString(repoB.path))
+
+// e: the guard's list against the git on this machine.
+let engine = runGit(["rev-parse", "--local-env-vars"])
+let local = Set(engine.out.split(separator: "\n").map(String.init))
+check("G8 e: git answers --local-env-vars", engine.code == 0 && !local.isEmpty)
+check("G8 e: every repo-local variable git names is in the guard's list",
+      local.isSubset(of: gitIdentityEnvironmentKeys))
+check("G8 e: the guard's list is git's plus exactly the two discovery variables",
+      gitIdentityEnvironmentKeys.subtracting(local) == ["GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM"])
+gitFactsCache.reset(); gitFactsCache.diskFile = nil
 
 print("\(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

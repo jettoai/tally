@@ -72,6 +72,10 @@ extension StatusItemController {
                                   action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        let welcome = NSMenuItem(title: String(localized: "Welcome", bundle: AppLocale.bundle),
+                                 action: #selector(openWelcome), keyEquivalent: "")
+        welcome.target = self
+        menu.addItem(welcome)
         // Always listed, dev builds included, so the entry can be seen and clicked there too;
         // what a click does depends on whether the updater is live (`checkForUpdates`).
         let check = NSMenuItem(title: String(localized: "Check for Updates…", bundle: AppLocale.bundle),
@@ -118,6 +122,10 @@ extension StatusItemController {
 
     @objc private func openSettings() {
         StatusItemController.openSettingsWindow()
+    }
+
+    @objc private func openWelcome() {
+        WelcomeWindowController.shared.show()
     }
 
     @objc private func openMainWindow() {

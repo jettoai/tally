@@ -87,6 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // fails it leaves a report for the Settings row to collect ONCE, and a restored Settings
         // window builds that row on its way up. Published later, the row would ask before there
         // was anything to ask for and the failure would never be seen on the launch it happened.
+        // Read BEFORE the line below records this launch: an update (or any Mac that has run this app
+        // before) is not a first run, so the welcome window stays shut for it.
+        let hadLaunchedBefore = UserDefaults.standard.bool(forKey: LaunchAtLoginDefault.appliedKey)
         LaunchAtLoginDefault.applyIfNeeded()
         // One answer for the whole launch, read once and given to every path below that puts a
         // window up without anybody having clicked anything. Read here rather than inside each
@@ -108,6 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            !SettingsTabBench.startIfRequested(), !isPanelCaptureLaunch {
             SettingsWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         }
+        // Last of the windows: the first run opens it only when nothing else came back, and the
+        // capture family opens it on request (WelcomeWindowController).
+        WelcomeWindowController.shared.showAtLaunchIfNeeded(
+            restoredWindow: MainWindowController.shared.isWindowVisible
+                || SettingsWindowController.shared.isWindowOpen || isPanelCaptureLaunch,
+            hadLaunchedBefore: hadLaunchedBefore, activating: mayTakeForeground)
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
         // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state,
         // -TallyUpdateChipBusy updating|restarting for the two working faces), so the nudge can be

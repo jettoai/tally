@@ -40,6 +40,10 @@ enum AddAccountPhase: Equatable {
     case pending(name: String, reason: String, handoff: AddAccountHandoff)
     /// Nothing was created (no free slot, or the home could not be made).
     case failed(reason: String)
+    /// The provider's CLI is not on this Mac, so there is nothing to run a login with yet. Nothing
+    /// was created either: the check comes before the home does. `waiting` = the install command
+    /// was handed to Terminal and the store is looking for the CLI to appear.
+    case needsCLI(providerID: String, waiting: Bool)
 }
 
 extension AddAccountPhase {
@@ -47,7 +51,7 @@ extension AddAccountPhase {
     var isRunning: Bool {
         switch self {
         case .preparing, .signingIn: return true
-        case .idle, .added, .pending, .failed: return false
+        case .idle, .added, .pending, .failed, .needsCLI: return false
         }
     }
 

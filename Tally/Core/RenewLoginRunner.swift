@@ -12,8 +12,13 @@ import Foundation
 /// screen holds a one-time authorization URL, and the app has no business keeping one.
 enum RenewLoginRunner {
     enum Failure: Sendable, Equatable {
-        /// The CLI could not be started at all (missing binary, no pty available).
+        /// There is no CLI at that path (never installed, or moved): a different problem from one
+        /// that exists and would not start, and one the user fixes by installing it.
+        case notInstalled
+        /// The CLI could not be started at all (no pty available, or the system refused it).
         case couldNotStart
+        /// The user cancelled while it ran (`LoginCancel`).
+        case cancelled
         /// The CLI itself said the login did not happen.
         case reported
         /// One of the two clocks below ran out.
@@ -23,6 +28,16 @@ enum RenewLoginRunner {
     enum Outcome: Sendable, Equatable {
         case renewed
         case failed(Failure)
+    }
+
+    /// A flag the owner of a running login raises to end it early. Checked at the loop's own poll
+    /// (every half second), so a cancel lands in at most that long, and the child is stopped the
+    /// way a timeout stops it.
+    final class LoginCancel: @unchecked Sendable {
+        private let lock = NSLock()
+        private var raised = false
+        func raise() { lock.lock(); raised = true; lock.unlock() }
+        var isRaised: Bool { lock.lock(); defer { lock.unlock() }; return raised }
     }
 
     /// Silence BEFORE the browser is up means the CLI is stuck on something Tally cannot see (a
@@ -44,12 +59,14 @@ enum RenewLoginRunner {
     static func run(executable: String, plan: RenewLoginCommand.Plan,
                     environment: [String: String?],
                     handshakeIdleLimit: TimeInterval = handshakeIdleLimit,
-                    overallLimit: TimeInterval = overallLimit) async -> Outcome {
+                    overallLimit: TimeInterval = overallLimit,
+                    cancel: LoginCancel? = nil) async -> Outcome {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: runSync(
                     executable: executable, plan: plan, environment: environment,
-                    handshakeIdleLimit: handshakeIdleLimit, overallLimit: overallLimit))
+                    handshakeIdleLimit: handshakeIdleLimit, overallLimit: overallLimit,
+                    cancel: cancel))
             }
         }
     }
@@ -57,9 +74,14 @@ enum RenewLoginRunner {
     private static func runSync(executable: String, plan: RenewLoginCommand.Plan,
                                 environment: [String: String?],
                                 handshakeIdleLimit: TimeInterval,
-                                overallLimit: TimeInterval) -> Outcome {
+                                overallLimit: TimeInterval,
+                                cancel: LoginCancel?) -> Outcome {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: claudeStableExecutable(executable))
+        let path = claudeStableExecutable(executable)
+        // Before a pty is spent: a path that is not an executable file (a bare name is never one)
+        // is a CLI that is not there, which is not the same as one that would not start.
+        guard FileManager.default.isExecutableFile(atPath: path) else { return .failed(.notInstalled) }
+        process.executableURL = URL(fileURLWithPath: path)
         process.arguments = plan.arguments
         var env = CLISearchPath.shared.environment(for: executable)
         for (key, value) in environment {
@@ -121,6 +143,9 @@ enum RenewLoginRunner {
             let now = Date()
             if let windDown {
                 if !process.isRunning || now >= windDown { break }
+            } else if cancel?.isRaised == true {
+                verdict = .failed(.cancelled)
+                break
             } else if now >= deadline {
                 verdict = .failed(.timedOut)
                 break

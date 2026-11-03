@@ -279,8 +279,26 @@ expect(await RenewLoginRunner.run(executable: stub("notty", "[ -t 1 ] && exit 4\
        "the marker-less path runs on a plain pipe, with no pty spent on a CLI that has no UI")
 expect(await RenewLoginRunner.run(executable: stubs.appendingPathComponent("nothing-here").path,
                                   plan: exitCodePlan, environment: [:],
-                                  handshakeIdleLimit: 1, overallLimit: 5) == .failed(.couldNotStart),
-       "a login command that cannot be started says so instead of hanging")
+                                  handshakeIdleLimit: 1, overallLimit: 5) == .failed(.notInstalled),
+       "a login command that is not there says so instead of hanging")
+expect(await RenewLoginRunner.run(executable: "claude-that-is-not-installed",
+                                  plan: exitCodePlan, environment: [:],
+                                  handshakeIdleLimit: 1, overallLimit: 5) == .failed(.notInstalled),
+       "a bare name that resolved to nothing is not installed either")
+let notExecutable = stubs.appendingPathComponent("not-executable")
+try! "#!/bin/sh\nexit 0\n".write(to: notExecutable, atomically: true, encoding: .utf8)
+expect(await RenewLoginRunner.run(executable: notExecutable.path, plan: exitCodePlan, environment: [:],
+                                  handshakeIdleLimit: 1, overallLimit: 5) == .failed(.notInstalled),
+       "a file without the execute bit is not a CLI Tally can run")
+// A user's Cancel ends a login that is still waiting on the browser, well inside its own clocks.
+let cancelFlag = RenewLoginRunner.LoginCancel()
+let cancelStarted = Date()
+Task { try? await Task.sleep(for: .milliseconds(1200)); cancelFlag.raise() }
+expect(await RenewLoginRunner.run(executable: stub("waits", "sleep 30\n"), plan: exitCodePlan,
+                                  environment: [:], handshakeIdleLimit: 60, overallLimit: 60,
+                                  cancel: cancelFlag) == .failed(.cancelled)
+        && Date().timeIntervalSince(cancelStarted) < 15,
+       "a raised cancel ends a login that is waiting and says it was cancelled")
 
 // The environment reaches the child exactly as `environment` composed it - the whole point of the
 // feature is that the login lands on THIS account's config home.

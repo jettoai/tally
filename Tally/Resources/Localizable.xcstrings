@@ -24971,6 +24971,1721 @@
           }
         }
       }
+    },
+    "Welcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歡迎"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ようこそ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작하기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoş geldiniz"
+          }
+        }
+      }
+    },
+    "Tally is in your menu bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 在你的選單列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 在你的菜单栏"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はメニューバーにあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 메뉴 막대에 있습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally menü çubuğunuzda"
+          }
+        }
+      }
+    },
+    "It shows every Claude and Codex account you pay for, side by side. Click it any time.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它把你付費的每個 Claude 與 Codex 帳號並排顯示，隨時點它就看得到。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它把你付费的每个 Claude 和 Codex 账号并排显示，随时点它就能看到。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お支払い中の Claude と Codex のアカウントをすべて並べて表示します。いつでもクリックして確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결제 중인 모든 Claude 및 Codex 계정을 나란히 보여 줍니다. 언제든 클릭해 확인하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ödediğiniz tüm Claude ve Codex hesaplarını yan yana gösterir. İstediğiniz zaman tıklayın."
+          }
+        }
+      }
+    },
+    "Top right of your screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕右上角"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕右上角"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面の右上"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 오른쪽 위"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranın sağ üstü"
+          }
+        }
+      }
+    },
+    "Looking for Claude Code and Codex on this Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在找這台 Mac 上的 Claude Code 與 Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查找这台 Mac 上的 Claude Code 和 Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Claude Code と Codex を探しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 Claude Code와 Codex를 찾는 중"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Claude Code ve Codex aranıyor"
+          }
+        }
+      }
+    },
+    "This takes a second.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只要一秒鐘。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只需要一秒。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数秒で終わります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠시만 기다려 주세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu bir saniye sürer."
+          }
+        }
+      }
+    },
+    "Found 1 account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到 1 個帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到 1 个账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントが 1 件見つかりました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 1개를 찾았습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hesap bulundu"
+          }
+        }
+      }
+    },
+    "Found %lld accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到 %lld 個帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到 %lld 个账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントが %lld 件見つかりました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 %lld개를 찾았습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld hesap bulundu"
+          }
+        }
+      }
+    },
+    "Tally reads its usage from %@. Nothing to set up.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 透過 %@ 讀取它的用量，不用設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 通过 %@ 读取它的用量，无需设置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は %@ からこのアカウントの使用量を読み取ります。設定は不要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 %@를 통해 사용량을 읽습니다. 설정할 것이 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally kullanımı %@ üzerinden okur. Kurulacak bir şey yok."
+          }
+        }
+      }
+    },
+    "Tally reads their usage from %@. Nothing to set up.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 透過 %@ 讀取它們的用量，不用設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 通过 %@ 读取它们的用量，无需设置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は %@ からこれらのアカウントの使用量を読み取ります。設定は不要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 %@를 통해 사용량을 읽습니다. 설정할 것이 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally kullanımı %@ üzerinden okur. Kurulacak bir şey yok."
+          }
+        }
+      }
+    },
+    "Tally only reads usage. It never sees your password or sign-in token.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 只讀用量，看不到你的密碼或登入憑證。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 只读取用量，看不到你的密码或登录凭证。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は使用量を読み取るだけです。パスワードやサインイン用トークンは見ません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 사용량만 읽습니다. 비밀번호나 로그인 토큰은 볼 수 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally yalnızca kullanımı okur. Parolanızı veya giriş belirtecinizi asla görmez."
+          }
+        }
+      }
+    },
+    "Show My Usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看我的用量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看我的用量"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量を見る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 사용량 보기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımımı göster"
+          }
+        }
+      }
+    },
+    "Add Another Account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再加一個帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再添加一个账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアカウントを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 계정 추가"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka Hesap Ekle"
+          }
+        }
+      }
+    },
+    "Install %@ to get started": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先安裝 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先安装 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まず %@ をインストールしましょう"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 %@를 설치하세요"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlamak için %@ yükleyin"
+          }
+        }
+      }
+    },
+    "Tally reads your usage through Claude Code, Anthropic's official app for the Terminal. Installing it takes about a minute.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 透過 Anthropic 官方的終端機工具 Claude Code 讀取用量，安裝大約一分鐘。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 通过 Anthropic 官方的终端工具 Claude Code 读取用量，安装大约需要一分钟。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は Anthropic 公式のターミナル用アプリ Claude Code を通じて使用量を読み取ります。インストールには 1 分ほどかかります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 Anthropic의 공식 터미널 앱인 Claude Code를 통해 사용량을 읽습니다. 설치에는 1분 정도 걸립니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally kullanımı, Anthropic'in resmî Terminal uygulaması Claude Code üzerinden okur. Yüklemesi yaklaşık bir dakika sürer."
+          }
+        }
+      }
+    },
+    "Tally reads your usage through Codex, OpenAI's official app for the Terminal. Installing it takes about a minute.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 透過 OpenAI 官方的終端機工具 Codex 讀取用量，安裝大約一分鐘。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 通过 OpenAI 官方的终端工具 Codex 读取用量，安装大约需要一分钟。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は OpenAI 公式のターミナル用アプリ Codex を通じて使用量を読み取ります。インストールには 1 分ほどかかります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 OpenAI의 공식 터미널 앱인 Codex를 통해 사용량을 읽습니다. 설치에는 1분 정도 걸립니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally kullanımı, OpenAI'ın resmî Terminal uygulaması Codex üzerinden okur. Yüklemesi yaklaşık bir dakika sürer."
+          }
+        }
+      }
+    },
+    "Never used Terminal? Tally opens it for you. Paste with ⌘V, press Return, then come back here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒用過終端機？Tally 會幫你打開。按 ⌘V 貼上、按 Return，再回到這裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没用过终端？Tally 会帮你打开。按 ⌘V 粘贴、按 Return，然后回到这里。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを使ったことがなくても大丈夫です。Tally が開きます。⌘V で貼り付けて Return を押し、ここに戻ってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 처음 쓰시나요? Tally가 대신 열어 줍니다. ⌘V로 붙여넣고 Return을 누른 뒤 여기로 돌아오세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal'i hiç kullanmadınız mı? Tally sizin için açar. ⌘V ile yapıştırın, Return'e basın, sonra buraya dönün."
+          }
+        }
+      }
+    },
+    "Copy and Open Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝並打開終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝并打开终端"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしてターミナルを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사하고 터미널 열기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyala ve Terminal'i Aç"
+          }
+        }
+      }
+    },
+    "I use Codex instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我用的是 Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我用的是 Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりに Codex を使っています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저는 Codex를 씁니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bunun yerine Codex kullanıyorum"
+          }
+        }
+      }
+    },
+    "I use Claude Code instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我用的是 Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我用的是 Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりに Claude Code を使っています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저는 Claude Code를 씁니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bunun yerine Claude Code kullanıyorum"
+          }
+        }
+      }
+    },
+    "Waiting for %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等 %@ 裝好"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待 %@ 安装完成"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のインストールを待っています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 설치를 기다리는 중"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bekleniyor"
+          }
+        }
+      }
+    },
+    "Keep this window open. It moves on by itself when the install finishes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個視窗開著就好，裝好會自己往下走。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持这个窗口打开即可，安装完成后会自动继续。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウィンドウは開いたままにしてください。インストールが終わると自動で次へ進みます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창을 열어 두세요. 설치가 끝나면 자동으로 넘어갑니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu pencereyi açık tutun. Yükleme bitince kendiliğinden ilerler."
+          }
+        }
+      }
+    },
+    "Install command copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷貝安裝指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷贝安装命令"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールコマンドをコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 명령을 복사했습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme komutu kopyalandı"
+          }
+        }
+      }
+    },
+    "Paste it in Terminal and press Return": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機貼上並按 Return"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端粘贴并按 Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルに貼り付けて Return を押す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에 붙여넣고 Return 누르기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal'e yapıştırın ve Return'e basın"
+          }
+        }
+      }
+    },
+    "Tally finds %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 找到 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 找到 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally が %@ を見つける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 %@를 찾음"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally %@ uygulamasını bulur"
+          }
+        }
+      }
+    },
+    "Show the Command Again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再顯示一次指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再显示一次命令"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドをもう一度表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 다시 보기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komutu Tekrar Göster"
+          }
+        }
+      }
+    },
+    "Sign in to your Claude account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入你的 Claude 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录你的 Claude 账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントにサインイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정에 로그인"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude hesabınıza giriş yapın"
+          }
+        }
+      }
+    },
+    "Sign in to your Codex account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入你的 Codex 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录你的 Codex 账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex アカウントにサインイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 계정에 로그인"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex hesabınıza giriş yapın"
+          }
+        }
+      }
+    },
+    "Your browser opens claude.ai. Approve there and come back. Use the Claude Pro or Max plan you already pay for.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器會打開 claude.ai，在那裡核准後回來。用你已經付費的 Claude Pro 或 Max 方案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器会打开 claude.ai，在那里批准后回来。使用你已经付费的 Claude Pro 或 Max 方案。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで claude.ai が開きます。そこで承認してから戻ってください。すでにお支払い中の Claude Pro または Max プランをお使いください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 claude.ai가 열립니다. 거기서 승인한 뒤 돌아오세요. 이미 결제 중인 Claude Pro 또는 Max 요금제를 사용하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcınız claude.ai'yi açar. Orada onaylayıp geri dönün. Zaten ödediğiniz Claude Pro veya Max planını kullanın."
+          }
+        }
+      }
+    },
+    "Your browser opens chatgpt.com. Approve there and come back. Use the ChatGPT plan you already pay for.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器會打開 chatgpt.com，在那裡核准後回來。用你已經付費的 ChatGPT 方案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器会打开 chatgpt.com，在那里批准后回来。使用你已经付费的 ChatGPT 方案。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで chatgpt.com が開きます。そこで承認してから戻ってください。すでにお支払い中の ChatGPT プランをお使いください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 chatgpt.com이 열립니다. 거기서 승인한 뒤 돌아오세요. 이미 결제 중인 ChatGPT 요금제를 사용하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcınız chatgpt.com'u açar. Orada onaylayıp geri dönün. Zaten ödediğiniz ChatGPT planını kullanın."
+          }
+        }
+      }
+    },
+    "%@ is installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はインストール済みです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@가 설치되어 있습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yüklü"
+          }
+        }
+      }
+    },
+    "Found in %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "場所：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위치: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konum: %@"
+          }
+        }
+      }
+    },
+    "Sign In with Browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用瀏覽器登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用浏览器登录"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでサインイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저로 로그인"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıyla Giriş Yap"
+          }
+        }
+      }
+    },
+    "Finish in your browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到瀏覽器完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到浏览器完成"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで完了してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 마무리하세요"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıda tamamlayın"
+          }
+        }
+      }
+    },
+    "Approve the sign-in on %@. This window updates by itself.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 核准登入，這個視窗會自己更新。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 批准登录，这个窗口会自动更新。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でサインインを承認してください。このウィンドウは自動で更新されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 로그인을 승인하세요. 이 창은 자동으로 업데이트됩니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Girişi %@ üzerinde onaylayın. Bu pencere kendiliğinden güncellenir."
+          }
+        }
+      }
+    },
+    "Browser opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已打開瀏覽器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已打开浏览器"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを開きました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저를 열었습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı açıldı"
+          }
+        }
+      }
+    },
+    "Waiting for you to approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等你核准"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你批准"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認を待っています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인을 기다리는 중"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onayınız bekleniyor"
+          }
+        }
+      }
+    },
+    "Your usage appears here": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的用量會顯示在這裡"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的用量会显示在这里"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに使用量が表示されます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에 사용량이 표시됩니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımınız burada görünür"
+          }
+        }
+      }
+    },
+    "Browser didn't open? Open it again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器沒開？再開一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器没打开？再打开一次"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザが開きませんか？もう一度開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저가 열리지 않았나요? 다시 열기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı açılmadı mı? Yeniden aç"
+          }
+        }
+      }
+    },
+    "You're all set": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成了"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備完了です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 준비되었습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hazırsınız"
+          }
+        }
+      }
+    },
+    "This account is in your menu bar now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個帳號已經在選單列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个账号已经在菜单栏里了。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントがメニューバーに表示されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정이 이제 메뉴 막대에 표시됩니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesap artık menü çubuğunuzda."
+          }
+        }
+      }
+    },
+    "Sign-in didn't finish": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入沒有完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录没有完成"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインが完了しませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인이 완료되지 않았습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giriş tamamlanmadı"
+          }
+        }
+      }
+    },
+    "No approval came back from the browser within 3 minutes. Nothing was changed, so trying again is safe.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 分鐘內沒有收到瀏覽器的核准。什麼都沒有改，再試一次很安全。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 分钟内没有收到浏览器的批准。什么都没有改动，再试一次很安全。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 分以内にブラウザから承認が届きませんでした。何も変更されていないので、もう一度試しても安全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3분 안에 브라우저에서 승인이 오지 않았습니다. 아무것도 바뀌지 않았으니 다시 시도해도 안전합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıdan 3 dakika içinde onay gelmedi. Hiçbir şey değişmedi, bu yüzden yeniden denemek güvenlidir."
+          }
+        }
+      }
+    },
+    "The sign-in command ended without signing in. Nothing was changed, so trying again is safe.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入指令結束了，但沒有登入成功。什麼都沒有改，再試一次很安全。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录命令结束了，但没有登录成功。什么都没有改动，再试一次很安全。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインのコマンドは、サインインできないまま終了しました。何も変更されていないので、もう一度試しても安全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 명령이 로그인 없이 끝났습니다. 아무것도 바뀌지 않았으니 다시 시도해도 안전합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giriş komutu giriş yapılmadan sona erdi. Hiçbir şey değişmedi, bu yüzden yeniden denemek güvenlidir."
+          }
+        }
+      }
+    },
+    "Tally could not start the sign-in command. Nothing was changed, so trying again is safe.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 無法啟動登入指令。什麼都沒有改，再試一次很安全。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 无法启动登录命令。什么都没有改动，再试一次很安全。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はサインインのコマンドを起動できませんでした。何も変更されていないので、もう一度試しても安全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 로그인 명령을 시작하지 못했습니다. 아무것도 바뀌지 않았으니 다시 시도해도 안전합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally giriş komutunu başlatamadı. Hiçbir şey değişmedi, bu yüzden yeniden denemek güvenlidir."
+          }
+        }
+      }
+    },
+    "Try Again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden Dene"
+          }
+        }
+      }
+    },
+    "%1$@ and %2$@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 與 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 和 %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ と %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 및 %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ve %2$@"
+          }
+        }
+      }
+    },
+    "Tally could not find the login command on this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 在這台 Mac 上找不到登入指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 在这台 Mac 上找不到登录命令。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はこの Mac でログインのコマンドを見つけられませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 이 Mac에서 로그인 명령을 찾지 못했습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally bu Mac'te giriş komutunu bulamadı."
+          }
+        }
+      }
+    },
+    "The sign-in was cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入已取消。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录已取消。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインはキャンセルされました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인이 취소되었습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giriş iptal edildi."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

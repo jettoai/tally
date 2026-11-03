@@ -14,13 +14,19 @@ enum ProviderCLI {
     /// without spending a real credential - dev only and volatile (the argument domain), so the
     /// release app cannot be talked into running something else as a provider CLI.
     static func executable(_ cli: String, devOverrideKey: String) -> String {
+        resolved(cli, devOverrideKey: devOverrideKey) ?? cli
+    }
+
+    /// The same lookup, but nil when nothing was found, for the callers that must tell "not
+    /// installed" from "installed" instead of spawning a bare name and reading the error.
+    static func resolved(_ cli: String, devOverrideKey: String) -> String? {
         if BuildVariant.isDev,
            let standIn = UserDefaults.standard.string(forKey: devOverrideKey),
            !standIn.isEmpty {
             return standIn
         }
         guard let path = CLIRunner.resolve(cli),
-              !path.hasPrefix(IntegrationsStore.binDirURL.path + "/") else { return cli }
+              !path.hasPrefix(IntegrationsStore.binDirURL.path + "/") else { return nil }
         return path
     }
 }

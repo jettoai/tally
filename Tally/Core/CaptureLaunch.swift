@@ -35,6 +35,12 @@ enum CaptureLaunch {
     /// completeness check compile this file without the app.
     static let settingsCapture = "TallySettingsCapture"
 
+    /// The first-run welcome window held on one screen (`WelcomeWindowController`), and the flag
+    /// that opens it again on a Mac that has already seen it. Spelled here for the reason
+    /// `settingsCapture` is: the window controller reads them, and this file must compile alone.
+    static let welcomePreview = "TallyWelcomePreview"
+    static let welcomeForce = "TallyWelcomeForce"
+
     /// Every flag whose launch is here to be observed. Grouped by what they put on screen.
     static let backgroundKeys: [String] = [
         // Fixtures and chrome the whole app is captured through.
@@ -53,6 +59,7 @@ enum CaptureLaunch {
         settingsCapture,
         "TallyTooltipPreview",  // one callout, which otherwise needs a real hover
         "TallyEmptyStatePreview",
+        welcomePreview,         // the welcome window on one named screen, fixtures only (Dev or demo)
         "TallyTokenGraphPreview",
         "TallyUpdateChip",      // the header's update nudge, with no live feed
         "TallyPickPreview",     // the pick panel, with no MCP client or request on disk
@@ -165,7 +172,10 @@ enum CaptureLaunch {
                                "TallyDemoIntegrations", "TallyIntegrationsConfirm", "TallyIntegrationsTip",
                                // Qualifies TallySettingsCapture the same way (Debug, Dev build or demo
                                // data): the command line tool's failure banners, no prompt (B-3748).
-                               "TallyCLIInstallPreview"]
+                               "TallyCLIInstallPreview",
+                               // Qualifies the welcome window (Dev build or demo data): opens it on a
+                               // Mac that has already seen it, with real detection, no fixtures.
+                               welcomeForce]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

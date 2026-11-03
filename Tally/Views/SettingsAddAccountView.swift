@@ -26,6 +26,8 @@ struct SettingsAddAccountView: View {
                 finished(prepared)
             case .pending(let name, let reason, let handoff):
                 unfinished(name, reason, handoff)
+            case .needsCLI(let providerID, let waiting):
+                installNeeded(providerID, waiting: waiting)
             }
         }
         .padding(20)
@@ -177,6 +179,34 @@ struct SettingsAddAccountView: View {
             }
             if flow.phase.allowsNewRun {
                 Button(L("Try again")) { flow.start() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    /// The provider's CLI is not installed: its own install command, one click to copy it and open
+    /// Terminal, and the store looks for the CLI by itself afterwards (see AddAccountStore.swift).
+    @ViewBuilder
+    private func installNeeded(_ providerID: String, waiting: Bool) -> some View {
+        if waiting {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(WelcomeCopy.waitingTitle(providerID)).font(.subheadline)
+            }
+            caption(L("Keep this window open. It moves on by itself when the install finishes."))
+        } else {
+            problem(WelcomeCopy.installTitle(providerID))
+            caption(WelcomeCopy.installBlurb(providerID))
+            CopyCommandChip(command: WelcomeFlow.installCommand(providerID: providerID))
+        }
+        HStack {
+            Spacer()
+            Button(L("Close")) { flow.stopWatchingForCLI(); flow.reset(); dismiss() }
+                .keyboardShortcut(.cancelAction)
+            if waiting {
+                Button(L("Show the Command Again")) { flow.showInstallCommandAgain() }
+            } else {
+                Button(L("Copy and Open Terminal")) { flow.copyInstallCommandAndWait() }
                     .keyboardShortcut(.defaultAction)
             }
         }

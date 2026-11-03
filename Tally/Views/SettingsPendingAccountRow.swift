@@ -12,7 +12,7 @@ struct SettingsPendingAccountRow: View {
     /// that landed and is now listed as itself.
     static func content(_ phase: AddAccountPhase) -> (title: String, detail: String, failed: Bool)? {
         switch phase {
-        case .idle, .added: return nil
+        case .idle, .added, .needsCLI: return nil
         case .preparing: return (L("Adding an account"), L("Preparing the config home…"), false)
         case .signingIn(let name):
             return (L("Adding an account") + " · ~/\(name)",

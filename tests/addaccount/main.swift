@@ -233,6 +233,15 @@ expect(!AddAccountPhase.failed(reason: "r").isListed(among: listedHomes)
         && !AddAccountPhase.preparing.isListed(among: listedHomes),
        "phases with no home are never listed")
 
+// "No CLI yet" is a phase with no login in it: nothing runs, nothing is created, and a new run (the
+// retry once the CLI is installed) is allowed from it.
+for waiting in [false, true] {
+    let needs = AddAccountPhase.needsCLI(providerID: "claude", waiting: waiting)
+    expect(!needs.isRunning && needs.allowsNewRun && !needs.holdsTerminalLogin
+            && !needs.allowsTerminalHandoff && !needs.allowsRecheck && !needs.isListed(among: listedHomes),
+           "the install-needed phase (waiting: \(waiting)) holds no login and allows a new run")
+}
+
 // A login landing while the app runs is an ARRIVAL; a dormant account signing back in is not (B-1702).
 func account(_ id: String, dormant: Bool = false) -> ProviderAccount {
     var a = ProviderAccount(id: id, providerID: "claude", label: id, locator: [:], launchHome: "/h/" + id)

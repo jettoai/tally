@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -31,6 +32,14 @@ final class AddAccountStore {
     }
 
     private var run: Run?
+
+    /// How the last login ended, for the surfaces that tell a timeout from a refusal from a
+    /// cancel (the welcome window). Cleared when a new run starts.
+    private(set) var lastFailure: RenewLoginRunner.Failure?
+    /// Raised by `cancelSignIn()`, read by the runner's own loop.
+    var loginCancel: RenewLoginRunner.LoginCancel?
+    /// The 3-second look for a CLI that is being installed (see the CLI extension at the end of this file).
+    var cliWatch: Task<Void, Never>?
 
     /// The sheet's two choices, kept on the store so reopening it after a run remembers them.
     var providerID = "claude"
@@ -124,8 +133,17 @@ final class AddAccountStore {
               let envKey = IntegrationsStore.Shim(rawValue: providerID)?.envKey
         else { return }
         let providerID = self.providerID, share = self.shareHarness
+        // BEFORE THE HOME EXISTS: with no CLI there is nothing to run the login with, and a config
+        // home made first would be left behind, pending, for a login that could not start.
+        guard let executable = ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI") else {
+            phase = .needsCLI(providerID: providerID, waiting: false)
+            return
+        }
         // Before anything asynchronous: the click has to change the sheet in the same frame.
         phase = .preparing
+        lastFailure = nil
+        let cancel = RenewLoginRunner.LoginCancel()
+        loginCancel = cancel
         Task {
             let prepared: AddedAccountHome
             do {
@@ -136,7 +154,6 @@ final class AddAccountStore {
             }
             phase = .signingIn(name: prepared.name)
             run = Run(providerID: providerID, prepared: prepared)
-            let executable = ProviderCLI.executable(providerID, devOverrideKey: "TallyRenewLoginCLI")
             let environment = RenewLoginCommand.environment(envKey: envKey, home: prepared.dir.path,
                                                             providerID: providerID)
             // Best-effort, unlike the renewal's: there the notification was the only signal a
@@ -147,11 +164,12 @@ final class AddAccountStore {
                 title: L("Adding an account") + " · ~/\(prepared.name)",
                 body: L("Finish the sign-in in your browser; Tally will say when it lands."))
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,
-                                                     environment: environment)
+                                                     environment: environment, cancel: cancel)
             switch outcome {
             case .renewed:
                 await land(prepared, providerID: providerID)
             case .failed(let failure):
+                lastFailure = failure
                 // The home STAYS. It holds the share links and the trust seed this run created, the
                 // next attempt resumes it rather than burning the next number, and deleting a
                 // directory to tidy up after a failure is the one step here that cannot be undone.
@@ -162,6 +180,8 @@ final class AddAccountStore {
                 // login on the same config home the moment the user clicked. So the two ways
                 // forward are offered as a choice instead, one at a time.
                 phase = .pending(name: prepared.name, reason: Self.reason(failure), handoff: .none)
+                // A cancel is the user's own act and already on their screen: no notice about it.
+                guard failure != .cancelled else { return }
                 _ = await SystemAlert.post(
                     title: L("Account not added") + " · ~/\(prepared.name)",
                     body: Self.reason(failure) + " "
@@ -243,7 +263,9 @@ final class AddAccountStore {
 
     private static func reason(_ failure: RenewLoginRunner.Failure) -> String {
         switch failure {
+        case .notInstalled: return L("Tally could not find the login command on this Mac.")
         case .couldNotStart: return L("Tally could not start the login command.")
+        case .cancelled: return L("The sign-in was cancelled.")
         case .reported: return L("The login command ended without signing in.")
         case .timedOut: return L("The sign-in did not finish in time.")
         }
@@ -258,5 +280,75 @@ final class AddAccountStore {
         case nil:
             return L("Tally could not prepare a config home for the new account.")
         }
+    }
+}
+
+/// The "no CLI yet" half of adding an account, shared by Settings' sheet and the welcome window:
+/// hand the user the vendor's own install command, then look for the CLI every few seconds until it
+/// appears. Tally never runs the installer itself; the user pastes it into Terminal.
+extension AddAccountStore {
+    /// How often the CLI is looked for while an install is awaited. A stat over a handful of
+    /// directories, only while a waiting screen is up.
+    static let cliWatchInterval: Duration = .seconds(3)
+
+    /// Show the install screen for a provider whose CLI is missing (the welcome window's detection,
+    /// where no add was attempted yet).
+    func showNeedsCLI(providerID: String) {
+        // `self.` on purpose: tests/addshare counts the literal gate in the start/reset/switch paths.
+        guard self.phase.allowsNewRun else { return }
+        stopWatchingForCLI()
+        self.providerID = providerID
+        phase = .needsCLI(providerID: providerID, waiting: false)
+    }
+
+    /// "Copy and Open Terminal": the command on the clipboard, Terminal in front, and the watch on.
+    func copyInstallCommandAndWait() {
+        guard case .needsCLI(let providerID, _) = phase else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(WelcomeFlow.installCommand(providerID: providerID), forType: .string)
+        // A plain open: no Automation permission, unlike typing into a Terminal window.
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+        phase = .needsCLI(providerID: providerID, waiting: true)
+        watchForCLI(providerID: providerID)
+    }
+
+    /// "Show the command again": back to the install screen, no longer waiting.
+    func showInstallCommandAgain() {
+        guard case .needsCLI(let providerID, _) = phase else { return }
+        stopWatchingForCLI()
+        phase = .needsCLI(providerID: providerID, waiting: false)
+    }
+
+    /// The window that asked for the wait went away: stop looking, keep the screen it left.
+    func stopWatchingForCLI() {
+        cliWatch?.cancel()
+        cliWatch = nil
+        if case .needsCLI(let providerID, true) = phase {
+            phase = .needsCLI(providerID: providerID, waiting: false)
+        }
+    }
+
+    private func watchForCLI(providerID: String) {
+        cliWatch?.cancel()
+        cliWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.cliWatchInterval)
+                guard !Task.isCancelled, let self else { return }
+                guard case .needsCLI(providerID, true) = self.phase else { return }
+                if ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI") != nil {
+                    self.cliWatch = nil
+                    self.phase = .idle
+                    return
+                }
+            }
+        }
+    }
+
+    /// End a login that is out there (the welcome window's Cancel, and "open it again", which is a
+    /// cancel followed by a new run). The runner stops its child within half a second and the flow
+    /// lands on `.pending` with `lastFailure == .cancelled`.
+    func cancelSignIn() {
+        guard case .signingIn = phase else { return }
+        loginCancel?.raise()
     }
 }

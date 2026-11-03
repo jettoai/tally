@@ -280,7 +280,9 @@ final class RenewLoginStore {
 
     private static func reason(_ failure: RenewLoginRunner.Failure) -> String {
         switch failure {
+        case .notInstalled: return L("Tally could not find the login command on this Mac.")
         case .couldNotStart: return L("Tally could not start the login command.")
+        case .cancelled: return L("The sign-in was cancelled.")
         case .reported: return L("The login command ended without signing in.")
         case .timedOut: return L("The sign-in did not finish in time.")
         }

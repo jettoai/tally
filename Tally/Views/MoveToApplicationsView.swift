@@ -66,16 +66,13 @@ struct MoveToApplicationsView: View {
     }
 
     @ViewBuilder private var buttons: some View {
-        if failure != nil {
-            Button(action: onQuit) { Text(L("Quit")).frame(minWidth: 64) }
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-        } else {
-            let moving = model.phase == .moving
-            Button(action: onQuit) { Text(L("Quit")).frame(minWidth: 64) }
-                .controlSize(.large)
-                .keyboardShortcut(.cancelAction)
-                .disabled(moving)
+        let moving = model.phase == .moving
+        Button(action: onQuit) { Text(L("Quit")).frame(minWidth: 64) }
+            .controlSize(.large)
+            // Alone on the failure screen, Quit is the default button.
+            .keyboardShortcut(failure == nil ? .cancelAction : .defaultAction)
+            .disabled(moving)
+        if failure == nil {
             Button(action: onMove) {
                 // The label keeps the idle text's width underneath the spinner so the button does
                 // not change size when the copy starts.

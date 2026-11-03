@@ -43,7 +43,7 @@ else
   # in place and the pin stamp, written last, marks it complete.
   "$PY" -m venv --clear "$VENV" || die "could not create a virtualenv at $VENV with $PY"
   printf '%s\n' \
-    "dmgbuild==1.6.7 --hash=sha256:37ee5771c377beb3203d9164aae8046ffed8531c06edf9227f5788b3c599b1bf" \
+    "$PIN --hash=sha256:37ee5771c377beb3203d9164aae8046ffed8531c06edf9227f5788b3c599b1bf" \
     "ds_store==1.3.3 --hash=sha256:b92a371efbf1b4ccce2a04d1ed13fceacc4736c81ba09cf5aefb74c088160a35" \
     "mac_alias==2.2.3 --hash=sha256:7362b521d2132ef92f606a37abfed5fcd849ceb2f28b6f9743e014b02af92f0d" \
     > "$VENV/requirements.txt"

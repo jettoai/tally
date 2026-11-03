@@ -1,7 +1,7 @@
 import Foundation
 
 /// Why a move did not happen, one case per sentence the window can show.
-enum MoveFailure: String, CaseIterable, Equatable {
+enum MoveFailure: String, CaseIterable {
     case notWritable, notEnoughSpace, trashFailed, copyFailed, launchFailed
 }
 

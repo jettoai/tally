@@ -3,6 +3,10 @@
 # included) into build/public-src, the tree a public build is made from. Anything untracked,
 # including an overlay linked at ./overlay, is absent there by construction, so neither
 # Config/Overlay.xcconfig nor project.yml's optional sources can pick it up.
+# Also the tree to build the public dev app from while an overlay is linked here: run
+# `xcodegen generate --spec <printed path>/project.yml`, then build its Debug configuration with
+# its own -derivedDataPath. Building in place with an overlay linked yields the overlay's dev app
+# instead, under its own name and bundle id, so the two run side by side.
 # Prints the staged tree's path.
 set -euo pipefail
 

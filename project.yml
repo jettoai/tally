@@ -322,8 +322,11 @@ targets:
         SPARKLE_PUBLIC_ED_KEY: ""
       configs:
         Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally.dev
-          PRODUCT_NAME: "Tally Dev"
+          # The dev flavour's identity comes from Config/Overlay.xcconfig, so an overlay can give its
+          # Debug builds their own name and id and run next to the public dev build instead of
+          # closing it. Release never reads these.
+          PRODUCT_BUNDLE_IDENTIFIER: $(TALLY_DEV_BUNDLE_IDENTIFIER)
+          PRODUCT_NAME: $(TALLY_DEV_PRODUCT_NAME)
           SPARKLE_FEED_URL: ""
     info:
       path: Tally/Resources/Info.plist

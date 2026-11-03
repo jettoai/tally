@@ -37,7 +37,7 @@ mkdir -p "$app/MacOS"
 phase() { # <configuration> <srcroot> [bundle id] [team]
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${3:-$name}" "$app/Info.plist"
     env TARGET_BUILD_DIR="$work" EXECUTABLE_PATH=Fake.app/Contents/MacOS/Fake INFOPLIST_PATH=Fake.app/Contents/Info.plist \
-        CONFIGURATION="$1" SRCROOT="$2" DEVELOPMENT_TEAM="${4:-87Z993GX39}" "$root/scripts/pin-dev-uuid.sh" >/dev/null 2>"$work/err"
+        CONFIGURATION="$1" SRCROOT="$2" DEVELOPMENT_TEAM="${4:-87Z993GX39}" TALLY_DEV_BUNDLE_IDENTIFIER="${DEV_ID:-$name}" "$root/scripts/pin-dev-uuid.sh" >/dev/null 2>"$work/err"
 }
 refused() { command grep -qF "$1" "$work/err"; } # the refusal names its own reason
 fresh() { cp "$work/m1.orig" "$app/MacOS/Fake"; }
@@ -49,6 +49,18 @@ cp "$work/m1" "$app/MacOS/Fake"
 ! phase Release "$root" && refused "carries the pinned dev UUID" && pass "Release phase refuses a pinned binary" || fail "Release phase refuses a pinned binary"
 fresh; ! phase Debug "$root" ai.jetto.tally && refused "bundle id is" && pass "Debug phase refuses a wrong bundle id" || fail "Debug phase refuses a wrong bundle id"
 fresh; ! phase Debug "$root" "$name" XXXXXXXXXX && refused "signing team is" && pass "Debug phase refuses a wrong team" || fail "Debug phase refuses a wrong team"
+# An overlay's own dev id pins to its own UUID; the id check and the .dev suffix gate follow it.
+pro=ai.jetto.tally.pro.dev
+pro_expected=$(python3 scripts/pin-macho-uuid.py --expected "$work/m1" "$pro")
+fresh; DEV_ID=$pro phase Debug "$root" "$pro" && [ "$(uuids "$app/MacOS/Fake")" = "$pro_expected" ] && [ "$pro_expected" != "$expected" ] \
+    && pass "Debug phase pins an overlay dev id to its own UUID" || fail "Debug phase pins an overlay dev id to its own UUID"
+fresh; ! DEV_ID=$pro phase Debug "$root" "$name" && refused "bundle id is" && pass "Debug phase refuses an id that differs from the dev id" || fail "Debug phase refuses an id that differs from the dev id"
+fresh; ! DEV_ID=ai.jetto.tally.dev.pro phase Debug "$root" ai.jetto.tally.dev.pro && refused "must end in .dev" \
+    && pass "Debug phase refuses a dev id without the .dev suffix" || fail "Debug phase refuses a dev id without the .dev suffix"
+fresh; /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $name" "$app/Info.plist"
+! env -u TALLY_DEV_BUNDLE_IDENTIFIER TARGET_BUILD_DIR="$work" EXECUTABLE_PATH=Fake.app/Contents/MacOS/Fake INFOPLIST_PATH=Fake.app/Contents/Info.plist \
+    CONFIGURATION=Debug SRCROOT="$root" DEVELOPMENT_TEAM=87Z993GX39 "$root/scripts/pin-dev-uuid.sh" >/dev/null 2>"$work/err" \
+    && pass "phase refuses when Xcode did not set the dev id" || fail "phase refuses when Xcode did not set the dev id"
 # A pinner whose rewrite does nothing: only the phase's UUID comparison can catch it.
 mkdir -p "$work/noop/scripts"
 sed 's/data\[at:at + 16\] = pinned.bytes/pass/' scripts/pin-macho-uuid.py > "$work/noop/scripts/pin-macho-uuid.py"

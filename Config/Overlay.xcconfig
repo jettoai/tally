@@ -2,6 +2,13 @@
 // later assignment wins. `$()` keeps `//` from starting a comment.
 SPARKLE_FEED_URL = https:/$()/github.com/jettoai/tally/releases/latest/download/appcast.xml
 
+// The Debug build's name and bundle id (project.yml reads them in Debug only). An overlay included
+// below may give its Debug builds their own, so both run side by side. The id must end in `.dev`:
+// that suffix is what BuildVariant.isDev reads, and scripts/pin-dev-uuid.sh refuses a Debug build
+// whose id does not.
+TALLY_DEV_BUNDLE_IDENTIFIER = ai.jetto.tally.dev
+TALLY_DEV_PRODUCT_NAME = Tally Dev
+
 // Empty in the public tree. A private build links its overlay at ./overlay, whose settings are
 // included here; a missing file is skipped.
 #include? "../overlay/Overlay.xcconfig"

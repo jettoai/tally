@@ -25,7 +25,7 @@ extension SettingsView {
                 // The two whole-set buttons live in the header. The Shared harness is deliberately
                 // NOT in their set (see `allIntegrationEntries`).
                 IntegrationsHeader(
-                    missing: zip(statuses, entries).filter { $0.0 != .installed }.map { $0.1.1 },
+                    missing: installAllActions(integrations, statuses: statuses, entries: entries),
                     installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 })
                     .disabled(locked)
                 // A build nobody installed observes but never mutates the shared integrations (hard-gated
@@ -65,7 +65,7 @@ extension SettingsView {
                 title: L("Command line tool"), icon: "terminal",
                 subtitle: integrations.cliToolCaption,
                 status: integrations.cliToolStatus,
-                install: integrations.installCLITool,
+                install: { integrations.installCLITool() },
                 remove: integrations.removeCLITool,
                 // The one row whose broken state is not always ours to undo: a `tally` somebody else
                 // put in /usr/local/bin reads broken here, and Remove would delete their program
@@ -227,7 +227,7 @@ extension SettingsView {
     private func allIntegrationEntries(_ integrations: IntegrationsStore)
         -> [(IntegrationsStore.Status, () -> Void, () -> Void)] {
         [
-            (integrations.cliToolStatus, integrations.installCLITool, integrations.removeCLITool),
+            (integrations.cliToolStatus, { integrations.installCLITool() }, integrations.removeCLITool),
             (integrations.shimStatus(.claude), { integrations.installShim(.claude) },
              { integrations.removeShim(.claude) }),
             (integrations.shimStatus(.codex), { integrations.installShim(.codex) },
@@ -244,6 +244,16 @@ extension SettingsView {
              integrations.removeKnockHooks),
             (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
         ]
+    }
+
+    /// What Install all runs. The command line tool is entry 0, and the rest wait for it: on a Mac
+    /// without /usr/local/bin it ends in the system password window, and the others refuse to
+    /// install until the link exists (`guardCLIDeliverable`).
+    private func installAllActions(_ integrations: IntegrationsStore, statuses: [IntegrationsStore.Status],
+                                   entries: [(IntegrationsStore.Status, () -> Void, () -> Void)]) -> [() -> Void] {
+        let missing = zip(statuses, entries).filter { $0.0 != .installed }.map { $0.1.1 }
+        guard statuses.first != .installed else { return missing }
+        return [{ integrations.installCLITool(followedBy: Array(missing.dropFirst())) }]
     }
 
     // MARK: Rows

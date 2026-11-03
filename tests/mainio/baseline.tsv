@@ -11,7 +11,6 @@ Tally/Stores/IntegrationsAgentHook.swift	IntegrationsStore.settingsMayCarryAgent
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.detectCLITool	fileExists	1
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.detectCLIToolPresence	fileExists	1
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.installCLITool	fileExists	1
-Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.installCLITool	removeItem	1
 Tally/Stores/IntegrationsCLITool.swift	IntegrationsStore.removeCLISymlink	removeItem	1
 Tally/Stores/IntegrationsCompletion.swift	IntegrationsStore.autoUpdateCompletion	fileExists	1
 Tally/Stores/IntegrationsCompletion.swift	IntegrationsStore.completionScript	isExecutableFile	1

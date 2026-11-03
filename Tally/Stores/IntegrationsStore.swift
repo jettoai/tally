@@ -35,6 +35,9 @@ final class IntegrationsStore {
     /// press that started it because it waits on two child processes, and an unheld task is one
     /// nothing can call off (IntegrationsCompletion.swift).
     @ObservationIgnored var completionTask: Task<Void, Never>?
+    /// The administrator-privileged CLI link/unlink in flight (IntegrationsCLITool.swift). Non-nil
+    /// while the system password window may be up, so a second press cannot raise a second one.
+    @ObservationIgnored var cliElevationTask: Task<Void, Never>?
 
     enum Status: Equatable {
         case installed

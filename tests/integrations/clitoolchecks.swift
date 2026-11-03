@@ -113,4 +113,221 @@ func runCLIToolChecks(tmp: URL) throws {
           settings.contains("if status.offersRemoval, removable {"))
     check("…and the command line tool is the row that hands the second one in",
           settings.contains("removable: integrations.cliToolPresence.mayBeRemoved"))
+
+    // MARK: A fresh Mac with no /usr/local/bin (B-3748)
+
+    // The press used to end in the system's own sentence, "The file "tally" doesn't exist.", over
+    // the Settings page. Everything here runs in this suite's temporary directory against a fake
+    // executor: no password window, and nothing under /usr/local/bin.
+    typealias Store = IntegrationsStore
+    final class Calls: @unchecked Sendable { var list: [(Store.CLIElevatedAction, String)] = [] }
+    let fresh = dir.appendingPathComponent("fresh-mac")
+    try fm.createDirectory(at: fresh, withIntermediateDirectories: true)
+    let bundled = fresh.appendingPathComponent("Tally.app-helper-tally")
+    try "#!/bin/sh\n".write(to: bundled, atomically: true, encoding: .utf8)
+
+    // (a) The original failure, and that it is recognised as the administrator's to fix.
+    let noBin = fresh.appendingPathComponent("usr-local-bin/tally")
+    var noBinError: NSError?
+    do { try Store.linkCLIDirectly(at: noBin, to: bundled) } catch { noBinError = error as NSError }
+    check("a missing folder fails the plain link with Foundation's no-such-file error",
+          noBinError?.domain == NSCocoaErrorDomain && noBinError?.code == NSFileNoSuchFileError)
+    check("…which is the one the administrator prompt answers, and the only one",
+          noBinError.flatMap { Store.linkNeedsElevation($0) } == .folderMissing)
+    let readOnly = fresh.appendingPathComponent("read-only")
+    try fm.createDirectory(at: readOnly, withIntermediateDirectories: true)
+    let staleLink = readOnly.appendingPathComponent("tally")
+    try fm.createSymbolicLink(at: staleLink, withDestinationURL: fresh.appendingPathComponent("old-app"))
+    try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnly.path)
+    var readOnlyError: NSError?
+    do { try Store.linkCLIDirectly(at: staleLink, to: bundled) } catch { readOnlyError = error as NSError }
+    try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnly.path)
+    check("a link we cannot replace in a folder we cannot write is the administrator's too",
+          readOnlyError.flatMap { Store.linkNeedsElevation($0) } == .notWritable)
+    var notADirError: NSError?
+    do { try Store.linkCLIDirectly(at: bundled.appendingPathComponent("tally"), to: bundled) }
+    catch { notADirError = error as NSError }
+    check("anything else (a regular file where the folder should be) keeps the plain error",
+          notADirError != nil && Store.linkNeedsElevation(notADirError!) == nil)
+
+    // (b) After the fix: the administrator step makes the folder and the link.
+    let calls = Calls()
+    let building = Store.CLIElevator { action, prompt in
+        calls.list.append((action, prompt))
+        if case let .link(directory, target, link) = action {
+            try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            try? FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+        }
+        return .done
+    }
+    check("the elevated install links the tool and reports success",
+          Store.linkCLIElevated(at: noBin, to: bundled, block: .folderMissing, elevator: building) == .succeeded
+              && (try? fm.destinationOfSymbolicLink(atPath: noBin.path)) == bundled.path)
+    check("…asked exactly once, about our temporary paths only, with the folder-missing prompt",
+          calls.list.count == 1
+              && calls.list[0].0 == .link(directory: noBin.deletingLastPathComponent().path,
+                                          target: bundled.path, link: noBin.path)
+              && calls.list[0].0 != .unlink(link: noBin.path)
+              && noBin.path.hasPrefix(dir.path)
+              && calls.list[0].1 == L("Tally needs to create the /usr/local/bin folder and link the tally command into it."))
+    check("…and a success has nothing to say",
+          Store.cliInstallMessage(.succeeded, target: bundled, link: noBin) == nil)
+    let readOnlyCalls = Calls()
+    _ = Store.linkCLIElevated(at: noBin, to: bundled, block: .notWritable,
+                              elevator: Store.CLIElevator { action, prompt in
+                                  readOnlyCalls.list.append((action, prompt)); return .cancelled })
+    check("a folder that exists but is not ours to write gets the other prompt",
+          readOnlyCalls.list.first?.1 == L("Tally needs administrator rights to link the tally command into /usr/local/bin."))
+    let liar = noBin.deletingLastPathComponent().appendingPathComponent("liar")
+    check("an executor that says done while no link exists is a failure: the disk is believed",
+          Store.linkCLIElevated(at: liar, to: bundled, block: .notWritable,
+                                elevator: Store.CLIElevator { _, _ in .done }) == .failed)
+
+    // (c) The password window was cancelled, (d) the privileged step failed.
+    let cancelled = Store.linkCLIElevated(at: liar, to: bundled, block: .folderMissing,
+                                          elevator: Store.CLIElevator { _, _ in .cancelled })
+    let cancelMessage = Store.cliInstallMessage(cancelled, target: bundled, link: liar) ?? ""
+    let systemSentence = noBinError?.localizedDescription ?? "?"
+    check("a cancelled password window is reported as cancelled",
+          cancelled == .cancelled)
+    check("…in plain words plus the Terminal command, not in the system's sentence",
+          cancelMessage == String(format: L("The command line tool was not installed because the administrator password request was cancelled. Press Install to try again, or run this in Terminal: %@"),
+                                  Store.manualInstallCommand(target: bundled, link: liar))
+              && cancelMessage.contains("sudo mkdir -p") && cancelMessage.contains(bundled.path)
+              && !cancelMessage.contains(systemSentence))
+    let failedOutcome = Store.linkCLIElevated(at: liar, to: bundled, block: .folderMissing,
+                                              elevator: Store.CLIElevator { _, _ in .failed("execution error: boom (3)") })
+    let failMessage = Store.cliInstallMessage(failedOutcome, target: bundled, link: liar) ?? ""
+    check("a failed privileged step is reported as failed",
+          failedOutcome == .failed)
+    check("…with the command to run, and none of the executor's detail on screen",
+          failMessage == String(format: L("The command line tool could not be installed with administrator rights. Run this in Terminal to install it: %@"),
+                                Store.manualInstallCommand(target: bundled, link: liar))
+              && !failMessage.contains("boom") && !failMessage.contains(systemSentence))
+
+    // (e) osascript's verdict is read off its error number: the sentence is in the user's language.
+    check("exit 0 is done",
+          Store.elevationResult(exitCode: 0, stderr: "") == .done)
+    check("error -128 is a cancel in any language",
+          Store.elevationResult(exitCode: 1, stderr: "0:17: execution error: 使用者取消操作。 (-128)") == .cancelled
+              && Store.elevationResult(exitCode: 1, stderr: "execution error: User canceled. (-128)") == .cancelled)
+    check("any other error is a failure carrying its text for the log",
+          Store.elevationResult(exitCode: 1, stderr: "execution error: boom (3)\n") == .failed("execution error: boom (3)"))
+
+    // (f) The command the banner tells people to type has to survive their paths.
+    let awkward = URL(fileURLWithPath: "/Applications/My Apps/Tally's.app/tally")
+    check("a path with a space and an apostrophe is quoted as one shell word",
+          Store.manualInstallCommand(target: awkward)
+              == "sudo mkdir -p /usr/local/bin && sudo ln -sf '/Applications/My Apps/Tally'\\''s.app/tally' /usr/local/bin/tally")
+
+    // (j) Somebody else's `tally` at the link path is never replaced, as root least of all.
+    let strangerDir = fresh.appendingPathComponent("stranger")
+    try fm.createDirectory(at: strangerDir, withIntermediateDirectories: true)
+    let stranger = strangerDir.appendingPathComponent("tally")
+    let strangerBody = "#!/bin/sh\necho somebody else's tally\n"
+    try strangerBody.write(to: stranger, atomically: true, encoding: .utf8)
+    let strangerCalls = Calls()
+    let strangerOutcome = Store.linkCLIElevated(at: stranger, to: bundled, block: .notWritable,
+                                                elevator: Store.CLIElevator { action, prompt in
+                                                    strangerCalls.list.append((action, prompt)); return .done })
+    let foreignMessage = Store.cliInstallMessage(strangerOutcome, target: bundled, link: stranger) ?? ""
+    check("a regular file at the link path stops the elevated install before any password window",
+          strangerOutcome == .foreignFile && strangerCalls.list.isEmpty)
+    check("…and the other program's file is still there, byte for byte",
+          (try? String(contentsOf: stranger, encoding: .utf8)) == strangerBody
+              && (try? fm.destinationOfSymbolicLink(atPath: stranger.path)) == nil)
+    check("…the banner says it was left alone, and offers no command that would replace it",
+          foreignMessage == L("Another program already has a file named tally in /usr/local/bin. Tally left it alone, so the command line tool was not installed.")
+              && !foreignMessage.contains("sudo") && !foreignMessage.contains("boom"))
+    check("a file that appears after that look is caught by the guard's verdict, not believed away",
+          Store.linkCLIElevated(at: liar, to: bundled, block: .notWritable,
+                                elevator: Store.CLIElevator { _, _ in .foreignFile }) == .foreignFile
+              && Store.elevationResult(exitCode: 1, stderr: "7:66: execution error: \(Store.foreignFileMarker) (3)") == .foreignFile)
+
+    // The guard itself is shell, so it is run as shell: the exact script the administrator would
+    // run, handed to /bin/sh as the same argument list, against files in this directory.
+    func runScript(_ script: String, _ args: [String]) -> (status: Int32, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script, "sh"] + args
+        let pipe = Pipe()
+        process.standardError = pipe
+        process.standardOutput = FileHandle.nullDevice
+        do { try process.run() } catch { return (-1, "\(error)") }
+        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return (process.terminationStatus, text)
+    }
+    let guarded = runScript(Store.linkScript, [strangerDir.path, bundled.path, stranger.path])
+    check("the privileged script refuses a regular file with status 3 and the marker the parser reads",
+          guarded.status == 3 && guarded.stderr.contains(Store.foreignFileMarker)
+              && Store.elevationResult(exitCode: 1, stderr: guarded.stderr) == .foreignFile)
+    check("…and leaves it untouched",
+          (try? String(contentsOf: stranger, encoding: .utf8)) == strangerBody)
+    let scriptFolder = fresh.appendingPathComponent("script-new/bin")
+    let scriptLink = scriptFolder.appendingPathComponent("tally")
+    check("the same script makes a missing folder and the link",
+          runScript(Store.linkScript, [scriptFolder.path, bundled.path, scriptLink.path]).status == 0
+              && (try? fm.destinationOfSymbolicLink(atPath: scriptLink.path)) == bundled.path)
+    let movedApp = fresh.appendingPathComponent("moved-app-tally")
+    check("…and replaces a symlink of ours, which is the reinstall",
+          { _ = try? fm.removeItem(atPath: scriptLink.path)
+              _ = try? fm.createSymbolicLink(at: scriptLink, withDestinationURL: movedApp)
+              return runScript(Store.linkScript, [scriptFolder.path, bundled.path, scriptLink.path]).status == 0
+                  && (try? fm.destinationOfSymbolicLink(atPath: scriptLink.path)) == bundled.path }())
+    check("a dangling symlink is ours too, not a file in the way",
+          { _ = try? fm.removeItem(atPath: scriptLink.path)
+              _ = try? fm.createSymbolicLink(at: scriptLink, withDestinationURL: fresh.appendingPathComponent("gone"))
+              return runScript(Store.linkScript, [scriptFolder.path, bundled.path, scriptLink.path]).status == 0 }())
+    check("the removal script takes a symlink and never a regular file",
+          runScript(Store.unlinkScript, [scriptLink.path]).status == 0
+              && (try? fm.destinationOfSymbolicLink(atPath: scriptLink.path)) == nil
+              && runScript(Store.unlinkScript, [stranger.path]).status == 0
+              && (try? String(contentsOf: stranger, encoding: .utf8)) == strangerBody)
+
+    // (i) Remove over a folder only the administrator can write.
+    let unlinkCalls = Calls()
+    let unlinker = Store.CLIElevator { action, prompt in
+        unlinkCalls.list.append((action, prompt))
+        if case let .unlink(link) = action { try? FileManager.default.removeItem(atPath: link) }
+        return .done
+    }
+    try fm.createSymbolicLink(at: liar, withDestinationURL: bundled)
+    check("the elevated removal takes the link away and reports success",
+          Store.unlinkCLIElevated(at: liar, elevator: unlinker) == .succeeded
+              && (try? fm.destinationOfSymbolicLink(atPath: liar.path)) == nil
+              && unlinkCalls.list.count == 1 && unlinkCalls.list[0].0 == .unlink(link: liar.path))
+    try fm.createSymbolicLink(at: liar, withDestinationURL: bundled)
+    check("a removal that left the link in place is a failure whatever the executor said",
+          Store.unlinkCLIElevated(at: liar, elevator: Store.CLIElevator { _, _ in .done }) == .failed)
+    let removeMessage = Store.cliRemoveMessage(.cancelled, link: liar) ?? ""
+    check("…and a refused removal names the command, not the system's sentence",
+          removeMessage.contains("sudo rm") && removeMessage.contains(liar.path)
+              && Store.cliRemoveMessage(.succeeded, link: liar) == nil)
+
+    // (g) Every sentence the user can read is in the catalogue, in every language Tally ships.
+    let newKeys = [
+        "Tally needs to create the /usr/local/bin folder and link the tally command into it.",
+        "Tally needs administrator rights to link the tally command into /usr/local/bin.",
+        "Tally needs administrator rights to remove the tally command from /usr/local/bin.",
+        "The command line tool was not installed because the administrator password request was cancelled. Press Install to try again, or run this in Terminal: %@",
+        "The command line tool could not be installed with administrator rights. Run this in Terminal to install it: %@",
+        "The command line tool was not removed. Run this in Terminal to remove it: %@",
+        "Another program already has a file named tally in /usr/local/bin. Tally left it alone, so the command line tool was not installed.",
+    ]
+    let strings = catalogue?["strings"] as? [String: Any] ?? [:]
+    check("the administrator-prompt sentences are translated into every shipped language",
+          newKeys.allSatisfy { key in
+              let loc = ((strings[key] as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
+              return ["zh-Hant", "zh-Hans", "ja", "ko", "tr"].allSatisfy { loc[$0] != nil }
+          })
+
+    // (h) The shape of the privileged command and of the press.
+    check("paths and the prompt reach AppleScript as argv, never spliced into its source",
+          store.contains("quoted form of (item 1 of argv)") && store.contains("last item of argv")
+              && !store.contains("ln -sfh \\(") && !store.contains("mkdir -p \\(directory"))
+    check("a failure that is not the administrator's keeps the plain sentence, and the other one does not",
+          store.contains("guard let block = Self.linkNeedsElevation(error) else { throw error }"))
+    check("Install all hands the rest of the set to the install, so they wait for the link",
+          settings.contains("installCLITool(followedBy: Array(missing.dropFirst()))"))
 }

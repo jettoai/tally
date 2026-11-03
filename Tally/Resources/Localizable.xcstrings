@@ -14108,6 +14108,251 @@
         }
       }
     },
+    "Tally needs to create the /usr/local/bin folder and link the tally command into it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要建立 /usr/local/bin 資料夾，並把 tally 指令連結到其中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要创建 /usr/local/bin 文件夹，并把 tally 命令链接到其中。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は /usr/local/bin フォルダを作成し、そこに tally コマンドをリンクする必要があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 /usr/local/bin 폴더를 만들고 그 안에 tally 명령을 연결해야 합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'nin /usr/local/bin klasörünü oluşturması ve tally komutunu oraya bağlaması gerekiyor."
+          }
+        }
+      }
+    },
+    "Tally needs administrator rights to link the tally command into /usr/local/bin.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要系統管理員權限，才能把 tally 指令連結到 /usr/local/bin。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要管理员权限，才能把 tally 命令链接到 /usr/local/bin。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tally コマンドを /usr/local/bin にリンクするには、Tally に管理者権限が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tally 명령을 /usr/local/bin에 연결하려면 Tally에 관리자 권한이 필요합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'nin tally komutunu /usr/local/bin içine bağlayabilmesi için yönetici izni gerekiyor."
+          }
+        }
+      }
+    },
+    "Tally needs administrator rights to remove the tally command from /usr/local/bin.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要系統管理員權限，才能從 /usr/local/bin 移除 tally 指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要管理员权限，才能从 /usr/local/bin 移除 tally 命令。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin から tally コマンドを削除するには、Tally に管理者権限が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin에서 tally 명령을 제거하려면 Tally에 관리자 권한이 필요합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'nin tally komutunu /usr/local/bin içinden kaldırabilmesi için yönetici izni gerekiyor."
+          }
+        }
+      }
+    },
+    "The command line tool was not installed because the administrator password request was cancelled. Press Install to try again, or run this in Terminal: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消系統管理員密碼要求，命令列工具沒有安裝。請再按一次「安裝」，或在終端機執行：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消管理员密码请求，命令行工具没有安装。请再点一次“安装”，或在终端执行：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理者パスワードの要求がキャンセルされたため、コマンドラインツールはインストールされていません。もう一度「インストール」を押すか、ターミナルで次を実行してください：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리자 암호 요청이 취소되어 명령줄 도구가 설치되지 않았습니다. 다시 설치를 누르거나 터미널에서 다음을 실행하세요: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönetici parolası isteği iptal edildiği için komut satırı aracı kurulmadı. Yeniden denemek için Yükle'ye basın ya da Terminal'de şunu çalıştırın: %@"
+          }
+        }
+      }
+    },
+    "The command line tool could not be installed with administrator rights. Run this in Terminal to install it: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法以系統管理員權限安裝命令列工具。請在終端機執行：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法以管理员权限安装命令行工具。请在终端执行：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理者権限でコマンドラインツールをインストールできませんでした。ターミナルで次を実行してください：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관리자 권한으로 명령줄 도구를 설치하지 못했습니다. 터미널에서 다음을 실행하세요: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut satırı aracı yönetici izniyle kurulamadı. Kurmak için Terminal'de şunu çalıştırın: %@"
+          }
+        }
+      }
+    },
+    "The command line tool was not removed. Run this in Terminal to remove it: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令列工具沒有移除。請在終端機執行：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令行工具没有移除。请在终端执行：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドラインツールは削除されませんでした。ターミナルで次を実行してください：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령줄 도구가 제거되지 않았습니다. 터미널에서 다음을 실행하세요: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut satırı aracı kaldırılmadı. Kaldırmak için Terminal'de şunu çalıştırın: %@"
+          }
+        }
+      }
+    },
+    "Another program already has a file named tally in /usr/local/bin. Tally left it alone, so the command line tool was not installed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin 裡已有其他程式的 tally 檔案。Tally 沒有動它，因此命令列工具沒有安裝。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin 中已有其他程序的 tally 文件。Tally 没有改动它，因此命令行工具没有安装。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin には別のプログラムの tally ファイルが既にあります。Tally はそれに手を触れなかったため、コマンドラインツールはインストールされていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin에 다른 프로그램의 tally 파일이 이미 있습니다. Tally는 그 파일을 건드리지 않았으므로 명령줄 도구가 설치되지 않았습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin içinde başka bir programa ait tally dosyası zaten var. Tally ona dokunmadı, bu yüzden komut satırı aracı kurulmadı."
+          }
+        }
+      }
+    },
     "Shared harness": {
       "extractionState": "manual",
       "localizations": {

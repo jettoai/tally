@@ -288,11 +288,7 @@ DMG="$DIST/Tally-$VERSION.dmg"
 
 step "dmg ($DMG)"
 rm -f "$DMG"
-STAGE=build/dmg-stage
-rm -rf "$STAGE"; mkdir -p "$STAGE"
-ditto "$APP" "$STAGE/Tally.app"
-ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "Tally" -srcfolder "$STAGE" -ov -format UDZO "$DMG" -quiet
+scripts/dmg/make-dmg.sh "$APP" "$DMG"
 
 step "notarize + staple"
 # Credentials were read during preflight; no 1Password access happens after the build starts.

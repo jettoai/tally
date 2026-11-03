@@ -4,7 +4,7 @@ import SwiftUI
 /// says which and this draws it. Width is fixed at 480; the height follows the screen and is
 /// reported up so the window can fit it (TallyCommandWindowController).
 struct TallyCommandView: View {
-    @Bindable var store: TallyCommandStore
+    let store: TallyCommandStore
     let onHeight: (CGFloat) -> Void
 
     var body: some View {
@@ -146,8 +146,8 @@ private struct TallyCommandHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-/// The soft rounded box every block on these screens sits in.
-private struct CommandCardStyle: ViewModifier {
+/// The soft rounded box every block on these screens sits in, and the panel's invite card.
+struct CommandCardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))

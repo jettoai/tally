@@ -306,6 +306,23 @@ fn t15a_session_73h_deleted() {
     c.assert_gone("sr:15a-session-73h-deleted", rc, &c.sd, "session", "idle-72h");
 }
 
+/// B-3670: a session whose scratchpad holds a copied read-only tree (0555 directories, a file in each).
+#[test]
+fn t15c_session_with_readonly_dirs_deleted() {
+    use std::os::unix::fs::PermissionsExt;
+    let c = case15(73.0);
+    let (outer, inner) = (c.sp.join("tpl/.claude"), c.sp.join("tpl/.claude/skills"));
+    std::fs::create_dir_all(&inner).unwrap();
+    std::fs::write(inner.join("a.md"), "x").unwrap();
+    for d in [&inner, &outer, &c.sp.join("tpl")] {
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+    age(&c.sd, 73.0);
+    let (rc, _) = c.run(false);
+    c.assert_gone("sr:15c-session-readonly-dirs-deleted", rc, &c.sd, "session", "idle-72h");
+    assert!(!c.log_lines().iter().any(|r| r["action"] == "error"), "{:?}", c.log_lines());
+}
+
 #[test]
 fn t15b_session_71h_kept() {
     let c = case15(71.0);

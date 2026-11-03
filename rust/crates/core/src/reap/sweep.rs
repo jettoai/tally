@@ -72,7 +72,13 @@ impl Ctx<'_> {
         if self.o.dry_run {
             return Ok(true);
         }
-        match std::fs::remove_dir_all(p) {
+        let mut res = std::fs::remove_dir_all(p);
+        if res.as_ref().is_err_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) {
+            // A tree copied from a read-only source has 0555 directories, whose entries cannot be unlinked.
+            make_dirs_writable(p);
+            res = std::fs::remove_dir_all(p);
+        }
+        match res {
             Ok(()) => Ok(true),
             Err(e) => {
                 let why = format!("{:?}: {e}", e.kind());
@@ -80,6 +86,23 @@ impl Ctx<'_> {
                 Ok(false)
             }
         }
+    }
+}
+
+/// Give the owner write permission on every real directory under `p` that the current user owns.
+/// Symlinks are not followed and nothing outside the tree or owned by someone else is touched.
+fn make_dirs_writable(p: &Path) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let Ok(m) = std::fs::symlink_metadata(p) else { return };
+    if !m.is_dir() || m.uid() != unsafe { super::getuid() } {
+        return;
+    }
+    let mode = m.permissions().mode();
+    if mode & 0o200 == 0 {
+        let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode | 0o200));
+    }
+    for e in std::fs::read_dir(p).into_iter().flatten().flatten() {
+        make_dirs_writable(&e.path());
     }
 }
 

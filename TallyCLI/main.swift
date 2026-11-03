@@ -266,6 +266,11 @@ func runStatus(json: Bool = false) {
 // MARK: - Entry
 
 wireClearanceSessionCounter()
+// Share "which repository is this directory" answers with the next `tally` process for a few
+// seconds (GitRepoRoot.swift, `GitFactsCache`): pollers start one process per call.
+gitFactsCache.diskFile = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/git-facts.json")
+atexit { gitFactsCache.flush() }
 let arguments = Array(CommandLine.arguments.dropFirst())
 if let word = arguments.first, let code = runHookSubcommand(word, Array(arguments.dropFirst())) {
     exit(code)

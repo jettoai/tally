@@ -122,8 +122,8 @@ func colocatedMainRepoPath(gitCommonDir dir: String) -> String? {
 /// downstream treats the answer as a directory to print, to cd into, and to run git in.
 private func isWorkingTree(_ candidate: String, ofCommonDir commonDir: String) -> Bool {
     guard !candidate.isEmpty else { return false }
-    let probe = runGit(["-C", candidate, "rev-parse", "--path-format=absolute", "--git-common-dir"])
-    return probe.code == 0 && realpathString(probe.out) == realpathString(commonDir)
+    guard let probe = gitDirectoryFacts(cwd: candidate) else { return false }
+    return realpathString(probe.commonDir) == realpathString(commonDir)
 }
 
 /// The main repo's working tree, fully resolved, or nil when git says this is not a repository.
@@ -149,22 +149,246 @@ private func isWorkingTree(_ candidate: String, ofCommonDir commonDir: String) -
 /// tree", and `--git-dir=<common dir>` resolves the toplevel from the caller's own cwd. So the
 /// information genuinely does not exist, and inventing a path would be the worse failure.
 func resolveMainRepo(cwd: String? = nil) -> String? {
-    let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: cwd)
-    guard common.code == 0, !common.out.isEmpty else { return nil }
-    if runGit(["rev-parse", "--path-format=absolute", "--absolute-git-dir"], cwd: cwd).out
-        == common.out {
-        let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"], cwd: cwd).out
-        if !top.isEmpty { return realpathString(top) }   // empty in a bare repo
-    }
-    if let colocated = colocatedMainRepoPath(gitCommonDir: common.out),
-       isWorkingTree(colocated, ofCommonDir: common.out) {
+    // One git call for all three facts, remembered per directory (gitDirectoryFacts, below).
+    guard let facts = gitDirectoryFacts(cwd: cwd) else { return nil }
+    let common = facts.commonDir
+    if facts.gitDir == common, let top = facts.toplevel { return realpathString(top) }   // nil in a bare repo
+    if let colocated = colocatedMainRepoPath(gitCommonDir: common),
+       isWorkingTree(colocated, ofCommonDir: common) {
         return realpathString(colocated)
     }
     let recorded = runGit(["config", "--get", "core.worktree"], cwd: cwd).out
-    let absolute = recorded.hasPrefix("/") ? recorded : "\(common.out)/\(recorded)"
-    if !recorded.isEmpty, isWorkingTree(absolute, ofCommonDir: common.out) {
+    let absolute = recorded.hasPrefix("/") ? recorded : "\(common)/\(recorded)"
+    if !recorded.isEmpty, isWorkingTree(absolute, ofCommonDir: common) {
         return realpathString(absolute)
     }
-    warn("this repository records no main working tree; using its git dir \(common.out)")
-    return realpathString(common.out)
+    warn("this repository records no main working tree; using its git dir \(common)")
+    return realpathString(common)
+}
+
+// MARK: - One answer per directory
+
+// THE DOOR EVERY "WHICH REPOSITORY IS THIS DIRECTORY" QUESTION GOES THROUGH.
+//
+// Measured 2026-11-03: `tally status` with 34 live sessions (33 distinct directories) spawned 133
+// `git rev-parse` processes, and the pollers that call it (Baton, fleet-watch, the relay hook) do
+// that every few seconds. The same few facts were being asked four times per directory
+// (`--git-common-dir`, `--absolute-git-dir`, `--show-toplevel` twice, once for the project key and
+// once for the checkout), and a parallel line probed its main repo again for every sibling line.
+// One `rev-parse` with three flags answers all three questions, the answer is remembered for
+// `gitFactsLifetime` seconds under the directory's realpath, and callers that ask the same
+// directory at the same moment (`sessionDirectoryIdentities` fans out with `concurrentPerform`)
+// share one git process instead of racing to start N of them.
+//
+// A caller that spawns `git rev-parse` itself for a directory identity is bypassing this; the
+// source-text lock in tests/gitfacts/main.swift (G6) says so for the files that used to.
+
+/// What one `git rev-parse` says about a directory.
+struct GitDirectoryFacts: Sendable, Equatable {
+    /// `--git-common-dir`, absolute, as git printed it.
+    let commonDir: String
+    /// `--absolute-git-dir`.
+    let gitDir: String
+    /// `--show-toplevel`, nil in a bare repo, inside the git dir, or when git could not say.
+    let toplevel: String?
+}
+
+/// How long one answer is reused, in seconds. Long enough that a poller calling `tally status` every
+/// couple of seconds hits the disk layer, short enough that a `git init` or a moved repo is seen on
+/// the next look. A repository changing LAYOUT inside this window (same path, different kind of
+/// repo) is the one thing it cannot see; nothing in this tool does that.
+let gitFactsLifetime: TimeInterval = 5
+
+/// The only place the `rev-parse` argument vector is spelled.
+private func revParseArgs(_ flags: [String]) -> [String] {
+    ["rev-parse", "--path-format=absolute"] + flags
+}
+
+/// Ask git, with no memory. Three flags in one process when git can answer them all (rc 0 and
+/// exactly three lines); a directory that is not a repository fails with nothing on stdout. Anything
+/// in between (a bare repo or the inside of a git dir fails at `--show-toplevel` after printing the
+/// first two, a path with a newline in it breaks the line count) is asked flag by flag, which is
+/// what this code did before, so those shapes get the same answers as ever.
+private func computeGitFacts(cwd: String?, run: GitFactsCache.Runner) -> GitDirectoryFacts? {
+    let all = run(revParseArgs(["--git-common-dir", "--absolute-git-dir", "--show-toplevel"]), cwd)
+    let lines = all.out.components(separatedBy: "\n")
+    if all.code == 0, lines.count == 3, !lines.contains(where: \.isEmpty) {
+        return GitDirectoryFacts(commonDir: lines[0], gitDir: lines[1], toplevel: lines[2])
+    }
+    if all.code != 0, all.out.isEmpty { return nil }
+    let common = run(revParseArgs(["--git-common-dir"]), cwd)
+    guard common.code == 0, !common.out.isEmpty else { return nil }
+    let gitDir = run(revParseArgs(["--absolute-git-dir"]), cwd).out
+    let top = run(revParseArgs(["--show-toplevel"]), cwd)
+    return GitDirectoryFacts(commonDir: common.out, gitDir: gitDir,
+                             toplevel: top.code == 0 && !top.out.isEmpty ? top.out : nil)
+}
+
+/// Short-lived memory of `computeGitFacts`, keyed by realpath, safe to ask from many threads.
+///
+/// Two locks, never held together in the other order: `lock` guards the dictionary and is dropped as
+/// soon as the key's `Entry` is in hand, and each Entry's own lock is held while git runs. So N
+/// threads asking one directory queue on that one Entry and exactly one of them runs git, while
+/// different directories never wait on each other.
+final class GitFactsCache: @unchecked Sendable {
+    typealias Runner = ([String], String?) -> (out: String, err: String, code: Int32)
+
+    private final class Entry {
+        let lock = NSLock()
+        var asked: TimeInterval?          // `clock` reading when git was asked
+        var wall: TimeInterval = 0        // wall clock then, the only clock two processes share
+        var value: GitDirectoryFacts?     // nil is a real answer: not a repository
+    }
+
+    private static func defaultRunner(_ args: [String], _ cwd: String?) -> (out: String, err: String, code: Int32) {
+        runGit(args, cwd: cwd)
+    }
+    private static func defaultClock() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    private let lock = NSLock()
+    private var entries: [String: Entry] = [:]
+    private var runner: Runner = GitFactsCache.defaultRunner
+    private var clockFn: () -> TimeInterval = GitFactsCache.defaultClock
+    private var disk: URL?
+    private var diskRead = false
+    private var freshKeys: Set<String> = []   // positive answers computed by THIS process
+
+    /// Seams for the tests; production code leaves them alone. `clock` must be monotonic.
+    var run: Runner {
+        get { lock.lock(); defer { lock.unlock() }; return runner }
+        set { lock.lock(); runner = newValue; lock.unlock() }
+    }
+    var clock: () -> TimeInterval {
+        get { lock.lock(); defer { lock.unlock() }; return clockFn }
+        set { lock.lock(); clockFn = newValue; lock.unlock() }
+    }
+    /// Where answers are shared with the next process. nil (the default) keeps everything in this
+    /// process, which is what every test harness that compiles this file wants: only
+    /// TallyCLI/main.swift turns it on.
+    var diskFile: URL? {
+        get { lock.lock(); defer { lock.unlock() }; return disk }
+        set { lock.lock(); disk = newValue; lock.unlock() }
+    }
+
+    /// Forget everything this process knows and put the seams back. `diskFile` stays, so a test can
+    /// play "a new process" against the same file.
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        entries = [:]; freshKeys = []; diskRead = false
+        runner = GitFactsCache.defaultRunner; clockFn = GitFactsCache.defaultClock
+    }
+
+    private func entry(forKey key: String) -> Entry {
+        lock.lock(); defer { lock.unlock() }
+        loadDiskIfNeeded()
+        if let known = entries[key] { return known }
+        let made = Entry()
+        entries[key] = made
+        return made
+    }
+
+    func facts(forKey key: String) -> GitDirectoryFacts? {
+        let slot = entry(forKey: key)
+        let run = self.run, clock = self.clock
+        slot.lock.lock()
+        let now = clock()
+        if let asked = slot.asked, now - asked >= 0, now - asked < gitFactsLifetime {
+            let answer = slot.value
+            slot.lock.unlock()
+            return answer
+        }
+        let value = computeGitFacts(cwd: key, run: run)
+        slot.value = value; slot.asked = now; slot.wall = Date().timeIntervalSince1970
+        slot.lock.unlock()
+        if value != nil { lock.lock(); freshKeys.insert(key); lock.unlock() }
+        return value
+    }
+
+    // MARK: Disk layer (shared between processes)
+
+    private struct DiskEntry: Codable {
+        let at: TimeInterval       // wall clock when git answered
+        let common: String
+        let gitDir: String
+        let top: String?
+    }
+    private struct DiskFile: Codable {
+        let v: Int
+        let entries: [String: DiskEntry]
+    }
+
+    private func isDirectory(_ path: String) -> Bool { workingDirectoryURL(path) != nil }
+
+    /// What `file` holds that is still inside the lifetime. A file that is missing, unreadable or
+    /// of another version is an empty answer, never an error.
+    private func readDisk(_ file: URL) -> [String: DiskEntry] {
+        guard let data = try? Data(contentsOf: file),
+              let parsed = try? JSONDecoder().decode(DiskFile.self, from: data),
+              parsed.v == 1 else { return [:] }
+        let now = Date().timeIntervalSince1970
+        return parsed.entries.filter { now - $0.value.at >= 0 && now - $0.value.at < gitFactsLifetime }
+    }
+
+    /// Caller holds `lock`. Once per process, on the first question: the other process's answers
+    /// become entries aged by how long ago they were given. An answer is only trusted while the
+    /// directories it names are still there, which catches a repo that was moved or removed.
+    private func loadDiskIfNeeded() {
+        guard !diskRead, let file = disk else { return }
+        diskRead = true
+        let wallNow = Date().timeIntervalSince1970, uptime = clockFn()
+        for (key, item) in readDisk(file) {
+            guard isDirectory(item.common), isDirectory(item.gitDir),
+                  item.top.map(isDirectory) ?? true, entries[key] == nil else { continue }
+            let made = Entry()
+            made.asked = uptime - (wallNow - item.at); made.wall = item.at
+            made.value = GitDirectoryFacts(commonDir: item.common, gitDir: item.gitDir, toplevel: item.top)
+            entries[key] = made
+        }
+    }
+
+    /// Write this process's positive answers where the next process will find them. Positive only: a
+    /// "not a repository" that outlived a `git init` would be wrong for the next five seconds in
+    /// every other process. Re-reads and merges, newest answer per directory wins, expired ones are
+    /// dropped, and a failed write costs the next process one git call and nothing else.
+    func flush() {
+        lock.lock()
+        guard let file = disk else { lock.unlock(); return }
+        let mine = freshKeys.compactMap { key in entries[key].map { (key, $0) } }
+        lock.unlock()
+        guard !mine.isEmpty else { return }
+        var merged = readDisk(file)
+        let now = Date().timeIntervalSince1970
+        for (key, entry) in mine {
+            entry.lock.lock(); let value = entry.value, wall = entry.wall; entry.lock.unlock()
+            guard let value, now - wall >= 0, now - wall < gitFactsLifetime else { continue }
+            if let old = merged[key], old.at >= wall { continue }
+            merged[key] = DiskEntry(at: wall, common: value.commonDir, gitDir: value.gitDir,
+                                    top: value.toplevel)
+        }
+        guard let data = try? JSONEncoder().encode(DiskFile(v: 1, entries: merged)) else { return }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? data.write(to: file, options: .atomic)
+    }
+}
+
+let gitFactsCache = GitFactsCache()
+
+/// What git says about `cwd`, or nil when it is not inside a repository. `cwd` nil asks from this
+/// process's own directory, which has no stable name to key on and is not remembered; neither is a
+/// path that names no directory (empty, deleted, a file), so those keep failing the way `runGit`
+/// reports them rather than being answered from memory.
+func gitDirectoryFacts(cwd: String?) -> GitDirectoryFacts? {
+    guard let cwd else { return computeGitFacts(cwd: nil, run: gitFactsCache.run) }
+    let key = realpathString(cwd)
+    guard workingDirectoryURL(key) != nil else {
+        return computeGitFacts(cwd: cwd, run: gitFactsCache.run)
+    }
+    return gitFactsCache.facts(forKey: key)
+}
+
+/// The checkout `cwd` stands in, realpath'd; nil outside a work tree. For a session on a parallel
+/// line this is the line, where `resolveMainRepo` is the repository it belongs to.
+func gitCheckout(cwd: String) -> String? {
+    gitDirectoryFacts(cwd: cwd)?.toplevel.map(realpathString)
 }

@@ -23,7 +23,8 @@ import Foundation
 /// A function value rather than a call, so the assembly below can be asserted without a repository
 /// on disk, and so the answer is asked once per DIRECTORY rather than once per session: several
 /// agents in one project is the ordinary case here, not the exotic one, and each answer costs
-/// several subprocesses (`resolveMainRepo` asks git two to four times, and this asks once more).
+/// a git subprocess; both halves come from the single `git rev-parse` `gitDirectoryFacts` runs per
+/// directory (and remembers for a few seconds), so a roster of N directories costs N, not 4N.
 /// `@Sendable` because the answers are gathered concurrently below, which is a fact about how this
 /// is used rather than a detail of it: an implementation that read shared mutable state would be a
 /// data race, and the compiler is the right place for that to be said once.
@@ -34,9 +35,7 @@ typealias SessionDirectoryAnswer = (mainRepo: String?, checkout: String?)
 /// `@Sendable` on the declaration rather than at each use: it is the default the callers below take,
 /// and a plain function converted to that type is a warning at every one of them.
 @Sendable func gitSessionDirectoryIdentity(_ cwd: String) -> SessionDirectoryAnswer {
-    let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"], cwd: cwd)
-    return (resolveMainRepo(cwd: cwd),
-            top.code == 0 && !top.out.isEmpty ? realpathString(top.out) : nil)
+    (resolveMainRepo(cwd: cwd), gitCheckout(cwd: cwd))
 }
 
 /// Both shapes the report publishes about sessions, folded from one roster.

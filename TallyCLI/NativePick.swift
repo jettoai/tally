@@ -141,12 +141,12 @@ func newPickID() -> String { UUID().uuidString }
 /// reading at all, and the answer it gives is the same one the launch profile is keyed by
 /// (`projectPolicyKey`), which is what keeps "which project" one answer across the app.
 ///
-/// Two git calls per pick, on a path that is already about to put a window on somebody's screen.
+/// One git call per pick (`gitDirectoryFacts` answers both questions), on a path that is already
+/// about to put a window on somebody's screen.
 func pickProjectForCwd(_ cwd: String = FileManager.default.currentDirectoryPath) -> PickProject {
     // The CHECKOUT this session is in, which is the worktree rather than the repository: the two
     // differ exactly when the session is on a parallel line, and that difference is the line's name.
-    let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"], cwd: cwd)
-    let checkout = top.code == 0 && !top.out.isEmpty ? realpathString(top.out) : nil
+    let checkout = gitCheckout(cwd: cwd)
     return pickProject(cwd: realpathString(cwd), mainRepo: resolveMainRepo(cwd: cwd),
                        checkout: checkout)
 }

@@ -27632,6 +27632,41 @@
         }
       }
     },
+    "Another program already has a file named tally in /usr/local/bin. Tally did not touch it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin 裡已有其他程式放的 tally 檔案，Tally 沒有動它。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin 里已有其他程序放的 tally 文件，Tally 没有动它。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin には、ほかのプログラムが置いた tally というファイルがあります。Tally はそのファイルに触れていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin에 다른 프로그램이 둔 tally 파일이 이미 있습니다. Tally는 그 파일을 건드리지 않았습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin içinde başka bir programın koyduğu tally adlı bir dosya zaten var. Tally ona dokunmadı."
+          }
+        }
+      }
+    },
     "Tally could not add the command.": {
       "extractionState": "manual",
       "localizations": {

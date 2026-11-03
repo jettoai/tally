@@ -57,22 +57,43 @@ expect(PanelHints.preview(named: nil) == nil && PanelHints.preview(named: "YES")
 expect(TallyCommandScreen.preview(named: "confirm") == .confirm
         && TallyCommandScreen.preview(named: "done") == .done
         && TallyCommandScreen.preview(named: "failed-cancelled") == .failed(.cancelled)
-        && TallyCommandScreen.preview(named: "failed") == .failed(.other),
-       "all four window screens can be held")
+        && TallyCommandScreen.preview(named: "failed") == .failed(.other)
+        && TallyCommandScreen.preview(named: "failed-foreign") == .failed(.foreignFile)
+        && TallyCommandScreen.preview(named: "failed-unavailable") == .failed(.unavailable),
+       "all six window screens can be held")
 expect(TallyCommandScreen.preview(named: nil) == nil && TallyCommandScreen.preview(named: "installing") == nil,
        "no value, or the transient screen, holds nothing")
 
 // MARK: the failure wording follows the install's own outcome
 
 let cancelled = "The command line tool was not installed because the administrator password request was cancelled."
-expect(TallyCommandFailure.classify(lastError: cancelled, cancelledMessage: cancelled) == .cancelled,
-       "the message the cancelled outcome produces is the cancelled screen")
-expect(TallyCommandFailure.classify(lastError: "could not link", cancelledMessage: cancelled) == .other,
-       "any other message is the generic failure")
-expect(TallyCommandFailure.classify(lastError: nil, cancelledMessage: cancelled) == .other,
-       "no message at all is still a failure, never a silent success")
-expect(TallyCommandFailure.classify(lastError: cancelled, cancelledMessage: nil) == .other,
-       "an outcome that cannot be worded cannot be called a cancel")
+func classify(_ message: String?, cancelledMessage: String? = cancelled,
+              foreign: Bool = false, unshipped: Bool = false) -> TallyCommandFailure {
+    TallyCommandFailure.classify(lastError: message, cancelledMessage: cancelledMessage,
+                                 foreignFile: foreign, unshipped: unshipped)
+}
+expect(classify(cancelled) == .cancelled, "the message the cancelled outcome produces is the cancelled screen")
+expect(classify("could not link") == .other, "any other message is the generic failure")
+expect(classify(nil) == .other, "no message at all is still a failure, never a silent success")
+expect(classify(cancelled, cancelledMessage: nil) == .other, "an outcome that cannot be worded cannot be called a cancel")
+expect(classify("could not link", foreign: true) == .foreignFile
+        && classify(cancelled, foreign: true) == .foreignFile,
+       "a file of somebody else's at the link path is its own failure, whatever the message says")
+expect(classify("Integrations are managed by the installed release app.", unshipped: true) == .unavailable
+        && classify(nil, foreign: true, unshipped: true) == .unavailable,
+       "a build that may not install is its own failure")
+
+// MARK: only two failures may hand out the sudo line
+
+expect(TallyCommandFailure.cancelled.allowsManualCommand && TallyCommandFailure.other.allowsManualCommand,
+       "a cancel and a generic failure still offer the line to run in Terminal")
+expect(!TallyCommandFailure.foreignFile.allowsManualCommand && !TallyCommandFailure.unavailable.allowsManualCommand,
+       "a foreign file and an unshipped build never offer it")
+expect(TallyCommandFailure.manualCommandAllowed(foreignFile: false, unshipped: false)
+        && !TallyCommandFailure.manualCommandAllowed(foreignFile: true, unshipped: false)
+        && !TallyCommandFailure.manualCommandAllowed(foreignFile: false, unshipped: true)
+        && !TallyCommandFailure.manualCommandAllowed(foreignFile: true, unshipped: true),
+       "the copy action's own check refuses on either reason")
 
 // MARK: gates and orderings a type check cannot see
 
@@ -97,6 +118,12 @@ let store = source("Tally/Stores/TallyCommandStore.swift")
 expect(store.contains("IntegrationsStore.cliInstallMessage(.cancelled"),
        "the cancelled screen is decided against the install's own cancelled message")
 expect(store.contains("guard preview == nil"), "a held preview touches no clipboard and no Terminal")
+if let manual = store.range(of: "func copyManualInstallAndOpenTerminal()"),
+   let guardAt = store.range(of: "guard TallyCommandFailure.manualCommandAllowed(foreignFile: IntegrationsStore.detectCLIToolPresence() == .foreignFile,\n                                                       unshipped: BuildVariant.isUnshipped)"),
+   let copyAt = store.range(of: "Self.copy(IntegrationsStore.manualInstallCommand") {
+    expect(manual.lowerBound < guardAt.lowerBound && guardAt.lowerBound < copyAt.lowerBound,
+           "the manual line re-asks the disk and the build before it reaches the clipboard")
+} else { expect(false, "the manual line re-asks the disk and the build before it reaches the clipboard") }
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

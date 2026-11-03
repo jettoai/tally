@@ -59,7 +59,9 @@ final class TallyCommandStore {
         }
         let cancelled = IntegrationsStore.cliInstallMessage(.cancelled, target: IntegrationsStore.bundledCLIURL)
         screen = .failed(TallyCommandFailure.classify(lastError: integrations.lastError,
-                                                      cancelledMessage: cancelled))
+                                                      cancelledMessage: cancelled,
+                                                      foreignFile: IntegrationsStore.detectCLIToolPresence() == .foreignFile,
+                                                      unshipped: BuildVariant.isUnshipped))
     }
 
     /// "Not Now", "Done": the window goes, nothing else changes.
@@ -90,6 +92,10 @@ final class TallyCommandStore {
     /// "Run it yourself in Terminal": the same link the install makes, as one line to paste.
     func copyManualInstallAndOpenTerminal() {
         guard preview == nil else { return }
+        // Asked of the disk and the build again, not of the screen: the line replaces whatever is at
+        // the link path and links to this bundle.
+        guard TallyCommandFailure.manualCommandAllowed(foreignFile: IntegrationsStore.detectCLIToolPresence() == .foreignFile,
+                                                       unshipped: BuildVariant.isUnshipped) else { return }
         Self.copy(IntegrationsStore.manualInstallCommand(target: IntegrationsStore.bundledCLIURL))
         Self.openTerminal()
     }

@@ -29,8 +29,7 @@ struct TallyCommandInviteCard: View {
             .accessibilityLabel(L("Dismiss"))
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.09), lineWidth: 1))
+        .modifier(CommandCardStyle())
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
     }

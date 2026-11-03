@@ -1,12 +1,16 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- Source of scripts/dmg/background.tiff, the Tally disk image window (660x400 pt).
+<!-- Source of scripts/dmg/background.tiff, the Tally disk image window's content area (660x400 pt;
+     the window frame is 660x432 with the title bar).
      Finder draws the two icons and their labels; this image draws everything else.
      Icon centres (170, 200) and (490, 200) must match scripts/dmg/settings.py.
      The label band (#6F7782, relative luminance about 0.18) sits where Finder draws the labels, so
      black labels (light appearance, 4.6:1) and white labels (dark appearance, 4.5:1) both read.
-     Regenerate: screenshot this page at 660x400 with device scale 1 and 2 in a headless Chromium,
-     then: tiffutil -cathidpicheck bg.png bg@2x.png -out background.tiff -->
+     The foot line sits at bottom:56px so it stays visible when Finder's path bar (28 pt, a global
+     Finder setting) covers the bottom of the window.
+     Regenerate: headless Chrome --window-size=660,400 --screenshot at --force-device-scale-factor=1
+     (bg.png) and 2 (bg@2x.png), then in that directory:
+     tiffutil -cathidpicheck bg.png bg@2x.png -out background.tiff -->
 <style>
   html,body{margin:0;padding:0}
   body{width:660px;height:400px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased;color:#fff}
@@ -16,7 +20,7 @@
   .sub{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:13.5px;color:rgba(255,255,255,.62)}
   .shelf{position:absolute;left:0;right:0;top:254px;height:44px;background:#6F7782}
   .arrow{position:absolute;left:258px;top:174px}
-  .foot{position:absolute;bottom:22px;left:0;right:0;text-align:center;font-size:12px;color:rgba(255,255,255,.75)}
+  .foot{position:absolute;bottom:56px;left:0;right:0;text-align:center;font-size:12px;color:rgba(255,255,255,.75)}
 </style></head>
 <body><div class="bg">
   <div class="glow"></div>

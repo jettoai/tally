@@ -3,6 +3,8 @@
 # dmgbuild executes this file with `defines` in scope and no __file__, so paths arrive as defines.
 # Coordinates are Finder points from the top left of the window's content area; an icon location
 # is the centre of the icon. Keep them in step with scripts/dmg/background.html.
+# window_rect is the Finder window frame with its 32 pt title bar included, so 432 tall gives a
+# 400 pt content area for the 660x400 background.
 app = defines["app"]
 background = defines["background"]
 
@@ -13,7 +15,7 @@ symlinks = {"Applications": "/Applications"}
 hide_extensions = ["Tally.app"]
 
 default_view = "icon-view"
-window_rect = ((400, 280), (660, 400))
+window_rect = ((400, 280), (660, 432))
 show_toolbar = False
 show_status_bar = False
 show_tab_view = False

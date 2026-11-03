@@ -332,7 +332,7 @@ func defaultHome(_ provider: Provider) -> String {
 /// stands down for any of them; `--print`/`-p` is here because a one-shot run is not a session.
 let sessionFlags: Set<String> = ["--continue", "-c", "--resume", "-r", "--print", "-p"]
 
-/// The two halves of `sessionFlags` (Snapshot.swift), partitioned rather than listed again so a flag
+/// The two halves of `sessionFlags` above, partitioned rather than listed again so a flag
 /// added there lands in one of them instead of being silently uncovered (`resumeFlags`,
 /// LaunchFlags.swift).
 let printFlags: Set<String> = ["--print", "-p"]

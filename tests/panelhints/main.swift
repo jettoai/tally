@@ -1,0 +1,102 @@
+import Foundation
+
+// The panel's one-time nudges: when the first hint shows, when the tally-command invite shows, what
+// counts as an opening, how a failed install is worded. Pure checks against PanelHints.swift, plus
+// source locks for the gates a type check cannot see.
+
+var failures = 0
+func expect(_ condition: Bool, _ name: String) {
+    if condition { print("PASS \(name)") } else { failures += 1; print("FAIL \(name)") }
+}
+
+// MARK: what counts as an opening
+
+expect(PanelHints.countsAsOpen(hasAccounts: true, anyReading: true), "an opening with a reading counts")
+expect(!PanelHints.countsAsOpen(hasAccounts: true, anyReading: false), "accounts still loading do not count")
+expect(!PanelHints.countsAsOpen(hasAccounts: false, anyReading: true), "no accounts do not count")
+expect(!PanelHints.countsAsOpen(hasAccounts: false, anyReading: false), "an empty panel does not count")
+
+// MARK: the first hint
+
+expect(PanelHints.showsBubble(seen: false, hasData: true), "the first hint shows on data nobody has explained")
+expect(!PanelHints.showsBubble(seen: true, hasData: true), "Got it ends it for good")
+expect(!PanelHints.showsBubble(seen: false, hasData: false), "nothing to point at shows no hint")
+
+// MARK: the invite, each entry condition flipped once from an all-true base
+
+func invite(seen: Bool = true, opens: Int = 2, dismissed: Bool = false, absent: Bool = true,
+            claude: Bool = true) -> Bool {
+    PanelHints.showsInvite(seenAtAppear: seen, opensAtAppear: opens, dismissed: dismissed,
+                           commandAbsent: absent, hasClaudeAccount: claude)
+}
+expect(invite(), "the second opening after the hint was answered invites")
+expect(!invite(seen: false), "an unanswered first hint holds the invite back")
+expect(!invite(opens: 1), "the first opening never invites")
+expect(invite(opens: 9), "later openings still invite")
+expect(!invite(dismissed: true), "the cross ends the invite for good")
+expect(!invite(absent: false), "a command already on the PATH (link or someone else's file) is not invited")
+expect(!invite(claude: false), "the copy is about Claude, so a Codex-only Mac is not invited")
+expect(PanelHints.invitePanelOpens == 2, "the invite waits for two openings with data")
+
+// MARK: the two never share a moment
+
+let combos = [true, false].flatMap { seen in [true, false].map { (seen, $0) } }
+expect(combos.allSatisfy { seen, hasData in
+    // The invite reads `seen` as it was at appear; the bubble reads it live and only while unseen,
+    // so for any one `seen` value at most one of them is on.
+    !(PanelHints.showsBubble(seen: seen, hasData: hasData)
+        && invite(seen: seen, opens: 5, dismissed: false, absent: true, claude: true))
+}, "the bubble and the invite are never on together")
+
+// MARK: the preview flags
+
+expect(PanelHints.preview(named: "hint") == .bubble && PanelHints.preview(named: "INVITE") == .invite,
+       "the preview flag names the hint or the invite, case-insensitively")
+expect(PanelHints.preview(named: nil) == nil && PanelHints.preview(named: "YES") == nil
+        && PanelHints.preview(named: "") == nil, "no value, or one that names nothing, holds nothing")
+expect(TallyCommandScreen.preview(named: "confirm") == .confirm
+        && TallyCommandScreen.preview(named: "done") == .done
+        && TallyCommandScreen.preview(named: "failed-cancelled") == .failed(.cancelled)
+        && TallyCommandScreen.preview(named: "failed") == .failed(.other),
+       "all four window screens can be held")
+expect(TallyCommandScreen.preview(named: nil) == nil && TallyCommandScreen.preview(named: "installing") == nil,
+       "no value, or the transient screen, holds nothing")
+
+// MARK: the failure wording follows the install's own outcome
+
+let cancelled = "The command line tool was not installed because the administrator password request was cancelled."
+expect(TallyCommandFailure.classify(lastError: cancelled, cancelledMessage: cancelled) == .cancelled,
+       "the message the cancelled outcome produces is the cancelled screen")
+expect(TallyCommandFailure.classify(lastError: "could not link", cancelledMessage: cancelled) == .other,
+       "any other message is the generic failure")
+expect(TallyCommandFailure.classify(lastError: nil, cancelledMessage: cancelled) == .other,
+       "no message at all is still a failure, never a silent success")
+expect(TallyCommandFailure.classify(lastError: cancelled, cancelledMessage: nil) == .other,
+       "an outcome that cannot be worded cannot be called a cancel")
+
+// MARK: gates and orderings a type check cannot see
+
+func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
+let bubble = source("Tally/Views/PanelHintBubble.swift")
+expect(bubble.contains("private let persists = !DemoUsage.isActive && PanelHintMemory.preview == nil"),
+       "demo data and a held preview never write the real defaults")
+expect(bubble.contains("guard BuildVariant.isDev || DemoUsage.isActive else { return nil }"),
+       "the hint preview flag is read only through the Dev-or-demo gate")
+if let snapshot = bubble.range(of: "seenAtAppear = memory.seen"),
+   let count = bubble.range(of: "countIfReadable()\n        }") {
+    expect(snapshot.lowerBound < count.lowerBound,
+           "the appearance reads whether the hint was answered before it counts itself")
+} else { expect(false, "the appearance reads whether the hint was answered before it counts itself") }
+let root = source("Tally/Views/PopoverRootView.swift")
+expect(root.contains("PanelHintsSection(store: store"), "the panel hosts the nudges")
+let controller = source("Tally/MenuBar/TallyCommandWindowController.swift")
+expect(controller.contains("BuildVariant.isDev || DemoUsage.isActive")
+        && controller.components(separatedBy: "flagsHonoured").count >= 3,
+       "the command window's preview flag is read only through the Dev-or-demo gate")
+let store = source("Tally/Stores/TallyCommandStore.swift")
+expect(store.contains("IntegrationsStore.cliInstallMessage(.cancelled"),
+       "the cancelled screen is decided against the install's own cancelled message")
+expect(store.contains("guard preview == nil"), "a held preview touches no clipboard and no Terminal")
+
+print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
+exit(failures == 0 ? 0 : 1)

@@ -381,9 +381,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             warn("cannot launch `\(provider.cli)`")
             // Only "not found anywhere" (PATH or the fixed install places) gets a hint; a binary
             // that resolved but would not start has a different cause.
-            if !resolveProviderExecutable(provider.cli).contains("/") {
-                missingCLIHint(provider.cli)?.forEach(warn)
-            }
+            warnMissingCLIHint(provider.cli,
+                               notFound: !resolveProviderExecutable(provider.cli).contains("/"),
+                               warn: warn)
             exit(127)
         }
         // Every child from here on is one this supervisor decided to start.

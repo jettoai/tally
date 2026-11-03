@@ -274,7 +274,7 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
     execvp(claudeStableExecutable(resolveProviderExecutable(cli)), cargs)
     let failure = errno
     warn("cannot exec `\(cli)`: \(String(cString: strerror(failure)))")
-    if failure == ENOENT { missingCLIHint(cli)?.forEach(warn) }
+    warnMissingCLIHint(cli, notFound: failure == ENOENT, warn: warn)
     exit(127)
 }
 

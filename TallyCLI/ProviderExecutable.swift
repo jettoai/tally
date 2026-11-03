@@ -103,3 +103,12 @@ func missingCLIHint(_ name: String,
     return ["`\(name)` is not installed. To install it, run:", "  \(install)",
             "Then open a new Terminal window and run tally again."]
 }
+
+/// Print `missingCLIHint` through `warn` when the launch failed because `cli` could not be found
+/// (`notFound`); any other failure has a different cause and gets no install advice. The one call
+/// both launch paths make (Snapshot.swift `exec`, Supervisor.swift), so each cell is testable.
+func warnMissingCLIHint(_ cli: String, notFound: Bool,
+                        home: String = FileManager.default.homeDirectoryForCurrentUser.path,
+                        warn: (String) -> Void) {
+    if notFound { missingCLIHint(cli, home: home)?.forEach(warn) }
+}

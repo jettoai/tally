@@ -73,4 +73,21 @@ func runFreshMacChecks() {
     let pathHint = missingCLIHint("claude", home: home.path)?.joined(separator: "\n") ?? ""
     check("a claude sitting in ~/.local/bin is told to fix PATH, not to reinstall",
           pathHint.contains(".local/bin:$PATH") && !pathHint.contains("install.sh"))
+
+    // 5. The call both launch paths make: the hint is printed on "not found" and only then, and
+    // each path still makes the call (a deleted call leaves every check above green).
+    var printed: [String] = []
+    warnMissingCLIHint("claude", notFound: true, home: noHome) { printed.append($0) }
+    check("a launch that failed with the CLI not found prints the install hint",
+          printed == missingCLIHint("claude", home: noHome) && !printed.isEmpty)
+    printed = []
+    warnMissingCLIHint("claude", notFound: false, home: noHome) { printed.append($0) }
+    check("a launch that failed for any other reason prints no install hint", printed.isEmpty)
+    let execSource = (try? String(contentsOfFile: "TallyCLI/Snapshot.swift", encoding: .utf8)) ?? ""
+    let superviseSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the exec path asks for the hint when execvp failed with ENOENT",
+          execSource.contains("warnMissingCLIHint(cli, notFound: failure == ENOENT, warn: warn)"))
+    check("the supervisor asks for the hint when the CLI resolves nowhere",
+          superviseSource.contains("warnMissingCLIHint(provider.cli,")
+              && superviseSource.contains(#"notFound: !resolveProviderExecutable(provider.cli).contains("/"),"#))
 }

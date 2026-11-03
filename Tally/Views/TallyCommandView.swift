@@ -48,6 +48,10 @@ struct TallyCommandView: View {
             return Text(L("Open Terminal in the folder you work in and run:"))
         case .failed(.cancelled):
             return Text(L("The password prompt was cancelled, so nothing was added."))
+        case .failed(.foreignFile):
+            return Text(L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it."))
+        case .failed(.unavailable):
+            return Text(L("Integrations are managed by the installed release app."))
         case .failed(.other):
             return Text(L("Tally could not add the command."))
         }
@@ -112,11 +116,16 @@ struct TallyCommandView: View {
                 Spacer()
                 plain(L("Done")) { store.close() }
                 prominent(L("Copy and Open Terminal")) { store.copyCommandAndOpenTerminal() }
-            case .failed:
-                link(L("Run it yourself in Terminal")) { store.copyManualInstallAndOpenTerminal() }
-                Spacer()
-                plain(L("Not Now")) { store.close() }
-                prominent(L("Try Again")) { store.tryAgain() }
+            case let .failed(failure):
+                if failure.allowsManualCommand {
+                    link(L("Run it yourself in Terminal")) { store.copyManualInstallAndOpenTerminal() }
+                    Spacer()
+                    plain(L("Not Now")) { store.close() }
+                    prominent(L("Try Again")) { store.tryAgain() }
+                } else {
+                    Spacer()
+                    prominent(L("Not Now")) { store.close() }
+                }
             }
         }
         .padding(.top, screen == .done ? 24 : 30)

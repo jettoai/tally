@@ -61,6 +61,8 @@ enum TallyCommandScreen: Equatable {
         case "done": return .done
         case "failed-cancelled": return .failed(.cancelled)
         case "failed": return .failed(.other)
+        case "failed-foreign": return .failed(.foreignFile)
+        case "failed-unavailable": return .failed(.unavailable)
         default: return nil
         }
     }
@@ -69,13 +71,30 @@ enum TallyCommandScreen: Equatable {
 enum TallyCommandFailure: Equatable {
     /// The password prompt was dismissed: nothing was written.
     case cancelled
+    /// A file of somebody else's sits at the link path. The install refused to replace it.
+    case foreignFile
+    /// This build (Dev, build tree, translocated) is not allowed to install anything.
+    case unavailable
     /// Anything else that left the command uninstalled.
     case other
 
+    /// The "Run it yourself in Terminal" line is a `sudo ln -sf`: it would replace the foreign
+    /// file, or point the link at a build that must not be linked. Only the other two may offer it.
+    var allowsManualCommand: Bool { self == .cancelled || self == .other }
+
+    /// The same two questions the copy action asks again right before it puts the line on the clipboard.
+    static func manualCommandAllowed(foreignFile: Bool, unshipped: Bool) -> Bool {
+        !foreignFile && !unshipped
+    }
+
     /// `cancelledMessage` is what the install itself reports for a dismissed password prompt
     /// (`IntegrationsStore.cliInstallMessage(.cancelled, ...)`), so the two sentences come from the
-    /// one outcome instead of this reading the message's words.
-    static func classify(lastError: String?, cancelledMessage: String?) -> TallyCommandFailure {
+    /// one outcome instead of this reading the message's words. `foreignFile` and `unshipped` are read
+    /// from the disk and the build, and outrank the message: they are the reasons nothing was written.
+    static func classify(lastError: String?, cancelledMessage: String?,
+                         foreignFile: Bool, unshipped: Bool) -> TallyCommandFailure {
+        if unshipped { return .unavailable }
+        if foreignFile { return .foreignFile }
         guard let lastError, let cancelledMessage, lastError == cancelledMessage else { return .other }
         return .cancelled
     }

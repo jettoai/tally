@@ -194,11 +194,7 @@ mkdir -p "$DIST"
 DMG="$DIST/Tally-$VERSION.dmg"
 step "dmg ($DMG)"
 rm -f "$DMG"
-rm -rf "$WORK/dmg-stage"
-mkdir -p "$WORK/dmg-stage"
-ditto "$APP" "$WORK/dmg-stage/Tally.app"
-ln -s /Applications "$WORK/dmg-stage/Applications"
-hdiutil create -volname "Tally" -srcfolder "$WORK/dmg-stage" -ov -format UDZO "$DMG" -quiet
+scripts/dmg/make-dmg.sh "$APP" "$DMG"
 
 step "notarize + staple"
 xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait

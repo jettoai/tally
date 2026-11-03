@@ -21,6 +21,7 @@ struct TallyApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button(L("Settings…")) {
+                    guard !MoveToApplicationsWindowController.isHoldingLaunch else { return }
                     SettingsWindowController.shared.show()
                 }
                 .keyboardShortcut(",", modifiers: .command)

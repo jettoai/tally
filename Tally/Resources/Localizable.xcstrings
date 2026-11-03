@@ -26686,6 +26686,426 @@
           }
         }
       }
+    },
+    "Move Tally to Applications first": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先把 Tally 移到「應用程式」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先把 Tally 移到「应用程序」"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まず Tally を「アプリケーション」に移してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 Tally를 「응용 프로그램」으로 옮겨 주세요"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce Tally'yi Uygulamalar klasörüne taşıyın"
+          }
+        }
+      }
+    },
+    "Tally is running from the disk image. Moved to Applications, it can start at login and keep itself up to date.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 正從磁碟映像執行。移到「應用程式」後，它才能開機時啟動並自動更新。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 正从磁盘映像运行。移到「应用程序」后，它才能开机时启动并自动更新。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はディスクイメージから実行されています。「アプリケーション」に移すと、ログイン時に起動し、自動でアップデートできるようになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 디스크 이미지에서 실행 중입니다. 「응용 프로그램」으로 옮기면 로그인할 때 시작되고 스스로 업데이트할 수 있습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally disk görüntüsünden çalışıyor. Uygulamalar klasörüne taşındığında oturum açılışında başlayabilir ve kendini güncel tutabilir."
+          }
+        }
+      }
+    },
+    "Quit": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çık"
+          }
+        }
+      }
+    },
+    "Move to Applications": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到「應用程式」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到「应用程序」"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アプリケーション」に移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「응용 프로그램」으로 이동"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamalar'a Taşı"
+          }
+        }
+      }
+    },
+    "Tally couldn't be moved to Applications": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 沒有移到「應用程式」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 没有移到「应用程序」"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally を「アプリケーション」に移せませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally를 「응용 프로그램」으로 옮기지 못했습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally, Uygulamalar klasörüne taşınamadı"
+          }
+        }
+      }
+    },
+    "This Mac doesn't let Tally write to the Applications folder.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 不允許 Tally 寫入「應用程式」資料夾。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 不允许 Tally 写入「应用程序」文件夹。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac では、Tally は「アプリケーション」フォルダに書き込めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서는 Tally가 「응용 프로그램」 폴더에 쓸 수 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac, Tally'nin Uygulamalar klasörüne yazmasına izin vermiyor."
+          }
+        }
+      }
+    },
+    "There isn't enough free space on this Mac to copy Tally.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 的可用空間不夠，無法拷貝 Tally。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的可用空间不够，无法复制 Tally。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の空き容量が足りないため、Tally をコピーできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 여유 공간이 부족해 Tally를 복사할 수 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Tally'yi kopyalamak için yeterli boş alan yok."
+          }
+        }
+      }
+    },
+    "The older copy of Tally in Applications couldn't be moved to the Trash.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「應用程式」裡的舊版 Tally 無法丟到垃圾桶。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「应用程序」里的旧版 Tally 无法移到废纸篓。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アプリケーション」にある古い Tally をゴミ箱に入れられませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「응용 프로그램」에 있는 이전 Tally를 휴지통으로 옮기지 못했습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamalar klasöründeki eski Tally kopyası Çöp Sepeti'ne taşınamadı."
+          }
+        }
+      }
+    },
+    "Copying Tally didn't finish, so nothing was left in Applications.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝 Tally 沒有完成，「應用程式」裡沒有留下任何東西。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 Tally 没有完成，「应用程序」里没有留下任何东西。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally のコピーが完了しなかったため、「アプリケーション」には何も残っていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 복사가 끝나지 않아 「응용 프로그램」에는 아무것도 남지 않았습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally kopyalanamadı, bu yüzden Uygulamalar klasöründe hiçbir şey bırakılmadı."
+          }
+        }
+      }
+    },
+    "Tally is in Applications now, but it didn't open from there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 已經在「應用程式」裡，但沒有從那裡打開。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 已经在「应用程序」里，但没有从那里打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は「アプリケーション」に入りましたが、そこから開けませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 이제 「응용 프로그램」에 있지만 그곳에서 열리지 않았습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally artık Uygulamalar klasöründe, ancak oradan açılmadı."
+          }
+        }
+      }
+    },
+    "Drag Tally into Applications yourself, then open it there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請自己把 Tally 拖進「應用程式」，再從那裡打開。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请自己把 Tally 拖进「应用程序」，再从那里打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally を自分で「アプリケーション」にドラッグしてから、そこで開いてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally를 직접 「응용 프로그램」으로 끌어다 놓은 뒤 그곳에서 여세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'yi kendiniz Uygulamalar klasörüne sürükleyin, ardından oradan açın."
+          }
+        }
+      }
+    },
+    "Open Tally from your Applications folder.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請從「應用程式」資料夾打開 Tally。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请从「应用程序」文件夹打开 Tally。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アプリケーション」フォルダから Tally を開いてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「응용 프로그램」 폴더에서 Tally를 여세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'yi Uygulamalar klasörünüzden açın."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

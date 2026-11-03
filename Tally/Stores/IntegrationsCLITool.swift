@@ -294,8 +294,10 @@ extension IntegrationsStore {
         case .succeeded:
             return nil
         case .foreignFile:
-            // No command here: the only one that would work replaces the other program.
-            return L("Another program already has a file named tally in /usr/local/bin. Tally left it alone, so the command line tool was not installed.")
+            // Never the install command: it would replace the other program. The two commands
+            // here only look at the file and move it aside, and the user decides.
+            return String(format: L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install."),
+                          "ls -l \(shellWord(link.path))", "sudo mv \(shellWord(link.path)) \(shellWord(link.path + ".old"))")
         case .cancelled:
             return String(format: L("The command line tool was not installed because the administrator password request was cancelled. Press Install to try again, or run this in Terminal: %@"), command)
         case .failed:
@@ -304,9 +306,16 @@ extension IntegrationsStore {
     }
 
     nonisolated static func cliRemoveMessage(_ outcome: CLIElevatedOutcome, link: URL = cliSymlinkURL) -> String? {
-        guard outcome != .succeeded else { return nil }
-        return String(format: L("The command line tool was not removed. Run this in Terminal to remove it: %@"),
-                      "sudo rm \(shellWord(link.path))")
+        let command = "sudo rm \(shellWord(link.path))"
+        switch outcome {
+        case .succeeded:
+            return nil
+        case .cancelled:
+            return String(format: L("The command line tool was not removed because the administrator password request was cancelled. Press Remove to try again, or run this in Terminal: %@"), command)
+        case .foreignFile, .failed:
+            // The executor's detail is for logs; all that is known is that the privileged step did not do it.
+            return String(format: L("The command line tool was not removed because Tally could not remove it without administrator rights. Press Remove to try again, or run this in Terminal: %@"), command)
+        }
     }
 
     /// The banner for `-TallyCLIInstallPreview <cancelled|failed|foreign|remove-failed>`

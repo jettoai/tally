@@ -236,9 +236,11 @@ func runCLIToolChecks(tmp: URL) throws {
     check("…and the other program's file is still there, byte for byte",
           (try? String(contentsOf: stranger, encoding: .utf8)) == strangerBody
               && (try? fm.destinationOfSymbolicLink(atPath: stranger.path)) == nil)
-    check("…the banner says it was left alone, and offers no command that would replace it",
-          foreignMessage == L("Another program already has a file named tally in /usr/local/bin. Tally left it alone, so the command line tool was not installed.")
-              && !foreignMessage.contains("sudo") && !foreignMessage.contains("boom"))
+    check("…the banner says it was left alone and gives the next step: look at it, move it aside, press Install",
+          foreignMessage == String(format: L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install."),
+                                   "ls -l \(stranger.path)", "sudo mv \(stranger.path) \(stranger.path).old")
+              && foreignMessage.contains("ls -l ") && foreignMessage.contains("sudo mv ")
+              && !foreignMessage.contains("ln -sf") && !foreignMessage.contains("sudo rm") && !foreignMessage.contains("boom"))
     check("a file that appears after that look is caught by the guard's verdict, not believed away",
           Store.linkCLIElevated(at: liar, to: bundled, block: .notWritable,
                                 elevator: Store.CLIElevator { _, _ in .foreignFile }) == .foreignFile
@@ -301,9 +303,15 @@ func runCLIToolChecks(tmp: URL) throws {
     check("a removal that left the link in place is a failure whatever the executor said",
           Store.unlinkCLIElevated(at: liar, elevator: Store.CLIElevator { _, _ in .done }) == .failed)
     let removeMessage = Store.cliRemoveMessage(.cancelled, link: liar) ?? ""
+    let removeFailMessage = Store.cliRemoveMessage(.failed, link: liar) ?? ""
     check("…and a refused removal names the command, not the system's sentence",
           removeMessage.contains("sudo rm") && removeMessage.contains(liar.path)
               && Store.cliRemoveMessage(.succeeded, link: liar) == nil)
+    check("…a cancelled password window and a failed one each say why, and both say what to do next",
+          removeMessage.contains("password request was cancelled") && removeMessage.contains("Press Remove")
+              && removeFailMessage.contains("could not remove it without administrator rights")
+              && removeFailMessage.contains("Press Remove") && removeFailMessage.contains("sudo rm")
+              && removeMessage != removeFailMessage)
 
     // (g) Every sentence the user can read is in the catalogue, in every language Tally ships.
     let newKeys = [
@@ -312,8 +320,9 @@ func runCLIToolChecks(tmp: URL) throws {
         "Tally needs administrator rights to remove the tally command from /usr/local/bin.",
         "The command line tool was not installed because the administrator password request was cancelled. Press Install to try again, or run this in Terminal: %@",
         "The command line tool could not be installed with administrator rights. Run this in Terminal to install it: %@",
-        "The command line tool was not removed. Run this in Terminal to remove it: %@",
-        "Another program already has a file named tally in /usr/local/bin. Tally left it alone, so the command line tool was not installed.",
+        "The command line tool was not removed because the administrator password request was cancelled. Press Remove to try again, or run this in Terminal: %@",
+        "The command line tool was not removed because Tally could not remove it without administrator rights. Press Remove to try again, or run this in Terminal: %@",
+        "Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install.",
     ]
     let strings = catalogue?["strings"] as? [String: Any] ?? [:]
     check("the administrator-prompt sentences are translated into every shipped language",
@@ -339,7 +348,7 @@ func runCLIToolChecks(tmp: URL) throws {
               && previews[0]?.contains(tool) == true)
     check("the foreign-file and remove previews are the real ones, with their commands or lack of one",
           previews[2] == Store.cliInstallMessage(.foreignFile, target: URL(fileURLWithPath: tool))
-              && previews[2]?.contains("sudo") == false
+              && previews[2]?.contains("ln -sf") == false && previews[2]?.contains("ls -l /usr/local/bin/tally") == true
               && previews[3]?.contains("sudo rm /usr/local/bin/tally") == true)
     check("an unknown preview name shows nothing", Store.cliInstallPreviewMessage("boom") == nil)
     let pane = settings

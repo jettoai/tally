@@ -220,7 +220,7 @@ extension IntegrationsStore {
     /// The privileged step, injectable so the suite never raises a password window.
     struct CLIElevator: Sendable {
         let run: @Sendable (_ action: CLIElevatedAction, _ prompt: String) -> CLIElevationResult
-        static let administratorPrompt = CLIElevator(run: IntegrationsStore.runOsascript)
+        static let administratorPrompt = CLIElevator { IntegrationsStore.runOsascript($0, $1) }
     }
 
     /// The plain way, exactly as the install always did it.
@@ -307,6 +307,21 @@ extension IntegrationsStore {
         guard outcome != .succeeded else { return nil }
         return String(format: L("The command line tool was not removed. Run this in Terminal to remove it: %@"),
                       "sudo rm \(shellWord(link.path))")
+    }
+
+    /// The banner for `-TallyCLIInstallPreview <cancelled|failed|foreign|remove-failed>`
+    /// (IntegrationsCapture), so each can be looked at without a password window. The same
+    /// functions the real outcomes go through, on the path a release app has the tool at.
+    nonisolated static func cliInstallPreviewMessage(_ name: String) -> String? {
+        let tool = URL(fileURLWithPath: "/Applications/Tally.app")
+            .appendingPathComponent(BuildVariant.bundledCLIRelativePath)
+        switch name {
+        case "cancelled": return cliInstallMessage(.cancelled, target: tool)
+        case "failed": return cliInstallMessage(.failed, target: tool)
+        case "foreign": return cliInstallMessage(.foreignFile, target: tool)
+        case "remove-failed": return cliRemoveMessage(.failed)
+        default: return nil
+        }
     }
 
     nonisolated static func manualInstallCommand(target: URL, link: URL = cliSymlinkURL) -> String {

@@ -328,6 +328,34 @@ func runCLIToolChecks(tmp: URL) throws {
               && !store.contains("ln -sfh \\(") && !store.contains("mkdir -p \\(directory"))
     check("a failure that is not the administrator's keeps the plain sentence, and the other one does not",
           store.contains("guard let block = Self.linkNeedsElevation(error) else { throw error }"))
+    // (k) `-TallyCLIInstallPreview`: the four failure banners on the page without a password window.
+    let tool = "/Applications/Tally.app/Contents/Helpers/tally"
+    let previews = ["cancelled", "failed", "foreign", "remove-failed"].map { Store.cliInstallPreviewMessage($0) }
+    check("each preview name has a banner, and each banner is a different one",
+          previews.allSatisfy { $0 != nil } && Set(previews.compactMap { $0 }).count == 4)
+    check("the cancelled and failed previews are the real banners over the release app's tool",
+          previews[0] == Store.cliInstallMessage(.cancelled, target: URL(fileURLWithPath: tool))
+              && previews[1] == Store.cliInstallMessage(.failed, target: URL(fileURLWithPath: tool))
+              && previews[0]?.contains(tool) == true)
+    check("the foreign-file and remove previews are the real ones, with their commands or lack of one",
+          previews[2] == Store.cliInstallMessage(.foreignFile, target: URL(fileURLWithPath: tool))
+              && previews[2]?.contains("sudo") == false
+              && previews[3]?.contains("sudo rm /usr/local/bin/tally") == true)
+    check("an unknown preview name shows nothing", Store.cliInstallPreviewMessage("boom") == nil)
+    let pane = settings
+    let paneSplit = pane.components(separatedBy: "    #else\n")
+    check("the preview flag is read only in the Debug branch, behind the dev-or-demo gate",
+          paneSplit.count == 2
+              && paneSplit[0].contains("value(\"TallyCLIInstallPreview\")")
+              && paneSplit[0].contains("guard DemoUsage.isActive || BuildVariant.isDev else { return nil }"))
+    check("a release build compiles the preview to nil",
+          paneSplit.count == 2
+              && paneSplit[1].contains("static var cliInstallPreview: String? { nil }")
+              && !paneSplit[1].contains("TallyCLIInstallPreview"))
+    let capture = (try? String(contentsOf: root.appendingPathComponent("Tally/Core/CaptureLaunch.swift"),
+                               encoding: .utf8)) ?? ""
+    check("the flag is registered with the capture family",
+          capture.contains("\"TallyCLIInstallPreview\""))
     check("Install all hands the rest of the set to the install, so they wait for the link",
           settings.contains("installCLITool(followedBy: Array(missing.dropFirst()))"))
 }

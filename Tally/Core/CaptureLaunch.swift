@@ -162,7 +162,10 @@ enum CaptureLaunch {
                                // Qualify TallySettingsCapture (Debug, Dev build or demo data), the same
                                // way TallyChipPhase does: the Integrations header's states, its Remove
                                // all question held open, and one button's hover callout held open.
-                               "TallyDemoIntegrations", "TallyIntegrationsConfirm", "TallyIntegrationsTip"]
+                               "TallyDemoIntegrations", "TallyIntegrationsConfirm", "TallyIntegrationsTip",
+                               // Qualifies TallySettingsCapture the same way (Debug, Dev build or demo
+                               // data): the command line tool's failure banners, no prompt (B-3748).
+                               "TallyCLIInstallPreview"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

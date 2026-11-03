@@ -34,7 +34,7 @@ extension SettingsView {
                     SettingsDevBanner(message: L("Integrations are managed by the installed release app."))
                 }
                 autoFollowNotices(integrations)
-                if let error = integrations.lastError {
+                if let error = IntegrationsCapture.cliInstallPreview ?? integrations.lastError {
                     SettingsNoticeBar(kind: .warning, title: error)
                 }
             }
@@ -385,6 +385,11 @@ enum IntegrationsCapture {
     static var simulating: Bool { value("TallyDemoIntegrations") != nil }
     static var confirm: Bool { value("TallyIntegrationsConfirm") == "yes" }
     static var tip: String? { value("TallyIntegrationsTip") }
+    /// `-TallyCLIInstallPreview cancelled|failed|foreign|remove-failed`: that failure banner on the
+    /// page at once, no administrator prompt (B-3748).
+    static var cliInstallPreview: String? {
+        value("TallyCLIInstallPreview").flatMap(IntegrationsStore.cliInstallPreviewMessage)
+    }
 
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] {
         guard let raw = value("TallyDemoIntegrations") else { return real }
@@ -395,6 +400,7 @@ enum IntegrationsCapture {
     static var simulating: Bool { false }
     static var confirm: Bool { false }
     static var tip: String? { nil }
+    static var cliInstallPreview: String? { nil }
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] { real }
     #endif
 }

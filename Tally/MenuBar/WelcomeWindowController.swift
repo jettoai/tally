@@ -16,7 +16,7 @@ final class WelcomeWindowController {
     /// like every flag in the capture family, so a release launch cannot be talked into either.
     private static var flagsHonoured: Bool { BuildVariant.isDev || DemoUsage.isActive }
     private static var previewName: String? {
-        guard flagsHonoured, CaptureLaunch.carries(CaptureLaunch.welcomePreview) else { return nil }
+        guard previewFlagCarried else { return nil }
         return UserDefaults.standard.string(forKey: CaptureLaunch.welcomePreview)
     }
     private static var previewFlagCarried: Bool {

@@ -278,7 +278,8 @@ final class RenewLoginStore {
             keychainModifiedAt: service.flatMap { KeychainReader.modifiedAt(service: $0) })
     }
 
-    private static func reason(_ failure: RenewLoginRunner.Failure) -> String {
+    /// Also the add-account flow's wording (AddAccountStore), so the two stay one table.
+    static func reason(_ failure: RenewLoginRunner.Failure) -> String {
         switch failure {
         case .notInstalled: return L("Tally could not find the login command on this Mac.")
         case .couldNotStart: return L("Tally could not start the login command.")

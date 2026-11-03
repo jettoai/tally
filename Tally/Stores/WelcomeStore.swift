@@ -123,8 +123,7 @@ final class WelcomeStore {
     /// The install screen's Copy button. A held preview copies nothing.
     func copyCommand(_ providerID: String) {
         guard preview == nil else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(WelcomeFlow.installCommand(providerID: providerID), forType: .string)
+        AddAccountStore.copyInstallCommand(providerID: providerID)
     }
 
     /// The providers behind the found rows, for "Tally reads usage from Claude Code".

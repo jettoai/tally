@@ -37,9 +37,9 @@ final class AddAccountStore {
     /// cancel (the welcome window). Cleared when a new run starts.
     private(set) var lastFailure: RenewLoginRunner.Failure?
     /// Raised by `cancelSignIn()`, read by the runner's own loop.
-    var loginCancel: RenewLoginRunner.LoginCancel?
+    private var loginCancel: RenewLoginRunner.LoginCancel?
     /// The 3-second look for a CLI that is being installed (see the CLI extension at the end of this file).
-    var cliWatch: Task<Void, Never>?
+    private var cliWatch: Task<Void, Never>?
 
     /// The sheet's two choices, kept on the store so reopening it after a run remembers them.
     var providerID = "claude"
@@ -64,7 +64,7 @@ final class AddAccountStore {
             if ordered.count > 1, let home = DemoUsage.launchHome(accountID: ordered[1]) {
                 phase = .signingIn(name: (home as NSString).lastPathComponent)
             }
-        case "pending": phase = .pending(name: ".claude7", reason: Self.reason(.timedOut), handoff: .none)
+        case "pending": phase = .pending(name: ".claude7", reason: RenewLoginStore.reason(.timedOut), handoff: .none)
         default: break
         }
         #endif
@@ -179,12 +179,12 @@ final class AddAccountStore {
                 // screen offering "Try again", and a window opened underneath it would put a second
                 // login on the same config home the moment the user clicked. So the two ways
                 // forward are offered as a choice instead, one at a time.
-                phase = .pending(name: prepared.name, reason: Self.reason(failure), handoff: .none)
+                phase = .pending(name: prepared.name, reason: RenewLoginStore.reason(failure), handoff: .none)
                 // A cancel is the user's own act and already on their screen: no notice about it.
                 guard failure != .cancelled else { return }
                 _ = await SystemAlert.post(
                     title: L("Account not added") + " · ~/\(prepared.name)",
-                    body: Self.reason(failure) + " "
+                    body: RenewLoginStore.reason(failure) + " "
                         + L("The config home is waiting: reopen Add account in Settings to finish the sign-in."))
             }
         }
@@ -261,16 +261,6 @@ final class AddAccountStore {
         await UsageStore.shared.refresh(userInitiated: true)
     }
 
-    private static func reason(_ failure: RenewLoginRunner.Failure) -> String {
-        switch failure {
-        case .notInstalled: return L("Tally could not find the login command on this Mac.")
-        case .couldNotStart: return L("Tally could not start the login command.")
-        case .cancelled: return L("The sign-in was cancelled.")
-        case .reported: return L("The login command ended without signing in.")
-        case .timedOut: return L("The sign-in did not finish in time.")
-        }
-    }
-
     private static func reason(_ error: Error) -> String {
         switch error as? AddAccountFailure {
         case .noFreeSlot:
@@ -304,12 +294,17 @@ extension AddAccountStore {
     /// "Copy and Open Terminal": the command on the clipboard, Terminal in front, and the watch on.
     func copyInstallCommandAndWait() {
         guard case .needsCLI(let providerID, _) = phase else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(WelcomeFlow.installCommand(providerID: providerID), forType: .string)
+        Self.copyInstallCommand(providerID: providerID)
         // A plain open: no Automation permission, unlike typing into a Terminal window.
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
         phase = .needsCLI(providerID: providerID, waiting: true)
         watchForCLI(providerID: providerID)
+    }
+
+    /// The provider's install command, on the clipboard and nothing else.
+    static func copyInstallCommand(providerID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(WelcomeFlow.installCommand(providerID: providerID), forType: .string)
     }
 
     /// "Show the command again": back to the install screen, no longer waiting.

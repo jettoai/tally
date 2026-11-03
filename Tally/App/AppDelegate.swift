@@ -35,6 +35,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         closeOlderDevInstances()
+        // Before the gate below, so a preview of it can be captured light and dark; it only sets this
+        // process's appearance and touches nothing shared.
+        applyPreviewAppearance()
+        // A copy running from the disk image may start nothing at all: no status item, no refresh,
+        // no updater, no login item, no hooks, no welcome window. Each would register a path that is
+        // gone once the image is ejected. It offers the move and that is the whole of this launch
+        // (MoveToApplicationsWindowController).
+        if MoveToApplicationsWindowController.shared.showIfNeeded() { return }
         // First, before anything puts a window up: that window taking key is itself a focus change
         // a supervisor must be able to explain (FocusEventRecorder).
         FocusEventRecorder.shared.install()
@@ -42,7 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (no SDK call at all) unless the user turned it on in Settings.
         ErrorReporting.startIfEnabled()
         ErrorReporting.sendProbeIfAsked()
-        applyPreviewAppearance()
         openPanelForCapture()
         // The motion samples, when a launch asks for them: a window of its own, gated inside the
         // controller on the same terms every other observation flag is (`MotionDemoWindow`).
@@ -358,6 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // The disk image copy never restored or recorded a window, and shares the installed app's
+        // defaults domain: writing restore state from here would erase the installed app's.
+        if MoveToApplicationsWindowController.isHoldingLaunch { return .terminateNow }
         // Snapshot restore state HERE, the first termination hook, while the windows are still
         // on screen. By applicationWillTerminate AppKit has already closed them - their
         // willClose fired and read as the user dismissing each window, which is exactly how a
@@ -376,6 +386,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu bar icons that no longer fit (notch or a crowded bar), and this app has no Dock icon,
     /// so with no item on screen the main window is surfaced instead.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if MoveToApplicationsWindowController.isHoldingLaunch {
+            MoveToApplicationsWindowController.shared.bringToFront()
+            return true
+        }
         if !statusItemController.openUsageSurfaceOnReopen() { MainWindowController.shared.show() }
         return true
     }

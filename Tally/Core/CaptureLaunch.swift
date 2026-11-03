@@ -63,6 +63,7 @@ enum CaptureLaunch {
         "TallyTokenGraphPreview",
         "TallyUpdateChip",      // the header's update nudge, with no live feed
         "TallyPickPreview",     // the pick panel, with no MCP client or request on disk
+        "TallyMoveToApplicationsPreview",  // the move-to-Applications window a disk image copy shows
         // Every motion the board's live figures could use, side by side on one clock: which one a
         // quarter-second change should have is a question nobody can answer from a diff
         // (`MotionDemoWindow`).
@@ -173,6 +174,11 @@ enum CaptureLaunch {
                                // Qualifies TallySettingsCapture the same way (Debug, Dev build or demo
                                // data): the command line tool's failure banners, no prompt (B-3748).
                                "TallyCLIInstallPreview",
+                               // Qualify TallyMoveToApplicationsPreview (Debug, Dev build or demo data):
+                               // where it copies to, a forced failure screen, and pressing Move by itself
+                               // so the copy and relaunch run unattended.
+                               "TallyMoveToApplicationsDest", "TallyMoveToApplicationsFail",
+                               "TallyMoveToApplicationsAutoMove",
                                // Qualifies the welcome window (Dev build or demo data): opens it on a
                                // Mac that has already seen it, with real detection, no fixtures.
                                welcomeForce]

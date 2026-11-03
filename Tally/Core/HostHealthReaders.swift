@@ -72,6 +72,17 @@ enum HostHealthReaders {
                                  freeBytes: free)
     }
 
+    /// The percentage of memory free system-wide, the figure the `memory_pressure` tool prints as its
+    /// free percentage (the kernel's `kern.memorystatus_level`): the second witness of the gate that
+    /// opens a new session, kept in the load history. Nil when the kernel will not say.
+    static func memoryFreePercent() -> Int? {
+        var level: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_level", &level, &size, nil, 0) == 0,
+              (0...100).contains(level) else { return nil }
+        return Int(level)
+    }
+
     /// The biggest memory holders on the machine, most first.
     ///
     /// THE ONE EXPENSIVE READING IN THIS FEATURE, and it is made only at the instant an alarm is

@@ -288,6 +288,7 @@ case "project":
 case "prespawn":
     exit(runPreSpawn(args: Array(arguments.dropFirst())))
 case "status", nil:
+    if arguments.contains("--history") { exit(runHostHistory(args: Array(arguments.dropFirst()))) }
     runStatus(json: arguments.contains("--json"))
 case "best-dir":
     runBestDir(arguments.dropFirst().first ?? "claude")

@@ -42,6 +42,10 @@ usage:
                             nonzero stops that start. `show` / `clear` round it out
   tally status [--json]     show every account's remaining windows (--json: versioned
                             machine-readable report for scripts, hooks, agent skills)
+  tally status --history [--minutes N] [--days D] [--gate X]... [--mem-min P] [--json]
+                            the last N minutes of machine load (default 60) and, per day, how
+                            often load stayed under each gate during 09:00-24:00 (default gate:
+                            3 x cores); --mem-min adds the new-session gate (load and free memory)
   tally cost [--json] [--days N | --range today|7d|30d|all]
                             what each project's tokens cost at list prices (default 7d), read
                             from the snapshot Tally writes after each token scan; --json is the

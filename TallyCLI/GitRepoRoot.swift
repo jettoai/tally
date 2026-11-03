@@ -199,6 +199,10 @@ struct GitDirectoryFacts: Sendable, Equatable {
 /// repo) is the one thing it cannot see; nothing in this tool does that.
 let gitFactsLifetime: TimeInterval = 5
 
+/// Whether an answer this many seconds old is still reused. A negative age (a clock that went
+/// backwards) is stale.
+private func isFresh(age: TimeInterval) -> Bool { age >= 0 && age < gitFactsLifetime }
+
 /// The only place the `rev-parse` argument vector is spelled.
 private func revParseArgs(_ flags: [String]) -> [String] {
     ["rev-parse", "--path-format=absolute"] + flags
@@ -292,7 +296,7 @@ final class GitFactsCache: @unchecked Sendable {
         let run = self.run, clock = self.clock
         slot.lock.lock()
         let now = clock()
-        if let asked = slot.asked, now - asked >= 0, now - asked < gitFactsLifetime {
+        if let asked = slot.asked, isFresh(age: now - asked) {
             let answer = slot.value
             slot.lock.unlock()
             return answer
@@ -326,7 +330,7 @@ final class GitFactsCache: @unchecked Sendable {
               let parsed = try? JSONDecoder().decode(DiskFile.self, from: data),
               parsed.v == 1 else { return [:] }
         let now = Date().timeIntervalSince1970
-        return parsed.entries.filter { now - $0.value.at >= 0 && now - $0.value.at < gitFactsLifetime }
+        return parsed.entries.filter { isFresh(age: now - $0.value.at) }
     }
 
     /// Caller holds `lock`. Once per process, on the first question: the other process's answers
@@ -360,7 +364,7 @@ final class GitFactsCache: @unchecked Sendable {
         let now = Date().timeIntervalSince1970
         for (key, entry) in mine {
             entry.lock.lock(); let value = entry.value, wall = entry.wall; entry.lock.unlock()
-            guard let value, now - wall >= 0, now - wall < gitFactsLifetime else { continue }
+            guard let value, isFresh(age: now - wall) else { continue }
             if let old = merged[key], old.at >= wall { continue }
             merged[key] = DiskEntry(at: wall, common: value.commonDir, gitDir: value.gitDir,
                                     top: value.toplevel)

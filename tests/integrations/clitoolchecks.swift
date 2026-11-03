@@ -237,9 +237,10 @@ func runCLIToolChecks(tmp: URL) throws {
           (try? String(contentsOf: stranger, encoding: .utf8)) == strangerBody
               && (try? fm.destinationOfSymbolicLink(atPath: stranger.path)) == nil)
     check("…the banner says it was left alone and gives the next step: look at it, move it aside, press Install",
-          foreignMessage == String(format: L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install."),
-                                   "ls -l \(stranger.path)", "sudo mv \(stranger.path) \(stranger.path).old")
-              && foreignMessage.contains("ls -l ") && foreignMessage.contains("sudo mv ")
+          foreignMessage == String(format: L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”; if a file named tally.old is already there, Terminal asks before replacing it. Then press Install."),
+                                   "ls -l \(stranger.path)", "sudo mv -i \(stranger.path) \(stranger.path).old")
+              && foreignMessage.contains("ls -l ") && foreignMessage.contains("sudo mv -i ") && !foreignMessage.contains("sudo mv /usr/local")
+              && foreignMessage.contains("tally.old")
               && !foreignMessage.contains("ln -sf") && !foreignMessage.contains("sudo rm") && !foreignMessage.contains("boom"))
     check("a file that appears after that look is caught by the guard's verdict, not believed away",
           Store.linkCLIElevated(at: liar, to: bundled, block: .notWritable,
@@ -322,7 +323,7 @@ func runCLIToolChecks(tmp: URL) throws {
         "The command line tool could not be installed with administrator rights. Run this in Terminal to install it: %@",
         "The command line tool was not removed because the administrator password request was cancelled. Press Remove to try again, or run this in Terminal: %@",
         "The command line tool was not removed because Tally could not remove it without administrator rights. Press Remove to try again, or run this in Terminal: %@",
-        "Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install.",
+        "Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”; if a file named tally.old is already there, Terminal asks before replacing it. Then press Install.",
     ]
     let strings = catalogue?["strings"] as? [String: Any] ?? [:]
     check("the administrator-prompt sentences are translated into every shipped language",

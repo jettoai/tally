@@ -14353,37 +14353,37 @@
         }
       }
     },
-    "Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install.": {
+    "Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”; if a file named tally.old is already there, Terminal asks before replacing it. Then press Install.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "/usr/local/bin 裡已有其他程式的 tally 檔案。Tally 沒有動它，因此命令列工具沒有安裝。要看它是什麼，請在終端機執行「%@」。確定不需要它時，用「%@」把它移開，再按「安裝」。"
+            "value": "/usr/local/bin 裡已有其他程式的 tally 檔案。Tally 沒有動它，因此命令列工具沒有安裝。要看它是什麼，請在終端機執行「%@」。確定不需要它時，用「%@」把它移開；若已有名為 tally.old 的檔案，終端機會先問你是否覆寫。然後再按「安裝」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "/usr/local/bin 中已有其他程序的 tally 文件。Tally 没有改动它，因此命令行工具没有安装。要查看它是什么，请在终端执行“%@”。确定不需要它时，用“%@”把它移开，再点“安装”。"
+            "value": "/usr/local/bin 中已有其他程序的 tally 文件。Tally 没有改动它，因此命令行工具没有安装。要查看它是什么，请在终端执行“%@”。确定不需要它时，用“%@”把它移开；若已有名为 tally.old 的文件，终端会先询问是否覆盖。然后再点“安装”。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "/usr/local/bin には別のプログラムの tally ファイルが既にあります。Tally はそれに手を触れなかったため、コマンドラインツールはインストールされていません。何のファイルか確認するには、ターミナルで「%@」を実行してください。不要であれば「%@」で移動してから、「インストール」を押してください。"
+            "value": "/usr/local/bin には別のプログラムの tally ファイルが既にあります。Tally はそれに手を触れなかったため、コマンドラインツールはインストールされていません。何のファイルか確認するには、ターミナルで「%@」を実行してください。不要であれば「%@」で移動してください。tally.old というファイルが既にある場合は、ターミナルが上書きするかどうかを先に確認します。その後「インストール」を押してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "/usr/local/bin에 다른 프로그램의 tally 파일이 이미 있습니다. Tally는 그 파일을 건드리지 않았으므로 명령줄 도구가 설치되지 않았습니다. 무엇인지 확인하려면 터미널에서 “%@”를 실행하세요. 필요 없다면 “%@”로 다른 곳으로 옮긴 다음 설치를 누르세요."
+            "value": "/usr/local/bin에 다른 프로그램의 tally 파일이 이미 있습니다. Tally는 그 파일을 건드리지 않았으므로 명령줄 도구가 설치되지 않았습니다. 무엇인지 확인하려면 터미널에서 “%@”를 실행하세요. 필요 없다면 “%@”로 다른 곳으로 옮기세요. tally.old 파일이 이미 있으면 터미널이 덮어쓸지 먼저 묻습니다. 그런 다음 설치를 누르세요."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "/usr/local/bin içinde başka bir programa ait tally dosyası zaten var. Tally ona dokunmadı, bu yüzden komut satırı aracı kurulmadı. Ne olduğunu görmek için Terminal'de “%@” komutunu çalıştırın. Gerekmiyorsa “%@” ile başka yere taşıyın, sonra Yükle'ye basın."
+            "value": "/usr/local/bin içinde başka bir programa ait tally dosyası zaten var. Tally ona dokunmadı, bu yüzden komut satırı aracı kurulmadı. Ne olduğunu görmek için Terminal'de “%@” komutunu çalıştırın. Gerekmiyorsa “%@” ile başka yere taşıyın; tally.old adlı bir dosya zaten varsa Terminal üzerine yazmadan önce sorar. Sonra Yükle'ye basın."
           }
         }
       }

@@ -296,8 +296,8 @@ extension IntegrationsStore {
         case .foreignFile:
             // Never the install command: it would replace the other program. The two commands
             // here only look at the file and move it aside, and the user decides.
-            return String(format: L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”, then press Install."),
-                          "ls -l \(shellWord(link.path))", "sudo mv \(shellWord(link.path)) \(shellWord(link.path + ".old"))")
+            return String(format: L("Another program already has a file named tally in /usr/local/bin. Tally did not touch it, so the command line tool was not installed. To see what it is, run “%@” in Terminal. If you do not need it, move it aside with “%@”; if a file named tally.old is already there, Terminal asks before replacing it. Then press Install."),
+                          "ls -l \(shellWord(link.path))", "sudo mv -i \(shellWord(link.path)) \(shellWord(link.path + ".old"))")
         case .cancelled:
             return String(format: L("The command line tool was not installed because the administrator password request was cancelled. Press Install to try again, or run this in Terminal: %@"), command)
         case .failed:

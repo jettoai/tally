@@ -52,12 +52,21 @@ enum ClaudeUsageCLI {
     /// read still runs each round, so a recovery shows on the next one.
     static let legacySkip: TimeInterval = 10 * 60
 
+    /// How long one read may take before the watchdog ends it. Measured answers took up to 88.8
+    /// seconds under load (2026-11-04, B-3918), so this leaves about a third on top of that; it only
+    /// bounds a read that never answers, because an answered read returns as soon as it answers.
+    static let readTimeout: TimeInterval = 120
+
+    /// The old read that follows an isolated read which failed without timing out gets this much,
+    /// so one round cannot cost two full `readTimeout`s.
+    static let legacyAfterMissTimeout: TimeInterval = 60
+
     /// `configDir` nil = the default `~/.claude` account, which must run with CLAUDE_CONFIG_DIR
     /// UNSET on the old read (the CLI namespaces its Keychain item by the exact env value; explicitly
     /// passing the default path makes it look up a hashed item that doesn't exist - "Not logged in").
     /// On the isolated read the same rule is expressed as `CLAUDE_SECURESTORAGE_CONFIG_DIR=""`.
     static func fetchUsageText(configDir: String?, userInitiated: Bool = false, executable: String? = nil,
-                               probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = 60,
+                               probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = readTimeout,
                                now: Date = Date()) async -> String? {
         await fetchUsage(configDir: configDir, userInitiated: userInitiated, executable: executable,
                          probeHomeRoot: probeHomeRoot, timeout: timeout, now: now).text
@@ -66,7 +75,7 @@ enum ClaudeUsageCLI {
     /// `fetchUsageText` plus whether the miss was the watchdog's: a nil text with `timedOut` means
     /// the machine was too slow to answer, not that the CLI said no (B-3918).
     static func fetchUsage(configDir: String?, userInitiated: Bool = false, executable: String? = nil,
-                           probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = 60,
+                           probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = readTimeout,
                            now: Date = Date()) async -> (text: String?, timedOut: Bool) {
         guard let binary = executable ?? devStandIn ?? CLIRunner.resolve("claude") else { return (nil, false) }
         try? FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
@@ -100,7 +109,8 @@ enum ClaudeUsageCLI {
                 log.notice("probe failed account=\(probeHomeName(configDir: configDir), privacy: .public) legacy=skipped-recent-failure")
                 return (isolated.text, false)
             }
-            let legacy = await legacyRead(binary: binary, configDir: configDir, timeout: timeout)
+            let legacy = await legacyRead(binary: binary, configDir: configDir,
+                                          timeout: min(timeout, legacyAfterMissTimeout))
             await routes.apply(memoryUpdate(reason: reason, legacy: legacy.text), key: key, now: now)
             return legacy
         }
@@ -138,10 +148,11 @@ enum ClaudeUsageCLI {
     }
 
     /// One `/usage` run. Returns stdout on success, "Not logged in" on an authentication rejection
-    /// (which commonly exits nonzero), nil otherwise. A run the watchdog ended still counts when it
-    /// had already printed the all-models week: `claude -p /usage` answers at 64 to 89 seconds
-    /// under load and then lingers 60 to 100 more before it exits (measured 2026-11-04), so the
-    /// kill lands on a finished answer more often than on an unfinished one (B-3918).
+    /// (which commonly exits nonzero), nil otherwise. The run ends the moment the all-models week is
+    /// printed (B-3918): `claude -p /usage` printed its answer 63.8 and 88.8 seconds in under load
+    /// (measured 2026-11-04) and the pipes stayed open about 90 to 100 seconds longer, mostly held by
+    /// grandchildren since the CLI itself exits sooner. The watchdog only ever cuts a read that has
+    /// printed nothing, and a run it did cut with the week already in hand still counts.
     // --strict-mcp-config: the probe must never load MCP servers (fork-bomb guard + speed).
     // --safe-mode: nor the user's hooks and plugins. This runs once a minute per account, and
     // without it every run fired the whole SessionStart hook set of ~/.claude/settings.json
@@ -158,14 +169,17 @@ enum ClaudeUsageCLI {
                         "--no-session-persistence"],
             environment: environment,
             currentDirectory: probeDirectory,
-            timeout: timeout
+            timeout: timeout,
+            answerComplete: { windows(in: $0).main }
         )
         guard let output else { return (nil, false) }
+        let first = output.firstByteSeconds.map { String(Int($0 * 1000)) } ?? "none"
+        log.notice("probe read account=\(probeHomeName(configDir: environment["CLAUDE_CONFIG_DIR"] ?? nil), privacy: .public) firstByteMs=\(first, privacy: .public) answered=\(output.answered, privacy: .public) timedOut=\(output.timedOut, privacy: .public)")
         let combined = output.stdout + "\n" + output.stderr
         // An authentication rejection commonly exits nonzero. Preserve that diagnosis only;
         // network failures and arbitrary stderr are not successful usage readings.
         if authenticationRejected(combined) { return ("Not logged in", false) }
-        guard output.exitCode == 0 || (output.timedOut && windows(in: output.stdout).main) else {
+        guard output.exitCode == 0 || output.answered || (output.timedOut && windows(in: output.stdout).main) else {
             return (nil, output.timedOut)
         }
         return (output.stdout, output.timedOut)

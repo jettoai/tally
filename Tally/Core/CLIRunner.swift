@@ -25,6 +25,11 @@ enum CLIRunner {
         /// The watchdog ended the run, as opposed to the CLI exiting on its own (B-1745): a reader
         /// can tell "took too long" from "said no" and decide whether a second attempt is worth it.
         var timedOut = false
+        /// The run was ended because `answerComplete` said the answer was all there (B-3918); the
+        /// CLI's own exit status is then the kill's, not a verdict on the answer.
+        var answered = false
+        /// Seconds from launch to the first byte on stdout; nil when nothing was printed.
+        var firstByteSeconds: TimeInterval?
     }
 
     /// What one pipe has delivered so far. Filled from the pipe's readability handler (a dispatch
@@ -42,9 +47,18 @@ enum CLIRunner {
     /// SIGTERM gets before the watchdog sends SIGKILL.
     static let pipeGrace: TimeInterval = 2
 
+    /// How long the runner keeps reading after `answerComplete` first holds, so a last line printed
+    /// right behind the one that completed the answer is still captured.
+    static let answerSettle: TimeInterval = 0.5
+
     /// Run a CLI to completion off the main actor. `environment` entries overlay the app's env;
     /// a nil value REMOVES the variable (the default-home rule: `CLAUDE_CONFIG_DIR` must be unset
     /// for `~/.claude`, or the CLI looks up a hashed Keychain item that doesn't exist).
+    ///
+    /// `answerComplete`, when given, is asked about everything stdout holds after each chunk. Once it
+    /// says yes the watchdog is disarmed and, after `answerSettle`, the child is ended and the run
+    /// returns without waiting for the pipes: a CLI that prints its answer and then lingers (or whose
+    /// grandchildren keep the pipe open) must not hold the round up (B-3918).
     static func run(
         _ executable: String,
         arguments: [String],
@@ -52,6 +66,7 @@ enum CLIRunner {
         currentDirectory: URL? = nil,
         input: String? = nil,
         timeout: TimeInterval = 30,
+        answerComplete: (@Sendable (String) -> Bool)? = nil,
         claudeInstall: ClaudeNativeInstall = .current,
         searchPath: CLISearchPath = .shared
     ) async -> Output? {
@@ -88,17 +103,27 @@ enum CLIRunner {
                 }
                 try? stdin.fileHandleForWriting.close()
 
-                // Watchdog: a wedged CLI must never stall the refresh loop.
-                // Set on the watchdog's queue and read once the child has exited; the lock orders the two.
-                let timedOut = OSAllocatedUnfairLock(initialState: false)
-                let watchdog = DispatchWorkItem {
-                    guard process.isRunning else { return }
-                    timedOut.withLock { $0 = true }
+                let launched = Date()
+                // Why the run was ended, if it was: set on the watchdog's or the settle timer's queue and
+                // read once the child has exited; the lock orders them, and whichever comes first wins.
+                let ended = OSAllocatedUnfairLock(initialState: (timedOut: false, answered: false))
+                let end: @Sendable () -> Void = {
                     process.terminate()
-                    // A CLI that ignores SIGTERM is not allowed to outlive the watchdog.
+                    // A CLI that ignores SIGTERM is not allowed to outlive its watchdog.
                     DispatchQueue.global().asyncAfter(deadline: .now() + pipeGrace) {
                         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
                     }
+                }
+                // Watchdog: a wedged CLI must never stall the refresh loop.
+                let watchdog = DispatchWorkItem {
+                    guard process.isRunning,
+                          ended.withLock({ state in
+                              guard !state.answered else { return false }
+                              state.timedOut = true
+                              return true
+                          })
+                    else { return }
+                    end()
                 }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
@@ -107,24 +132,45 @@ enum CLIRunner {
                 let outData = Captured()
                 let errorData = Captured()
                 let draining = DispatchGroup()
-                func drain(_ pipe: Pipe, into captured: Captured) {
+                let firstByte = OSAllocatedUnfairLock<TimeInterval?>(initialState: nil)
+                let settling = OSAllocatedUnfairLock(initialState: false)
+                func drain(_ pipe: Pipe, into captured: Captured, isAnswer: Bool = false) {
                     draining.enter()
                     pipe.fileHandleForReading.readabilityHandler = { handle in
                         let chunk = handle.availableData
                         if chunk.isEmpty {
                             handle.readabilityHandler = nil
                             draining.leave()
-                        } else {
-                            captured.append(chunk)
+                            return
+                        }
+                        captured.append(chunk)
+                        guard isAnswer else { return }
+                        firstByte.withLock { if $0 == nil { $0 = Date().timeIntervalSince(launched) } }
+                        guard let answerComplete,
+                              !settling.withLock({ $0 }),
+                              answerComplete(String(decoding: captured.value, as: UTF8.self))
+                        else { return }
+                        settling.withLock { $0 = true }
+                        DispatchQueue.global().asyncAfter(deadline: .now() + answerSettle) {
+                            guard process.isRunning,
+                                  ended.withLock({ state in
+                                      guard !state.timedOut else { return false }
+                                      state.answered = true
+                                      return true
+                                  })
+                            else { return }
+                            end()
                         }
                     }
                 }
-                drain(stdout, into: outData)
+                drain(stdout, into: outData, isAnswer: true)
                 drain(stderr, into: errorData)
                 process.waitUntilExit()
+                let endState = ended.withLock { $0 }
                 // EOF normally arrives with the exit; a grandchild still holding a pipe open does
                 // not get to keep this run, whatever the child managed to print is already here.
-                _ = draining.wait(timeout: .now() + pipeGrace)
+                // An answered run does not wait at all: the answer is already in.
+                if !endState.answered { _ = draining.wait(timeout: .now() + pipeGrace) }
                 stdout.fileHandleForReading.readabilityHandler = nil
                 stderr.fileHandleForReading.readabilityHandler = nil
                 watchdog.cancel()
@@ -132,7 +178,9 @@ enum CLIRunner {
                     exitCode: process.terminationStatus,
                     stdout: String(data: outData.value, encoding: .utf8) ?? "",
                     stderr: String(data: errorData.value, encoding: .utf8) ?? "",
-                    timedOut: timedOut.withLock { $0 }
+                    timedOut: endState.timedOut,
+                    answered: endState.answered,
+                    firstByteSeconds: firstByte.withLock { $0 }
                 ))
             }
         }

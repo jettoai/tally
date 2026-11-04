@@ -378,9 +378,10 @@ expect(LoginUsageHealth.updateAlert(state: perAccount, accountID: "a", authentic
        "the second provider callback cannot rearm the first account")
 perAccount = LoginUsageHealth.updateAlert(state: perAccount, accountID: "b", authenticated: true).0
 expect(perAccount.announced == ["a"], "a successful provider callback clears only its own outage")
-// MARK: A slow read that already answered, and one that never does (B-3918).
-// `claude -p /usage` printed its answer at 64 to 89 seconds under load and exited at 150 to 190;
-// the 60 second watchdog used to throw the finished answer away and then wait out the grandchildren.
+// MARK: A slow read that answers late or lingers, and one that never answers (B-3918).
+// `claude -p /usage` printed its answer 63.8 and 88.8 seconds in under load and its pipes stayed open
+// about 90 to 100 seconds longer; a fixed 60 second watchdog threw the answer away. Real time here,
+// with 3 seconds standing for the 64 to 89 second answers and a 5 second limit for the 120 second one.
 try FileManager.default.createDirectory(at: ClaudeUsageCLI.probeDirectory, withIntermediateDirectories: true)
 let answered = """
     printf 'Current week (all models): 32%% used · resets Nov 10 at 11:59pm (Asia/Taipei)\\n'
@@ -392,16 +393,32 @@ func hasMainWindow(_ text: String?) -> Bool {
 func slowAccount(_ name: String) -> String { dir.appendingPathComponent(name).path }
 let slowRoot = dir.appendingPathComponent("probe-home")
 
+// (a) The answer is printed at once and the CLI lingers: the read returns when the answer is in,
+// not when the CLI exits or the limit arrives, and it is not called a timeout.
 try script("\(answered)\nsleep 20")
-let adopted = await ClaudeUsageCLI.read(binary: stub.path, environment: ["CLAUDE_CONFIG_DIR": dir.path], timeout: 1)
-expect(adopted.timedOut && hasMainWindow(adopted.text), "(a) a run killed after it answered keeps the answer and says it timed out")
-let adoptedFetch = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a"), executable: stub.path,
-                                                   probeHomeRoot: slowRoot, timeout: 1)
-expect(adoptedFetch.timedOut && hasMainWindow(adoptedFetch.text), "(a) the whole fetch returns the answer, not a failure")
+var clock = Date()
+let adopted = await ClaudeUsageCLI.read(binary: stub.path, environment: ["CLAUDE_CONFIG_DIR": dir.path], timeout: 10)
+var took = Date().timeIntervalSince(clock)
+expect(!adopted.timedOut && hasMainWindow(adopted.text) && took < 5,
+       "(a) an answered read returns at once, with its answer, and is not a timeout (\(took)s)")
+// (a2) The answer arrives after the old 60 second mark (3 of 5 seconds here) and still counts.
+try script("sleep 3\n\(answered)\nsleep 20")
+clock = Date()
+let late = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a2"), executable: stub.path,
+                                           probeHomeRoot: slowRoot, timeout: 5)
+took = Date().timeIntervalSince(clock)
+expect(!late.timedOut && hasMainWindow(late.text) && took > 2.5 && took < 5,
+       "(a2) an answer that comes late but inside the limit is read, and the run ends with it (\(took)s)")
+// (a3) The answer comes after the limit: that is the only kind of timeout left.
+try script("sleep 4\n\(answered)\nsleep 20")
+let tooLate = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a3"), executable: stub.path,
+                                              probeHomeRoot: slowRoot, timeout: 1)
+expect(tooLate.text == nil && tooLate.timedOut, "(a3) an answer after the limit is a timeout")
+// (a4) An answer without a model week still counts; the old read confirms its shape.
 try script("printf 'Current week (all models): 32%% used\\n'\nsleep 20")
-let unconfirmed = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a2"), executable: stub.path,
-                                                  probeHomeRoot: slowRoot, timeout: 1)
-expect(unconfirmed.timedOut && hasMainWindow(unconfirmed.text), "(a) an answer without a model week is kept too")
+let unconfirmed = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a4"), executable: stub.path,
+                                                  probeHomeRoot: slowRoot, timeout: 5)
+expect(!unconfirmed.timedOut && hasMainWindow(unconfirmed.text), "(a4) an answer without a model week is kept too")
 
 // (b) The CLI ignores SIGTERM and two grandchildren keep the pipes open for 20 seconds.
 let pids = dir.appendingPathComponent("grandchildren.pid")
@@ -411,6 +428,15 @@ let held = await CLIRunner.run(stub.path, arguments: [], timeout: 1)
 let elapsed = Date().timeIntervalSince(started)
 expect(held?.timedOut == true && elapsed < 10, "(b) the runner is back within seconds of the timeout, not at the grandchildren's exit (\(elapsed)s)")
 expect(held?.stdout.contains("32% used") == true, "(b) what was printed before the kill is still returned")
+// (b2) Same CLI, but the answer ends the run: SIGTERM is ignored, so SIGKILL lands after the grace,
+// and the grandchildren holding the pipes do not hold the return.
+clock = Date()
+let heldAnswered = await CLIRunner.run(stub.path, arguments: [], timeout: 10,
+                                       answerComplete: { $0.contains("32% used") })
+took = Date().timeIntervalSince(clock)
+expect(heldAnswered?.answered == true && heldAnswered?.timedOut == false && took < 6
+       && heldAnswered?.stdout.contains("32% used") == true && heldAnswered?.firstByteSeconds != nil,
+       "(b2) an answered run that ignores SIGTERM is back within the settle and the kill grace (\(took)s)")
 for line in ((try? String(contentsOf: pids, encoding: .utf8)) ?? "").split(separator: "\n") {
     if let pid = Int32(line) { kill(pid, SIGKILL) }
 }

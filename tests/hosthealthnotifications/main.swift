@@ -11,6 +11,7 @@ enum HostAlarmMirror { static let isAlarmed = Mutex(false) }
 }
 enum HostHealthReaders {
     static let scans = Mutex(0)
+    static func memoryFreePercent() -> Int? { nil }
     static func reading() -> HostHealthReading? {
         if ProcessInfo.processInfo.environment["TALLY_TEST_MEMORY"] == "1" {
             return HostHealthReading(load1: 1, cores: 8, freeBytes: 1_073_741_824)

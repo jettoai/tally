@@ -165,6 +165,11 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(cpuAlertEnabled, forKey: CPUAlertLogic.enabledKey) }
     }
 
+    /// Banners for sustained system load or low free memory; health reporting stays active.
+    var hostHealthAlertEnabled: Bool {
+        didSet { UserDefaults.standard.set(hostHealthAlertEnabled, forKey: HostHealthLogic.alertEnabledKey) }
+    }
+
     /// Providers whose account cards are folded away behind their fleet gauge (clicking the gauge
     /// row toggles it). A view gesture, not a Settings item: the collapse only takes effect while
     /// that provider's gauge is actually on screen, so cards can never become unreachable.
@@ -335,6 +340,10 @@ final class SettingsStore {
         advisorWindowDays = UsageAdvisor.displayWindows.contains(storedWindow)
             ? storedWindow : UsageAdvisor.lookbackDays
         cpuAlertEnabled = CPUAlertLogic.isEnabled(defaults)
+        let hostAlerts = HostHealthLogic.alertsEnabled(defaults)
+        hostHealthAlertEnabled = hostAlerts
+        // Property observers do not run in init. Seed once, preserving earlier CPU-alert opt-outs.
+        defaults.set(hostAlerts, forKey: HostHealthLogic.alertEnabledKey)
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
         // ALL THREE REMEMBERED COUNTS COME BACK THROUGH THE ONE RULE

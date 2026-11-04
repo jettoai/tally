@@ -176,12 +176,8 @@ struct PanelHintGlyph<Glyph: View>: View {
     }
 }
 
-extension PanelHintGlyph where Glyph == PanelHintBars {
-    /// Three bars of different lengths, standing for the meters the bubble explains.
-    static func bars(diameter: CGFloat = 18) -> Self { Self(diameter: diameter) { PanelHintBars() } }
-}
-
-struct PanelHintBars: View {
+/// Three bars of different lengths, standing for the meters the bubble explains.
+private struct PanelHintBars: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1.5) {
             Capsule().frame(width: 9, height: 2)
@@ -223,7 +219,7 @@ private struct PanelHintBubble: View {
         let shape = PanelHintBubbleShape(arrowX: arrowX)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                PanelHintGlyph.bars()
+                PanelHintGlyph(diameter: 18) { PanelHintBars() }
                 Text(L("What's left, per account")).font(.system(size: 13, weight: .semibold))
             }
             Text(L("The bars show how much of the 5-hour and weekly limits is left, and when each one refills."))

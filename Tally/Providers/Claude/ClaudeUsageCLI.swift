@@ -162,7 +162,7 @@ enum ClaudeUsageCLI {
     // 300 files in the probe directory at steady state. The prune in `legacyRead` stays for the
     // files an older CLI, or a run from before this flag, still leaves behind.
     static func read(binary: String, environment: [String: String?],
-                             timeout: TimeInterval) async -> (text: String?, timedOut: Bool) {
+                     timeout: TimeInterval) async -> (text: String?, timedOut: Bool) {
         let output = await CLIRunner.run(
             binary,
             arguments: ["-p", "/usage", "--strict-mcp-config", "--safe-mode",

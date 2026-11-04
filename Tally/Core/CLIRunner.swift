@@ -51,6 +51,9 @@ enum CLIRunner {
     /// right behind the one that completed the answer is still captured.
     static let answerSettle: TimeInterval = 0.5
 
+    /// Why the runner ended a child itself; at most one per run.
+    private enum EndReason { case timedOut, answered }
+
     /// Run a CLI to completion off the main actor. `environment` entries overlay the app's env;
     /// a nil value REMOVES the variable (the default-home rule: `CLAUDE_CONFIG_DIR` must be unset
     /// for `~/.claude`, or the CLI looks up a hashed Keychain item that doesn't exist).
@@ -106,8 +109,15 @@ enum CLIRunner {
                 let launched = Date()
                 // Why the run was ended, if it was: set on the watchdog's or the settle timer's queue and
                 // read once the child has exited; the lock orders them, and whichever comes first wins.
-                let ended = OSAllocatedUnfairLock(initialState: (timedOut: false, answered: false))
-                let end: @Sendable () -> Void = {
+                let ended = OSAllocatedUnfairLock<EndReason?>(initialState: nil)
+                let end: @Sendable (EndReason) -> Void = { reason in
+                    guard process.isRunning,
+                          ended.withLock({ current in
+                              guard current == nil else { return false }
+                              current = reason
+                              return true
+                          })
+                    else { return }
                     process.terminate()
                     // A CLI that ignores SIGTERM is not allowed to outlive its watchdog.
                     DispatchQueue.global().asyncAfter(deadline: .now() + pipeGrace) {
@@ -115,16 +125,7 @@ enum CLIRunner {
                     }
                 }
                 // Watchdog: a wedged CLI must never stall the refresh loop.
-                let watchdog = DispatchWorkItem {
-                    guard process.isRunning,
-                          ended.withLock({ state in
-                              guard !state.answered else { return false }
-                              state.timedOut = true
-                              return true
-                          })
-                    else { return }
-                    end()
-                }
+                let watchdog = DispatchWorkItem { end(.timedOut) }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
                 // Both pipes are drained concurrently as the child writes: reading one to EOF while
@@ -151,26 +152,17 @@ enum CLIRunner {
                               answerComplete(String(decoding: captured.value, as: UTF8.self))
                         else { return }
                         settling.withLock { $0 = true }
-                        DispatchQueue.global().asyncAfter(deadline: .now() + answerSettle) {
-                            guard process.isRunning,
-                                  ended.withLock({ state in
-                                      guard !state.timedOut else { return false }
-                                      state.answered = true
-                                      return true
-                                  })
-                            else { return }
-                            end()
-                        }
+                        DispatchQueue.global().asyncAfter(deadline: .now() + answerSettle) { end(.answered) }
                     }
                 }
                 drain(stdout, into: outData, isAnswer: true)
                 drain(stderr, into: errorData)
                 process.waitUntilExit()
-                let endState = ended.withLock { $0 }
+                let endReason = ended.withLock { $0 }
                 // EOF normally arrives with the exit; a grandchild still holding a pipe open does
                 // not get to keep this run, whatever the child managed to print is already here.
                 // An answered run does not wait at all: the answer is already in.
-                if !endState.answered { _ = draining.wait(timeout: .now() + pipeGrace) }
+                if endReason != .answered { _ = draining.wait(timeout: .now() + pipeGrace) }
                 stdout.fileHandleForReading.readabilityHandler = nil
                 stderr.fileHandleForReading.readabilityHandler = nil
                 watchdog.cancel()
@@ -178,8 +170,8 @@ enum CLIRunner {
                     exitCode: process.terminationStatus,
                     stdout: String(data: outData.value, encoding: .utf8) ?? "",
                     stderr: String(data: errorData.value, encoding: .utf8) ?? "",
-                    timedOut: endState.timedOut,
-                    answered: endState.answered,
+                    timedOut: endReason == .timedOut,
+                    answered: endReason == .answered,
                     firstByteSeconds: firstByte.withLock { $0 }
                 ))
             }

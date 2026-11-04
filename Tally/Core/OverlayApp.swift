@@ -19,6 +19,12 @@ enum OverlayApp {
     @MainActor static var noUpdateNote: String? { nil }
     /// The edition badge in the Settings window's title bar; the public build shows none.
     @MainActor @ViewBuilder static var titlebarEditionBadge: some View { EmptyView() }
+    /// What a private build says in the first-run welcome window's opening title and sentence; nil keeps
+    /// the public wording.
+    @MainActor static var welcomeTitle: String? { nil }
+    @MainActor static var welcomeSubtitle: String? { nil }
+    /// A mark a private build shows after that title; the public build shows none.
+    @MainActor @ViewBuilder static var welcomeTitleBadge: some View { EmptyView() }
 }
 
 extension PopoverRootView {

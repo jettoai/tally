@@ -14,10 +14,13 @@ struct WelcomeView: View {
                 .resizable().interpolation(.high)
                 .frame(width: 68, height: 68)
                 .padding(.top, 16)   // under the 28pt title bar strip: 44pt from the window's top
-            Text(title(screen))
-                .font(.system(size: 22, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .padding(.top, 22)
+            HStack(spacing: 10) {
+                Text(title(screen))
+                    .font(.system(size: 22, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                if screen == .detecting { OverlayApp.welcomeTitleBadge }
+            }
+            .padding(.top, 22)
             if let sub = subtitle(screen) {
                 Text(sub)
                     .font(.system(size: 13.5)).foregroundStyle(.secondary)
@@ -40,7 +43,7 @@ struct WelcomeView: View {
 
     private func title(_ screen: WelcomeScreen) -> String {
         switch screen {
-        case .detecting: return L("Tally is in your menu bar")
+        case .detecting: return OverlayApp.welcomeTitle ?? L("Tally is in your menu bar")
         case .found:
             let n = store.rows.count
             return n == 1 ? L("Found 1 account") : String(format: L("Found %lld accounts"), n)
@@ -56,7 +59,7 @@ struct WelcomeView: View {
     private func subtitle(_ screen: WelcomeScreen) -> String? {
         switch screen {
         case .detecting:
-            return L("It shows every Claude and Codex account you pay for, side by side. Click it any time.")
+            return OverlayApp.welcomeSubtitle ?? L("It shows every Claude and Codex account you pay for, side by side. Click it any time.")
         case .found:
             let from = WelcomeCopy.readFrom(store.foundProviders)
             return store.rows.count == 1

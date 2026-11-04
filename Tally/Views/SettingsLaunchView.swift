@@ -57,7 +57,7 @@ struct SettingsLaunchView: View {
             if descriptors.isEmpty {
                 SettingsCard {
                     Text(L("Enable a provider in Accounts to configure launches."))
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(20)
                 }

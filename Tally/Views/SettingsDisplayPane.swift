@@ -54,7 +54,7 @@ extension SettingsView {
         SettingsSection(L("Pinned window"), symbol: "pin") {
             VStack(alignment: .leading, spacing: 14) {
                 Text(L("Show it in full or as a compact strip like the menu bar."))
-                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 PinnedStylePicker(selection: $settings.pinnedStyle)
             }

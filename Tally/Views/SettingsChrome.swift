@@ -5,25 +5,34 @@ import SwiftUI
 /// step darker than the white cards on it, section headers that run a hairline to the edge. Values
 /// follow Jetto Voice's settings so the two apps read as one family.
 enum SettingsChrome {
-    static let sidebarWidth: CGFloat = 220
+    static let sidebarWidth: CGFloat = 200
     /// The pages' rhythm (B-2526, Voice's values): the gap between sections, a section title to its
     /// card, a row's insets and floor, and the identity card's inset.
-    static let sectionGap: CGFloat = 20
-    static let headerToCard: CGFloat = 10
-    static let rowInsetH: CGFloat = 20
-    static let rowInsetV: CGFloat = 10
+    static let sectionGap: CGFloat = 18
+    static let headerToCard: CGFloat = 8
+    static let rowInsetH: CGFloat = 16
+    static let rowInsetV: CGFloat = 9
     static let rowMinHeight: CGFloat = 44
     static let heroInset: CGFloat = 20
-    /// Where a row's divider starts: under the title column (20 inset + 24 icon + 12 gap), or at the
+    /// A row's icon slot and the gap after it.
+    static let rowIconSlot: CGFloat = 20
+    static let rowIconGap: CGFloat = 12
+    /// Where a row's divider starts: under the title column (inset + icon slot + gap), or at the
     /// inset when the row has no icon.
-    static let dividerInsetIcon: CGFloat = 56
-    static let dividerInsetPlain: CGFloat = 20
+    static var dividerInsetIcon: CGFloat { rowInsetH + rowIconSlot + rowIconGap }
+    static var dividerInsetPlain: CGFloat { rowInsetH }
+    /// The sidebar's rhythm: its outer inset, a row's padding and icon slot, the gap between rows.
+    static let sidebarInset: CGFloat = 8
+    static let sidebarRowPadV: CGFloat = 6
+    static let sidebarRowPadH: CGFloat = 8
+    static let sidebarRowSpacing: CGFloat = 4
+    static let sidebarIconSlot: CGFloat = 20
     /// The page's inset inside the scroll view, and the content column it sits in: window content
-    /// width = sidebar 220 + column, the column being a card plus two insets (the card is 732
-    /// wide, `AccountTableStyle`, so the column is 788).
-    static let paneInsetH: CGFloat = 28
-    static let paneInsetTop: CGFloat = 22
-    static let paneInsetBottom: CGFloat = 24
+    /// width = sidebar + column, the column being a card plus two insets (the card is
+    /// `AccountTableStyle.cardWidth` wide).
+    static let paneInsetH: CGFloat = 24
+    static let paneInsetTop: CGFloat = 18
+    static let paneInsetBottom: CGFloat = 20
     static var contentWidth: CGFloat { AccountTableStyle.current.cardWidth + 2 * paneInsetH }
     static let sidebar = adaptive(light: 0xEBEBED, dark: 0x28282A)
     static let page = adaptive(light: 0xF3F3F5, dark: 0x1C1C1E)
@@ -41,6 +50,28 @@ enum SettingsChrome {
                            blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
         })
     }
+}
+
+/// The Settings window's type scale (B-3747), measured against System Settings side by side:
+/// row titles and the sidebar at 13 like it, descriptions one step down, the page title at 20.
+enum SettingsType {
+    static let pageTitle: CGFloat = 20
+    static let pageSubtitle: CGFloat = 12
+    static let sectionTitle: CGFloat = 13
+    static let sectionIcon: CGFloat = 12
+    static let count: CGFloat = 11
+    static let rowTitle: CGFloat = 13
+    static let rowSubtitle: CGFloat = 11
+    static let rowIcon: CGFloat = 15
+    static let body: CGFloat = 12
+    static let badge: CGFloat = 11
+    static let info: CGFloat = 11
+    static let noticeTitle: CGFloat = 12
+    static let noticeMessage: CGFloat = 11
+    static let noticeIcon: CGFloat = 13
+    static let action: CGFloat = 12
+    static let actionIcon: CGFloat = 11
+    static let sidebar: CGFloat = 13
 }
 
 /// A grouped card: white on the page in light mode with a faint shadow, a 6% white wash in dark.

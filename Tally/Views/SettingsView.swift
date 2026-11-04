@@ -30,8 +30,8 @@ struct SettingsView: View {
     @State private var paneHeights: [Section: CGFloat] = [:]
     /// The sidebar row under the pointer, for its hover wash.
     @State private var hoveredSection: Section?
-    /// The pane's vertical inset inside the scroll view (top 30 + bottom 32), counted into every
-    /// reported height; the horizontal 28 is `SettingsChrome.paneInsetH`.
+    /// The pane's vertical inset inside the scroll view (`paneInsetTop` + `paneInsetBottom`), counted
+    /// into every reported height; the horizontal one is `SettingsChrome.paneInsetH`.
     private static let paneInsetV = SettingsChrome.paneInsetTop + SettingsChrome.paneInsetBottom
     /// A request to scroll the pane in front to the group tagged with this id (`.id(...)` on the
     /// group); consumed on arrival. Set it together with `select(_:)` to land on a group of another
@@ -146,7 +146,7 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             rows
-                .padding(10)
+                .padding(SettingsChrome.sidebarInset)
                 .background(heightProbe { sidebarHeight = $0 })
             Spacer(minLength: 0)   // outside the probe: it fills the window being measured for
             overlaySidebarFooter
@@ -155,7 +155,7 @@ struct SettingsView: View {
     }
 
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: SettingsChrome.sidebarRowSpacing) {
             ForEach(shownSections, id: \.self) { item in
                 let selected = section == item
                 Button {
@@ -163,13 +163,13 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: sidebarSymbol(item))
-                            .font(.system(size: 15))
-                            .frame(width: 22)
-                        Text(sidebarTitle(item)).font(.system(size: 15, weight: selected ? .medium : .regular))
+                            .font(.system(size: SettingsType.sidebar))
+                            .frame(width: SettingsChrome.sidebarIconSlot)
+                        Text(sidebarTitle(item)).font(.system(size: SettingsType.sidebar, weight: selected ? .medium : .regular))
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, SettingsChrome.sidebarRowPadH)
+                    .padding(.vertical, SettingsChrome.sidebarRowPadV)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)

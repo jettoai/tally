@@ -207,9 +207,9 @@ extension SettingsView {
                     title: String(format: L("Tally enabled %@ for your Claude accounts."), component.title()),
                     message: L("Your other Claude integrations were already installed, so this one followed. Undo removes it again, and Tally will not put it back.")) {
                     Button(L("Undo")) { integrations.undoAutoFollow(component) }
-                        .buttonStyle(.borderless).font(.system(size: 13, weight: .medium))
+                        .buttonStyle(.borderless).font(.system(size: SettingsType.noticeTitle, weight: .medium))
                     Button(L("Dismiss")) { integrations.dismissAutoFollowNotice(key) }
-                        .buttonStyle(.borderless).font(.system(size: 13, weight: .medium))
+                        .buttonStyle(.borderless).font(.system(size: SettingsType.noticeTitle, weight: .medium))
                 }
             }
         }

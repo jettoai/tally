@@ -1,12 +1,12 @@
 import SwiftUI
 
 // The Settings window's shared page vocabulary (B-2526), laid out like Jetto Voice's settings so the
-// two apps read as one family: a page header (26 bold title, 13 subtitle, page-level actions on the
-// right), section titles OUTSIDE their card, one card per section, and rows at two type sizes
-// (15 medium title, 13 secondary description at most two lines). Every pane builds from these;
-// nothing here knows about a particular pane.
+// two apps read as one family: a page header (title, subtitle, page-level actions on the right),
+// section titles OUTSIDE their card, one card per section, and rows at two type sizes (title,
+// secondary description at most two lines). The type scale lives in `SettingsType`. Every pane
+// builds from these; nothing here knows about a particular pane.
 
-/// A page: header first, then sections, 28pt apart.
+/// A page: header first, then sections, `SettingsChrome.sectionGap` apart.
 struct SettingsPage<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -17,7 +17,7 @@ struct SettingsPage<Content: View>: View {
 
 // MARK: - Page header
 
-/// 26 bold title over a 13 secondary subtitle (two lines at most, so a long CJK sentence still
+/// Bold title over a secondary subtitle (two lines at most, so a long CJK sentence still
 /// says its point), with the page's own actions on the right.
 struct SettingsPageHeader<Trailing: View>: View {
     let title: String
@@ -26,11 +26,11 @@ struct SettingsPageHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 26, weight: .bold))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: SettingsType.pageTitle, weight: .bold))
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 13))
+                        .font(.system(size: SettingsType.pageSubtitle))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -49,7 +49,7 @@ extension SettingsPageHeader where Trailing == EmptyView {
     }
 }
 
-/// The face of a page-level action: 32 high, a card surface, 12 semibold icon and 13 medium title.
+/// The face of a page-level action: 28 high, a card surface, a semibold icon and a medium title.
 /// `destructive` turns icon and title red and the hover wash red. Public so a `Menu` can wear it.
 struct PageActionLabel: View {
     let title: String
@@ -60,13 +60,13 @@ struct PageActionLabel: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         HStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+            Image(systemName: symbol).font(.system(size: SettingsType.actionIcon, weight: .semibold))
             Text(title)
         }
-        .font(.system(size: 13, weight: .medium))
+        .font(.system(size: SettingsType.action, weight: .medium))
         .foregroundStyle(destructive ? Color(nsColor: .systemRed) : Color.primary)
-        .padding(.horizontal, 12)
-        .frame(height: 32)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
         .background(shape.fill(destructive && hovered ? Color(nsColor: .systemRed).opacity(0.08) : .clear))
         .modifier(SettingsCardSurface(cornerRadius: 8, highlighted: hovered))
         .contentShape(shape)
@@ -93,7 +93,7 @@ struct PageActionButton: View {
 
 // MARK: - Sections and cards
 
-/// A section's title above its card: optional icon (18 wide), 15 semibold secondary, an optional
+/// A section's title above its card: optional icon (16 wide), semibold secondary, an optional
 /// count, a hairline running to the trailing edge. Nothing sits to its right.
 struct SettingsSectionTitle<Icon: View>: View {
     let title: String
@@ -103,10 +103,10 @@ struct SettingsSectionTitle<Icon: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let icon { icon.font(.system(size: 14)).frame(width: 18) }
-            Text(title).font(.system(size: 15, weight: .semibold))
+            if let icon { icon.font(.system(size: SettingsType.sectionIcon)).frame(width: 16) }
+            Text(title).font(.system(size: SettingsType.sectionTitle, weight: .semibold))
             if let count {
-                Text("\(count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(.tertiary)
+                Text("\(count)").font(.system(size: SettingsType.count).monospacedDigit()).foregroundStyle(.tertiary)
             }
             Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1 / displayScale).padding(.leading, 2)
         }
@@ -165,8 +165,8 @@ extension SettingsSection {
 
 // MARK: - Rows
 
-/// The line between two rows: 1 physical pixel, from the text column (`inset` 56 with an icon, 20
-/// without; `SettingsChrome.dividerInsetIcon` / `dividerInsetPlain`).
+/// The line between two rows: 1 physical pixel, from the text column (`SettingsChrome.dividerInsetIcon`
+/// with an icon, `dividerInsetPlain` without).
 struct SettingsDivider: View {
     var inset: CGFloat = SettingsChrome.dividerInsetIcon
     @Environment(\.displayScale) private var displayScale
@@ -180,11 +180,11 @@ struct SettingsDivider: View {
 /// (`SettingsRowLabel`), this only says that there is one.
 struct SettingsInfoGlyph: View {
     var body: some View {
-        Image(systemName: "info.circle").font(.system(size: 12)).foregroundStyle(.tertiary)
+        Image(systemName: "info.circle").font(.system(size: SettingsType.info)).foregroundStyle(.tertiary)
     }
 }
 
-/// A row's left side: optional 17pt line icon in a 24-wide slot, 15 medium title, 13 description
+/// A row's left side: optional line icon in a `rowIconSlot`-wide slot, medium title, description
 /// held to two lines. `info` is the long explanation: it moves into a hover and adds the glyph.
 struct SettingsRowLabel: View {
     let title: String
@@ -195,19 +195,20 @@ struct SettingsRowLabel: View {
     var tooltipPreview: TallyTooltip.PreviewTarget?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: SettingsChrome.rowIconGap) {
             if let icon {
-                Image(systemName: icon).font(.system(size: 17)).foregroundStyle(.secondary).frame(width: 24)
+                Image(systemName: icon).font(.system(size: SettingsType.rowIcon)).foregroundStyle(.secondary)
+                    .frame(width: SettingsChrome.rowIconSlot)
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                    Text(title).font(.system(size: SettingsType.rowTitle, weight: .medium)).lineLimit(1)
                     if let info, !info.isEmpty { SettingsInfoGlyph() }
                 }
                 .tallyTooltipTitle()
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.system(size: SettingsType.rowSubtitle))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -221,8 +222,8 @@ struct SettingsRowLabel: View {
     }
 }
 
-/// One row of a card: label on the left, its control on the right at natural width. 20x10 insets,
-/// at least 52 high, a 3% wash under the pointer.
+/// One row of a card: label on the left, its control on the right at natural width. Insets
+/// `rowInsetH` x `rowInsetV`, at least `rowMinHeight` high, a 3% wash under the pointer.
 struct SettingsRow<Accessory: View>: View {
     let title: String
     var subtitle: String?
@@ -266,7 +267,7 @@ struct SettingsToggleRow: View {
 }
 
 /// A setting that belongs to the row above it (quiet hours under a relay switch): the next row of
-/// the same card, text aligned under the parent's title, no icon, 13 secondary, 40 high.
+/// the same card, text aligned under the parent's title, no icon, secondary, 36 high.
 struct SettingsSubRow<Accessory: View>: View {
     let title: String
     var tint: Color?
@@ -281,7 +282,7 @@ struct SettingsSubRow<Accessory: View>: View {
         HStack(alignment: .center, spacing: 16) {
             HStack(spacing: 4) {
                 Text(title)
-                    .font(.system(size: 12))
+                    .font(.system(size: SettingsType.rowSubtitle))
                     .foregroundStyle(tint ?? Color.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -295,7 +296,7 @@ struct SettingsSubRow<Accessory: View>: View {
         .padding(.leading, SettingsChrome.dividerInsetIcon)
         .padding(.trailing, SettingsChrome.rowInsetH)
         .padding(.vertical, 6)
-        .frame(minHeight: 40)
+        .frame(minHeight: 36)
     }
 }
 
@@ -307,7 +308,7 @@ extension SettingsSubRow where Accessory == EmptyView {
 
 // MARK: - Status, notices
 
-/// "● Installed", "● Needs attention": a 6pt dot and 12 medium text, no fill and no frame.
+/// "● Installed", "● Needs attention": a 6pt dot and medium text, no fill and no frame.
 struct SettingsStatusBadge: View {
     enum Tone { case good, goodMuted, attention, neutral }
 
@@ -317,7 +318,7 @@ struct SettingsStatusBadge: View {
     var body: some View {
         HStack(spacing: 5) {
             if tone != .neutral { Circle().fill(dot).frame(width: 6, height: 6) }
-            Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(ink)
+            Text(text).font(.system(size: SettingsType.badge, weight: .medium)).foregroundStyle(ink)
         }
     }
 
@@ -345,12 +346,12 @@ struct SettingsNoticeBar<Trailing: View>: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         HStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(tint)
+            Image(systemName: symbol).font(.system(size: SettingsType.noticeIcon)).foregroundStyle(tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .medium))
+                Text(title).font(.system(size: SettingsType.noticeTitle, weight: .medium))
                 if let message, !message.isEmpty {
                     Text(message)
-                        .font(.system(size: 11))
+                        .font(.system(size: SettingsType.noticeMessage))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -359,7 +360,7 @@ struct SettingsNoticeBar<Trailing: View>: View {
             Spacer(minLength: 8)
             trailing
         }
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(shape.fill(tint.opacity(0.06)))
         .overlay(shape.strokeBorder(tint.opacity(0.2), lineWidth: 0.5))

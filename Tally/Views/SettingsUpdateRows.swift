@@ -62,7 +62,7 @@ struct SettingsUpdateRows: View {
             // The link to GitHub Releases is on the identity card, beside the version.
             Text(OverlayApp.noUpdateNote
                  ?? L("This build has no update feed; download new versions from GitHub Releases."))
-                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, SettingsChrome.rowInsetH)

@@ -10,13 +10,13 @@ enum AccountTableStyle {
 
     static let current = AccountTableStyle.standard
 
-    var name: CGFloat { 14 }
-    var secondary: CGFloat { 12 }
-    var figure: CGFloat { 13 }
-    var rowHeight: CGFloat { 30 }
+    var name: CGFloat { 13 }
+    var secondary: CGFloat { 11 }
+    var figure: CGFloat { 12 }
+    var rowHeight: CGFloat { 28 }
     /// The card is 732 wide; the content column adds the page's two insets.
     /// Sized so a full "100%" fits a figure column, a 21-character address shows whole, and the English
-    /// headers "Sharing", "Menu bar" and "Enabled" keep 8pt between them (measured at 13pt).
+    /// headers "Sharing", "Menu bar" and "Enabled" keep 8pt between them (re-measure when `secondary` changes).
     var cardWidth: CGFloat { 732 }
 
     var lead: CGFloat { 24 }

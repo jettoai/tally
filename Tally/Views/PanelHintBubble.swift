@@ -205,15 +205,19 @@ struct PanelHintButtonStyle: ButtonStyle {
 }
 
 /// The first hint: a frosted bubble (material under a 92% window-colour wash, hairline edge, two
-/// shadows) whose arrow points up at the meter it explains.
+/// shadows) whose arrow points up at the meter it explains. On a dark glass panel it is solid black
+/// instead (see the background).
 private struct PanelHintBubble: View {
     static let width: CGFloat = 250
+    /// The bubble's fill on a dark glass panel (see the background below).
+    static let darkGlassFill = Color.black
 
     /// The arrow's centre, from the bubble's leading edge.
     let arrowX: CGFloat
     let onGotIt: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.tallyCardStyle) private var cardStyle
 
     var body: some View {
         let shape = PanelHintBubbleShape(arrowX: arrowX)
@@ -233,10 +237,17 @@ private struct PanelHintBubble: View {
         .padding(.top, PanelHintBubbleShape.arrow.height)
         .frame(width: Self.width, alignment: .leading)
         .background {
-            shape.fill(.regularMaterial)
-            shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
-            // Dark: the wash alone is the panel's own near-black, so lift the bubble one step above it.
-            if colorScheme == .dark { shape.fill(Color.white.opacity(0.10)) }
+            if colorScheme == .dark && cardStyle != .solid {
+                // Dark glass follows the desktop, from 28.5 over black to 175.6 over white (B-3747 probe):
+                // every fixed grey that copy stays readable on falls inside that range somewhere. Black
+                // sits below the darkest glass and keeps each line of copy above 6:1.
+                shape.fill(Self.darkGlassFill)
+            } else {
+                shape.fill(.regularMaterial)
+                shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
+                // Dark: the wash alone is the panel's own near-black, so lift the bubble one step above it.
+                if colorScheme == .dark { shape.fill(Color.white.opacity(0.10)) }
+            }
         }
         .overlay { shape.stroke(colorScheme == .dark ? Color.white.opacity(0.22) : Color.primary.opacity(0.08), lineWidth: TallyMetrics.hairline) }
         .compositingGroup()

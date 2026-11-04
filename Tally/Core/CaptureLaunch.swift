@@ -68,7 +68,7 @@ enum CaptureLaunch {
         "TallyTooltipPreview",  // one callout, which otherwise needs a real hover
         "TallyEmptyStatePreview",
         welcomePreview,         // the welcome window on one named screen, fixtures only (Dev or demo)
-        panelHintPreview,       // the panel's first hint or the tally-command invite, held (Dev or demo)
+        panelHintPreview,       // the panel's first hint, the tally-command invite, or neither (`off`), held (Dev or demo)
         commandPreview,         // the "Add the tally command" window on one named screen (Dev or demo)
         overlayPreview,         // a private build's own surface on one named screen (Dev or demo)
         "TallyTokenGraphPreview",

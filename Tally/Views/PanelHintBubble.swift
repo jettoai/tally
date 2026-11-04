@@ -12,7 +12,7 @@ final class PanelHintMemory {
     private(set) var seen: Bool
     private(set) var opens: Int
     private(set) var inviteDismissed: Bool
-    /// `-TallyPanelHintPreview hint|invite`: Dev builds and demo data only, like every capture flag.
+    /// `-TallyPanelHintPreview hint|invite|off`: Dev builds and demo data only, like every capture flag.
     static var preview: PanelHints.Preview? {
         guard BuildVariant.isDev || DemoUsage.isActive else { return nil }
         return PanelHints.preview(named: UserDefaults.standard.string(forKey: CaptureLaunch.panelHintPreview))

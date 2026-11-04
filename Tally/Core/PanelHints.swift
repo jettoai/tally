@@ -36,11 +36,12 @@ enum PanelHints {
     }
 
     /// The preview flag's value: which hint a held capture shows (`-TallyPanelHintPreview`).
-    enum Preview: Equatable { case bubble, invite }
+    enum Preview: Equatable { case bubble, invite, off }
     static func preview(named name: String?) -> Preview? {
         switch name?.lowercased() {
         case "hint": return .bubble
         case "invite": return .invite
+        case "off": return .off
         default: return nil
         }
     }

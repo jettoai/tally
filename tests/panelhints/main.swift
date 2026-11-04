@@ -54,6 +54,8 @@ expect(PanelHints.preview(named: "hint") == .bubble && PanelHints.preview(named:
        "the preview flag names the hint or the invite, case-insensitively")
 expect(PanelHints.preview(named: nil) == nil && PanelHints.preview(named: "YES") == nil
         && PanelHints.preview(named: "") == nil, "no value, or one that names nothing, holds nothing")
+expect(PanelHints.preview(named: "off") == .off && PanelHints.preview(named: "OFF") == .off,
+       "the off value holds a panel with neither first-run hint")
 expect(TallyCommandScreen.preview(named: "confirm") == .confirm
         && TallyCommandScreen.preview(named: "done") == .done
         && TallyCommandScreen.preview(named: "failed-cancelled") == .failed(.cancelled)
@@ -108,6 +110,10 @@ if let snapshot = bubble.range(of: "seenAtAppear = memory.seen"),
     expect(snapshot.lowerBound < count.lowerBound,
            "the appearance reads whether the hint was answered before it counts itself")
 } else { expect(false, "the appearance reads whether the hint was answered before it counts itself") }
+expect(bubble.contains("PanelHintBubble(arrowX: tip.x - x) { memory.markSeen() }")
+        && bubble.contains("held == .bubble && !memory.seen")
+        && bubble.contains("showsBubble(seen: memory.seen"),
+       "the Got it button marks the hint seen, and both the held and the normal path read that")
 let root = source("Tally/Views/PopoverRootView.swift")
 expect(root.contains("PanelHintsSection(store: store"), "the panel hosts the nudges")
 let invite = source("Tally/Views/TallyCommandInviteCard.swift")

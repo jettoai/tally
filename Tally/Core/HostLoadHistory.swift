@@ -137,10 +137,8 @@ func readHostLoadSamples(in directory: URL) -> HostLoadRead {
     for name in names where isHostLoadFileName(name) {
         guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { continue }
         var pieces = data.split(separator: 0x0A, omittingEmptySubsequences: false)
-        if !pieces.isEmpty { // `split` leaves "" after the final newline, or the unterminated tail
-            let tail = pieces.removeLast()
-            if !tail.isEmpty { result.corruptLines += 1 }
-        }
+        // `split` leaves "" after the final newline, or the unterminated tail
+        if pieces.popLast()?.isEmpty == false { result.corruptLines += 1 }
         for piece in pieces {
             let text = String(decoding: piece, as: UTF8.self)
             if let sample = parseHostLoadLine(text, formatter: formatter) { all.append(sample) }

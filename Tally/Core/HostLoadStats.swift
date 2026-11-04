@@ -225,7 +225,7 @@ enum HostLoadStats {
             for gate in report.gates {
                 row += pad(rate(gate.days[index].tally.rate), 10)
             }
-            if Double(tally.samples) < Double(tally.expected) / 2 { row += "(partial)" }
+            if tally.samples * 2 < tally.expected { row += "(partial)" }
             out.append(row)
         }
         if let first = report.gates.first {

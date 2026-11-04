@@ -41,6 +41,7 @@ struct AccountCardView: View {
                                   settlingReset: facts.isSettlingReset,
                                   resetPassed: usage.resetPassed(headline),
                                   reserve: facts.reservePercent, isHeadline: true)
+                        .anchorPreference(key: PanelHintTargetKey.self, value: .bounds) { [usage.id: $0] }
                 }
                 if !facts.secondaryMetrics.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {

@@ -110,6 +110,24 @@ if let snapshot = bubble.range(of: "seenAtAppear = memory.seen"),
 } else { expect(false, "the appearance reads whether the hint was answered before it counts itself") }
 let root = source("Tally/Views/PopoverRootView.swift")
 expect(root.contains("PanelHintsSection(store: store"), "the panel hosts the nudges")
+let invite = source("Tally/Views/TallyCommandInviteCard.swift")
+expect(!bubble.contains("systemBlue") && !invite.contains("systemBlue") && !invite.contains(".borderedProminent"),
+       "neither first-run hint is drawn in the system blue")
+expect(!bubble.contains("width - 250 - 126"),
+       "the bubble's arrow is placed from a measured meter, not from the panel width")
+let rowSource = source("Tally/Views/AccountListRowView.swift"), cardSource = source("Tally/Views/AccountCardView.swift")
+expect(rowSource.contains("anchorPreference(key: PanelHintTargetKey.self")
+        && cardSource.contains("anchorPreference(key: PanelHintTargetKey.self")
+        && root.contains("overlayPreferenceValue(PanelHintTargetKey.self"),
+       "both densities report their first meter, and the panel places the bubble from it")
+if let scrollEnd = root.range(of: "accountPoolTitle"),
+   let section = root.range(of: "PanelHintsSection(store: store") {
+    let after = root[section.upperBound...]
+    expect(scrollEnd.upperBound < section.lowerBound
+            && after.prefix(200).contains(".fixedSize(horizontal: false, vertical: true)")
+            && !root.contains("PanelHintsSection(store: store, width:"),
+           "the invite is held under the scroll view at its own height, so a capped panel cannot scroll it away")
+} else { expect(false, "the invite is held under the scroll view at its own height, so a capped panel cannot scroll it away") }
 let controller = source("Tally/MenuBar/TallyCommandWindowController.swift")
 expect(controller.contains("BuildVariant.isDev || DemoUsage.isActive")
         && controller.components(separatedBy: "flagsHonoured").count >= 3,

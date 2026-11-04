@@ -99,6 +99,7 @@ struct AccountListRowView: View {
                             .layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))
                     }
                 }
+                .anchorPreference(key: PanelHintTargetKey.self, value: .bounds) { [usage.id: $0] }
                 .layoutPriority(-1)
             }
             trailingControls

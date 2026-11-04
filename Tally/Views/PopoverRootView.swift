@@ -155,8 +155,20 @@ struct PopoverRootView: View {
                                     // padding read as a hollow band (see `showsAccountRegion`).
                                     if store.contentState != .hasAccounts || showsAccountRegion { content }
                                 }
+                                // Only as tall as the bubble needs to fit; 0 when it is not showing.
+                                .frame(minHeight: hintRoom, alignment: .topLeading)
+                                // The first-run bubble floats over the cards, pointing at the first
+                                // meter on screen (PanelHints), so it takes no room of its own.
+                                .overlayPreferenceValue(PanelHintTargetKey.self, alignment: .topLeading) {
+                                    PanelHintBubbleOverlay(store: store, targets: $0, room: $hintRoom)
+                                }
                             }
                             .frame(width: popoverWidth, alignment: .leading)
+                            // The invite stays outside the scroll view: a panel capped to a short
+                            // display scrolled it out of sight when it was the last thing inside.
+                            if showsPanelHints {
+                                PanelHintsSection(store: store).fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                         .transition(Self.tabTransition)
                     }
@@ -340,6 +352,13 @@ struct PopoverRootView: View {
     /// style can change under a surface that is already open (see `trackingScrollerGutter`).
     var scrollContentWidth: CGFloat { popoverWidth - scrollerGutter }
     @State private var scrollerGutter = ScreenFitStack.scrollerGutter
+    /// How tall the scrolling content must be for the first-run bubble to fit (`PanelHintBubbleOverlay`).
+    @State private var hintRoom: CGFloat = 0
+
+    /// The invite shows with accounts on screen, never over the forced empty-state capture.
+    private var showsPanelHints: Bool {
+        !UserDefaults.standard.bool(forKey: "TallyEmptyStatePreview") && store.contentState == .hasAccounts
+    }
 
     /// The cap actually in force. A surface can change screens without anything the layout reads
     /// changing - dragged to another display, or one unplugged out from under it - and then it
@@ -408,8 +427,6 @@ struct PopoverRootView: View {
                     if !active { cardLift = nil }
                 }
                 .onDisappear { cardLift = nil }
-            // The two one-time nudges, under the cards (PanelHints).
-            PanelHintsSection(store: store, width: scrollContentWidth)
         }
     }
 

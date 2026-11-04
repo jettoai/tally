@@ -249,5 +249,10 @@ func runCodexInputPTYReader() -> Never {
         usleep(10_000)
     }
     print(Data(bytes).base64EncodedString()); fflush(stdout)
+    // stdin and stdout share one open file description, so the O_NONBLOCK set above also makes
+    // this process's last close of the PTY non-blocking, and the tty layer then flushes the
+    // receipt instead of waiting for the fixture to read it. Restore blocking and drain first.
+    _ = fcntl(STDIN_FILENO, F_SETFL, 0)
+    tcdrain(STDOUT_FILENO)
     exit(bytes.count == expected ? 0 : 22)
 }

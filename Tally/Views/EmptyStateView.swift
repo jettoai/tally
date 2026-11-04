@@ -55,12 +55,12 @@ struct EmptyStateView: View {
             if hasAction {
                 HStack(spacing: 0) {
                     dragSlack
-                    Button(L("Open Settings")) { openSettings() }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
+                    Button(actionTitle) { performAction() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                         // Its own overlay, so the press decides between the click and the carry
                         // instead of the plain surface swallowing it (see `windowDragOrTap`).
-                        .windowDragOrTap { openSettings() }
+                        .windowDragOrTap { performAction() }
                     dragSlack
                 }
                 // The fillers are greedy on both axes (they have to be, to take whatever is left
@@ -75,7 +75,7 @@ struct EmptyStateView: View {
     }
 
     /// Whether this state has a control in it, which is what decides where the bottom inset goes.
-    private var hasAction: Bool { state == .allProvidersOff }
+    private var hasAction: Bool { state == .allProvidersOff || state == .noAccounts }
 
     /// The quiet space either side of that one control. Flexible on both sides, so the button stays
     /// centred exactly where it was, and grabbable, so the row is not a dead band across the panel.
@@ -85,9 +85,21 @@ struct EmptyStateView: View {
             .windowDragSurface()
     }
 
+    /// "No accounts" leads back to the welcome window (find, install, sign in), the way the menu's
+    /// Welcome item does, so closing that window once is never a dead end.
+    private var actionTitle: String {
+        state == .noAccounts ? L("Add an Account") : L("Open Settings")
+    }
+
     /// One implementation for the button's two entrances, so a press that turned out to be a click
     /// cannot do something other than what the button does.
-    private func openSettings() { SettingsWindowController.shared.show() }
+    private func performAction() {
+        if state == .noAccounts {
+            WelcomeWindowController.shared.show()
+        } else {
+            SettingsWindowController.shared.show()
+        }
+    }
 
     private var symbol: String {
         switch state {

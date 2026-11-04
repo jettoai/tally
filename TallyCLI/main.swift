@@ -129,7 +129,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         if let dip = reserveDipNotice(account, primaryModel: primaryModel, reserves: reserves) {
             warn(dip)
         }
-        warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
+        warn("→ \(account.label) (\(pickLeftText(account, primaryModel: primaryModel)))")
     } else {
         args = startModeArgs(passthrough, home: home)
     }

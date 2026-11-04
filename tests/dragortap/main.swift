@@ -266,8 +266,8 @@ check("the empty panel's quiet space is a grab area",
 check("…including the first-fetch skeletons, which have nothing to click at all",
       emptySource.range(of: "SkeletonCardsView()\n                .windowDragSurface()") != nil)
 check("…and its one button keeps its click while joining the grab",
-      emptySource.contains(".windowDragOrTap { openSettings() }")
-          && emptySource.components(separatedBy: "openSettings()").count == 4)
+      emptySource.contains(".windowDragOrTap { performAction() }")
+          && emptySource.components(separatedBy: "performAction()").count == 4)
 
 print(failures == 0 ? "\nAll drag-or-tap tests passed." : "\n\(failures) drag-or-tap test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

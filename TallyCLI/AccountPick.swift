@@ -369,6 +369,20 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
     return windowReason(binding, now: now)
 }
 
+/// The same binding window as `pickReason`, worded for someone who has never read a quota number:
+/// "71% of the week left". The line `tally claude` prints on launch uses this one; the reasons in
+/// hand-off and repick sentences keep `pickReason`'s compact form.
+func pickLeftText(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> String {
+    guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
+        .min(by: { $0.rate < $1.rate }) else { return "no usage windows" }
+    let percent = Int(binding.remaining.rounded())
+    switch binding.name {
+    case AccountRoles.weeklyWindowName: return "\(percent)% of the week left"
+    case AccountRoles.sessionWindowName: return "\(percent)% of the 5-hour session left"
+    default: return "\(percent)% of \(binding.name) left"
+    }
+}
+
 // The tie rule (margin, minimum gain, the earliest-published-reset tie-break) lives in
 // `smartPickLeader`, AccountComfort.swift, shared with the panel badge.
 

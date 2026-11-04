@@ -290,7 +290,7 @@ check("the launcher scores the pick on the model the launch carries",
 check("…and hands that same value to the quarantine, the pick and the reason",
       launcher.contains("quarantinedAccounts(forPrimary: primaryModel)")
           && launcher.contains("reserves: reserves, quarantined: quarantinedAccounts(forPrimary: primaryModel)")
-          && launcher.contains("pickReason(account, primaryModel: primaryModel)"))
+          && launcher.contains("pickLeftText(account, primaryModel: primaryModel)"))
 check("…with none of the three reading the configured default behind the flag's back",
       !launcher.contains("forPrimary: policy.model")
           && !launcher.contains("primaryModel: policy.model"))

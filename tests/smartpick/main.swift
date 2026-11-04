@@ -298,6 +298,10 @@ check("and its untouched session window anchors nowhere, rating at 100/5",
       virginSession?.anchor == nil && abs((virginSession?.rate ?? 0) - 100.0 / 5) < 1e-9)
 check("and the pick reason quotes no countdown for it",
       pickReason(virginAccount, primaryModel: nil, now: now) == "weekly 100%")
+check("the launch line says how much of the week is left in plain words",
+      pickLeftText(virginAccount, primaryModel: nil, now: now) == "100% of the week left")
+check("…and names the flagship window by its own name when that one binds",
+      pickLeftText(anchorBinding, primaryModel: nil, now: now) == "30% of Fable left")
 
 // The app scores the same snapshot for its smart badge from its own copy of `ratedWindows`
 // (LaunchPolicyScoring.swift, "keep both sides in lockstep"), and a rule living in one copy means

@@ -27,13 +27,20 @@ enum CLIRunner {
         var timedOut = false
     }
 
-    /// One background read's result. A reference so the reading queue and the caller share it.
-    /// Unchecked because the `DispatchGroup` below IS the synchronisation the compiler cannot see:
-    /// exactly one queue writes `value`, and nothing reads it until `wait()` has returned, which
-    /// orders the write before every later read.
-    private final class Captured: @unchecked Sendable {
-        var value = Data()
+    /// What one pipe has delivered so far. Filled from the pipe's readability handler (a dispatch
+    /// queue) and read by the runner once the child has gone, so the lock orders the two.
+    private final class Captured: Sendable {
+        private let data = OSAllocatedUnfairLock(initialState: Data())
+        func append(_ chunk: Data) { data.withLock { $0.append(chunk) } }
+        var value: Data { data.withLock { $0 } }
     }
+
+    /// After the child is gone, how long its pipes may stay open before the runner stops waiting
+    /// for them. A grandchild that inherited the pipe (a `sleep` or helper the CLI started) holds
+    /// it open after the CLI is killed; waiting for its EOF stretched a 60 second watchdog to
+    /// 108 to 154 seconds (2026-11-04, B-3918). The same value is how long a child that ignores
+    /// SIGTERM gets before the watchdog sends SIGKILL.
+    static let pipeGrace: TimeInterval = 2
 
     /// Run a CLI to completion off the main actor. `environment` entries overlay the app's env;
     /// a nil value REMOVES the variable (the default-home rule: `CLAUDE_CONFIG_DIR` must be unset
@@ -85,24 +92,45 @@ enum CLIRunner {
                 // Set on the watchdog's queue and read once the child has exited; the lock orders the two.
                 let timedOut = OSAllocatedUnfairLock(initialState: false)
                 let watchdog = DispatchWorkItem {
-                    if process.isRunning { timedOut.withLock { $0 = true }; process.terminate() }
+                    guard process.isRunning else { return }
+                    timedOut.withLock { $0 = true }
+                    process.terminate()
+                    // A CLI that ignores SIGTERM is not allowed to outlive the watchdog.
+                    DispatchQueue.global().asyncAfter(deadline: .now() + pipeGrace) {
+                        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                    }
                 }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
-                // Both pipes are drained concurrently, then joined: reading one to EOF while the
-                // child is still filling the other is a deadlock waiting for a chatty CLI.
+                // Both pipes are drained concurrently as the child writes: reading one to EOF while
+                // the child is still filling the other is a deadlock waiting for a chatty CLI.
+                let outData = Captured()
                 let errorData = Captured()
                 let draining = DispatchGroup()
-                DispatchQueue.global(qos: .utility).async(group: draining) {
-                    errorData.value = stderr.fileHandleForReading.readDataToEndOfFile()
+                func drain(_ pipe: Pipe, into captured: Captured) {
+                    draining.enter()
+                    pipe.fileHandleForReading.readabilityHandler = { handle in
+                        let chunk = handle.availableData
+                        if chunk.isEmpty {
+                            handle.readabilityHandler = nil
+                            draining.leave()
+                        } else {
+                            captured.append(chunk)
+                        }
+                    }
                 }
-                let data = stdout.fileHandleForReading.readDataToEndOfFile()
-                draining.wait()
+                drain(stdout, into: outData)
+                drain(stderr, into: errorData)
                 process.waitUntilExit()
+                // EOF normally arrives with the exit; a grandchild still holding a pipe open does
+                // not get to keep this run, whatever the child managed to print is already here.
+                _ = draining.wait(timeout: .now() + pipeGrace)
+                stdout.fileHandleForReading.readabilityHandler = nil
+                stderr.fileHandleForReading.readabilityHandler = nil
                 watchdog.cancel()
                 continuation.resume(returning: Output(
                     exitCode: process.terminationStatus,
-                    stdout: String(data: data, encoding: .utf8) ?? "",
+                    stdout: String(data: outData.value, encoding: .utf8) ?? "",
                     stderr: String(data: errorData.value, encoding: .utf8) ?? "",
                     timedOut: timedOut.withLock { $0 }
                 ))

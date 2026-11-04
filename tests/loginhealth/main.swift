@@ -378,4 +378,53 @@ expect(LoginUsageHealth.updateAlert(state: perAccount, accountID: "a", authentic
        "the second provider callback cannot rearm the first account")
 perAccount = LoginUsageHealth.updateAlert(state: perAccount, accountID: "b", authenticated: true).0
 expect(perAccount.announced == ["a"], "a successful provider callback clears only its own outage")
+// MARK: A slow read that already answered, and one that never does (B-3918).
+// `claude -p /usage` printed its answer at 64 to 89 seconds under load and exited at 150 to 190;
+// the 60 second watchdog used to throw the finished answer away and then wait out the grandchildren.
+try FileManager.default.createDirectory(at: ClaudeUsageCLI.probeDirectory, withIntermediateDirectories: true)
+let answered = """
+    printf 'Current week (all models): 32%% used · resets Nov 10 at 11:59pm (Asia/Taipei)\\n'
+    printf 'Current week (Fable): 0%% used · resets Nov 11 at 12am (Asia/Taipei)\\n'
+    """
+func hasMainWindow(_ text: String?) -> Bool {
+    text.map { ClaudeUsageTextMapper.map(text: $0).contains { $0.id == "weekly_all" } } ?? false
+}
+func slowAccount(_ name: String) -> String { dir.appendingPathComponent(name).path }
+let slowRoot = dir.appendingPathComponent("probe-home")
+
+try script("\(answered)\nsleep 20")
+let adopted = await ClaudeUsageCLI.read(binary: stub.path, environment: ["CLAUDE_CONFIG_DIR": dir.path], timeout: 1)
+expect(adopted.timedOut && hasMainWindow(adopted.text), "(a) a run killed after it answered keeps the answer and says it timed out")
+let adoptedFetch = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a"), executable: stub.path,
+                                                   probeHomeRoot: slowRoot, timeout: 1)
+expect(adoptedFetch.timedOut && hasMainWindow(adoptedFetch.text), "(a) the whole fetch returns the answer, not a failure")
+try script("printf 'Current week (all models): 32%% used\\n'\nsleep 20")
+let unconfirmed = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-a2"), executable: stub.path,
+                                                  probeHomeRoot: slowRoot, timeout: 1)
+expect(unconfirmed.timedOut && hasMainWindow(unconfirmed.text), "(a) an answer without a model week is kept too")
+
+// (b) The CLI ignores SIGTERM and two grandchildren keep the pipes open for 20 seconds.
+let pids = dir.appendingPathComponent("grandchildren.pid")
+try script("trap '' TERM\n\(answered)\nsleep 20 & echo $! >> '\(pids.path)'\nsleep 20 & echo $! >> '\(pids.path)'\nwait")
+let started = Date()
+let held = await CLIRunner.run(stub.path, arguments: [], timeout: 1)
+let elapsed = Date().timeIntervalSince(started)
+expect(held?.timedOut == true && elapsed < 10, "(b) the runner is back within seconds of the timeout, not at the grandchildren's exit (\(elapsed)s)")
+expect(held?.stdout.contains("32% used") == true, "(b) what was printed before the kill is still returned")
+for line in ((try? String(contentsOf: pids, encoding: .utf8)) ?? "").split(separator: "\n") {
+    if let pid = Int32(line) { kill(pid, SIGKILL) }
+}
+
+// (c) Nothing printed before the timeout is a timeout, an exit with an error is not.
+try script("sleep 20")
+let silent = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-c"), executable: stub.path,
+                                             probeHomeRoot: slowRoot, timeout: 1)
+expect(silent.text == nil && silent.timedOut, "(c) no answer before the timeout reports a timeout")
+try script("exit 1")
+let broken = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-c2"), executable: stub.path,
+                                             probeHomeRoot: slowRoot, timeout: 1)
+expect(broken.text == nil && !broken.timedOut, "(c) a failing CLI is still a read failure, not a timeout")
+let providerSource = (try? String(contentsOfFile: "Tally/Providers/Claude/ClaudeProvider.swift", encoding: .utf8)) ?? ""
+expect(providerSource.contains("timedOut ? L(\"This Mac is busy: the read timed out, it will retry next round\")")
+       && providerSource.contains(": L(\"Claude CLI read failed\")"), "(c) the provider words a timeout apart from a read failure")
 print("loginhealth: \(passed) passed")

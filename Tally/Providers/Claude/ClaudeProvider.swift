@@ -37,12 +37,15 @@ struct ClaudeProvider: UsageProvider {
         let configDir = (home == defaultHome) ? nil : home
 
         let authMark = await LoginStatusStore.shared.beginUsageAuthentication()
-        let text = await ClaudeUsageCLI.fetchUsageText(configDir: configDir, userInitiated: userInitiated)
+        let (text, timedOut) = await ClaudeUsageCLI.fetchUsage(configDir: configDir, userInitiated: userInitiated)
         // The probe takes seconds; a login that had only just landed has written its profile by
         // now, so a card no longer waits a whole retry to say whose it is (B-1702).
         profile = ClaudeAccounts.profile(configDir: home, unlessNamed: profile)
         guard let text else {
-            return failed(L("Claude CLI read failed"))
+            // Out of time with nothing printed: the Mac was too busy, which the next round retries.
+            // Apart from "read failed" so a slow round does not read as a broken account.
+            return failed(timedOut ? L("This Mac is busy: the read timed out, it will retry next round")
+                                   : L("Claude CLI read failed"))
         }
         if ClaudeUsageCLI.authenticationRejected(text) {
             await LoginStatusStore.shared.usageAuthentication(account: account, authenticated: false, since: authMark)

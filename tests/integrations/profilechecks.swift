@@ -22,7 +22,7 @@ func runProfileChecks(tmp: URL) throws {
     check("a named first read is not read again", kept.email == "replay@example.com")
 
     let provider = (try? String(contentsOfFile: "Tally/Providers/Claude/ClaudeProvider.swift", encoding: .utf8)) ?? ""
-    let probe = provider.range(of: "fetchUsageText(")
+    let probe = provider.range(of: "fetchUsage(")
     let reread = provider.range(of: "unlessNamed:")
     check("the provider reads the profile again after the usage probe returns",
           probe != nil && reread != nil && probe!.lowerBound < reread!.lowerBound)

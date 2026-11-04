@@ -21,7 +21,8 @@ enum ClaudeUsageCLI {
     /// Tally-managed homes share that directory through a symlink (3,695 files, 5.07 GB measured
     /// 2026-09-27). Tally never shows that section. Pointing `CLAUDE_CONFIG_DIR` at an empty home
     /// while `CLAUDE_SECURESTORAGE_CONFIG_DIR` keeps the Keychain lookup on the real account gives the
-    /// same three windows at about 0.6 CPU seconds instead of 7 to 15 (CC 2.1.283).
+    /// same three windows in a fraction of the CPU (0.6 CPU seconds instead of 7 to 15 on CC 2.1.283,
+    /// though under load the wall clock is 64 to 89 seconds, measured 2026-11-04).
     /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` is not documented (found in the 2.1.283 binary, where the CLI
     /// uses it for agent-team teammates), so every isolated read has the old read behind it.
     /// The CLI writes `.claude.json` here (it carries `oauthAccount`: email and organisation, no
@@ -58,7 +59,16 @@ enum ClaudeUsageCLI {
     static func fetchUsageText(configDir: String?, userInitiated: Bool = false, executable: String? = nil,
                                probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = 60,
                                now: Date = Date()) async -> String? {
-        guard let binary = executable ?? devStandIn ?? CLIRunner.resolve("claude") else { return nil }
+        await fetchUsage(configDir: configDir, userInitiated: userInitiated, executable: executable,
+                         probeHomeRoot: probeHomeRoot, timeout: timeout, now: now).text
+    }
+
+    /// `fetchUsageText` plus whether the miss was the watchdog's: a nil text with `timedOut` means
+    /// the machine was too slow to answer, not that the CLI said no (B-3918).
+    static func fetchUsage(configDir: String?, userInitiated: Bool = false, executable: String? = nil,
+                           probeHomeRoot: URL = probeHomeRoot, timeout: TimeInterval = 60,
+                           now: Date = Date()) async -> (text: String?, timedOut: Bool) {
+        guard let binary = executable ?? devStandIn ?? CLIRunner.resolve("claude") else { return (nil, false) }
         try? FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
         let key = configDir ?? ""
         guard await routes.isolatedAllowed(key, now: now),
@@ -74,7 +84,7 @@ enum ClaudeUsageCLI {
         switch verdict {
         case .accept(let sawModelWindow):
             if sawModelWindow { await routes.apply(.shapeVerified, key: key, now: now) }
-            return isolated.text
+            return (isolated.text, isolated.timedOut)
         case .fallBack(let reason):
             // A read that ran out the clock is not tried the old way inside the same round
             // (B-1745): that was a second full timeout on the one account the round was already
@@ -82,14 +92,16 @@ enum ClaudeUsageCLI {
             // route, the same as any other transient miss (`memoryUpdate(.noOutput)` is `.none`).
             if isolated.timedOut {
                 log.notice("probe timed out account=\(probeHomeName(configDir: configDir), privacy: .public) legacy=skipped")
-                return nil
+                // The answer that did arrive before the clock ran out still counts, even when its
+                // shape is not yet confirmed: asking again the old way would cost a second timeout.
+                return (reason == .unconfirmedModelWindow ? isolated.text : nil, true)
             }
             if await routes.legacySkipped(key, now: now) {
                 log.notice("probe failed account=\(probeHomeName(configDir: configDir), privacy: .public) legacy=skipped-recent-failure")
-                return isolated.text
+                return (isolated.text, false)
             }
             let legacy = await legacyRead(binary: binary, configDir: configDir, timeout: timeout)
-            await routes.apply(memoryUpdate(reason: reason, legacy: legacy), key: key, now: now)
+            await routes.apply(memoryUpdate(reason: reason, legacy: legacy.text), key: key, now: now)
             return legacy
         }
     }
@@ -113,17 +125,23 @@ enum ClaudeUsageCLI {
     /// The read as it was before the isolated home: the account's own config dir, and the
     /// secure-storage override explicitly removed so an inherited value cannot redirect it.
     private static func legacyRead(binary: String, configDir: String?,
-                                   timeout: TimeInterval) async -> String? {
-        let text = await read(binary: binary, environment: [
+                                   timeout: TimeInterval) async -> (text: String?, timedOut: Bool) {
+        let result = await read(binary: binary, environment: [
             "CLAUDE_CONFIG_DIR": configDir,
             "CLAUDE_SECURESTORAGE_CONFIG_DIR": nil,
-        ], timeout: timeout).text
+        ], timeout: timeout)
+        if result.timedOut {
+            log.notice("probe timed out account=\(probeHomeName(configDir: configDir), privacy: .public) legacy=true")
+        }
         pruneProbeTranscripts(configDir: configDir)
-        return text
+        return result
     }
 
     /// One `/usage` run. Returns stdout on success, "Not logged in" on an authentication rejection
-    /// (which commonly exits nonzero), nil otherwise.
+    /// (which commonly exits nonzero), nil otherwise. A run the watchdog ended still counts when it
+    /// had already printed the all-models week: `claude -p /usage` answers at 64 to 89 seconds
+    /// under load and then lingers 60 to 100 more before it exits (measured 2026-11-04), so the
+    /// kill lands on a finished answer more often than on an unfinished one (B-3918).
     // --strict-mcp-config: the probe must never load MCP servers (fork-bomb guard + speed).
     // --safe-mode: nor the user's hooks and plugins. This runs once a minute per account, and
     // without it every run fired the whole SessionStart hook set of ~/.claude/settings.json
@@ -132,7 +150,7 @@ enum ClaudeUsageCLI {
     // --no-session-persistence: the run leaves no transcript (print mode only), which kept about
     // 300 files in the probe directory at steady state. The prune in `legacyRead` stays for the
     // files an older CLI, or a run from before this flag, still leaves behind.
-    private static func read(binary: String, environment: [String: String?],
+    static func read(binary: String, environment: [String: String?],
                              timeout: TimeInterval) async -> (text: String?, timedOut: Bool) {
         let output = await CLIRunner.run(
             binary,
@@ -147,8 +165,10 @@ enum ClaudeUsageCLI {
         // An authentication rejection commonly exits nonzero. Preserve that diagnosis only;
         // network failures and arbitrary stderr are not successful usage readings.
         if authenticationRejected(combined) { return ("Not logged in", false) }
-        guard output.exitCode == 0 else { return (nil, output.timedOut) }
-        return (output.stdout, false)
+        guard output.exitCode == 0 || (output.timedOut && windows(in: output.stdout).main) else {
+            return (nil, output.timedOut)
+        }
+        return (output.stdout, output.timedOut)
     }
 
     // MARK: - Deciding whether the isolated read counts (pure, tested directly)

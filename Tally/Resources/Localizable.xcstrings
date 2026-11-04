@@ -2626,6 +2626,41 @@
         }
       }
     },
+    "This Mac is busy: the read timed out, it will retry next round": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 太忙，讀量逾時，下一輪會再試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 太忙，读量超时，下一轮会再试"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は混み合っています。読み取りがタイムアウトしました。次の更新で再試行します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 바빠서 읽기 시간이 초과되었습니다. 다음 차례에 다시 시도합니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac meşgul: okuma zaman aşımına uğradı, sonraki turda yeniden denenecek"
+          }
+        }
+      }
+    },
     "Codex app-server said: %@": {
       "extractionState": "manual",
       "localizations": {

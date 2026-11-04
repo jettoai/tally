@@ -46,6 +46,8 @@ enum CaptureLaunch {
     /// reason: the views read them, and this file must compile alone.
     static let panelHintPreview = "TallyPanelHintPreview"
     static let commandPreview = "TallyCommandPreview"
+    /// A private build's own surface held on one named screen (Dev or demo); the public build reads nothing.
+    static let overlayPreview = "TallyOverlayPreview"
 
     /// Every flag whose launch is here to be observed. Grouped by what they put on screen.
     static let backgroundKeys: [String] = [
@@ -68,6 +70,7 @@ enum CaptureLaunch {
         welcomePreview,         // the welcome window on one named screen, fixtures only (Dev or demo)
         panelHintPreview,       // the panel's first hint or the tally-command invite, held (Dev or demo)
         commandPreview,         // the "Add the tally command" window on one named screen (Dev or demo)
+        overlayPreview,         // a private build's own surface on one named screen (Dev or demo)
         "TallyTokenGraphPreview",
         "TallyUpdateChip",      // the header's update nudge, with no live feed
         "TallyPickPreview",     // the pick panel, with no MCP client or request on disk

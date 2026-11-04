@@ -459,7 +459,7 @@ func runLaunchAtLoginChecks() {
         "TallyDemoData", "TallyAppearance", "TallyCardStyle", "TallySessionCardCap", "TallyUsageLayout",
         "TallyPanelCapture", "TallyStatusMenuCapture", "TallyPopoverCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
         "TallyEmptyStatePreview", "TallyWelcomePreview", "TallyMoveToApplicationsPreview",
-        "TallyPanelHintPreview", "TallyCommandPreview",
+        "TallyPanelHintPreview", "TallyCommandPreview", "TallyOverlayPreview",
         "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
         "TallyMotionDemo", "TallySettingsTabBench",
         "TallyStripSnapshot", "TallyWindowSnapshot",
@@ -467,7 +467,7 @@ func runLaunchAtLoginChecks() {
         "TallyHostHealthTest", "TallyCPUAlertTest", "TallySentryTestEvent",
         "TallyUpdateLagTest", "TallyClearanceIdleTest",
     ]
-    check("the family is exactly these thirty-three flags",
+    check("the family is exactly these thirty-four flags",
           Set(CaptureLaunch.backgroundKeys) == expectedFamily)
     check("and it carries no duplicates",
           CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -522,8 +522,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to eighty, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 80 && scanned.count == 80)
+    check("which comes to eighty-one, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 81 && scanned.count == 81)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",

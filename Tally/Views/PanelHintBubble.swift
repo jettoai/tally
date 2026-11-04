@@ -235,8 +235,10 @@ private struct PanelHintBubble: View {
         .background {
             shape.fill(.regularMaterial)
             shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
+            // Dark: the wash alone is the panel's own near-black, so lift the bubble one step above it.
+            if colorScheme == .dark { shape.fill(Color.white.opacity(0.10)) }
         }
-        .overlay { shape.stroke(Color.primary.opacity(colorScheme == .dark ? 0.13 : 0.08), lineWidth: TallyMetrics.hairline) }
+        .overlay { shape.stroke(colorScheme == .dark ? Color.white.opacity(0.22) : Color.primary.opacity(0.08), lineWidth: TallyMetrics.hairline) }
         .compositingGroup()
         .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
         .shadow(color: .black.opacity(0.16), radius: 14, y: 6)

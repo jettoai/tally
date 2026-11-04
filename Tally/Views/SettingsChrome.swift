@@ -6,6 +6,9 @@ import SwiftUI
 /// follow Jetto Voice's settings so the two apps read as one family.
 enum SettingsChrome {
     static let sidebarWidth: CGFloat = 200
+    /// The tallest the window grows, title bar included (macOS System Settings is 625 on the same
+    /// Mac). A pane taller than this scrolls inside the window.
+    static let maxWindowHeight: CGFloat = 700
     /// The pages' rhythm (B-2526, Voice's values): the gap between sections, a section title to its
     /// card, a row's insets and floor, and the identity card's inset.
     static let sectionGap: CGFloat = 18

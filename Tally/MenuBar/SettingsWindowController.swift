@@ -227,8 +227,11 @@ final class SettingsWindowController {
         // whole frame, and the layout rect is the part below the strip the view lays out in.
         let chrome = window.frame.height - window.contentLayoutRect.height
         let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-        let target = ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
-                                                     visibleHeight: visible)
+        // The display overrules the fit first, then the design cap: a tall pane scrolls inside the
+        // window rather than stretching the window to hold it (B-3747).
+        let target = min(ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
+                                                         visibleHeight: visible),
+                         SettingsChrome.maxWindowHeight)
         guard abs(target - window.frame.height) > 1 else { return }
         var frame = window.frame
         let top = frame.maxY

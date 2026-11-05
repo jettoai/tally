@@ -122,4 +122,18 @@ func runOrphanRecordExpiryChecks() {
     check("a future-dated success survives a clock rollback", clock.records.count == 1)
     clock.expireSuccessfulRecords(at: t0.addingTimeInterval(ttl))
     check("a future-dated success expires when its actual lifetime elapses", clock.records.isEmpty)
+
+    // B-3969: the Handled row names the session AND its agent, not just the session.
+    let owned = FakeMachine().store()
+    owned.owners[10] = 4242
+    owned.announce(report(.reclaimedByLease), at: t0)
+    var sidecar = SessionSidecar()
+    sidecar.accountID = "claude:work"
+    let row = SessionRosterStore.SessionRow(
+        id: "4242", record: SessionStateRecord(
+            state: "working", since: t0, updatedAt: t0, accountID: "claude:work", directory: repo,
+            project: "bigdata", worktree: "line3", model: "opus"), session: sidecar, cwd: repo)
+    check("a Handled row names the session and its agent (account and model)",
+          owned.records.first?.session.map(String.init) == row.id
+              && OrphanReclaimStore.attributionLine(row, account: "Work") == "bigdata · line3 (Work · opus)")
 }

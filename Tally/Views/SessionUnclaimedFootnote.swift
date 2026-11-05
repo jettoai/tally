@@ -228,10 +228,7 @@ extension SessionUnclaimedFootnote {
             UsageStore.shared.orderedAccounts.first { $0.id == id }
                 .map { SettingsStore.shared.displayLabel(accountID: id, fallback: $0.accountLabel) }
         }
-        let agent = [account, row.model].compactMap { $0 }.joined(separator: " · ")
-        let name = row.title
-        let line = agent.isEmpty ? name : name.isEmpty ? agent : "\(name) (\(agent))"
-        return line.isEmpty ? L("Unknown owner (session ended)") : line
+        return OrphanReclaimStore.attributionLine(row, account: account) ?? L("Unknown owner (session ended)")
     }
 
     /// THE WHOLE READING AS A CALLOUT, which is what the mark on a session card answers a hover

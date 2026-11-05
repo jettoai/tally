@@ -48,8 +48,9 @@ extension OrphanReclaimStore {
     /// account and model serving it), or nil when the row has neither to say.
     static func attributionLine(_ row: SessionRosterStore.SessionRow, account: String?) -> String? {
         let agent = [account, row.model].compactMap { $0 }.joined(separator: " · ")
-        let line = agent.isEmpty ? row.title : row.title.isEmpty ? agent : "\(row.title) (\(agent))"
-        return line.isEmpty ? nil : line
+        if agent.isEmpty { return row.title.isEmpty ? nil : row.title }
+        if row.title.isEmpty { return agent }
+        return "\(row.title) (\(agent))"
     }
 
     /// Forget trees that are neither being looked at nor named by something still on the panel.

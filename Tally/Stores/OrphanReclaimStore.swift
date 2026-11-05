@@ -138,12 +138,14 @@ final class OrphanReclaimStore {
         // The table by pid, built once and handed down: every step below asks it something, and
         // three copies of one index is three chances for two of them to disagree.
         let table = Dictionary(processes.map { ($0.pid, $0) }) { first, _ in first }
-        let fromLeases = leases(among: processes, table: table, at: now, prefetched: prefetched,
-                                supervisors: supervisors)
+        let parents = table.mapValues(\.parent)
+        let fromLeases = leases(among: processes, table: table, parents: parents, at: now,
+                                prefetched: prefetched, supervisors: supervisors)
         var acted = fromLeases.claimed
         acted.formUnion(sweeps.flatMap(\.targets))
         round(strays: strays.filter { !acted.contains($0.key) }, processes: processes,
-              table: table, sessions: sessions, leased: fromLeases.tended, supervisors: supervisors, at: now)
+              table: table, parents: parents, sessions: sessions, leased: fromLeases.tended,
+              supervisors: supervisors, at: now)
     }
 
     /// Whether `observe` at this instant takes a round. A CAPTURE NEVER DOES (`DemoUsage`).
@@ -176,7 +178,7 @@ final class OrphanReclaimStore {
     /// - Returns: every pid this tier claimed, whether or not the kill has finished, and the pids
     ///   a live lease still speaks for (`OrphanReclaim.Veto.leased`).
     private func leases(among processes: [ProcessIdentity], table: [pid_t: ProcessIdentity],
-                        at now: Date, prefetched: [OrphanLease]?,
+                        parents: [pid_t: pid_t], at now: Date, prefetched: [OrphanLease]?,
                         supervisors: Set<pid_t>) -> (claimed: Set<pid_t>, tended: Set<pid_t>) {
         var claimed: Set<pid_t> = []
         var tended: Set<pid_t> = []
@@ -222,7 +224,7 @@ final class OrphanReclaimStore {
                                           project: machine.directory(root) ?? "")
             // Named before the kill starts, as tier B does: the record `announce` writes when the
             // kill finishes reads `owners`, and a lease reclaimed on first sight was never watched.
-            _ = attribute(root, parents: table.mapValues(\.parent), supervisors: supervisors)
+            _ = attribute(root, parents: parents, supervisors: supervisors)
             begin(kill: tree, table: table, reason: .leaseOwnerGone, lease: lease,
                   ports: ports(of: members), at: now)
         }
@@ -236,9 +238,9 @@ final class OrphanReclaimStore {
     /// a session in the checkout says nothing about a server whose owner is provably gone. It is
     /// only the evidence-based tier that has to defer to somebody being here.
     private func round(strays: [pid_t: String], processes: [ProcessIdentity],
-                       table: [pid_t: ProcessIdentity], sessions: OrphanReclaim.Sessions,
+                       table: [pid_t: ProcessIdentity], parents: [pid_t: pid_t],
+                       sessions: OrphanReclaim.Sessions,
                        leased: Set<pid_t>, supervisors: Set<pid_t>, at now: Date) {
-        let parents = table.mapValues(\.parent)
         // THE CHECKOUTS SOMEBODY IS WORKING IN, folded to their repositories once for the round
         // rather than once per tree: the fold is a walk of the filesystem, and the answer is the
         // same for every tree on the round (`OrphanReclaim.checkout`).

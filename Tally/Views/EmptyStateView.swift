@@ -26,7 +26,7 @@ struct EmptyStateView: View {
     /// and a button: the header above already carries the brand, so nothing here repeats it.
     private var message: some View {
         VStack(spacing: 8) {
-            VStack(spacing: 0) {
+            VStack(spacing: 4) {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .multilineTextAlignment(.center)
@@ -35,7 +35,6 @@ struct EmptyStateView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.top, 4)
                 }
             }
             .frame(maxWidth: .infinity)

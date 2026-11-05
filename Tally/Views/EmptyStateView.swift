@@ -20,37 +20,30 @@ struct EmptyStateView: View {
 
     /// The empty panel is nearly all quiet space, and on the pinned panel that space has to be
     /// somewhere a hand can hold: with no cards on screen the header was the only handle on the
-    /// whole window (found reviewing 2ee0ebb). So the run of mark, glyph and copy IS the grab area
+    /// whole window (found reviewing 2ee0ebb). So the run of title and copy IS the grab area
     /// (`windowDragSurface`), and the one control down here stays out from under that overlay and
-    /// takes the drag-or-tap variant instead - it can be pressed AND pulled.
+    /// takes the drag-or-tap variant instead - it can be pressed AND pulled. Just a title, a line
+    /// and a button: the header above already carries the brand, so nothing here repeats it.
     private var message: some View {
         VStack(spacing: 8) {
-            VStack(spacing: 8) {
-                // An empty panel is the one place with room to spare, so it leads with the app's own
-                // mark rather than a stock glyph: the first thing a new user sees is what Tally is
-                // about (quota passing between accounts) before there is a single number to show.
-                TallyMarkView(glyphHeight: 26)
-                    .padding(.bottom, 6)
-                Image(systemName: symbol)
-                    .font(.title3)
-                    .foregroundStyle(.tertiary)
+            VStack(spacing: 0) {
                 Text(title)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13, weight: .semibold))
                     .multilineTextAlignment(.center)
                 if let detail {
                     Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                        .padding(.top, 4)
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 28)
+            .padding(.top, 20)
             .padding(.horizontal, 16)
             // The bottom inset belongs to whichever of the two blocks is last, so the grab area
             // reaches the foot of the panel in the states that have no button at all.
-            .padding(.bottom, hasAction ? 0 : 28)
+            .padding(.bottom, hasAction ? 0 : 24)
             .windowDragSurface()
             if hasAction {
                 HStack(spacing: 0) {
@@ -67,8 +60,8 @@ struct EmptyStateView: View {
                 // beside the button); this keeps that greed to the horizontal, so the row is still
                 // exactly as tall as the button - the same pairing the launch strip uses.
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 2)
-                .padding(.bottom, 28)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
             }
         }
         .frame(maxWidth: .infinity)
@@ -98,15 +91,6 @@ struct EmptyStateView: View {
             WelcomeWindowController.shared.show()
         } else {
             SettingsWindowController.shared.show()
-        }
-    }
-
-    private var symbol: String {
-        switch state {
-        case .loading: return ""
-        case .allProvidersOff: return "powersleep"
-        case .noAccounts: return "person.crop.circle.badge.questionmark"
-        case .hasAccounts: return "checkmark"
         }
     }
 

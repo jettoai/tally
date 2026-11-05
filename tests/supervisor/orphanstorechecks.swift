@@ -485,20 +485,20 @@ func runOrphanStoreChecks() {
 
     let leased = FakeMachine()
     busyServer(leased)
-    abandoned(leased)
+    abandoned(leased); leased.markers = [root: 4242]
     let sixth = leased.store()
     // ONE ROUND, NOT TWO: the lease is a statement by the machine's own harness, not an inference,
     // and it is the one tier that still ends anything while tier B is report-only.
     sixth.observe(strays: [:], processes: leased.table,
-                  sessions: OrphanReclaim.Sessions(), at: t0)
+                  sessions: OrphanReclaim.Sessions(), at: t0, supervisors: [4242])
     check("an abandoned lease is acted on in the very first round it is seen",
           leased.sent.map(\.0) == [SIGTERM, SIGTERM])
     check("…one process at a time, over the members the lease's own tree holds",
           leased.sent.map(\.1) == [root, worker])
     leased.surviving = [:]
     sixth.advance(at: t0.addingTimeInterval(1))
-    check("…recorded as a reclaim the lease itself justified",
-          sixth.records.first?.outcome == .reclaimedByLease)
+    check("…recorded as a reclaim the lease itself justified, naming its session though never watched (B-3969)",
+          sixth.records.first?.outcome == .reclaimedByLease && sixth.records.first?.session == 4242)
     // 🔴 AND THE MESSAGE NAMES THE PROCESSES, not just how many of them there were (root-cause
     // review, 2026-09-02). A machine that comes back wrong is read by comparing what this app says
     // it ended against what the person finds missing, and a count compares with nothing.

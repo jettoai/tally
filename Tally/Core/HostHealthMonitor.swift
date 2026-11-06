@@ -124,7 +124,7 @@ final class HostHealthMonitor {
             : nil
         let (next, event) = HostHealthLogic.advance(tracker, reading: reading, at: now, limits: limits)
         tracker = next
-        latestCPU = (reading.cpuPercent, reading.cpuPercent.map { _ in HostHealthLogic.cpuExceeds(reading, limits) }, now)
+        latestCPU = (reading.cpuPercent, HostHealthLogic.cpuOver(reading, limits), now)
         var renamedTop: [HostHealthCPUProcess]?
         // THE EXPENSIVE READING HAPPENS HERE AND NOWHERE ELSE: only the sample that RAISES an alarm
         // walks the process table, so the steady state pays for two syscalls a minute and nothing

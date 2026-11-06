@@ -125,21 +125,29 @@ extension HostHealthLogic {
     /// failures the incident produced were exactly these two and either alone makes the machine
     /// unusable.
     static func exceeds(_ reading: HostHealthReading, _ limits: HostHealthLimits = .standard) -> Bool {
-        cpuExceeds(reading, limits) || memoryExceeds(reading, limits)
+        cpuExceeds(reading, limits)
+            || memoryShort(availablePercent: reading.memoryAvailablePercent,
+                           freeBytes: reading.freeBytes, limits)
+    }
+
+    /// The CPU verdict as published (`HostHealthReport.cpuOver`, `HostHealthMonitor.latestCPU`):
+    /// nil when the reading could not be taken, so a reader sees "unknown" rather than "not busy".
+    static func cpuOver(_ reading: HostHealthReading, _ limits: HostHealthLimits = .standard) -> Bool? {
+        reading.cpuPercent.map { $0 >= limits.cpuPercent }
     }
 
     /// The CPU witness on its own, which is also what decides whether an alarm is worth a CPU
     /// sample. A reading that could not be taken is not over (fail-closed: it does not alarm).
     static func cpuExceeds(_ reading: HostHealthReading,
                            _ limits: HostHealthLimits = .standard) -> Bool {
-        reading.cpuPercent.map { $0 >= limits.cpuPercent } ?? false
+        cpuOver(reading, limits) ?? false
     }
 
     /// The memory witness: a share of the machine, or the old 2 GB floor when the total is unread.
-    static func memoryExceeds(_ reading: HostHealthReading,
-                              _ limits: HostHealthLimits = .standard) -> Bool {
-        reading.memoryAvailablePercent.map { $0 < limits.memoryPercent }
-            ?? (reading.freeBytes < minimumFreeBytes)
+    /// Takes the two figures rather than a reading so the banner can ask it of a stored alarm.
+    static func memoryShort(availablePercent: Double?, freeBytes: UInt64,
+                            _ limits: HostHealthLimits = .standard) -> Bool {
+        availablePercent.map { $0 < limits.memoryPercent } ?? (freeBytes < minimumFreeBytes)
     }
 }
 

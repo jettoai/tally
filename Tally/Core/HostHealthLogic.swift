@@ -284,7 +284,7 @@ enum HostHealthLogic {
                          since: tracker.since ?? now, lastAlarm: tracker.lastAlarm,
                          namedLeader: tracker.namedLeader, namedAt: tracker.namedAt,
                          cpuPercent: reading.cpuPercent,
-                         cpuOver: reading.cpuPercent.map { _ in cpuExceeds(reading, limits) },
+                         cpuOver: cpuOver(reading, limits),
                          cpuLimit: limits.cpuPercent,
                          memoryAvailablePercent: reading.memoryAvailablePercent)
     }
@@ -362,8 +362,10 @@ func hostHealthAlarmBody(_ report: HostHealthReport, limits: HostHealthLimits = 
     let share = (alarm?.cpuPercent ?? report.cpuPercent).map(hostHealthFigure) ?? "?"
     var body = String(format: localized("CPU %1$@%% (%2$@ cores) · free memory %3$@ GB · top: %4$@"),
                       share, String(report.cores), hostHealthGigabytes(report.freeBytes), named)
-    let memoryShort = alarm?.memoryAvailablePercent.map { $0 < limits.memoryPercent }
-        ?? ((alarm?.freeBytes ?? .max) < HostHealthLogic.minimumFreeBytes)
+    let memoryShort = alarm.map {
+        HostHealthLogic.memoryShort(availablePercent: $0.memoryAvailablePercent,
+                                    freeBytes: $0.freeBytes, limits)
+    } ?? false
     if !cpu.isEmpty, !memory.isEmpty, memoryShort {
         body += "\n" + String(format: localized("memory: %@"), memory)
     }

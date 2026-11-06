@@ -6,15 +6,15 @@ import Foundation
 ///
 /// `open(O_APPEND)` AND ONE `write(2)`, NOT `FileHandle.seekToEnd` THEN `write`: two builds can be
 /// running at once and the seek-then-write pair lets one overwrite the other's line. A line is
-/// about 70 bytes, far under `PIPE_BUF`, and an `O_APPEND` write of that size is not interleaved.
+/// about 85 bytes, far under `PIPE_BUF`, and an `O_APPEND` write of that size is not interleaved.
 /// The reader drops the second line of a minute, so the writers need no coordination.
 ///
 /// EVERY FAILURE IS SWALLOWED: no folder, a full disk, a refused open. The next minute tries again,
 /// and the alarm and the report publish that share this task are never held up by it.
 enum HostLoadHistoryWriter {
-    /// Days kept besides today: eight files, about 0.8 MB.
+    /// Days kept besides today: eight files, about 1 MB.
     static let keepDays = 7
-    /// A day is about 100 KB; past this the file stops growing (a runaway or many writers).
+    /// A day is about 120 KB; past this the file stops growing (a runaway or many writers).
     static let fileByteLimit: off_t = 512 * 1024
 
     static func append(_ sample: HostLoadSample,

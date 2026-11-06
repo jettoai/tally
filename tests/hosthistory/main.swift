@@ -20,8 +20,8 @@ func moment(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int, _ s: Int = 0, _ 
     cal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi, second: s))!
 }
 
-func sample(_ at: Date, load: Double = 10, mem: Int? = 70) -> HostLoadSample {
-    HostLoadSample(at: at, load1: load, freeGB: 40, memPct: mem, cores: 16)
+func sample(_ at: Date, load: Double = 10, mem: Int? = 70, cpu: Int? = nil) -> HostLoadSample {
+    HostLoadSample(at: at, load1: load, freeGB: 40, memPct: mem, cpuPct: cpu, cores: 16)
 }
 
 func scratch() -> URL {
@@ -284,6 +284,112 @@ do {
     // The default gate is 3 x cores.
     let dflt = hostHistoryCommand(args: ["--history"], read: HostLoadRead(samples: samples), now: now, calendar: taipei)
     expect(dflt.out.contains("< 48"), "the default gate is 3 x cores (16 cores: 48)")
+}
+
+// MARK: - 8. The CPU share (B-4094)
+
+do {
+    let at = moment(2026, 11, 4, 2, 31, 5)
+    let s = HostLoadSample(at: at, load1: 12.345, freeBytes: 57_037_979_648, memPct: 73, cpuPct: 41, cores: 16)
+    expect(hostLoadLine(s, timeZone: taipei.timeZone)
+           == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 mem_pct=73 cpu_pct=41 cores=16\n",
+           "a sample with a CPU share writes cpu_pct between mem_pct and cores")
+    var noMem = s; noMem.memPct = nil
+    expect(hostLoadLine(noMem, timeZone: taipei.timeZone) == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 cpu_pct=41 cores=16\n",
+           "no memory reading: cpu_pct still sits before cores")
+    var noCPU = s; noCPU.cpuPct = nil
+    expect(!hostLoadLine(noCPU, timeZone: taipei.timeZone).contains("cpu_pct"), "an unreadable CPU share leaves the field out")
+    let back = parseHostLoadLine(hostLoadLine(s, timeZone: taipei.timeZone).trimmingCharacters(in: .newlines), formatter: hostLoadDateFormatter())
+    expect(back?.cpuPct == 41 && back?.memPct == 73 && back?.cores == 16 && back?.load1 == 12.35 && back?.at == at,
+           "a new line parses back with its CPU share")
+    let old = parseHostLoadLine("2026-11-04T02:31:05+08:00 load1=1 free_gb=1 mem_pct=70 cores=4", formatter: hostLoadDateFormatter())
+    expect(old != nil && old?.cpuPct == nil && old?.memPct == 70, "a line from before cpu_pct is valid and has no CPU share")
+}
+
+do {
+    let f = hostLoadDateFormatter()
+    func cpu(_ field: String) -> HostLoadSample? {
+        parseHostLoadLine("2026-11-04T02:31:05+08:00 load1=1 free_gb=1 \(field) cores=4", formatter: f)
+    }
+    expect(cpu("cpu_pct=101") == nil && cpu("cpu_pct=-1") == nil && cpu("cpu_pct=12.5") == nil && cpu("cpu_pct=") == nil,
+           "cpu_pct of 101, -1, 12.5 or nothing damages the line")
+    expect(cpu("cpu_pct=0")?.cpuPct == 0 && cpu("cpu_pct=100")?.cpuPct == 100, "cpu_pct 0 and 100 are valid")
+}
+
+do {
+    expect(hostLoadCPUPct(nil) == nil && hostLoadCPUPct(.nan) == nil && hostLoadCPUPct(.infinity) == nil
+           && hostLoadCPUPct(-.infinity) == nil, "no CPU figure, NaN and infinity give no CPU share")
+    expect(hostLoadCPUPct(41.4) == 41 && hostLoadCPUPct(41.5) == 42 && hostLoadCPUPct(99.6) == 100 && hostLoadCPUPct(100) == 100,
+           "the CPU share rounds half up")
+    expect(hostLoadCPUPct(-0.3) == 0 && hostLoadCPUPct(100.4) == 100, "the CPU share is clamped to 0...100")
+}
+
+do {
+    let dir = scratch().appendingPathComponent("host-load")
+    HostLoadHistoryWriter.append(sample(moment(2026, 11, 4, 10, 0), cpu: 41), in: dir, timeZone: taipei.timeZone)
+    let text = try! String(contentsOf: dir.appendingPathComponent("2026-11-04.log"), encoding: .utf8)
+    expect(text.contains(" cpu_pct=41 cores=16\n"), "the writer puts cpu_pct in the file")
+    expect(readHostLoadSamples(in: dir).samples.first?.cpuPct == 41, "...and the reader gets it back")
+}
+
+do {
+    // Only new lines: CPU 0, 50, 100 in three consecutive minutes.
+    let base = moment(2026, 11, 4, 10, 0)
+    let samples = [0, 50, 100].enumerated().map { sample(base.addingTimeInterval(Double($0.offset) * 60), cpu: $0.element) }
+    let r = report(samples, now: moment(2026, 11, 4, 10, 2, 30))
+    expect(r.window.cpuP50 == 50 && r.window.cpuP95 == 100 && r.window.cpuMax == 100
+           && r.window.cpuMaxAt == base.addingTimeInterval(120), "CPU window: p50 50, p95 100, max 100 at the third minute")
+    let spark = Array(r.window.cpuSpark)
+    expect(spark.count == 60 && Array(spark.suffix(3)) == ["▁", "▅", "█"], "the CPU curve is a full block at 100% (got \(r.window.cpuSpark))")
+    let text = HostLoadStats.text(r, calendar: taipei)
+    expect(text.contains("  cpu p50 50% · p95 100% · max 100% (10:02)") && !text.contains("cpu: no readings"),
+           "text: the CPU curve and its figures follow the load curve")
+    let load = text.range(of: "p50 10.0 ·")!.lowerBound, cpuLine = text.range(of: "cpu p50")!.lowerBound
+    expect(load < cpuLine, "text: the CPU lines come after the load lines")
+}
+
+do {
+    // Only old lines: no CPU anywhere.
+    let base = moment(2026, 11, 4, 10, 0)
+    let samples = (0..<3).map { sample(base.addingTimeInterval(Double($0) * 60), load: 10 + Double($0)) }
+    let r = report(samples, now: moment(2026, 11, 4, 10, 30))
+    let text = HostLoadStats.text(r, calendar: taipei)
+    expect(r.window.cpuSpark == "" && r.window.cpuP50 == nil && r.window.cpuMax == nil
+           && text.contains("\n  cpu: no readings in this window") && text.contains("host load, last 60 min (3 of"),
+           "old lines only: the CPU part says it has no readings and the load part is unchanged")
+    let doc = try? JSONSerialization.jsonObject(with: Data(HostLoadStats.json(r, calendar: taipei).utf8)) as? [String: Any]
+    let window = doc?["window"] as? [String: Any]
+    let cpu = window?["cpuPct"] as? [String: Any]
+    let series = window?["series"] as? [[String: Any]]
+    expect(doc?["schema"] as? Int == 1 && cpu?["p50"] is NSNull && cpu?["p95"] is NSNull && cpu?["max"] is NSNull
+           && cpu?["maxAt"] is NSNull && series?.count == 3 && series?.allSatisfy { $0["cpuPct"] is NSNull } == true,
+           "json, old lines only: window.cpuPct is all null and every series cpuPct is null")
+}
+
+do {
+    // Mixed: two old lines, then two lines with a CPU share, in one day file.
+    let dir = scratch()
+    let newer = [sample(moment(2026, 11, 4, 10, 2), cpu: 41), sample(moment(2026, 11, 4, 10, 3), cpu: 77)]
+    write("2026-11-04T10:00:05+08:00 load1=10 free_gb=40 mem_pct=70 cores=16\n"
+          + "2026-11-04T10:01:05+08:00 load1=10 free_gb=40 mem_pct=70 cores=16\n" + lines(newer),
+          "2026-11-04.log", in: dir)
+    let read = readHostLoadSamples(in: dir)
+    expect(read.samples.count == 4 && read.corruptLines == 0, "mixed old and new lines all parse")
+    let now = moment(2026, 11, 4, 10, 3, 30)
+    let human = hostHistoryCommand(args: ["--history"], read: read, now: now, calendar: taipei)
+    expect(human.out.contains("  cpu p50 41% · p95 77% · max 77% (10:03)"), "mixed: the CPU figures count only the lines that carry one")
+    let curves = human.out.split(separator: "\n").filter {
+        $0.hasPrefix("  ") && !$0.contains("p50") && $0.contains { "▁▂▃▄▅▆▇█".contains($0) }
+    }
+    let cells = curves.map { Array($0.dropFirst(2).suffix(4)) }
+    expect(cells.count == 2 && !cells[0].contains(" ") && cells[1].prefix(2) == [" ", " "] && !cells[1].suffix(2).contains(" "),
+           "mixed: the load curve has no gap, the CPU curve is blank for the two old minutes")
+    let json = hostHistoryCommand(args: ["--history", "--json"], read: read, now: now, calendar: taipei)
+    let doc = try? JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [String: Any]
+    let window = doc?["window"] as? [String: Any]
+    let series = window?["series"] as? [[String: Any]]
+    expect(series?[0]["cpuPct"] is NSNull && series?[2]["cpuPct"] as? Int == 41
+           && (window?["cpuPct"] as? [String: Any])?["max"] as? Int == 77, "json, mixed: null for old minutes, 41 for the third, window max 77")
 }
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")

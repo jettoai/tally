@@ -1,6 +1,7 @@
 import Foundation
 
-/// WHAT THE HISTORY ANSWERS: the shape of the last N minutes, and how often a gate would have let
+/// WHAT THE HISTORY ANSWERS: the shape of the last N minutes (load, and the CPU share from the
+/// lines that carry one; CPU never enters a gate), and how often a gate would have let
 /// a new session open during working hours. Pure functions over `[HostLoadSample]`; the clock, the
 /// calendar and the time zone are parameters so a harness can pin them (HostLoadHistory.swift has
 /// the line format).
@@ -96,6 +97,11 @@ enum HostLoadStats {
         var p50: Double?, p95: Double?, max: Double?
         var maxAt: Date?
         var spark: String
+        /// The CPU share over the same minutes, from the samples that carry one; all nil and an
+        /// empty curve when none does (every line older than B-4094).
+        var cpuP50: Int? = nil, cpuP95: Int? = nil, cpuMax: Int? = nil
+        var cpuMaxAt: Date? = nil
+        var cpuSpark = ""
     }
 
     struct Report: Equatable {
@@ -125,13 +131,22 @@ enum HostLoadStats {
         let inWindow = all.filter { $0.at > from && $0.at <= now }
         let loads = inWindow.map(\.load1)
         let peak = inWindow.max { $0.load1 < $1.load1 }
+        let cpuReadings = inWindow.compactMap { s in s.cpuPct.map { (at: s.at, pct: $0) } }
+        let cpuValues = cpuReadings.map { Double($0.pct) }
+        let cpuPeak = cpuReadings.max { $0.pct < $1.pct }
         let span = Int(now.timeIntervalSince(max(from, first.at)) / 60) + 1
         let window = Window(
             minutes: minutes, samples: inWindow, expected: max(min(minutes, span), inWindow.count),
             p50: percentile(loads, pct: 50), p95: percentile(loads, pct: 95),
             max: peak?.load1, maxAt: peak?.at,
             spark: sparkline(inWindow, from: from, minutes: minutes,
-                             scale: Swift.max(primary, peak?.load1 ?? 0)))
+                             scale: Swift.max(primary, peak?.load1 ?? 0)),
+            cpuP50: percentile(cpuValues, pct: 50).map { Int($0) },
+            cpuP95: percentile(cpuValues, pct: 95).map { Int($0) },
+            cpuMax: cpuPeak?.pct, cpuMaxAt: cpuPeak?.at,
+            cpuSpark: cpuReadings.isEmpty ? ""
+                : sparkline(inWindow, from: from, minutes: minutes, scale: 100,
+                            value: { $0.cpuPct.map(Double.init) }))
 
         let today = calendar.startOfDay(for: now)
         let dayStarts = (0..<days).compactMap { calendar.date(byAdding: .day, value: -$0, to: today) }
@@ -183,14 +198,17 @@ enum HostLoadStats {
 
     /// One cell per minute (a blank for a minute with no sample), scaled so `scale` is a full block;
     /// past 120 minutes a cell takes the MAX of its stretch, because the peaks are the point.
-    static func sparkline(_ samples: [HostLoadSample], from: Date, minutes: Int, scale: Double) -> String {
+    /// `value` picks the field drawn (load1 by default); a sample it returns nil for is a gap.
+    static func sparkline(_ samples: [HostLoadSample], from: Date, minutes: Int, scale: Double,
+                          value: (HostLoadSample) -> Double? = { $0.load1 }) -> String {
         let blocks = Array("▁▂▃▄▅▆▇█")
         let cells = Swift.min(minutes, maxSparkCells)
         let perCell = Double(minutes) / Double(cells)
         var peaks = [Double?](repeating: nil, count: cells)
         for sample in samples {
+            guard let reading = value(sample) else { continue }
             let index = Swift.min(cells - 1, Swift.max(0, Int(sample.at.timeIntervalSince(from) / 60 / perCell)))
-            peaks[index] = Swift.max(peaks[index] ?? 0, sample.load1)
+            peaks[index] = Swift.max(peaks[index] ?? 0, reading)
         }
         return String(peaks.map { peak -> Character in
             guard let peak else { return " " }
@@ -213,6 +231,12 @@ enum HostLoadStats {
                               clock(at, calendar: calendar)))
         } else {
             out.append("  no samples in this window")
+        }
+        if let p50 = window.cpuP50, let p95 = window.cpuP95, let peak = window.cpuMax, let at = window.cpuMaxAt {
+            out.append("  " + window.cpuSpark)
+            out.append("  cpu p50 \(p50)% · p95 \(p95)% · max \(peak)% (\(clock(at, calendar: calendar)))")
+        } else {
+            out.append("  cpu: no readings in this window")
         }
         let hours = String(format: "%02d:00-%02d:00", workHours.start, workHours.end)
         out.append("work hours \(hours), load1 below the gate")
@@ -270,9 +294,11 @@ enum HostLoadStats {
         let window = report.window
         let load: [String: Any] = ["p50": orNull(window.p50.map { num($0, 2) }), "p95": orNull(window.p95.map { num($0, 2) }),
                                    "max": orNull(window.max.map { num($0, 2) }), "maxAt": orNull(window.maxAt.map { stamp.string(from: $0) })]
+        let cpu: [String: Any] = ["p50": orNull(window.cpuP50), "p95": orNull(window.cpuP95),
+                                  "max": orNull(window.cpuMax), "maxAt": orNull(window.cpuMaxAt.map { stamp.string(from: $0) })]
         let series = window.samples.map { s -> [String: Any] in
             ["at": stamp.string(from: s.at), "load1": num(s.load1, 2), "freeGB": num(s.freeGB),
-             "memPct": orNull(s.memPct)]
+             "memPct": orNull(s.memPct), "cpuPct": orNull(s.cpuPct)]
         }
         let gates = report.gates.map { g -> [String: Any] in
             var entry: [String: Any] = [
@@ -286,7 +312,7 @@ enum HostLoadStats {
             "schema": 1, "available": true, "now": stamp.string(from: report.now),
             "timeZone": calendar.timeZone.identifier, "cores": report.cores,
             "window": ["minutes": window.minutes, "samples": window.samples.count,
-                       "expected": window.expected, "load1": load, "series": series],
+                       "expected": window.expected, "load1": load, "cpuPct": cpu, "series": series],
             "workHours": ["start": workHours.start, "end": workHours.end], "gates": gates,
             "historyHours": num(report.historyHours),
             "insufficient": report.insufficient, "corruptLines": report.corruptLines,

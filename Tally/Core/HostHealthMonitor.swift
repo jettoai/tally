@@ -120,7 +120,8 @@ final class HostHealthMonitor {
         // in: it would be counted as a real minute over the gate.
         let loadSample = testCPU == nil
             ? HostLoadSample(at: now, load1: reading.load1, freeBytes: reading.freeBytes,
-                             memPct: HostHealthReaders.memoryFreePercent(), cores: reading.cores)
+                             memPct: HostHealthReaders.memoryFreePercent(),
+                             cpuPct: hostLoadCPUPct(reading.cpuPercent), cores: reading.cores)
             : nil
         let (next, event) = HostHealthLogic.advance(tracker, reading: reading, at: now, limits: limits)
         tracker = next

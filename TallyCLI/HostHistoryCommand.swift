@@ -1,7 +1,7 @@
 import Foundation
 
 // `tally status --history [--minutes N] [--days D] [--gate X]... [--mem-min P] [--json]`: the last
-// N minutes of the one-minute load and, per local day, how often each gate would have let a new
+// N minutes of the one-minute load and CPU share and, per local day, how often each gate would have let a new
 // session open during working hours. It reads the files Tally.app writes to ~/.tally/host-load/
 // (Tally/Core/HostLoadHistory.swift is the format, HostLoadStats.swift the arithmetic) and never
 // samples anything itself, so a closed app means a gap, not a guess. TALLY_HOST_LOAD_DIR points the

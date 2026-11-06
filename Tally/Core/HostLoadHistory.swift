@@ -12,7 +12,7 @@ import Foundation
 /// a later build may add a field without breaking this reader (the "add, never change" rule the
 /// host-health report keeps):
 ///
-///     2026-11-04T02:31:05+08:00 load1=12.34 free_gb=53.1 mem_pct=73 cores=16
+///     2026-11-04T02:31:05+08:00 load1=12.34 free_gb=53.1 mem_pct=73 cpu_pct=41 cores=16
 struct HostLoadSample: Equatable, Sendable {
     var at: Date
     var load1: Double
@@ -20,13 +20,16 @@ struct HostLoadSample: Equatable, Sendable {
     /// kern.memorystatus_level, the "System-wide memory free percentage"; nil when unreadable (the
     /// field is then left out of the line rather than written empty).
     var memPct: Int?
+    /// The minute's busy CPU share, 0-100 (the mean of the host watch's ten-second windows); nil
+    /// when unreadable, and the field is then left out of the line, as `mem_pct` is.
+    var cpuPct: Int? = nil
     var cores: Int
 }
 
 extension HostLoadSample {
-    init(at: Date, load1: Double, freeBytes: UInt64, memPct: Int?, cores: Int) {
+    init(at: Date, load1: Double, freeBytes: UInt64, memPct: Int?, cpuPct: Int? = nil, cores: Int) {
         self.init(at: at, load1: load1, freeGB: Double(freeBytes) / 1_073_741_824,
-                  memPct: memPct, cores: cores)
+                  memPct: memPct, cpuPct: cpuPct, cores: cores)
     }
 }
 
@@ -74,6 +77,13 @@ func hostLoadDateFormatter(timeZone: TimeZone = .current) -> ISO8601DateFormatte
     return formatter
 }
 
+/// The host watch's CPU share (a Double, 0-100) as the whole percent the line carries: rounded
+/// half away from zero, clamped to 0...100, nil for nil or a non-finite value (`Int(.nan)` traps).
+func hostLoadCPUPct(_ percent: Double?) -> Int? {
+    guard let percent, percent.isFinite else { return nil }
+    return Swift.min(100, Swift.max(0, Int(percent.rounded())))
+}
+
 /// One sample as a line, newline included. `String(format:)` without a locale, so a comma-decimal
 /// system language cannot split a number into two fields. The timestamp is to the second and
 /// carries the local offset; compare times as `Date`s, never as these strings.
@@ -81,16 +91,18 @@ func hostLoadLine(_ sample: HostLoadSample, timeZone: TimeZone = .current) -> St
     var line = hostLoadDateFormatter(timeZone: timeZone).string(from: sample.at)
     line += String(format: " load1=%.2f free_gb=%.1f", sample.load1, sample.freeGB)
     if let memPct = sample.memPct { line += " mem_pct=\(memPct)" }
+    if let cpuPct = sample.cpuPct { line += " cpu_pct=\(cpuPct)" }
     return line + " cores=\(sample.cores)\n"
 }
 
 /// One line back into a sample, or nil when it is damaged: a missing or malformed required field
-/// (`load1`, `free_gb`, `cores`), a negative or non-finite number, an unparseable timestamp.
+/// (`load1`, `free_gb`, `cores`), a negative or non-finite number, a `mem_pct` or `cpu_pct` that is
+/// not a whole 0-100, an unparseable timestamp.
 /// Nothing is repaired or guessed, because a half-read line would be counted as a real minute.
 func parseHostLoadLine(_ line: String, formatter: ISO8601DateFormatter) -> HostLoadSample? {
     let tokens = line.split(separator: " ", omittingEmptySubsequences: true)
     guard let stamp = tokens.first, let at = formatter.date(from: String(stamp)) else { return nil }
-    var load1: Double?, freeGB: Double?, memPct: Int?, cores: Int?
+    var load1: Double?, freeGB: Double?, memPct: Int?, cpuPct: Int?, cores: Int?
     for token in tokens.dropFirst() {
         let pair = token.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
         guard pair.count == 2 else { return nil }
@@ -101,6 +113,9 @@ func parseHostLoadLine(_ line: String, formatter: ISO8601DateFormatter) -> HostL
         case "mem_pct":
             guard let n = Int(value), (0...100).contains(n) else { return nil }
             memPct = n
+        case "cpu_pct":
+            guard let n = Int(value), (0...100).contains(n) else { return nil }
+            cpuPct = n
         case "cores":
             guard let n = Int(value), n > 0 else { return nil }
             cores = n
@@ -109,7 +124,7 @@ func parseHostLoadLine(_ line: String, formatter: ISO8601DateFormatter) -> HostL
     }
     guard let load1, load1.isFinite, load1 >= 0, let freeGB, freeGB.isFinite, freeGB >= 0,
           let cores else { return nil }
-    return HostLoadSample(at: at, load1: load1, freeGB: freeGB, memPct: memPct, cores: cores)
+    return HostLoadSample(at: at, load1: load1, freeGB: freeGB, memPct: memPct, cpuPct: cpuPct, cores: cores)
 }
 
 struct HostLoadRead: Equatable {

@@ -206,9 +206,10 @@ func runKnockHookChecks() {
     var standing = recovered
     standing.state = .alarmed
     standing.load1 = 64
+    standing.cpuPercent = 64
     file("[host-health] load=181 free=34GB")
-    check("…while one still standing is delivered with the load read now",
-          context(run(hostHealth: standing).out)?.hasPrefix("[host-health] load=64 ") == true)
+    check("…while one still standing is delivered with the CPU share read now",
+          context(run(hostHealth: standing).out)?.hasPrefix("[host-health] cpu=64% ") == true)
     file("[host-health] load=181 free=34GB")
     check("…and none is delivered when the report cannot be read at all",
           run(hostHealth: nil).out.isEmpty && !stillFiled())

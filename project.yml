@@ -154,6 +154,8 @@ targets:
       # Settings, `tally status --json` names the file per session.
       - path: Tally/Core/ProjectStatusLine.swift
       - path: Tally/Core/HostHealthLogic.swift
+      - path: Tally/Core/HostHealthCPU.swift
+      - path: Tally/Core/HostHealthStatus.swift
       # The minute-by-minute load history: the app WRITES one line a minute and `tally status
       # --history` READS it back, so both targets compile the one line format and the one rate
       # arithmetic (a second copy of either is a reader that miscounts what the writer wrote).

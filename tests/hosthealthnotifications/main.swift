@@ -12,6 +12,10 @@ enum HostAlarmMirror { static let isAlarmed = Mutex(false) }
 enum HostHealthReaders {
     static let scans = Mutex(0)
     static func memoryFreePercent() -> Int? { nil }
+    // The ten-second windows are the monitor's own and are driven by the real clock; this harness
+    // runs the alarm path under the `-TallyHostHealthTest` flag (a fake CPU share), and the
+    // `unread` case leaves the counters unreadable to walk the fail-closed path.
+    static func cpuCounters() -> (busy: UInt64, total: UInt64)? { nil }
     static func reading() -> HostHealthReading? {
         if ProcessInfo.processInfo.environment["TALLY_TEST_MEMORY"] == "1" {
             return HostHealthReading(load1: 1, cores: 8, freeBytes: 1_073_741_824)
@@ -91,7 +95,26 @@ func L(_ value: String) -> String { value }
         try await Task.sleep(for: .milliseconds(20))
         let expected = Int(ProcessInfo.processInfo.environment["TALLY_TEST_EXPECTED"]!)!
         let report = decodeHostHealthReport(try Data(contentsOf: hostHealthReportFile))!
+        if ProcessInfo.processInfo.environment["TALLY_TEST_UNREAD"] == "1" {
+            // CPU never readable and memory fine: nothing is folded in, nobody is told, and the
+            // state is written down exactly once, when it began.
+            let log = (try? String(contentsOf: hostHealthLogFile, encoding: .utf8)) ?? ""
+            let lines = log.split(separator: "\n").filter { $0.contains("host-health=cpu-unread") }
+            guard report.state == .normal, report.cpuPercent == nil, report.cpuOver == nil,
+                  lines.count == 1, SystemAlert.titles.isEmpty else {
+                print("FAIL: unread CPU must stay quiet and log once (state \(report.state), lines \(lines.count))")
+                exit(1)
+            }
+            print("PASS: unread CPU raised nothing and wrote one cpu-unread line")
+            return
+        }
         guard report.state == .alarmed else { fatalError("muting must not stop health reporting") }
+        guard report.cpuPercent == 97, report.cpuOver == true,
+              report.lastAlarm?.cpuTop?.isEmpty == false,
+              hostHealthAlarmBody(report, localized: L).hasPrefix("CPU 97% (8 cores)") else {
+            print("FAIL: a CPU alarm must publish the share, name the busiest and say CPU 97%")
+            exit(1)
+        }
         guard SystemAlert.titles.count == expected else {
             print("FAIL: expected \(expected) host-health notifications, got \(SystemAlert.titles.count); report remains alarmed")
             exit(1)

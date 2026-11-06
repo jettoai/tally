@@ -83,6 +83,7 @@ enum HostHealthKnockLogic {
               now.timeIntervalSince(report.sampledAt) <= HostHealthLogic.staleAfter
         else { return nil }
         alarm.load1 = report.load1
+        alarm.cpuPercent = report.cpuPercent
         alarm.freeBytes = report.freeBytes
         return alarm
     }

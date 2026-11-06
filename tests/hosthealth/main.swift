@@ -18,14 +18,16 @@ let gigabyte: UInt64 = 1_073_741_824
 let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 func at(_ minutes: Int) -> Date { t0.addingTimeInterval(Double(minutes) * 60) }
 
-/// A comfortable machine: well under the load line and with plenty free.
+/// A comfortable machine: well under the CPU line and with plenty free.
 func calm(cores: Int = 16) -> HostHealthReading {
-    HostHealthReading(load1: 3.2, cores: cores, freeBytes: 41 * gigabyte)
+    HostHealthReading(load1: 3.2, cores: cores, freeBytes: 41 * gigabyte, cpuPercent: 12,
+                      cpuWindows: 6, physicalBytes: 64 * gigabyte)
 }
 
-/// One the incident would recognise.
+/// One the incident would recognise: CPU used up and memory short.
 func starved(cores: Int = 16) -> HostHealthReading {
-    HostHealthReading(load1: 273, cores: cores, freeBytes: gigabyte * 9 / 10)
+    HostHealthReading(load1: 273, cores: cores, freeBytes: gigabyte * 9 / 10, cpuPercent: 97,
+                      cpuWindows: 6, physicalBytes: 64 * gigabyte)
 }
 
 /// Fold a run of readings in, collecting what each one asked for.
@@ -97,49 +99,62 @@ do {
 
 // MARK: - 2. The two witnesses, each on its own
 
-// Load alone, with memory in no trouble at all.
+// CPU alone, with memory in no trouble at all, and a load that says nothing either way.
 do {
-    let loaded = HostHealthReading(load1: 60, cores: 16, freeBytes: 64 * gigabyte)
-    expect(HostHealthLogic.exceeds(loaded), "load alone is over the line")
-    let (_, events) = run(HostHealthTracker(), [loaded, loaded, loaded])
+    let busy = HostHealthReading(load1: 5, cores: 16, freeBytes: 64 * gigabyte, cpuPercent: 96,
+                                 cpuWindows: 6, physicalBytes: 128 * gigabyte)
+    expect(HostHealthLogic.exceeds(busy), "CPU alone is over the line")
+    let (_, events) = run(HostHealthTracker(), [busy, busy, busy])
     expect(events == [nil, nil, .alarm], "…and alarms on its own")
+    let queued = HostHealthReading(load1: 244, cores: 16, freeBytes: 64 * gigabyte, cpuPercent: 50,
+                                   cpuWindows: 6, physicalBytes: 128 * gigabyte)
+    expect(!HostHealthLogic.exceeds(queued), "a load of 244 with half the CPU idle is not over the line")
 }
 
 // Memory alone, on an idle machine.
 do {
-    let short = HostHealthReading(load1: 0.1, cores: 16, freeBytes: gigabyte / 2)
+    let short = HostHealthReading(load1: 0.1, cores: 16, freeBytes: gigabyte / 2, cpuPercent: 3,
+                                  cpuWindows: 6, physicalBytes: 64 * gigabyte)
     expect(HostHealthLogic.exceeds(short), "free memory alone is over the line")
     let (_, events) = run(HostHealthTracker(), [short, short, short])
     expect(events == [nil, nil, .alarm], "…and alarms on its own")
 }
 
-// The two lines themselves, at the boundary.
+// The lines themselves, at the boundary.
 do {
     let cores = 16
-    let limit = HostHealthLogic.loadLimit(cores: cores)
-    expect(limit == 48, "the load line on a sixteen-core machine is 48")
-    expect(HostHealthLogic.exceeds(HostHealthReading(load1: 48, cores: cores,
-                                                     freeBytes: 64 * gigabyte)),
-           "a load exactly at the line is over it")
-    expect(!HostHealthLogic.exceeds(HostHealthReading(load1: 47.9, cores: cores,
-                                                      freeBytes: 64 * gigabyte)),
-           "…and one just under it is not")
-    expect(!HostHealthLogic.exceeds(HostHealthReading(load1: 1, cores: cores,
-                                                      freeBytes: 2 * gigabyte)),
-           "exactly two gigabytes free is not short")
-    expect(HostHealthLogic.exceeds(HostHealthReading(load1: 1, cores: cores,
-                                                     freeBytes: 2 * gigabyte - 1)),
-           "…and one byte less is")
+    expect(HostHealthLogic.loadLimit(cores: cores) == 48,
+           "the old load line is still 48 on sixteen cores (the history's gate statistics read it)")
+    func machine(cpu: Double?, freePercent: Double = 36) -> HostHealthReading {
+        HostHealthReading(load1: 1, cores: cores,
+                          freeBytes: UInt64(freePercent / 100 * Double(100 * gigabyte)),
+                          cpuPercent: cpu, cpuWindows: cpu == nil ? 0 : 6, physicalBytes: 100 * gigabyte)
+    }
+    expect(HostHealthLogic.exceeds(machine(cpu: 90)), "a CPU share exactly at the line is over it")
+    expect(!HostHealthLogic.exceeds(machine(cpu: 89.9)), "…and one just under it is not")
+    expect(!HostHealthLogic.exceeds(machine(cpu: 10, freePercent: 3)), "exactly 3% free is not short")
+    expect(HostHealthLogic.exceeds(machine(cpu: 10, freePercent: 2.9)), "…and 2.9% is")
+    expect(!HostHealthLogic.exceeds(machine(cpu: nil)), "an unread CPU share is not over the line")
+    // The old absolute floor stands in when the machine's total is unread.
+    let unknownTotal = { (free: UInt64) in
+        HostHealthReading(load1: 1, cores: cores, freeBytes: free, cpuPercent: 10, cpuWindows: 6)
+    }
+    expect(!HostHealthLogic.exceeds(unknownTotal(2 * gigabyte)),
+           "with the total unread, exactly two gigabytes free is not short")
+    expect(HostHealthLogic.exceeds(unknownTotal(2 * gigabyte - 1)), "…and one byte less is")
 }
 
-// A machine that will not say how many cores it has silences the LOAD witness rather than tripping
-// it, the fail-open direction every other reading in this app takes. The memory witness answers on.
+// The CPU witness does not depend on the core count (it is a share of the whole machine); the
+// memory witness answers on as before.
 do {
-    expect(!HostHealthLogic.exceeds(HostHealthReading(load1: 900, cores: 0,
-                                                      freeBytes: 64 * gigabyte)),
-           "an unreadable core count silences the load witness")
-    expect(HostHealthLogic.exceeds(HostHealthReading(load1: 900, cores: 0, freeBytes: gigabyte)),
-           "…and leaves the memory witness answering")
+    expect(HostHealthLogic.exceeds(HostHealthReading(load1: 1, cores: 0, freeBytes: 64 * gigabyte,
+                                                     cpuPercent: 96, cpuWindows: 6,
+                                                     physicalBytes: 128 * gigabyte)),
+           "an unreadable core count does not silence the CPU witness")
+    expect(HostHealthLogic.exceeds(HostHealthReading(load1: 900, cores: 0, freeBytes: gigabyte,
+                                                     cpuPercent: 10, cpuWindows: 6,
+                                                     physicalBytes: 64 * gigabyte)),
+           "…and the memory witness answers")
 }
 
 // MARK: - 3. The document
@@ -190,20 +205,25 @@ do {
 do {
     let report = HostHealthReport(sampledAt: at(0), load1: 3.2, cores: 16,
                                   freeBytes: 41 * gigabyte, state: .normal, since: at(-30),
-                                  lastAlarm: nil)
+                                  lastAlarm: nil, cpuPercent: 51.4, cpuOver: false, cpuLimit: 90)
     let line = hostHealthStatusLine(report, now: at(0).addingTimeInterval(12))
-    expect(line == "host: load 3.2/48 · free 41 GB · ok (sampled 12s ago)",
-           "a calm machine prints load, free and the age of the reading")
+    expect(line == "host: cpu 51%/90% · free 41 GB · ok (sampled 12s ago)",
+           "a calm machine prints CPU against its line, free and the age of the reading")
+    let older = HostHealthReport(sampledAt: at(0), load1: 3.2, cores: 16, freeBytes: 41 * gigabyte,
+                                 state: .normal, since: at(-30), lastAlarm: nil)
+    expect(hostHealthStatusLine(older, now: at(0).addingTimeInterval(12))
+            == "host: cpu ?%/90% · free 41 GB · ok (sampled 12s ago)",
+           "a report written before the CPU fields prints a question mark against the default line")
 }
 
 do {
     let alarm = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte * 9 / 10, top: sampleTop)
     let report = HostHealthReport(sampledAt: at(3), load1: 273, cores: 16,
                                   freeBytes: gigabyte * 9 / 10, state: .alarmed, since: at(0),
-                                  lastAlarm: alarm)
+                                  lastAlarm: alarm, cpuPercent: 97, cpuOver: true, cpuLimit: 90)
     let line = hostHealthStatusLine(report, now: at(3).addingTimeInterval(5)) ?? ""
     expect(line.hasPrefix("host: ALARM since "), "an alarmed machine leads with the alarm")
-    expect(line.contains("· load 273/48 · free 0.9 GB"),
+    expect(line.contains("· cpu 97%/90% · free 0.9 GB"),
            "…and prints the reading against the line")
     expect(line.contains("· top: node 15G, qemu 6.2G, Google Chrome 4.1G"),
            "…and names what is holding the memory")
@@ -271,9 +291,9 @@ do {
     tracker.lastAlarm = HostHealthAlarm(at: at(0), load1: 227, freeBytes: 25 * gigabyte,
                                         top: sampleTop, cpuTop: culprits)
     let loadOnly = HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0))
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte, cpuPercent: 97, cpuWindows: 6), at: at(0))
     expect(hostHealthAlarmBody(loadOnly, localized: en)
-            == "load 227 (16 cores) · free memory 25 GB · top: ApplicationsStorageExtension 188% "
+            == "CPU 97% (16 cores) · free memory 25 GB · top: ApplicationsStorageExtension 188% "
             + "(system) · can stop, node 104% (geo), llama-server 70%",
            "a load alarm names what burns CPU, and says the free figure is memory")
     expect(hostHealthAlarmTitle(loadOnly, localized: en)
@@ -281,21 +301,21 @@ do {
            "…and its title carries the first culprit, which a stacked-banner summary still reads")
     tracker.lastAlarm?.freeBytes = gigabyte
     let both = HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 227, cores: 16, freeBytes: gigabyte), at: at(0))
+        load1: 227, cores: 16, freeBytes: gigabyte, cpuPercent: 97, cpuWindows: 6), at: at(0))
     expect(hostHealthAlarmBody(both, localized: en).hasSuffix(
             "\nmemory: node 15GB, qemu 6.2GB, Google Chrome 4.1GB"),
            "both witnesses: the memory holders get a second line")
     tracker.lastAlarm?.cpuTop = nil
     let memoryOnly = HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 2, cores: 16, freeBytes: gigabyte), at: at(0))
+        load1: 2, cores: 16, freeBytes: gigabyte, cpuPercent: 10, cpuWindows: 6), at: at(0))
     expect(hostHealthAlarmBody(memoryOnly, localized: en)
-            == "load 2.0 (16 cores) · free memory 1.0 GB · top: node 15GB, qemu 6.2GB, Google Chrome 4.1GB",
+            == "CPU 10% (16 cores) · free memory 1.0 GB · top: node 15GB, qemu 6.2GB, Google Chrome 4.1GB",
            "a memory alarm names the memory holders as before")
     expect(hostHealthAlarmTitle(memoryOnly, localized: en) == "Host under pressure: node",
            "…and titles the biggest one")
     tracker.lastAlarm?.top = []
     expect(hostHealthAlarmTitle(HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 2, cores: 16, freeBytes: gigabyte), at: at(0)), localized: en) == "Host under pressure",
+        load1: 2, cores: 16, freeBytes: gigabyte, cpuPercent: 10, cpuWindows: 6), at: at(0)), localized: en) == "Host under pressure",
            "no name, the plain title")
 
     // The log keeps `top=` last and adds `cpu=` before it; an older report without the field still
@@ -303,7 +323,7 @@ do {
     tracker.lastAlarm = HostHealthAlarm(at: at(0), load1: 227, freeBytes: 25 * gigabyte,
                                         top: sampleTop, cpuTop: culprits)
     let line = hostHealthLogLine(.alarm, report: HostHealthLogic.report(tracker, reading:
-        HostHealthReading(load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0)), now: at(0))
+        HostHealthReading(load1: 227, cores: 16, freeBytes: 25 * gigabyte, cpuPercent: 97, cpuWindows: 6), at: at(0)), now: at(0))
     expect(line.contains(" free=25G cpu=ApplicationsStorageExtension[system]:188%,node[geo]:104%,"
                          + "llama-server:70% top=node:15G,"), "the log line gains cpu= before top=")
     let old = #"{"cores":16,"freeBytes":1,"lastAlarm":{"at":"2026-10-02T13:23:45Z","freeBytes":1,"load1":227,"top":[]},"load1":227,"sampledAt":"2026-10-02T13:23:45Z","since":"2026-10-02T13:23:45Z","state":"alarmed"}"#
@@ -316,7 +336,7 @@ do {
         top: [HostHealthThreadHolder(name: "Virtualization", threads: 410),
               HostHealthThreadHolder(name: "no\nde", threads: 388)])
     let threaded = HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0))
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte, cpuPercent: 97, cpuWindows: 6), at: at(0))
     let census = hostHealthLogLine(.alarm, report: threaded, now: at(0))
     expect(census.contains(" free=25G thr=r12,u340,t9000 procs=812 nthr=Virtualization:410,node:388"
                            + " cpu=ApplicationsStorageExtension[system]:188%,"),
@@ -326,7 +346,7 @@ do {
            "…and `top=` is still the last field of one line")
     tracker.state = .normal
     expect(!hostHealthLogLine(.clear, report: HostHealthLogic.report(tracker, reading:
-        HostHealthReading(load1: 2, cores: 16, freeBytes: 25 * gigabyte), at: at(0)), now: at(0))
+        HostHealthReading(load1: 2, cores: 16, freeBytes: 25 * gigabyte, cpuPercent: 10, cpuWindows: 6), at: at(0)), now: at(0))
             .contains("thr="), "a clear line carries no census")
     expect(decodeHostHealthReport(Data(old.utf8))?.lastAlarm?.threads == nil,
            "a report written before the census still decodes")
@@ -352,7 +372,7 @@ do {
     tracker.lastAlarm = HostHealthAlarm(at: at(0), load1: 227, freeBytes: 25 * gigabyte,
                                         top: sampleTop, cpuTop: [inSession, unnamedSystem])
     let report = HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0))
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte, cpuPercent: 97, cpuWindows: 6), at: at(0))
     expect(hostHealthAlarmTitle(report, localized: en) == "Host under pressure: node (geo-12)",
            "the title's culprit carries its session")
     expect(hostHealthLogLine(.alarm, report: report, now: at(0))
@@ -360,7 +380,7 @@ do {
     tracker.lastAlarm?.cpuTop = [HostHealthCPUProcess(name: "llama-server", percent: 70,
                                                       project: nil, system: false)]
     expect(hostHealthAlarmTitle(HostHealthLogic.report(tracker, reading: HostHealthReading(
-        load1: 227, cores: 16, freeBytes: 25 * gigabyte), at: at(0)), localized: en)
+        load1: 227, cores: 16, freeBytes: 25 * gigabyte, cpuPercent: 97, cpuWindows: 6), at: at(0)), localized: en)
             == "Host under pressure: llama-server", "an ownerless culprit: no parentheses")
 
     // Additive on disk: the field is written when known and absent rows still decode.
@@ -407,6 +427,8 @@ do {
 runKnockChecks()
 // And the alarm that is still on, and the one a restart resumes (B-2238): namingchecks.swift.
 runNamingChecks()
+// And the CPU witness that decides the alarm since B-4094: cpuchecks.swift.
+runCPUChecks()
 
 print(failures == 0 ? "all host-health checks passed" : "\(failures) host-health checks failed")
 exit(failures == 0 ? 0 : 1)

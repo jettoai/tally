@@ -18,13 +18,14 @@ func runKnockChecks() {
     let knockBytes = 200
 
     do {
-        let alarm = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte * 9 / 10, top: sampleTop)
+        let alarm = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte * 9 / 10, top: sampleTop,
+                                  cpuPercent: 97)
         expect(hostHealthKnockSentence(alarm, bytes: knockBytes)
-                == "[host-health] load=273 free=0.9GB top=node,qemu,Google Chrome",
+                == "[host-health] cpu=97% free=0.9GB top=node,qemu,Google Chrome",
                "the sentence is one line naming the reading and what is holding the memory")
-        let unnamed = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte, top: [])
+        let unnamed = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte, top: [], cpuPercent: 97)
         expect(hostHealthKnockSentence(unnamed, bytes: knockBytes)
-                == "[host-health] load=273 free=1.0GB",
+                == "[host-health] cpu=97% free=1.0GB",
                "…and leaves the phrase out entirely when the scan named nothing")
     }
 
@@ -38,7 +39,8 @@ func runKnockChecks() {
         let hostile = [HostHealthProcess(name: "node\u{1B}[31m\nqemu", rss: 14 * gigabyte),
                        HostHealthProcess(name: "\u{7}bell", rss: 6 * gigabyte),
                        HostHealthProcess(name: String(repeating: "測", count: 200), rss: 4 * gigabyte)]
-        let alarm = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte * 9 / 10, top: hostile)
+        let alarm = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte * 9 / 10, top: hostile,
+                                  cpuPercent: 97)
         let line = hostHealthKnockSentence(alarm, bytes: knockBytes)
         expect(!line.contains("\n") && !line.contains("\r"), "…and is exactly one line")
         expect(!line.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) },
@@ -48,7 +50,7 @@ func runKnockChecks() {
                "…inside the channel's byte budget (\(line.utf8.count) of \(knockBytes))")
         expect(!line.unicodeScalars.contains { $0.value == 0xFFFD },
                "…cut between characters rather than through one")
-        expect(line.hasPrefix("[host-health] load=273 free=0.9GB top=node"),
+        expect(line.hasPrefix("[host-health] cpu=97% free=0.9GB top=node"),
                "…and what survives still reads as the sentence, naming the process")
     }
 
@@ -83,8 +85,9 @@ func runKnockChecks() {
     // A name that is nothing BUT those bytes is left out rather than printed as an empty field.
     do {
         let blank = HostHealthAlarm(at: at(0), load1: 273, freeBytes: gigabyte,
-                                    top: [HostHealthProcess(name: "\u{1B}\u{7}", rss: gigabyte)])
-        expect(hostHealthKnockSentence(blank, bytes: knockBytes) == "[host-health] load=273 free=1.0GB",
+                                    top: [HostHealthProcess(name: "\u{1B}\u{7}", rss: gigabyte)],
+                                    cpuPercent: 97)
+        expect(hostHealthKnockSentence(blank, bytes: knockBytes) == "[host-health] cpu=97% free=1.0GB",
                "a name that strips to nothing is left out of the phrase")
     }
 
@@ -99,7 +102,8 @@ func runKnockChecks() {
                                 state: .alarmed, since: alarm,
                                 lastAlarm: HostHealthAlarm(at: alarm, load1: 273,
                                                            freeBytes: gigabyte * 9 / 10,
-                                                           top: sampleTop))
+                                                           top: sampleTop, cpuPercent: 97),
+                                cpuPercent: 97, cpuOver: true, cpuLimit: 90)
     }
 
     do {
@@ -245,15 +249,16 @@ func runKnockChecks() {
                "…nor one whose report nobody has rewritten past the staleness line")
         var still = alarmedReport(at: at(30), alarmedAt: at(0))
         still.load1 = 61.4
+        still.cpuPercent = 61.4
         still.freeBytes = 7 * gigabyte
         let said = HostHealthKnockLogic.current(still, now: at(31))
-        expect(said?.load1 == 61.4 && said?.freeBytes == 7 * gigabyte,
+        expect(said?.load1 == 61.4 && said?.cpuPercent == 61.4 && said?.freeBytes == 7 * gigabyte,
                "an alarm still standing is delivered with the figures read now, not at filing")
         expect(said?.at == at(0) && said?.top == sampleTop,
                "…keeping the filed alarm's instant and top list")
-        expect(said.map { hostHealthKnockSentence($0, bytes: 200) }?.hasPrefix("[host-health] load=61 free=7.0GB")
+        expect(said.map { hostHealthKnockSentence($0, bytes: 200) }?.hasPrefix("[host-health] cpu=61% free=7.0GB")
                    == true,
-               "…so the sentence carries the current load")
+               "…so the sentence carries the current CPU share")
     }
 
     // MARK: - 7c. The load reading agrees with the kernel's own (reconciliation, real machine)
@@ -379,7 +384,7 @@ func runKnockChecks() {
     } else {
         expect(false, "the thread census is taken once, inside the alarm branch")
     }
-    expect(monitor.contains("if event == .alarm { post(report) }"),
+    expect(monitor.contains("if event == .alarm { post(report, limits: limits) }"),
            "a recovery is written down and not announced")
 
     // THE FILES ARE WRITTEN OFF THE MAIN THREAD (Sentry TALLY-1D: `publish` held it past two seconds
@@ -402,7 +407,7 @@ func runKnockChecks() {
     // THE NOTIFICATION'S OWN BODY CANNOT BE DRIVEN FROM HERE (it is @MainActor, localised and ends in
     // SystemAlert), so what is stated is where it gets its names: the one phrase this suite asserts
     // repairs them.
-    expect(monitor.contains("hostHealthAlarmBody(report, localized: L)")
+    expect(monitor.contains("hostHealthAlarmBody(report, limits: limits, localized: L)")
             && source("Tally/Core/HostHealthLogic.swift")
                 .contains("hostHealthTopText(report.lastAlarm?.top ?? [], unit: \"GB\")"),
            "the banner's body is built out of the phrase the names are repaired in")
@@ -412,22 +417,22 @@ func runKnockChecks() {
     if let branch = monitor.range(of: "if event == .alarm {"),
        let call = monitor.range(of: "HostHealthReaders.busiest("),
        let close = blockEnd(monitor, from: branch.upperBound),
-       let again = monitor.range(of: "} else if HostHealthLogic.renameDue(tracker, reading: reading, at: now) {"),
+       let again = monitor.range(of: "} else if HostHealthLogic.renameDue(tracker, reading: reading, at: now, limits: limits) {"),
        let second = monitor.range(of: "HostHealthReaders.busiest(", range: again.upperBound..<monitor.endIndex),
        let againClose = blockEnd(monitor, from: again.upperBound) {
         expect(branch.upperBound < call.lowerBound && call.upperBound <= close
-                && monitor.contains("HostHealthLogic.loadExceeds(reading)"),
-               "the CPU sample is taken only by a load alarm")
+                && monitor.contains("HostHealthLogic.cpuExceeds(reading, limits)"),
+               "the CPU sample is taken only by a CPU alarm")
         expect(monitor.components(separatedBy: "HostHealthReaders.busiest(").count == 3
                 && second.upperBound <= againClose,
                "…and by the renewed look, which sits inside the branch `renameDue` guards")
     } else {
-        expect(false, "the CPU sample is taken only by a load alarm and by the renewed look")
+        expect(false, "the CPU sample is taken only by a CPU alarm and by the renewed look")
     }
     // A restart resumes an alarm the previous run published, and never under the test flag.
-    expect(monitor.contains("testLoad == nil, let resumed") && monitor.contains("HostHealthLogic.restoreFromDisk("),
-           "the published report is resumed once, never under the load-faking test flag")
-    expect(monitor.contains("if let handover { post(handover) }"), "a handover is announced")
+    expect(monitor.contains("testCPU == nil, let resumed") && monitor.contains("HostHealthLogic.restoreFromDisk("),
+           "the published report is resumed once, never under the CPU-faking test flag")
+    expect(monitor.contains("if let handover { post(handover, limits: limits) }"), "a handover is announced")
 
     // THE STATION SPEAKS LAST AND THROUGH THE EXISTING DOOR. Placed after the quota knock, told what
     // that knock typed, and holding entirely when a filed sentence is still sitting unread.

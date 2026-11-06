@@ -18,12 +18,12 @@ extension HostHealthLogic {
         cpuTop?.first.map { $0.project ?? $0.session ?? $0.app ?? $0.name }
     }
 
-    /// Whether an alarm that is still on should look at the CPU list again: only while the LOAD
+    /// Whether an alarm that is still on should look at the CPU list again: only while the CPU
     /// witness is still over the line (a memory alarm has no CPU list to refresh), and only once
     /// `renameInterval` has passed since the last time a leader was named.
     static func renameDue(_ tracker: HostHealthTracker, reading: HostHealthReading,
-                          at now: Date) -> Bool {
-        guard tracker.state == .alarmed, loadExceeds(reading), let named = tracker.namedAt else {
+                          at now: Date, limits: HostHealthLimits = .standard) -> Bool {
+        guard tracker.state == .alarmed, cpuExceeds(reading, limits), let named = tracker.namedAt else {
             return false
         }
         return now.timeIntervalSince(named) >= renameInterval
@@ -48,7 +48,8 @@ extension HostHealthLogic {
                                at now: Date) -> HostHealthReport {
         var out = report
         out.lastAlarm = HostHealthAlarm(at: now, load1: report.load1, freeBytes: report.freeBytes,
-                                        top: [], cpuTop: cpuTop)
+                                        top: [], cpuTop: cpuTop, cpuPercent: report.cpuPercent,
+                                        memoryAvailablePercent: report.memoryAvailablePercent)
         return out
     }
 

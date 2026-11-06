@@ -179,7 +179,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   TallyCLI/QuotaKnockNotice.swift TallyCLI/QuotaKnockHookContract.swift TallyCLI/HookKnock.swift \
   TallyCLI/ChromeReach.swift TallyCLI/ChromePreflight.swift \
   TallyCLI/HostHealthKnock.swift TallyCLI/HostHealthKnockLogic.swift \
-  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthReaders.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostHealthReaders.swift \
   Tally/Core/HostHealthSessions.swift \
   Tally/Core/KeystrokeText.swift \
   Tally/Core/HostHealthNaming.swift Tally/Core/HostHealthMonitor.swift Tally/Core/HostLoadHistory.swift Tally/Core/HostLoadHistoryWriter.swift Tally/Core/HostAlarmMirror.swift Tally/Core/SystemAlert.swift \

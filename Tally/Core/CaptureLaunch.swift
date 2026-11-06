@@ -93,8 +93,8 @@ enum CaptureLaunch {
         "TallyUpdateLagTest",
         "TallyClearanceIdleTest",
         // The host-pressure alarm, which is a banner like the three above it and reaches it the
-        // same way: the flag reports a load of 300 to the watch, and three samples later the
-        // machine is in alarm (`HostHealthMonitor.testLoad`). A background launch for the family's
+        // same way: the flag reports a CPU share of 97% to the watch, and three samples later the
+        // machine is in alarm (`HostHealthMonitor.testCPU`). A background launch for the family's
         // own reason - a banner needs no focus, so taking one is pure cost.
         "TallyHostHealthTest",
         // The CPU alarm, a banner like the host one: the flag reports the machine as 97% busy and

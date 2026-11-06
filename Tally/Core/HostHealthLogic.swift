@@ -24,13 +24,27 @@ import Foundation
 
 /// What one sample read off the machine.
 struct HostHealthReading: Equatable, Sendable {
-    /// The one-minute load average (`getloadavg`).
+    /// The one-minute load average (`getloadavg`). A DISPLAY value since B-4094: it counts runnable
+    /// and uninterruptible threads, so two virtual machines queueing threads read 140 on a machine
+    /// whose CPU is half idle, and nothing is decided on it any more.
     var load1: Double
     /// How many cores that load is spread over, which is what makes it comparable between machines.
     var cores: Int
     /// What could be handed out right now without paging: free plus inactive plus purgeable.
     /// Deliberately NOT counting the compressor, which is memory already spent.
     var freeBytes: UInt64
+    /// How busy the whole machine was over this minute, 0 to 100: the mean of the ten-second
+    /// windows (`HostCPUWindows`), nil when too few windows could be read to say.
+    var cpuPercent: Double? = nil
+    /// How many ten-second windows that mean is over.
+    var cpuWindows = 0
+    /// What the machine holds in total, which turns `freeBytes` into a share. Zero when unread.
+    var physicalBytes: UInt64 = 0
+
+    /// Free memory as a share of the machine's, nil when the total is unread.
+    var memoryAvailablePercent: Double? {
+        physicalBytes > 0 ? Double(freeBytes) / Double(physicalBytes) * 100 : nil
+    }
 }
 
 /// One process named in an alarm.
@@ -61,6 +75,10 @@ struct HostHealthAlarm: Codable, Equatable, Sendable {
     /// load spikes of 180 to 316 with CPU not full named no culprit, and load counts runnable and
     /// uninterruptible threads, not CPU.
     var threads: HostHealthThreads? = nil
+    /// The CPU share the alarm was raised at, and the free-memory share, for the sentence and the
+    /// banner (B-4094). Optional and last: a report written before them decodes.
+    var cpuPercent: Double? = nil
+    var memoryAvailablePercent: Double? = nil
 }
 
 /// Threads at an alarm. Thread figures cover only the processes this user may inspect (libproc
@@ -134,6 +152,14 @@ struct HostHealthReport: Codable, Equatable, Sendable {
     /// last: a report written before them decodes.
     var namedLeader: String? = nil
     var namedAt: Date? = nil
+    /// What the alarm is decided on since B-4094, and the one place other processes read it: this
+    /// minute's CPU share, whether that witness is over the line (absent when CPU could not be read,
+    /// which a reader takes as "not busy"), the line it was judged against, and free memory as a
+    /// share. Additive: a report written before them decodes, and `load1` keeps its meaning.
+    var cpuPercent: Double? = nil
+    var cpuOver: Bool? = nil
+    var cpuLimit: Double? = nil
+    var memoryAvailablePercent: Double? = nil
 }
 
 /// What one folded sample asks the caller to do about it.
@@ -179,26 +205,15 @@ enum HostHealthLogic {
             ?? true
     }
 
-    /// How much load per core counts as too much. Three times the core count is the line the
-    /// incident was read against: this machine has 16 cores, so 48, and it was sitting at 273.
-    /// A busy build sits near 1 per core and a saturated one near 2, so 3 is well clear of work
-    /// somebody asked for.
+    /// The old load line, three times the core count: 48 on 16 cores. Nothing is DECIDED on it
+    /// since B-4094 (the alarm reads CPU, `HostHealthLimits`); it stays for `tally status --history`,
+    /// which counts how often the `~/.claude` gates that still use load would have held.
     static let loadPerCore = 3.0
 
-    /// And how little free memory counts as too little: 2 GB. Below this the machine is compressing
-    /// and swapping to hand out anything at all, which is where the incident's forty-minute API
-    /// round trips came from.
+    /// The old absolute floor, kept for a machine whose total memory cannot be read: 2 GB. Below
+    /// this the machine is compressing and swapping to hand out anything at all. Otherwise the line
+    /// is a share (`HostHealthLimits.memoryPercent`).
     static let minimumFreeBytes: UInt64 = 2 * 1024 * 1024 * 1024
-
-    /// How many samples in a row it takes to move in either direction.
-    ///
-    /// A RUN RATHER THAN A READING, in both directions and for two different reasons. Upwards it is
-    /// what keeps a single spike quiet: a `pnpm install`, a full test run or an Xcode build all put
-    /// this machine over the line for less than a minute, and none of them is the thing this exists
-    /// to report. Downwards it is hysteresis: a machine hovering at the line would otherwise
-    /// announce, recover and announce again every minute, which is the one failure that would get
-    /// this feature turned off.
-    static let consecutiveSamples = 3
 
     /// How long between samples. ONE MINUTE, which the incident's own shape is what sets: a machine
     /// takes minutes to starve and the run above means three of these before anything is said, so
@@ -223,23 +238,6 @@ enum HostHealthLogic {
     /// without knowing the rule (`hostHealthStatusLine` prints it as the denominator).
     static func loadLimit(cores: Int) -> Double { loadPerCore * Double(cores) }
 
-    /// Whether one reading is over the line: either witness on its own is enough, because the two
-    /// failures the incident produced were exactly these two and either alone makes the machine
-    /// unusable.
-    ///
-    /// A CORE COUNT OF ZERO SILENCES THE LOAD WITNESS RATHER THAN TRIPPING IT, the fail-open
-    /// direction `MachineMemoryPressure.reading(of:)` takes for a machine that will not say: an
-    /// unreadable core count must not put every machine into alarm. The memory witness is
-    /// unaffected and still answers.
-    static func exceeds(_ reading: HostHealthReading) -> Bool {
-        loadExceeds(reading) || reading.freeBytes < minimumFreeBytes
-    }
-
-    /// The load witness on its own, which is what decides whether an alarm is worth a CPU sample.
-    static func loadExceeds(_ reading: HostHealthReading) -> Bool {
-        reading.cores > 0 && reading.load1 >= loadLimit(cores: reading.cores)
-    }
-
     /// Fold one sample into the watch, returning the next state and what it asks the caller to do.
     ///
     /// THE TRANSITION IS THE EVENT, which is the whole of the notification discipline: an event is
@@ -248,18 +246,25 @@ enum HostHealthLogic {
     ///
     /// The counters are reset at a crossing so the run that clears an alarm is counted from the
     /// alarm, not from whatever happened before it.
+    ///
+    /// A CPU READING THAT COULD NOT BE TAKEN IS NEITHER OVER NOR UNDER: with memory in no trouble
+    /// the counters stay where they were, so an unreadable minute neither raises an alarm nor clears
+    /// the one that is on (B-4094).
     static func advance(_ tracker: HostHealthTracker, reading: HostHealthReading,
-                        at now: Date) -> (HostHealthTracker, HostHealthEvent?) {
+                        at now: Date, limits: HostHealthLimits = .standard)
+        -> (HostHealthTracker, HostHealthEvent?) {
         var next = tracker
         if next.since == nil { next.since = now }
-        let over = exceeds(reading)
-        next.over = over ? next.over + 1 : 0
-        next.under = over ? 0 : next.under + 1
+        let over = exceeds(reading, limits)
+        if over || reading.cpuPercent != nil {
+            next.over = over ? next.over + 1 : 0
+            next.under = over ? 0 : next.under + 1
+        }
         // Which crossing this run has just completed, if any: each state watches its own counter,
         // and neither may be answered by the other's.
         let crossing: (phase: HostHealthPhase, event: HostHealthEvent)? = switch tracker.state {
-        case .normal: next.over >= consecutiveSamples ? (.alarmed, .alarm) : nil
-        case .alarmed: next.under >= consecutiveSamples ? (.normal, .clear) : nil
+        case .normal: next.over >= limits.samples ? (.alarmed, .alarm) : nil
+        case .alarmed: next.under >= limits.samples ? (.normal, .clear) : nil
         }
         guard let crossing else { return (next, nil) }
         next.state = crossing.phase
@@ -273,11 +278,15 @@ enum HostHealthLogic {
 
     /// The document one sample publishes, out of the watch it has just been folded into.
     static func report(_ tracker: HostHealthTracker, reading: HostHealthReading,
-                       at now: Date) -> HostHealthReport {
+                       at now: Date, limits: HostHealthLimits = .standard) -> HostHealthReport {
         HostHealthReport(sampledAt: now, load1: reading.load1, cores: reading.cores,
                          freeBytes: reading.freeBytes, state: tracker.state,
                          since: tracker.since ?? now, lastAlarm: tracker.lastAlarm,
-                         namedLeader: tracker.namedLeader, namedAt: tracker.namedAt)
+                         namedLeader: tracker.namedLeader, namedAt: tracker.namedAt,
+                         cpuPercent: reading.cpuPercent,
+                         cpuOver: reading.cpuPercent.map { _ in cpuExceeds(reading, limits) },
+                         cpuLimit: limits.cpuPercent,
+                         memoryAvailablePercent: reading.memoryAvailablePercent)
     }
 }
 
@@ -340,9 +349,9 @@ func hostHealthCPUText(_ top: [HostHealthCPUProcess], system: String, stoppable:
     .joined(separator: ", ")
 }
 
-/// The banner's body. `localized` is the app's `L`, handed in so this stays pure. A load alarm names
+/// The banner's body. `localized` is the app's `L`, handed in so this stays pure. A CPU alarm names
 /// what is burning CPU; a memory alarm names what holds memory; both at once gets a second line.
-func hostHealthAlarmBody(_ report: HostHealthReport,
+func hostHealthAlarmBody(_ report: HostHealthReport, limits: HostHealthLimits = .standard,
                          localized: (String) -> String) -> String {
     let alarm = report.lastAlarm
     let memory = hostHealthTopText(report.lastAlarm?.top ?? [], unit: "GB")
@@ -350,11 +359,12 @@ func hostHealthAlarmBody(_ report: HostHealthReport,
                                 stoppable: localized(" · can stop"),
                                 tag: { String(format: localized(" (%@)"), $0) })
     let named = [cpu, memory].first { !$0.isEmpty } ?? localized("unknown")
-    var body = String(format: localized("load %1$@ (%2$@ cores) · free memory %3$@ GB · top: %4$@"),
-                      hostHealthFigure(report.load1), String(report.cores),
-                      hostHealthGigabytes(report.freeBytes), named)
-    if !cpu.isEmpty, !memory.isEmpty,
-       (alarm?.freeBytes ?? .max) < HostHealthLogic.minimumFreeBytes {
+    let share = (alarm?.cpuPercent ?? report.cpuPercent).map(hostHealthFigure) ?? "?"
+    var body = String(format: localized("CPU %1$@%% (%2$@ cores) · free memory %3$@ GB · top: %4$@"),
+                      share, String(report.cores), hostHealthGigabytes(report.freeBytes), named)
+    let memoryShort = alarm?.memoryAvailablePercent.map { $0 < limits.memoryPercent }
+        ?? ((alarm?.freeBytes ?? .max) < HostHealthLogic.minimumFreeBytes)
+    if !cpu.isEmpty, !memory.isEmpty, memoryShort {
         body += "\n" + String(format: localized("memory: %@"), memory)
     }
     return body
@@ -399,6 +409,7 @@ func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
     let threads = report.state == .alarmed ? report.lastAlarm?.threads : nil
     return "\(ISO8601DateFormatter().string(from: now)) host-health=\(event.rawValue) "
         + "load=\(hostHealthFigure(report.load1)) cores=\(report.cores) "
+        + (report.cpuPercent.map { "cpu_pct=\(hostHealthFigure($0)) " } ?? "")
         + "free=\(hostHealthGigabytes(report.freeBytes))G"
         + (threads.map { t in
             " thr=r\(t.running),u\(t.uninterruptible),t\(t.total) procs=\(t.processes) nthr="
@@ -432,54 +443,11 @@ func hostHealthLogLine(_ event: HostHealthEvent, report: HostHealthReport,
 func hostHealthKnockSentence(_ alarm: HostHealthAlarm, bytes limit: Int) -> String {
     let names = alarm.top.map { keystrokeStripped($0.name) }.filter { !$0.isEmpty }
         .joined(separator: ",")
-    let line = "[host-health] load=\(hostHealthFigure(alarm.load1)) "
+    let line = "[host-health] "
+        + (alarm.cpuPercent.map { "cpu=\(hostHealthFigure($0))% " } ?? "")
         + "free=\(hostHealthGigabytes(alarm.freeBytes))GB"
         + (names.isEmpty ? "" : " top=\(names)")
     return keystrokeClipped(line, bytes: limit)
-}
-
-/// The `Host` line `tally status` prints, or nil when there is nothing honest to print.
-///
-/// FAIL-OPEN, the rule `loadAdvisorReadings` is under: a machine whose Tally is not running has no
-/// report, and a report this build cannot read is the same answer. Both leave the section out
-/// rather than printing a state nobody measured.
-///
-/// A REPORT NOBODY HAS REWRITTEN IN A WHILE STILL PRINTS, with its age beside it. The age is the
-/// honest field: a stopped app is exactly the case where a stale "ok" would be a lie, and saying
-/// how old the reading is says so without this file having to guess a staleness rule.
-func hostHealthStatusLine(_ report: HostHealthReport?, now: Date = Date()) -> String? {
-    guard let report else { return nil }
-    let limit = hostHealthFigure(HostHealthLogic.loadLimit(cores: report.cores))
-    let load = "load \(hostHealthFigure(report.load1))/\(limit)"
-    let free = "free \(hostHealthGigabytes(report.freeBytes)) GB"
-    let age = Int(max(0, now.timeIntervalSince(report.sampledAt)).rounded())
-    let sampled = " (sampled \(hostHealthAge(age)) ago)"
-    switch report.state {
-    case .normal:
-        return "host: \(load) · \(free) · ok" + sampled
-    case .alarmed:
-        var text = "host: ALARM since \(hostHealthClock(report.since)) · \(load) · \(free)"
-        let top = hostHealthTopText(report.lastAlarm?.top ?? [], unit: "G")
-        if !top.isEmpty { text += " · top: \(top)" }
-        return text + sampled
-    }
-}
-
-/// How long ago, in the shortest unit that is still true.
-func hostHealthAge(_ seconds: Int) -> String {
-    if seconds < 90 { return "\(seconds)s" }
-    if seconds < 5_400 { return "\(Int((Double(seconds) / 60).rounded()))m" }
-    return "\(Int((Double(seconds) / 3_600).rounded()))h"
-}
-
-/// Wall-clock hours and minutes, for the instant an alarm began.
-///
-/// BUILT BY HAND rather than with a `DateFormatter`, for the reason the figures above are: this
-/// line is read out of a terminal and out of scripts, and a formatter would spell it differently
-/// per locale for no reader who wanted that.
-func hostHealthClock(_ date: Date) -> String {
-    let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-    return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
 }
 
 /// Where the app publishes the report, and where both readers look for it.

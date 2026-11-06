@@ -10,7 +10,8 @@ import Foundation
 /// existing tick at all: three syscalls that walk nothing. `getloadavg(3)`, `host_statistics64` and
 /// `host_page_size`, measured on this machine (2026-09-05, Apple silicon, 1,150 processes in the
 /// table, load 70): mean 1.8 microseconds over twenty runs, median 1.6, worst 3.0. At one sample a
-/// minute that is three parts in a hundred million of one core.
+/// minute that is three parts in a hundred million of one core. The CPU witness adds one more of the
+/// same kind, `host_statistics(HOST_CPU_LOAD_INFO)` (`cpuCounters`), once every ten seconds.
 ///
 /// AND WHAT THE EXPENSIVE ONE COSTS, which is why it is not on that path: `heaviest` walks the
 /// whole process table and asks the kernel for one `rusage_info` record per process, which is
@@ -63,13 +64,25 @@ enum HostHealthReaders {
             + UInt64(stats.purgeable_count)) * UInt64(pageSize)
     }
 
-    /// One reading of the whole machine: the load, the cores it is spread over, and what is free.
-    /// Nothing at all when either syscall refuses, which the caller reads as "this sample did not
-    /// happen" rather than as a reading of zero.
+    /// The cumulative busy and total CPU ticks across every core (busy = user + system + nice,
+    /// total = busy + idle), or nil when the kernel will not say. The same single syscall the CPU
+    /// alert reads (`CPUAlertReaders.ticks`); `HostCPUWindows` turns two of them into a share.
+    static func cpuCounters() -> (busy: UInt64, total: UInt64)? {
+        guard let t = CPUAlertReaders.ticks() else { return nil }
+        let busy = t.user + t.system + t.nice
+        return (busy, busy + t.idle)
+    }
+
+    /// One reading of the whole machine: the cores, what is free and what is in total, and the load
+    /// as a display value (zero when `getloadavg` refuses: nothing is decided on it any more). The
+    /// CPU share is the monitor's to fill in from its windows. Nothing at all when the memory
+    /// syscall refuses, which the caller reads as "this sample did not happen" rather than as a
+    /// reading of zero free bytes.
     static func reading() -> HostHealthReading? {
-        guard let load = loadAverage(), let free = freeBytes() else { return nil }
-        return HostHealthReading(load1: load, cores: ProcessInfo.processInfo.activeProcessorCount,
-                                 freeBytes: free)
+        guard let free = freeBytes() else { return nil }
+        return HostHealthReading(load1: loadAverage() ?? 0,
+                                 cores: ProcessInfo.processInfo.activeProcessorCount,
+                                 freeBytes: free, physicalBytes: ProcessInfo.processInfo.physicalMemory)
     }
 
     /// The percentage of memory free system-wide, the figure the `memory_pressure` tool prints as its

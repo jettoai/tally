@@ -10,6 +10,6 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/hosthistory/main.swift \
   Tally/Core/HostLoadHistory.swift Tally/Core/HostLoadStats.swift Tally/Core/HostLoadHistoryWriter.swift \
   TallyCLI/HostHistoryCommand.swift \
-  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthNaming.swift Tally/Core/HostHealthSessions.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostHealthNaming.swift Tally/Core/HostHealthSessions.swift \
   Tally/Core/KeystrokeText.swift
 "$out"

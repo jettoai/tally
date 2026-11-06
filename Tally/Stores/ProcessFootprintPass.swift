@@ -302,8 +302,14 @@ extension ProcessFootprintStore {
         // The strays' own counters, read off the main thread like every other reading of the pass;
         // what they are paired against stays with the rollup (`ProjectLoadAccounting.readStrays`).
         let pools = rollup.accounted.isEmpty || DemoUsage.isActive ? [:] : rollup.strayPools(unattributed)
-        let strayReads = await Task.detached(priority: .utility) {
-            ProjectLoadAccounting.readStrays(pools, at: now)
+        // AND THE RECLAIM ROUND'S OWN READINGS GO IN THE SAME HOP (TALLY-B6): its `proc_pid_rusage`
+        // and descriptor walks held the main thread for over two seconds at load 45.
+        let roundSessions = OrphanReclaim.Sessions(checkouts: Set(rootOfSession.values),
+                                                   unreadable: rollup.boardUnreadable)
+        let roundReader = OrphanReclaimStore.shared.roundReaderIfDue(
+            strays: unattributed, processes: processes, sessions: roundSessions, at: now)
+        let (strayReads, roundReads) = await Task.detached(priority: .utility) {
+            (ProjectLoadAccounting.readStrays(pools, at: now), roundReader?())
         }.value
         let load = rollup.accounted.isEmpty
             ? MachineLoad()
@@ -337,9 +343,8 @@ extension ProcessFootprintStore {
         }
         OrphanReclaimStore.shared.observe(
             strays: unattributed, processes: processes,
-            sessions: OrphanReclaim.Sessions(checkouts: Set(rootOfSession.values),
-                                             unreadable: rollup.boardUnreadable),
-            at: now, leases: machine.leases, supervisors: supervisors)
+            sessions: roundSessions,
+            at: now, leases: machine.leases, supervisors: supervisors, reads: roundReads)
         previousSample = readings
         cpuCarry = carried
         alertState = painted.alerts

@@ -125,9 +125,12 @@ final class OrphanReclaimStore {
     ///     (`leaseReaderIfDue`); nil reads them here.
     ///   - supervisors: the supervisor pids of the sessions on the board, which a leftover is
     ///     attributed to when its inherited marker names one of them.
+    ///   - reads: the round's machine readings, when the caller already took them off the main
+    ///     thread (`roundReaderIfDue`, TALLY-B6); a tree they do not cover is read here.
     func observe(strays: [pid_t: String], processes: [ProcessIdentity],
                  sessions: OrphanReclaim.Sessions, at now: Date,
-                 leases prefetched: [OrphanLease]? = nil, supervisors: Set<pid_t> = []) {
+                 leases prefetched: [OrphanLease]? = nil, supervisors: Set<pid_t> = [],
+                 reads: OrphanRoundReads? = nil) {
         expireSuccessfulRecords(at: now)
         advance(at: now)
         // A CAPTURE MUST NEVER REACH THIS. The demo flag fabricates the board's readings
@@ -145,7 +148,7 @@ final class OrphanReclaimStore {
         acted.formUnion(sweeps.flatMap(\.targets))
         round(strays: strays.filter { !acted.contains($0.key) }, processes: processes,
               table: table, parents: parents, sessions: sessions, leased: fromLeases.tended,
-              supervisors: supervisors, at: now)
+              supervisors: supervisors, reads: reads, at: now)
     }
 
     /// Whether `observe` at this instant takes a round. A CAPTURE NEVER DOES (`DemoUsage`).
@@ -240,7 +243,7 @@ final class OrphanReclaimStore {
     private func round(strays: [pid_t: String], processes: [ProcessIdentity],
                        table: [pid_t: ProcessIdentity], parents: [pid_t: pid_t],
                        sessions: OrphanReclaim.Sessions,
-                       leased: Set<pid_t>, supervisors: Set<pid_t>, at now: Date) {
+                       leased: Set<pid_t>, supervisors: Set<pid_t>, reads: OrphanRoundReads?, at now: Date) {
         // THE CHECKOUTS SOMEBODY IS WORKING IN, folded to their repositories once for the round
         // rather than once per tree: the fold is a walk of the filesystem, and the answer is the
         // same for every tree on the round (`OrphanReclaim.checkout`).
@@ -252,13 +255,14 @@ final class OrphanReclaimStore {
         // fail-closed arm: a board that would not place one of its own rows cannot be folded into a
         // set of occupied checkouts at all, only into a set that is missing one
         // (`OrphanReclaim.Sessions`).
-        let occupied = OrphanReclaim.Sessions(checkouts: Set(sessions.checkouts.map(checkout(of:))),
-                                              unreadable: sessions.unreadable)
+        let occupied = OrphanReclaim.Sessions(
+            checkouts: reads?.occupied ?? Set(sessions.checkouts.map(checkout(of:))),
+            unreadable: sessions.unreadable)
         var seen: Set<pid_t> = []
         var watches: [Watch] = []
         for tree in OrphanReclaim.trees(of: strays, among: processes) {
             let reading = read(tree, identities: table, parents: parents, occupied: occupied,
-                               leased: leased, at: now)
+                               leased: leased, prefetched: reads?.trees[tree.root], at: now)
             seen.insert(tree.root)
             let session = attribute(tree.root, parents: parents, supervisors: supervisors)
             let decided = OrphanReclaim.verdict(for: reading, previous: sightings[tree.root])
@@ -307,13 +311,18 @@ final class OrphanReclaimStore {
     /// how two spellings of one fact come to disagree.
     private func read(_ tree: OrphanReclaim.Tree, identities: [pid_t: ProcessIdentity],
                       parents: [pid_t: pid_t], occupied: OrphanReclaim.Sessions,
-                      leased: Set<pid_t>, at now: Date) -> OrphanReclaim.Reading {
+                      leased: Set<pid_t>, prefetched: OrphanTreeRead?, at now: Date) -> OrphanReclaim.Reading {
+        // THE READINGS COME FROM OFF THE MAIN THREAD WHEN THEY WERE TAKEN FOR THESE VERY MEMBERS.
+        // `observe` drops what a sweep or a lease has claimed after they were taken, and a reading
+        // of a tree that still held a pid being ended would count it in the memory and the rate.
+        let read = prefetched.flatMap { $0.members == tree.members ? $0 : nil }
+            ?? Self.gather(tree, parents: parents, machine: machine, at: now)
         let members = tree.members.compactMap { pid -> OrphanReclaim.Member? in
             guard let identity = identities[pid] else { return nil }
-            return OrphanReclaim.Member(identity: identity, program: machine.program(pid),
-                                        directory: machine.directory(pid))
+            return OrphanReclaim.Member(identity: identity, program: read.each[pid]?.program,
+                                        directory: read.each[pid]?.directory)
         }
-        var reading = machine.sample(tree.members, now)
+        var reading = read.sample
         // WHOSE LIFE EACH COUNTER IS, out of the table walk this tick already made.
         // `proc_pid_rusage` carries no birth time, so a rate compared by pid alone would credit a
         // recycled number's work to the process that used to hold it - the one arithmetic error
@@ -324,22 +333,18 @@ final class OrphanReclaimStore {
         }
         let percent = OrphanReclaim.rate(from: counters[tree.root], to: reading)
         counters[tree.root] = reading
-        let ancestors = OrphanReclaim.ancestry(of: tree.root, parents: parents)
-        // The walk above stops at launchd, so for an ordinary orphan this is empty and costs
-        // nothing; a tree still under somebody's terminal is where it earns its calls.
-        let named = ancestors.compactMap { machine.program($0).flatMap(ProcessTree.displayName) }
         // Read once and used twice: what the tree is waiting on, and who is talking to it. A
         // descriptor table the machine would not read comes back NAMED rather than empty, and the
         // rule turns that into a doubt about the whole tree (`OrphanReclaim.Sockets`).
-        let sockets = machine.connections(tree.members)
+        let sockets = read.sockets
         var vetoes = OrphanReclaim.vetoes(of: tree, members: members, sockets: sockets,
-                                          ancestors: named)
-        if ancestors.contains(where: machine.hasTerminal) { vetoes.insert(.terminal) }
+                                          ancestors: read.ancestorNames)
+        if read.terminalAbove { vetoes.insert(.terminal) }
         // AND WHETHER ANYBODY IS WORKING IN THE CHECKOUT THIS TREE IS IN, which is the one reading
         // here that comes off the BOARD rather than off the process table - and the one the
         // 2026-09-02 incident was decided without. Two servers were ended in checkouts whose
         // sessions were sitting right there, under a message that said no session was.
-        if occupied.checkouts.contains(checkout(of: tree.project)) {
+        if occupied.checkouts.contains(read.checkout) {
             vetoes.insert(.sessionPresent)
         }
         // AND A BOARD THAT WOULD NOT PLACE ONE OF ITS OWN ROWS LEAVES THE QUESTION ABOVE
@@ -371,7 +376,7 @@ final class OrphanReclaimStore {
     /// process (codex review, 2026-09-02). Written twice, one of them could go on being the
     /// resolved one alone; written once, that cannot happen.
     private func checkout(of directory: String) -> String {
-        machine.resolve(OrphanReclaim.checkout(of: directory, entry: machine.gitEntry))
+        Self.checkout(of: directory, machine: machine)
     }
 
     private func watch(_ reading: OrphanReclaim.Reading, session: pid_t?) -> Watch {

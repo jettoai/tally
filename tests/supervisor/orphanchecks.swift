@@ -23,6 +23,7 @@ func runOrphanChecks() {
     runOrphanKillChecks()
     runOrphanNoticeChecks()
     runOrphanStoreChecks()
+    runOrphanRoundReadChecks()
 }
 
 // MARK: - which strays belong together

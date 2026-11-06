@@ -233,9 +233,14 @@ enum ProbeCadence {
     /// the row was read. The flagship window and `refreshedAt` are left alone: `refreshedAt` dates
     /// the probe, and the snapshot's readers (CapDetection) read it as that. Only Claude rows ever
     /// have a fact (the status line writes `claude:` ids), so the store passes every row through.
+    ///
+    /// A row that failed twice and is holding its last good numbers (`error` set by `foldLastGood`)
+    /// is laid over like any other (B-3918): the status line is the fresher reading of those two
+    /// windows. Its failure flags are left as they are, because the retry ladder and the flagship
+    /// window, which the status line does not carry, still depend on them. A row that never loaded
+    /// has no metrics, so there is nothing to lay over.
     static func overlay(_ row: AccountUsage, fact: LiveRateFact?, now: Date) -> AccountUsage {
-        guard let fact, fact.accountID == row.id, row.error == nil,
-              fact.changedAt > row.refreshedAt else { return row }
+        guard let fact, fact.accountID == row.id, fact.changedAt > row.refreshedAt else { return row }
         var copy = row
         copy.metrics = row.metrics.map { metric in
             let window: LiveRateWindow?

@@ -103,6 +103,26 @@ let legacy = try! JSONDecoder().decode(LiveRateFact.self, from: Data(
     #"{"accountID":"claude:.claude3","observedAt":0,"changedAt":0,"fiveHour":{"usedPercent":5,"resetsAt":100}}"#.utf8))
 check("B9c a file written before per-window stamps still decodes", legacy.fiveHour?.usedPercent == 5)
 
+// B-3918: a row that failed twice holds its last good numbers with `error` set; the status line is
+// still the fresher reading of its session and weekly windows.
+var failedTwice = probed
+failedTwice.error = "Claude CLI read timed out"; failedTwice.isStale = true
+failedTwice.lastRefreshFailed = true; failedTwice.pollsKeepFailing = true
+let failedLaid = ProbeCadence.overlay(failedTwice, fact: fresh, now: now)
+check("B9d a failed-twice row shows the status line's session and weekly numbers, flagship held, flags untouched",
+      failedLaid.metrics[0].usedPercent == 85 && failedLaid.metrics[1].usedPercent == 60
+          && failedLaid.metrics[2] == probed.metrics[2] && failedLaid.refreshedAt == failedTwice.refreshedAt
+          && failedLaid.error == failedTwice.error && failedLaid.isStale && failedLaid.lastRefreshFailed
+          && failedLaid.pollsKeepFailing)
+check("B9e a status line older than the failed row's held numbers does not lay over",
+      ProbeCadence.overlay(failedTwice, fact: older, now: now) == failedTwice)
+var neverLoaded = AccountUsage.failure(
+    account: ProviderAccount(id: id, providerID: "claude", label: "Claude 3", locator: [:]),
+    providerID: "claude", message: "This Mac is too busy, the read timed out")
+neverLoaded.refreshedAt = probed.refreshedAt  // older than the fact: only the missing numbers hold it back
+check("B9f an account that never loaded has no numbers to lay over and stays as it was",
+      ProbeCadence.overlay(neverLoaded, fact: fresh, now: now) == neverLoaded)
+
 // MARK: - Cadence with the status-line channel
 
 func previousRow(readAgo: TimeInterval) -> AccountUsage {

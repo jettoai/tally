@@ -22,7 +22,7 @@ struct HostLoadSample: Equatable, Sendable {
     var memPct: Int?
     /// The minute's busy CPU share, 0-100 (the mean of the host watch's ten-second windows); nil
     /// when unreadable, and the field is then left out of the line, as `mem_pct` is.
-    var cpuPct: Int? = nil
+    var cpuPct: Int?
     var cores: Int
 }
 
@@ -79,9 +79,10 @@ func hostLoadDateFormatter(timeZone: TimeZone = .current) -> ISO8601DateFormatte
 
 /// The host watch's CPU share (a Double, 0-100) as the whole percent the line carries: rounded
 /// half away from zero, clamped to 0...100, nil for nil or a non-finite value (`Int(.nan)` traps).
+/// Clamped before the `Int` conversion, so no finite value can trap either.
 func hostLoadCPUPct(_ percent: Double?) -> Int? {
     guard let percent, percent.isFinite else { return nil }
-    return Swift.min(100, Swift.max(0, Int(percent.rounded())))
+    return Int(min(100, max(0, percent)).rounded())
 }
 
 /// One sample as a line, newline included. `String(format:)` without a locale, so a comma-decimal

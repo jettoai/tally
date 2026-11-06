@@ -99,9 +99,9 @@ enum HostLoadStats {
         var spark: String
         /// The CPU share over the same minutes, from the samples that carry one; all nil and an
         /// empty curve when none does (every line older than B-4094).
-        var cpuP50: Int? = nil, cpuP95: Int? = nil, cpuMax: Int? = nil
-        var cpuMaxAt: Date? = nil
-        var cpuSpark = ""
+        var cpuP50: Int?, cpuP95: Int?, cpuMax: Int?
+        var cpuMaxAt: Date?
+        var cpuSpark: String
     }
 
     struct Report: Equatable {

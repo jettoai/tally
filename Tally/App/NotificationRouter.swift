@@ -29,9 +29,9 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     /// enough to repeat before each alert that carries a button.
     func refreshCategories() {
         UNUserNotificationCenter.current()
-            .setNotificationCategories([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category,
-                                         CPUAlertMonitor.category, UpdateLagNotifier.category,
-                                         ClearanceIdleNotifier.category])
+            .setNotificationCategories(Set([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category,
+                                            CPUAlertMonitor.category, UpdateLagNotifier.category,
+                                            ClearanceIdleNotifier.category] + OverlayApp.notificationCategories))
     }
 
     /// Show the alert even while Tally is the active app.
@@ -90,6 +90,10 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
         }
         if content.categoryIdentifier == ClearanceIdleNotifier.categoryID {
             Task { @MainActor in MainWindowController.shared.show() }
+            completionHandler()
+            return
+        }
+        if OverlayApp.handleNotification(category: content.categoryIdentifier, action: action) {
             completionHandler()
             return
         }

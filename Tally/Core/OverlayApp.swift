@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 // What a private build adds to the app. The public build adds nothing.
 #if !TALLY_OVERLAY
@@ -6,6 +7,10 @@ enum OverlayApp {
     @MainActor static func didFinishLaunching() {}
     @MainActor static func panelAppeared() {}
     @MainActor static func panelDisappeared() {}
+    /// Notification categories a private build registers, and the handler for their buttons (true when
+    /// the notification was one of its own).
+    @MainActor static var notificationCategories: [UNNotificationCategory] { [] }
+    nonisolated static func handleNotification(category: String, action: String) -> Bool { false }
     /// A line a private build adds to the menu-bar item's hover; non-nil also puts a small mark
     /// beside the strip.
     @MainActor static var statusItemNote: String? { nil }

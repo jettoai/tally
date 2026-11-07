@@ -368,4 +368,17 @@ func runCLIToolChecks(tmp: URL) throws {
           capture.contains("\"TallyCLIInstallPreview\""))
     check("Install all hands the rest of the set to the install, so they wait for the link",
           settings.contains("installCLITool(followedBy: Array(missing.dropFirst()))"))
+
+    // (m) B-3749 P4: a failed install keeps its banner through Install all's follow-ups, which clear
+    // the error line on their way in. Driven through the shared store; refresh() only reads.
+    let live = IntegrationsStore.shared
+    live.lastError = nil
+    live.settleCLIInstall(failure: NSError(domain: "tally", code: 1, userInfo: [
+        NSLocalizedDescriptionKey: "link failed",
+    ]), followUps: [{ live.lastError = nil }])
+    check("a failed install still shows its error after a follow-up that clears the line",
+          live.lastError == "link failed")
+    live.lastError = nil
+    live.settleCLIInstall(failure: nil, followUps: [])
+    check("a successful install leaves the error line empty", live.lastError == nil)
 }

@@ -101,10 +101,19 @@ extension IntegrationsStore {
             }
             finishCLIInstall()
         } catch {
-            lastError = error.localizedDescription
+            settleCLIInstall(failure: error, followUps: followUps)
+            return
         }
+        settleCLIInstall(failure: nil, followUps: followUps)
+    }
+
+    /// Refresh, run the follow-ups, and only then show the failure: they clear the error line on
+    /// their way in, so a message set before them never reaches the screen and "Install all" would
+    /// leave a row not installed with no banner (B-3749 P4). Internal so a test can drive it.
+    func settleCLIInstall(failure: Error?, followUps: [() -> Void]) {
         refresh()
         followUps.forEach { $0() }
+        if let failure { lastError = failure.localizedDescription }
     }
 
     private func finishCLIInstall() {

@@ -160,6 +160,10 @@ struct HostHealthReport: Codable, Equatable, Sendable {
     var cpuOver: Bool? = nil
     var cpuLimit: Double? = nil
     var memoryAvailablePercent: Double? = nil
+    /// B-4171: how many threads queue per core (`HostHealthLogic.queuePerCore`) and how bad that is.
+    /// Display only, nothing is decided on it. Absent when the core count is unreadable. Additive.
+    var queuePerCore: Double? = nil
+    var queueLevel: HostHealthQueueLevel? = nil
 }
 
 /// What one folded sample asks the caller to do about it.
@@ -279,14 +283,16 @@ enum HostHealthLogic {
     /// The document one sample publishes, out of the watch it has just been folded into.
     static func report(_ tracker: HostHealthTracker, reading: HostHealthReading,
                        at now: Date, limits: HostHealthLimits = .standard) -> HostHealthReport {
-        HostHealthReport(sampledAt: now, load1: reading.load1, cores: reading.cores,
-                         freeBytes: reading.freeBytes, state: tracker.state,
-                         since: tracker.since ?? now, lastAlarm: tracker.lastAlarm,
-                         namedLeader: tracker.namedLeader, namedAt: tracker.namedAt,
-                         cpuPercent: reading.cpuPercent,
-                         cpuOver: cpuOver(reading, limits),
-                         cpuLimit: limits.cpuPercent,
-                         memoryAvailablePercent: reading.memoryAvailablePercent)
+        let queue = queuePerCore(load1: reading.load1, cores: reading.cores)
+        return HostHealthReport(sampledAt: now, load1: reading.load1, cores: reading.cores,
+                                freeBytes: reading.freeBytes, state: tracker.state,
+                                since: tracker.since ?? now, lastAlarm: tracker.lastAlarm,
+                                namedLeader: tracker.namedLeader, namedAt: tracker.namedAt,
+                                cpuPercent: reading.cpuPercent,
+                                cpuOver: cpuOver(reading, limits),
+                                cpuLimit: limits.cpuPercent,
+                                memoryAvailablePercent: reading.memoryAvailablePercent,
+                                queuePerCore: queue, queueLevel: queue.map(queueLevel))
     }
 }
 

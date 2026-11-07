@@ -401,6 +401,13 @@ func appProcessAlive(_ path: String) -> Bool {
     return false
 }
 
+/// Whether the app this CLI ships inside is running right now. A CLI outside a bundle answers
+/// false, which keeps the old "is Tally.app running?" wording: the safe direction.
+func bundledAppRunning() -> Bool {
+    guard let paths = bundledAppPaths() else { return false }
+    return appProcessAlive(paths.executable)
+}
+
 /// Start the app again, in the background: `-g` so a session the user is typing into does not have
 /// the app steal the foreground, and the bundle path rather than the bundle id so the copy that is
 /// opened is the one this supervisor lives in. Announced first, because an app appearing on its own

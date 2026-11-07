@@ -96,6 +96,42 @@ enum HostHealthReaders {
         return Int(level)
     }
 
+    /// Bytes of swap in use right now, or nil when the kernel will not say. Zero is a real answer
+    /// (no swap file has been made yet), so a failed read must not be folded into it.
+    ///
+    /// THE USED FIGURE, NEVER THE TOTAL: macOS grows its swap files on demand, so `xsu_used` against
+    /// `xsu_total` sits near full whatever the load, and only the absolute amount in use says how
+    /// hard the machine has been pushed. The free percentage above stayed above 57% on the day swap
+    /// stood at 48.7 GB, which is why this is its own reading.
+    static func swapUsedBytes() -> UInt64? {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.size
+        guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0,
+              size == MemoryLayout<xsw_usage>.size else { return nil }
+        return usage.xsu_used
+    }
+
+    /// When this boot began (`kern.boottime`), or nil when the kernel will not say. Wall-clock, so
+    /// a clock change moves it; compare it to an earlier reading with a tolerance, not for equality.
+    static func bootTime() -> Date? {
+        var stamp = timeval()
+        var size = MemoryLayout<timeval>.size
+        guard sysctlbyname("kern.boottime", &stamp, &size, nil, 0) == 0,
+              size == MemoryLayout<timeval>.size, stamp.tv_sec > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(stamp.tv_sec) + TimeInterval(stamp.tv_usec) / 1_000_000)
+    }
+
+    /// The kernel's own memory pressure level: 1 normal, 2 warning, 4 critical
+    /// (`kern.memorystatus_vm_pressure_level`, the value Activity Monitor's graph is coloured by).
+    /// Nil for a refused read or any other value, rather than a guess.
+    static func pressureLevel() -> Int? {
+        var level: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0,
+              [1, 2, 4].contains(level) else { return nil }
+        return Int(level)
+    }
+
     /// The biggest memory holders on the machine, most first.
     ///
     /// THE ONE EXPENSIVE READING IN THIS FEATURE, and it is made only at the instant an alarm is

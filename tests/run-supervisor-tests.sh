@@ -97,6 +97,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/loginchecks.swift tests/supervisor/sessionorderchecks.swift \
   tests/supervisor/supervisorfreshnesschecks.swift \
+  tests/supervisor/launchrecordchecks.swift TallyCLI/SessionLaunchRecord.swift \
   tests/supervisor/demoboardchecks.swift tests/supervisor/coalescinggatechecks.swift \
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/processtreecensuschecks.swift \

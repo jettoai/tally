@@ -121,7 +121,9 @@ final class HostHealthMonitor {
         let loadSample = testCPU == nil
             ? HostLoadSample(at: now, load1: reading.load1, freeBytes: reading.freeBytes,
                              memPct: HostHealthReaders.memoryFreePercent(),
-                             cpuPct: hostLoadCPUPct(reading.cpuPercent), cores: reading.cores)
+                             cpuPct: hostLoadCPUPct(reading.cpuPercent), cores: reading.cores,
+                             swapBytes: HostHealthReaders.swapUsedBytes(),
+                             pressure: HostHealthReaders.pressureLevel())
             : nil
         let (next, event) = HostHealthLogic.advance(tracker, reading: reading, at: now, limits: limits)
         tracker = next

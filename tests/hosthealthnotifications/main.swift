@@ -12,6 +12,8 @@ enum HostAlarmMirror { static let isAlarmed = Mutex(false) }
 enum HostHealthReaders {
     static let scans = Mutex(0)
     static func memoryFreePercent() -> Int? { nil }
+    static func swapUsedBytes() -> UInt64? { nil }
+    static func pressureLevel() -> Int? { nil }
     // The ten-second windows are the monitor's own and are driven by the real clock; this harness
     // runs the alarm path under the `-TallyHostHealthTest` flag (a fake CPU share), and the
     // `unread` case leaves the counters unreadable to walk the fail-closed path.

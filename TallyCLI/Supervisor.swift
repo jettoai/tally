@@ -258,6 +258,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // Where this session runs, for a `tally switch` typed in a shell with no session marker; written
     // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
     writeSupervisorCwd(cwd, pid: supervisorPID)
+    // How this session was launched, for reopening it after a reboot (SessionLaunchRecord.swift).
+    publishSessionLaunch(provider: provider.id, args: args, cwd: cwd, pid: supervisorPID, resumed: resumed)
     /// What the last handoff told the next child about the restart (RestartWake.swift): nil on a
     /// fresh first launch and on a fresh relaunch. An exec is a self-update whose old image counted
     /// nothing here, and a first launch that resumes a conversation is a session brought back by

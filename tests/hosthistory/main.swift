@@ -392,5 +392,60 @@ do {
            && (window?["cpuPct"] as? [String: Any])?["max"] as? Int == 77, "json, mixed: null for old minutes, 41 for the third, window max 77")
 }
 
+// MARK: - 9. Swap and pressure (B-4065)
+
+do {
+    let at = moment(2026, 11, 4, 2, 31, 5)
+    let s = HostLoadSample(at: at, load1: 12.345, freeBytes: 57_037_979_648, memPct: 73, cpuPct: 41, cores: 16,
+                           swapBytes: 52_303_191_040, pressure: 2)
+    let line = hostLoadLine(s, timeZone: taipei.timeZone)
+    expect(line == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 mem_pct=73 cpu_pct=41 swap_gb=48.7 pressure=2 cores=16\n",
+           "a sample with swap and pressure writes both keys between cpu_pct and cores")
+    let back = parseHostLoadLine(line.trimmingCharacters(in: .newlines), formatter: hostLoadDateFormatter())
+    expect(back?.pressure == 2 && abs((back?.swapGB ?? -1) - 48.7) < 0.05 && back?.cpuPct == 41 && back?.cores == 16,
+           "a new line parses back with its swap and pressure")
+    var noSwap = s; noSwap.swapGB = nil
+    var noPressure = s; noPressure.pressure = nil
+    expect(!hostLoadLine(noSwap, timeZone: taipei.timeZone).contains("swap_gb")
+           && hostLoadLine(noSwap, timeZone: taipei.timeZone).contains("pressure=2"),
+           "an unreadable swap figure leaves only swap_gb out")
+    expect(!hostLoadLine(noPressure, timeZone: taipei.timeZone).contains("pressure")
+           && hostLoadLine(noPressure, timeZone: taipei.timeZone).contains("swap_gb=48.7"),
+           "an unreadable pressure level leaves only pressure out")
+    // Zero swap is a reading (no swap file yet), not a missing one.
+    let zero = HostLoadSample(at: at, load1: 1, freeBytes: 1_073_741_824, memPct: nil, cores: 4, swapBytes: 0)
+    expect(hostLoadLine(zero, timeZone: taipei.timeZone).contains("swap_gb=0.0"), "zero swap is written, not omitted")
+    // An earlier line (no new keys) still reads, and the new keys are simply absent.
+    let old = parseHostLoadLine("2026-11-04T02:31:05+08:00 load1=1 free_gb=1 mem_pct=70 cpu_pct=5 cores=4", formatter: hostLoadDateFormatter())
+    expect(old != nil && old?.swapGB == nil && old?.pressure == nil, "a line from before swap_gb has neither new field")
+    // The previous release's parser (unknown keys ignored) is modelled by stripping the new keys: same sample otherwise.
+    let stripped = line.replacingOccurrences(of: " swap_gb=48.7", with: "").replacingOccurrences(of: " pressure=2", with: "")
+    expect(parseHostLoadLine(stripped.trimmingCharacters(in: .newlines), formatter: hostLoadDateFormatter())?.cpuPct == 41,
+           "a line without the new keys is the earlier format and still parses")
+}
+
+do {
+    let f = hostLoadDateFormatter()
+    func field(_ text: String) -> HostLoadSample? {
+        parseHostLoadLine("2026-11-04T02:31:05+08:00 load1=1 free_gb=1 \(text) cores=4", formatter: f)
+    }
+    expect(field("swap_gb=-1") == nil && field("swap_gb=nan") == nil && field("swap_gb=") == nil && field("swap_gb=abc") == nil,
+           "a negative, non-finite or empty swap_gb damages the line")
+    expect(field("pressure=0") == nil && field("pressure=3") == nil && field("pressure=5") == nil && field("pressure=") == nil,
+           "a pressure level other than 1, 2 or 4 damages the line")
+    expect(field("pressure=1")?.pressure == 1 && field("pressure=4")?.pressure == 4 && field("swap_gb=0")?.swapGB == 0,
+           "pressure 1 and 4 and swap_gb 0 are valid")
+}
+
+do {
+    let dir = scratch().appendingPathComponent("host-load")
+    let s = HostLoadSample(at: moment(2026, 11, 4, 10, 0), load1: 2, freeBytes: 40 << 30, memPct: 70, cores: 16,
+                           swapBytes: 3 << 30, pressure: 1)
+    HostLoadHistoryWriter.append(s, in: dir, timeZone: taipei.timeZone)
+    let read = readHostLoadSamples(in: dir)
+    expect(read.samples.count == 1 && read.samples[0].pressure == 1 && read.samples[0].swapGB == 3.0,
+           "the writer's file reads back with swap and pressure")
+}
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

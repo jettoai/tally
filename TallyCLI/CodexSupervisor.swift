@@ -100,6 +100,7 @@ func runCodexSupervised(_ provider: Provider, account: Snapshot.Account, args: [
     metadata.childStart = SessionMonitoring.generation(child)
     if metadata.childStart != nil, (try? metadata.write(dir: supervisorStateDir)) != nil {
         writeSupervisorCwd(cwd, pid: pid)
+        publishSessionLaunch(provider: provider.id, args: args, cwd: cwd, pid: pid, resumed: false)
         writeSupervisorAccount(account.id, pid: pid)
         writeSupervisorChild(child, pid: pid)
         // Publish last. Readers of a malformed/missing metadata file refuse Claude controls.

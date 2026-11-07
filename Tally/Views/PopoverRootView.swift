@@ -153,16 +153,14 @@ struct PopoverRootView: View {
                                     if store.contentState != .hasAccounts || showsAccountRegion { content }
                                     overlayStrip
                                 }
-                                // Only as tall as the bubble needs to fit; 0 when it is not showing.
-                                .frame(minHeight: hintRoom, alignment: .topLeading)
                             }
                             .frame(width: popoverWidth, alignment: .leading)
-                            // The first-run bubble floats over the cards, pointing at the first
-                            // meter on screen (PanelHints), so it takes no room of its own. It sits
-                            // on the scroll view, not its content, so it is placed in the visible
-                            // area: a panel capped by the display would clip it at the content's edge.
-                            .overlayPreferenceValue(PanelHintTargetKey.self, alignment: .topLeading) {
-                                PanelHintBubbleOverlay(store: store, targets: $0, room: $hintRoom)
+                            // The scroll area's visible frame, for the first-run bubble the panel
+                            // draws over everything (see the overlay below the footer). On the scroll
+                            // view itself, not its content: a capped panel scrolls the content, and
+                            // the bubble's rules are about what is in view.
+                            .transformAnchorPreference(key: PanelHintTargetKey.self, value: .bounds) {
+                                $0[PanelHintTargetKey.area] = $1
                             }
                             // The invite stays outside the scroll view: a panel capped to a short
                             // display scrolled it out of sight when it was the last thing inside.
@@ -200,6 +198,12 @@ struct PopoverRootView: View {
                 footer
             }
             .frame(width: popoverWidth)
+            // The first-run bubble (PanelHints), over the header, the cards and the footer alike, so
+            // it never makes the panel taller (B-3823). It hit-tests only where the bubble is drawn;
+            // the rest of this layer is empty and passes every press through (see the note below).
+            .overlayPreferenceValue(PanelHintTargetKey.self, alignment: .topLeading) {
+                PanelHintBubbleOverlay(store: store, targets: $0)
+            }
             // NO WHOLE-SURFACE GRAB AREA, and the reason is worth keeping: a drag layer mounted
             // behind this content was measured on 2026-08-07 to receive no press at all (four such
             // regions tested, zero movement - the hosting view answers the hit test for its own
@@ -335,8 +339,6 @@ struct PopoverRootView: View {
     /// style can change under a surface that is already open (see `trackingScrollerGutter`).
     var scrollContentWidth: CGFloat { popoverWidth - scrollerGutter }
     @State private var scrollerGutter = ScreenFitStack.scrollerGutter
-    /// How tall the scrolling content must be for the first-run bubble to fit (`PanelHintBubbleOverlay`).
-    @State private var hintRoom: CGFloat = 0
 
     /// The invite shows with accounts on screen, never over the forced empty-state capture.
     private var showsPanelHints: Bool {

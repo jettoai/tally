@@ -103,8 +103,12 @@ struct PanelHintsSection: View {
 }
 
 /// Where the first hint's bubble should point: the first meter bar of each row or card, keyed by
-/// account id, as anchors the panel resolves into its own space.
+/// account id, as anchors the panel resolves into its own space. The usage tab's scroll view adds
+/// its own visible frame under `area` (B-3823), so the bubble can be drawn over the whole panel and
+/// still be placed in the scroll area's space.
 struct PanelHintTargetKey: PreferenceKey {
+    /// Never an account id: ids are provider identifiers, none starts with a NUL.
+    static let area = "\u{0}scroll-area"
     static let defaultValue: [String: Anchor<CGRect>] = [:]
 
     static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
@@ -112,15 +116,14 @@ struct PanelHintTargetKey: PreferenceKey {
     }
 }
 
-/// The first hint, floated over the account cards and pointing at the first meter on screen. As a
-/// row of the layout its whole height was taken out of the panel and left it hollow around the
-/// bubble; here it takes none. `room` reports how tall the content must be for the bubble to fit
-/// inside the scroll view (which clips at the content's edge); it is 0 whenever the bubble is not
-/// showing, and only matters when the content is shorter than the bubble's reach.
+/// The first hint, drawn over the whole panel body (header, scroll area, footer) and pointing at the
+/// first meter on screen. It reports no size to anyone, so the panel is exactly as tall with the
+/// hint as without it (B-3823): when the scroll area is too short for the bubble, the bubble spills
+/// over the footer or the header instead of growing the panel.
 struct PanelHintBubbleOverlay: View {
     let store: UsageStore
+    /// Each account's first meter, plus the usage tab's scroll area under `PanelHintTargetKey.area`.
     let targets: [String: Anchor<CGRect>]
-    @Binding var room: CGFloat
 
     @State private var bubbleHeight: CGFloat = 0
     private let memory = PanelHintMemory.shared
@@ -140,27 +143,34 @@ struct PanelHintBubbleOverlay: View {
                     PanelHintBubble(arrowX: tipX - x, arrowAtBottom: shown.placement.above) { memory.markSeen() }
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self, of: \.size.height) { bubbleHeight = $0 }
-                        .offset(x: x, y: shown.placement.y)
+                        .offset(x: x, y: shown.areaTop + shown.placement.y)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            // Room is always reckoned for the bubble below the meter, so the panel still grows to
-            // hold it whenever it can; the flip only matters once the panel cannot grow.
-            .onChange(of: shown.map { $0.meter.maxY + PanelHints.bubbleGap + bubbleHeight + 12 } ?? 0, initial: true) { _, needed in room = needed }
         }
     }
 
     /// The first bar in view: the topmost row, the leftmost within it, so a regrouped or flat list
-    /// is read the way the eye reads it. Bars scrolled out of the visible area are skipped.
-    private func firstVisibleMeter(in proxy: GeometryProxy) -> (meter: CGRect, placement: PanelHints.BubblePlacement)? {
-        targets.values.map { proxy[$0] }
-            .sorted { abs($0.minY - $1.minY) > 1 ? $0.minY < $1.minY : $0.minX < $1.minX }
-            .lazy
-            .compactMap { rect in
-                PanelHints.bubblePlacement(meter: rect, bubbleHeight: bubbleHeight, viewport: proxy.size, margin: 12)
-                    .map { (rect, $0) }
+    /// is read the way the eye reads it. Bars scrolled out of the scroll area are skipped. No scroll
+    /// area (another tab is up) means no bubble.
+    private func firstVisibleMeter(in proxy: GeometryProxy)
+        -> (meter: CGRect, placement: PanelHints.BubblePlacement, areaTop: CGFloat)? {
+        guard let areaAnchor = targets[PanelHintTargetKey.area] else { return nil }
+        let area = proxy[areaAnchor]
+        let meters: [CGRect] = targets.filter { $0.key != PanelHintTargetKey.area }.values.map { proxy[$0] }
+        let reading: [CGRect] = meters.sorted { (a: CGRect, b: CGRect) -> Bool in
+            abs(a.minY - b.minY) > 1 ? a.minY < b.minY : a.minX < b.minX
+        }
+        for rect in reading {
+            let inArea = rect.offsetBy(dx: 0, dy: -area.minY)
+            if let placement = PanelHints.bubblePlacement(meter: inArea, bubbleHeight: bubbleHeight,
+                                                          viewport: area.size, margin: 12,
+                                                          headroom: area.minY,
+                                                          overhang: proxy.size.height - area.maxY) {
+                return (rect, placement, area.minY)
             }
-            .first
+        }
+        return nil
     }
 }
 

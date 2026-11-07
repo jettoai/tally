@@ -26,7 +26,7 @@ enum PanelHints {
         !seen && hasData
     }
 
-    /// Where the first hint's bubble sits, in the scroll view's visible area (B-4112). `y` is the
+    /// Where the first hint's bubble sits, in the scroll area's space (B-4112, B-3823). `y` is the
     /// bubble's top edge; `above` means it was flipped over the meter, so its arrow is at the bottom.
     struct BubblePlacement: Equatable {
         var y: CGFloat
@@ -36,18 +36,24 @@ enum PanelHints {
     /// Space between the meter and the bubble's arrow, on either side.
     static let bubbleGap: CGFloat = 2
 
-    /// Below the meter when it fits, else above it, else clamped inside the visible area. `meter` is
-    /// in the visible area's own space. A meter scrolled out of it gets no bubble (nil), so the hint
-    /// is neither drawn nor marked seen until the meter is back in view.
-    static func bubblePlacement(meter: CGRect, bubbleHeight: CGFloat, viewport: CGSize,
-                                margin: CGFloat) -> BubblePlacement? {
+    /// Below the meter when it fits the scroll area, else above it, else (B-3823) below or above it
+    /// using the rest of the panel the bubble is drawn over: `overhang` is the panel under the scroll
+    /// area (divider and footer), `headroom` the panel over it (header, divider, notices). Last, it is
+    /// clamped inside the whole panel, so its button is never cut off by the window. `meter` and the
+    /// result are in the scroll area's own space. A meter scrolled out of the area gets no bubble
+    /// (nil), so the hint is neither drawn nor marked seen until the meter is back in view. With no
+    /// overhang and no headroom this is the scroll-area-only rule B-4112 shipped.
+    static func bubblePlacement(meter: CGRect, bubbleHeight: CGFloat, viewport: CGSize, margin: CGFloat,
+                                headroom: CGFloat = 0, overhang: CGFloat = 0) -> BubblePlacement? {
         guard meter.maxY > 0, meter.minY < viewport.height else { return nil }
         let below = meter.maxY + bubbleGap
         if below + bubbleHeight <= viewport.height - margin { return BubblePlacement(y: below, above: false) }
         let over = meter.minY - bubbleGap - bubbleHeight
         if over >= margin { return BubblePlacement(y: over, above: true) }
-        let lowest = max(margin, viewport.height - bubbleHeight - margin)
-        return BubblePlacement(y: min(max(below, margin), lowest), above: false)
+        let top = margin - headroom, bottom = viewport.height + overhang - margin
+        if below + bubbleHeight <= bottom { return BubblePlacement(y: below, above: false) }
+        if over >= top { return BubblePlacement(y: over, above: true) }
+        return BubblePlacement(y: min(max(below, top), max(top, bottom - bubbleHeight)), above: false)
     }
 
     /// The invite card. `seenAtAppear` and `opensAtAppear` are read ONCE when the panel appears, so a

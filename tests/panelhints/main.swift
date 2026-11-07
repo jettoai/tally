@@ -127,15 +127,23 @@ expect(rowSource.contains("anchorPreference(key: PanelHintTargetKey.self")
         && cardSource.contains("anchorPreference(key: PanelHintTargetKey.self")
         && root.contains("overlayPreferenceValue(PanelHintTargetKey.self"),
        "both densities report their first meter, and the panel places the bubble from it")
-// The bubble is placed in the scroll view's visible area: its overlay hangs off the ScrollView, so a
-// closing brace of the scroll view's content sits between the content's minHeight and the overlay.
-if let minHeight = root.range(of: ".frame(minHeight: hintRoom"),
+// The bubble is drawn over the whole panel body, after the footer, and asks nobody for room (B-3823):
+// the scroll view only reports its visible frame into the same key.
+if let footerEnd = root.range(of: "                Divider()\n                footer\n            }"),
    let overlay = root.range(of: "overlayPreferenceValue(PanelHintTargetKey.self"),
-   minHeight.upperBound < overlay.lowerBound {
-    let between = root[minHeight.upperBound..<overlay.lowerBound]
-    expect(between.filter { $0 == "}" }.count > between.filter { $0 == "{" }.count,
-           "the bubble's overlay is on the scroll view, not inside its content")
-} else { expect(false, "the bubble's overlay is on the scroll view, not inside its content") }
+   let areaAt = root.range(of: "transformAnchorPreference(key: PanelHintTargetKey.self, value: .bounds)"),
+   let scrollFrame = root.range(of: ".frame(width: popoverWidth, alignment: .leading)"),
+   let section = root.range(of: "PanelHintsSection(store: store") {
+    expect(footerEnd.upperBound < overlay.lowerBound,
+           "the bubble's overlay is on the whole panel body, after the footer")
+    expect(scrollFrame.upperBound < areaAt.lowerBound && areaAt.lowerBound < section.lowerBound,
+           "the scroll area reports its visible frame from the scroll view itself")
+} else {
+    expect(false, "the bubble's overlay is on the whole panel body, after the footer")
+    expect(false, "the scroll area reports its visible frame from the scroll view itself")
+}
+expect(!root.contains("hintRoom") && !bubble.contains("@Binding var room") && !root.contains("minHeight: hint"),
+       "the bubble reports no height to the panel")
 
 // MARK: where the bubble sits in the visible area (B-4112)
 
@@ -155,6 +163,29 @@ expect(place(286) == PanelHints.BubblePlacement(y: 286 - 2 - 140, above: true),
        "a meter at the very bottom of the view flips above it")
 expect(place(40, bubble: 400) == PanelHints.BubblePlacement(y: 12, above: false),
        "a bubble taller than the visible area starts at the margin")
+
+// MARK: past the scroll area, over the rest of the panel (B-3823)
+
+func panel(_ minY: CGFloat, bubble: CGFloat = 140, area: CGFloat = 120,
+           headroom: CGFloat = 0, overhang: CGFloat = 0) -> PanelHints.BubblePlacement? {
+    PanelHints.bubblePlacement(meter: CGRect(x: 20, y: minY, width: 34, height: 8), bubbleHeight: bubble,
+                               viewport: CGSize(width: 400, height: area), margin: 12,
+                               headroom: headroom, overhang: overhang)
+}
+expect(panel(40, overhang: 90) == PanelHints.BubblePlacement(y: 50, above: false),
+       "a short area with a footer under it keeps the bubble below the meter, not clamped")
+expect(panel(40) == PanelHints.BubblePlacement(y: 12, above: false),
+       "without that room the same meter is clamped, so the room is what moved it")
+expect(panel(40, overhang: 82) == PanelHints.BubblePlacement(y: 50, above: false),
+       "a bubble that exactly reaches the panel's bottom margin still goes below")
+expect(panel(40, headroom: 120, overhang: 30) == PanelHints.BubblePlacement(y: -102, above: true),
+       "no room below even over the footer flips the bubble above, over the header")
+expect(panel(40, headroom: 20, overhang: 30) == PanelHints.BubblePlacement(y: -2, above: false),
+       "a bubble that fits neither side is clamped inside the whole panel, button and all")
+expect(panel(40, area: 100, headroom: 10, overhang: 10) == PanelHints.BubblePlacement(y: 2, above: false),
+       "a panel shorter than the bubble starts it at the panel's top margin")
+expect(panel(-50, headroom: 120, overhang: 90) == nil && panel(120, headroom: 120, overhang: 90) == nil,
+       "a meter outside the scroll area gets no bubble, however much panel is around it")
 
 if let scrollEnd = root.range(of: "accountPoolTitle"),
    let section = root.range(of: "PanelHintsSection(store: store") {

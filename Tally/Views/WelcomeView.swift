@@ -49,6 +49,7 @@ struct WelcomeView: View {
             return n == 1 ? L("Found 1 account") : String(format: L("Found %lld accounts"), n)
         case .needsCLI(let p): return WelcomeCopy.installTitle(p)
         case .waiting(let p): return WelcomeCopy.waitingTitle(p)
+        case .waitingStalled(let p): return WelcomeCopy.stalledTitle(p)
         case .signIn(let p): return WelcomeCopy.signInTitle(p)
         case .signingIn: return L("Finish in your browser")
         case .success: return L("You're all set")
@@ -67,6 +68,7 @@ struct WelcomeView: View {
                 : String(format: L("Tally reads their usage from %@. Nothing to set up."), from)
         case .needsCLI(let p): return WelcomeCopy.installBlurb(p)
         case .waiting: return L("Keep this window open. It moves on by itself when the install finishes.")
+        case .waitingStalled: return WelcomeCopy.stalledBody
         case .signIn(let p): return WelcomeCopy.signInBlurb(p)
         case .signingIn(let p): return WelcomeCopy.signingInBody(p)
         case .success: return L("This account is in your menu bar now.")
@@ -99,6 +101,8 @@ struct WelcomeView: View {
             steps([(.done, L("Install command copied")),
                    (.active, L("Paste it in Terminal and press Return")),
                    (.todo, String(format: L("Tally finds %@"), WelcomeCopy.cliName(p)))])
+        case .waitingStalled(let p):
+            note(WelcomeCopy.stalledNote(p)).padding(.top, 14)
         case .signIn(let p):
             statusCard {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(TallyColor.normal)
@@ -136,10 +140,11 @@ struct WelcomeView: View {
                 link(p == "codex" ? L("I use Claude Code instead") : L("I use Codex instead")) { store.secondary() }
                 Spacer()
                 prominent(L("Copy and Open Terminal")) { store.primary() }
-            case .waiting:
+            case .waiting, .waitingStalled:
                 Spacer()
                 plain(L("Show the Command Again")) { store.secondary() }
-            case .signIn:
+            case .signIn(let p):
+                link(p == "codex" ? L("I use Claude Code instead") : L("I use Codex instead")) { store.secondary() }
                 Spacer()
                 prominent(L("Sign In with Browser")) { store.primary() }
             case .signingIn:
@@ -166,8 +171,9 @@ struct WelcomeView: View {
             Text(L("Top right of your screen")).font(.system(size: 13.5))
             Spacer()
             Image(systemName: "switch.2").font(.system(size: 13)).foregroundStyle(.secondary)
-            Text(verbatim: "T")
-                .font(.system(size: 15, weight: .black).italic())
+            // The symbol the real status item wears until it has accounts to draw.
+            Image(systemName: StatusItemController.fallbackSymbolName)
+                .font(.system(size: 14, weight: .medium))
                 .frame(width: 30, height: 24)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.15)))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor, lineWidth: 1.5))

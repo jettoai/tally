@@ -89,10 +89,12 @@ Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
 copy Tally.app from it into /Applications and launch it. If macOS blocks the
 app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
 it is missing and link the bundled CLI onto my PATH with
-`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
-Wait about 10 seconds, run `tally` and show me the result. If it shows no
-accounts, tell me to sign in to Claude or Codex first. If a step needs my
-password, stop and tell me which command to run.
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`,
+trying it without a password first. If that needs my password, do not force it:
+give me this one line to paste instead:
+`sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
+After I paste it, wait about 10 seconds, run `tally` and show me the result. If
+it shows no accounts, tell me to sign in to Claude or Codex first.
 ```
 
 또는 직접 설치:
@@ -408,9 +410,10 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 ## 요구 사항
 
 - macOS 14+
-- 로그인된 [Claude Code](https://claude.com/claude-code). 추가 계정은 config 디렉터리를
-  하나 더 만들면 됩니다(`CLAUDE_CONFIG_DIR=~/.claude2 claude`로 로그인). 그리고/또는
-- 로그인된 Codex CLI (`~/.codex`)
+- [Claude Code](https://claude.com/claude-code) 그리고/또는 Codex CLI (`~/.codex`). 이 Mac에
+  둘 다 아직 없다면, Tally를 처음 열 때 나타나는 창이 하나를 설치해 주고 로그인까지 안내합니다.
+- 두 번째 Claude 계정: **설정 → 계정 → 계정 추가**. (고급: 실체는 config 디렉터리를 하나 더
+  만드는 것이므로 `CLAUDE_CONFIG_DIR=~/.claude2 claude`를 실행해 로그인하는 방법도 됩니다.)
 
 ## 설치 옵션
 
@@ -418,10 +421,10 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 다운로드하고 **Tally.app**을 응용 프로그램 폴더로 드래그한 뒤 실행하세요. 이후
 업데이트는 앱 안에서 자동으로 도착합니다.
 
-`tally` CLI를 쓰려면 앱에 번들된 바이너리를 PATH에 링크하세요:
+`tally` CLI를 쓰려면 앱에 번들된 바이너리를 PATH에 링크하세요. 새 Mac에서는 `/usr/local/bin`이 없을 수 있어 관리자 비밀번호가 필요합니다:
 
 ```sh
-ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
+sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
 ```
 
 <details>

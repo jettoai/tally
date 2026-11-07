@@ -9,6 +9,13 @@ extension StatusItemController {
     /// The glyph shown when there is no strip to draw, first of these the running system has.
     private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
 
+    /// The name of that glyph on this system, for surfaces that draw the item without owning it
+    /// (the welcome window's menu bar hint).
+    static var fallbackSymbolName: String {
+        symbolCandidates.first { NSImage(systemSymbolName: $0, accessibilityDescription: nil) != nil }
+            ?? symbolCandidates[0]
+    }
+
     /// The red dot beside the FALLBACK GLYPH while any supervised session is waiting on the user.
     /// The glyph is a TEMPLATE image (no colours of its own), so the dot is the button's coloured
     /// title. With a strip the waiting dot is drawn into the strip itself, in ink.

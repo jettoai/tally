@@ -199,21 +199,48 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
                         fallbackArgs: policy.fallbackArgs)
 }
 
-func loadSnapshot() -> (Snapshot?, String?) {
-    guard let data = try? Data(contentsOf: snapshotURL) else {
-        return (nil, "no snapshot at \(snapshotURL.path) - is Tally.app running?")
-    }
+/// What reading the snapshot file found. `missing` carries whether the app is up, because the app
+/// publishes nothing while it holds zero accounts (`republishSnapshot`,
+/// Tally/Stores/UsageStorePublishing.swift): a file that is not there with the app running means
+/// "nobody has signed in yet", not "the app is not running".
+enum SnapshotRead {
+    case loaded(Snapshot, stale: String?)
+    case missing(appRunning: Bool)
+    case unreadable
+}
+
+let noAccountsYetText = "no accounts yet, sign in to Claude or Codex"
+let noAccountsYetNextStep = "open Tally from the menu bar to sign in, or run `tally add claude` / `tally add codex`;"
+    + " if you just signed in, give Tally a minute and run tally again"
+
+/// Whether the app this CLI ships inside is running, asked only when the snapshot file is missing.
+/// Defaults to "no" so a test suite that compiles this file alone keeps the old wording; the binary
+/// wires the real probe at entry (main.swift), as `wireClearanceSessionCounter` does.
+nonisolated(unsafe) var snapshotAppRunning: () -> Bool = { false }
+
+func readSnapshot(url: URL = snapshotURL, appRunning: () -> Bool = snapshotAppRunning) -> SnapshotRead {
+    guard let data = try? Data(contentsOf: url) else { return .missing(appRunning: appRunning()) }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    guard let snapshot = try? decoder.decode(Snapshot.self, from: data) else {
-        return (nil, "unreadable snapshot - update Tally.app?")
-    }
+    guard let snapshot = try? decoder.decode(Snapshot.self, from: data) else { return .unreadable }
     let age = Date().timeIntervalSince(snapshot.generatedAt)
     if age > snapshotMaxAge {
-        return (snapshot, "snapshot is \(Int(age / 60))m old - is Tally.app running?")
+        return .loaded(snapshot, stale: "snapshot is \(Int(age / 60))m old - is Tally.app running?")
     }
-    return (snapshot, nil)
+    return .loaded(snapshot, stale: nil)
 }
+
+/// The (snapshot, problem) pair every caller of `loadSnapshot` has always received.
+func snapshotPair(_ read: SnapshotRead, url: URL = snapshotURL) -> (Snapshot?, String?) {
+    switch read {
+    case .loaded(let snapshot, let stale): return (snapshot, stale)
+    case .missing(appRunning: true): return (nil, "\(noAccountsYetText) - \(noAccountsYetNextStep)")
+    case .missing(appRunning: false): return (nil, "no snapshot at \(url.path) - is Tally.app running?")
+    case .unreadable: return (nil, "unreadable snapshot - update Tally.app?")
+    }
+}
+
+func loadSnapshot() -> (Snapshot?, String?) { snapshotPair(readSnapshot()) }
 
 /// Compact two-unit countdown ("4h22m", "4d3h", "45m") - one unit hid too much ("(5d)" for
 /// 5d 23h), and the status line inherited the coarseness user-visibly.

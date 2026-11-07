@@ -40,6 +40,9 @@ final class AddAccountStore {
     private var loginCancel: RenewLoginRunner.LoginCancel?
     /// The 3-second look for a CLI that is being installed (see the CLI extension at the end of this file).
     private var cliWatch: Task<Void, Never>?
+    /// The CLI has not shown up within `WelcomeFlow.installStallSeconds` of the watch starting; the
+    /// watch keeps looking, this only lets the screens stop promising it will move on by itself.
+    private(set) var cliWaitStalled = false
 
     /// The sheet's two choices, kept on the store so reopening it after a run remembers them.
     var providerID = "claude"
@@ -185,7 +188,7 @@ final class AddAccountStore {
                 _ = await SystemAlert.post(
                     title: L("Account not added") + " · ~/\(prepared.name)",
                     body: RenewLoginStore.reason(failure) + " "
-                        + L("The config home is waiting: reopen Add account in Settings to finish the sign-in."))
+                        + L("The account folder is waiting: reopen Add account in Settings to finish the sign-in."))
             }
         }
     }
@@ -230,7 +233,7 @@ final class AddAccountStore {
             // with the one warning Tally cannot check for them.
             phase = .pending(
                 name: name,
-                reason: L("Tally still sees no signed-in account in this config home. If the Terminal window is still signing in, let it finish before trying again here."),
+                reason: L("Tally still sees no signed-in account in this account folder. If the Terminal window is still signing in, let it finish before trying again here."),
                 handoff: .none)
             return
         }
@@ -264,11 +267,11 @@ final class AddAccountStore {
     private static func reason(_ error: Error) -> String {
         switch error as? AddAccountFailure {
         case .noFreeSlot:
-            return L("Every numbered config home for this provider already has a login.")
+            return L("Every numbered account folder for this provider already has a login.")
         case .couldNotCreateHome(let path):
-            return L("Tally could not create the config home") + " (\(path))."
+            return L("Tally could not create the account folder") + " (\(path))."
         case nil:
-            return L("Tally could not prepare a config home for the new account.")
+            return L("Tally could not prepare an account folder for the new account.")
         }
     }
 }
@@ -318,6 +321,7 @@ extension AddAccountStore {
     func stopWatchingForCLI() {
         cliWatch?.cancel()
         cliWatch = nil
+        cliWaitStalled = false
         if case .needsCLI(let providerID, true) = phase {
             phase = .needsCLI(providerID: providerID, waiting: false)
         }
@@ -325,16 +329,22 @@ extension AddAccountStore {
 
     private func watchForCLI(providerID: String) {
         cliWatch?.cancel()
+        cliWaitStalled = false
+        let started = Date()
         cliWatch = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.cliWatchInterval)
                 guard !Task.isCancelled, let self else { return }
                 guard case .needsCLI(providerID, true) = self.phase else { return }
-                if ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI") != nil {
+                let installed = ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI") != nil
+                if installed {
                     self.cliWatch = nil
+                    self.cliWaitStalled = false
                     self.phase = .idle
                     return
                 }
+                self.cliWaitStalled = WelcomeFlow.isInstallStalled(waited: Date().timeIntervalSince(started),
+                                                                   installed: installed)
             }
         }
     }

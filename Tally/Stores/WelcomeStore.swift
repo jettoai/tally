@@ -53,7 +53,9 @@ final class WelcomeStore {
     var screen: WelcomeScreen {
         if let preview { return preview }
         switch flow.phase {
-        case .needsCLI(let p, let waiting): return waiting ? .waiting(providerID: p) : .needsCLI(providerID: p)
+        case .needsCLI(let p, let waiting):
+            if !waiting { return .needsCLI(providerID: p) }
+            return flow.cliWaitStalled ? .waitingStalled(providerID: p) : .waiting(providerID: p)
         case .preparing, .signingIn: return .signingIn(providerID: flow.runProviderID)
         case .added: return .success
         case .pending(_, let reason, _):
@@ -69,10 +71,8 @@ final class WelcomeStore {
         guard let detected else { return .detecting }
         switch detected {
         case .found: return .found
-        case .signIn(let p): return .signIn(providerID: p)
-        case .needsCLI(let p):
-            let q = chosenProvider ?? p
-            return cliInstalled(q) ? .signIn(providerID: q) : .needsCLI(providerID: q)
+        case .signIn(let p), .needsCLI(let p):
+            return WelcomeFlow.screen(forChoice: chosenProvider ?? p, installed: cliInstalled)
         }
     }
 
@@ -177,7 +177,7 @@ final class WelcomeStore {
             return
         }
         switch screen {
-        case .detecting, .waiting, .signingIn: break
+        case .detecting, .waiting, .waitingStalled, .signingIn: break
         case .found, .success: showUsage()
         case .needsCLI(let p):
             flow.showNeedsCLI(providerID: p)
@@ -194,8 +194,8 @@ final class WelcomeStore {
     func secondary() {
         if let held = preview {
             switch held {
-            case .needsCLI(let p): preview = .needsCLI(providerID: WelcomeFlow.otherProvider(p))
-            case .waiting(let p): preview = .needsCLI(providerID: p)
+            case .needsCLI(let p), .signIn(let p): preview = .needsCLI(providerID: WelcomeFlow.otherProvider(p))
+            case .waiting(let p), .waitingStalled(let p): preview = .needsCLI(providerID: p)
             case .signingIn(let p), .failed(let p, _): preview = .signIn(providerID: p)
             default: break
             }
@@ -203,13 +203,13 @@ final class WelcomeStore {
         }
         switch screen {
         case .found, .success: addAnotherAccount()
-        case .needsCLI(let p):
+        case .needsCLI(let p), .signIn(let p):
             flow.reset()
             chosenProvider = WelcomeFlow.otherProvider(p)
-        case .waiting: flow.showInstallCommandAgain()
+        case .waiting, .waitingStalled: flow.showInstallCommandAgain()
         case .signingIn: flow.cancelSignIn()
         case .failed: flow.reset()
-        case .detecting, .signIn: break
+        case .detecting: break
         }
     }
 

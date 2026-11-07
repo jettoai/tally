@@ -138,7 +138,16 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
 }
 
 func runStatus(json: Bool = false) {
-    let (snapshot, problem) = loadSnapshot()
+    let read = readSnapshot()
+    if case .missing(appRunning: true) = read, !json {
+        // The app is up but has published nothing, which it only does while it holds zero accounts.
+        // The same exit as a snapshot that lists none: 0. (The JSON shape keeps exit 1 and the
+        // sentence on stderr below: its contract has no empty report to print.)
+        print(noAccountsYetText)
+        print("next: \(noAccountsYetNextStep) · \(tallyStatusHelpHint)")
+        return // rc 0
+    }
+    let (snapshot, problem) = snapshotPair(read)
     if let problem { warn(problem) }
     guard let snapshot else {
         // THE RUN WITH NO REPORT IN IT IS THE ONE THAT NEEDS THE WAY OUT MOST: there is no snapshot
@@ -266,6 +275,7 @@ func runStatus(json: Bool = false) {
 // MARK: - Entry
 
 wireClearanceSessionCounter()
+snapshotAppRunning = bundledAppRunning
 // Share "which repository is this directory" answers with the next `tally` process for a few
 // seconds (GitRepoRoot.swift, `GitFactsCache`): pollers start one process per call.
 gitFactsCache.diskFile = FileManager.default.homeDirectoryForCurrentUser

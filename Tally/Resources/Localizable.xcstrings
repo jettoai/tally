@@ -1016,41 +1016,6 @@
         }
       }
     },
-    "Sign in with a supported CLI to get started.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用支援的 CLI 登入即可開始。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用支持的 CLI 登录即可开始。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "対応 CLI でサインインして始めましょう。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "지원되는 CLI로 로그인하여 시작하세요."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Başlamak için desteklenen bir CLI ile giriş yapın."
-          }
-        }
-      }
-    },
     "Settings…": {
       "extractionState": "manual",
       "localizations": {
@@ -10609,72 +10574,72 @@
         }
       }
     },
-    "Tally will create the next config home and open the provider's sign-in page in your browser.": {
+    "Tally will create the next account folder and open the provider's sign-in page in your browser.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 會建立下一個設定目錄，並在瀏覽器開啟該供應商的登入頁面。"
+            "value": "Tally 會建立下一個帳號資料夾，並在瀏覽器開啟該供應商的登入頁面。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 会创建下一个配置目录，并在浏览器中打开该服务商的登录页面。"
+            "value": "Tally 会创建下一个账号文件夹，并在浏览器中打开该服务商的登录页面。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally が次の設定ディレクトリを作成し、プロバイダのサインインページをブラウザで開きます。"
+            "value": "Tally が次のアカウントフォルダを作成し、プロバイダのサインインページをブラウザで開きます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally가 다음 설정 디렉터리를 만들고 브라우저에서 제공업체 로그인 페이지를 엽니다."
+            "value": "Tally가 다음 계정 폴더를 만들고 브라우저에서 제공업체 로그인 페이지를 엽니다."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally sıradaki yapılandırma dizinini oluşturacak ve sağlayıcının giriş sayfasını tarayıcınızda açacak."
+            "value": "Tally sıradaki hesap klasörünü oluşturacak ve sağlayıcının giriş sayfasını tarayıcınızda açacak."
           }
         }
       }
     },
-    "Every numbered config home for this provider already has a login.": {
+    "Every numbered account folder for this provider already has a login.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個供應商所有編號的設定目錄都已經有登入了。"
+            "value": "這個供應商所有編號的帳號資料夾都已經有登入了。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "该服务商所有编号的配置目录都已有登录。"
+            "value": "该服务商所有编号的账号文件夹都已有登录。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このプロバイダの番号付き設定ディレクトリはすべてログイン済みです。"
+            "value": "このプロバイダの番号付きアカウントフォルダはすべてログイン済みです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 제공업체의 번호가 매겨진 설정 디렉터리에 모두 로그인되어 있습니다."
+            "value": "이 제공업체의 번호가 매겨진 계정 폴더에 모두 로그인되어 있습니다."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu sağlayıcının numaralı yapılandırma dizinlerinin tümünde zaten giriş yapılmış."
+            "value": "Bu sağlayıcının numaralı hesap klasörlerinin tümünde zaten giriş yapılmış."
           }
         }
       }
@@ -10959,37 +10924,37 @@
         }
       }
     },
-    "Preparing the config home…": {
+    "Preparing the account folder…": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在準備設定目錄…"
+            "value": "正在準備帳號資料夾…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在准备配置目录…"
+            "value": "正在准备账号文件夹…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定ディレクトリを準備中…"
+            "value": "アカウントフォルダを準備中…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설정 디렉터리 준비 중…"
+            "value": "계정 폴더 준비 중…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapılandırma dizini hazırlanıyor…"
+            "value": "Hesap klasörü hazırlanıyor…"
           }
         }
       }
@@ -11134,37 +11099,37 @@
         }
       }
     },
-    "The config home is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice.": {
+    "The account folder is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定目錄已經建好等著：之後完成登入就會加入這個帳號，不會重複建立。"
+            "value": "帳號資料夾已經建好等著：之後完成登入就會加入這個帳號，不會重複建立。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置目录已创建好等着：之后完成登录就会加入这个账号，不会重复创建。"
+            "value": "账号文件夹已创建好等着：之后完成登录就会加入这个账号，不会重复创建。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定ディレクトリは作成済みです。後でサインインを完了すればそのアカウントが追加され、二重に作成されることはありません。"
+            "value": "アカウントフォルダは作成済みです。後でサインインを完了すればそのアカウントが追加され、二重に作成されることはありません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설정 디렉터리는 이미 준비되어 있습니다. 나중에 로그인을 완료하면 계정이 추가되며 중복 생성되지 않습니다."
+            "value": "계정 폴더는 이미 준비되어 있습니다. 나중에 로그인을 완료하면 계정이 추가되며 중복 생성되지 않습니다."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapılandırma dizini hazır ve bekliyor. Girişi daha sonra tamamladığınızda hesap eklenir; hiçbir şey iki kez oluşturulmaz."
+            "value": "Hesap klasörü hazır ve bekliyor. Girişi daha sonra tamamladığınızda hesap eklenir; hiçbir şey iki kez oluşturulmaz."
           }
         }
       }
@@ -11309,142 +11274,142 @@
         }
       }
     },
-    "Tally could not create the config home": {
+    "Tally could not create the account folder": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 無法建立設定目錄"
+            "value": "Tally 無法建立帳號資料夾"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 无法创建配置目录"
+            "value": "Tally 无法创建账号文件夹"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally は設定ディレクトリを作成できませんでした"
+            "value": "Tally はアカウントフォルダを作成できませんでした"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally가 설정 디렉터리를 만들지 못했습니다"
+            "value": "Tally가 계정 폴더를 만들지 못했습니다"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally yapılandırma dizinini oluşturamadı"
+            "value": "Tally hesap klasörünü oluşturamadı"
           }
         }
       }
     },
-    "Tally could not prepare a config home for the new account.": {
+    "Tally could not prepare an account folder for the new account.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 無法為新帳號準備設定目錄。"
+            "value": "Tally 無法為新帳號準備帳號資料夾。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 无法为新账号准备配置目录。"
+            "value": "Tally 无法为新账号准备账号文件夹。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally は新しいアカウント用の設定ディレクトリを準備できませんでした。"
+            "value": "Tally は新しいアカウント用のアカウントフォルダを準備できませんでした。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally가 새 계정용 설정 디렉터리를 준비하지 못했습니다."
+            "value": "Tally가 새 계정용 계정 폴더를 준비하지 못했습니다."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally yeni hesap için yapılandırma dizini hazırlayamadı."
+            "value": "Tally yeni hesap için bir hesap klasörü hazırlayamadı."
           }
         }
       }
     },
-    "Tally creates the next config home and opens the provider's sign-in in your browser.": {
+    "Tally creates the next account folder and opens the provider's sign-in in your browser.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 會建立下一個設定目錄，並在瀏覽器開啟該供應商的登入頁。"
+            "value": "Tally 會建立下一個帳號資料夾，並在瀏覽器開啟該供應商的登入頁。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 会创建下一个配置目录，并在浏览器中打开该服务商的登录页。"
+            "value": "Tally 会创建下一个账号文件夹，并在浏览器中打开该服务商的登录页。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally が次の設定ディレクトリを作成し、プロバイダのサインインをブラウザで開きます。"
+            "value": "Tally が次のアカウントフォルダを作成し、プロバイダのサインインをブラウザで開きます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally가 다음 설정 디렉터리를 만들고 브라우저에서 제공업체 로그인을 엽니다."
+            "value": "Tally가 다음 계정 폴더를 만들고 브라우저에서 제공업체 로그인을 엽니다."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally sıradaki yapılandırma dizinini oluşturur ve sağlayıcının giriş sayfasını tarayıcınızda açar."
+            "value": "Tally sıradaki hesap klasörünü oluşturur ve sağlayıcının girişini tarayıcınızda açar."
           }
         }
       }
     },
-    "The config home is waiting: reopen Add account in Settings to finish the sign-in.": {
+    "The account folder is waiting: reopen Add account in Settings to finish the sign-in.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定家目錄已就緒：回到設定的「新增帳號」即可完成登入。"
+            "value": "帳號資料夾已就緒：回到設定的「新增帳號」即可完成登入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置主目录已就绪：回到设置的“添加账号”即可完成登录。"
+            "value": "账号文件夹已就绪：回到设置的“添加账号”即可完成登录。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定ホームは用意できています。設定の「アカウントを追加」からサインインを完了してください。"
+            "value": "アカウントフォルダは用意できています。設定の「アカウントを追加」からサインインを完了してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성 홈은 준비되어 있습니다. 설정의 '계정 추가'에서 로그인을 마치세요."
+            "value": "계정 폴더는 준비되어 있습니다. 설정의 '계정 추가'에서 로그인을 마치세요."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yapılandırma dizini hazır: girişi tamamlamak için Ayarlar’da Hesap ekle bölümünü yeniden açın."
+            "value": "Hesap klasörü hazır: girişi tamamlamak için Ayarlar’da Hesap ekle bölümünü yeniden açın."
           }
         }
       }
@@ -11484,37 +11449,37 @@
         }
       }
     },
-    "Tally still sees no signed-in account in this config home. If the Terminal window is still signing in, let it finish before trying again here.": {
+    "Tally still sees no signed-in account in this account folder. If the Terminal window is still signing in, let it finish before trying again here.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 在這個設定家目錄仍看不到已登入的帳號。若終端機視窗還在登入，請等它結束再於此重試。"
+            "value": "Tally 在這個帳號資料夾仍看不到已登入的帳號。若終端機視窗還在登入，請等它結束再於此重試。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 在这个配置主目录仍看不到已登录的账号。若终端窗口还在登录，请等它结束再在此重试。"
+            "value": "Tally 在这个账号文件夹仍看不到已登录的账号。若终端窗口还在登录，请等它结束再在此重试。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この設定ホームにサインイン済みのアカウントはまだ見当たりません。ターミナルでサインインの途中なら、終わってからここで再試行してください。"
+            "value": "このアカウントフォルダにサインイン済みのアカウントはまだ見当たりません。ターミナルでサインインの途中なら、終わってからここで再試行してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 구성 홈에서 로그인된 계정을 아직 찾지 못했습니다. 터미널 창이 아직 로그인 중이라면 끝난 뒤에 여기서 다시 시도하세요."
+            "value": "이 계정 폴더에서 로그인된 계정을 아직 찾지 못했습니다. 터미널 창이 아직 로그인 중이라면 끝난 뒤에 여기서 다시 시도하세요."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally bu yapılandırma dizininde hâlâ giriş yapılmış bir hesap göremiyor. Terminal penceresinde giriş işlemi sürüyorsa burada yeniden denemeden önce tamamlanmasını bekleyin."
+            "value": "Tally bu hesap klasöründe hâlâ giriş yapılmış bir hesap göremiyor. Terminal penceresinde giriş işlemi sürüyorsa burada yeniden denemeden önce tamamlanmasını bekleyin."
           }
         }
       }
@@ -27873,6 +27838,181 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hesap ekle"
+          }
+        }
+      }
+    },
+    "Add a Claude or Codex account to get started.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 Claude 或 Codex 帳號即可開始。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加 Claude 或 Codex 账号即可开始。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude か Codex のアカウントを追加して始めましょう。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 또는 Codex 계정을 추가하여 시작하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlamak için bir Claude veya Codex hesabı ekleyin."
+          }
+        }
+      }
+    },
+    "Tally can't see %@ yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 還看不到 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 还看不到 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はまだ %@ を見つけられません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 아직 %@ 설치를 확인하지 못했습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally henüz %@ uygulamasını göremiyor"
+          }
+        }
+      }
+    },
+    "Look in the Terminal window for an error message, and check that this Mac is online. If nothing ran, paste the command again and press Return.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請看看終端機視窗有沒有錯誤訊息，並確認這台 Mac 已連上網路。如果指令沒有執行，請再貼上一次並按 Return。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请看看终端窗口里有没有错误信息，并确认这台 Mac 已联网。如果命令没有运行，请再粘贴一次并按 Return。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのウィンドウにエラーメッセージが出ていないか、この Mac がネットワークに接続されているかを確認してください。コマンドが実行されていなければ、もう一度貼り付けて Return キーを押してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 창에 오류 메시지가 없는지, 이 Mac이 인터넷에 연결되어 있는지 확인하세요. 명령이 실행되지 않았다면 다시 붙여넣고 Return을 누르세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal penceresinde bir hata mesajı olup olmadığına bakın ve bu Mac’in çevrimiçi olduğundan emin olun. Hiçbir şey çalışmadıysa komutu yeniden yapıştırıp Return’e basın."
+          }
+        }
+      }
+    },
+    "Tally keeps looking and moves on by itself once %@ is installed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 會繼續找，%@ 裝好後會自己往下走。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 会继续查找，%@ 安装好后会自动继续。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は探し続け、%@ がインストールされると自動で次へ進みます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 계속 찾고 있으며, %@ 설치가 끝나면 자동으로 넘어갑니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally aramaya devam eder; %@ yüklenince kendiliğinden ilerler."
+          }
+        }
+      }
+    },
+    "Tally could not set up the new account. Nothing was changed, so trying again is safe.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 無法設定新帳號。什麼都沒有改，再試一次很安全。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 无法设置新账号。什么都没有改动，再试一次很安全。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は新しいアカウントを設定できませんでした。何も変更されていないので、もう一度試しても安全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 새 계정을 설정하지 못했습니다. 아무것도 바뀌지 않았으니 다시 시도해도 안전합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally yeni hesabı kurulamadı. Hiçbir şey değişmedi, bu yüzden yeniden denemek güvenlidir."
           }
         }
       }

@@ -89,9 +89,11 @@ Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 
 把裡面的 Tally.app 複製到 /Applications 並啟動。若 macOS 擋下這個 app，
 先停下來告訴我從 Finder 開一次。接著若 /usr/local/bin 不存在就先建立，再用
 `ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
-把內附的 CLI 連到我的 PATH。等約 10 秒後執行 `tally`，把結果給我看。
+把內附的 CLI 連到我的 PATH，先試不用密碼的做法。若需要我的密碼，不要自己硬做，
+直接把下面這一行給我貼：
+`sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
+我貼完後，等約 10 秒再執行 `tally`，把結果給我看。
 若它顯示沒有任何帳號，告訴我先登入 Claude 或 Codex。
-若某一步需要我的密碼，先停下來告訴我該執行哪個指令。
 ```
 
 或自己安裝：
@@ -351,19 +353,20 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 ## 需求
 
 - macOS 14+
-- 已登入的 [Claude Code](https://claude.com/claude-code)，額外帳號就是多一個 config 目錄
-  （`CLAUDE_CONFIG_DIR=~/.claude2 claude` 登入即可），與／或
-- 已登入的 Codex CLI（`~/.codex`）
+- [Claude Code](https://claude.com/claude-code) 與／或 Codex CLI（`~/.codex`）。如果這台 Mac
+  兩個都還沒有，第一次打開 Tally 時出現的視窗會幫你安裝其中一個，並帶你完成登入。
+- 第二個 Claude 帳號：**設定 → 帳號 → 新增帳號**。（進階：它其實就是多一個 config 目錄，
+  所以用 `CLAUDE_CONFIG_DIR=~/.claude2 claude` 再登入也可以。）
 
 ## 安裝選項
 
 從 [Releases](https://github.com/jettoai/tally/releases/latest) 下載最新的公證 DMG，
 把 **Tally.app** 拖進「應用程式」後啟動即可，之後的更新會在 app 內自動送達。
 
-要使用 `tally` CLI，把 app 內建的那份連結到 PATH：
+要使用 `tally` CLI，把 app 內建的那份連結到 PATH。全新的 Mac 上 `/usr/local/bin` 可能不存在，所以需要管理員密碼：
 
 ```sh
-ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
+sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
 ```
 
 <details>

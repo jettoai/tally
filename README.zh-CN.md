@@ -89,10 +89,12 @@ Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
 copy Tally.app from it into /Applications and launch it. If macOS blocks the
 app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
 it is missing and link the bundled CLI onto my PATH with
-`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
-Wait about 10 seconds, run `tally` and show me the result. If it shows no
-accounts, tell me to sign in to Claude or Codex first. If a step needs my
-password, stop and tell me which command to run.
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`,
+trying it without a password first. If that needs my password, do not force it:
+give me this one line to paste instead:
+`sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
+After I paste it, wait about 10 seconds, run `tally` and show me the result. If
+it shows no accounts, tell me to sign in to Claude or Codex first.
 ```
 
 或自己安装：
@@ -351,19 +353,20 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 ## 要求
 
 - macOS 14+
-- 已登录的 [Claude Code](https://claude.com/claude-code)，额外账号就是多一个 config 目录
-  （`CLAUDE_CONFIG_DIR=~/.claude2 claude` 登录即可），与／或
-- 已登录的 Codex CLI（`~/.codex`）
+- [Claude Code](https://claude.com/claude-code) 与／或 Codex CLI（`~/.codex`）。如果这台 Mac
+  两个都还没有，第一次打开 Tally 时出现的窗口会帮你安装其中一个，并带你完成登录。
+- 第二个 Claude 账号：**设置 → 账号 → 添加账号**。（进阶：它其实就是多一个 config 目录，
+  所以用 `CLAUDE_CONFIG_DIR=~/.claude2 claude` 再登录也可以。）
 
 ## 安装选项
 
 从 [Releases](https://github.com/jettoai/tally/releases/latest) 下载最新的公证 DMG，
 把 **Tally.app** 拖进「应用程序」后启动即可，之后的更新会在应用内自动送达。
 
-要使用 `tally` CLI，把应用内置的那份链接到 PATH：
+要使用 `tally` CLI，把应用内置的那份链接到 PATH。全新的 Mac 上 `/usr/local/bin` 可能不存在，所以需要管理员密码：
 
 ```sh
-ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
+sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
 ```
 
 <details>

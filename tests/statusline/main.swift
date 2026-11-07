@@ -294,6 +294,53 @@ check("help is a command of its own, answering on stdout with a zero exit",
 check("…while a word this binary does not know is still an error on stderr",
       statusSource.contains("default:\n    warn(tallyUsage)\n    exit(2)"))
 
+// MARK: - Zero accounts: the app is up but has published no snapshot (B-3749#P5)
+
+// The app writes no snapshot while it holds zero accounts, so "no file" with the app running means
+// nobody has signed in yet. Asserted through the real reader with an injected probe and a scratch
+// directory, plus the source shape of `runStatus` (exit 0 on this path, like a snapshot listing none).
+let p5Dir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-p5-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: p5Dir, withIntermediateDirectories: true)
+let p5Missing = p5Dir.appendingPathComponent("snapshot.json")
+if case .missing(appRunning: true) = readSnapshot(url: p5Missing, appRunning: { true }) {
+    check("no file and the app running reads as missing(appRunning: true)", true)
+} else {
+    check("no file and the app running reads as missing(appRunning: true)", false)
+}
+let p5Running = snapshotPair(readSnapshot(url: p5Missing, appRunning: { true }), url: p5Missing)
+check("…and says nobody has signed in yet, without blaming the app or naming a file",
+      p5Running.0 == nil
+          && (p5Running.1 ?? "").hasPrefix("\(noAccountsYetText) - ")
+          && !(p5Running.1 ?? "").contains("is Tally.app running")
+          && !(p5Running.1 ?? "").contains(p5Missing.path))
+check("…and tells somebody who just signed in to wait a minute and run it again",
+      noAccountsYetNextStep.hasSuffix("if you just signed in, give Tally a minute and run tally again"))
+let p5Stopped = snapshotPair(readSnapshot(url: p5Missing, appRunning: { false }), url: p5Missing)
+check("no file and the app not running keeps the old sentence word for word",
+      p5Stopped.0 == nil
+          && p5Stopped.1 == "no snapshot at \(p5Missing.path) - is Tally.app running?")
+let p5Fresh = p5Dir.appendingPathComponent("fresh.json")
+let p5Stamp = ISO8601DateFormatter().string(from: Date())
+try? Data("{\"version\":1,\"generatedAt\":\"\(p5Stamp)\",\"accounts\":[]}".utf8).write(to: p5Fresh)
+var p5Probed = false
+if case .loaded(_, stale: nil) = readSnapshot(url: p5Fresh, appRunning: { p5Probed = true; return true }) {
+    check("a snapshot with no accounts still loads clean", true)
+} else {
+    check("a snapshot with no accounts still loads clean", false)
+}
+check("…without walking the process table, which only a missing file pays for", !p5Probed)
+// The branch in `runStatus`, found by its case and bounded by its closing brace: exit 0 (a return,
+// never `exit(`), and the JSON shape excluded so its contract keeps exit 1 with the sentence on stderr.
+if let branch = statusBody.range(of: "if case .missing(appRunning: true) = read, !json {"),
+   let end = statusBody.range(of: "\n    }\n", range: branch.upperBound ..< statusBody.endIndex) {
+    let body = String(statusBody[branch.upperBound ..< end.lowerBound])
+    check("`tally status` answers a running-but-empty app with prose and returns, exit 0",
+          body.contains("print(noAccountsYetText)") && body.contains("return") && !body.contains("exit("))
+} else {
+    check("`tally status` answers a running-but-empty app with prose and returns, exit 0", false)
+}
+
 runCompletionChecks()
 
 exit(failures == 0 ? 0 : 1)

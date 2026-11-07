@@ -22,6 +22,16 @@ enum WelcomeCopy {
         String(format: L("Waiting for %@"), cliName(providerID))
     }
 
+    static func stalledTitle(_ providerID: String) -> String {
+        String(format: L("Tally can't see %@ yet"), cliName(providerID))
+    }
+
+    static var stalledBody: String { L("Look in the Terminal window for an error message, and check that this Mac is online. If nothing ran, paste the command again and press Return.") }
+
+    static func stalledNote(_ providerID: String) -> String {
+        String(format: L("Tally keeps looking and moves on by itself once %@ is installed."), cliName(providerID))
+    }
+
     static func signInTitle(_ providerID: String) -> String {
         providerID == "codex" ? L("Sign in to your Codex account") : L("Sign in to your Claude account")
     }
@@ -44,8 +54,9 @@ enum WelcomeCopy {
             return L("The sign-in command ended without signing in. Nothing was changed, so trying again is safe.")
         case .couldNotStart:
             return L("Tally could not start the sign-in command. Nothing was changed, so trying again is safe.")
-        case .other(let reason):
-            return reason
+        case .other:
+            // The flow's own sentence names a config folder; the user needs what happened and that retrying is safe.
+            return L("Tally could not set up the new account. Nothing was changed, so trying again is safe.")
         }
     }
 

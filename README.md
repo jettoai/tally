@@ -89,10 +89,12 @@ Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
 copy Tally.app from it into /Applications and launch it. If macOS blocks the
 app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
 it is missing and link the bundled CLI onto my PATH with
-`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
-Wait about 10 seconds, run `tally` and show me the result. If it shows no
-accounts, tell me to sign in to Claude or Codex first. If a step needs my
-password, stop and tell me which command to run.
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`,
+trying it without a password first. If that needs my password, do not force it:
+give me this one line to paste instead:
+`sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
+After I paste it, wait about 10 seconds, run `tally` and show me the result. If
+it shows no accounts, tell me to sign in to Claude or Codex first.
 ```
 
 Or install it yourself:
@@ -413,19 +415,21 @@ Your other Macs and Linux boxes are sitting idle while this one grinds through a
 ## Requirements
 
 - macOS 14+
-- [Claude Code](https://claude.com/claude-code) signed in; additional accounts are plain extra
-  config dirs (`CLAUDE_CONFIG_DIR=~/.claude2 claude` and log in), and/or
-- Codex CLI signed in (`~/.codex`)
+- [Claude Code](https://claude.com/claude-code) and/or Codex CLI (`~/.codex`). If this Mac has
+  neither yet, the window Tally shows the first time you open it installs one for you and walks
+  you through signing in.
+- A second Claude account: **Settings → Accounts → Add an account**. (Advanced: it is just an
+  extra config dir, so `CLAUDE_CONFIG_DIR=~/.claude2 claude` and logging in works too.)
 
 ## Install options
 
 Download the latest notarized DMG from [Releases](https://github.com/jettoai/tally/releases/latest),
 drag **Tally.app** into Applications, and launch it. Updates arrive automatically in-app.
 
-To use the `tally` CLI, link the copy bundled inside the app onto your PATH:
+To use the `tally` CLI, link the copy bundled inside the app onto your PATH. `/usr/local/bin` may not exist on a fresh Mac, so this needs an administrator password:
 
 ```sh
-ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
+sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
 ```
 
 <details>

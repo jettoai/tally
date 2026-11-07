@@ -227,7 +227,7 @@ struct SettingsAccountsView: View {
     @ViewBuilder
     private var addAccountAction: some View {
         let tracked = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
-        let hint = L("Tally creates the next config home and opens the provider's sign-in in your browser.")
+        let hint = L("Tally creates the next account folder and opens the provider's sign-in in your browser.")
         if tracked.count == 1, let only = tracked.first {
             PageActionButton(title: L("Add account…"), symbol: "plus") { beginAddAccount(only.id) }
                 .disabled(!canAddAccount(only.id))

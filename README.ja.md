@@ -89,10 +89,12 @@ Download https://github.com/jettoai/tally/releases/latest/download/Tally.dmg,
 copy Tally.app from it into /Applications and launch it. If macOS blocks the
 app, stop and tell me to open it once from Finder. Then create /usr/local/bin if
 it is missing and link the bundled CLI onto my PATH with
-`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`.
-Wait about 10 seconds, run `tally` and show me the result. If it shows no
-accounts, tell me to sign in to Claude or Codex first. If a step needs my
-password, stop and tell me which command to run.
+`ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`,
+trying it without a password first. If that needs my password, do not force it:
+give me this one line to paste instead:
+`sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally`
+After I paste it, wait about 10 seconds, run `tally` and show me the result. If
+it shows no accounts, tell me to sign in to Claude or Codex first.
 ```
 
 または自分でインストールする場合：
@@ -428,9 +430,11 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 ## 動作要件
 
 - macOS 14+
-- サインイン済みの [Claude Code](https://claude.com/claude-code)。追加アカウントは config
-  ディレクトリを増やすだけ（`CLAUDE_CONFIG_DIR=~/.claude2 claude` でログイン）、および／または
-- サインイン済みの Codex CLI（`~/.codex`）
+- [Claude Code](https://claude.com/claude-code) および／または Codex CLI（`~/.codex`）。この Mac
+  にどちらもまだ入っていなければ、Tally を初めて開いたときのウィンドウがどちらかをインストールし、
+  ログインまで案内します。
+- 2 つ目の Claude アカウント：**設定 → アカウント → アカウントを追加**。（上級者向け：実体は config
+  ディレクトリを 1 つ増やすだけなので、`CLAUDE_CONFIG_DIR=~/.claude2 claude` を実行してログインする方法でも追加できます。）
 
 ## インストール方法
 
@@ -438,10 +442,10 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 ダウンロードし、**Tally.app** をアプリケーションフォルダへドラッグして起動してください。
 以降のアップデートはアプリ内で自動的に届きます。
 
-`tally` CLI を使うには、アプリに同梱されたバイナリを PATH にリンクします：
+`tally` CLI を使うには、アプリに同梱されたバイナリを PATH にリンクします。新しい Mac では `/usr/local/bin` が存在しない場合があるため、管理者パスワードが必要です：
 
 ```sh
-ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
+sudo mkdir -p /usr/local/bin && sudo ln -s /Applications/Tally.app/Contents/Helpers/tally /usr/local/bin/tally
 ```
 
 <details>

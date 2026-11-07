@@ -157,13 +157,15 @@ struct PopoverRootView: View {
                                 }
                                 // Only as tall as the bubble needs to fit; 0 when it is not showing.
                                 .frame(minHeight: hintRoom, alignment: .topLeading)
-                                // The first-run bubble floats over the cards, pointing at the first
-                                // meter on screen (PanelHints), so it takes no room of its own.
-                                .overlayPreferenceValue(PanelHintTargetKey.self, alignment: .topLeading) {
-                                    PanelHintBubbleOverlay(store: store, targets: $0, room: $hintRoom)
-                                }
                             }
                             .frame(width: popoverWidth, alignment: .leading)
+                            // The first-run bubble floats over the cards, pointing at the first
+                            // meter on screen (PanelHints), so it takes no room of its own. It sits
+                            // on the scroll view, not its content, so it is placed in the visible
+                            // area: a panel capped by the display would clip it at the content's edge.
+                            .overlayPreferenceValue(PanelHintTargetKey.self, alignment: .topLeading) {
+                                PanelHintBubbleOverlay(store: store, targets: $0, room: $hintRoom)
+                            }
                             // The invite stays outside the scroll view: a panel capped to a short
                             // display scrolled it out of sight when it was the last thing inside.
                             if showsPanelHints {

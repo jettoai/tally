@@ -1,6 +1,7 @@
+import CoreGraphics
 import Foundation
 
-// The panel's two one-time nudges (B-3784), kept Foundation-only so tests/panelhints can compile
+// The panel's two one-time nudges (B-3784), kept free of SwiftUI so tests/panelhints can compile
 // them alone. The first explains what the bars mean, the second invites the `tally` command. The
 // views and the small install window only ask these questions.
 
@@ -23,6 +24,28 @@ enum PanelHints {
     /// The first hint: until it is answered with "Got it", whenever there is something to point at.
     static func showsBubble(seen: Bool, hasData: Bool) -> Bool {
         !seen && hasData
+    }
+
+    /// Where the first hint's bubble sits, in the scroll view's visible area (B-4112). `y` is the
+    /// bubble's top edge; `above` means it was flipped over the meter, so its arrow is at the bottom.
+    struct BubblePlacement: Equatable {
+        var y: CGFloat
+        var above: Bool
+    }
+
+    /// Below the meter when it fits, else above it, else clamped inside the visible area. `meter` is
+    /// in the visible area's own space. A meter scrolled out of it gets no bubble (nil), so the hint
+    /// is neither drawn nor marked seen until the meter is back in view.
+    static func bubblePlacement(meter: CGRect, bubbleHeight: CGFloat, viewport: CGSize,
+                                margin: CGFloat) -> BubblePlacement? {
+        guard meter.maxY > 0, meter.minY < viewport.height else { return nil }
+        let gap: CGFloat = 2
+        let below = meter.maxY + gap
+        if below + bubbleHeight <= viewport.height - margin { return BubblePlacement(y: below, above: false) }
+        let over = meter.minY - gap - bubbleHeight
+        if over >= margin { return BubblePlacement(y: over, above: true) }
+        let lowest = max(margin, viewport.height - bubbleHeight - margin)
+        return BubblePlacement(y: min(max(below, margin), lowest), above: false)
     }
 
     /// The invite card. `seenAtAppear` and `opensAtAppear` are read ONCE when the panel appears, so a

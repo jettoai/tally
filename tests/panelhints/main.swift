@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // The panel's one-time nudges: when the first hint shows, when the tally-command invite shows, what
@@ -110,7 +111,7 @@ if let snapshot = bubble.range(of: "seenAtAppear = memory.seen"),
     expect(snapshot.lowerBound < count.lowerBound,
            "the appearance reads whether the hint was answered before it counts itself")
 } else { expect(false, "the appearance reads whether the hint was answered before it counts itself") }
-expect(bubble.contains("PanelHintBubble(arrowX: tip.x - x) { memory.markSeen() }")
+expect(bubble.contains("arrowAtBottom: shown.placement.above) { memory.markSeen() }")
         && bubble.contains("held == .bubble && !memory.seen")
         && bubble.contains("showsBubble(seen: memory.seen"),
        "the Got it button marks the hint seen, and both the held and the normal path read that")
@@ -126,6 +127,35 @@ expect(rowSource.contains("anchorPreference(key: PanelHintTargetKey.self")
         && cardSource.contains("anchorPreference(key: PanelHintTargetKey.self")
         && root.contains("overlayPreferenceValue(PanelHintTargetKey.self"),
        "both densities report their first meter, and the panel places the bubble from it")
+// The bubble is placed in the scroll view's visible area: its overlay hangs off the ScrollView, so a
+// closing brace of the scroll view's content sits between the content's minHeight and the overlay.
+if let minHeight = root.range(of: ".frame(minHeight: hintRoom"),
+   let overlay = root.range(of: "overlayPreferenceValue(PanelHintTargetKey.self"),
+   minHeight.upperBound < overlay.lowerBound {
+    let between = root[minHeight.upperBound..<overlay.lowerBound]
+    expect(between.filter { $0 == "}" }.count > between.filter { $0 == "{" }.count,
+           "the bubble's overlay is on the scroll view, not inside its content")
+} else { expect(false, "the bubble's overlay is on the scroll view, not inside its content") }
+
+// MARK: where the bubble sits in the visible area (B-4112)
+
+let viewport = CGSize(width: 400, height: 300)
+func place(_ minY: CGFloat, height: CGFloat = 8, bubble: CGFloat = 140) -> PanelHints.BubblePlacement? {
+    PanelHints.bubblePlacement(meter: CGRect(x: 20, y: minY, width: 34, height: height),
+                               bubbleHeight: bubble, viewport: viewport, margin: 12)
+}
+expect(place(40) == PanelHints.BubblePlacement(y: 50, above: false), "room below puts the bubble under the meter")
+expect(place(160) == PanelHints.BubblePlacement(y: 160 - 2 - 140, above: true),
+       "a meter too low for the bubble flips it above, not past the bottom edge")
+expect(place(100, bubble: 280) == PanelHints.BubblePlacement(y: 12, above: false),
+       "a bubble that fits on neither side is clamped inside the visible area")
+expect(place(-50) == nil && place(300) == nil && place(400) == nil, "a meter scrolled out of view gets no bubble")
+expect(place(-4) == PanelHints.BubblePlacement(y: 6, above: false), "a meter half scrolled off still gets one, below it")
+expect(place(286) == PanelHints.BubblePlacement(y: 286 - 2 - 140, above: true),
+       "a meter at the very bottom of the view flips above it")
+expect(place(40, bubble: 400) == PanelHints.BubblePlacement(y: 12, above: false),
+       "a bubble taller than the visible area starts at the margin")
+
 if let scrollEnd = root.range(of: "accountPoolTitle"),
    let section = root.range(of: "PanelHintsSection(store: store") {
     let after = root[section.upperBound...]

@@ -132,29 +132,35 @@ struct PanelHintBubbleOverlay: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let tip = shows ? firstMeterTip(in: proxy) : nil
+            let shown = shows ? firstVisibleMeter(in: proxy) : nil
             ZStack(alignment: .topLeading) {
-                if let tip {
-                    let x = min(max(tip.x - 44, 12), max(12, proxy.size.width - 12 - PanelHintBubble.width))
-                    PanelHintBubble(arrowX: tip.x - x) { memory.markSeen() }
+                if let shown {
+                    let tipX = shown.meter.minX + AccountListRowView.barWidth / 2
+                    let x = min(max(tipX - 44, 12), max(12, proxy.size.width - 12 - PanelHintBubble.width))
+                    PanelHintBubble(arrowX: tipX - x, arrowAtBottom: shown.placement.above) { memory.markSeen() }
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self, of: \.size.height) { bubbleHeight = $0 }
-                        .offset(x: x, y: tip.y)
+                        .offset(x: x, y: shown.placement.y)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .onChange(of: tip.map { $0.y + bubbleHeight + 12 } ?? 0, initial: true) { _, needed in room = needed }
+            // Room is always reckoned for the bubble below the meter, so the panel still grows to
+            // hold it whenever it can; the flip only matters once the panel cannot grow.
+            .onChange(of: shown.map { $0.meter.maxY + 2 + bubbleHeight + 12 } ?? 0, initial: true) { _, needed in room = needed }
         }
     }
 
-    /// The bottom middle of the first bar on screen: the topmost row, the leftmost within it, so a
-    /// regrouped or flat list is read the way the eye reads it.
-    private func firstMeterTip(in proxy: GeometryProxy) -> CGPoint? {
-        let rects = targets.values.map { proxy[$0] }
-        guard let first = rects.min(by: {
-            abs($0.minY - $1.minY) > 1 ? $0.minY < $1.minY : $0.minX < $1.minX
-        }) else { return nil }
-        return CGPoint(x: first.minX + AccountListRowView.barWidth / 2, y: first.maxY + 2)
+    /// The first bar in view: the topmost row, the leftmost within it, so a regrouped or flat list
+    /// is read the way the eye reads it. Bars scrolled out of the visible area are skipped.
+    private func firstVisibleMeter(in proxy: GeometryProxy) -> (meter: CGRect, placement: PanelHints.BubblePlacement)? {
+        targets.values.map { proxy[$0] }
+            .sorted { abs($0.minY - $1.minY) > 1 ? $0.minY < $1.minY : $0.minX < $1.minX }
+            .lazy
+            .compactMap { rect in
+                PanelHints.bubblePlacement(meter: rect, bubbleHeight: bubbleHeight, viewport: proxy.size, margin: 12)
+                    .map { (rect, $0) }
+            }
+            .first
     }
 }
 
@@ -214,13 +220,15 @@ private struct PanelHintBubble: View {
 
     /// The arrow's centre, from the bubble's leading edge.
     let arrowX: CGFloat
+    /// True when the bubble sits above its meter (B-4112): the arrow is on the bottom edge.
+    let arrowAtBottom: Bool
     let onGotIt: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.tallyCardStyle) private var cardStyle
 
     var body: some View {
-        let shape = PanelHintBubbleShape(arrowX: arrowX)
+        let shape = PanelHintBubbleShape(arrowX: arrowX, arrowAtBottom: arrowAtBottom)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 PanelHintGlyph(diameter: 18) { PanelHintBars() }
@@ -234,7 +242,7 @@ private struct PanelHintBubble: View {
                 .padding(.top, 6)
         }
         .padding(14)
-        .padding(.top, PanelHintBubbleShape.arrow.height)
+        .padding(arrowAtBottom ? .bottom : .top, PanelHintBubbleShape.arrow.height)
         .frame(width: Self.width, alignment: .leading)
         .background {
             if colorScheme == .dark && cardStyle != .solid {
@@ -261,9 +269,17 @@ private struct PanelHintBubble: View {
 private struct PanelHintBubbleShape: Shape {
     /// The arrow's centre, from the bubble's leading edge.
     var arrowX: CGFloat
+    /// Drawn with the arrow on the top edge, then mirrored when it belongs on the bottom one.
+    var arrowAtBottom = false
     static let arrow = CGSize(width: 16, height: 8)
 
     func path(in rect: CGRect) -> Path {
+        let up = upPath(in: rect)
+        guard arrowAtBottom else { return up }
+        return up.applying(CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: rect.minY + rect.maxY))
+    }
+
+    private func upPath(in rect: CGRect) -> Path {
         let body = CGRect(x: rect.minX, y: rect.minY + Self.arrow.height,
                           width: rect.width, height: rect.height - Self.arrow.height)
         let r = TallyMetrics.cardRadius

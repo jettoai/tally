@@ -137,14 +137,14 @@ struct WelcomeView: View {
                 Spacer()
                 prominent(L("Show My Usage")) { store.primary() }
             case .needsCLI(let p):
-                link(p == "codex" ? L("I use Claude Code instead") : L("I use Codex instead")) { store.secondary() }
+                link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
                 prominent(L("Copy and Open Terminal")) { store.primary() }
             case .waiting, .waitingStalled:
                 Spacer()
                 plain(L("Show the Command Again")) { store.secondary() }
             case .signIn(let p):
-                link(p == "codex" ? L("I use Claude Code instead") : L("I use Codex instead")) { store.secondary() }
+                link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
                 prominent(L("Sign In with Browser")) { store.primary() }
             case .signingIn:

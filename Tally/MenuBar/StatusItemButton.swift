@@ -169,12 +169,8 @@ extension StatusItemController {
     }
 
     private static func symbolImage() -> NSImage? {
-        for name in symbolCandidates {
-            if let image = NSImage(systemSymbolName: name, accessibilityDescription: "Tally") {
-                image.isTemplate = true
-                return image
-            }
-        }
-        return nil
+        let image = NSImage(systemSymbolName: fallbackSymbolName, accessibilityDescription: "Tally")
+        image?.isTemplate = true
+        return image
     }
 }

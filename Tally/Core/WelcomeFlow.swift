@@ -14,6 +14,9 @@ enum WelcomeScreen: Equatable {
     case needsCLI(providerID: String)
     /// The install command was copied and Terminal opened: wait for the CLI to appear.
     case waiting(providerID: String)
+    /// The wait has run past `WelcomeFlow.installStallSeconds` with no CLI in sight: say so, with
+    /// the usual causes, and keep looking.
+    case waitingStalled(providerID: String)
     /// The CLI is there but nobody is signed in.
     case signIn(providerID: String)
     /// The provider's own login is running in the browser.
@@ -65,6 +68,20 @@ enum WelcomeFlow {
         providerID == "codex" ? "claude" : "codex"
     }
 
+    /// The screen for a provider the user picked ("I use X instead"): its sign-in when its CLI is on
+    /// this Mac, else its install.
+    static func screen(forChoice providerID: String, installed: (String) -> Bool) -> WelcomeScreen {
+        installed(providerID) ? .signIn(providerID: providerID) : .needsCLI(providerID: providerID)
+    }
+
+    /// How long the install wait may run before the window stops promising it will move on by itself.
+    static let installStallSeconds: TimeInterval = 180
+
+    /// Whether an install wait of `waited` seconds has stalled. A CLI that showed up always wins.
+    static func isInstallStalled(waited: TimeInterval, installed: Bool) -> Bool {
+        !installed && waited >= installStallSeconds
+    }
+
     // MARK: When the window opens by itself
 
     /// Whether the welcome window opens at this launch.
@@ -97,6 +114,7 @@ enum WelcomeFlow {
         case "needs-claude": return .needsCLI(providerID: "claude")
         case "needs-codex": return .needsCLI(providerID: "codex")
         case "waiting": return .waiting(providerID: "claude")
+        case "waiting-stalled": return .waitingStalled(providerID: "claude")
         case "signin": return .signIn(providerID: "claude")
         case "signing-in": return .signingIn(providerID: "claude")
         case "success": return .success
@@ -112,7 +130,7 @@ enum WelcomeFlow {
         case .detecting: return .found
         case .found, .success: return nil
         case .needsCLI(let p): return .waiting(providerID: p)
-        case .waiting(let p): return .signIn(providerID: p)
+        case .waiting(let p), .waitingStalled(let p): return .signIn(providerID: p)
         case .signIn(let p): return .signingIn(providerID: p)
         case .signingIn: return .success
         case .failed(let p, _): return .signingIn(providerID: p)

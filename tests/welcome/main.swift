@@ -4,6 +4,9 @@ import Foundation
 // what the preview flag walks. Pure checks against WelcomeFlow.swift, plus three source locks for
 // the orderings a type check cannot see.
 
+/// WelcomeCopy.swift asks the app's localizer; here the key is its own English text.
+func L(_ key: String) -> String { key }
+
 var failures = 0
 func expect(_ condition: Bool, _ name: String) {
     if condition { print("PASS \(name)") } else { failures += 1; print("FAIL \(name)") }
@@ -23,6 +26,16 @@ expect(WelcomeFlow.verdict(signedInAccounts: 0, installed: { $0 == "codex" }) ==
        "only Codex installed goes to Codex's sign-in")
 expect(WelcomeFlow.verdict(signedInAccounts: 0, installed: none) == .needsCLI(providerID: "claude"),
        "neither CLI installed offers Claude Code's install")
+
+// "I use X instead" on the sign-in screen (G7): the other provider's sign-in when its CLI is there,
+// else its install. Both providers, the other one installed and not.
+for p in ["claude", "codex"] {
+    let other = WelcomeFlow.otherProvider(p)
+    expect(WelcomeFlow.screen(forChoice: other, installed: { $0 == other }) == .signIn(providerID: other),
+           "\(p) sign-in, switching to \(other) with its CLI installed, lands on its sign-in")
+    expect(WelcomeFlow.screen(forChoice: other, installed: { $0 == p }) == .needsCLI(providerID: other),
+           "\(p) sign-in, switching to \(other) without its CLI, lands on its install")
+}
 
 // MARK: install commands
 
@@ -55,10 +68,39 @@ expect(!WelcomeFlow.shouldRecordSeen(forced: true, preview: false, mayRecordWind
         && !WelcomeFlow.shouldRecordSeen(forced: false, preview: false, mayRecordWindowState: false),
        "a forced open, a preview and a capture launch are never remembered as the first run")
 
+// MARK: a stalled install wait (G2)
+
+let stall = WelcomeFlow.installStallSeconds
+expect(stall == 180, "the install wait stalls at three minutes")
+expect(!WelcomeFlow.isInstallStalled(waited: 179, installed: false), "179 seconds without the CLI is still waiting")
+expect(WelcomeFlow.isInstallStalled(waited: 180, installed: false), "180 seconds without the CLI has stalled")
+expect(WelcomeFlow.isInstallStalled(waited: 181, installed: false), "181 seconds without the CLI has stalled")
+expect(!WelcomeFlow.isInstallStalled(waited: 181, installed: true), "an installed CLI beats the clock")
+expect(!WelcomeFlow.isInstallStalled(waited: 0, installed: true), "an installed CLI is never stalled")
+expect(WelcomeFlow.previewScreen(named: "waiting-stalled") == .waitingStalled(providerID: "claude"),
+       "the stalled wait can be held as a preview")
+expect(WelcomeFlow.previewNext(after: .waitingStalled(providerID: "claude")) == .signIn(providerID: "claude"),
+       "a held stalled wait walks on to sign-in like the plain wait")
+expect(WelcomeCopy.stalledBody.contains("Terminal") && WelcomeCopy.stalledBody.contains("online")
+        && WelcomeCopy.stalledBody.contains("paste the command again"),
+       "the stalled screen names the Terminal window, the network and pasting again")
+
+// MARK: failure copy (G8)
+
+let oddReason = "Tally could not prepare a zzz-reason for the new account."
+let shown = WelcomeCopy.failureBody(.other(oddReason))
+expect(!shown.contains("zzz-reason") && !shown.lowercased().contains("config home"),
+       "an unclassified failure never shows the flow's own sentence")
+expect(shown.contains("Nothing was changed, so trying again is safe."),
+       "an unclassified failure says trying again is safe, like the other three")
+expect([WelcomeFailure.timedOut, .reported, .couldNotStart, .other("x")]
+        .allSatisfy { WelcomeCopy.failureBody($0).contains("Nothing was changed, so trying again is safe.") },
+       "all four failure pages end on the same safe-to-retry sentence")
+
 // MARK: the dev preview
 
-let names = ["detecting", "found", "needs-claude", "waiting", "signin", "signing-in", "success", "failed"]
-expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all eight screens can be held")
+let names = ["detecting", "found", "needs-claude", "waiting", "waiting-stalled", "signin", "signing-in", "success", "failed"]
+expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all nine screens can be held")
 expect(WelcomeFlow.previewScreen(named: "NEEDS-CODEX") == .needsCLI(providerID: "codex"),
        "the Codex install screen can be held, and names are not case sensitive")
 expect(WelcomeFlow.previewScreen(named: nil) == nil && WelcomeFlow.previewScreen(named: "YES") == nil
@@ -94,6 +136,36 @@ let controller = source("Tally/MenuBar/WelcomeWindowController.swift")
 expect(controller.contains("BuildVariant.isDev || DemoUsage.isActive")
         && controller.components(separatedBy: "flagsHonoured").count >= 4,
        "both welcome flags are read only through the Dev-or-demo gate")
+
+let welcomeStore = source("Tally/Stores/WelcomeStore.swift")
+expect(!welcomeStore.contains("case .detecting, .signIn: break")
+        && welcomeStore.contains("case .needsCLI(let p), .signIn(let p):\n            flow.reset()"),
+       "the sign-in screen's secondary button switches provider like the install screen's")
+let welcomeView = source("Tally/Views/WelcomeView.swift")
+expect(!welcomeView.contains("Text(verbatim: \"T\")")
+        && welcomeView.contains("StatusItemController.fallbackSymbolName"),
+       "the welcome menu bar hint draws the status item's own glyph, not a letter")
+expect(welcomeView.contains("case .signIn(let p):\n                link("),
+       "the sign-in screen carries the 'I use X instead' link")
+let emptyState = source("Tally/Views/EmptyStateView.swift")
+expect(emptyState.contains("Add a Claude or Codex account to get started.")
+        && !emptyState.contains("supported CLI"),
+       "the empty state asks for a Claude or Codex account in plain words")
+let userFacing = ["Tally/Views", "Tally/Stores/AddAccountStore.swift", "Tally/Stores/WelcomeStore.swift",
+                  "Tally/Core/WelcomeCopy.swift"]
+var configHomeLiterals: [String] = []
+for root in userFacing {
+    var paths = [root]
+    if let found = FileManager.default.enumerator(atPath: root)?.allObjects as? [String] {
+        paths = found.filter { $0.hasSuffix(".swift") }.map { root + "/" + $0 }
+    }
+    for path in paths {
+        for line in source(path).split(separator: "\n") where line.contains("L(\"") && line.contains("config home") {
+            configHomeLiterals.append(path)
+        }
+    }
+}
+expect(configHomeLiterals.isEmpty, "no user-facing string says 'config home' (it is 'account folder')")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

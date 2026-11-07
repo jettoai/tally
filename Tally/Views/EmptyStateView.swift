@@ -104,7 +104,7 @@ struct EmptyStateView: View {
 
     private var detail: String? {
         switch state {
-        case .noAccounts: return L("Sign in with a supported CLI to get started.")
+        case .noAccounts: return L("Add a Claude or Codex account to get started.")
         case .allProvidersOff: return L("Turn a provider back on in Settings.")
         default: return nil
         }

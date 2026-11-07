@@ -54,10 +54,10 @@ struct SettingsAddAccountView: View {
             // stands on its own line rather than inside the sentence: a directory glued into
             // running text is the one part of it that does not translate.
             if let nextHome {
-                caption(L("Tally will create the next config home and open the provider's sign-in page in your browser."))
+                caption(L("Tally will create the next account folder and open the provider's sign-in page in your browser."))
                 Text(verbatim: "~/\(nextHome)").font(.caption.monospaced())
             } else {
-                caption(L("Every numbered config home for this provider already has a login."))
+                caption(L("Every numbered account folder for this provider already has a login."))
             }
 
             Toggle(isOn: $flow.shareHarness) {
@@ -105,7 +105,7 @@ struct SettingsAddAccountView: View {
         if case .signingIn(let name) = flow.phase {
             return L("Signing in") + " · ~/\(name)"
         }
-        return L("Preparing the config home…")
+        return L("Preparing the account folder…")
     }
 
     // MARK: How it ended
@@ -158,7 +158,7 @@ struct SettingsAddAccountView: View {
         problem(L("Sign-in not finished") + " · ~/\(name)")
         caption(reason + " " + (handoff == .terminal
             ? L("A Terminal window is open on the same command. Finish the sign-in there, then tell Tally to look.")
-            : L("The config home is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice.")))
+            : L("The account folder is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice.")))
         // The command for the run this screen is about, not for whatever the picker last held: this
         // home was prepared for one provider, and a command naming another would sign the user in
         // somewhere else entirely.
@@ -188,7 +188,11 @@ struct SettingsAddAccountView: View {
     /// Terminal, and the store looks for the CLI by itself afterwards (see AddAccountStore.swift).
     @ViewBuilder
     private func installNeeded(_ providerID: String, waiting: Bool) -> some View {
-        if waiting {
+        if waiting && flow.cliWaitStalled {
+            problem(WelcomeCopy.stalledTitle(providerID))
+            caption(WelcomeCopy.stalledBody)
+            caption(WelcomeCopy.stalledNote(providerID))
+        } else if waiting {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text(WelcomeCopy.waitingTitle(providerID)).font(.subheadline)

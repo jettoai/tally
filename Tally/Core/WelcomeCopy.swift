@@ -22,6 +22,11 @@ enum WelcomeCopy {
         String(format: L("Waiting for %@"), cliName(providerID))
     }
 
+    /// The link that switches the install and sign-in screens to the other provider.
+    static func useOtherProvider(_ providerID: String) -> String {
+        providerID == "codex" ? L("I use Claude Code instead") : L("I use Codex instead")
+    }
+
     static func stalledTitle(_ providerID: String) -> String {
         String(format: L("Tally can't see %@ yet"), cliName(providerID))
     }

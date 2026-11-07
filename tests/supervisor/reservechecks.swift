@@ -228,7 +228,7 @@ func runReserveMoverChecks() {
           loop.contains("pinnedUnderReserve: drought.pinnedUnderReserve && !spendReserve"))
     check("…and the launch that spends one says so before it names the account",
           launcher.range(of: "reserveDipNotice(account,").map { notice in
-              launcher.range(of: "pickReason(account, primaryModel: primaryModel)").map {
+              launcher.range(of: "pickLeftText(account, primaryModel: primaryModel)").map {
                   notice.upperBound < $0.lowerBound
               } ?? false
           } ?? false)

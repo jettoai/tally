@@ -14,11 +14,11 @@ func runLaunchRecordChecks() {
     // MARK: the record
 
     let env = ["TMUX": "/private/tmp/tmux-501/default,123,0", "TERM_PROGRAM": "ghostty"]
-    let record = SessionLaunchRecord.current(provider: "claude", args: ["-w", "line8", "do the thing"],
+    let record = SessionLaunchRecord.current(provider: "claude", args: ["-w", "line8", "--model", "opus", "do the thing"],
                                              cwd: "/tmp", environment: env, tmuxName: { "baton-line8" })
     check("a launch inside tmux records the tmux session, the terminal, the provider and the arguments",
           record.tmuxSession == "baton-line8" && record.terminal == "ghostty" && record.provider == "claude"
-              && record.args == ["-w", "line8", "do the thing"])
+              && record.args == ["-w", "line8", "--model", "opus"])
     check("the directory is recorded as its real path", record.cwd == realpathString("/tmp") && record.cwd.hasPrefix("/private"))
 
     var asked = false
@@ -38,6 +38,37 @@ func runLaunchRecordChecks() {
     check("a pid with no file reads as nothing", SessionLaunchRecord.read(pid: "9999", dir: dir, isLive: alive) == nil)
     let mode = (try? FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) ?? 0
     check("the file is owner-only", mode == 0o600)
+    // Created 0600, not chmodded afterwards: with the umask wide open the file still comes out 0600,
+    // and the write path no longer has a chmod step or a default-mode write to leave a 0644 window.
+    let oldMask = umask(0)
+    record.write(pid: "4243", dir: dir)
+    umask(oldMask)
+    let openMode = (try? FileManager.default.attributesOfItem(atPath: sessionLaunchFile(pid: "4243", dir: dir).path)[.posixPermissions] as? Int) ?? 0
+    let recordSource = (try? String(contentsOfFile: "TallyCLI/SessionLaunchRecord.swift", encoding: .utf8)) ?? ""
+    check("the file is created owner-only even under umask 0, with no write-then-chmod window",
+          openMode == 0o600 && recordSource.contains("0o600)") && !recordSource.contains("setAttributes")
+              && !recordSource.contains("options: .atomic"))
+    check("no temp file is left behind", !FileManager.default.fileExists(atPath: file.path + ".tmp"))
+
+    // No credential can reach the file: a fake secret in every place a launch can carry one.
+    let fake = "FAKE-SECRET-123"
+    let claudeArgs = ["--mcp-config", "{\"mcpServers\":{\"x\":{\"env\":{\"K\":\"\(fake)\"}}}}", "--settings=\(fake)",
+                      "--settings", "{\"env\":{\"T\":\"\(fake)\"}}", "--resume", "sid-1", "--effort=high", "-c", "-p", "say \(fake)"]
+    let codexArgs = ["-c", "mcp_servers.x.env.K=\"\(fake)\"", "--config=a=\(fake)", "-ca=\(fake)", "resume", "thread-9",
+                     "-m", "gpt-x", "--", "\(fake)"]
+    for (index, pair) in [("claude", claudeArgs), ("codex", codexArgs)].enumerated() {
+        let pid = String(7000 + index)
+        publishSessionLaunch(provider: pair.0, args: pair.1, cwd: "/tmp", pid: pid, resumed: false, dir: dir)
+        let raw = (try? String(contentsOf: sessionLaunchFile(pid: pid, dir: dir), encoding: .utf8)) ?? ""
+        check("\(pair.0): the file holds no part of a credential, wherever the launch carried it",
+              !raw.isEmpty && !raw.contains(fake) && !raw.contains("mcpServers"))
+    }
+    check("claude keeps what a reopen needs and nothing else",
+          safeLaunchArgs(provider: "claude", claudeArgs) == ["--resume", "sid-1", "--effort=high", "-c"])
+    check("codex keeps the model and the resumed thread, and drops every -c form and the prompt",
+          safeLaunchArgs(provider: "codex", codexArgs) == ["resume", "thread-9", "-m", "gpt-x"])
+    check("an option that takes an optional value keeps none that is itself an option",
+          safeLaunchArgs(provider: "claude", ["-w", "--mcp-config", "x", "--continue"]) == ["-w", "--continue"])
 
     // A record from a build that knew fewer fields still decodes only if the missing ones are optional;
     // today's five are all required, so this holds the SHAPE: a damaged file is nil, not a crash.
@@ -52,17 +83,17 @@ func runLaunchRecordChecks() {
 
     // MARK: a self-update exec keeps the first image's record
 
-    publishSessionLaunch(provider: "claude", args: ["first"], cwd: "/tmp", pid: "6001", resumed: false, dir: dir)
-    publishSessionLaunch(provider: "claude", args: ["rewritten", "--resume", "abc"], cwd: "/tmp", pid: "6001",
+    publishSessionLaunch(provider: "claude", args: ["-w", "first"], cwd: "/tmp", pid: "6001", resumed: false, dir: dir)
+    publishSessionLaunch(provider: "claude", args: ["-w", "rewritten", "--resume", "abc"], cwd: "/tmp", pid: "6001",
                          resumed: true, dir: dir)
     check("a resumed image does not overwrite the launch record",
-          SessionLaunchRecord.read(pid: "6001", dir: dir, isLive: alive)?.args == ["first"])
-    publishSessionLaunch(provider: "claude", args: ["late"], cwd: "/tmp", pid: "6002", resumed: true, dir: dir)
+          SessionLaunchRecord.read(pid: "6001", dir: dir, isLive: alive)?.args == ["-w", "first"])
+    publishSessionLaunch(provider: "claude", args: ["-w", "late"], cwd: "/tmp", pid: "6002", resumed: true, dir: dir)
     check("a resumed image writes one when the first image left none",
-          SessionLaunchRecord.read(pid: "6002", dir: dir, isLive: alive)?.args == ["late"])
-    publishSessionLaunch(provider: "claude", args: ["again"], cwd: "/tmp", pid: "6001", resumed: false, dir: dir)
+          SessionLaunchRecord.read(pid: "6002", dir: dir, isLive: alive)?.args == ["-w", "late"])
+    publishSessionLaunch(provider: "claude", args: ["-w", "again"], cwd: "/tmp", pid: "6001", resumed: false, dir: dir)
     check("a fresh launch under a reused pid replaces the old record",
-          SessionLaunchRecord.read(pid: "6001", dir: dir, isLive: alive)?.args == ["again"])
+          SessionLaunchRecord.read(pid: "6001", dir: dir, isLive: alive)?.args == ["-w", "again"])
 
     // MARK: the sweep and the registry
 
@@ -104,7 +135,7 @@ func runLaunchRecordChecks() {
     let boot = HostHealthReaders.bootTime()
     check("the boot time is in the past and after 2009", boot != nil && boot! < Date() && boot! > Date(timeIntervalSince1970: 1_230_000_000))
     let level = HostHealthReaders.pressureLevel()
-    check("the pressure level is 1, 2 or 4", level != nil && [1, 2, 4].contains(level!))
+    check("the pressure level is 1, 2 or 4", level.map { hostLoadPressureLevels.contains($0) } ?? false)
     // kern.boottime is wall-clock and follows clock corrections (47 s off the uptime clock when this
     // was written), so the agreement is held to an hour, not to the second.
     check("the boot time is no less far back than the uptime clock says, give or take clock corrections",

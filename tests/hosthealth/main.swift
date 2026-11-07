@@ -429,6 +429,8 @@ runKnockChecks()
 runNamingChecks()
 // And the CPU witness that decides the alarm since B-4094: cpuchecks.swift.
 runCPUChecks()
+// And the queue per core shown beside it (B-4171): queuechecks.swift.
+runQueueChecks()
 
 print(failures == 0 ? "all host-health checks passed" : "\(failures) host-health checks failed")
 exit(failures == 0 ? 0 : 1)

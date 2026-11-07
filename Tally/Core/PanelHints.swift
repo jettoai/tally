@@ -33,16 +33,18 @@ enum PanelHints {
         var above: Bool
     }
 
+    /// Space between the meter and the bubble's arrow, on either side.
+    static let bubbleGap: CGFloat = 2
+
     /// Below the meter when it fits, else above it, else clamped inside the visible area. `meter` is
     /// in the visible area's own space. A meter scrolled out of it gets no bubble (nil), so the hint
     /// is neither drawn nor marked seen until the meter is back in view.
     static func bubblePlacement(meter: CGRect, bubbleHeight: CGFloat, viewport: CGSize,
                                 margin: CGFloat) -> BubblePlacement? {
         guard meter.maxY > 0, meter.minY < viewport.height else { return nil }
-        let gap: CGFloat = 2
-        let below = meter.maxY + gap
+        let below = meter.maxY + bubbleGap
         if below + bubbleHeight <= viewport.height - margin { return BubblePlacement(y: below, above: false) }
-        let over = meter.minY - gap - bubbleHeight
+        let over = meter.minY - bubbleGap - bubbleHeight
         if over >= margin { return BubblePlacement(y: over, above: true) }
         let lowest = max(margin, viewport.height - bubbleHeight - margin)
         return BubblePlacement(y: min(max(below, margin), lowest), above: false)

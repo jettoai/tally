@@ -146,7 +146,7 @@ struct PanelHintBubbleOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // Room is always reckoned for the bubble below the meter, so the panel still grows to
             // hold it whenever it can; the flip only matters once the panel cannot grow.
-            .onChange(of: shown.map { $0.meter.maxY + 2 + bubbleHeight + 12 } ?? 0, initial: true) { _, needed in room = needed }
+            .onChange(of: shown.map { $0.meter.maxY + PanelHints.bubbleGap + bubbleHeight + 12 } ?? 0, initial: true) { _, needed in room = needed }
         }
     }
 

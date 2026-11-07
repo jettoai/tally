@@ -121,14 +121,14 @@ enum HostHealthReaders {
         return Date(timeIntervalSince1970: TimeInterval(stamp.tv_sec) + TimeInterval(stamp.tv_usec) / 1_000_000)
     }
 
-    /// The kernel's own memory pressure level: 1 normal, 2 warning, 4 critical
+    /// The kernel's own memory pressure level, one of `hostLoadPressureLevels`
     /// (`kern.memorystatus_vm_pressure_level`, the value Activity Monitor's graph is coloured by).
     /// Nil for a refused read or any other value, rather than a guess.
     static func pressureLevel() -> Int? {
         var level: Int32 = 0
         var size = MemoryLayout<Int32>.size
         guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0,
-              [1, 2, 4].contains(level) else { return nil }
+              hostLoadPressureLevels.contains(Int(level)) else { return nil }
         return Int(level)
     }
 

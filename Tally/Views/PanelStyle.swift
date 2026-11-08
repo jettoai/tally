@@ -5,30 +5,23 @@ import AppKit
 /// panel/card/row hierarchy. Every colour is a dynamic `NSColor`, so a light/dark switch repaints a
 /// panel that is already open. Nothing here reads data; views ask for a token by name.
 enum PanelStyle {
-    // MARK: Geometry
-    static let bodyPadH: CGFloat = 10
-    static let bodyPadTop: CGFloat = 2
-    static let bodyPadBottom: CGFloat = 10
-    static let cardGap: CGFloat = 8
-    static let cardRadius: CGFloat = 12
-    static let ringSize: CGFloat = 58
-    static let colHeadHeight: CGFloat = 18
-    static let rowHeight: CGFloat = 31
-    static let rowPadH: CGFloat = 12
-    static let meterGap: CGFloat = 6
-    static let barHeight: CGFloat = 5
-    static let wallBarWidth: CGFloat = 3
-    static let hairline: CGFloat = 0.5
+    // MARK: Geometry (the numbers live in `PanelMetrics` so a test can print them)
+    static let bodyPadH = PanelMetrics.bodyPadH
+    static let bodyPadTop = PanelMetrics.bodyPadTop
+    static let bodyPadBottom = PanelMetrics.bodyPadBottom
+    static let cardGap = PanelMetrics.cardGap
+    static let cardRadius = PanelMetrics.cardRadius
+    static let ringSize = PanelMetrics.ringSize
+    static let colHeadHeight = PanelMetrics.colHeadHeight
+    static let rowHeight = PanelMetrics.rowHeight
+    static let rowPadH = PanelMetrics.rowPadH
+    static let meterGap = PanelMetrics.meterGap
+    static let barHeight = PanelMetrics.barHeight
+    static let wallBarWidth = PanelMetrics.wallBarWidth
+    static let hairline = PanelMetrics.hairline
 
-    /// One meter cell: bar, figure, reset. 92pt for up to three windows; a fourth squeezes all of
-    /// them so the identity column keeps room for a name.
-    static func meterCellWidth(columns: Int) -> CGFloat { columns <= 3 ? 92 : 80 }
-
-    /// The width of the whole meter block of one row.
-    static func meterBlockWidth(columns: Int) -> CGFloat {
-        guard columns > 0 else { return 0 }
-        return CGFloat(columns) * meterCellWidth(columns: columns) + CGFloat(columns - 1) * meterGap
-    }
+    static func meterCellWidth(columns: Int) -> CGFloat { PanelMetrics.meterCellWidth(columns: columns) }
+    static func meterBlockWidth(columns: Int) -> CGFloat { PanelMetrics.meterBlockWidth(columns: columns) }
 
     // MARK: Colours
     private static func dynamic(dark: NSColor, light: NSColor) -> Color {

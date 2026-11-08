@@ -59,5 +59,28 @@ let header = read("Tally/Views/PopoverHeaderView.swift")
 check(!header.isEmpty && header.contains(".foregroundStyle(PanelStyle.text2)") && !header.contains("foregroundStyle(.tertiary).monospacedDigit"),
       "the refresh countdown is secondary")
 
+// THE NUMBERS THE DELIVERY TEXT QUOTES, one per line as "name=value", every one read from the constant or
+// the arithmetic the views are laid out by (never typed here), so a sentence in a hand-off can be checked
+// against this output line for line.
+print("measures (read from PanelMetrics, PanelGeometry and PanelPalette)")
+let columns = 3
+let measures: [(String, String)] = [
+    ("pool ring diameter (pt)", "\(PanelMetrics.ringSize)"),
+    ("account row height (pt)", "\(PanelMetrics.rowHeight)"),
+    ("panel width (pt)", "\(PanelGeometry.detailedPanelWidth)"),
+    ("gap between cards (pt)", "\(PanelMetrics.cardGap)"),
+    ("body side padding (pt)", "\(PanelMetrics.bodyPadH)"),
+    ("row side padding (pt)", "\(PanelMetrics.rowPadH)"),
+    ("meter cell width, \(columns) windows (pt)", "\(PanelMetrics.meterCellWidth(columns: columns))"),
+    ("meter block width, \(columns) windows (pt)", "\(PanelMetrics.meterBlockWidth(columns: columns))"),
+    ("account name column width, \(columns) windows (pt)", "\(PanelMetrics.identityColumnWidth(columns: columns))"),
+    ("glass tint opacity, dark", "\(PanelPalette.dark.glassAlpha)"),
+    ("glass tint opacity, light", "\(PanelPalette.light.glassAlpha)"),
+    ("desktop showing through, dark (share)", String(format: "%.2f", 1 - PanelPalette.dark.glassAlpha)),
+    ("desktop showing through, light (share)", String(format: "%.2f", 1 - PanelPalette.light.glassAlpha)),
+]
+for (name, value) in measures { print("  \(name)=\(value)") }
+check(PanelMetrics.identityColumnWidth(columns: columns) > 0, "the name column is not empty at \(columns) windows")
+
 if failures > 0 { print("\(failures) assertion(s) failed"); exit(1) }
 print("ALL PASS")

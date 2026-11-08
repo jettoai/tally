@@ -153,12 +153,6 @@ final class WelcomeStore {
                                                 terminalFinds: false, home: home))
     }
 
-    /// The signIn card's second line: where the CLI was found, unless the Terminal cannot see it.
-    func installedDetail(_ providerID: String) -> CLIPathAdvice.InstalledDetail {
-        CLIPathAdvice.installedDetail(location: installedLocation(providerID),
-                                      terminalFinds: pathAdvice(providerID) == nil)
-    }
-
     /// The Copy button on the path card. A held preview copies nothing.
     func copyText(_ text: String) {
         guard preview == nil else { return }

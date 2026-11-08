@@ -106,18 +106,20 @@ struct WelcomeView: View {
         case .waitingStalled(let p):
             note(WelcomeCopy.stalledNote(p)).padding(.top, 14)
         case .signIn(let p):
+            // Asked once per render: each answer resolves the CLI and walks the login PATH.
+            let advice = store.pathAdvice(p)
             statusCard {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(TallyColor.normal)
             } title: {
-                String(format: store.pathAdvice(p) == nil ? L("%@ is installed") : L("%@ is ready"),
-                       WelcomeCopy.cliName(p))
+                String(format: advice == nil ? L("%@ is installed") : L("%@ is ready"), WelcomeCopy.cliName(p))
             } detail: {
-                if case .foundIn(let location) = store.installedDetail(p) {
+                if case .foundIn(let location) = CLIPathAdvice.installedDetail(
+                    location: store.installedLocation(p), terminalFinds: advice == nil) {
                     String(format: L("Found in %@"), location)
                 } else { "" }
             }
             .padding(.top, 26)
-            if let advice = store.pathAdvice(p) { pathCard(advice).padding(.top, 12) }
+            if let advice { pathCard(advice).padding(.top, 12) }
         case .signingIn:
             steps([(.done, L("Browser opened")),
                    (.active, L("Waiting for you to approve")),

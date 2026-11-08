@@ -113,10 +113,13 @@ extension IntegrationsStore {
     func settleCLIInstall(failure: Error?, followUps: [() -> Void]) {
         refresh()
         followUps.forEach { $0() }
-        if let failure {
-            lastError = failure.localizedDescription
-            cliInstallErrorText = lastError
-        }
+        if let failure { showCLIInstallError(failure.localizedDescription) }
+    }
+
+    /// The banner, remembered as the CLI install's own so `refresh()` can take back exactly it (B-4197).
+    private func showCLIInstallError(_ message: String) {
+        lastError = message
+        cliInstallErrorText = message
     }
 
     private func finishCLIInstall() {
@@ -138,10 +141,7 @@ extension IntegrationsStore {
             refresh()
             followUps.forEach { $0() }
             // After the follow-ups, which clear the error line on their way in.
-            if let message = Self.cliInstallMessage(outcome, target: target) {
-                lastError = message
-                cliInstallErrorText = message
-            }
+            if let message = Self.cliInstallMessage(outcome, target: target) { showCLIInstallError(message) }
         }
     }
 

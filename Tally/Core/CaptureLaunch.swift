@@ -185,6 +185,15 @@ enum CaptureLaunch {
                                // Qualifies TallySettingsCapture the same way (Debug, Dev build or demo
                                // data): the command line tool's failure banners, no prompt (B-3748).
                                "TallyCLIInstallPreview",
+                               // Qualifies TallySettingsCapture the same way: the Command line tool row
+                               // reads not installed and says a password window is coming (B-4195).
+                               "TallyCLINeedsAdmin",
+                               // Qualifies TallySettingsCapture the same way: the two rows Install all
+                               // leaves out show their "Not part of Install all" line (B-4196).
+                               "TallyShowNotInInstallAll",
+                               // Qualifies TallyPanelCapture the same way: the session board shows the
+                               // "Ghostty is not installed" line (B-4194).
+                               "TallyGhosttyMissingPreview",
                                // Qualify TallyMoveToApplicationsPreview (Debug, Dev build or demo data):
                                // where it copies to, a forced failure screen, and pressing Move by itself
                                // so the copy and relaunch run unattended.

@@ -113,7 +113,13 @@ extension IntegrationsStore {
     func settleCLIInstall(failure: Error?, followUps: [() -> Void]) {
         refresh()
         followUps.forEach { $0() }
-        if let failure { lastError = failure.localizedDescription }
+        if let failure { showCLIInstallError(failure.localizedDescription) }
+    }
+
+    /// The banner, remembered as the CLI install's own so `refresh()` can take back exactly it (B-4197).
+    private func showCLIInstallError(_ message: String) {
+        lastError = message
+        cliInstallErrorText = message
     }
 
     private func finishCLIInstall() {
@@ -135,7 +141,7 @@ extension IntegrationsStore {
             refresh()
             followUps.forEach { $0() }
             // After the follow-ups, which clear the error line on their way in.
-            if let message = Self.cliInstallMessage(outcome, target: target) { lastError = message }
+            if let message = Self.cliInstallMessage(outcome, target: target) { showCLIInstallError(message) }
         }
     }
 
@@ -237,6 +243,16 @@ extension IntegrationsStore {
         let fm = FileManager.default
         try? fm.removeItem(at: link)
         try fm.createSymbolicLink(at: link, withDestinationURL: target)
+    }
+
+    /// What Install would need, asked BEFORE the press so the page can say a password window is
+    /// coming (B-4195). nil when the folder is writable. Not-writable covers a missing folder too
+    /// (nothing there to write into); the window's own wording is still chosen at press time by
+    /// `linkNeedsElevation`, so the two can disagree only by a sentence of warning.
+    /// Off the main thread only (`refresh` calls it from a detached task).
+    nonisolated static func expectedLinkBlock(
+        directory: URL = cliSymlinkURL.deletingLastPathComponent()) -> CLILinkBlock? {
+        FileManager.default.isWritableFile(atPath: directory.path) ? nil : .notWritable
     }
 
     /// nil when the failure is not one an administrator would fix. A link already in the way that

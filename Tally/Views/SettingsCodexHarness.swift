@@ -24,6 +24,9 @@ struct SettingsCodexHarness: View {
                     }
                 }
             }
+            if !harness.hasInstallation || IntegrationsCapture.showNotInInstallAll {
+                SettingsSubRow(title: L("Not part of Install all. Use this row's Install button."))
+            }
             if harness.hasInstallation, harness.nativeHomes.contains(where: { $0["state"] != "trusted-enabled" }) {
                 SettingsSubRow(title: L("For Codex inbox reminders, review the new hooks in each account's /hooks menu."),
                                tint: TallyColor.warning)
@@ -38,6 +41,10 @@ struct SettingsCodexHarness: View {
         }
         .task { harness.inspect() }
         .onChange(of: active) { if active { harness.inspect() } }
+        // `tally harness-tools install` runs in a terminal; look again when the app comes back (B-4197).
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if active { harness.inspect() }
+        }
     }
 
     private var info: String {

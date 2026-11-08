@@ -3,6 +3,7 @@
 # Applications shortcut) using dmgbuild, which writes the window layout without driving Finder.
 # Usage: scripts/dmg/make-dmg.sh <Tally.app> <output.dmg>
 # TALLY_DMG_BACKGROUND=<file.tiff> swaps the window background (a private build brings its own).
+# TALLY_DMG_VOLNAME=<name> sets the volume name, which is also the window's title (default Tally).
 # Uses dmgbuild from PATH when there is one; otherwise installs the pinned version below into
 # build/dmgbuild-venv (TALLY_DMGBUILD_VENV overrides) once and reuses it. With neither an installed
 # dmgbuild nor network access this fails: a plain hdiutil image would open with no layout at all.
@@ -59,5 +60,5 @@ fi
 
 echo "make-dmg: using $DMGBUILD"
 "$DMGBUILD" --no-hidpi --detach-retries 30 -s "$HERE/settings.py" \
-  -D app="$APP" -D background="$BG" Tally "$OUT"
+  -D app="$APP" -D background="$BG" "${TALLY_DMG_VOLNAME:-Tally}" "$OUT"
 [ -s "$OUT" ] || die "dmgbuild finished but $OUT is missing"

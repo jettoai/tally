@@ -5,6 +5,10 @@ options:
     macOS: "14.0"
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
+  # xcodegen 2.46.0 also hangs the shared Tally/Core groups under the project root
+  # (Core, Harness, Keychain, TokenStats get two parents). This keeps the project
+  # valid for every xcodegen version.
+  createIntermediateGroups: true
   developmentLanguage: en
   localizations:
     - en

@@ -141,6 +141,12 @@ extension PopoverRootView {
         let state = SessionBoardGhosts.board(sessions: board.count,
                                              unclaimed: everyUnclaimed.count, seats: seats.count)
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
+            // A click that went nowhere because Ghostty is not installed (B-4194); gone once it is.
+            if TerminalJumpNotice.shared.ghosttyMissing {
+                Text(L("Ghostty is not installed, so Tally could not open this session's terminal. Install Ghostty from ghostty.org, then click the session again."))
+                    .font(.system(size: 11)).foregroundStyle(TallyColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             switch state {
             case .nothing:
                 sessionsEmptyState(L("No supervised sessions are running"))
@@ -174,6 +180,7 @@ extension PopoverRootView {
         // second host already on the board still changes nothing: the first look may re-seat, every
         // look after it is somebody's reading in progress.
         .onAppear { SessionRosterStore.shared.beginViewingBoard() }
+        .onAppear { TerminalJumpNotice.shared.recheck() }
         .onDisappear { SessionRosterStore.shared.endViewingBoard() }
         // AND AUTO'S COUNT IS TAKEN AT THE SAME MOMENT, for the same reason the seats are: auto
         // means "as many columns as there are cards", and a board that answered that question live

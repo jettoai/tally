@@ -381,4 +381,55 @@ func runCLIToolChecks(tmp: URL) throws {
     live.lastError = nil
     live.settleCLIInstall(failure: nil, followUps: [])
     check("a successful install leaves the error line empty", live.lastError == nil)
+
+    // (n) B-4197: the failure banner is remembered as the CLI's own, so a later refresh can take back
+    // that text (and only that text) once the link exists. refresh() reads the real disk, so the
+    // clearing is asserted as source and the remembering by driving the store.
+    live.settleCLIInstall(failure: NSError(domain: "tally", code: 1, userInfo: [
+        NSLocalizedDescriptionKey: "link failed",
+    ]), followUps: [])
+    check("a failed install remembers its banner text as the CLI install's own",
+          live.cliInstallErrorText == "link failed")
+    live.lastError = nil
+    live.cliInstallErrorText = nil
+    let storeMain = (try? String(contentsOf: root.appendingPathComponent(
+        "Tally/Stores/IntegrationsStore.swift"), encoding: .utf8)) ?? ""
+    check("refresh clears the CLI install banner only when the link exists and the line still says it",
+          storeMain.contains("if let text = cliInstallErrorText, cliToolStatus == .installed {")
+              && storeMain.contains("if lastError == text { lastError = nil }"))
+    check("the page looks again when it comes up and when the app returns to the front while shown",
+          settings.contains("NSApplication.didBecomeActiveNotification")
+              && settings.contains(".onChange(of: section) { if section == .integrations { integrations.refresh() } }")
+              && settings.contains(".onAppear { integrations.refresh() }"))
+    let harnessRow = (try? String(contentsOf: root.appendingPathComponent("Tally/Views/SettingsCodexHarness.swift"),
+                                  encoding: .utf8)) ?? ""
+    check("the Harness row inspects again on the same return to the front",
+          harnessRow.contains("NSApplication.didBecomeActiveNotification") && harnessRow.contains("if active { harness.inspect() }"))
+
+    // (o) B-4195: the password sentence is asked of the folder BEFORE the press, off the main thread.
+    let probe = tmp.appendingPathComponent("probe-bin")
+    try fm.createDirectory(at: probe, withIntermediateDirectories: true)
+    check("a writable folder needs no administrator", Store.expectedLinkBlock(directory: probe) == nil)
+    check("a folder that is not there needs one",
+          Store.expectedLinkBlock(directory: tmp.appendingPathComponent("no-such-bin")) != nil)
+    try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: probe.path)
+    check("a folder this user cannot write needs one",
+          Store.expectedLinkBlock(directory: probe) != nil)
+    try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: probe.path)
+    check("the page says it only while the tool is not installed and the folder needs the password",
+          settings.contains("let asksPassword = cliStatus != .installed")
+              && settings.contains("integrations.cliNeedsAdministrator")
+              && settings.contains("if asksPassword {"))
+    check("the probe runs detached, never on the main thread",
+          storeMain.contains("await Task.detached { Self.expectedLinkBlock() != nil }.value"))
+
+    // (p) B-4196: what the hover says is what Install all does.
+    let wholeSet = settings.components(separatedBy: "private func allIntegrationEntries").last?
+        .components(separatedBy: "private func installAllActions").first ?? ""
+    check("Install all's set leaves out the shared harness, as its hover says",
+          !wholeSet.isEmpty && !wholeSet.contains("SharedHarness"))
+    check("…and the hover names both rows left out, each of which says so on its own row",
+          settings.contains("except Shared harness and Harness tools, which each have their own Install button")
+              && settings.contains("Not part of Install all. Use this row's Install button.")
+              && harnessRow.contains("Not part of Install all. Use this row's Install button."))
 }

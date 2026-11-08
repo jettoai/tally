@@ -310,7 +310,7 @@ func runTerminalJumpChecks() {
     // clicks arrive in never made this app active at all. Asserted as an ORDER, because a
     // `prepare()` called inside the task would still be a call to `prepare()`.
     guard let prepared = cardSource.range(of: "let handover = TerminalJump.prepare()"),
-          let detached = cardSource.range(of: "Task { await TerminalJump.jump(")
+          let detached = cardSource.range(of: "if !(await TerminalJump.jump(")
     else {
         check("the card's click was found to read", false)
         return
@@ -319,6 +319,10 @@ func runTerminalJumpChecks() {
           prepared.upperBound < detached.lowerBound)
     check("…and what it took is what the jump is given",
           cardSource.contains("childPid: row.childPid, from: handover)"))
+    // B-4194: a jump that landed nowhere is reported, from both places a session is opened.
+    check("both callers hand a jump that landed nowhere to the notice",
+          cardSource.contains("TerminalJumpNotice.shared.jumpFailed()")
+              && jumpCode(of: "Tally/Stores/LoginHealthStore.swift").contains("TerminalJumpNotice.shared.jumpFailed()"))
 
     let jumpSource = jumpCode(of: "Tally/Core/TerminalJump.swift")
     guard let prepareStart = jumpSource.range(of: "static func prepare() -> Handover {"),

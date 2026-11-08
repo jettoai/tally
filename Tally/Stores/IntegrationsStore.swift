@@ -38,6 +38,10 @@ final class IntegrationsStore {
     /// The administrator-privileged CLI link/unlink in flight (IntegrationsCLITool.swift). Non-nil
     /// while the system password window may be up, so a second press cannot raise a second one.
     @ObservationIgnored var cliElevationTask: Task<Void, Never>?
+    /// The banner text a failed CLI install wrote, so `refresh()` can take back exactly that text
+    /// once the link exists (the user ran the banner's command in Terminal) and nothing else.
+    @ObservationIgnored var cliInstallErrorText: String?
+    @ObservationIgnored var elevationProbeTask: Task<Void, Never>?
 
     enum Status: Equatable {
         case installed
@@ -78,6 +82,9 @@ final class IntegrationsStore {
     /// What that status word was made from, kept beside it because the row needs the half the word
     /// throws away: whether the thing at that path is Tally's to take away (`CLIToolPresence`).
     private(set) var cliToolPresence: CLIToolPresence = .absent
+    /// Whether pressing Install would end in the system password window (`/usr/local/bin` not
+    /// writable by this user). Probed off the main thread on every refresh (B-4195).
+    private(set) var cliNeedsAdministrator = false
     private(set) var shimStatuses: [Shim: Status] = [:]
     private(set) var statusLineStatus: Status = .notInstalled
     /// The `Notification` hook behind the panel's session board (IntegrationsNotificationHook.swift).
@@ -127,6 +134,16 @@ final class IntegrationsStore {
         skillStatus = Self.detectSkill()
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()
+        // The link now exists, so a failure banner telling the user to make it is stale (B-4197).
+        if let text = cliInstallErrorText, cliToolStatus == .installed {
+            if lastError == text { lastError = nil }
+            cliInstallErrorText = nil
+        }
+        elevationProbeTask?.cancel()
+        elevationProbeTask = Task {
+            let needs = await Task.detached { Self.expectedLinkBlock() != nil }.value
+            if !Task.isCancelled { cliNeedsAdministrator = needs }
+        }
     }
 
     // MARK: Install / remove

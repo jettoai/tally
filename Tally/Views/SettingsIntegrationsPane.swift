@@ -20,13 +20,18 @@ extension SettingsView {
         let entries = allIntegrationEntries(integrations)
         let statuses = IntegrationsCapture.statuses(entries.map(\.0))
         let locked = BuildVariant.isUnshipped && !IntegrationsCapture.simulating
+        // Says a password window is coming, before the press (B-4195); gone once the tool is in.
+        let cliStatus = IntegrationsCapture.cliToolStatus(integrations.cliToolStatus)
+        let asksPassword = cliStatus != .installed
+            && (IntegrationsCapture.cliNeedsAdministrator ?? integrations.cliNeedsAdministrator)
         SettingsPage {
             VStack(alignment: .leading, spacing: 16) {
                 // The two whole-set buttons live in the header. The Shared harness is deliberately
                 // NOT in their set (see `allIntegrationEntries`).
                 IntegrationsHeader(
                     missing: installAllActions(integrations, statuses: statuses, entries: entries),
-                    installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 })
+                    installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 },
+                    asksPassword: asksPassword)
                     .disabled(locked)
                 // A build nobody installed observes but never mutates the shared integrations (hard-gated
                 // in IntegrationsStore too); say so instead of offering buttons that refuse.
@@ -42,7 +47,7 @@ extension SettingsView {
             // The Harness group is outside it, on purpose: it has its own receipt and is the one
             // part of this page a build that may not install still has to be able to show.
             Group {
-                commandLineGroup(integrations)
+                commandLineGroup(integrations, status: cliStatus, asksPassword: asksPassword)
                 statusLineGroup(integrations)
                 sessionsGroup(integrations)
                 claudeCodeGroup(integrations)
@@ -52,6 +57,14 @@ extension SettingsView {
                 SettingsCodexHarness(active: section == .integrations)
             }
         }
+        // Installs finish outside this window too (the sudo line on a failure banner, `tally
+        // codex-session install`), so look again whenever the page comes up or the app comes back
+        // to the front while it is showing (B-4197). Same `refresh()` every button already ends in.
+        .onAppear { integrations.refresh() }
+        .onChange(of: section) { if section == .integrations { integrations.refresh() } }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if section == .integrations { integrations.refresh() }
+        }
     }
 
     // MARK: Groups
@@ -59,12 +72,13 @@ extension SettingsView {
     /// What `tally`, `claude` and `codex` do when they are typed into a terminal - plus the harness
     /// share, which is the one row about the config homes those commands land in. The Launch pane's
     /// "Manage in Integrations" link scrolls here (`scrollTarget`).
-    private func commandLineGroup(_ integrations: IntegrationsStore) -> some View {
+    private func commandLineGroup(_ integrations: IntegrationsStore, status: IntegrationsStore.Status,
+                                  asksPassword: Bool) -> some View {
         SettingsSection(L("Command line"), symbol: "terminal") {
             integrationRow(
                 title: L("Command line tool"), icon: "terminal",
                 subtitle: integrations.cliToolCaption,
-                status: integrations.cliToolStatus,
+                status: status,
                 install: { integrations.installCLITool() },
                 remove: integrations.removeCLITool,
                 // The one row whose broken state is not always ours to undo: a `tally` somebody else
@@ -72,6 +86,9 @@ extension SettingsView {
                 // (`IntegrationsStore.CLIToolPresence`). The store refuses that press whatever this
                 // says; leaving the button off is how the row stops offering it in the first place.
                 removable: integrations.cliToolPresence.mayBeRemoved)
+            if asksPassword {
+                SettingsSubRow(title: L("Install asks for the password you use to log in to this Mac, so macOS can let Tally add the tally command to /usr/local/bin. macOS checks the password; Tally never sees it."))
+            }
             // Absent rather than empty on a one-account machine: this row's whole subject is the other
             // accounts, and a permanently grey button is a worse answer than no row (`detectSharedHarness`).
             if let sharedHarness = integrations.sharedHarnessStatus {
@@ -83,6 +100,9 @@ extension SettingsView {
                     status: sharedHarness,
                     install: integrations.installSharedHarness,
                     remove: integrations.removeSharedHarness)
+                if sharedHarness != .installed {
+                    SettingsSubRow(title: L("Not part of Install all. Use this row's Install button."))
+                }
             }
             SettingsDivider()
             integrationRow(
@@ -336,6 +356,8 @@ extension SettingsView {
 private struct IntegrationsHeader: View {
     let missing: [() -> Void]
     let installed: [() -> Void]
+    /// The system password window is what Install all starts with on this Mac (B-4195).
+    let asksPassword: Bool
     @State private var confirmingRemoveAll = IntegrationsCapture.confirm
 
     var body: some View {
@@ -347,7 +369,7 @@ private struct IntegrationsHeader: View {
                 PageActionButton(title: L("Install all"), symbol: "arrow.down.circle") {
                     missing.forEach { $0() }
                 }
-                .tallyTooltipAroundControl(wholeSetTip, forced: IntegrationsCapture.tip == "install")
+                .tallyTooltipAroundControl(installTip, forced: IntegrationsCapture.tip == "install")
             }
             if !installed.isEmpty {
                 PageActionButton(title: L("Remove all"), symbol: "trash", destructive: true) {
@@ -367,7 +389,14 @@ private struct IntegrationsHeader: View {
         }
     }
 
-    private var wholeSetTip: String { L("Applies to every integration on this page except Harness tools.") }
+    /// Install all and Remove all share the set: `allIntegrationEntries`, which leaves out the Shared
+    /// harness and Harness tools on purpose (B-4196). The password sentence only matters to Install.
+    private var wholeSetTip: String {
+        L("Applies to every integration on this page except Shared harness and Harness tools, which each have their own Install button because they change more than Tally's own files.")
+    }
+    private var installTip: String {
+        asksPassword ? wholeSetTip + " " + L("On this Mac, the first step asks for your Mac login password.") : wholeSetTip
+    }
 }
 
 /// Debug-only capture flags for this pane (Dev build or demo data only, like `-TallyChipPhase`), so
@@ -391,6 +420,13 @@ enum IntegrationsCapture {
         value("TallyCLIInstallPreview").flatMap(IntegrationsStore.cliInstallPreviewMessage)
     }
 
+    /// `-TallyCLINeedsAdmin YES`: the Command line tool row reads not installed and the page says
+    /// the password window is coming, whatever this Mac has (B-4195).
+    static var cliNeedsAdministrator: Bool? { value("TallyCLINeedsAdmin").map { $0 == "yes" } }
+    static func cliToolStatus(_ real: IntegrationsStore.Status) -> IntegrationsStore.Status {
+        cliNeedsAdministrator == true ? .notInstalled : real
+    }
+
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] {
         guard let raw = value("TallyDemoIntegrations") else { return real }
         let missing = raw.hasPrefix("missing:") ? Int(raw.dropFirst(8)) ?? 0 : 0
@@ -401,6 +437,8 @@ enum IntegrationsCapture {
     static var confirm: Bool { false }
     static var tip: String? { nil }
     static var cliInstallPreview: String? { nil }
+    static var cliNeedsAdministrator: Bool? { nil }
+    static func cliToolStatus(_ real: IntegrationsStore.Status) -> IntegrationsStore.Status { real }
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] { real }
     #endif
 }

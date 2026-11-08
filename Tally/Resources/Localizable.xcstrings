@@ -23518,41 +23518,6 @@
         }
       }
     },
-    "Applies to every integration on this page except Harness tools.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "套用到本頁除 Harness 工具外的所有整合。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "应用于本页除 Harness 工具外的所有集成。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Harness ツールを除く、このページのすべての連携に適用されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Harness 도구를 제외한 이 페이지의 모든 연동에 적용됩니다."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışma ortamı araçları dışında bu sayfadaki tüm entegrasyonlara uygulanır."
-          }
-        }
-      }
-    },
     "Remove all integrations?": {
       "extractionState": "manual",
       "localizations": {
@@ -28013,6 +27978,181 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tally yeni hesabı kurulamadı. Hiçbir şey değişmedi, bu yüzden yeniden denemek güvenlidir."
+          }
+        }
+      }
+    },
+    "Install asks for the password you use to log in to this Mac, so macOS can let Tally add the tally command to /usr/local/bin. macOS checks the password; Tally never sees it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按「安裝」後，macOS 會要你輸入登入這台 Mac 的密碼，讓 Tally 把 tally 指令放進 /usr/local/bin。密碼由 macOS 驗證，Tally 看不到。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点「安装」后，macOS 会要求输入登录这台 Mac 的密码，让 Tally 把 tally 命令放进 /usr/local/bin。密码由 macOS 验证，Tally 看不到。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「インストール」を押すと、Tally が /usr/local/bin に tally コマンドを追加できるよう、macOS がこの Mac のログインパスワードを求めます。パスワードは macOS が確認し、Tally には見えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「설치」를 누르면 Tally가 /usr/local/bin에 tally 명령을 추가할 수 있도록 macOS가 이 Mac의 로그인 암호를 묻습니다. 암호는 macOS가 확인하며 Tally는 볼 수 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükle'ye bastığınızda macOS, Tally'nin tally komutunu /usr/local/bin içine ekleyebilmesi için bu Mac'e giriş yaparken kullandığınız parolayı sorar. Parolayı macOS denetler; Tally parolayı hiçbir zaman görmez."
+          }
+        }
+      }
+    },
+    "On this Mac, the first step asks for your Mac login password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這台 Mac 上，第一步會要你輸入 Mac 登入密碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台 Mac 上，第一步会要求输入 Mac 登录密码。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac では、最初の手順で Mac のログインパスワードを求められます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서는 첫 단계에서 Mac 로그인 암호를 묻습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te ilk adım Mac giriş parolanızı sorar."
+          }
+        }
+      }
+    },
+    "Applies to every integration on this page except Shared harness and Harness tools, which each have their own Install button because they change more than Tally's own files.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用到本頁所有整合，「共用設定」與「Harness 工具」除外：這兩項動到的不只是 Tally 自己的檔案，所以各自用自己的「安裝」按鈕。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用于本页所有集成，「共享配置」和「Harness 工具」除外：这两项改动的不只是 Tally 自己的文件，所以各自用自己的「安装」按钮。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページのすべての連携に適用されます。ただし「共有設定」と「Harness ツール」は Tally 自身のファイル以外も変更するため、それぞれの「インストール」ボタンを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 페이지의 모든 연동에 적용됩니다. 단, 「공유 설정」과 「Harness 도구」는 Tally 자체 파일 외의 것도 변경하므로 각 행의 「설치」 버튼을 사용합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sayfadaki tüm entegrasyonlara uygulanır; Ortak çalışma ortamı ve Çalışma ortamı araçları hariç: bu ikisi Tally'nin kendi dosyalarından fazlasını değiştirdiği için her birinin kendi Yükle düğmesi vardır."
+          }
+        }
+      }
+    },
+    "Not part of Install all. Use this row's Install button.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不包含在「全部安裝」內，請用這一列的「安裝」按鈕。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不包含在「全部安装」内，请用这一行的「安装」按钮。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「すべてインストール」には含まれません。この行の「インストール」ボタンを使ってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「모두 설치」에 포함되지 않습니다. 이 행의 「설치」 버튼을 사용하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tümünü yükle'ye dahil değildir. Bu satırdaki Yükle düğmesini kullanın."
+          }
+        }
+      }
+    },
+    "Ghostty is not installed, so Tally could not open this session's terminal. Install Ghostty from ghostty.org, then click the session again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安裝 Ghostty，所以 Tally 打不開這個工作階段的終端機。請到 ghostty.org 安裝 Ghostty，再點一次這個工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安装 Ghostty，所以 Tally 打不开这个会话的终端。请到 ghostty.org 安装 Ghostty，然后再点一次这个会话。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty がインストールされていないため、Tally はこのセッションのターミナルを開けませんでした。ghostty.org から Ghostty をインストールしてから、もう一度セッションをクリックしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty가 설치되어 있지 않아 Tally가 이 세션의 터미널을 열지 못했습니다. ghostty.org에서 Ghostty를 설치한 뒤 세션을 다시 클릭하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty yüklü olmadığı için Tally bu oturumun terminalini açamadı. Ghostty'yi ghostty.org adresinden yükleyin, ardından oturuma yeniden tıklayın."
           }
         }
       }

@@ -53,7 +53,7 @@ enum TerminalJump {
     /// Ghostty's bundle id, which is also how "is it even running" is asked before an Apple event
     /// is sent: sending one to an app that is not running LAUNCHES it, and a status board must
     /// never open a terminal nobody asked for.
-    private static let ghosttyBundleID = "com.mitchellh.ghostty"
+    nonisolated private static let ghosttyBundleID = "com.mitchellh.ghostty"
 
     /// How long an activation is given to settle before it is judged, and asked again another way.
     /// The same span the pick panel gives its own foreground ask (`pickPanelActivationGrace`) and
@@ -135,8 +135,11 @@ enum TerminalJump {
     /// EVERY WAY OUT OF HERE ENDS IN `land`, because finding the surface is only half of the click:
     /// the other half is the keyboard, and since macOS 14 that half is given away rather than taken
     /// (`prepare`) - and given away is not the same as arrived, which is why each exit then looks.
+    /// - Returns: whether the jump landed anywhere; false only when none of the three exits had a
+    ///   place to go (`TerminalJumpNotice` turns that into a sentence when Ghostty is not installed).
     @MainActor
-    static func jump(directory: String?, childPid: Int?, from handover: Handover) async {
+    @discardableResult
+    static func jump(directory: String?, childPid: Int?, from handover: Handover) async -> Bool {
         let directory = directory ?? ""
         let folder = (directory as NSString).lastPathComponent
         let terminalPID = childPid.map { terminalOwnerPID(for: pid_t($0)) }
@@ -168,18 +171,18 @@ enum TerminalJump {
            let answer = await focusGhostty(directory: directory, tty: tty, device: device) {
             await land(on: ghostty, matched: answer.match, surface: answer.surface,
                        from: handover, directory: folder)
-            return
+            return true
         }
         if let childPid, let owner = owningApplication(of: pid_t(childPid)) {
             await land(on: owner, matched: nil, surface: nil, from: handover, directory: folder)
-            return
+            return true
         }
         // Nothing could be matched, so the last useful act is to put the terminal in front and let
         // the user find the tab: better than a click that visibly does nothing. Only for an app
         // that was ALREADY running, for the reason the bundle id above is checked at all.
         if let ghostty = handover.terminal {
             await land(on: ghostty, matched: nil, surface: nil, from: handover, directory: folder)
-            return
+            return true
         }
         // Not one of the three had anywhere to go, and this app is holding a foreground it took for
         // the trip: it goes straight back, or a click that could do nothing would still have moved
@@ -188,6 +191,12 @@ enum TerminalJump {
         report(handover: handover, matched: nil, surface: nil, target: nil,
                front: NSWorkspace.shared.frontmostApplication, key: NSApp.keyWindow,
                directory: folder)
+        return false
+    }
+
+    /// Whether Ghostty is installed at all, running or not. LaunchServices, so never on the main thread.
+    nonisolated static func ghosttyInstalled() -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: ghosttyBundleID) != nil
     }
 
     /// Bring an app forward AND THEN LOOK, once, a grace later - which is the difference between a

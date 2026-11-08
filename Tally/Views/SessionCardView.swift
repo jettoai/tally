@@ -72,8 +72,11 @@ struct SessionCardView: View {
             // Detached from the press: the jump can stop for up to two minutes inside the system's
             // "may Tally control this app" question the first time, and the panel must not be
             // frozen behind it.
-            Task { await TerminalJump.jump(directory: row.directory,
-                                           childPid: row.childPid, from: handover) }
+            Task {
+                if !(await TerminalJump.jump(directory: row.directory, childPid: row.childPid, from: handover)) {
+                    TerminalJumpNotice.shared.jumpFailed()
+                }
+            }
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 sessionCardHeadline

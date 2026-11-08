@@ -112,7 +112,9 @@ final class LoginHealthStore {
             refreshSessions()
             guard let session = sessions.first(where: { $0.id == id }) else { return }
             let handover = TerminalJump.prepare()
-            await TerminalJump.jump(directory: session.directory, childPid: session.childPid, from: handover)
+            if !(await TerminalJump.jump(directory: session.directory, childPid: session.childPid, from: handover)) {
+                TerminalJumpNotice.shared.jumpFailed()
+            }
         }
     }
 

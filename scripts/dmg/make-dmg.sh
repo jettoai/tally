@@ -2,6 +2,7 @@
 # Builds the Tally disk image with its installer window (background, icon positions and the
 # Applications shortcut) using dmgbuild, which writes the window layout without driving Finder.
 # Usage: scripts/dmg/make-dmg.sh <Tally.app> <output.dmg>
+# TALLY_DMG_BACKGROUND=<file.tiff> swaps the window background (a private build brings its own).
 # Uses dmgbuild from PATH when there is one; otherwise installs the pinned version below into
 # build/dmgbuild-venv (TALLY_DMGBUILD_VENV overrides) once and reuses it. With neither an installed
 # dmgbuild nor network access this fails: a plain hdiutil image would open with no layout at all.
@@ -15,7 +16,9 @@ mkdir -p "$(dirname "$2")"
 OUT="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
-[ -s "$HERE/background.tiff" ] || die "missing $HERE/background.tiff"
+BG="${TALLY_DMG_BACKGROUND:-$HERE/background.tiff}"
+case "$BG" in /*) ;; *) BG="$PWD/$BG" ;; esac
+[ -s "$BG" ] || die "missing $BG"
 # dmgbuild hides the .app extension with SetFile and ignores its exit status.
 xcrun --find SetFile > /dev/null 2>&1 || die "SetFile not found; install the Xcode command line tools"
 
@@ -56,5 +59,5 @@ fi
 
 echo "make-dmg: using $DMGBUILD"
 "$DMGBUILD" --no-hidpi --detach-retries 30 -s "$HERE/settings.py" \
-  -D app="$APP" -D background="$HERE/background.tiff" Tally "$OUT"
+  -D app="$APP" -D background="$BG" Tally "$OUT"
 [ -s "$OUT" ] || die "dmgbuild finished but $OUT is missing"

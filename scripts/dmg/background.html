@@ -3,30 +3,37 @@
 <!-- Source of scripts/dmg/background.tiff, the Tally disk image window's content area (660x400 pt;
      the window frame is 660x432 with the title bar).
      Finder draws the two icons and their labels; this image draws everything else.
-     Icon centres (170, 200) and (490, 200) must match scripts/dmg/settings.py.
-     The label band (#6F7782, relative luminance about 0.18) sits where Finder draws the labels, so
-     black labels (light appearance, 4.6:1) and white labels (dark appearance, 4.5:1) both read.
-     The foot line sits at bottom:56px so it stays visible when Finder's path bar (28 pt, a global
-     Finder setting) covers the bottom of the window.
-     Regenerate: headless Chrome --window-size=660,400 --screenshot at --force-device-scale-factor=1
-     (bg.png) and 2 (bg@2x.png), then in that directory:
+     Icon centres (170, 200) and (490, 200), 128 pt, must match scripts/dmg/settings.py.
+     The arrow runs from x 254 to 404, clear of both icons (Tally ends at x 234, Applications
+     starts at x 426).
+     Two label plates (#6F7782, relative luminance about 0.18) sit under the Finder labels, centred
+     on x 170 and 490 from y 262 to 292, so black labels (light appearance, 4.6:1) and white labels
+     (dark appearance, 4.5:1) both read.
+     The menu bar hint ends 56 px above the bottom, so it stays visible when Finder's path bar
+     (28 pt) and status bar (22 pt), both global Finder settings, cover the bottom of the window.
+     A private build brings its own image through TALLY_DMG_BACKGROUND (see make-dmg.sh).
+     Regenerate: headless Chrome with --use-mock-keychain --password-store=basic and a throwaway
+     --user-data-dir, --window-size=660,400 --screenshot at --force-device-scale-factor=1 (bg.png)
+     and 2 (bg@2x.png), then in that directory, with relative names so no path lands in the file:
      tiffutil -cathidpicheck bg.png bg@2x.png -out background.tiff -->
 <style>
   html,body{margin:0;padding:0}
   body{width:660px;height:400px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased;color:#fff}
   .bg{position:relative;width:660px;height:400px;overflow:hidden;background:linear-gradient(180deg,#101317 0%,#1a1f26 46%,#2b333c 100%)}
   .glow{position:absolute;left:50%;top:-120px;width:560px;height:300px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(48,209,88,.20),transparent)}
-  h1{position:absolute;margin:0;top:40px;left:0;right:0;text-align:center;font-size:24px;font-weight:650;letter-spacing:-.2px}
-  .sub{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:13.5px;color:rgba(255,255,255,.62)}
-  .shelf{position:absolute;left:0;right:0;top:254px;height:44px;background:#6F7782}
-  .arrow{position:absolute;left:258px;top:174px}
-  .foot{position:absolute;bottom:56px;left:0;right:0;text-align:center;font-size:12px;color:rgba(255,255,255,.75)}
+  h1{position:absolute;margin:0;top:46px;left:0;right:0;text-align:center;font-size:26px;line-height:32px;font-weight:650;letter-spacing:-.2px}
+  .arrow{position:absolute;left:246px;top:150px}
+  .plate{position:absolute;top:262px;height:30px;border-radius:15px;background:#6F7782}
+  .plate.app{left:110px;width:120px}
+  .plate.apps{left:420px;width:140px}
+  .hint{position:absolute;bottom:56px;left:0;right:0;height:28px;display:flex;justify-content:center}
+  .mini{box-sizing:border-box;height:28px;display:inline-flex;align-items:center;gap:8px;padding:0 12px 0 6px;border-radius:9px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);font-size:12.5px;color:rgba(255,255,255,.88)}
+  .mb{display:flex;align-items:center;gap:6px;height:18px;padding:0 7px;border-radius:5px;background:rgba(0,0,0,.55);font-size:11px;color:rgba(255,255,255,.65)}
 </style></head>
 <body><div class="bg">
   <div class="glow"></div>
-  <h1>Drag Tally into Applications</h1>
-  <div class="sub">Then open it from your Applications folder.</div>
-  <div class="shelf"></div>
-  <svg class="arrow" width="144" height="40" viewBox="0 0 144 40"><path d="M6 20h120" stroke="#30d158" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 11"/><path d="M118 8l16 12-16 12" stroke="#30d158" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  <div class="foot">Tally runs in the menu bar at the top of your screen.</div>
+  <h1>Drag Tally to Applications</h1>
+  <svg class="arrow" width="170" height="60" viewBox="0 0 170 60"><path d="M8 44C50 8 116 8 150 38" stroke="#30d158" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M134 40L158 46L152 22Z" fill="#30d158" stroke="#30d158" stroke-width="3" stroke-linejoin="round"/></svg>
+  <div class="plate app"></div><div class="plate apps"></div>
+  <div class="hint"><span class="mini"><span class="mb">&#8230;<svg width="16" height="12" viewBox="0 0 20 14"><path d="M2 12a8 8 0 0 1 16 0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M10 12l4-5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>&#8230;</span>Then open Tally. It lives in the menu bar, not the Dock.</span></div>
 </div></body></html>

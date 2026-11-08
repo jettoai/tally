@@ -453,4 +453,24 @@ expect(broken.text == nil && !broken.timedOut, "(c) a failing CLI is still a rea
 let providerSource = (try? String(contentsOfFile: "Tally/Providers/Claude/ClaudeProvider.swift", encoding: .utf8)) ?? ""
 expect(providerSource.contains("timedOut ? L(\"This Mac is busy: the read timed out, it will retry next round\")")
        && providerSource.contains(": L(\"Claude CLI read failed\")"), "(c) the provider words a timeout apart from a read failure")
+// B-3918: the read asks for a scheduling class and its CPU time is reported beside the wall time.
+// A child's class cannot be read back here (a harness-clamped process tree answers 17, utility, even to a
+// raw posix_spawn QoS attribute), so the pass-through is held by the sources and the run by behaviour.
+let runnerSource = (try? String(contentsOfFile: "Tally/Core/CLIRunner.swift", encoding: .utf8)) ?? ""
+let usageSource = (try? String(contentsOfFile: "Tally/Providers/Claude/ClaudeUsageCLI.swift", encoding: .utf8)) ?? ""
+expect(runnerSource.contains("if let qualityOfService { process.qualityOfService = qualityOfService }")
+       && usageSource.contains("qualityOfService: .userInitiated,\n            answerComplete:"),
+       "the /usage read hands userInitiated to the Process it spawns")
+expect(usageSource.contains("cpuMs=\\(cpu, privacy: .public)"), "the probe read line carries cpuMs")
+let prioritised = await CLIRunner.run("/bin/sh", arguments: ["-c", "echo ok"], timeout: 10, qualityOfService: .userInitiated)
+expect(prioritised?.exitCode == 0 && prioritised?.stdout == "ok\n", "a run with a quality of service still returns the child's output")
+let busy = await CLIRunner.run("/bin/sh", arguments: ["-c", "i=0; while [ $i -lt 20000 ]; do i=$((i+1)); done; echo done"],
+                               timeout: 30)
+expect(busy?.cpuSeconds.map { $0 > 0 && $0 < 30 } == true, "a child's CPU time is reported (\(String(describing: busy?.cpuSeconds)))")
+expect(abs(CLIRunner.seconds(ticks: 7_210_935, timebaseNumer: 125, timebaseDenom: 3) - 0.3005) < 0.0005
+       && CLIRunner.seconds(ticks: 1_500_000_000, timebaseNumer: 1, timebaseDenom: 1) == 1.5
+       && CLIRunner.seconds(ticks: 5, timebaseNumer: 1, timebaseDenom: 0) == 0,
+       "rusage ticks are mach absolute time: 125/3 on Apple Silicon, not nanoseconds")
+expect(CLIRunner.cpuSeconds(of: 999_999) == nil, "a pid the machine will not answer for has no CPU time (cpuMs=none)")
+
 print("loginhealth: \(passed) passed")

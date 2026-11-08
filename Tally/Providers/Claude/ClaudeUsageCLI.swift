@@ -170,11 +170,15 @@ enum ClaudeUsageCLI {
             environment: environment,
             currentDirectory: probeDirectory,
             timeout: timeout,
+            // Not the runner's utility default: under load the read sat in the queue for most of a
+            // minute while it needs about 0.6 CPU seconds (B-3918).
+            qualityOfService: .userInitiated,
             answerComplete: { windows(in: $0).main }
         )
         guard let output else { return (nil, false) }
         let first = output.firstByteSeconds.map { String(Int($0 * 1000)) } ?? "none"
-        log.notice("probe read account=\(probeHomeName(configDir: environment["CLAUDE_CONFIG_DIR"] ?? nil), privacy: .public) firstByteMs=\(first, privacy: .public) answered=\(output.answered, privacy: .public) timedOut=\(output.timedOut, privacy: .public)")
+        let cpu = output.cpuSeconds.map { String(Int($0 * 1000)) } ?? "none"
+        log.notice("probe read account=\(probeHomeName(configDir: environment["CLAUDE_CONFIG_DIR"] ?? nil), privacy: .public) firstByteMs=\(first, privacy: .public) cpuMs=\(cpu, privacy: .public) answered=\(output.answered, privacy: .public) timedOut=\(output.timedOut, privacy: .public)")
         let combined = output.stdout + "\n" + output.stderr
         // An authentication rejection commonly exits nonzero. Preserve that diagnosis only;
         // network failures and arbitrary stderr are not successful usage readings.

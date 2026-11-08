@@ -30,6 +30,32 @@ enum CLIRunner {
         var answered = false
         /// Seconds from launch to the first byte on stdout; nil when nothing was printed.
         var firstByteSeconds: TimeInterval?
+        /// The child's own CPU time (user plus system) as last sampled while it ran, a lower bound
+        /// by the last sample's age; nil when `proc_pid_rusage` never answered. With the wall time
+        /// it tells a child starved of CPU (wall long, this short) from one doing the work (B-3918).
+        var cpuSeconds: TimeInterval?
+    }
+
+    /// `ri_user_time` and `ri_system_time` count mach absolute time, not nanoseconds: the timebase
+    /// is 125/3 on Apple Silicon, so reading the ticks as nanoseconds reports a twenty-fourth of the
+    /// truth (`ProcessTreeReaders.swift` measured it against `getrusage`, 2026-08-15).
+    static func seconds(ticks: UInt64, timebaseNumer: UInt32, timebaseDenom: UInt32) -> TimeInterval {
+        guard timebaseDenom > 0 else { return 0 }
+        return Double(ticks) * Double(timebaseNumer) / Double(timebaseDenom) / 1_000_000_000
+    }
+
+    /// One process's CPU time so far, nil when the machine will not answer for it.
+    static func cpuSeconds(of pid: pid_t) -> TimeInterval? {
+        var info = rusage_info_current()
+        let rc = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_CURRENT, $0)
+            }
+        }
+        var base = mach_timebase_info_data_t()
+        guard rc == 0, mach_timebase_info(&base) == KERN_SUCCESS else { return nil }
+        return seconds(ticks: info.ri_user_time + info.ri_system_time,
+                       timebaseNumer: base.numer, timebaseDenom: base.denom)
     }
 
     /// What one pipe has delivered so far. Filled from the pipe's readability handler (a dispatch
@@ -62,6 +88,10 @@ enum CLIRunner {
     /// says yes the watchdog is disarmed and, after `answerSettle`, the child is ended and the run
     /// returns without waiting for the pipes: a CLI that prints its answer and then lingers (or whose
     /// grandchildren keep the pipe open) must not hold the round up (B-3918).
+    ///
+    /// `qualityOfService`, when given, is the child's class (`Process.qualityOfService`); nil leaves
+    /// whatever the child inherits from the runner's utility queue. Do not pass `.background`: under
+    /// load it is the class that starves, and a child spawned under it was killed (rc 15) when probed.
     static func run(
         _ executable: String,
         arguments: [String],
@@ -69,6 +99,7 @@ enum CLIRunner {
         currentDirectory: URL? = nil,
         input: String? = nil,
         timeout: TimeInterval = 30,
+        qualityOfService: QualityOfService? = nil,
         answerComplete: (@Sendable (String) -> Bool)? = nil,
         claudeInstall: ClaudeNativeInstall = .current,
         searchPath: CLISearchPath = .shared
@@ -87,6 +118,7 @@ enum CLIRunner {
                 }
                 process.environment = env
                 if let currentDirectory { process.currentDirectoryURL = currentDirectory }
+                if let qualityOfService { process.qualityOfService = qualityOfService }
 
                 let stdout = Pipe()
                 let stderr = Pipe()
@@ -107,6 +139,13 @@ enum CLIRunner {
                 try? stdin.fileHandleForWriting.close()
 
                 let launched = Date()
+                // CPU is sampled while the child runs (once the process is reaped its pid is not ours
+                // to ask about): on each chunk it prints and just before the runner ends it.
+                let cpu = OSAllocatedUnfairLock<TimeInterval?>(initialState: nil)
+                let sampleCPU: @Sendable () -> Void = {
+                    guard process.isRunning, let used = cpuSeconds(of: process.processIdentifier) else { return }
+                    cpu.withLock { $0 = max($0 ?? 0, used) }
+                }
                 // Why the run was ended, if it was: set on the watchdog's or the settle timer's queue and
                 // read once the child has exited; the lock orders them, and whichever comes first wins.
                 let ended = OSAllocatedUnfairLock<EndReason?>(initialState: nil)
@@ -118,6 +157,7 @@ enum CLIRunner {
                               return true
                           })
                     else { return }
+                    sampleCPU()
                     process.terminate()
                     // A CLI that ignores SIGTERM is not allowed to outlive its watchdog.
                     DispatchQueue.global().asyncAfter(deadline: .now() + pipeGrace) {
@@ -145,6 +185,7 @@ enum CLIRunner {
                             return
                         }
                         captured.append(chunk)
+                        sampleCPU()
                         guard isAnswer else { return }
                         firstByte.withLock { if $0 == nil { $0 = Date().timeIntervalSince(launched) } }
                         guard let answerComplete,
@@ -172,7 +213,8 @@ enum CLIRunner {
                     stderr: String(data: errorData.value, encoding: .utf8) ?? "",
                     timedOut: endReason == .timedOut,
                     answered: endReason == .answered,
-                    firstByteSeconds: firstByte.withLock { $0 }
+                    firstByteSeconds: firstByte.withLock { $0 },
+                    cpuSeconds: cpu.withLock { $0 }
                 ))
             }
         }

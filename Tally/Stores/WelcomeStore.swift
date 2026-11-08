@@ -230,6 +230,8 @@ final class WelcomeStore {
         Task {
             await Self.readLoginPATH()
             guard epoch == detectEpoch else { return }
+            // `screen` returns a held install phase without reading `base`; let go of it so a CLI found now moves on.
+            if cliInstalled(providerID), case .needsCLI = flow.phase { flow.reset() }
             detected = WelcomeFlow.verdict(signedInAccounts: signedIn.count, installed: cliInstalled)
             if !cliInstalled(providerID) { recheckedMissing = providerID }
         }

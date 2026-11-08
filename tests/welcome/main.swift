@@ -216,6 +216,14 @@ if let again = welcomeStore.range(of: "func checkAgain("),
    let verdict = welcomeStore.range(of: "WelcomeFlow.verdict(", range: again.upperBound..<end.lowerBound) {
     expect(read.lowerBound < verdict.lowerBound, "Check again reads the login PATH BEFORE it decides")
 } else { expect(false, "Check again reads the login PATH BEFORE it decides") }
+if let again = welcomeStore.range(of: "func checkAgain("),
+   let end = welcomeStore.range(of: "private static func signedInAccounts", range: again.upperBound..<welcomeStore.endIndex),
+   let installed = welcomeStore.range(of: "if cliInstalled(providerID), case .needsCLI = flow.phase { flow.reset() }",
+                                      range: again.upperBound..<end.lowerBound),
+   let verdict = welcomeStore.range(of: "WelcomeFlow.verdict(", range: again.upperBound..<end.lowerBound) {
+    expect(installed.lowerBound < verdict.lowerBound,
+           "Check again lets go of a held install screen (reset) once the CLI is found, before it decides")
+} else { expect(false, "Check again lets go of a held install screen (reset) once the CLI is found, before it decides") }
 if let detect = welcomeStore.range(of: "private func detect("),
    let read = welcomeStore.range(of: "Self.readLoginPATH()", range: detect.upperBound..<welcomeStore.endIndex),
    let verdict = welcomeStore.range(of: "WelcomeFlow.verdict(", range: detect.upperBound..<welcomeStore.endIndex) {

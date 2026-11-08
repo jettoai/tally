@@ -12,6 +12,11 @@ extension MetricKind {
     }
 }
 
+extension AccountFacts {
+    /// Each of this account's windows by the meter column it belongs in, in `orderedMetrics` order.
+    var meterKeys: [MeterColumnKey] { MeterColumns.keys(orderedMetrics.map(\.kind.meterRole)) }
+}
+
 /// The list row's meter clusters (track, figure, water line, hover text), split out of AccountListRowView for file size.
 extension AccountListRowView {
     /// One window this account reports, as a track, a figure and a one-unit reset countdown, in the

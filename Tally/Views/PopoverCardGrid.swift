@@ -58,7 +58,7 @@ extension PopoverRootView {
                         if showsSectionHeading(group.providerID, headed: headed) {
                             providerSection(group.providerID, count: group.items.count)
                         }
-                        if !group.isFolded { accountBlock(group.items) }
+                        if !group.isFolded { cardGrid(group.items) }
                     }
                 }
             }
@@ -71,7 +71,7 @@ extension PopoverRootView {
                         providerSection(group.providerID, count: group.items.count)
                     }
                 }
-                if !visibleAccounts.isEmpty { accountBlock(visibleAccounts) }
+                if !visibleAccounts.isEmpty { cardGrid(visibleAccounts) }
             }
         }
     }
@@ -82,13 +82,6 @@ extension PopoverRootView {
     /// draw; with neither it is skipped entirely - its 12pt padding read as a hollow band.
     var showsAccountRegion: Bool {
         !visibleAccounts.isEmpty || !pooledProviderIDs.isEmpty
-    }
-
-    /// One run of accounts as cards. The list density has its own layout (`detailedAccountLayout`,
-    /// a card per provider), so the grouping switch, the empty cases and the reorder wiring stay
-    /// written once here for the card grid and once there for the list.
-    private func accountBlock(_ accounts: [AccountUsage]) -> some View {
-        cardGrid(accounts)
     }
 
     /// The list surface's width: the scrolling region less the container's own 12pt padding each

@@ -6,8 +6,6 @@ import SwiftUI
 /// any). Everything it says comes from the summaries the fleet gauge already builds; a provider
 /// with no pool to show (one account, or the gauge switched off) gets the same head without the ring.
 extension PopoverRootView {
-    private var ringSize: CGFloat { PanelStyle.ringSize }
-
     /// The one summary the ring reads: the whole provider, every plan pooled, so a provider with a
     /// single account still has a ring of its own.
     private func ringSummary(_ providerID: String) -> FleetSummary? {
@@ -101,7 +99,7 @@ extension PopoverRootView {
         let used = settings.displayMode == .used
         let shown = used ? 100 - pool.averageRemaining : pool.averageRemaining
         let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
-        return PoolRingView(size: ringSize, fraction: shown / 100,
+        return PoolRingView(fraction: shown / 100,
                             tint: severity == .normal ? PanelStyle.brand(providerID) : PanelStyle.tint(severity),
                             figure: "\(Int(shown.rounded()))%",
                             caption: (used ? L("Used") : L("Left")).uppercased())

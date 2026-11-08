@@ -61,7 +61,9 @@ enum PanelStyle {
     static let segOn = dynamic(dark: white(0.16), light: rgb(0xFFFFFF))
     /// The card over a glass panel, and over an opaque one (the panel's own solid colour with 4% of
     /// the text colour mixed in).
-    static let cardGlass = dynamic(dark: white(0.055), light: white(0.72))
+    static let cardGlass = dynamic(
+        dark: rgb(PanelPalette.dark.cardFill, CGFloat(PanelPalette.dark.cardAlpha)),
+        light: rgb(PanelPalette.light.cardFill, CGFloat(PanelPalette.light.cardAlpha)))
     /// The panel's own opaque colour, under the cards when glass is off.
     static let panelSolid = dynamic(dark: rgb(PanelPalette.dark.panelSolid), light: rgb(PanelPalette.light.panelSolid))
     static let cardSolid = dynamic(dark: rgb(0x272729), light: rgb(0xEBEBED))

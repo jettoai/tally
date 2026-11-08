@@ -54,7 +54,7 @@ extension PopoverRootView {
         // them; each window kind keeps its own column (a row without a 5-hour window leaves it empty).
         let meterColumns = MeterColumns.displayBlock(rowFacts
             .filter { !$0.isHardError }
-            .map { MeterColumns.keys($0.orderedMetrics.map(\.kind.meterRole)) })
+            .map(\.meterKeys))
         let titles = columnTitles(rowFacts)
         // Once per provider rather than once per row: each pick walks every account (TALLY-7Z).
         let autoPicks = Set(Set(accounts.map(\.providerID)).compactMap { AccountFacts.autoPickID(providerID: $0) })
@@ -76,8 +76,7 @@ extension PopoverRootView {
     private func columnTitles(_ rowFacts: [AccountFacts]) -> [MeterColumnKey: String] {
         var titles: [MeterColumnKey: String] = [:]
         for facts in rowFacts where !facts.isHardError {
-            for (key, metric) in zip(MeterColumns.keys(facts.orderedMetrics.map(\.kind.meterRole)),
-                                     facts.orderedMetrics) where titles[key] == nil {
+            for (key, metric) in zip(facts.meterKeys, facts.orderedMetrics) where titles[key] == nil {
                 titles[key] = L(metric.label)
             }
         }
@@ -116,7 +115,7 @@ extension PopoverRootView {
         for group in Dictionary(grouping: drawing, by: \.usage.providerID).values {
             let states = group.map { f in
                 Dictionary(uniqueKeysWithValues: zip(
-                    MeterColumns.keys(f.orderedMetrics.map(\.kind.meterRole)),
+                    f.meterKeys,
                     f.orderedMetrics.map { UsageFormat.resetState($0, resetPassed: f.usage.resetPassed($0)) }))
             }
             for (f, lit) in zip(group, UsageFormat.soonestResets(states)) where !lit.isEmpty {

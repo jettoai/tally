@@ -62,7 +62,7 @@ struct AccountListRowView: View {
     static let badgeWidth: CGFloat = 11
 
     /// Each of this row's windows by the column it belongs in, and the columns it lays them on.
-    private var ownKeys: [MeterColumnKey] { MeterColumns.keys(facts.orderedMetrics.map(\.kind.meterRole)) }
+    private var ownKeys: [MeterColumnKey] { facts.meterKeys }
     private var columnKeys: [MeterColumnKey] { meterColumns.isEmpty ? MeterColumns.displayBlock([ownKeys]) : meterColumns }
 
     var body: some View {

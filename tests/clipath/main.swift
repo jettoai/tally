@@ -174,5 +174,41 @@ for path in ["Tally/Providers/Codex/CodexAppServerClient.swift", "Tally/Core/Ren
 let runnerCount = occurrences("searchPath.environment(for: executable)", in: readSource("Tally/Core/CLIRunner.swift"))
 expect(runnerCount == 1, "C10 CLIRunner.run spawns through its searcher (\(runnerCount))")
 
+// C11 / C12 (B-3745): claude sits in ~/.local/bin, which Tally searches whatever the shell says.
+// C11 is the reported machine: the user's PATH lacks the directory, so Tally finds claude and the
+// user's Terminal does not. C12 is the same machine after the user added it.
+let homeDir = "\(root)/home"
+write("\(homeDir)/.local/bin/claude", "#!/bin/sh\necho fake-claude\n")
+func pathShell(_ name: String, path: String) -> String {
+    shell(name, "export PATH=\"\(path)\"\nfor a; do last=$a; done\neval \"$last\"")
+}
+func terminalView(_ loginShell: String) -> (found: String?, finds: Bool?, word: String, command: String, detail: CLIPathAdvice.InstalledDetail) {
+    let searchPath = searcher(loginShell)
+    let found = onBackground { searchPath.resolve("claude") }
+    let login = onBackground { searchPath.loginPATH(waitIfCold: true) }
+    let finds = CLIPathAdvice.terminalFinds(cli: "claude", executable: found ?? "", loginPATH: login,
+                                            isRunnable: { fm.isExecutableFile(atPath: $0) })
+    let word = CLIPathAdvice.commandWord(cli: "claude", executable: found, terminalFinds: finds, home: homeDir)
+    return (found, finds, word,
+            CLIPathAdvice.addAccountCommand(providerID: "claude", homes: [], tallyInstalled: false, cliWord: word),
+            CLIPathAdvice.installedDetail(location: "~/.local/bin", terminalFinds: finds))
+}
+let claudePath = "\(homeDir)/.local/bin/claude"
+let offPath = terminalView(pathShell("shell-nopath", path: "/usr/bin:/bin"))
+expect(offPath.found == claudePath, "C11 Tally finds claude in the fixed directory (got \(offPath.found ?? "nil"))")
+expect(offPath.finds == false, "C11 Terminal does not find it")
+expect(offPath.detail == .none, "C11 no 'Found in' line")
+expect(offPath.word == "~/.local/bin/claude" && offPath.command == "~/.local/bin/claude",
+       "C11 Settings' fallback names the full path (got \(offPath.command))")
+let onPath = terminalView(pathShell("shell-withpath", path: "\(homeDir)/.local/bin:/usr/bin:/bin"))
+expect(onPath.found == claudePath, "C12 Tally finds claude (got \(onPath.found ?? "nil"))")
+expect(onPath.finds == true, "C12 Terminal finds it")
+expect(onPath.detail == .foundIn("~/.local/bin"), "C12 'Found in' stays")
+expect(onPath.command == "claude", "C12 Settings' fallback is the bare name (got \(onPath.command))")
+
+// C13: the places "Check again" lists are the places resolve searches.
+expect(searcher(okShell).fixedDirectories == ["\(homeDir)/.local/bin", "\(homeDir)/.claude/local"],
+       "C13 fixed directories (got \(searcher(okShell).fixedDirectories))")
+
 print("\(checks) checks, \(failures) failed")
 if failures > 0 { exit(1) }

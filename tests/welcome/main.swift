@@ -99,8 +99,9 @@ expect([WelcomeFailure.timedOut, .reported, .couldNotStart, .other("x")]
 
 // MARK: the dev preview
 
-let names = ["detecting", "found", "needs-claude", "waiting", "waiting-stalled", "signin", "signing-in", "success", "failed"]
-expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all nine screens can be held")
+let names = ["detecting", "found", "needs-claude", "waiting", "waiting-stalled", "signin", "signing-in", "success", "failed",
+             "signin-offpath", "needs-claude-notfound"]
+expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all eleven held screens can be held")
 expect(WelcomeFlow.previewScreen(named: "NEEDS-CODEX") == .needsCLI(providerID: "codex"),
        "the Codex install screen can be held, and names are not case sensitive")
 expect(WelcomeFlow.previewScreen(named: nil) == nil && WelcomeFlow.previewScreen(named: "YES") == nil
@@ -114,6 +115,73 @@ expect(walked == [.needsCLI(providerID: "claude"), .waiting(providerID: "claude"
 expect(WelcomeFlow.previewNext(after: .failed(providerID: "claude", reason: .timedOut))
         == .signingIn(providerID: "claude"),
        "Try Again on a held failure runs the sign-in again")
+
+// MARK: Terminal PATH advice (B-3745)
+
+let home = "/h"
+func finds(_ path: [String]?, exe: String = "/h/.local/bin/claude",
+           runnable: @escaping (String) -> Bool = { _ in false }) -> Bool? {
+    CLIPathAdvice.terminalFinds(cli: "claude", executable: exe, loginPATH: path, isRunnable: runnable)
+}
+expect(finds(["/usr/bin", "/bin"]) == false, "a login PATH without the CLI's directory: Terminal cannot find it")
+expect(finds(["/usr/bin", "/h/.local/bin"]) == true, "a login PATH with the CLI's directory: Terminal finds it")
+expect(finds(["/h/.local/bin/"]) == true, "a trailing slash on the PATH entry does not hide the directory")
+expect(finds(["/usr/bin", "/opt/x"], runnable: { $0 == "/opt/x/claude" }) == true,
+       "another install of the same name on the login PATH counts")
+expect(finds(nil) == nil, "an unread login PATH is unknown, not a no")
+
+expect(CLIPathAdvice.installedDetail(location: "~/.local/bin", terminalFinds: false) == .none,
+       "no 'Found in' line when Terminal is known not to find the CLI")
+expect(CLIPathAdvice.installedDetail(location: "~/.local/bin", terminalFinds: true) == .foundIn("~/.local/bin")
+        && CLIPathAdvice.installedDetail(location: "~/.local/bin", terminalFinds: nil) == .foundIn("~/.local/bin"),
+       "'Found in' stays when Terminal finds it or Tally cannot tell")
+expect(CLIPathAdvice.installedDetail(location: nil, terminalFinds: true) == .none, "no location, no line")
+
+func fix(_ dir: String, _ shell: String) -> String? { CLIPathAdvice.fixCommand(directory: dir, home: home, shell: shell) }
+expect(fix("/h/.local/bin", "zsh") == #"echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc"#, "zsh fix line")
+expect(fix("/h/.local/bin", "bash") == #"echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile"#, "bash fix line")
+expect(fix("/h/.local/bin", "dash") == #"echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile"#, "sh family fix line")
+expect(fix("/h/.local/bin", "fish") == #"fish_add_path "$HOME/.local/bin""#, "fish fix line")
+expect(fix("/opt/x/bin", "zsh") == #"echo 'export PATH="/opt/x/bin:$PATH"' >> ~/.zshrc"#,
+       "a directory outside home keeps its absolute path")
+expect(fix("/h/My Tools", "zsh") == nil && fix("/opt/it's", "zsh") == nil && fix("/opt/$x", "zsh") == nil,
+       "a directory that would need quoting gets no line")
+expect(fix("/h/.local/bin", "tcsh") == nil, "an unknown shell gets no line")
+
+func word(_ exe: String?, _ finds: Bool?) -> String {
+    CLIPathAdvice.commandWord(cli: "claude", executable: exe, terminalFinds: finds, home: home)
+}
+expect(word("/h/.local/bin/claude", true) == "claude", "the bare name when Terminal finds it")
+expect(word("/h/.local/bin/claude", false) == "~/.local/bin/claude", "the full path when it does not")
+expect(word("/h/.local/bin/claude", nil) == "~/.local/bin/claude", "the full path when unknown: it works either way")
+expect(word(nil, false) == "claude", "nothing found keeps the bare name")
+expect(word("/h/My Tools/claude", false) == "'/h/My Tools/claude'", "an unplain path is single-quoted absolute")
+
+func command(_ provider: String, _ homes: [String], word: String, tally: Bool = false) -> String {
+    CLIPathAdvice.addAccountCommand(providerID: provider, homes: homes, tallyInstalled: tally, cliWord: word)
+}
+expect(command("claude", [], word: "claude", tally: true) == "tally add claude", "the tally CLI wins when installed")
+expect(command("claude", [], word: "claude") == "claude", "first Claude account, bare name (as before)")
+expect(command("claude", [], word: "~/.local/bin/claude") == "~/.local/bin/claude",
+       "first Claude account, full path when Terminal cannot find the bare name")
+expect(command("claude", ["/h/.claude"], word: "claude") == "CLAUDE_CONFIG_DIR=~/.claude2 claude",
+       "second Claude account, bare name (as before)")
+expect(command("claude", ["/h/.claude"], word: "~/.local/bin/claude")
+        == "CLAUDE_CONFIG_DIR=~/.claude2 ~/.local/bin/claude", "second Claude account, full path")
+expect(command("claude", ["/h/.claude", "/h/.claude2"], word: "claude") == "CLAUDE_CONFIG_DIR=~/.claude3 claude",
+       "the first unused numbered sibling")
+expect(command("codex", [], word: "codex") == "codex login", "first Codex account (as before)")
+expect(command("codex", [], word: "~/.local/bin/codex") == "~/.local/bin/codex login", "first Codex account, full path")
+expect(command("codex", ["/h/.codex"], word: "codex")
+        == "mkdir -p ~/.codex2 && CODEX_HOME=~/.codex2 codex login", "second Codex account (as before)")
+expect(command("codex", ["/h/.codex"], word: "~/.local/bin/codex")
+        == "mkdir -p ~/.codex2 && CODEX_HOME=~/.codex2 ~/.local/bin/codex login", "second Codex account, full path")
+
+expect(WelcomeFlow.previewPathState(named: "signin-offpath") == (true, false)
+        && WelcomeFlow.previewPathState(named: "NEEDS-CLAUDE-NOTFOUND") == (false, true)
+        && WelcomeFlow.previewPathState(named: "signin") == (false, false)
+        && WelcomeFlow.previewPathState(named: nil) == (false, false),
+       "only the two path fixtures show path guidance")
 
 // MARK: orderings a type check cannot see
 
@@ -132,16 +200,41 @@ if let resolve = store.range(of: "guard let executable = ProviderCLI.resolved(")
            "an add looks for the CLI before it creates a config home")
 } else { expect(false, "an add looks for the CLI before it creates a config home") }
 
+let welcomeView = source("Tally/Views/WelcomeView.swift")
+if let detail = welcomeView.range(of: ".foundIn(let"),
+   let line = welcomeView.range(of: "L(\"Found in %@\")") {
+    expect(welcomeView.components(separatedBy: "L(\"Found in %@\")").count == 2
+            && detail.lowerBound < line.lowerBound
+            && welcomeView.distance(from: detail.lowerBound, to: line.lowerBound) < 200,
+           "'Found in' is drawn only from the .foundIn case")
+} else { expect(false, "'Found in' is drawn only from the .foundIn case") }
+
+let welcomeStore = source("Tally/Stores/WelcomeStore.swift")
+if let again = welcomeStore.range(of: "func checkAgain("),
+   let end = welcomeStore.range(of: "private static func signedInAccounts", range: again.upperBound..<welcomeStore.endIndex),
+   let read = welcomeStore.range(of: "readLoginPATH()", range: again.upperBound..<end.lowerBound),
+   let verdict = welcomeStore.range(of: "WelcomeFlow.verdict(", range: again.upperBound..<end.lowerBound) {
+    expect(read.lowerBound < verdict.lowerBound, "Check again reads the login PATH BEFORE it decides")
+} else { expect(false, "Check again reads the login PATH BEFORE it decides") }
+if let detect = welcomeStore.range(of: "private func detect("),
+   let read = welcomeStore.range(of: "Self.readLoginPATH()", range: detect.upperBound..<welcomeStore.endIndex),
+   let verdict = welcomeStore.range(of: "WelcomeFlow.verdict(", range: detect.upperBound..<welcomeStore.endIndex) {
+    expect(read.lowerBound < verdict.lowerBound, "detection reads the login PATH BEFORE it decides")
+} else { expect(false, "detection reads the login PATH BEFORE it decides") }
+expect(welcomeStore.contains("loginPATH(waitIfCold: true)"), "the login PATH read waits for the shell (off the main thread)")
+
+let settingsPane = source("Tally/Views/SettingsAccountsView.swift")
+expect(settingsPane.contains("CLIPathAdvice.addAccountCommand(") && !settingsPane.contains("CLAUDE_CONFIG_DIR=~/"),
+       "Settings builds its fallback command in one place")
+
 let controller = source("Tally/MenuBar/WelcomeWindowController.swift")
 expect(controller.contains("BuildVariant.isDev || DemoUsage.isActive")
         && controller.components(separatedBy: "flagsHonoured").count >= 4,
        "both welcome flags are read only through the Dev-or-demo gate")
 
-let welcomeStore = source("Tally/Stores/WelcomeStore.swift")
 expect(!welcomeStore.contains("case .detecting, .signIn: break")
         && welcomeStore.contains("case .needsCLI(let p), .signIn(let p):\n            flow.reset()"),
        "the sign-in screen's secondary button switches provider like the install screen's")
-let welcomeView = source("Tally/Views/WelcomeView.swift")
 expect(!welcomeView.contains("Text(verbatim: \"T\")")
         && welcomeView.contains("StatusItemController.fallbackSymbolName"),
        "the welcome menu bar hint draws the status item's own glyph, not a letter")

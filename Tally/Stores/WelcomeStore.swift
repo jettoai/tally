@@ -20,6 +20,18 @@ struct WelcomeRow: Identifiable, Equatable {
     var isLoading: Bool { session == nil && weekly == nil }
 }
 
+/// What the signIn screen tells a user whose Terminal cannot find the CLI Tally found (B-3745).
+struct PathAdvice: Equatable {
+    /// Where the CLI lives, as the user writes a path (`~/.local/bin`).
+    var directory: String
+    /// The command word (`claude`, `codex`).
+    var cliName: String
+    /// The one line that puts `directory` on the shell's PATH; nil when no safe line exists.
+    var fixCommand: String?
+    /// What to type instead: the CLI's full path.
+    var fullPath: String
+}
+
 /// What the first-run welcome window shows and does. The screen is DERIVED from three facts - the
 /// detection pass, the add-account flow's phase (shared with Settings' sheet), and the user's
 /// provider choice - so nothing here can disagree with the flow it is a window onto.
@@ -37,6 +49,11 @@ final class WelcomeStore {
     private(set) var preview: WelcomeScreen?
     /// "I use Codex instead": the provider the user picked on the install screen.
     private(set) var chosenProvider: String?
+    /// The provider "Check again" looked for and still did not find; the install screen then lists
+    /// where Tally looked.
+    private(set) var recheckedMissing: String?
+    /// Which path-guidance fixture a held preview shows (WelcomeFlow.previewPathState).
+    private var previewPath = (offPath: false, notFound: false)
 
     /// Whether a provider's CLI is on this Mac. A property so the suite can stand in for the disk.
     var cliInstalled: (String) -> Bool = {
@@ -120,6 +137,35 @@ final class WelcomeStore {
             .map { ((($0 as NSString).deletingLastPathComponent) as NSString).abbreviatingWithTildeInPath }
     }
 
+    /// Set when the user's Terminal cannot find the provider's CLI although Tally did; nil when it
+    /// can, or when that cannot be told (the login PATH is not read yet).
+    func pathAdvice(_ providerID: String) -> PathAdvice? {
+        if preview != nil { return previewPath.offPath && providerID == "claude" ? Self.fixtureAdvice : nil }
+        guard let executable = ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI"),
+              CLIPathAdvice.terminalFinds(providerID, executable: executable) == false else { return nil }
+        let home = CLISearchPath.shared.home
+        let directory = (executable as NSString).deletingLastPathComponent
+        let shell = (CLISearchPath.shared.loginShell as NSString).lastPathComponent
+        return PathAdvice(
+            directory: CLIPathAdvice.display(directory, home: home), cliName: providerID,
+            fixCommand: CLIPathAdvice.fixCommand(directory: directory, home: home, shell: shell),
+            fullPath: CLIPathAdvice.commandWord(cli: providerID, executable: executable,
+                                                terminalFinds: false, home: home))
+    }
+
+    /// The signIn card's second line: where the CLI was found, unless the Terminal cannot see it.
+    func installedDetail(_ providerID: String) -> CLIPathAdvice.InstalledDetail {
+        CLIPathAdvice.installedDetail(location: installedLocation(providerID),
+                                      terminalFinds: pathAdvice(providerID) == nil)
+    }
+
+    /// The Copy button on the path card. A held preview copies nothing.
+    func copyText(_ text: String) {
+        guard preview == nil else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     /// The install screen's Copy button. A held preview copies nothing.
     func copyCommand(_ providerID: String) {
         guard preview == nil else { return }
@@ -135,6 +181,8 @@ final class WelcomeStore {
     func begin(previewName: String?) {
         detectEpoch += 1
         chosenProvider = nil
+        previewPath = WelcomeFlow.previewPathState(named: previewName)
+        recheckedMissing = previewPath.notFound ? "claude" : nil
         if let held = WelcomeFlow.previewScreen(named: previewName) {
             preview = held
             return
@@ -149,17 +197,42 @@ final class WelcomeStore {
 
     func windowClosed() {
         detectEpoch += 1
+        recheckedMissing = nil
         flow.stopWatchingForCLI()
     }
 
     private func detect(epoch: Int) async {
         // A screen that flashes and goes is a glitch; this one has a sentence to read.
         let dwell = Task { try? await Task.sleep(for: .milliseconds(900)) }
+        // The shell's PATH is read before anyone asks whether a CLI is installed: off the main
+        // thread the lookup waits for it, on the main thread it cannot, and a CLI that only the
+        // user's shell finds (nvm, a custom npm prefix) would read as missing.
+        async let loginRead: Void = Self.readLoginPATH()
         let accounts = await Self.signedInAccounts()
+        await loginRead
         _ = await dwell.value
         guard epoch == detectEpoch else { return }
         signedIn = accounts
         detected = WelcomeFlow.verdict(signedInAccounts: accounts.count, installed: cliInstalled)
+    }
+
+    private nonisolated static func readLoginPATH() async {
+        await Task.detached(priority: .utility) { _ = CLISearchPath.shared.loginPATH(waitIfCold: true) }.value
+    }
+
+    /// "Check again" on the install screen: look once more, after the login PATH has been read.
+    /// `base` asks `cliInstalled` on every render, so a CLI found now moves the screen on by itself.
+    func checkAgain(_ providerID: String) {
+        guard preview == nil else { recheckedMissing = providerID; return }
+        recheckedMissing = nil
+        detectEpoch += 1
+        let epoch = detectEpoch
+        Task {
+            await Self.readLoginPATH()
+            guard epoch == detectEpoch else { return }
+            detected = WelcomeFlow.verdict(signedInAccounts: signedIn.count, installed: cliInstalled)
+            if !cliInstalled(providerID) { recheckedMissing = providerID }
+        }
     }
 
     /// Signed-in accounts on this machine. Demo data answers with its fixtures and reads nothing.
@@ -253,6 +326,11 @@ final class WelcomeStore {
     private static func fixtureReset(hours: Double) -> String {
         UsageFormat.durationBody(hours * 3600)
     }
+
+    private static let fixtureAdvice = PathAdvice(
+        directory: "~/.local/bin", cliName: "claude",
+        fixCommand: #"echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc"#,
+        fullPath: "~/.local/bin/claude")
 
     private static func fixtureRows(success: Bool) -> [WelcomeRow] {
         let first = WelcomeRow(

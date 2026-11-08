@@ -95,7 +95,9 @@ struct WelcomeView: View {
             rowsCard.padding(.top, 26)
             note(L("Tally only reads usage. It never sees your password or sign-in token."))
         case .needsCLI(let p):
-            commandBox(p).padding(.top, 26)
+            let rechecked = store.recheckedMissing == p
+            if rechecked { notFoundCard(p).padding(.top, 26) }
+            commandBox(p).padding(.top, rechecked ? 18 : 26)
             note(L("Never used Terminal? Tally opens it for you. Paste with ⌘V, press Return, then come back here."))
         case .waiting(let p):
             steps([(.done, L("Install command copied")),
@@ -107,11 +109,15 @@ struct WelcomeView: View {
             statusCard {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(TallyColor.normal)
             } title: {
-                String(format: L("%@ is installed"), WelcomeCopy.cliName(p))
+                String(format: store.pathAdvice(p) == nil ? L("%@ is installed") : L("%@ is ready"),
+                       WelcomeCopy.cliName(p))
             } detail: {
-                store.installedLocation(p).map { String(format: L("Found in %@"), $0) } ?? ""
+                if case .foundIn(let location) = store.installedDetail(p) {
+                    String(format: L("Found in %@"), location)
+                } else { "" }
             }
             .padding(.top, 26)
+            if let advice = store.pathAdvice(p) { pathCard(advice).padding(.top, 12) }
         case .signingIn:
             steps([(.done, L("Browser opened")),
                    (.active, L("Waiting for you to approve")),
@@ -137,6 +143,8 @@ struct WelcomeView: View {
                 Spacer()
                 prominent(L("Show My Usage")) { store.primary() }
             case .needsCLI(let p):
+                link(L("Check again")) { store.checkAgain(p) }
+                    .padding(.trailing, 6)
                 link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
                 prominent(L("Copy and Open Terminal")) { store.primary() }
@@ -208,6 +216,60 @@ struct WelcomeView: View {
             }
         }
         .modifier(CardStyle())
+    }
+
+    /// The yellow card for what the user should know but has not done wrong.
+    private func warningCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "info.circle.fill").font(.system(size: 18)).foregroundStyle(TallyColor.warning)
+                .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 8) { content() }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(TallyColor.warning.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(TallyColor.warning.opacity(0.35), lineWidth: 1))
+    }
+
+    /// signIn, when Tally found the CLI but the user's Terminal would not: nothing is wrong with
+    /// Tally, and the one line offered is the user's to paste (Tally never edits a shell file).
+    private func pathCard(_ advice: PathAdvice) -> some View {
+        warningCard {
+            Text(String(format: L("Terminal can't find %@ yet."), advice.cliName))
+                .font(.system(size: 14, weight: .semibold))
+            Text(String(format: L("It's in %@, which your Terminal doesn't look in. Tally works fine without it."),
+                        advice.directory))
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+            Text(String(format: advice.fixCommand == nil ? L("To run %@ yourself, type its full path:")
+                                                         : L("To run %@ yourself, add that folder once:"),
+                        advice.cliName))
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+            let line = advice.fixCommand ?? advice.fullPath
+            HStack(spacing: 10) {
+                Text(verbatim: line).font(.system(size: 12.5, design: .monospaced)).textSelection(.enabled)
+                Spacer(minLength: 0)
+                Button(L("Copy")) { store.copyText(line) }.controlSize(.small)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
+            if advice.fixCommand != nil {
+                Text(L("Then open a new Terminal window. Tally never edits your shell files."))
+                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// needsCLI after "Check again" found nothing: where Tally looked.
+    private func notFoundCard(_ providerID: String) -> some View {
+        let home = CLISearchPath.shared.home
+        let places = CLISearchPath.shared.fixedDirectories.map { CLIPathAdvice.display($0, home: home) }
+        return warningCard {
+            Text(String(format: L("Tally still can't find %1$@. It looked in %2$@ and your shell's PATH. If you installed it somewhere else, installing once more with the official command puts it where Tally looks."),
+                        WelcomeCopy.cliName(providerID), places.joined(separator: ", ")))
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func commandBox(_ providerID: String) -> some View {

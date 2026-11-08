@@ -11,6 +11,6 @@ cd "$(dirname "$0")/.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 swiftc -o "$work/run" tests/clipath/main.swift \
-    Tally/Core/CLISearchPath.swift Tally/Core/CLIRunner.swift Tally/Core/ClaudeStableExecutable.swift
+    Tally/Core/CLISearchPath.swift Tally/Core/CLIRunner.swift Tally/Core/ClaudeStableExecutable.swift Tally/Core/CLIPathAdvice.swift
 mkdir -p "$work/home" "$work/fixture"
 env -i HOME="$work/home" PATH=/usr/bin:/bin "$work/run" "$work/fixture"

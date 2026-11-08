@@ -40,6 +40,8 @@ struct SettingsAccountsView: View {
             SettingsAddAccountView(
                 flow: flow,
                 fallbackCommand: { Self.addAccountCommand($0, homes: launchHomes($0)) },
+                fallbackNote: { CLIPathAdvice.fallbackNote(
+                    $0, tallyInstalled: IntegrationsStore.shared.cliToolStatus == .installed) },
                 dismiss: { addingAccount = false })
         }
         // This pane is the one surface that draws from discovery alone, and discovery only lands
@@ -269,22 +271,13 @@ struct SettingsAccountsView: View {
 
     /// With the tally CLI on PATH the whole dance (pick the next free number, create the
     /// directory, launch the right login) is one short command. The raw fallback stays for
-    /// installs without the CLI tool: no account yet means the plain CLI is the whole story,
-    /// otherwise point the provider's config-home variable at the first unused numbered sibling.
+    /// installs without the CLI tool (CLIPathAdvice.addAccountCommand; the CLI is spelled with its
+    /// full path when the user's Terminal would not find the bare name).
     static func addAccountCommand(_ providerID: String, homes: [String]) -> String {
-        if IntegrationsStore.shared.cliToolStatus == .installed {
-            return "tally add \(providerID)"
-        }
-        let claude = providerID == "claude"
-        guard !homes.isEmpty else { return claude ? "claude" : "codex login" }
-        let base = claude ? ".claude" : ".codex"
-        let taken = Set(homes.map { URL(fileURLWithPath: $0).lastPathComponent })
-        let suffix = (2 ... 99).first { !taken.contains("\(base)\($0)") } ?? 2
-        return claude
-            ? "CLAUDE_CONFIG_DIR=~/\(base)\(suffix) claude"
-            // codex refuses a CODEX_HOME that doesn't exist yet (claude creates its own), so the
-            // copyable command must create it or it fails on paste.
-            : "mkdir -p ~/\(base)\(suffix) && CODEX_HOME=~/\(base)\(suffix) codex login"
+        CLIPathAdvice.addAccountCommand(
+            providerID: providerID, homes: homes,
+            tallyInstalled: IntegrationsStore.shared.cliToolStatus == .installed,
+            cliWord: CLIPathAdvice.cliWord(providerID))
     }
 
     /// Drag a row onto a sibling to reorder, exactly the way the panel's rows reorder

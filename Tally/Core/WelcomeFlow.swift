@@ -115,11 +115,23 @@ enum WelcomeFlow {
         case "needs-codex": return .needsCLI(providerID: "codex")
         case "waiting": return .waiting(providerID: "claude")
         case "waiting-stalled": return .waitingStalled(providerID: "claude")
-        case "signin": return .signIn(providerID: "claude")
+        case "signin", "signin-offpath": return .signIn(providerID: "claude")
+        case "needs-claude-notfound": return .needsCLI(providerID: "claude")
         case "signing-in": return .signingIn(providerID: "claude")
         case "success": return .success
         case "failed": return .failed(providerID: "claude", reason: .timedOut)
         default: return nil
+        }
+    }
+
+    /// The path guidance a held preview adds to its screen (B-3745): `signin-offpath` shows the
+    /// card for a CLI Terminal cannot find, `needs-claude-notfound` the card after "Check again"
+    /// found nothing. Every other name shows neither.
+    static func previewPathState(named name: String?) -> (offPath: Bool, notFound: Bool) {
+        switch name?.lowercased() {
+        case "signin-offpath": return (true, false)
+        case "needs-claude-notfound": return (false, true)
+        default: return (false, false)
         }
     }
 

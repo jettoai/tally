@@ -51,6 +51,12 @@ final class CLISearchPath: @unchecked Sendable {
         self.retryAfterFailure = retryAfterFailure
     }
 
+    /// The fixed install locations, in search order; also what the welcome window lists after a
+    /// failed "Check again". Mirrored by `providerFallbackDirectories` in
+    /// TallyCLI/ProviderExecutable.swift, so `tally claude` in a terminal finds what the panel
+    /// finds; change both together.
+    var fixedDirectories: [String] { ["\(home)/.local/bin"] + systemDirectories + ["\(home)/.claude/local"] }
+
     /// Starts reading the login PATH in the background, so the first refresh finds it ready.
     func warm() { _ = loginPATH(waitIfCold: false) }
 
@@ -61,10 +67,7 @@ final class CLISearchPath: @unchecked Sendable {
     /// On the main thread this never waits for the shell: with nothing cached yet it answers from
     /// the other two sources and leaves the read running for the next caller.
     func resolve(_ name: String) -> String? {
-        // Mirrored by `providerFallbackDirectories` in TallyCLI/ProviderExecutable.swift, so
-        // `tally claude` in a terminal finds what the panel finds; change both together.
-        let fixed = ["\(home)/.local/bin"] + systemDirectories + ["\(home)/.claude/local"]
-        if let hit = firstRunnable(name, in: fixed) { return hit }
+        if let hit = firstRunnable(name, in: fixedDirectories) { return hit }
         if let login = loginPATH(waitIfCold: !Thread.isMainThread),
            let hit = firstRunnable(name, in: login) { return hit }
         return firstRunnable(name, in: Self.split(ProcessInfo.processInfo.environment["PATH"]))

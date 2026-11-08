@@ -26127,6 +26127,321 @@
         }
       }
     },
+    "%@ is ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已就緒"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已就绪"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の準備ができました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 준비 완료"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hazır"
+          }
+        }
+      }
+    },
+    "Terminal can't find %@ yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機還找不到 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端还找不到 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはまだ %@ を見つけられません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 아직 %@ 명령을 찾지 못합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal henüz %@ komutunu bulamıyor."
+          }
+        }
+      }
+    },
+    "It's in %@, which your Terminal doesn't look in. Tally works fine without it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它在 %@，但你的終端機不會到那裡找。不做這一步，Tally 也能正常運作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它在 %@，但你的终端不会去那里找。不做这一步，Tally 也能正常运行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にありますが、ターミナルはそこを探しません。このままでも Tally は問題なく動きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 있지만 터미널은 그곳을 찾아보지 않습니다. 이대로도 Tally는 잘 작동합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ içinde, ancak Terminal oraya bakmıyor. Tally bu olmadan da sorunsuz çalışır."
+          }
+        }
+      }
+    },
+    "To run %@ yourself, add that folder once:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想自己執行 %@，把這個資料夾加進去一次："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想自己运行 %@，把这个文件夹加进去一次："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分で %@ を実行するには、このフォルダを一度追加します："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 %@ 명령을 실행하려면 이 폴더를 한 번 추가하세요:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ komutunu kendiniz çalıştırmak için bu klasörü bir kez ekleyin:"
+          }
+        }
+      }
+    },
+    "To run %@ yourself, type its full path:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想自己執行 %@，請輸入完整路徑："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想自己运行 %@，请输入完整路径："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分で %@ を実行するには、フルパスで入力します："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 %@ 명령을 실행하려면 전체 경로를 입력하세요:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ komutunu kendiniz çalıştırmak için tam yolunu yazın:"
+          }
+        }
+      }
+    },
+    "Then open a new Terminal window. Tally never edits your shell files.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "然後開一個新的終端機視窗。Tally 不會改動你的 shell 設定檔。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "然后打开一个新的终端窗口。Tally 不会改动你的 shell 配置文件。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのあと新しいターミナルウインドウを開きます。Tally がシェルの設定ファイルを書き換えることはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그런 다음 새 터미널 창을 여세요. Tally는 셸 설정 파일을 수정하지 않습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ardından yeni bir Terminal penceresi açın. Tally kabuk dosyalarınızı asla değiştirmez."
+          }
+        }
+      }
+    },
+    "Check again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再檢查一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再检查一次"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 확인"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekrar kontrol et"
+          }
+        }
+      }
+    },
+    "Tally still can't find %1$@. It looked in %2$@ and your shell's PATH. If you installed it somewhere else, installing once more with the official command puts it where Tally looks.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 還是找不到 %1$@。已找過 %2$@ 和你 shell 的 PATH。如果你裝在別的地方，用官方指令再裝一次，就會放到 Tally 找得到的位置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 还是找不到 %1$@。已找过 %2$@ 和你 shell 的 PATH。如果你装在别的地方，用官方命令再装一次，就会放到 Tally 找得到的位置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はまだ %1$@ を見つけられません。%2$@ とシェルの PATH を探しました。別の場所にインストールした場合は、公式コマンドでもう一度インストールすると Tally が探す場所に入ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 아직 %1$@ 를 찾지 못했습니다. %2$@ 와 셸의 PATH를 확인했습니다. 다른 위치에 설치했다면 공식 명령으로 한 번 더 설치하면 Tally가 찾는 위치에 설치됩니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally hâlâ %1$@ bulamıyor. %2$@ ve kabuğunuzun PATH değerine baktı. Başka bir yere yüklediyseniz resmi komutla bir kez daha yüklemek onu Tally'nin baktığı yere koyar."
+          }
+        }
+      }
+    },
+    "Uses the full path because your Terminal doesn't look in %@ yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡用完整路徑，因為你的終端機還不會到 %@ 找。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里用完整路径，因为你的终端还不会去 %@ 找。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルがまだ %@ を探さないため、フルパスを使っています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 아직 %@ 를 찾아보지 않아 전체 경로를 사용합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal henüz %@ klasörüne bakmadığı için tam yol kullanılıyor."
+          }
+        }
+      }
+    },
     "Sign In with Browser": {
       "extractionState": "manual",
       "localizations": {

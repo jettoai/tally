@@ -12,6 +12,8 @@ struct SettingsAddAccountView: View {
     /// finish. It resumes the very home this run created: an unfinished home is what `tally add`
     /// hands back rather than skipping.
     let fallbackCommand: (String) -> String
+    /// One line under that command, when it needs explaining (nil = nothing to add).
+    let fallbackNote: (String) -> String?
     let dismiss: () -> Void
 
     var body: some View {
@@ -163,6 +165,7 @@ struct SettingsAddAccountView: View {
         // home was prepared for one provider, and a command naming another would sign the user in
         // somewhere else entirely.
         CopyCommandChip(command: fallbackCommand(flow.runProviderID))
+        if let note = fallbackNote(flow.runProviderID) { caption(note) }
         HStack {
             Spacer()
             // Closing does not forget this: with a Terminal window still out there the flow keeps

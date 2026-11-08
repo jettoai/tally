@@ -324,6 +324,30 @@ func runTerminalJumpChecks() {
           cardSource.contains("TerminalJumpNotice.shared.jumpFailed()")
               && jumpCode(of: "Tally/Stores/LoginHealthStore.swift").contains("TerminalJumpNotice.shared.jumpFailed()"))
 
+    // B-4194: the board's "Ghostty is not installed" line, driven through the real jumpFailed and
+    // recheck paths with only LaunchServices' answer replaced (`installedProbe`).
+    MainActor.assumeIsolated {
+        let notice = TerminalJumpNotice.shared
+        let original = notice.installedProbe
+        func settle(_ task: Task<Void, Never>?) {
+            guard let task else { return }
+            var done = false
+            Task { await task.value; done = true }
+            let deadline = Date().addingTimeInterval(5)
+            while !done, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        }
+        notice.installedProbe = { true }
+        settle(notice.jumpFailed())
+        check("a jump that landed nowhere says nothing while Ghostty is installed", !notice.ghosttyMissing)
+        notice.installedProbe = { false }
+        settle(notice.jumpFailed())
+        check("a jump that landed nowhere says Ghostty is missing when it is not installed", notice.ghosttyMissing)
+        notice.installedProbe = { true }
+        settle(notice.recheck())
+        check("installing Ghostty takes the line away the next time the board appears", !notice.ghosttyMissing)
+        notice.installedProbe = original
+    }
+
     let jumpSource = jumpCode(of: "Tally/Core/TerminalJump.swift")
     guard let prepareStart = jumpSource.range(of: "static func prepare() -> Handover {"),
           let prepareEnd = jumpSource.range(of: "\n    }\n", range: prepareStart.upperBound ..< jumpSource.endIndex)

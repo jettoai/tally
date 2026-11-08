@@ -395,12 +395,35 @@ func runCLIToolChecks(tmp: URL) throws {
     let storeMain = (try? String(contentsOf: root.appendingPathComponent(
         "Tally/Stores/IntegrationsStore.swift"), encoding: .utf8)) ?? ""
     check("refresh clears the CLI install banner only when the link exists and the line still says it",
-          storeMain.contains("if let text = cliInstallErrorText, cliToolStatus == .installed {")
-              && storeMain.contains("if lastError == text { lastError = nil }"))
+          storeMain.contains("Self.settledCLIError(")
+              && storeMain.contains("cliInstalled: cliToolStatus == .installed")
+              && storeMain.contains("return (lastError == text ? nil : lastError, nil)"))
     check("the page looks again when it comes up and when the app returns to the front while shown",
           settings.contains("NSApplication.didBecomeActiveNotification")
               && settings.contains(".onChange(of: section) { if section == .integrations { integrations.refresh() } }")
               && settings.contains(".onAppear { integrations.refresh() }"))
+    // (n2) B-4197 read back, with no write outside this suite's own folder. The store's roots are fixed
+    // (~/.tally, ~/.zshenv, /usr/local/bin; HOME does not redirect them), so an install "done in a
+    // terminal" cannot be staged under a scratch home; what is read back here is the pure half and
+    // the one thing refresh() promises: afterwards every stored status equals what the disk says.
+    let banner = "The command line tool could not be installed with administrator rights."
+    let gone = Store.settledCLIError(lastError: banner, cliErrorText: banner, cliInstalled: true)
+    print("readback: CLI banner after the link exists -> lastError=\(String(describing: gone.lastError)), remembered=\(String(describing: gone.cliErrorText))")
+    check("the CLI install banner goes once the link exists", gone.lastError == nil && gone.cliErrorText == nil)
+    let kept = Store.settledCLIError(lastError: banner, cliErrorText: banner, cliInstalled: false)
+    print("readback: CLI banner while the link is missing -> lastError=\(String(describing: kept.lastError))")
+    check("…and stays while the link is still missing", kept.lastError == banner && kept.cliErrorText == banner)
+    let notCLI = "Install the command line tool first."
+    let other = Store.settledCLIError(lastError: notCLI, cliErrorText: banner, cliInstalled: true)
+    print("readback: another banner when the link exists -> lastError=\(String(describing: other.lastError))")
+    check("a banner that is not the CLI install's is not taken away", other.lastError == notCLI && other.cliErrorText == nil)
+    live.refresh()
+    let shimsRead = IntegrationsStore.Shim.allCases.map { "\($0.rawValue)=\(live.shimStatus($0))" }
+    print("readback: after refresh(), stored shim statuses \(shimsRead.joined(separator: ", "))")
+    check("after refresh() the stored shell-integration, skill and CLI statuses equal what the disk says",
+          IntegrationsStore.Shim.allCases.allSatisfy { live.shimStatus($0) == Store.detectShim($0) }
+              && live.skillStatus == Store.detectSkill()
+              && live.cliToolStatus == Store.detectCLITool(Store.detectCLIToolPresence()))
     let harnessRow = (try? String(contentsOf: root.appendingPathComponent("Tally/Views/SettingsCodexHarness.swift"),
                                   encoding: .utf8)) ?? ""
     check("the Harness row inspects again on the same return to the front",
@@ -428,6 +451,26 @@ func runCLIToolChecks(tmp: URL) throws {
         .components(separatedBy: "private func installAllActions").first ?? ""
     check("Install all's set leaves out the shared harness, as its hover says",
           !wholeSet.isEmpty && !wholeSet.contains("SharedHarness"))
+    // READ BACK from the code that builds the set, not counted by eye: the status each entry reads,
+    // in order. The press itself cannot be run here (it writes /usr/local/bin and the real config
+    // homes), so what is asserted is the exact list of rows it acts on, and that it is printed.
+    var setRows: [String] = []
+    var rest = Substring(wholeSet)
+    while let open = rest.range(of: "(integrations.") {
+        rest = rest[open.upperBound...]
+        guard let comma = rest.range(of: ", ") else { break }
+        setRows.append(String(rest[..<comma.lowerBound]))
+        rest = rest[comma.upperBound...]
+    }
+    setRows = setRows.filter { $0.hasSuffix("Status") || $0.hasPrefix("shimStatus") }
+    for (index, row) in setRows.enumerated() { print("install-all row \(index + 1): \(row)") }
+    check("Install all acts on exactly these nine rows, in this order",
+          setRows == ["cliToolStatus", "shimStatus(.claude)", "shimStatus(.codex)", "statusLineStatus",
+                      "notificationHookStatus", "codexSessionHookStatus", "agentHookStatus",
+                      "knockHookStatus", "skillStatus"])
+    check("the two rows left out say so, and the preview flag is read only in the Debug branch",
+          settings.contains("static var showNotInInstallAll: Bool { value(\"TallyShowNotInInstallAll\") == \"yes\" }")
+              && settings.contains("static var showNotInInstallAll: Bool { false }"))
     check("…and the hover names both rows left out, each of which says so on its own row",
           settings.contains("except Shared harness and Harness tools, which each have their own Install button")
               && settings.contains("Not part of Install all. Use this row's Install button.")

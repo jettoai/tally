@@ -24,7 +24,7 @@ struct SettingsCodexHarness: View {
                     }
                 }
             }
-            if !harness.hasInstallation {
+            if !harness.hasInstallation || IntegrationsCapture.showNotInInstallAll {
                 SettingsSubRow(title: L("Not part of Install all. Use this row's Install button."))
             }
             if harness.hasInstallation, harness.nativeHomes.contains(where: { $0["state"] != "trusted-enabled" }) {

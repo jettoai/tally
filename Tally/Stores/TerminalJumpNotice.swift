@@ -13,6 +13,9 @@ final class TerminalJumpNotice {
     private(set) var ghosttyMissing = false
     /// `-TallyGhosttyMissingPreview YES` (Dev build or demo data): shows the line whatever this Mac has.
     private let preview: Bool
+    /// The one question LaunchServices answers. Replaceable so a test can make this Mac "not have
+    /// Ghostty" and drive the real `jumpFailed` and `recheck` paths; the default is the real lookup.
+    @ObservationIgnored var installedProbe: @Sendable () -> Bool = { TerminalJump.ghosttyInstalled() }
 
     private init() {
         #if DEBUG
@@ -25,13 +28,19 @@ final class TerminalJumpNotice {
     }
 
     /// A jump found nowhere to go. The lookup goes through LaunchServices, so it is off the main thread.
-    func jumpFailed() {
-        Task { ghosttyMissing = !(await Task.detached { TerminalJump.ghosttyInstalled() }.value) }
-    }
+    /// Returns its task so a test can wait for the answer.
+    @discardableResult
+    func jumpFailed() -> Task<Void, Never> { refreshMissing() }
 
     /// The board is on screen again: drop the line if Ghostty has been installed since.
-    func recheck() {
-        guard ghosttyMissing, !preview else { return }
-        Task { ghosttyMissing = !(await Task.detached { TerminalJump.ghosttyInstalled() }.value) }
+    @discardableResult
+    func recheck() -> Task<Void, Never>? {
+        guard ghosttyMissing, !preview else { return nil }
+        return refreshMissing()
+    }
+
+    private func refreshMissing() -> Task<Void, Never> {
+        let probe = installedProbe
+        return Task { ghosttyMissing = !(await Task.detached { probe() }.value) }
     }
 }

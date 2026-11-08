@@ -91,7 +91,7 @@ extension SettingsView {
             }
             // Absent rather than empty on a one-account machine: this row's whole subject is the other
             // accounts, and a permanently grey button is a worse answer than no row (`detectSharedHarness`).
-            if let sharedHarness = integrations.sharedHarnessStatus {
+            if let sharedHarness = IntegrationsCapture.sharedHarnessStatus(integrations.sharedHarnessStatus) {
                 SettingsDivider()
                 integrationRow(
                     title: L("Shared harness"), icon: "link",
@@ -427,6 +427,14 @@ enum IntegrationsCapture {
         cliNeedsAdministrator == true ? .notInstalled : real
     }
 
+    /// `-TallyShowNotInInstallAll YES`: the two rows Install all leaves out show their "Not part of
+    /// Install all" line as on a Mac where neither is installed (B-4196). The Shared harness row
+    /// appears and reads not installed; the Harness tools row keeps its real badge.
+    static var showNotInInstallAll: Bool { value("TallyShowNotInInstallAll") == "yes" }
+    static func sharedHarnessStatus(_ real: IntegrationsStore.Status?) -> IntegrationsStore.Status? {
+        showNotInInstallAll ? .notInstalled : real
+    }
+
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] {
         guard let raw = value("TallyDemoIntegrations") else { return real }
         let missing = raw.hasPrefix("missing:") ? Int(raw.dropFirst(8)) ?? 0 : 0
@@ -437,6 +445,8 @@ enum IntegrationsCapture {
     static var confirm: Bool { false }
     static var tip: String? { nil }
     static var cliInstallPreview: String? { nil }
+    static var showNotInInstallAll: Bool { false }
+    static func sharedHarnessStatus(_ real: IntegrationsStore.Status?) -> IntegrationsStore.Status? { real }
     static var cliNeedsAdministrator: Bool? { nil }
     static func cliToolStatus(_ real: IntegrationsStore.Status) -> IntegrationsStore.Status { real }
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] { real }

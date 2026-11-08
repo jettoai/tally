@@ -135,15 +135,21 @@ final class IntegrationsStore {
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()
         // The link now exists, so a failure banner telling the user to make it is stale (B-4197).
-        if let text = cliInstallErrorText, cliToolStatus == .installed {
-            if lastError == text { lastError = nil }
-            cliInstallErrorText = nil
-        }
+        (lastError, cliInstallErrorText) = Self.settledCLIError(
+            lastError: lastError, cliErrorText: cliInstallErrorText, cliInstalled: cliToolStatus == .installed)
         elevationProbeTask?.cancel()
         elevationProbeTask = Task {
             let needs = await Task.detached { Self.expectedLinkBlock() != nil }.value
             if !Task.isCancelled { cliNeedsAdministrator = needs }
         }
+    }
+
+    /// Once the link exists the banner that told the user to make it is stale: takes back exactly
+    /// that text, and nothing else. Pure for the suite.
+    nonisolated static func settledCLIError(lastError: String?, cliErrorText: String?, cliInstalled: Bool)
+        -> (lastError: String?, cliErrorText: String?) {
+        guard let text = cliErrorText, cliInstalled else { return (lastError, cliErrorText) }
+        return (lastError == text ? nil : lastError, nil)
     }
 
     // MARK: Install / remove

@@ -21,7 +21,7 @@ struct SettingsAccountsView: View {
     @GestureState private var isRowDragActive = false
     /// Each account's sharing against its provider's primary, worked out off the main thread.
     @State var sharing: [String: HarnessSharing.Report] = [:]
-    @State private var addingAccount = false
+    @State private var addingAccount = AddAccountStore.demoOpensSheet  // -TallyDemoAddAccountSheet (Debug demo)
     private let flow = AddAccountStore.shared
 
     var body: some View {
@@ -40,7 +40,7 @@ struct SettingsAccountsView: View {
             SettingsAddAccountView(
                 flow: flow,
                 fallbackCommand: { Self.addAccountCommand($0, homes: launchHomes($0)) },
-                fallbackNote: { CLIPathAdvice.fallbackNote(
+                fallbackNote: { CLIPathAdvice.demoOffPath($0)?.note ?? CLIPathAdvice.fallbackNote(
                     $0, tallyInstalled: IntegrationsStore.shared.cliToolStatus == .installed) },
                 dismiss: { addingAccount = false })
         }
@@ -274,10 +274,11 @@ struct SettingsAccountsView: View {
     /// installs without the CLI tool (CLIPathAdvice.addAccountCommand; the CLI is spelled with its
     /// full path when the user's Terminal would not find the bare name).
     static func addAccountCommand(_ providerID: String, homes: [String]) -> String {
-        CLIPathAdvice.addAccountCommand(
+        let demo = CLIPathAdvice.demoOffPath(providerID)  // a capture's off-PATH fixture, else nil
+        return CLIPathAdvice.addAccountCommand(
             providerID: providerID, homes: homes,
-            tallyInstalled: IntegrationsStore.shared.cliToolStatus == .installed,
-            cliWord: CLIPathAdvice.cliWord(providerID))
+            tallyInstalled: demo == nil && IntegrationsStore.shared.cliToolStatus == .installed,
+            cliWord: demo?.word ?? CLIPathAdvice.cliWord(providerID))
     }
 
     /// Drag a row onto a sibling to reorder, exactly the way the panel's rows reorder

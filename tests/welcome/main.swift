@@ -235,6 +235,25 @@ let settingsPane = source("Tally/Views/SettingsAccountsView.swift")
 expect(settingsPane.contains("CLIPathAdvice.addAccountCommand(") && !settingsPane.contains("CLAUDE_CONFIG_DIR=~/"),
        "Settings builds its fallback command in one place")
 
+// B-3745 capture fixtures: each is read only inside a Debug block that also asks for demo data, and
+// Settings reaches the off-PATH answer through its one command builder and its one note closure.
+func readOnlyInDebugDemo(_ text: String, _ flag: String) -> Bool {
+    guard let at = text.range(of: "\"\(flag)\""),
+          let debug = text.range(of: "#if DEBUG", options: .backwards,
+                                 range: text.startIndex ..< at.lowerBound) else { return false }
+    let between = debug.upperBound ..< at.lowerBound
+    return text.range(of: "#endif", range: between) == nil
+        && text.range(of: "DemoUsage.isActive", range: between) != nil
+}
+expect(readOnlyInDebugDemo(source("Tally/Core/CLIPathAdvice+System.swift"), "TallyDemoCLIOffPath")
+        && readOnlyInDebugDemo(source("Tally/Stores/AddAccountStore.swift"), "TallyDemoAddAccountSheet"),
+       "both capture fixtures are read only in a Debug build with demo data")
+expect(settingsPane.components(separatedBy: "CLIPathAdvice.demoOffPath(").count == 3
+        && settingsPane.contains("tallyInstalled: demo == nil &&"),
+       "the off-PATH fixture reaches both the command and its note, with the tally CLI counted absent")
+expect(settingsPane.contains("addingAccount = AddAccountStore.demoOpensSheet"),
+       "the add-account sheet opens by itself only through the capture flag")
+
 let controller = source("Tally/MenuBar/WelcomeWindowController.swift")
 expect(controller.contains("BuildVariant.isDev || DemoUsage.isActive")
         && controller.components(separatedBy: "flagsHonoured").count >= 4,

@@ -88,6 +88,17 @@ final class AddAccountStore {
         #endif
     }
 
+    /// `-TallyDemoData YES -TallyDemoAddAccountSheet YES` (Debug builds only): Settings' Accounts pane
+    /// opens with the add-account sheet already up, so a capture reaches whatever phase
+    /// `-TallyDemoAddAccount` set (`pending` is "Sign-in not finished") without a synthesized click.
+    nonisolated static var demoOpensSheet: Bool {
+        #if DEBUG
+        return DemoUsage.isActive && UserDefaults.standard.bool(forKey: "TallyDemoAddAccountSheet")
+        #else
+        return false
+        #endif
+    }
+
     /// Whether Tally can add an account for this provider at all: a login command it knows how to
     /// drive, and the name of the variable that selects a config home.
     ///

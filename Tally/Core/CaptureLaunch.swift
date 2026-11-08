@@ -123,6 +123,12 @@ enum CaptureLaunch {
                                "TallyDemoRenewingLogin",
                                // Qualifies TallyDemoData: Settings shows an add in flight (Debug).
                                "TallyDemoAddAccount",
+                               // Qualifies TallyDemoData: Settings' Accounts pane opens with the
+                               // add-account sheet up, on the phase TallyDemoAddAccount set (Debug).
+                               "TallyDemoAddAccountSheet",
+                               // Qualifies TallyDemoData: Settings' fallback command and its note as
+                               // a Mac whose Terminal cannot find the CLI sees them (B-3745, Debug).
+                               "TallyDemoCLIOffPath",
                                // Qualifies TallyDemoData: one Settings row opens renaming (Debug).
                                "TallyDemoRenaming",
                                // Qualifies TallyDemoData: one Settings row's actions menu opens (Debug).

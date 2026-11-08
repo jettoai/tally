@@ -249,8 +249,9 @@ struct WelcomeView: View {
             let line = advice.fixCommand ?? advice.fullPath
             HStack(spacing: 10) {
                 Text(verbatim: line).font(.system(size: 12.5, design: .monospaced)).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 Spacer(minLength: 0)
-                Button(L("Copy")) { store.copyText(line) }.controlSize(.small)
+                Button(L("Copy")) { store.copyText(line) }.controlSize(.small).fixedSize().layoutPriority(2)
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))

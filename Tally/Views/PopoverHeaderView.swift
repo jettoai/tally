@@ -53,7 +53,7 @@ extension PopoverRootView {
                 // own name it can only be read one way. Not localized: a dotted version is a token.
                 // Demo mode is for screenshots and promo footage: a version in them dates the shot.
                 if let version = BuildVariant.version, !DemoUsage.isActive, UsageLayout.active == nil {
-                    Text(version).font(.caption2).foregroundStyle(.tertiary)
+                    Text(version).font(.caption2).foregroundStyle(PanelStyle.text3)
                 }
                 }
                 overlayHeaderBadge
@@ -407,7 +407,7 @@ extension PopoverRootView {
             }
             if let counter { Text(counter) }
         }
-        .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+        .font(.caption2).monospacedDigit().foregroundStyle(PanelStyle.text2)
     }
 }
 

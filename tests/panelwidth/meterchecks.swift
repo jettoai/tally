@@ -44,4 +44,14 @@ func checkMeterColumns() {
     check(doubled == [.session, .other(0), .weekly] && MeterColumns.block([doubled]).count == 3,
           "two windows of one single-slot kind never share a column")
     check(MeterColumns.block([]).isEmpty, "an empty block has no columns")
+    // The Detailed panel's reading order (B-4169): 5-hour, weekly, the rest, then model windows with
+    // the flagship first; the columns themselves are the ones `block` names.
+    check(MeterColumns.displayBlock([withSession]) == [.session, .weekly, .model(0)],
+          "display order: 5-hour, weekly, then the flagship model")
+    check(MeterColumns.displayBlock([MeterColumns.keys([.model, .model, .other, .session, .weekly])])
+              == [.session, .weekly, .other(0), .model(0), .model(1)],
+          "display order puts other windows before the model windows, flagship first")
+    check(Set(MeterColumns.displayBlock([withSession, weeklyFirst])) == Set(MeterColumns.block([withSession, weeklyFirst])),
+          "display order is a permutation of the block, never a different set of columns")
+    check(MeterColumns.displayBlock([]).isEmpty, "an empty display block has no columns")
 }

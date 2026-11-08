@@ -37,6 +37,15 @@ extension PopoverRootView {
     /// The shipped layout, unchanged: what `accountLayout` draws when no preview layout is asked for.
     @ViewBuilder
     private var defaultAccountLayout: some View {
+        if settings.panelDensity == .list {
+            detailedAccountLayout
+        } else {
+            cardLayout
+        }
+    }
+
+    @ViewBuilder
+    private var cardLayout: some View {
         let groups = accountGroups
         if settings.groupByProvider {
             let headed = PanelSections.showsHeadings(sectionCount: groups.count)
@@ -75,113 +84,16 @@ extension PopoverRootView {
         !visibleAccounts.isEmpty || !pooledProviderIDs.isEmpty
     }
 
-    /// One run of accounts, at whichever density the panel is set to. Both layouts hang off this one
-    /// place so the grouping switch, the empty cases and the reorder wiring stay written once.
-    @ViewBuilder
+    /// One run of accounts as cards. The list density has its own layout (`detailedAccountLayout`,
+    /// a card per provider), so the grouping switch, the empty cases and the reorder wiring stay
+    /// written once here for the card grid and once there for the list.
     private func accountBlock(_ accounts: [AccountUsage]) -> some View {
-        if settings.panelDensity == .list {
-            rowStack(accounts)
-        } else {
-            cardGrid(accounts)
-        }
-    }
-
-    /// The compact density: one row per account, all of them inside ONE card surface with hairlines
-    /// between. A card each would put fourteen points of padding and a border around a 26pt row and
-    /// hand back most of the height the density exists to save; a list is one object with rules in
-    /// it, which is also how every system list draws.
-    ///
-    /// Several columns share that one surface rather than taking one each, so the section still
-    /// reads as a single object: the columns are runs INSIDE it, split by the same 10pt gutter the
-    /// card grid uses and ruled only within themselves.
-    private func rowStack(_ accounts: [AccountUsage]) -> some View {
-        let columns = listColumnCount
-        let width = listColumnWidth
-        // One identity column and one set of meter columns per block, so every row's figures and
-        // track lengths line up down the block. Each window kind keeps its own column down the
-        // block (a row without a 5-hour window leaves that column empty), and a grouped layout
-        // calls this once per provider, so each provider's block keeps its own columns.
-        let identityWidth = accounts.compactMap { listIdentityWidths[$0.id] }.max()
-        let rowFacts = accounts.map { AccountFacts(usage: $0, settings: settings) }
-        let meterColumns = MeterColumns.block(rowFacts
-            .filter { !$0.isHardError }
-            .map { MeterColumns.keys($0.orderedMetrics.map(\.kind.meterRole)) })
-        // Once per provider rather than once per row: each pick walks every account (TALLY-7Z).
-        let autoPicks = Set(Set(accounts.map(\.providerID)).compactMap { AccountFacts.autoPickID(providerID: $0) })
-        // Once per block, like autoPicks: which row's reset is the soonest in each column.
-        let soonest = soonestResets(rowFacts)
-        // Row-major, the same chunking the card grid uses, so the reading order is the one the eye
-        // already learned here: across, then down.
-        return VStack(spacing: 0) {
-            ForEach(Array(rows(accounts, columns: columns).enumerated()), id: \.element.id) { band, row in
-                HStack(alignment: .top, spacing: AccountListRowView.columnGap) {
-                    ForEach(row.items) { usage in
-                        VStack(spacing: 0) {
-                            // A rule between two rows OF ONE COLUMN, never drawn across the gutter:
-                            // the columns are separate runs of accounts, and one line through both
-                            // would read as a single row cut in half.
-                            if band > 0 { Divider() }
-                            listRow(usage, identityWidth: identityWidth, meterColumns: meterColumns,
-                                    isAutoPick: autoPicks.contains(usage.id),
-                                    soonestResets: soonest[usage.id] ?? [])
-                        }
-                        .frame(width: width)
-                    }
-                    // Keep a short trailing band at full column widths so the columns stay aligned.
-                    ForEach(0 ..< columns - row.items.count, id: \.self) { _ in
-                        Color.clear.frame(width: width, height: 0)
-                    }
-                }
-            }
-        }
-        .frame(width: listWidth)
-        .tallyCard()
-    }
-
-    /// Per account id, the meter columns whose reset is the soonest of its provider's rows. Grouped
-    /// by provider so a flat layout (one block, several providers) and a grouped one agree, and rows
-    /// that draw no meters (hard error, renewing login) neither compete nor light.
-    private func soonestResets(_ rowFacts: [AccountFacts]) -> [String: Set<MeterColumnKey>] {
-        var result: [String: Set<MeterColumnKey>] = [:]
-        let drawing = rowFacts.filter { !$0.isHardError && !$0.isRenewingLogin }
-        for group in Dictionary(grouping: drawing, by: \.usage.providerID).values {
-            let states = group.map { f in
-                Dictionary(uniqueKeysWithValues: zip(
-                    MeterColumns.keys(f.orderedMetrics.map(\.kind.meterRole)),
-                    f.orderedMetrics.map { UsageFormat.resetState($0, resetPassed: f.usage.resetPassed($0)) }))
-            }
-            for (f, lit) in zip(group, UsageFormat.soonestResets(states)) where !lit.isEmpty {
-                result[f.usage.id] = lit
-            }
-        }
-        return result
-    }
-
-    private func listRow(_ usage: AccountUsage, identityWidth: CGFloat?,
-                         meterColumns: [MeterColumnKey], isAutoPick: Bool,
-                         soonestResets: Set<MeterColumnKey>) -> some View {
-        AccountListRowView(usage: usage, settings: settings, showsDragHandle: true,
-                           identityWidth: identityWidth, meterColumns: meterColumns,
-                           onIdentityWidth: { width in
-                               if listIdentityWidths[usage.id] != width {
-                                   listIdentityWidths[usage.id] = width
-                               }
-                           }, isAutoPick: isAutoPick, soonestResets: soonestResets)
-            .opacity(cardLift?.id == usage.id ? 0 : 1)
-            .contentShape(Rectangle())
-            // Same frame registration the cards use, so the one drag gesture reorders both
-            // densities (see `reorderGesture`).
-            .cardFrame(id: usage.id, in: Self.reorderSpace)
+        cardGrid(accounts)
     }
 
     /// The list surface's width: the scrolling region less the container's own 12pt padding each
-    /// side. Its columns then divide that up, exactly as the cards' do.
+    /// side. The preview layouts divide that up.
     var listWidth: CGFloat { scrollContentWidth - 2 * PanelGeometry.contentPadding }
-
-    private var listColumnWidth: CGFloat {
-        let columns = CGFloat(listColumnCount)
-        return (listWidth - AccountListRowView.columnGap * (columns - 1)) / columns
-    }
 
     /// The cards themselves, in the current column count. Called once for a flat layout and once per
     /// provider when grouped, so both layouts share one grid and can't drift in spacing or widths.

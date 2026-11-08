@@ -404,7 +404,7 @@ expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id
 // "renewing…" spinner at the one moment they are worth showing. The usage marks are no longer
 // gated either: the reset "?" is not a reading, so a never-loaded row shows it (codex review of
 // dcbc04f; tests/redeem A3 holds that half).
-expect(rowSource.contains("            usageMarks\n            loginMarks\n")
+expect(rowSource.contains("                usageMarks\n                loginMarks\n")
         && !rowSource.contains("isHardError { usageMarks")
         && !rowSource.contains("isHardError { loginMarks"),
        "the compact row's error branch gates neither the login marks nor the usage marks")

@@ -48,10 +48,6 @@ struct PopoverRootView: View {
     static let reorderSpace = "tallyCardReorder"
     @State var cardFrames: [String: CGRect] = [:]
     @State var cardLift: CardLift?
-    /// Each list row's identity group width as it last measured itself, by account id. A block's
-    /// shared identity column is the widest of its own rows' entries (`rowStack`); an entry for an
-    /// account no longer listed is never read.
-    @State var listIdentityWidths: [String: CGFloat] = [:]
     /// True while the reorder drag is tracking. @GestureState resets automatically on BOTH end and
     /// cancellation - the only hook SwiftUI guarantees for a cancelled gesture (onEnded is skipped) -
     /// so cardLift cleanup keys off its reset instead of trusting onEnded alone.
@@ -105,8 +101,10 @@ struct PopoverRootView: View {
                 // that switches back (a surface that swallowed its own way out would be a trap).
                 // They are also what must never scroll away: the footer is the way out of a fleet
                 // too tall for the display, which is the case the cap exists for.
+                if settings.panelDensity == .list && host == .panel { PanelGrip() }
                 header
-                Divider()
+                // The Detailed panel's header sits straight on the body, no rule between them.
+                if settings.panelDensity != .list { Divider() }
                 // A ZStack of independent conditions, not one if/else chain: mid-crossfade two views
                 // exist, and stacked they occupy the taller of the two rather than the sum of them.
                 // In a VStack the host would chase a height neither tab has - the surface would
@@ -145,15 +143,15 @@ struct PopoverRootView: View {
                             // `scrollContentWidth`).
                             ScrollView(.vertical) {
                                 VStack(alignment: .leading, spacing: 0) {
-                                    // The private build's machine strip, then this region's own title:
-                                    // the two regions stand one over the other under matching titles.
+                                    // This region's own title, the cards, then the private build's machine
+                                    // strip under them.
                                     // Each provider's summary is the heading of its own section below
                                     // (ProviderSectionHeader.swift), not a strip of its own up here.
-                                    overlayStrip
                                     accountPoolTitle
                                     // Nothing at all to show skips the card container entirely: its 12pt
                                     // padding read as a hollow band (see `showsAccountRegion`).
                                     if store.contentState != .hasAccounts || showsAccountRegion { content }
+                                    overlayStrip
                                 }
                                 // Only as tall as the bubble needs to fit; 0 when it is not showing.
                                 .frame(minHeight: hintRoom, alignment: .topLeading)
@@ -310,20 +308,9 @@ struct PopoverRootView: View {
                                     in: usableScreenWidth)
     }
 
-    /// How many columns of compact rows. Its own setting (`listColumns`), because a row is nearly
-    /// twice a card's width and the two densities are comfortable at different counts.
-    ///
-    /// Auto is always ONE column: the list is the dense, narrow reading of the fleet, and a second
-    /// column of rows nearly doubles the panel for someone who only asked the app to choose (Albert,
-    /// 2026-09-28). More columns are available, they just have to be chosen.
-    var listColumnCount: Int {
-        guard (1 ... SettingsStore.maxListColumns).contains(settings.listColumns) else { return 1 }
-        // Chosen, and still bounded by the display: three 564pt rows need 1736pt of panel, which a
-        // laptop screen does not have (see `PanelGeometry`).
-        return min(settings.listColumns,
-                   PanelGeometry.seats(columnWidth: AccountListRowView.minComfortableWidth,
-                                       in: usableScreenWidth))
-    }
+    /// The Detailed panel is one column wide: a card per provider already carries every account's
+    /// windows side by side.
+    var listColumnCount: Int { 1 }
 
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
     /// Internal: the strip and footer extensions lay themselves out against it. The arithmetic
@@ -339,13 +326,7 @@ struct PopoverRootView: View {
     /// anchors - so a page with a layout of its own spends its count on its CARDS instead, held to
     /// the card ladder's width against the leading edge (`sessionsBoardWidth`).
     var popoverWidth: CGFloat {
-        // The list builds its width from its own column count the same way, only out of row-widths
-        // instead of card-widths: 12pt of content padding each side, a comfortable row per column,
-        // and the grid's gutter between them.
-        if settings.panelDensity == .list {
-            return PanelGeometry.listPanelWidth(columns: listColumnCount,
-                                                rowWidth: AccountListRowView.minComfortableWidth)
-        }
+        if settings.panelDensity == .list { return PanelGeometry.detailedPanelWidth }
         return PanelGeometry.cardPanelWidth(columns: columnCount)
     }
 
@@ -411,7 +392,7 @@ struct PopoverRootView: View {
                 // One glass pass for the whole grid under the Liquid Glass variant; nothing at all
                 // under the others (see `tallyCardGroup`).
                 .tallyCardGroup(cardStyle)
-                .padding(12)
+                .padding(contentInsets)
                 // Cards glide (not teleport) whenever the order changes - from a drag here or the
                 // settings window - and equally when the grouping switch or the column count re-seats
                 // every card without the order itself moving. Same spring as the drag, so a card

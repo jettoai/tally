@@ -40,4 +40,19 @@ enum MeterColumns {
     static func block(_ rows: [[MeterColumnKey]]) -> [MeterColumnKey] {
         Array(Set(rows.flatMap { $0 })).sorted()
     }
+
+    /// The same columns in the order the Detailed panel reads them: the 5-hour window, the weekly
+    /// one, then anything else, then the model-scoped windows with the flagship first. Which window a
+    /// column holds never changes (`block` and `keys` are untouched); only where it stands.
+    static func displayBlock(_ rows: [[MeterColumnKey]]) -> [MeterColumnKey] {
+        func rank(_ key: MeterColumnKey) -> Int {
+            switch key {
+            case .session: 0
+            case .weekly: 1
+            case .other: 2
+            case .model: 3
+            }
+        }
+        return block(rows).sorted { (rank($0), $0) < (rank($1), $1) }
+    }
 }

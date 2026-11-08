@@ -11,6 +11,9 @@ struct ResetCaption: View {
     /// The soonest reset of its column (`UsageFormat.soonestResets`): primary and semibold instead of
     /// secondary. Only a countdown takes it; the compact style alone uses it.
     var emphasized: Bool = false
+    /// A colour for the countdown that says something about its window (a spent one, one not yet
+    /// started); nil leaves the quiet default.
+    var tint: Color? = nil
 
     private var isCountdown: Bool { if case .countdown = state { true } else { false } }
 
@@ -33,9 +36,8 @@ struct ResetCaption: View {
                 Text(verbatim: UsageFormat.resetCompact(state))
             }
         }
-        .font(.caption2.monospacedDigit())
-        .fontWeight(emphasized && isCountdown ? .semibold : nil)
-        .foregroundStyle(emphasized && isCountdown ? HierarchicalShapeStyle.primary : .secondary)
+        .font(PanelStyle.font(9.5, emphasized && isCountdown ? 600 : 400).monospacedDigit())
+        .foregroundStyle(tint ?? (emphasized && isCountdown ? PanelStyle.text : PanelStyle.text2))
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .frame(width: AccountListRowView.resetWidth, alignment: .leading)

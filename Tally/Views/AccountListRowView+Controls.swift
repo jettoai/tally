@@ -34,7 +34,7 @@ extension AccountListRowView {
         Button { facts.togglePin() } label: {
             Image(systemName: facts.isPinnedActive ? "checkmark.circle.fill" : "circle")
                 .font(.caption)
-                .foregroundStyle(facts.isPinnedActive ? Color.orange : Color.secondary)
+                .foregroundStyle(facts.isPinnedActive ? Color.orange : PanelStyle.text2)
         }
         .buttonStyle(.plain)
         .disabled(!facts.canTogglePin)

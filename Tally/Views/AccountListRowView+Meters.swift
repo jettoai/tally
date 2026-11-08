@@ -21,17 +21,18 @@ extension AccountListRowView {
         let passed = usage.resetPassed(metric)
         let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
         let reset = UsageFormat.resetState(metric, resetPassed: passed)
-        return HStack(spacing: 4) {
+        return HStack(spacing: Self.clusterGap) {
             bar(metric, resetPassed: passed)
             Text(figure)
-                .font(.caption.monospacedDigit())
+                .font(PanelStyle.font(12, 600).monospacedDigit())
                 // The figure carries the warning here, unlike on a card. A track this short is too small
                 // for its colour alone to be the alarm, and the row has no space for the card's
                 // "Limit reached" line. Not while a redeemed reset settles, though: the number is
                 // seconds from being replaced, so that is a wait rather than a warning.
                 .foregroundStyle(figureColor(metric, resetPassed: passed))
                 .frame(width: Self.valueWidth, alignment: .trailing)
-            ResetCaption(state: reset, style: .compact, emphasized: emphasized)
+            ResetCaption(state: reset, style: .compact, emphasized: emphasized,
+                         tint: resetTint(metric, reset: reset, resetPassed: passed))
         }
         .tallyTooltip(meterHelp(metric, reset: reset))
         .accessibilityElement(children: .combine)
@@ -40,8 +41,15 @@ extension AccountListRowView {
     }
 
     func figureColor(_ metric: UsageMetric, resetPassed: Bool) -> Color {
-        if resetPassed { return .secondary }
-        return metric.severity == .critical && !facts.isSettlingReset ? TallyColor.critical : .primary
+        if resetPassed { return PanelStyle.text2 }
+        return metric.severity == .critical && !facts.isSettlingReset ? PanelStyle.red : PanelStyle.text
+    }
+
+    /// A spent window's countdown is red (it is what the reader is waiting for), and a window that has
+    /// not started its clock yet says so in green.
+    private func resetTint(_ metric: UsageMetric, reset: UsageFormat.ResetState, resetPassed: Bool) -> Color? {
+        if case .notStarted = reset { return PanelStyle.green }
+        return metric.usedPercent >= 100 && !resetPassed && !facts.isSettlingReset ? PanelStyle.red : nil
     }
 
     /// Used fills from the left, remaining anchors right - the same boundary the card's bars split
@@ -51,13 +59,13 @@ extension AccountListRowView {
         let fraction = UsageFormat.fillFraction(metric, mode: settings.displayMode)
         let fillAlignment: Alignment = settings.displayMode == .used ? .leading : .trailing
         return Capsule()
-            .fill(.quaternary)
+            .fill(PanelStyle.track)
             .frame(minWidth: Self.barWidth, maxWidth: .infinity)
             .frame(height: Self.barHeight)
             .overlay {
                 GeometryReader { geo in
                     Capsule()
-                        .fill(resetPassed ? Color.clear : metric.severity.color)
+                        .fill(resetPassed ? Color.clear : PanelStyle.tint(metric.severity))
                         .frame(width: max(2, geo.size.width * fraction), height: Self.barHeight)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: fillAlignment)
                 }

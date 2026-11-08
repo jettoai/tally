@@ -9,7 +9,7 @@ extension AccountListRowView {
             ProgressView().controlSize(.mini)
             Text(L("Browser sign-in…"))
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(PanelStyle.text2)
         .layoutPriority(-1)
         .tallyTooltip(facts.markOwner,
                       detail: L("Finish the sign-in in your browser; Tally will say when it lands."))

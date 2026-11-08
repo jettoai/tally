@@ -54,7 +54,7 @@ extension PopoverRootView {
             if UsageLayout.active == nil {
                 NeutralSegmentedPicker(selection: $settings.displayMode,
                                        options: [.used, .remaining],
-                                       size: .mini) { $0 == .used ? L("Used") : L("Left") }
+                                       size: .small) { $0 == .used ? L("Used") : L("Left") }
                     .tallyTooltip(L("Meters show"))
                     .background { widthProbe { footerWidths.picker = $0 } }
                 if showsCredit {
@@ -94,12 +94,11 @@ extension PopoverRootView {
     /// the credit fits is once again about the credit alone.
     private var jettoCredit: some View {
         HStack(spacing: 4) {
-            Text(L("by")).font(.caption2).foregroundStyle(.tertiary)
+            Text(L("by")).font(.caption2).foregroundStyle(PanelStyle.text3)
             ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
-                .fill(Color.secondary, style: FillStyle(eoFill: true))
+                .fill(PanelStyle.text3, style: FillStyle(eoFill: true))
                 .frame(width: 40, height: 9)
         }
-        .opacity(0.75)
         .allowsHitTesting(false)
     }
 
@@ -129,7 +128,7 @@ extension PopoverRootView {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(PanelStyle.text2)
             .tallyTooltip(ReloadAction.tooltip(ReloadReadinessStore.shared.readiness))
             // View options: every layout dimension behind one footer icon. A popover card rather
             // than a native menu, because the column count is now a row of layout tiles - a picture
@@ -145,7 +144,7 @@ extension PopoverRootView {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(showViewOptions ? Color.accentColor : Color.secondary)
+            .foregroundStyle(showViewOptions ? Color.accentColor : PanelStyle.text2)
             .tallyTooltip(L("View options"))
             // WHERE THE CARD STANDS, on the surfaces that place it themselves: this button's own
             // rectangle on screen, read when the card opens and read again at every press while it
@@ -191,7 +190,7 @@ extension PopoverRootView {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : Color.secondary)
+            .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : PanelStyle.text2)
             .tallyTooltip(settings.isUsagePanelPinned ? L("Unpin window") : L("Pin on top"))
             Button {
                 MainWindowController.shared.show()
@@ -202,7 +201,7 @@ extension PopoverRootView {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(PanelStyle.text2)
             .tallyTooltip(L("Open Tally"))
             Button {
                 StatusItemController.openSettingsWindow()
@@ -213,7 +212,7 @@ extension PopoverRootView {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(PanelStyle.text2)
             .tallyTooltip(L("Settings…"))
             // Help sits past the trailing end of the group, with a gap wide enough to read as a
             // break rather than as loose tracking. It is the one control here that acts on nothing
@@ -229,7 +228,7 @@ extension PopoverRootView {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(PanelStyle.text2)
             .tallyTooltip(L("Help"))
             // Its own layer too, for the same reason as the view-options card above: the copy chips
             // inside it are hover targets, and a presentation cannot publish into the layer outside it.
@@ -276,7 +275,7 @@ extension PopoverRootView {
                     // hand-rolled one.
                     NeutralSegmentedPicker(selection: $settings.panelDensity,
                                            options: PanelDensity.allCases,
-                                           size: .small) { $0 == .cards ? L("Cards") : L("List") }
+                                           size: .small) { $0 == .cards ? L("Compact") : L("Detailed") }
                     // One picker, two remembered numbers: it edits the count of whichever density is
                     // on screen (`densityColumns`), so switching density restores that density's own
                     // layout instead of carrying a number chosen for the other one.

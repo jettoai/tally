@@ -41,6 +41,22 @@ extension PopoverRootView {
         }
     }
 
+    /// The advisor's whole sentence for each provider whose tag is showing, in the panel's account
+    /// order: what the Detailed panel's advice card says without a hover. A provider with nothing to
+    /// act on (enough, still collecting) contributes nothing, so the card is not drawn at all then.
+    func advisorCardLines() -> [(providerID: String, sentence: String)] {
+        visibleAdvisorReadings.compactMap { reading in
+            guard let state = advisorState(reading.provider), state.tag != nil else { return nil }
+            return (reading.provider, state.sentence)
+        }
+    }
+
+    /// Whether `advisorTag` has anything to draw for this provider, so a heading can leave out the
+    /// line the tag would have sat on.
+    func hasAdvisorTag(_ providerID: String) -> Bool {
+        advisorState(providerID)?.tag != nil
+    }
+
     /// The same hover for a heading that carries no tag (B-1570): a provider with nothing to act on
     /// this week still has its four-week figures and its next refills, so the provider's name answers
     /// with them. Empty while the tag is showing, which keeps the hover on the tag alone.

@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// One account as a single line, for the panel's compact list density (`PanelDensity.list`): the
-/// identity on the left, every usage window as a small bar plus its percentage on the right, and the
-/// same launch controls a card carries shrunk to icons in between. Roughly a fifth of a card's
-/// height, which is the whole point: past half a dozen accounts the card grid outgrows the display
-/// and the panel becomes a scroll rather than a glance.
+/// One account as a single 31pt line, for the Detailed density (`PanelDensity.list`): the identity
+/// on the left (name, plan pill, and the marks and launch controls a card carries, shrunk to icons),
+/// every usage window as a small bar plus its percentage and reset on a fixed block of meter cells
+/// on the right. Roughly a fifth of a card's height, which is the whole point: past half a dozen
+/// accounts the card grid outgrows the display and the panel becomes a scroll rather than a glance.
+/// An account at its limit lies on a faint red band with a red edge bar, so it is found without
+/// reading.
 ///
 /// It hides words, never facts. Every window a card shows is here (the same `showAllModels` filter
 /// decides), every state a card can be in has a mark here, and the words the card spells out (the
@@ -19,16 +21,9 @@ struct AccountListRowView: View {
     /// Full-brightness handle regardless of hover - the floating drag preview sets this, so the grip
     /// never blinks out mid-drag.
     var handleProminent: Bool = false
-    /// The width every row of this block gives its identity group, so the meters of every row start
-    /// at one x and their tracks come out one length (see `PopoverRootView.rowStack`). Nil lays the
-    /// identity at its own width, which is what the floating drag preview does.
-    var identityWidth: CGFloat? = nil
-    /// The meter columns of this row's block (`MeterColumns.block`): each window stands in the column
-    /// of its kind, so a kind keeps one x down the block. Empty means this row's own windows.
+    /// The meter columns of this row's block (`MeterColumns.displayBlock`): each window stands in the
+    /// column of its kind, so a kind keeps one x down the block. Empty means this row's own windows.
     var meterColumns: [MeterColumnKey] = []
-    /// Reports this row's identity group width, measured at the group's own size, so the block can
-    /// take the widest as its shared column.
-    var onIdentityWidth: ((CGFloat) -> Void)? = nil
     /// Whether this row is the provider's auto pick, answered once for the whole block by its list
     /// (`AccountFacts.autoPickID`). Nil asks on its own, which is what the floating drag preview does.
     var isAutoPick: Bool? = nil
@@ -36,6 +31,9 @@ struct AccountListRowView: View {
     /// whole block by the grid. Empty lights nothing, which is what the floating
     /// drag preview does.
     var soonestResets: Set<MeterColumnKey> = []
+    /// Draw the provider's mark before the name: for a card that holds several providers' rows, where
+    /// nothing above the rows says whose they are.
+    var showsProviderIcon: Bool = false
 
     @State private var isHovering = false
     @State private var redeemBusy = false
@@ -44,70 +42,72 @@ struct AccountListRowView: View {
     /// The card's own answers, shared rather than re-derived (see `AccountFacts`).
     var facts: AccountFacts { AccountFacts(usage: usage, settings: settings) }
 
-    /// The narrowest a row still reads as one line rather than a squeeze, and so the width of ONE
-    /// list column: what is not a meter (`nonMeterWidth`) plus three meter clusters at their
-    /// shortest (`MeterSlots.minimumWidth`), 564pt since B-3511 (480pt before the reset column).
-    static let minComfortableWidth: CGFloat = nonMeterWidth + MeterSlots.minimumWidth(columns: 3, gap: meterGap)
     /// The gap between the meter columns.
-    static let meterGap: CGFloat = 8
-    /// Everything in the row that is not a meter: the identity (provider mark, name, plan) around
-    /// 150pt, the trailing controls (badge slot, pin, grip) around 60pt, 2 x 14pt of padding, 2 x 8pt
-    /// of row gaps, and a little slack between the identity and the meters so a long nickname does
-    /// not touch the first bar. Checked against the demo fleet on screen: at 460 the one row carrying
-    /// a status mark (the warning triangle travels with the identity) truncated its plan to "Max…",
-    /// so the slack has to cover a mark too (2026-08-04).
-    static let nonMeterWidth: CGFloat = 254
-    /// The gutter between list columns, which is the card grid's own (see `PanelGeometry`).
-    static let columnGap: CGFloat = PanelGeometry.columnGap
+    static let meterGap: CGFloat = PanelStyle.meterGap
 
-    /// The SHORTEST a meter track gets. The track itself stretches with the room its row has left
-    /// (`PanelGeometry.meterColumnFrames`); this floor is what three windows plus the identity were
-    /// fitted to at the panel's list width, and what a very long nickname still leaves the meters.
-    nonisolated static let barWidth: CGFloat = 34
-    static let barHeight: CGFloat = 4
-    /// The percentage column: "100%" at caption size, so the figures line up down the panel the way
-    /// the cards' do.
-    nonisolated static let valueWidth: CGFloat = 32
-    /// The reset countdown column: one unit ("29d", "23h", "59m") at caption2 with monospaced digits
-    /// measures 21.7pt at the widest in English; Turkish ("59 dk") is 27.6pt and the caption scales
-    /// to 0.8 there (22.1pt). A fixed width, so a minute tick never moves the figures beside it.
-    nonisolated static let resetWidth: CGFloat = 24
+    /// The SHORTEST a meter track gets. The track stretches with the cell it is in (92pt for up to
+    /// three windows, `PanelStyle.meterCellWidth`); this floor is what a fourth window squeezes the
+    /// cells to.
+    nonisolated static let barWidth: CGFloat = 14
+    static let barHeight: CGFloat = PanelStyle.barHeight
+    /// The gap between a cell's track, figure and reset.
+    nonisolated static let clusterGap: CGFloat = 5
+    /// The percentage column: "100%" at 12pt semibold with tabular digits.
+    nonisolated static let valueWidth: CGFloat = 33
+    /// The reset countdown column: one unit ("29d", "23h", "59m") at 9.5pt (21.5pt at the widest, semibold), a fixed width so a
+    /// minute tick never moves the figures beside it.
+    nonisolated static let resetWidth: CGFloat = 22
     /// The badge slot, reserved whether or not this row has a badge, so the pin circles stay in one
     /// column instead of stepping left and right with the smart pick.
     static let badgeWidth: CGFloat = 11
 
     /// Each of this row's windows by the column it belongs in, and the columns it lays them on.
     private var ownKeys: [MeterColumnKey] { MeterColumns.keys(facts.orderedMetrics.map(\.kind.meterRole)) }
-    private var columnKeys: [MeterColumnKey] { meterColumns.isEmpty ? MeterColumns.block([ownKeys]) : meterColumns }
+    private var columnKeys: [MeterColumnKey] { meterColumns.isEmpty ? MeterColumns.displayBlock([ownKeys]) : meterColumns }
 
     var body: some View {
-        HStack(spacing: 8) {
-            identityColumn
+        HStack(spacing: Self.meterGap) {
+            identityColumn.frame(maxWidth: .infinity, alignment: .leading)
             if facts.isRenewingLogin {
-                Spacer(minLength: 6)
                 renewingTail
             } else if facts.isHardError {
-                Spacer(minLength: 6)
                 errorTail
             } else {
-                // The meters take whatever the identity column and the trailing controls leave, and
-                // take it LAST: a long nickname truncates against the meters' minimum rather than
-                // pushing them off the row (`MeterSlots`).
+                // The meters take a fixed block (`PanelStyle.meterBlockWidth`), the same on the
+                // card's column titles, so a window keeps one x down the card. The identity takes
+                // whatever is left: a long nickname truncates rather than pushing a meter off the row.
                 MeterSlots(columns: columnKeys.count, gap: Self.meterGap) {
                     ForEach(Array(zip(facts.orderedMetrics, ownKeys)), id: \.0.id) { metric, key in
                         meterCluster(metric, emphasized: soonestResets.contains(key))
                             .layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))
                     }
                 }
+                .frame(width: PanelStyle.meterBlockWidth(columns: columnKeys.count))
                 .anchorPreference(key: PanelHintTargetKey.self, value: .bounds) { [usage.id: $0] }
-                .layoutPriority(-1)
             }
-            trailingControls
         }
-        .padding(.horizontal, TallyMetrics.cardPaddingH)
-        .padding(.vertical, 2.5)
+        .padding(.horizontal, PanelStyle.rowPadH)
+        .frame(height: PanelStyle.rowHeight)
         .font(.caption2)
         .lineLimit(1)
+        .background(isAtLimit ? PanelStyle.red.opacity(0.07) : Color.clear)
+        .overlay(alignment: .leading) {
+            if isAtLimit {
+                UnevenRoundedRectangle(bottomTrailingRadius: 3, topTrailingRadius: 3, style: .continuous)
+                    .fill(PanelStyle.red)
+                    .frame(width: PanelStyle.wallBarWidth)
+                    .padding(.vertical, 7)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if showsDragHandle {
+                ReorderHandle(bright: true)
+                    .font(.system(size: 8))
+                    .opacity(isHovering || handleProminent ? 1 : 0)
+                    .padding(.leading, 2)
+            }
+        }
         .contentShape(Rectangle())
         .onHover { if showsDragHandle { isHovering = $0 } }
         // Same menu the card right-clicks to, from the same values: the row is a density, not a
@@ -118,18 +118,17 @@ struct AccountListRowView: View {
         }
     }
 
-    /// The identity and the marks that travel with it, measured at their own width and padded to
-    /// the block's shared column. Measured BEFORE the padding, so the reading is this row's own
-    /// width whatever the column is, and a renamed account can widen the column as well as narrow it.
+    /// Some window is spent and has not reset yet. Not while a redeemed reset settles: the number is
+    /// seconds from being replaced, so that is a wait rather than a wall.
+    private var isAtLimit: Bool {
+        !facts.isSettlingReset && facts.orderedMetrics.contains { $0.usedPercent >= 100 && !usage.resetPassed($0) }
+    }
+
+    /// The identity and the marks that travel with it. The marks stay on the identity side (not the
+    /// meters') so a row that happens to carry a warning triangle never pushes its own figures.
     private var identityColumn: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             identity
-            // The status marks travel with the IDENTITY, not with the meters, and the identity
-            // column is padded to the block's widest, so the meters start at one x. Put after the
-            // padding, a row that happens to carry a warning triangle or a reset count would push
-            // its own percentages left and break the column the eye reads down (seen on screen,
-            // 2026-08-04): in a list the figures lining up IS the feature.
-            //
             // The usage marks are drawn on every row, the one that never loaded included: the
             // stale mark needs `isStale`, which a never-loaded row does not have
             // (`AccountFacts.isHardError`), and the reset mark is not a reading, so an account
@@ -138,41 +137,45 @@ struct AccountListRowView: View {
             // under a day old (LastGoodCache), so a signed-out account with none IS the hard-error
             // row until the first good poll, which is precisely when the renewal button is worth
             // having on screen.
-            usageMarks
-            loginMarks
-        }
-        .background {
-            GeometryReader { proxy in
-                Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in
-                    onIdentityWidth?(width)
-                }
+            Group {
+                usageMarks
+                loginMarks
+                trailingControls
             }
+            .layoutPriority(1)
         }
-        .frame(minWidth: identityWidth, alignment: .leading)
+        .overlay(alignment: .trailing) { hoverPin }
     }
 
-    /// Provider mark, name, plan - the card header's leading group at row scale, carrying the same
-    /// identity callout (signed-in address over plan and config home), because two accounts that
-    /// answer with one address are exactly as indistinguishable here as they are on a card.
+    /// Name and plan pill, carrying the same identity callout (signed-in address over plan and
+    /// config home), because two accounts that answer with one address are exactly as
+    /// indistinguishable here as they are on a card.
     private var identity: some View {
-        HStack(spacing: 6) {
-            ProviderIconView(providerID: usage.providerID, size: 14)
-            Text(facts.label)
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1)
-            if let plan = usage.planName {
-                Text(plan)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    // The plan is the first thing to give up when the row runs short: the name
-                    // identifies the account, the plan only qualifies it, and the callout still
-                    // carries it in full.
-                    .layoutPriority(-1)
-            }
+        // The room beside the meters is about 110pt: the plan pill is the first thing to give it up
+        // when the whole name and the pill do not fit together, the name truncating only after that.
+        ViewThatFits(in: .horizontal) {
+            identityLine(showsPlan: usage.planName != nil, fixesName: true)
+            identityLine(showsPlan: false, fixesName: false)
         }
         .accessibilityElement(children: .combine)
         .tallyTooltip(facts.identityEmail, detail: facts.identityDetail,
                       forced: facts.forcesIdentityTooltip)
+    }
+
+    private func identityLine(showsPlan: Bool, fixesName: Bool) -> some View {
+        HStack(spacing: 6) {
+            if showsProviderIcon {
+                ProviderIconView(providerID: usage.providerID, size: 12)
+            }
+            Text(facts.label)
+                .font(PanelStyle.font(12.5, 600))
+                .foregroundStyle(PanelStyle.text)
+                .lineLimit(1)
+                .fixedSize(horizontal: fixesName, vertical: false)
+            if showsPlan, let plan = usage.planName {
+                PlanBadge(text: plan, providerID: usage.providerID)
+            }
+        }
     }
 
     /// The states a card spells out in words about this account's READING, as glyphs: numbers that
@@ -214,7 +217,7 @@ struct AccountListRowView: View {
         }
         if let outcome = redeemOutcome {
             Text(RedeemAction.outcomeMessage(outcome))
-                .foregroundStyle(outcome == .redeemed ? TallyColor.normal : .secondary)
+                .foregroundStyle(outcome == .redeemed ? TallyColor.normal : PanelStyle.text2)
                 .tallyTooltip(RedeemAction.outcomeDetail(outcome) ?? "")
         } else if case .codexCredits(let resets) = facts.resetOffer {
             redeemButton(resets)
@@ -235,7 +238,7 @@ struct AccountListRowView: View {
             Image(systemName: "arrow.counterclockwise").font(.system(size: 8))
             Text(verbatim: text).monospacedDigit()
         }
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(PanelStyle.text2)
         .tallyTooltip(facts.markOwner, detail: help)
     }
 
@@ -302,7 +305,7 @@ struct AccountListRowView: View {
             }
             // The whole mark turns warning inside 48 hours of the soonest expiry, critical inside 6.
             .foregroundStyle(facts.resetExpiryColor().map(AnyShapeStyle.init)
-                             ?? AnyShapeStyle(.secondary))
+                             ?? AnyShapeStyle(PanelStyle.text2))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -328,14 +331,30 @@ struct AccountListRowView: View {
 
     /// The launch affordances, in the card's order and with the card's rules: the mode badge as a
     /// bare glyph (its words move to the tooltip), then the one circle that pins and unpins.
+    ///
+    /// The badge is there only on the row that carries one (the smart pick, the pinned account), and
+    /// the pin circle only while the row is pinned or hovered: 110pt is all the room a name and its
+    /// plan pill have beside the meter cells, and a circle on every row at rest took it from them.
+    /// On hover the circle is laid OVER the end of the identity (`identityColumn`) rather than into
+    /// it, so a pointer crossing the rows never reflows a name or drops a plan pill.
     @ViewBuilder
     private var trailingControls: some View {
         if facts.hasSiblings, facts.launchMode != .off {
-            badgeSlot
-            pinToggle
+            if facts.isPinnedActive || carriesBadge { badgeSlot }
+            if facts.isPinnedActive { pinToggle }
         }
-        if showsDragHandle {
-            ReorderHandle(bright: isHovering || handleProminent)
+    }
+
+    private var carriesBadge: Bool {
+        facts.launchMode == .auto && (isAutoPick ?? facts.isAutoPick)
+    }
+
+    @ViewBuilder
+    private var hoverPin: some View {
+        if isHovering, facts.hasSiblings, facts.launchMode != .off, !facts.isPinnedActive {
+            pinToggle
+                .padding(.horizontal, 3)
+                .background(Capsule().fill(PanelStyle.cardSolid))
         }
     }
 

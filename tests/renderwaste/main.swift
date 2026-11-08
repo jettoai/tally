@@ -12,7 +12,7 @@ func check(_ name: String, _ condition: Bool) {
 }
 func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
 
-let grid = source("Tally/Views/PopoverCardGrid.swift")
+let grid = source("Tally/Views/PopoverCardGrid.swift") + source("Tally/Views/PopoverDetailedLayout.swift")
 let row = source("Tally/Views/AccountListRowView.swift") + source("Tally/Views/AccountListRowView+Controls.swift")
 let fleet = source("Tally/Views/FleetStripView.swift")
 let controller = source("Tally/MenuBar/StatusItemController.swift")

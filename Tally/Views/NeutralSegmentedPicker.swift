@@ -2,18 +2,17 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// The two sizes the panel uses, holding AppKit's own segmented metrics: 16 / 20pt tall on 9 / 11pt
-/// type, with the side padding read back off the native control's measured widths (a `.mini` pair of
-/// tabs is 92pt wide, a `.small` row of four ranges 198pt). They are copied rather than derived so a
-/// surface that swaps the native control for this one keeps the exact geometry it laid out around -
-/// the header's fit test in particular decides whether the clock still fits from this control's width.
+/// The two sizes the panel uses: the header's tab switch (22pt tall on 12pt type) and the footer's
+/// and view options' segments (20pt on 11pt), the Detailed panel's own metrics. The header's fit
+/// test decides whether the clock still fits from this control's measured width, so a size change
+/// here is picked up there without a number to keep in step.
 enum NeutralSegmentedSize {
     case mini, small
 
-    var height: CGFloat { self == .mini ? 16 : 20 }
-    var font: Font { .system(size: self == .mini ? 9 : 11) }
-    var sidePadding: CGFloat { self == .mini ? 7.5 : 9 }
-    var radius: CGFloat { self == .mini ? 5 : 6 }
+    var height: CGFloat { self == .mini ? 22 : 20 }
+    var font: Font { .system(size: self == .mini ? 12 : 11, weight: self == .mini ? .medium : .regular) }
+    var sidePadding: CGFloat { self == .mini ? 10 : 8 }
+    var radius: CGFloat { self == .mini ? 8 : 7 }
     /// The attention dot's diameter (see `badged`). A shade under the state dots the session board
     /// draws at 7pt: this one sits in the corner of a 16pt chip, where the same size would read as
     /// a second control rather than as a mark on a tab.
@@ -86,7 +85,7 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
         HStack(spacing: 0) {
             ForEach(options, id: \.self) { segment($0) }
         }
-        .background(shape(radius: size.radius).fill(Color.primary.opacity(0.07)))
+        .background(shape(radius: size.radius).fill(PanelStyle.seg))
         // Held at its ideal width, the one thing the native control did for free. Free to compress,
         // it hands a squeezed width to the header's width probe, and the fit test then reads "the
         // clock still fits" off a number the clock itself caused - the labels truncate to "..." and
@@ -171,13 +170,14 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
             }
             .font(size.font)
             .lineLimit(1)
-            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .foregroundStyle(isSelected ? PanelStyle.text : PanelStyle.text2)
             .padding(.horizontal, size.sidePadding)
             .frame(height: size.height)
             // Inset by a point so the chip reads as sitting IN the track rather than replacing a
             // slice of it, which is what the native control draws.
             .background(shape(radius: size.radius - 1)
                 .fill(fillColor(option, selected: isSelected))
+                .shadow(color: .black.opacity(isSelected ? 0.12 : 0), radius: 1, y: 1)
                 .padding(1))
             // Inside the chip's own corner rather than over its edge: the row is 16pt tall on the
             // panel's header and a dot hanging off it would be clipped by the surface above.
@@ -207,7 +207,7 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
     /// Selection draws the chip, hover only hints at one - the same two-tier fill the layout tiles use,
     /// so the panel's two hand-rolled pickers answer a pointer the same way.
     private func fillColor(_ option: Value, selected: Bool) -> Color {
-        if selected { return Color.primary.opacity(0.16) }
+        if selected { return PanelStyle.segOn }
         return hovered == option ? Color.primary.opacity(0.07) : .clear
     }
 

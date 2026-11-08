@@ -274,7 +274,7 @@ struct CardLiftPreview: View {
                 // lends it one - a floating row with nothing behind it would show the panel through.
                 AccountListRowView(usage: lift.usage, settings: settings,
                                    showsDragHandle: true, handleProminent: true)
-                    .tallyCard()
+                    .panelCard()
             } else {
                 AccountCardView(usage: lift.usage, settings: settings,
                                 showsDragHandle: true, handleProminent: true)

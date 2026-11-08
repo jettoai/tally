@@ -261,9 +261,11 @@ struct ProviderIconView: View {
     let providerID: String
     var size: CGFloat = 15
     var usesProviderColor = false
+    /// A colour to draw the mark in, taking precedence over both of the above.
+    var tintOverride: Color? = nil
 
     private var tint: Color {
-        usesProviderColor ? ProviderIdentityStyle.color(for: providerID) : .secondary
+        tintOverride ?? (usesProviderColor ? ProviderIdentityStyle.color(for: providerID) : .secondary)
     }
 
     var body: some View {

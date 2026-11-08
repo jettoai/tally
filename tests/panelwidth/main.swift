@@ -39,13 +39,14 @@ print("panel widths, list density")
 check(PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth), 588, "one row column")
 check(PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth), 1162, "two row columns")
 check(PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth), 1736, "three row columns")
-// THE ROW WIDTH IS ARITHMETIC (B-3511): non-meter room plus three shortest clusters and their gaps,
-// pinned to the app-target lines this harness does not compile.
+// THE DETAILED ROW'S MEASURES (B-4169, replacing B-3511's comfortable row): the cell's parts are the
+// view's own constants, pinned to the app-target lines this harness does not compile. The panel is one
+// 452pt column; `listPanelWidth` and the 564pt fixture above stay as the multi-column arithmetic.
 let listRowSource = (try? String(contentsOfFile: "Tally/Views/AccountListRowView.swift", encoding: .utf8)) ?? ""
-let rowConstants = ["resetWidth: CGFloat = 24", "barWidth: CGFloat = 34", "valueWidth: CGFloat = 32",
-                    "nonMeterWidth: CGFloat = 254", "meterGap: CGFloat = 8"]
+let rowConstants = ["resetWidth: CGFloat = 22", "barWidth: CGFloat = 14", "valueWidth: CGFloat = 33",
+                    "clusterGap: CGFloat = 5", "meterGap: CGFloat = PanelStyle.meterGap"]
 check(rowConstants.allSatisfy { listRowSource.contains("static let " + $0) }, "the row's width constants are the view's own")
-check(listRowWidth, 254 + 3 * (34 + 4 + 32 + 4 + 24) + 2 * 8, "the row is the non-meter room plus three clusters and gaps")
+check(PanelGeometry.detailedPanelWidth, 452, "the Detailed panel is one 452pt column")
 
 print("a card stays the same size as columns are added")
 for columns in 2 ... 4 {

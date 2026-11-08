@@ -200,12 +200,21 @@ struct PanelBackdrop: View {
     var body: some View {
         if settings.isPanelTranslucent,
            !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            // The panel's own colour over the glass (`PanelStyle.glassTint`): the blur still shows the
+            // desktop, but a grey word no longer sits on whatever the desktop happens to be.
             GlassBackdrop(cornerRadius: cornerRadius)
+                .overlay {
+                    if let cornerRadius {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(PanelStyle.glassTint)
+                    } else {
+                        PanelStyle.glassTint
+                    }
+                }
         } else if let cornerRadius {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+                .fill(PanelStyle.panelSolid)
         } else {
-            Color(nsColor: .windowBackgroundColor)
+            PanelStyle.panelSolid
         }
     }
 }

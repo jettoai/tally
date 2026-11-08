@@ -12,7 +12,8 @@ extension PopoverRootView {
     /// panel, the job the launch strip's empty run used to do.
     @ViewBuilder
     var accountPoolTitle: some View {
-        if store.contentState == .hasAccounts, UsageLayout.active == nil {
+        // The Detailed panel has no region title: its cards carry their own heads.
+        if store.contentState == .hasAccounts, UsageLayout.active == nil, settings.panelDensity != .list {
             HStack(spacing: 0) {
                 Text(L("Account Pool")).fontWeight(.semibold)
                 Color.clear

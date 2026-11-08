@@ -660,8 +660,8 @@ func runAccountRowChecks() {
     // The list row's height and its meter columns (B-3445): a row is about 20pt tall, and each window
     // stands in the column of its kind rather than the leading window spanning a missing one.
     let listRow = readSource("Tally/Views/AccountListRowView.swift")
-    check("the list row's vertical padding is 2.5pt, which keeps the row about 20pt tall",
-          listRow.contains(".padding(.vertical, 2.5)") && !listRow.contains(".padding(.vertical, 5)"))
+    check("the list row is a fixed 31pt line (PanelStyle.rowHeight), never padded taller",
+          listRow.contains(".frame(height: PanelStyle.rowHeight)") && !listRow.contains(".padding(.vertical, 5)"))
     check("the list row places each meter in its kind's column",
           listRow.contains("MeterSlots(columns: columnKeys.count, gap: Self.meterGap)")
               && listRow.contains(".layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))")
@@ -672,7 +672,7 @@ func runAccountRowChecks() {
     // move the figures beside it. The sentences live in the formatter alone, never in a view.
     let caption = readSource("Tally/Views/ResetCaption.swift")
     check("the list cluster and the card both draw the one reset caption",
-          listMeter.contains("ResetCaption(state: reset, style: .compact, emphasized: emphasized)")
+          listMeter.contains("ResetCaption(state: reset, style: .compact, emphasized: emphasized,")
               && cardMeter.contains("ResetCaption(state: resetState, style: .line)"))
     check("the row's spoken label carries the reset sentence",
           listMeter.contains("UsageFormat.resetSentence(reset)"))
@@ -684,7 +684,7 @@ func runAccountRowChecks() {
     // THE SOONEST RESET IS EMPHASISED (B-3511): decided once per block and per provider by the grid,
     // handed to each row, drawn by the caption only while it is a countdown; the drag preview is a
     // single row with nothing to compare, so it never lights.
-    let grid = readSource("Tally/Views/PopoverCardGrid.swift")
+    let grid = readSource("Tally/Views/PopoverDetailedLayout.swift")
     check("the grid decides the soonest resets once per block and hands each row its own",
           grid.contains("let soonest = soonestResets(rowFacts)")
               && grid.contains("soonestResets: soonest[usage.id] ?? []")

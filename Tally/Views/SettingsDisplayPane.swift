@@ -70,8 +70,8 @@ extension SettingsView {
                 // The pane's own segmented control, matching the "Meters show" row rather than the
                 // panel's neutral one: this window has no glass for that variant to be quiet against.
                 Picker("", selection: $settings.panelDensity) {
-                    Text(L("Cards")).tag(PanelDensity.cards)
-                    Text(L("List")).tag(PanelDensity.list)
+                    Text(L("Compact")).tag(PanelDensity.cards)
+                    Text(L("Detailed")).tag(PanelDensity.list)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()

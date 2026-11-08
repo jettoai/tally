@@ -286,7 +286,7 @@ check("T28 row passes starved hours to the join",
       advisor.contains("starvedHoursPerWeek: reading.starvedHoursPerWeek"))
 let fleet = source("Tally/Views/FleetStripView.swift")
 var phraseBody = ""
-if let start = fleet.range(of: "private func forecastPhrase") {
+if let start = fleet.range(of: "func forecastPhrase") {   // internal since B-4169: the card head reads it too
     let rest = fleet[start.upperBound...]
     let ends = ["    /// ", "    private func"].compactMap { rest.range(of: $0)?.lowerBound }
     phraseBody = String(rest[..<(ends.min() ?? rest.endIndex)])

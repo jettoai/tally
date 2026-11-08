@@ -235,7 +235,7 @@ extension PopoverRootView {
 
     /// The pace verdict as words plus its tint, so the line and its tooltip cannot drift: the row
     /// clips this sentence when a column is narrow, and the hover has to answer with the same one.
-    private func forecastPhrase(_ summary: FleetSummary,
+    func forecastPhrase(_ summary: FleetSummary,
                                 _ pool: FleetPool) -> (text: String, tint: Color) {
         guard pool.kind != .session else { return ("", .secondary) }
         let now = Date()
@@ -333,7 +333,7 @@ extension PopoverRootView {
         UsageFormat.durationBody(value.countdown) + " · " + UsageFormat.absoluteBody(value.clock)
     }
 
-    private func fleetTooltipBlocks(_ summaries: [FleetSummary]) -> [TallyTooltipBlock] {
+    func fleetTooltipBlocks(_ summaries: [FleetSummary]) -> [TallyTooltipBlock] {
         summaries.compactMap { summary in
             guard let model = FleetTooltip.model(summary, displayed: displayedPools(summary))
             else { return nil }

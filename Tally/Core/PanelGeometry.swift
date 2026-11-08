@@ -100,6 +100,10 @@ enum PanelGeometry {
         stored > 0 ? min(stored, limit) : 0
     }
 
+    /// The Detailed panel's width: one column, the same on the popover, the pinned panel and the
+    /// window until the window gets a layout of its own.
+    static let detailedPanelWidth: CGFloat = 452
+
     /// The panel width for a list of comfortable rows: content padding each side, a row per column,
     /// and the gutter between them.
     static func listPanelWidth(columns: Int, rowWidth: CGFloat) -> CGFloat {

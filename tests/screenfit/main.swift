@@ -344,14 +344,17 @@ check((heldTall.strip ?? 0) > 300,
       "control: a strip held outside the scroll view runs past the cap (\(String(describing: heldTall.strip)) in 300)")
 check(scrolledTall.strip == 487 && (scrolledTall.region ?? 999) <= 300,
       "a strip taller than the room scrolls: it keeps its height and its scroll view stays within the cap (\(String(describing: scrolledTall.strip)), region \(String(describing: scrolledTall.region)))")
-// The source: the strip and the title are inside the scroll view, after the notices that stay fixed.
+// The source: the account title, the cards and then the strip are all inside the scroll view (B-4169
+// moved the strip from above the cards to below them), after the notices that stay fixed.
 let aroundStrip = rootSource.components(separatedBy: "overlayStrip")
 let beforeStrip = aroundStrip.first ?? ""
+let afterStrip = aroundStrip.dropFirst().first ?? ""
 let scrollOpen = beforeStrip.range(of: "ScrollView(.vertical) {", options: .backwards)
 let openToStrip = scrollOpen.map { String(beforeStrip[$0.upperBound...]) } ?? ""
-check(scrollOpen != nil && !openToStrip.contains("}")
-        && (aroundStrip.dropFirst().first ?? "").contains("accountPoolTitle"),
-      "the panel puts its machine strip inside the scroll view, with the account title right after it")
+let stripToClose = afterStrip.components(separatedBy: ".frame(minHeight: hintRoom").first ?? ""
+check(scrollOpen != nil && openToStrip.contains("accountPoolTitle") && openToStrip.contains("content }")
+        && !stripToClose.contains("ScrollView(.vertical)") && afterStrip.contains(".frame(minHeight: hintRoom"),
+      "the panel puts its machine strip inside the scroll view, after the account title and the cards")
 let noticesPart = beforeStrip.components(separatedBy: "ScrollView(.vertical) {").dropLast().last ?? ""
 check(noticesPart.contains("ErrorReportingNoticeStrip()") && noticesPart.contains(".fixedSize(horizontal: false, vertical: true)"),
       "the panel holds its notices at their own height, above the scroll view")

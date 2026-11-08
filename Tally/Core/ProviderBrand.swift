@@ -21,4 +21,15 @@ enum ProviderBrand {
         default: return nil
         }
     }
+
+    /// The colour a provider wears on the usage panel (its pool ring, plan pills and mark), which
+    /// is a separate table from the menu bar's: the panel gives Codex a colour of its own so the
+    /// two pools tell apart at a glance, while the menu bar rings keep following `markHex`.
+    static func panelHex(for providerID: String) -> UInt32? {
+        switch providerID {
+        case "claude": return 0xE2825A
+        case "codex": return 0x33B892
+        default: return nil
+        }
+    }
 }

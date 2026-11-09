@@ -32,6 +32,8 @@ extension SettingsView {
                           integrations.agentHookStatus, integrations.knockHookStatus, integrations.skillStatus]
         let noClaudeAccount = IntegrationsCapture.noAccount(
             real: claudeRows.contains(.notInstalled) && integrations.noClaudeAccount)
+        let claudeSkipNote = noClaudeAccount ? L("No Claude account on this Mac, so Install all skips this row.") : nil
+        let codexSkipNote = noCodexAccount ? L("No Codex account on this Mac, so Install all skips this row.") : nil
         SettingsPage {
             VStack(alignment: .leading, spacing: 16) {
                 // The two whole-set buttons live in the header. The Shared harness is deliberately
@@ -56,9 +58,9 @@ extension SettingsView {
             // part of this page a build that may not install still has to be able to show.
             Group {
                 commandLineGroup(integrations, status: cliStatus, asksPassword: asksPassword)
-                statusLineGroup(integrations, noClaudeAccount: noClaudeAccount)
-                sessionsGroup(integrations, noClaudeAccount: noClaudeAccount, noCodexAccount: noCodexAccount)
-                claudeCodeGroup(integrations, noClaudeAccount: noClaudeAccount)
+                statusLineGroup(integrations, claudeSkipNote: claudeSkipNote)
+                sessionsGroup(integrations, claudeSkipNote: claudeSkipNote, codexSkipNote: codexSkipNote)
+                claudeCodeGroup(integrations, claudeSkipNote: claudeSkipNote)
             }
             .disabled(locked)
             SettingsSection(L("Harness"), symbol: "wrench.and.screwdriver") {
@@ -133,7 +135,7 @@ extension SettingsView {
     }
 
     /// The status line, with the toggle that decides what it prints riding in the same card.
-    private func statusLineGroup(_ integrations: IntegrationsStore, noClaudeAccount: Bool) -> some View {
+    private func statusLineGroup(_ integrations: IntegrationsStore, claudeSkipNote: String?) -> some View {
         SettingsSection(L("Status line"), symbol: "rectangle.bottomthird.inset.filled") {
             integrationRow(
                 title: L("Claude status line"), icon: "text.line.last.and.arrowtriangle.forward",
@@ -143,7 +145,7 @@ extension SettingsView {
                 install: integrations.installStatusLine,
                 remove: integrations.removeStatusLine,
                 warning: statusLineOverrideWarning(integrations.statusLineStatus),
-                skipNote: Self.skipNote("Claude", noClaudeAccount))
+                skipNote: claudeSkipNote)
             SettingsDivider()
             SettingsToggleRow(
                 title: L("Full quota in status line"), subtitle: L("Adds bars, percents and resets under a custom status line too."),
@@ -155,8 +157,8 @@ extension SettingsView {
 
     /// What a session that is already running reports back: who it is on, what it is doing, how many
     /// agents are under it, and when its account is running out.
-    private func sessionsGroup(_ integrations: IntegrationsStore, noClaudeAccount: Bool,
-                               noCodexAccount: Bool) -> some View {
+    private func sessionsGroup(_ integrations: IntegrationsStore, claudeSkipNote: String?,
+                               codexSkipNote: String?) -> some View {
         SettingsSection(L("Sessions"), symbol: "rectangle.stack") {
             integrationRow(
                 title: L("Claude session board"), icon: "circle.dotted.circle",
@@ -165,7 +167,7 @@ extension SettingsView {
                 status: integrations.notificationHookStatus,
                 install: integrations.installNotificationHook,
                 remove: integrations.removeNotificationHook,
-                skipNote: Self.skipNote("Claude", noClaudeAccount))
+                skipNote: claudeSkipNote)
             SettingsDivider()
             integrationRow(
                 title: L("Codex session status"), icon: "circle.dotted.circle",
@@ -174,7 +176,7 @@ extension SettingsView {
                 status: integrations.codexSessionHookStatus,
                 install: integrations.installCodexSessionHooks,
                 remove: integrations.removeCodexSessionHooks,
-                skipNote: Self.skipNote("Codex", noCodexAccount))
+                skipNote: codexSkipNote)
             SettingsDivider()
             integrationRow(
                 title: L("Claude subagent count"), icon: "person.3",
@@ -183,7 +185,7 @@ extension SettingsView {
                 status: integrations.agentHookStatus,
                 install: integrations.installAgentHooks,
                 remove: integrations.removeAgentHooks,
-                skipNote: Self.skipNote("Claude", noClaudeAccount))
+                skipNote: claudeSkipNote)
             SettingsDivider()
             integrationRow(
                 title: L("Claude quota warning"), icon: "exclamationmark.bubble",
@@ -192,7 +194,7 @@ extension SettingsView {
                 status: integrations.knockHookStatus,
                 install: integrations.installKnockHooks,
                 remove: integrations.removeKnockHooks,
-                skipNote: Self.skipNote("Claude", noClaudeAccount))
+                skipNote: claudeSkipNote)
             SettingsDivider()
             // An ACTION, not an install: last in its card so the install/remove set stays whole, and
             // here rather than in the panel footer, where a second circular-arrow control next to
@@ -203,7 +205,7 @@ extension SettingsView {
 
     /// What Claude Code is taught about this machine: which account Claude in Chrome is signed in to,
     /// and how to answer quota questions on its own.
-    private func claudeCodeGroup(_ integrations: IntegrationsStore, noClaudeAccount: Bool) -> some View {
+    private func claudeCodeGroup(_ integrations: IntegrationsStore, claudeSkipNote: String?) -> some View {
         // A product name, deliberately not a catalog key: every entry that contains it keeps it
         // verbatim in all four languages (see "Claude Code skill").
         SettingsSection("Claude Code", icon: { ProviderIconView(providerID: "claude", size: 16) }) {
@@ -214,7 +216,7 @@ extension SettingsView {
                 status: integrations.skillStatus,
                 install: integrations.installSkill,
                 remove: integrations.removeSkill,
-                skipNote: Self.skipNote("Claude", noClaudeAccount))
+                skipNote: claudeSkipNote)
             SettingsDivider()
             SettingsChromeAccountRow(store: store, settings: settings)
         }
@@ -340,13 +342,6 @@ extension SettingsView {
                 SettingsSubRow(title: skipNote)
             }
         }
-    }
-
-    /// A literal per provider: the catalog scan reads each literal key, so no name is spliced in.
-    private static func skipNote(_ provider: String, _ skips: Bool) -> String? {
-        guard skips else { return nil }
-        return provider == "Codex" ? L("No Codex account on this Mac, so Install all skips this row.")
-                                   : L("No Claude account on this Mac, so Install all skips this row.")
     }
 
     /// "Installed" speaks for the user's settings.json, and a project folder's own `statusLine`

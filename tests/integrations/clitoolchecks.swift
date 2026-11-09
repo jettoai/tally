@@ -497,8 +497,8 @@ func runCLIToolChecks(tmp: URL) throws {
               && !settings.contains("IntegrationsStore.codexSessionHomes()")
               && settings.contains("if let skipNote, status == .notInstalled {"))
     check("…all five Claude rows and the Codex row carry the note",
-          settings.components(separatedBy: "skipNote: Self.skipNote(\"Claude\", noClaudeAccount)").count == 6
-              && settings.components(separatedBy: "skipNote: Self.skipNote(\"Codex\", noCodexAccount)").count == 2)
+          settings.components(separatedBy: "skipNote: claudeSkipNote)").count == 6
+              && settings.components(separatedBy: "skipNote: codexSkipNote)").count == 2)
     check("…and Install all's hover adds a sentence for each, under the same conditions",
           settings.contains("if skipsCodex { tip += \" \" + L(\"Without a Codex account on this Mac, Codex session status is skipped.\") }")
               && settings.contains("if skipsClaude { tip += \" \" + L(\"Without a Claude account on this Mac, the Claude rows are skipped.\") }"))

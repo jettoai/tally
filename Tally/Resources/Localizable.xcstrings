@@ -17293,6 +17293,76 @@
         }
       }
     },
+    "tmux is running at low priority": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 正以低優先級執行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 正以低优先级运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux が低い優先度で動作しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux가 낮은 우선순위로 실행 중입니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux düşük öncelikle çalışıyor"
+          }
+        }
+      }
+    },
+    "tmux runs at priority %@ (normal is 31), so the Claude and Codex sessions under it are scheduled onto the slow cores. Restarting tmux restores it. Save your work before you restart.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 的優先級為 %@（正常為 31），底下的 Claude 與 Codex 工作階段會被排到較慢的核心。重新啟動 tmux 才會恢復，重啟前請先存好工作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 的优先级为 %@（正常为 31），其下的 Claude 与 Codex 会话会被调度到较慢的核心。重新启动 tmux 才会恢复，重启前请先保存好工作。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux の優先度は %@ です（通常は 31）。配下の Claude と Codex のセッションは低速なコアに割り当てられます。tmux を再起動すると元に戻ります。再起動する前に作業を保存してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux의 우선순위가 %@입니다(정상은 31). 그 아래의 Claude와 Codex 세션이 느린 코어에 배정됩니다. tmux를 다시 시작하면 복구됩니다. 다시 시작하기 전에 작업을 저장하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux %@ önceliğinde çalışıyor (normal 31), bu yüzden altındaki Claude ve Codex oturumları yavaş çekirdeklere yerleştiriliyor. tmux'u yeniden başlatmak durumu düzeltir. Yeniden başlatmadan önce çalışmanı kaydet."
+          }
+        }
+      }
+    },
     "Reset used": {
       "extractionState": "manual",
       "localizations": {

@@ -49,7 +49,13 @@ struct SettingsAccountsView: View {
         // here is what fills the list on a cold start (the relaunch an update performs) instead of
         // leaving it empty for those seconds. Idempotent in the store, which is what lets it hang
         // off a ForEach that runs it once per provider group.
-        .onAppear { store.ensureDiscovered() }
+        .onAppear {
+            store.ensureDiscovered()
+            // Capture launches only (`-TallySettingsCapture accounts:add`): the sheet has no other way in.
+            if SettingsCaptureLaunch.opensAddAccount, let first = ProviderCatalog.descriptors.first?.id {
+                beginAddAccount(first)
+            }
+        }
         // Merged, not assigned: each provider's card reports only its own rows.
         .onPreferenceChange(CardFramePreferenceKey.self) { rowFrames.merge($0) { $1 } }
         // The floating copy of the row in hand, above both cards, tracking the pointer.

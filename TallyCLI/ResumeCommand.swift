@@ -17,9 +17,22 @@ import Foundation
 /// verified 2026-07-16: account 2 resumed account 1's session and recalled its content.
 func runResume(args: [String]) -> Never {
     let provider = providers[0]   // claude only for now
-    // Tally's own flag, never passed through: the one way to resume under a reserve (B-1213).
-    let spendReserve = optionsOnly(args).contains(spendReserveFlag)
-    let args = removingOption(args, spendReserveFlag)
+    // Tally's own flags (`--spend-reserve`, B-1213; `--no-handoff`, `--no-follow`) are read here and
+    // never passed through; `intent.passthrough` is what is left for claude.
+    let stdoutIsTTY = isatty(STDOUT_FILENO) == 1
+    let intent = launchIntent(provider, args: args, accountFlag: nil, stdoutIsTTY: stdoutIsTTY)
+    let spendReserve = intent.spendReserve
+    // A word typed here is the ONE conversation to resume, never a prompt: left in the argv, claude
+    // submits it into the conversation as the initial prompt (B-4281: 30 sessions each got their own
+    // UUID as a message). More than one name is a mistake to refuse, not to guess at.
+    let request: (sessionID: String?, passthrough: [String])
+    switch resumeRequest(intent.passthrough) {
+    case .success(let parsed): request = parsed
+    case .failure(let error):
+        warn(error.message)
+        exit(2)
+    }
+    let args = request.passthrough
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     guard let snapshot else { exit(1) }
@@ -31,8 +44,15 @@ func runResume(args: [String]) -> Never {
     var newest: (account: Snapshot.Account, file: URL, modified: Date)?
     for account in claudeAccounts {
         let dir = URL(fileURLWithPath: account.launchHome!).appendingPathComponent("projects/\(slug)")
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let files: [URL]
+        if let id = request.sessionID {
+            // A name is a file name here: one with a slash would reach outside the project folder.
+            files = id.contains("/") ? [] : [dir.appendingPathComponent("\(id).jsonl")]
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+        } else {
+            files = (try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        }
         for file in files where file.pathExtension == "jsonl" {
             let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate ?? .distantPast
@@ -42,6 +62,12 @@ func runResume(args: [String]) -> Never {
         }
     }
     guard let newest else {
+        // A named conversation that is not here is never swapped for the newest one: that is the
+        // wrong conversation brought back, which is worse than none.
+        if let id = request.sessionID {
+            warn("no Claude conversation \(id) in this directory")
+            exit(2)
+        }
         warn("no Claude session found for this directory")
         exit(1)
     }
@@ -110,6 +136,14 @@ func runResume(args: [String]) -> Never {
 
     warn("→ resuming \(sessionID.prefix(8))… from \(newest.account.label) on \(target.label) " +
          "(\(pickReason(target, primaryModel: primaryModel)))")
-    launchProvider(provider, args: ["--resume", sessionID] + resumeArgs, home: target.launchHome!,
+    // The account is one Tally picked, so the session is supervised like `tally claude` supervises
+    // one (shows in `tally status --json`, moves accounts again); a pipe, `--print` or `--no-handoff`
+    // stays a plain exec.
+    let launchArgs = ["--resume", sessionID] + resumeArgs
+    if case .handoff = supervision(provider, intent: intent, route: .pick) {
+        runSupervised(provider, account: target, args: launchArgs, follow: intent.follow,
+                      spendReserve: spendReserve)
+    }
+    launchProvider(provider, args: launchArgs, home: target.launchHome!,
                    env: launchEnv(provider, home: target.launchHome!))
 }

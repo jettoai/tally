@@ -420,8 +420,8 @@ func chromeLaunchNotice(_ row: Snapshot.Account) -> String {
 /// home with no row stay plain execs. Codex's monitor never moves the window off its home, so it
 /// runs on every route: an exported home, a pin missing from the snapshot and a bare launch are
 /// windows `tally session` still has to reach (B-1736).
-private func supervision(_ provider: Provider, intent: LaunchIntent,
-                         route: LaunchDecision.Route) -> LaunchDecision.Supervision {
+func supervision(_ provider: Provider, intent: LaunchIntent,
+                 route: LaunchDecision.Route) -> LaunchDecision.Supervision {
     if intent.oneShot { return .none(.oneShot) }
     if !intent.autoHandoff { return .none(.optedOut) }
     if provider.id == "codex" { return .monitor }

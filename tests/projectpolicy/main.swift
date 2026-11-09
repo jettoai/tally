@@ -315,12 +315,12 @@ check("resume injects the launch defaults it scored with",
 check("…scores off that same vector",
       resumeSource.contains("launchPrimaryModel(resumeArgs, providerID: provider.id)"))
 check("…and execs that same vector, not the raw args",
-      resumeSource.contains("args: [\"--resume\", sessionID] + resumeArgs")
-          && !resumeSource.contains("args: [\"--resume\", sessionID] + args"))
+      resumeSource.contains("let launchArgs = [\"--resume\", sessionID] + resumeArgs")
+          && !resumeSource.contains("[\"--resume\", sessionID] + args"))
 // B-1213: falling back to the account the conversation is on is a placement nobody named, so a
 // reserve refuses it; `--spend-reserve` is resume's own flag and is stripped before the args run.
 check("resume strips --spend-reserve before the args pass through",
-      resumeSource.contains("let args = removingOption(args, spendReserveFlag)"))
+      resumeSource.contains("let spendReserve = intent.spendReserve"))
 check("…and refuses the fallback onto an account under its line without it",
       resumeSource.contains("if !spendReserve, let refusal = namedReserveRefusal(target,")
           && resumeSource.contains("warn(hold.map { reserveHoldNotice($0, providerID: provider.id) }"))

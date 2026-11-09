@@ -110,15 +110,23 @@ func childFlagArity(_ flag: String) -> ChildFlagArity {
 /// tail goes, marker included. How many words each flag actually takes comes from the arity table
 /// above, read out of the CLI binary, rather than from a rule of thumb.
 func withoutPositionals(_ args: [String]) -> [String] {
+    splitPositionals(args).options
+}
+
+/// The one parse behind `withoutPositionals`: `args` before any bare `--` split into the options
+/// (with their values) and the positional words, each in typed order. The tail past `--` is in
+/// neither; a caller that wants it reads it as `args[optionsOnly(args).count...]`.
+func splitPositionals(_ args: [String]) -> (options: [String], positionals: [String]) {
     let options = optionsOnly(args)
     var kept: [String] = []
+    var positionals: [String] = []
     var index = 0
     while index < options.count {
         let token = options[index]
         index += 1
         // A bare "-" is not an option (it is the conventional name for stdin), and anything not
         // starting with a dash is the prompt.
-        guard token.hasPrefix("-"), token != "-" else { continue }
+        guard token.hasPrefix("-"), token != "-" else { positionals.append(token); continue }
         kept.append(token)
         // The words behind it are its values: none, one, or as many as follow before the next flag
         // (`childFlagArity`). A word that is itself a flag is never a value, which is the same rule
@@ -131,7 +139,38 @@ func withoutPositionals(_ args: [String]) -> [String] {
             if arity == .one { break }
         }
     }
-    return kept
+    return (kept, positionals)
+}
+
+/// Why `tally resume`'s arguments were refused.
+enum ResumeArgError: Error, Equatable {
+    case moreThanOneName([String])
+
+    var message: String {
+        switch self {
+        case .moreThanOneName(let names):
+            return "tally resume takes one conversation id, got \(names.count) (\(names.joined(separator: " "))); " +
+                "usage: tally resume [session-id] [claude options] [-- prompt]"
+        }
+    }
+}
+
+/// What `tally resume` was asked: the one conversation it names (nil = this directory's latest, the
+/// default) and the args left to pass through, which carry no positional before a bare `--`. The
+/// name is a positional or a hand-typed `--resume <id>` / `-r <id>` (a second `--resume` beside the
+/// one Tally adds would be two start modes); a hand-typed `--continue` is the default already and
+/// goes. Past `--` is the user's own prompt and stays as it is.
+func resumeRequest(_ args: [String])
+    -> Result<(sessionID: String?, passthrough: [String]), ResumeArgError> {
+    let options = optionsOnly(args)
+    let tail = Array(args[options.count...])
+    // The value is the next word unless that is another flag (the reading `removingHandTypedSession` uses).
+    let typed = (flagValue(options, "--resume") ?? flagValue(options, "-r"))
+        .flatMap { $0.hasPrefix("-") ? nil : $0 }
+    let (kept, words) = splitPositionals(removingHandTypedSession(options))
+    let names = (typed.map { [$0] } ?? []) + words
+    guard names.count <= 1 else { return .failure(.moreThanOneName(names)) }
+    return .success((names.first, kept + tail))
 }
 
 /// The launch args a relaunch runs with. A known session id resumes that conversation. With no id

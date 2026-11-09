@@ -381,10 +381,10 @@ _tally() {
           )
           _arguments $_tally_specs "*: :_tally_rest"
           ;;
-        # Named with nothing to say, on purpose. Everything typed after `resume` is appended to the
-        # claude invocation `runResume` execs (main.swift) and tally has no flag of its own there,
-        # so there is nothing to suggest - and the branch says so out loud, because the last reader
-        # to find it empty filled it with file completion.
+        # Named with nothing to say, on purpose. The one word `runResume` takes is a conversation id
+        # (never passed on to claude as a prompt) and the rest is appended to the claude invocation it
+        # runs; tally has no flag of its own there, so there is nothing to suggest - and the branch
+        # says so out loud, because the last reader to find it empty filled it with file completion.
         (resume) ;;
         (worktree) _tally_worktree_command ;;
         (project) _tally_project_command ;;

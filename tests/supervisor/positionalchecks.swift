@@ -64,6 +64,52 @@ func runPositionalChecks(account movedTo: Snapshot.Account) {
           withoutPositionals(["summarise", "this"]) == [])
     check("a bare - is a name, not an option", withoutPositionals(["-"]) == [])
     check("an empty vector stays empty", withoutPositionals([]) == [])
+    // MARK: - `tally resume` names ONE conversation and never sends a word as a prompt (B-4281)
+
+    // 30 sessions on 2026-11-08 each got their own UUID submitted as a message: `tally resume <id>`
+    // built `claude --resume <newest> <id> ...`, and the second id is the initial prompt.
+    let split = splitPositionals(["a", "--model", "opus", "b", "--", "c"])
+    check("the shared parse hands back options and words separately, the tail in neither",
+          split.options == ["--model", "opus"] && split.positionals == ["a", "b"])
+    func resume(_ args: [String]) -> (id: String?, args: [String])? {
+        if case .success(let ok) = resumeRequest(args) { return (ok.sessionID, ok.passthrough) }
+        return nil
+    }
+    let uuid = "d1504385-d620-428b-8cbb-66e9e5aa60f6"
+    check("a bare resume names nothing and passes nothing",
+          resume([])?.id == nil && resume([])?.args == [])
+    check("one word is the conversation and is NOT passed on",
+          resume([uuid])?.id == uuid && resume([uuid])?.args == [])
+    check("the id may stand before the options",
+          resume([uuid, "--model", "opus"])?.id == uuid
+              && resume([uuid, "--model", "opus"])?.args == ["--model", "opus"])
+    check("or after them",
+          resume(["--model", "opus", uuid])?.id == uuid
+              && resume(["--model", "opus", uuid])?.args == ["--model", "opus"])
+    check("a hand-typed --resume is the name, not a second start mode",
+          resume(["--resume", uuid])?.id == uuid && resume(["--resume", uuid])?.args == []
+              && resume(["-r", uuid, "--effort", "high"])?.args == ["--effort", "high"])
+    check("a --resume with no value names nothing and leaves the next flag alone",
+          resume(["--resume", "--model", "opus"])?.id == nil
+              && resume(["--resume", "--model", "opus"])?.args == ["--model", "opus"])
+    check("a hand-typed --continue is the default already and goes",
+          resume(["-c", "--model", "opus"])?.id == nil
+              && resume(["--continue", "--model", "opus"])?.args == ["--model", "opus"])
+    check("the user's own prompt after -- stays where they put it",
+          resume([uuid, "--", "hi"])?.id == uuid && resume([uuid, "--", "hi"])?.args == ["--", "hi"])
+    check("a variadic flag's values are values, not names",
+          resume(["--add-dir", "a", "b"])?.id == nil
+              && resume(["--add-dir", "a", "b"])?.args == ["--add-dir", "a", "b"])
+    func refusal(_ args: [String]) -> ResumeArgError? {
+        if case .failure(let error) = resumeRequest(args) { return error }
+        return nil
+    }
+    check("two names are refused, not guessed at",
+          refusal([uuid, "other"]) == .moreThanOneName([uuid, "other"])
+              && refusal(["--resume", uuid, "other"]) == .moreThanOneName([uuid, "other"]))
+    check("…and the refusal says how to type it",
+          ResumeArgError.moreThanOneName(["a", "b"]).message.contains("usage: tally resume [session-id]"))
+
     // Order is not assumed: a prompt can sit before the flags as easily as after them.
     check("a prompt in front of the options is stripped just the same",
           withoutPositionals(["do the thing", "--model", "fable"]) == ["--model", "fable"])

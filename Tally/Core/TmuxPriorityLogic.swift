@@ -31,24 +31,12 @@ enum TmuxPriorityLogic {
         isLow(priority) && hasAgent
     }
 
-    /// Whether an executable path is Claude Code or Codex. The last component names the program,
-    /// except when it is a version number: Claude Code has installed itself as
-    /// `~/.local/share/claude/versions/2.1.233`, so the walk continues up through the installer's
-    /// container words (the rule `ProcessTree.displayName(forPath:)` applies).
+    /// Whether an executable path is Claude Code or Codex, named the way `ProcessTree.displayName`
+    /// names it: Claude Code has installed itself as `~/.local/share/claude/versions/2.1.233`, so a
+    /// version number is walked past to the program it belongs to.
     static func isAgentPath(_ path: String) -> Bool {
-        var parts = path.split(separator: "/").map(String.init)
-        guard var name = parts.popLast() else { return false }
-        while isVersionNumber(name) || ["versions", "bin"].contains(name.lowercased()) {
-            guard let next = parts.popLast() else { return false }
-            name = next
-        }
+        guard let name = ProcessTree.displayName(forPath: path) else { return false }
         return ["claude", "codex"].contains(name.lowercased())
-    }
-
-    private static func isVersionNumber(_ name: String) -> Bool {
-        var digits = Substring(name)
-        if digits.hasPrefix("v") { digits = digits.dropFirst() }
-        return digits.contains(where: \.isNumber) && digits.allSatisfy { $0.isNumber || $0 == "." }
     }
 
     /// Every descendant of `root` given each pid's parent, breadth first. A cycle (a recycled pid

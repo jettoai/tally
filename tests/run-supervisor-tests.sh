@@ -58,6 +58,7 @@
 # this suite already compiles is what drives the app-side sampler, so ProcessFootprintTiming.swift
 # will not build without the monitor behind it. SystemAlert.swift comes with the monitor, being the
 # one notification call it makes.
+# The tmux priority guard (TmuxPriority*.swift) is compiled here for the same reason: the footprint timer ticks it.
 #
 # Usage.swift is compiled for two string constants rather than for any behaviour: `tally help` is
 # the surface `tally send` had to be added to, and the assertion that it WAS is a string check
@@ -185,6 +186,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/KeystrokeText.swift \
   Tally/Core/HostHealthNaming.swift Tally/Core/HostHealthMonitor.swift Tally/Core/HostLoadHistory.swift Tally/Core/HostLoadHistoryWriter.swift Tally/Core/HostAlarmMirror.swift Tally/Core/SystemAlert.swift \
   Tally/Core/CPUAlertLogic.swift Tally/Core/CPUAlertBreakdown.swift Tally/Core/CPUAlertReaders.swift Tally/Core/CPUAlertCommandLog.swift Tally/Core/CPUAlertCommandReaders.swift Tally/Core/CPUAlertMonitor.swift \
+  Tally/Core/TmuxPriorityLogic.swift Tally/Core/TmuxPriorityReaders.swift Tally/Core/TmuxPriorityMonitor.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/CodexHandoff.swift TallyCLI/CodexHandoffCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \

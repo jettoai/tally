@@ -351,9 +351,9 @@ let beforeStrip = aroundStrip.first ?? ""
 let afterStrip = aroundStrip.dropFirst().first ?? ""
 let scrollOpen = beforeStrip.range(of: "ScrollView(.vertical) {", options: .backwards)
 let openToStrip = scrollOpen.map { String(beforeStrip[$0.upperBound...]) } ?? ""
-let stripToClose = afterStrip.components(separatedBy: ".frame(minHeight: hintRoom").first ?? ""
+let stripToClose = afterStrip.components(separatedBy: ".frame(width: popoverWidth, alignment: .leading)").first ?? ""
 check(scrollOpen != nil && openToStrip.contains("accountPoolTitle") && openToStrip.contains("content }")
-        && !stripToClose.contains("ScrollView(.vertical)") && afterStrip.contains(".frame(minHeight: hintRoom"),
+        && !stripToClose.contains("ScrollView(.vertical)") && afterStrip.contains(".frame(width: popoverWidth, alignment: .leading)"),
       "the panel puts its machine strip inside the scroll view, after the account title and the cards")
 let noticesPart = beforeStrip.components(separatedBy: "ScrollView(.vertical) {").dropLast().last ?? ""
 check(noticesPart.contains("ErrorReportingNoticeStrip()") && noticesPart.contains(".fixedSize(horizontal: false, vertical: true)"),

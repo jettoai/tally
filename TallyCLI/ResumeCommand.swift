@@ -47,8 +47,8 @@ func runResume(args: [String]) -> Never {
         let files: [URL]
         if let id = request.sessionID {
             // A name is a file name here: one with a slash would reach outside the project folder.
-            files = id.contains("/") ? [] : [dir.appendingPathComponent("\(id).jsonl")]
-                .filter { FileManager.default.fileExists(atPath: $0.path) }
+            let file = dir.appendingPathComponent("\(id).jsonl")
+            files = !id.contains("/") && FileManager.default.fileExists(atPath: file.path) ? [file] : []
         } else {
             files = (try? FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []

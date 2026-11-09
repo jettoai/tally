@@ -28647,6 +28647,146 @@
         }
       }
     },
+    "No Codex account on this Mac, so Install all skips this row.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 沒有 Codex 帳號，所以「全部安裝」會跳過這一列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 没有 Codex 账号，所以「全部安装」会跳过这一行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Codex アカウントがないため、「すべてインストール」はこの行をスキップします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 Codex 계정이 없어서 「모두 설치」가 이 행을 건너뜁니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Codex hesabı olmadığı için Tümünü yükle bu satırı atlar."
+          }
+        }
+      }
+    },
+    "Without a Codex account on this Mac, Codex session status is skipped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 沒有 Codex 帳號，會跳過「Codex 工作階段狀態」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 没有 Codex 账号，会跳过「Codex 会话状态」。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Codex アカウントがないため、「Codex セッションの状態」はスキップされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 Codex 계정이 없어서 「Codex 세션 상태」는 건너뜁니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Codex hesabı olmadığından Codex oturum durumu atlanır."
+          }
+        }
+      }
+    },
+    "No Claude account on this Mac, so Install all skips this row.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 沒有 Claude 帳號，所以「全部安裝」會跳過這一列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 没有 Claude 账号，所以「全部安装」会跳过这一行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Claude アカウントがないため、「すべてインストール」はこの行をスキップします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 Claude 계정이 없어서 「모두 설치」가 이 행을 건너뜁니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Claude hesabı olmadığı için Tümünü yükle bu satırı atlar."
+          }
+        }
+      }
+    },
+    "Without a Claude account on this Mac, the Claude rows are skipped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 沒有 Claude 帳號，會跳過各個 Claude 列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 没有 Claude 账号，会跳过各个 Claude 行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Claude アカウントがないため、Claude の各行はスキップされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 Claude 계정이 없어서 Claude 행들은 건너뜁니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Claude hesabı olmadığından Claude satırları atlanır."
+          }
+        }
+      }
+    },
     "Ghostty is not installed, so Tally could not open this session's terminal. Install Ghostty from ghostty.org, then click the session again.": {
       "extractionState": "manual",
       "localizations": {

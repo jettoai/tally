@@ -96,6 +96,11 @@ final class IntegrationsStore {
     /// (IntegrationsKnockHook.swift), instead of it being typed into their terminal.
     private(set) var knockHookStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
+    /// No Claude / no Codex account on this Mac, read off the same lists `refresh()` hands the detects
+    /// (no scan of its own), so the page can say Install all skips those rows without touching disk or
+    /// the Keychain on every redraw (B-4196).
+    private(set) var noClaudeAccount = false
+    private(set) var noCodexAccount = false
     /// Whether the other accounts run on the main account's harness (IntegrationsSharedHarness).
     /// Optional because a one-account machine has no row here at all, rather than an empty one.
     private(set) var sharedHarnessStatus: Status?
@@ -126,11 +131,16 @@ final class IntegrationsStore {
         cliToolStatus = Self.detectCLITool(cliToolPresence)
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         let cli = quotaKnockCLIDeliverable()
-        statusLineStatus = Self.requiringCLI(Self.detectStatusLine(), cliDeliverable: cli)
-        notificationHookStatus = Self.requiringCLI(Self.detectNotificationHook(), cliDeliverable: cli)
-        codexSessionHookStatus = Self.requiringCLI(Self.detectCodexSessionHooks(), cliDeliverable: cli)
-        agentHookStatus = Self.requiringCLI(Self.detectAgentHooks(), cliDeliverable: cli)
-        knockHookStatus = Self.requiringCLI(Self.detectKnockHooks(), cliDeliverable: cli)
+        // One scan of the accounts for all four Claude detects, one for the Codex one.
+        let claudeFiles = Self.claudeSettingsFiles()
+        let codexHomes = Self.codexSessionHomes()
+        noClaudeAccount = claudeFiles.isEmpty
+        noCodexAccount = codexHomes.isEmpty
+        statusLineStatus = Self.requiringCLI(Self.detectStatusLine(files: claudeFiles), cliDeliverable: cli)
+        notificationHookStatus = Self.requiringCLI(Self.detectNotificationHook(discovered: claudeFiles), cliDeliverable: cli)
+        codexSessionHookStatus = Self.requiringCLI(Self.detectCodexSessionHooks(homes: codexHomes), cliDeliverable: cli)
+        agentHookStatus = Self.requiringCLI(Self.detectAgentHooks(discovered: claudeFiles), cliDeliverable: cli)
+        knockHookStatus = Self.requiringCLI(Self.detectKnockHooks(discovered: claudeFiles), cliDeliverable: cli)
         skillStatus = Self.detectSkill()
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()
@@ -226,8 +236,7 @@ final class IntegrationsStore {
         }
     }
 
-    private static func detectStatusLine() -> Status {
-        let files = claudeSettingsFiles()
+    private static func detectStatusLine(files: [URL]) -> Status {
         guard !files.isEmpty else { return .notInstalled }
         var ours = 0
         for file in files {

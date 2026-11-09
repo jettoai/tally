@@ -333,8 +333,8 @@ extension IntegrationsStore {
                        mayCarry: settingsMayCarryKnockHooks)
     }
 
-    static func detectKnockHooks() -> Status {
-        detectKnockHooks(discovered: claudeSettingsFiles(),
+    static func detectKnockHooks(discovered: [URL]) -> Status {
+        detectKnockHooks(discovered: discovered,
                          remembered: manifestPaths(knockHookManifest))
     }
 

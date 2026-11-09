@@ -7,9 +7,9 @@ extension IntegrationsStore {
         CodexAccounts.discover().compactMap(\.launchHome)
     }
 
-    static func detectCodexSessionHooks() -> Status {
+    static func detectCodexSessionHooks(homes: [String]) -> Status {
         do {
-            if try CodexSessionHooks.installed(homes: codexSessionHomes(), root: codexSessionRoot) {
+            if try CodexSessionHooks.installed(homes: homes, root: codexSessionRoot) {
                 return .installed
             }
             return try CodexSessionHooks.receipt(root: codexSessionRoot) == nil

@@ -197,6 +197,9 @@ enum CaptureLaunch {
                                // Qualifies TallySettingsCapture the same way: the two rows Install all
                                // leaves out show their "Not part of Install all" line (B-4196).
                                "TallyShowNotInInstallAll",
+                               // Qualifies TallySettingsCapture the same way: the Codex and Claude rows
+                               // say Install all skips them on a Mac with no such account (B-4196).
+                               "TallyShowNoAccountNote",
                                // Qualifies TallyPanelCapture the same way: the session board shows the
                                // "Ghostty is not installed" line (B-4194).
                                "TallyGhosttyMissingPreview",

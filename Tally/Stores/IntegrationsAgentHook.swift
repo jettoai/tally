@@ -276,8 +276,8 @@ extension IntegrationsStore {
                        mayCarry: settingsMayCarryAgentHooks)
     }
 
-    static func detectAgentHooks() -> Status {
-        detectAgentHooks(discovered: claudeSettingsFiles(),
+    static func detectAgentHooks(discovered: [URL]) -> Status {
+        detectAgentHooks(discovered: discovered,
                          remembered: manifestPaths(agentHookManifest))
     }
 

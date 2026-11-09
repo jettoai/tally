@@ -292,8 +292,8 @@ extension IntegrationsStore {
             .filter { known.contains($0.resolvingSymlinksInPath().path) || mayCarry($0) }
     }
 
-    static func detectNotificationHook() -> Status {
-        detectNotificationHook(discovered: claudeSettingsFiles(),
+    static func detectNotificationHook(discovered: [URL]) -> Status {
+        detectNotificationHook(discovered: discovered,
                                remembered: manifestPaths(notificationHookManifest))
     }
 

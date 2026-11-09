@@ -24,6 +24,14 @@ extension SettingsView {
         let cliStatus = IntegrationsCapture.cliToolStatus(integrations.cliToolStatus)
         let asksPassword = cliStatus != .installed
             && (IntegrationsCapture.cliNeedsAdministrator ?? integrations.cliNeedsAdministrator)
+        // Install all cannot fill a row on a Mac with no account of its provider, so rows and hover say
+        // so (B-4196). Read off the store, which looks once per refresh() at the lists the installs get.
+        let noCodexAccount = IntegrationsCapture.noAccount(
+            real: integrations.codexSessionHookStatus == .notInstalled && integrations.noCodexAccount)
+        let claudeRows = [integrations.statusLineStatus, integrations.notificationHookStatus,
+                          integrations.agentHookStatus, integrations.knockHookStatus, integrations.skillStatus]
+        let noClaudeAccount = IntegrationsCapture.noAccount(
+            real: claudeRows.contains(.notInstalled) && integrations.noClaudeAccount)
         SettingsPage {
             VStack(alignment: .leading, spacing: 16) {
                 // The two whole-set buttons live in the header. The Shared harness is deliberately
@@ -31,7 +39,7 @@ extension SettingsView {
                 IntegrationsHeader(
                     missing: installAllActions(integrations, statuses: statuses, entries: entries),
                     installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 },
-                    asksPassword: asksPassword)
+                    asksPassword: asksPassword, skipsCodex: noCodexAccount, skipsClaude: noClaudeAccount)
                     .disabled(locked)
                 // A build nobody installed observes but never mutates the shared integrations (hard-gated
                 // in IntegrationsStore too); say so instead of offering buttons that refuse.
@@ -48,9 +56,9 @@ extension SettingsView {
             // part of this page a build that may not install still has to be able to show.
             Group {
                 commandLineGroup(integrations, status: cliStatus, asksPassword: asksPassword)
-                statusLineGroup(integrations)
-                sessionsGroup(integrations)
-                claudeCodeGroup(integrations)
+                statusLineGroup(integrations, noClaudeAccount: noClaudeAccount)
+                sessionsGroup(integrations, noClaudeAccount: noClaudeAccount, noCodexAccount: noCodexAccount)
+                claudeCodeGroup(integrations, noClaudeAccount: noClaudeAccount)
             }
             .disabled(locked)
             SettingsSection(L("Harness"), symbol: "wrench.and.screwdriver") {
@@ -125,7 +133,7 @@ extension SettingsView {
     }
 
     /// The status line, with the toggle that decides what it prints riding in the same card.
-    private func statusLineGroup(_ integrations: IntegrationsStore) -> some View {
+    private func statusLineGroup(_ integrations: IntegrationsStore, noClaudeAccount: Bool) -> some View {
         SettingsSection(L("Status line"), symbol: "rectangle.bottomthird.inset.filled") {
             integrationRow(
                 title: L("Claude status line"), icon: "text.line.last.and.arrowtriangle.forward",
@@ -134,7 +142,8 @@ extension SettingsView {
                 status: integrations.statusLineStatus,
                 install: integrations.installStatusLine,
                 remove: integrations.removeStatusLine,
-                warning: statusLineOverrideWarning(integrations.statusLineStatus))
+                warning: statusLineOverrideWarning(integrations.statusLineStatus),
+                skipNote: Self.skipNote("Claude", noClaudeAccount))
             SettingsDivider()
             SettingsToggleRow(
                 title: L("Full quota in status line"), subtitle: L("Adds bars, percents and resets under a custom status line too."),
@@ -146,7 +155,8 @@ extension SettingsView {
 
     /// What a session that is already running reports back: who it is on, what it is doing, how many
     /// agents are under it, and when its account is running out.
-    private func sessionsGroup(_ integrations: IntegrationsStore) -> some View {
+    private func sessionsGroup(_ integrations: IntegrationsStore, noClaudeAccount: Bool,
+                               noCodexAccount: Bool) -> some View {
         SettingsSection(L("Sessions"), symbol: "rectangle.stack") {
             integrationRow(
                 title: L("Claude session board"), icon: "circle.dotted.circle",
@@ -154,7 +164,8 @@ extension SettingsView {
                 info: L("Lets the panel show which sessions are working, waiting on you, or idle, and puts a red dot in the menu bar while one is waiting. Installs one Notification hook entry per Claude account; anything already registered for that event keeps running, and only Tally's entry is removed."),
                 status: integrations.notificationHookStatus,
                 install: integrations.installNotificationHook,
-                remove: integrations.removeNotificationHook)
+                remove: integrations.removeNotificationHook,
+                skipNote: Self.skipNote("Claude", noClaudeAccount))
             SettingsDivider()
             integrationRow(
                 title: L("Codex session status"), icon: "circle.dotted.circle",
@@ -162,7 +173,8 @@ extension SettingsView {
                 info: L("Shows working and idle states for interactive sessions started with tally codex. Install the hooks, then review them in Codex /hooks. Until trusted events arrive, status stays unknown. Changing accounts or models requires restarting the session."),
                 status: integrations.codexSessionHookStatus,
                 install: integrations.installCodexSessionHooks,
-                remove: integrations.removeCodexSessionHooks)
+                remove: integrations.removeCodexSessionHooks,
+                skipNote: Self.skipNote("Codex", noCodexAccount))
             SettingsDivider()
             integrationRow(
                 title: L("Claude subagent count"), icon: "person.3",
@@ -170,7 +182,8 @@ extension SettingsView {
                 info: L("Adds the number of subagents working under each session to its card, which nothing on this machine can see from the outside. Installs three hook entries per Claude account (SubagentStart, SubagentStop and Stop); anything already registered for those events keeps running, and only Tally's entries are removed."),
                 status: integrations.agentHookStatus,
                 install: integrations.installAgentHooks,
-                remove: integrations.removeAgentHooks)
+                remove: integrations.removeAgentHooks,
+                skipNote: Self.skipNote("Claude", noClaudeAccount))
             SettingsDivider()
             integrationRow(
                 title: L("Claude quota warning"), icon: "exclamationmark.bubble",
@@ -178,7 +191,8 @@ extension SettingsView {
                 info: L("Tells a session that the account under it is running low, in its own context, at the moment it next submits a prompt or calls a tool. Without this the same sentence has to be typed into the terminal, which cannot happen while the session is mid-turn. Installs two hook entries per Claude account (UserPromptSubmit and PostToolUse); anything already registered for those events keeps running, and only Tally's entries are removed."),
                 status: integrations.knockHookStatus,
                 install: integrations.installKnockHooks,
-                remove: integrations.removeKnockHooks)
+                remove: integrations.removeKnockHooks,
+                skipNote: Self.skipNote("Claude", noClaudeAccount))
             SettingsDivider()
             // An ACTION, not an install: last in its card so the install/remove set stays whole, and
             // here rather than in the panel footer, where a second circular-arrow control next to
@@ -189,7 +203,7 @@ extension SettingsView {
 
     /// What Claude Code is taught about this machine: which account Claude in Chrome is signed in to,
     /// and how to answer quota questions on its own.
-    private func claudeCodeGroup(_ integrations: IntegrationsStore) -> some View {
+    private func claudeCodeGroup(_ integrations: IntegrationsStore, noClaudeAccount: Bool) -> some View {
         // A product name, deliberately not a catalog key: every entry that contains it keeps it
         // verbatim in all four languages (see "Claude Code skill").
         SettingsSection("Claude Code", icon: { ProviderIconView(providerID: "claude", size: 16) }) {
@@ -199,7 +213,8 @@ extension SettingsView {
                 info: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds one command: /tally moves a session to another account or runs it on a different model, without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly."),
                 status: integrations.skillStatus,
                 install: integrations.installSkill,
-                remove: integrations.removeSkill)
+                remove: integrations.removeSkill,
+                skipNote: Self.skipNote("Claude", noClaudeAccount))
             SettingsDivider()
             SettingsChromeAccountRow(store: store, settings: settings)
         }
@@ -282,13 +297,16 @@ extension SettingsView {
     ///   integration that only ever writes files of its own; the command line tool is the exception
     ///   (it links into a shared directory that another `tally` may already own).
     /// - Parameter info: the long explanation, for the hover; `subtitle` is the one-line version.
+    /// - Parameter skipNote: why Install all leaves this row not installed (no account, B-4196).
     private func integrationRow(title: String, icon: String, subtitle: String? = nil, info: String? = nil,
                                 status: IntegrationsStore.Status,
                                 install: @escaping () -> Void,
                                 remove: @escaping () -> Void,
                                 removable: Bool = true,
-                                warning: (text: String, paths: String)? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+                                warning: (text: String, paths: String)? = nil,
+                                skipNote: String? = nil) -> some View {
+        let status = skipNote == nil ? status : IntegrationsCapture.skippedStatus(status)
+        return VStack(alignment: .leading, spacing: 0) {
             SettingsRow(title: title, subtitle: subtitle, icon: icon, info: info) {
                 HStack(spacing: 10) {
                     statusBadge(status, overridden: warning != nil)
@@ -318,7 +336,17 @@ extension SettingsView {
                 SettingsSubRow(title: warning.text, tint: TallyColor.warning)
                     .tallyTooltip(warning.paths)
             }
+            if let skipNote, status == .notInstalled {
+                SettingsSubRow(title: skipNote)
+            }
         }
+    }
+
+    /// A literal per provider: the catalog scan reads each literal key, so no name is spliced in.
+    private static func skipNote(_ provider: String, _ skips: Bool) -> String? {
+        guard skips else { return nil }
+        return provider == "Codex" ? L("No Codex account on this Mac, so Install all skips this row.")
+                                   : L("No Claude account on this Mac, so Install all skips this row.")
     }
 
     /// "Installed" speaks for the user's settings.json, and a project folder's own `statusLine`
@@ -358,6 +386,9 @@ private struct IntegrationsHeader: View {
     let installed: [() -> Void]
     /// The system password window is what Install all starts with on this Mac (B-4195).
     let asksPassword: Bool
+    /// No Codex / no Claude account: rows Install all cannot fill (B-4196).
+    let skipsCodex: Bool
+    let skipsClaude: Bool
     @State private var confirmingRemoveAll = IntegrationsCapture.confirm
 
     var body: some View {
@@ -390,12 +421,16 @@ private struct IntegrationsHeader: View {
     }
 
     /// Install all and Remove all share the set: `allIntegrationEntries`, which leaves out the Shared
-    /// harness and Harness tools on purpose (B-4196). The password sentence only matters to Install.
+    /// harness and Harness tools on purpose (B-4196). The password and no-account sentences are Install's.
     private var wholeSetTip: String {
         L("Applies to every integration on this page except Shared harness and Harness tools, which each have their own Install button because they change more than Tally's own files.")
     }
     private var installTip: String {
-        asksPassword ? wholeSetTip + " " + L("On this Mac, the first step asks for your Mac login password.") : wholeSetTip
+        var tip = wholeSetTip
+        if asksPassword { tip += " " + L("On this Mac, the first step asks for your Mac login password.") }
+        if skipsCodex { tip += " " + L("Without a Codex account on this Mac, Codex session status is skipped.") }
+        if skipsClaude { tip += " " + L("Without a Claude account on this Mac, the Claude rows are skipped.") }
+        return tip
     }
 }
 
@@ -435,6 +470,14 @@ enum IntegrationsCapture {
         showNotInInstallAll ? .notInstalled : real
     }
 
+    /// `-TallyShowNoAccountNote YES`: the Codex and Claude rows read not installed with their "Install
+    /// all skips this row" line, and the hover says so, whatever accounts this Mac has (B-4196).
+    static var showNoAccountNote: Bool { value("TallyShowNoAccountNote") == "yes" }
+    static func noAccount(real: @autoclosure () -> Bool) -> Bool { showNoAccountNote || real() }
+    static func skippedStatus(_ real: IntegrationsStore.Status) -> IntegrationsStore.Status {
+        showNoAccountNote ? .notInstalled : real
+    }
+
     static func statuses(_ real: [IntegrationsStore.Status]) -> [IntegrationsStore.Status] {
         guard let raw = value("TallyDemoIntegrations") else { return real }
         let missing = raw.hasPrefix("missing:") ? Int(raw.dropFirst(8)) ?? 0 : 0
@@ -446,6 +489,9 @@ enum IntegrationsCapture {
     static var tip: String? { nil }
     static var cliInstallPreview: String? { nil }
     static var showNotInInstallAll: Bool { false }
+    static var showNoAccountNote: Bool { false }
+    static func noAccount(real: @autoclosure () -> Bool) -> Bool { real() }
+    static func skippedStatus(_ real: IntegrationsStore.Status) -> IntegrationsStore.Status { real }
     static func sharedHarnessStatus(_ real: IntegrationsStore.Status?) -> IntegrationsStore.Status? { real }
     static var cliNeedsAdministrator: Bool? { nil }
     static func cliToolStatus(_ real: IntegrationsStore.Status) -> IntegrationsStore.Status { real }

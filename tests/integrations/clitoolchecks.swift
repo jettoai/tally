@@ -475,4 +475,34 @@ func runCLIToolChecks(tmp: URL) throws {
           settings.contains("except Shared harness and Harness tools, which each have their own Install button")
               && settings.contains("Not part of Install all. Use this row's Install button.")
               && harnessRow.contains("Not part of Install all. Use this row's Install button."))
+
+    // (q) B-4196, second round: rows Install all cannot fill on a Mac with no account of their provider.
+    // The Codex install REFUSES an empty home list (it does not quietly succeed) and writes nothing, so
+    // the row stays not installed; the later rows of Install all clear the error it leaves, so the page
+    // has to say so itself. The five Claude rows write to no file at all on a Mac with no Claude account.
+    let noCodexRoot = tmp.appendingPathComponent("codex-session-no-account")
+    var refused = false
+    do { try CodexSessionHooks.install(homes: [], root: noCodexRoot) } catch { refused = true }
+    check("with no Codex account the session hooks install refuses",  refused)
+    check("…and writes no receipt, so the row still reads not installed",
+          !fm.fileExists(atPath: CodexSessionHooks.receiptURL(root: noCodexRoot).path)
+              && (try? CodexSessionHooks.installed(homes: [], root: noCodexRoot)) == false)
+    check("the Codex and Claude rows say Install all skips them, only while not installed and no such account",
+          settings.contains("No Codex account on this Mac, so Install all skips this row.")
+              && settings.contains("No Claude account on this Mac, so Install all skips this row.")
+              && settings.contains("integrations.codexSessionHookStatus == .notInstalled")
+              && settings.contains("&& integrations.noCodexAccount")
+              && settings.contains("claudeRows.contains(.notInstalled) && integrations.noClaudeAccount")
+              && !settings.contains("IntegrationsStore.claudeSettingsFiles()")
+              && !settings.contains("IntegrationsStore.codexSessionHomes()")
+              && settings.contains("if let skipNote, status == .notInstalled {"))
+    check("…all five Claude rows and the Codex row carry the note",
+          settings.components(separatedBy: "skipNote: Self.skipNote(\"Claude\", noClaudeAccount)").count == 6
+              && settings.components(separatedBy: "skipNote: Self.skipNote(\"Codex\", noCodexAccount)").count == 2)
+    check("…and Install all's hover adds a sentence for each, under the same conditions",
+          settings.contains("if skipsCodex { tip += \" \" + L(\"Without a Codex account on this Mac, Codex session status is skipped.\") }")
+              && settings.contains("if skipsClaude { tip += \" \" + L(\"Without a Claude account on this Mac, the Claude rows are skipped.\") }"))
+    check("the no-account preview flag is read only in the Debug branch",
+          settings.contains("static var showNoAccountNote: Bool { value(\"TallyShowNoAccountNote\") == \"yes\" }")
+              && settings.contains("static var showNoAccountNote: Bool { false }"))
 }

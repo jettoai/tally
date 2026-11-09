@@ -55,6 +55,13 @@ for file in ["Tally/Views/ResetCaption.swift", "Tally/Views/PopoverDetailedLayou
     check(!source.isEmpty && !source.contains("PanelStyle.text3") && !source.contains(".tertiary"),
           "\(file) draws no word in the tertiary level")
 }
+// The Detailed card head's fold arrow is a bare image: it must sit in a hit area of its own, wired
+// like the ring and the name (B-3823, it was dead until every caller wrapped it).
+print("the card head's fold arrow is clickable")
+let cardHead = read("Tally/Views/ProviderCardHeader.swift")
+let afterChevron = cardHead.range(of: "foldChevron(").map { String(cardHead[$0.upperBound...].prefix(400)) } ?? ""
+check(afterChevron.contains(".windowDragOrTap(toggle)") && afterChevron.contains(".onTapGesture(perform: toggle)"),
+      "ProviderCardHeader wires the fold arrow to the same toggle as the name and the ring")
 let header = read("Tally/Views/PopoverHeaderView.swift")
 check(!header.isEmpty && header.contains(".foregroundStyle(PanelStyle.text2)") && !header.contains("foregroundStyle(.tertiary).monospacedDigit"),
       "the refresh countdown is secondary")

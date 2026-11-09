@@ -77,7 +77,18 @@ extension PopoverRootView {
                         .windowDragOrTap(toggle)
                         .onTapGesture(perform: toggle)
                     if advisor { advisorTag(providerID) } else if let chip { StatusChip(text: chip.text, state: chip.state) }
-                    if foldable { foldChevron(providerID) }
+                    if foldable {
+                        // foldChevron is a bare image: each caller wraps it in its own hit area.
+                        foldChevron(providerID)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                            .windowDragOrTap(toggle)
+                            .onTapGesture(perform: toggle)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel(L("Show or hide this provider's account cards"))
+                            // The 20pt hit area overflows the 12pt slot so the head's row keeps its width.
+                            .padding(.horizontal, -4)
+                    }
                 }
                 if let pool { poolLine(pool).contentShape(Rectangle()).onTapGesture(perform: toggle) }
                 if hasExtras {

@@ -26,7 +26,7 @@ func runCapWeightTests() {
     expect(w("claude", "Max 5x") == (5, .detected), "weight: Claude Max 5x = 5 detected")
     expect(w("claude", "Pro") == (1, .detected), "weight: Claude Pro = 1 detected")
     expect(w("claude", nil) == (1, .assumed), "weight: Claude without a plan = 1 assumed")
-    expect(w("claude", "Max") == (1, .assumed), "weight: Claude bare Max = 1 assumed")
+    expect(w("claude", "Max") == (5, .detected), "weight: Claude Max ($100, formerly Max 5x) = 5 detected")
     expect(w("codex", "Plus") == (1, .detected) && w("codex", "Team") == (1, .detected)
                && w("codex", "Business") == (1, .detected), "weight: Plus, Team, Business = 1")
     expect(w("codex", "Pro") == (5, .assumed), "weight: Codex Pro unset = 5 assumed")
@@ -76,6 +76,22 @@ func runCapWeightTests() {
     let mixedSummary = FleetMath.summaries(accounts: mixed, now: now, byPlan: true) { $0.id }
     expect(mixedSummary.map { FleetMath.planName(of: $0, accounts: mixed) } == [nil],
            "planName: a named plan beside an unknown one names none")
+
+    let ultra = planAccount("u1", provider: "claude", plan: "Ultra", weeklyUsed: 30)
+    var maxSeat = planAccount("m1", provider: "claude", plan: "Max", weeklyUsed: 30)
+    maxSeat.metrics.append(metric(.session, used: 10))
+    let pending = AccountUsage(id: "p1", providerID: "claude", accountLabel: "p1", planName: nil,
+                               metrics: [], refreshedAt: now)
+    expect(!FleetMath.hasSessionWindow([ultra], provider: "claude")
+               && FleetMath.hasSessionWindow([ultra, maxSeat], provider: "claude")
+               && !FleetMath.hasSessionWindow([maxSeat], provider: "codex"),
+           "5-hour: only an account that reports a session window has one")
+    expect(!FleetMath.showsSessionSettings([ultra], provider: "claude")
+               && FleetMath.showsSessionSettings([ultra, maxSeat], provider: "claude")
+               && FleetMath.showsSessionSettings([pending], provider: "claude")
+               && FleetMath.showsSessionSettings([], provider: "claude")
+               && FleetMath.showsSessionSettings([ultra], provider: "claude", alreadyOn: true),
+           "5-hour settings: hidden for a two-bar fleet, shown before a reading or while switched on")
 
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]

@@ -319,7 +319,8 @@ enum PlanWeight {
         // Anthropic renamed Max 20x to Ultra (2026-10-31).
         case ("claude", "max20x"), ("claude", "ultra"), ("claude", "claudeultra"):
             return (20, .detected)
-        case ("claude", "max5x"): return (5, .detected)
+        // Max ($100) is the old 5x tier under its current name.
+        case ("claude", "max5x"), ("claude", "max"): return (5, .detected)
         case ("claude", "pro"): return (1, .detected)
         // Business (formerly Team) carries the same Codex allowance as Plus.
         case ("codex", "plus"), ("codex", "team"), ("codex", "business"): return (1, .detected)
@@ -349,6 +350,23 @@ struct FleetWeighted: Hashable {
 }
 
 extension FleetMath {
+    /// Whether any account of the provider reports a 5-hour window. Ultra has none (claude.com/pricing:
+    /// "No 5-hour limit"), so a fleet of those is a two-bar fleet and 5-hour UI has nothing to say.
+    static func hasSessionWindow(_ accounts: [AccountUsage], provider: String) -> Bool {
+        accounts.contains { $0.providerID == provider && $0.metrics.contains { $0.kind == .session } }
+    }
+
+    /// Whether the settings for a 5-hour window (relay, auto reset) have anything to act on. Shown
+    /// while no reading of the provider exists yet (so they do not flash away on launch), while an
+    /// account has a 5-hour window, and while the switch is already on (it must stay reachable to
+    /// be turned off).
+    static func showsSessionSettings(_ accounts: [AccountUsage], provider: String,
+                                     alreadyOn: Bool = false) -> Bool {
+        alreadyOn
+            || !accounts.contains { $0.providerID == provider && !$0.metrics.isEmpty }
+            || hasSessionWindow(accounts, provider: provider)
+    }
+
     /// Per provider: sum(weight x weekly remaining) / sum(weight). An account without a weekly
     /// reading, or whose reading is stale, stays out of both sums; a provider left with none is
     /// absent. One account is enough, so a single-account provider reads its own remaining.

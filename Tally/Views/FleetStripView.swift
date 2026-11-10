@@ -76,8 +76,10 @@ extension PopoverRootView {
                     poolRow(summary, pools[index], labelWidth: labelWidth)
                 }
                 // "All pools" with no 5-hour reading says so, rather than drawing one row fewer
-                // than the plan above it, which read as a row left out.
-                if settings.gaugeFocus == .all, !pools.contains(where: { $0.kind == .session }) {
+                // than the plan above it, which read as a row left out. A provider whose accounts
+                // have no 5-hour window at all (Ultra) is a two-bar provider, so it has no such row.
+                if settings.gaugeFocus == .all, !pools.contains(where: { $0.kind == .session }),
+                   FleetMath.hasSessionWindow(store.accounts, provider: summary.providerID) {
                     HStack(spacing: Self.fleetRowSpacing) {
                         Text(L("5-hour pool")).foregroundStyle(Color.secondary)
                             .frame(width: labelWidth, alignment: .leading)

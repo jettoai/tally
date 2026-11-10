@@ -156,19 +156,19 @@ enum DemoUsage {
             // Every remaining percentage stays double-digit (10-99): a mixed column of "8%" and
             // "100%" reads ragged in the right-aligned figures, and this grid IS the README shot.
             // Claude's session sits at the wall: the fixture limitResetPressPathOpen offers.
-            claude("Claude", plan: "Max 20x", model: 3, session: 100, weekly: 8,
+            claude("Claude", plan: "Ultra", model: 3, session: 100, weekly: 8,
                    modelResetDays: 6.4, sessionResetHours: 4.6, weeklyResetDays: 6.4, now: now),
-            claude("Claude 2", plan: "Max 20x", model: 52, session: nil, weekly: 39,
+            claude("Claude 2", plan: "Ultra", model: 52, session: nil, weekly: 39,
                    modelResetDays: 1.2, sessionResetHours: 3.1, weeklyResetDays: 1.2, now: now),
-            claude("Claude 3", plan: "Max 20x", model: 88, session: nil, weekly: 82,
+            claude("Claude 3", plan: "Ultra", model: 88, session: nil, weekly: 82,
                    modelResetDays: 0.8, sessionResetHours: 1.4, weeklyResetDays: 0.8, now: now),
-            claude("Claude 4", plan: "Max 20x", model: 27, session: nil, weekly: 20,
+            claude("Claude 4", plan: "Ultra", model: 27, session: nil, weekly: 20,
                    modelResetDays: 4.2, sessionResetHours: 2.3, weeklyResetDays: 4.2, now: now),
             // The one card whose login has run out (LoginStatusStore.demoExpiredAccountID puts the
             // red "Login expired" chip on it). It keeps its numbers: the last-good figures are
             // exactly what a real expired account still shows, and a blank card would make the
             // screenshot about an error rather than about the chip.
-            claude("Claude 5", plan: "Max 20x", model: 45, session: 89, weekly: 59,
+            claude("Claude 5", plan: "Ultra", model: 45, session: 89, weekly: 59,
                    modelResetDays: 2.6, sessionResetHours: 0.6, weeklyResetDays: 2.6, now: now),
             codex("Codex", plan: "Pro", email: "sam@example.com", session: 42, weekly: 69,
                   sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3,

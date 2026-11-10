@@ -15,7 +15,11 @@ func runProfileChecks(tmp: URL) throws {
         .write(to: file, atomically: true, encoding: .utf8)
     let after = ClaudeAccounts.profile(configDir: dir.path, unlessNamed: before)
     check("an unnamed first read is read again and finds the login that landed",
-          after.email == "replay@example.com" && after.plan == "Max 20x")
+          after.email == "replay@example.com" && after.plan == "Ultra")
+
+    try #"{"oauthAccount":{"emailAddress":"replay@example.com","organizationRateLimitTier":"default_claude_max_5x"}}"#
+        .write(to: file, atomically: true, encoding: .utf8)
+    check("the $100 tier reads as Max", ClaudeAccounts.profile(configDir: dir.path).plan == "Max")
 
     try FileManager.default.removeItem(at: file)
     let kept = ClaudeAccounts.profile(configDir: dir.path, unlessNamed: after)

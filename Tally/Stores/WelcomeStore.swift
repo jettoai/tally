@@ -330,7 +330,7 @@ final class WelcomeStore {
 
     private static func fixtureRows(success: Bool) -> [WelcomeRow] {
         let first = WelcomeRow(
-            id: "welcome:claude", providerID: "claude", name: "Claude", plan: "Max 20x",
+            id: "welcome:claude", providerID: "claude", name: "Claude", plan: "Ultra",
             email: "alex@example.com",
             session: .init(leftPercent: 42, resetText: Self.fixtureReset(hours: 4), severity: .normal),
             weekly: .init(leftPercent: 58, resetText: Self.fixtureReset(hours: 6 * 24), severity: .normal))

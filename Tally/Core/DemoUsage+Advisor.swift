@@ -12,13 +12,13 @@ extension DemoUsage {
         ["claude|weeklyModel|fable": FleetRate(perHour: 4.6, sampledHours: 72),
          "claude|weeklyModel|sonnet": FleetRate(perHour: 3.1, sampledHours: 72),
          "claude|weeklyAll": FleetRate(perHour: 4.6, sampledHours: 72),
-         // A Claude fleet that mixes plans (-TallyDemoAccounts past five adds a Max 5x seat) splits
+         // A Claude fleet that mixes plans (-TallyDemoAccounts past five adds a Max seat) splits
          // its gauge by plan, and each plan reads its own key; without these every row there read
          // "still measuring" (B-1570). Both plans last until their refill at these rates.
-         "claude|weeklyAll|plan=max 20x": FleetRate(perHour: 2.0, sampledHours: 72),
-         "claude|weeklyModel|fable|plan=max 20x": FleetRate(perHour: 2.0, sampledHours: 72),
-         "claude|weeklyAll|plan=max 5x": FleetRate(perHour: 0.8, sampledHours: 72),
-         "claude|weeklyModel|fable|plan=max 5x": FleetRate(perHour: 0.8, sampledHours: 72),
+         "claude|weeklyAll|plan=ultra": FleetRate(perHour: 2.0, sampledHours: 72),
+         "claude|weeklyModel|fable|plan=ultra": FleetRate(perHour: 2.0, sampledHours: 72),
+         "claude|weeklyAll|plan=max": FleetRate(perHour: 0.8, sampledHours: 72),
+         "claude|weeklyModel|fable|plan=max": FleetRate(perHour: 0.8, sampledHours: 72),
          "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72),
          "codex|weeklyAll|plan=pro": FleetRate(perHour: 1.0, sampledHours: 72),
          "codex|weeklyAll|plan=team": FleetRate(perHour: 0.9, sampledHours: 72)].mapValues { FleetRate(perHour: $0.perHour * burnScale, sampledHours: $0.sampledHours) }
@@ -45,7 +45,7 @@ extension DemoUsage {
         // so the demo reads like a real fortnight: a slightly hotter recent week than the month
         // behind it, which is the situation the shorter windows exist for. The 28-day rung IS the
         // pooled figure, exactly as a live reading's is.
-        let claudeTiers = [UsageAdvisor.TierDemand(plan: "Max 20x", demandPerWeek: 5.8,
+        let claudeTiers = [UsageAdvisor.TierDemand(plan: "Ultra", demandPerWeek: 5.8,
                                                    accountCount: 5)]
         let codexTiers = [UsageAdvisor.TierDemand(plan: "Pro", demandPerWeek: 1.7, accountCount: 3),
                           UsageAdvisor.TierDemand(plan: "Team", demandPerWeek: 0.9, accountCount: 1)]

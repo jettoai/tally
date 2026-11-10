@@ -30,7 +30,7 @@ extension DemoUsage {
         let codexTotal = max(4, Int((Double(total) * 6 / 22).rounded()))
         let claudeExtra = min(extraClaudeNames.count, max(0, total - codexTotal - 5))
         let codexExtra = min(extraCodexNames.count, max(0, codexTotal - 4))
-        let claudePlans = ["Max 20x", "Max 5x", "Pro", "Max 20x", "Team"]
+        let claudePlans = ["Ultra", "Max", "Pro", "Ultra", "Team"]
         let codexPlans = ["Plus", "Pro", "Team"]
 
         func figure(_ seed: Int, _ step: Int, _ floor: Int, _ span: Int) -> Double {

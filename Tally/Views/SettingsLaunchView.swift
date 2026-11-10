@@ -43,14 +43,22 @@ struct SettingsLaunchView: View {
             // Claude is the one provider whose 5-hour window works this way, and the banked-reset
             // redeem is Codex's counterpart, so with the provider off the row would be a switch over
             // nothing.
-            if claudeOn || codexOn {
+            // Both Claude rows are about the 5-hour window, which Ultra does not have: with no
+            // window to act on they are hidden (their stored values are kept), unless the relay is
+            // already on, which must stay reachable to be turned off.
+            let claudeRelay = claudeOn && FleetMath.showsSessionSettings(
+                store.accounts, provider: EarlyStartLogic.providerID,
+                alreadyOn: EarlyStartStore.shared.isEnabled)
+            let claudeReset = claudeOn && FleetMath.showsSessionSettings(
+                store.accounts, provider: EarlyStartLogic.providerID)
+            if claudeRelay || claudeReset || codexOn {
                 SettingsSection(L("Quota windows"), symbol: "clock.arrow.circlepath") {
-                    if claudeOn {
+                    if claudeRelay {
                         SettingsEarlyStartRow(store: EarlyStartStore.shared, isVisible: visible)
-                        SettingsDivider()
-                        SettingsLimitResetRow(store: LimitResetStore.shared)
                     }
-                    if claudeOn && codexOn { SettingsDivider() }
+                    if claudeRelay && claudeReset { SettingsDivider() }
+                    if claudeReset { SettingsLimitResetRow(store: LimitResetStore.shared) }
+                    if (claudeRelay || claudeReset) && codexOn { SettingsDivider() }
                     if codexOn { SettingsCodexAutoRedeemRow(store: CodexAutoRedeemStore.shared) }
                 }
             }

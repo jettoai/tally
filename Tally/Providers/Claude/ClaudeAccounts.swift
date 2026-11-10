@@ -57,7 +57,7 @@ enum ClaudeAccounts {
     /// account itself. The config file carries no credentials - the OAuth token lives in the
     /// Keychain, which Tally never reads - and per-account dirs each have their own copy.
     struct Profile {
-        /// e.g. `organizationRateLimitTier` "default_claude_max_20x" → "Max 20x".
+        /// e.g. `organizationRateLimitTier` "default_claude_max_20x" → "Ultra".
         var plan: String?
         /// The signed-in email, shown only as the card's hover tooltip. Never logged or published.
         var email: String?
@@ -114,6 +114,13 @@ enum ClaudeAccounts {
                     let trimmed = tier
                         .replacingOccurrences(of: "default_", with: "")
                         .replacingOccurrences(of: "claude_", with: "")
+                    // Anthropic's names today: Max ($100, 5x Pro) and Ultra ($200, the old 20x tier).
+                    // The tier strings still say max_5x / max_20x.
+                    switch trimmed {
+                    case "max_20x", "ultra": return "Ultra"
+                    case "max_5x", "max": return "Max"
+                    default: break
+                    }
                     let pretty = trimmed.split(separator: "_")
                         .map { $0.prefix(1).uppercased() + $0.dropFirst() }
                         .joined(separator: " ")

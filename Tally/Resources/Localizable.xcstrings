@@ -26792,37 +26792,37 @@
         }
       }
     },
-    "This account is in your menu bar now.": {
+    "This account is in your menu bar now. To start sessions from Terminal, install the command line tool in Settings > Integrations, then type tally claude or tally codex.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個帳號已經在選單列。"
+            "value": "這個帳號已經在選單列。要從終端機開始工作階段，請到「設定 > 整合」安裝命令列工具，然後輸入 tally claude 或 tally codex。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个账号已经在菜单栏里了。"
+            "value": "这个账号已经在菜单栏里了。要从终端开始会话，请到“设置 > 集成”安装命令行工具，然后输入 tally claude 或 tally codex。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアカウントがメニューバーに表示されました。"
+            "value": "このアカウントがメニューバーに表示されました。ターミナルからセッションを始めるには、「設定 > 連携」でコマンドラインツールをインストールし、tally claude または tally codex と入力します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 계정이 이제 메뉴 막대에 표시됩니다."
+            "value": "이 계정이 이제 메뉴 막대에 표시됩니다. 터미널에서 세션을 시작하려면 설정 > 통합에서 명령줄 도구를 설치한 다음 tally claude 또는 tally codex를 입력하세요."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu hesap artık menü çubuğunuzda."
+            "value": "Bu hesap artık menü çubuğunuzda. Terminal'den oturum başlatmak için Ayarlar > Entegrasyonlar bölümünden komut satırı aracını kurun, ardından tally claude veya tally codex yazın."
           }
         }
       }

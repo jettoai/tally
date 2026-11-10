@@ -71,7 +71,7 @@ struct WelcomeView: View {
         case .waitingStalled: return WelcomeCopy.stalledBody
         case .signIn(let p): return WelcomeCopy.signInBlurb(p)
         case .signingIn(let p): return WelcomeCopy.signingInBody(p)
-        case .success: return L("This account is in your menu bar now.")
+        case .success: return WelcomeCopy.successBody
         case .failed(_, let reason): return WelcomeCopy.failureBody(reason)
         }
     }

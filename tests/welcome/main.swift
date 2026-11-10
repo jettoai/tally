@@ -85,6 +85,11 @@ expect(WelcomeCopy.stalledBody.contains("Terminal") && WelcomeCopy.stalledBody.c
         && WelcomeCopy.stalledBody.contains("paste the command again"),
        "the stalled screen names the Terminal window, the network and pasting again")
 
+// MARK: success copy (G3)
+
+expect(["tally claude", "tally codex", "Settings > Integrations", "menu bar"].allSatisfy { WelcomeCopy.successBody.contains($0) },
+       "the success page names the menu bar and how to start sessions with the command line tool")
+
 // MARK: failure copy (G8)
 
 let oddReason = "Tally could not prepare a zzz-reason for the new account."

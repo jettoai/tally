@@ -65,6 +65,11 @@ enum WelcomeCopy {
         }
     }
 
+    /// The success page's line: the account is in the menu bar, and how to reach it from Terminal.
+    static var successBody: String {
+        L("This account is in your menu bar now. To start sessions from Terminal, install the command line tool in Settings > Integrations, then type tally claude or tally codex.")
+    }
+
     /// "Claude Code", "Codex" or "Claude Code and Codex", for the line under "Found N accounts".
     static func readFrom(_ providerIDs: Set<String>) -> String {
         let names = WelcomeFlow.providers.filter(providerIDs.contains).map(cliName)

@@ -85,18 +85,19 @@ extension StatusItemController {
         // A private build's note (OverlayApp.statusItemNote) adds one hover line and a small mark;
         // nil, as in the public build, leaves both exactly as they were.
         let note = OverlayApp.statusItemNote
+        let noteSymbol = OverlayApp.statusItemNoteSymbol
         var tooltip = segments.isEmpty
             ? waiting
             : [waiting, UsageStore.shared.menuBarTooltip].compactMap { $0 }.joined(separator: "\n")
         if let note { tooltip = [tooltip, note].compactMap { $0 }.joined(separator: "\n") }
         let showSession = SettingsStore.shared.menuBarShowSession
         let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip, note: note,
-                                  noteSymbol: OverlayApp.statusItemNoteSymbol, showSession: showSession)
+                                  noteSymbol: noteSymbol, showSession: showSession)
         guard face != lastAppliedFace else { return }
         lastAppliedFace = face
         let title = NSMutableAttributedString()
         if blocked > 0 && !dotInStrip { title.append(Self.blockedDot) }
-        if let note { title.append(Self.noteMark(note, symbol: OverlayApp.statusItemNoteSymbol)) }
+        if let note { title.append(Self.noteMark(note, symbol: noteSymbol)) }
         button.attributedTitle = title
         button.toolTip = tooltip
         if segments.isEmpty {

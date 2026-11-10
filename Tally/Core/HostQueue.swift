@@ -21,6 +21,8 @@ enum HostQueue {
     }
 
     static func level(_ perCore: Double) -> HostHealthQueueLevel {
-        perCore > redPerCore ? .red : perCore > yellowPerCore ? .yellow : .green
+        if perCore > redPerCore { return .red }
+        if perCore > yellowPerCore { return .yellow }
+        return .green
     }
 }

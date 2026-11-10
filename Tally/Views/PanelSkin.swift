@@ -210,7 +210,9 @@ struct PanelPill: View {
         .padding(.horizontal, spec.h)
         .padding(.vertical, spec.v)
         .background(Capsule().fill(tone.fill))
-        .fixedSize()
+        // The head's large pill may give up its tail (one line, ellipsis) when a long verdict would
+        // otherwise take the room of the provider's name and account count beside it.
+        .fixedSize(horizontal: size != .large, vertical: true)
     }
 }
 

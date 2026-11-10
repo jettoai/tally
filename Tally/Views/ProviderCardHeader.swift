@@ -78,6 +78,8 @@ extension PopoverRootView {
                         .contentShape(Rectangle())
                         .windowDragOrTap(toggle)
                         .onTapGesture(perform: toggle)
+                        // The spacer yields last: the pill takes the room it needs before the gap does.
+                        .layoutPriority(-1)
                     if advisor { advisorTag(providerID, large: true) } else if let chip { StatusChip(text: chip.text, state: chip.state) }
                     if foldable {
                         // foldChevron is a bare image: each caller wraps it in its own hit area.

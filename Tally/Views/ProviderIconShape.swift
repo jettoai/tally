@@ -203,10 +203,13 @@ struct AnchoredIconShape: Shape {
 /// The bare Tally "Relay T" letterform: monochrome body following the current foreground (so it
 /// works on light and dark surfaces) with the fixed green progress shoulder.
 struct TallyGlyphView: View {
+    /// The letterform's body colour when a surface sets its own; the shoulder keeps the brand green.
+    var tint: Color?
+
     var body: some View {
         ZStack {
             AnchoredIconShape(pathData: ProviderMarks.tallyT, referenceData: ProviderMarks.tallyT)
-                .fill(Color.primary)
+                .fill(tint ?? Color.primary)
             AnchoredIconShape(pathData: ProviderMarks.tallyTAccent, referenceData: ProviderMarks.tallyT)
                 .fill(TallyColor.brand)
         }
@@ -221,15 +224,19 @@ struct TallyGlyphView: View {
 /// forward lean, so the pair shares one gesture.
 struct TallyWordmarkView: View {
     var glyphHeight: CGFloat = 13
+    /// Colours the whole word (T body and "ally") for a surface that sets its own; nil keeps the
+    /// default (primary text).
+    var tint: Color?
 
     var body: some View {
         // Negative spacing tucks "ally" under the T's overhanging top bar: the glyph's bottom
         // right is empty (the stem leans left), so honoring the bounding box read as "T ally".
         HStack(alignment: .lastTextBaseline, spacing: -glyphHeight * 0.38) {
-            TallyGlyphView().frame(height: glyphHeight)   // shape baseline = frame bottom
-            Text("ally")
+            TallyGlyphView(tint: tint).frame(height: glyphHeight)   // shape baseline = frame bottom
+            let word = Text("ally")
                 .font(.system(size: glyphHeight * 1.32, weight: .heavy))
                 .italic()
+            if let tint { word.foregroundStyle(tint) } else { word }
         }
     }
 }

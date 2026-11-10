@@ -194,7 +194,8 @@ struct PopoverRootView: View {
                 // Whichever tab is up, the region between the two dividers is the one that gives up
                 // height when the surface would outgrow the screen.
                 .screenFitFlexible()
-                Divider()
+                // The Detailed panel's footer is a rounded bar of its own and needs no rule above it.
+                if settings.panelDensity != .list { Divider() }
                 footer
             }
             .frame(width: popoverWidth)

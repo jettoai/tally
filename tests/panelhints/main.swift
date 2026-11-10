@@ -129,7 +129,7 @@ expect(rowSource.contains("anchorPreference(key: PanelHintTargetKey.self")
        "both densities report their first meter, and the panel places the bubble from it")
 // The bubble is drawn over the whole panel body, after the footer, and asks nobody for room (B-3823):
 // the scroll view only reports its visible frame into the same key.
-if let footerEnd = root.range(of: "                Divider()\n                footer\n            }"),
+if let footerEnd = root.range(of: "                if settings.panelDensity != .list { Divider() }\n                footer\n            }"),
    let overlay = root.range(of: "overlayPreferenceValue(PanelHintTargetKey.self"),
    let areaAt = root.range(of: "transformAnchorPreference(key: PanelHintTargetKey.self, value: .bounds)"),
    let scrollFrame = root.range(of: ".frame(width: popoverWidth, alignment: .leading)"),

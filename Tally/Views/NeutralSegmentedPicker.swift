@@ -2,21 +2,21 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// The two sizes the panel uses: the header's tab switch (22pt tall on 12pt type) and the footer's
-/// and view options' segments (20pt on 11pt), the Detailed panel's own metrics. The header's fit
+/// The two sizes the panel uses: the header's tab switch (24pt segments on 12.5pt type) and the
+/// footer's and view options' segments (22pt on 12pt), inside a 3pt capsule track. The header's fit
 /// test decides whether the clock still fits from this control's measured width, so a size change
 /// here is picked up there without a number to keep in step.
 enum NeutralSegmentedSize {
     case mini, small
 
-    var height: CGFloat { self == .mini ? 22 : 20 }
-    var font: Font { .system(size: self == .mini ? 12 : 11, weight: self == .mini ? .medium : .regular) }
-    var sidePadding: CGFloat { self == .mini ? 10 : 8 }
-    var radius: CGFloat { self == .mini ? 8 : 7 }
-    /// The attention dot's diameter (see `badged`). A shade under the state dots the session board
-    /// draws at 7pt: this one sits in the corner of a 16pt chip, where the same size would read as
-    /// a second control rather than as a mark on a tab.
-    var badgeDot: CGFloat { self == .mini ? 5 : 6 }
+    var height: CGFloat { self == .mini ? 24 : 22 }
+    var font: Font { .system(size: self == .mini ? 12.5 : 12, weight: .semibold) }
+    var sidePadding: CGFloat { self == .mini ? 12 : 10 }
+    /// The track's inner margin around the segments, and the gap between two segments.
+    static let trackInset: CGFloat = 3
+    static let segmentGap: CGFloat = 2
+    /// The attention dot's diameter (see `badged`), set in the segment's top trailing corner.
+    var badgeDot: CGFloat { 6 }
 }
 
 /// A segmented control that stays grey whatever the window is doing. AppKit's own draws its selection
@@ -82,10 +82,14 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: NeutralSegmentedSize.segmentGap) {
             ForEach(options, id: \.self) { segment($0) }
         }
-        .background(shape(radius: size.radius).fill(PanelStyle.seg))
+        .padding(NeutralSegmentedSize.trackInset)
+        .background {
+            Capsule().fill(PanelStyle.seg)
+            Capsule().strokeBorder(PanelStyle.segEdge, lineWidth: 1)
+        }
         // Held at its ideal width, the one thing the native control did for free. Free to compress,
         // it hands a squeezed width to the header's width probe, and the fit test then reads "the
         // clock still fits" off a number the clock itself caused - the labels truncate to "..." and
@@ -114,7 +118,7 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
         // system control does. The focus itself is deliberately left alone, so a keyboard user comes
         // back to where they were. Without the gate the pinned panel - a window that sits on screen all
         // day - keeps a lit ring pointing at a control no keystroke can reach.
-        .overlay(shape(radius: size.radius + 1)
+        .overlay(Capsule()
             .strokeBorder(Color.accentColor, lineWidth: 2)
             .padding(-2)
             .opacity(isFocused && appActive && activeState == .key ? 1 : 0))
@@ -170,24 +174,33 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
             }
             .font(size.font)
             .lineLimit(1)
-            .foregroundStyle(isSelected ? PanelStyle.text : PanelStyle.text2)
+            .foregroundStyle(isSelected ? PanelStyle.segOnText : PanelStyle.segText)
             .padding(.horizontal, size.sidePadding)
             .frame(height: size.height)
-            // Inset by a point so the chip reads as sitting IN the track rather than replacing a
-            // slice of it, which is what the native control draws.
-            .background(shape(radius: size.radius - 1)
-                .fill(fillColor(option, selected: isSelected))
-                .shadow(color: .black.opacity(isSelected ? 0.12 : 0), radius: 1, y: 1)
-                .padding(1))
-            // Inside the chip's own corner rather than over its edge: the row is 16pt tall on the
-            // panel's header and a dot hanging off it would be clipped by the surface above.
+            // The thumb is a capsule sitting IN the track (the track's own inset is the margin). In
+            // the dark appearance a light runs along its top edge; in the light one it lifts off the
+            // track on a soft shadow.
+            .background {
+                Capsule()
+                    .fill(fillColor(option, selected: isSelected))
+                    .shadow(color: isSelected ? PanelStyle.cardShadow : .clear, radius: 1.5, y: 1)
+                if isSelected {
+                    Capsule().strokeBorder(PanelStyle.segOnTop, lineWidth: 1)
+                        .mask(alignment: .top) {
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: size.height / 2)
+                        }
+                }
+            }
+            // Inside the segment's own corner rather than over its edge: the header is a short row
+            // and a dot hanging off the thumb would be clipped by the surface above.
             .overlay(alignment: .topTrailing) {
                 if badged(option) {
                     Circle()
-                        .fill(TallyColor.critical)
+                        .fill(PanelStyle.tabDot)
                         .frame(width: size.badgeDot, height: size.badgeDot)
-                        .padding(.top, 1.5)
-                        .padding(.trailing, 1.5)
+                        .padding(.top, 4)
+                        .padding(.trailing, 5)
                 }
             }
             .contentShape(Rectangle())
@@ -209,9 +222,5 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
     private func fillColor(_ option: Value, selected: Bool) -> Color {
         if selected { return PanelStyle.segOn }
         return hovered == option ? Color.primary.opacity(0.07) : .clear
-    }
-
-    private func shape(radius: CGFloat) -> RoundedRectangle {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
     }
 }

@@ -46,7 +46,7 @@ extension PopoverRootView {
                 // The version sits on the wordmark's baseline, like a subscript to the name; the
                 // badges after it stay centred on the row.
                 HStack(alignment: .lastTextBaseline, spacing: 6) {
-                TallyWordmarkView(glyphHeight: 13)
+                TallyWordmarkView(glyphHeight: 17, tint: PanelStyle.logo)
                 // Against the wordmark, which is the whole point of it being here rather than in
                 // the footer: trailing the jetto byline it read as the BYLINE's version, and no
                 // amount of reordering that line fixed whose number it was. Beside the product's
@@ -197,9 +197,11 @@ extension PopoverRootView {
                     }
                 }
                 .frame(width: 28, height: 28)
+                .panelChip()
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
+            .foregroundStyle(PanelStyle.chipInk)
             .disabled(isRefreshing)
             // The other end of the header's grab strip: on the pinned panel a press that travels
             // moves the window, and one that does not is the refresh it always was. The overlay is
@@ -211,7 +213,7 @@ extension PopoverRootView {
             .padding(.trailing, host == .window ? PanelGeometry.windowRefreshTrail : 12)
             .background { widthProbe { headerWidths.refresh = $0 } }
         }
-        .frame(height: 40)
+        .frame(height: PanelMetrics.headerHeight)
         .background(alignment: .topLeading) { clockProbes }
     }
 
@@ -407,7 +409,7 @@ extension PopoverRootView {
             }
             if let counter { Text(counter) }
         }
-        .font(.caption2).monospacedDigit().foregroundStyle(PanelStyle.text2)
+        .font(PanelStyle.font(12).monospacedDigit()).foregroundStyle(PanelStyle.text2)
     }
 }
 

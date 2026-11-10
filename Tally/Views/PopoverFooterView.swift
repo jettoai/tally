@@ -71,9 +71,26 @@ extension PopoverRootView {
         .background(alignment: .leading) {
             jettoCredit.hidden().background { widthProbe { footerWidths.credit = $0 } }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
+        .padding(.horizontal, bar ? 8 : 12)
+        .padding(.vertical, bar ? 8 : 4)
+        // The Detailed panel sets the footer on a rounded bar of its own, and the Compact one keeps
+        // the plain strip under a divider. The modifiers stay on the same row either way, only their
+        // values change: a branch here would rebuild the row when the density flips, and the View
+        // options button's popover closes when its presenter is rebuilt (see `footer` above).
+        .background {
+            if bar {
+                RoundedRectangle(cornerRadius: PanelMetrics.cardRadius, style: .continuous).fill(PanelStyle.footerFill)
+                RoundedRectangle(cornerRadius: PanelMetrics.cardRadius, style: .continuous)
+                    .strokeBorder(PanelStyle.footerEdge, lineWidth: 1)
+            }
+        }
+        .padding(.horizontal, bar ? PanelMetrics.bodyPadH : 0)
+        .padding(.top, bar ? PanelMetrics.cardGap : 0)
+        .padding(.bottom, bar ? 12 : 0)
     }
+
+    /// Whether the footer is the Detailed panel's rounded bar.
+    private var bar: Bool { settings.panelDensity == .list }
 
     /// Room for the credit, its lead, and 12pt of clear space before the icons, measured rather than
     /// assumed. Unmeasured parts read 0, which stays false: better a late credit than one drawn over
@@ -81,7 +98,10 @@ extension PopoverRootView {
     private var showsCredit: Bool {
         let parts = footerWidths
         guard parts.picker > 0, parts.icons > 0, parts.credit > 0 else { return false }
-        return parts.picker + Self.creditLead + parts.credit + 12 + parts.icons <= popoverWidth - 24
+        // The row's side margins: 12 + 12 on the plain strip, the bar's 12 outside and 8 inside on each
+        // side in the Detailed panel.
+        let margins = bar ? 2 * PanelMetrics.bodyPadH + 16 : 24
+        return parts.picker + Self.creditLead + parts.credit + 12 + parts.icons <= popoverWidth - margins
     }
 
     /// Quiet, on every surface, and off the header so the product wordmark stands alone.
@@ -94,7 +114,7 @@ extension PopoverRootView {
     /// the credit fits is once again about the credit alone.
     private var jettoCredit: some View {
         HStack(spacing: 4) {
-            Text(L("by")).font(.caption2).foregroundStyle(PanelStyle.text3)
+            Text(L("by")).font(PanelStyle.font(12)).foregroundStyle(PanelStyle.text3)
             ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                 .fill(PanelStyle.text3, style: FillStyle(eoFill: true))
                 .frame(width: 40, height: 9)
@@ -102,11 +122,11 @@ extension PopoverRootView {
         .allowsHitTesting(false)
     }
 
-    /// The trailing cluster, one view so it can be measured as one. Its own spacing is the stack
-    /// default, unchanged: only the row around it went to explicit spacing, so that the width the
-    /// credit needs is exactly the width it and its two 12pt margins occupy.
+    /// The trailing cluster, one view so it can be measured as one. Its buttons sit 6pt apart, as the
+    /// draft has them (the round buttons are 28pt, so the stack default's 8pt crowded the credit out
+    /// at the Detailed panel's width).
     private var footerIcons: some View {
-        HStack {
+        HStack(spacing: 6) {
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
             // First in the group because it is the only ACTION here: everything after it changes
@@ -125,10 +145,11 @@ extension PopoverRootView {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .font(.callout)
                     .frame(width: 28, height: 28)
+                    .panelChip()
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(PanelStyle.text2)
+            .foregroundStyle(PanelStyle.chipInk)
             .tallyTooltip(ReloadAction.tooltip(ReloadReadinessStore.shared.readiness))
             // View options: every layout dimension behind one footer icon. A popover card rather
             // than a native menu, because the column count is now a row of layout tiles - a picture
@@ -141,10 +162,11 @@ extension PopoverRootView {
                 Image(systemName: "rectangle.split.3x1")
                     .font(.callout)
                     .frame(width: 28, height: 28)
+                    .panelChip()
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(showViewOptions ? Color.accentColor : PanelStyle.text2)
+            .foregroundStyle(showViewOptions ? Color.accentColor : PanelStyle.chipInk)
             .tallyTooltip(L("View options"))
             // WHERE THE CARD STANDS, on the surfaces that place it themselves: this button's own
             // rectangle on screen, read when the card opens and read again at every press while it
@@ -187,10 +209,11 @@ extension PopoverRootView {
                 Image(systemName: settings.isUsagePanelPinned ? "pin.fill" : "pin")
                     .font(.callout)
                     .frame(width: 28, height: 28)
+                    .panelChip()
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : PanelStyle.text2)
+            .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : PanelStyle.chipInk)
             .tallyTooltip(settings.isUsagePanelPinned ? L("Unpin window") : L("Pin on top"))
             Button {
                 MainWindowController.shared.show()
@@ -198,10 +221,11 @@ extension PopoverRootView {
                 Image(systemName: "macwindow")
                     .font(.callout)
                     .frame(width: 28, height: 28)
+                    .panelChip()
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(PanelStyle.text2)
+            .foregroundStyle(PanelStyle.chipInk)
             .tallyTooltip(L("Open Tally"))
             Button {
                 StatusItemController.openSettingsWindow()
@@ -209,10 +233,11 @@ extension PopoverRootView {
                 Image(systemName: "gearshape")
                     .font(.callout)
                     .frame(width: 28, height: 28)
+                    .panelChip()
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(PanelStyle.text2)
+            .foregroundStyle(PanelStyle.chipInk)
             .tallyTooltip(L("Settings…"))
             // Help sits past the trailing end of the group, with a gap wide enough to read as a
             // break rather than as loose tracking. It is the one control here that acts on nothing
@@ -225,10 +250,11 @@ extension PopoverRootView {
                 Image(systemName: "questionmark.circle")
                     .font(.callout)
                     .frame(width: 28, height: 28)
+                    .panelChip()
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(PanelStyle.text2)
+            .foregroundStyle(PanelStyle.chipInk)
             .tallyTooltip(L("Help"))
             // Its own layer too, for the same reason as the view-options card above: the copy chips
             // inside it are hover targets, and a presentation cannot publish into the layer outside it.

@@ -336,7 +336,7 @@ func runAccountRowChecks() {
     // The pane opens before the first round finishes, so it asks for the pass itself instead of
     // waiting out every provider CLI that round polls.
     check("the pane starts the discovery it needs",
-          paneSource.contains(".onAppear { store.ensureDiscovered() }")
+          paneSource.range(of: #"\.onAppear\s*\{\s*store\.ensureDiscovered\(\)"#, options: .regularExpression) != nil
               && storeSource.contains("func ensureDiscovered()"))
     check("…once, and never on a demo instance",
           storeSource.contains("guard !hasDiscovered, !DemoUsage.isActive else { return }"))

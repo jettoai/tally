@@ -143,6 +143,10 @@ enum CaptureLaunch {
                                "TallyDemoModelWindows",
                                // Qualifies TallyDemoData: no Claude fixture has a 5-hour window (Debug).
                                "TallyDemoNoSessionWindow",
+                               // Qualifies TallyDemoData: the n-th fixture account wears the manual pin,
+                               // and the n-th row draws as hovered, for a capture (B-4334, Debug).
+                               "TallyDemoPinnedAccount",
+                               "TallyDemoHoverAccount",
                                // Qualifies TallyDemoData: fixtures kept per provider (Debug).
                                "TallyDemoAccountLimit",
                                // Qualifies TallyDemoData: only the named providers' fixtures (Debug).

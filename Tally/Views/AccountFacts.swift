@@ -193,12 +193,15 @@ struct AccountFacts {
 
     var launchMode: LaunchPolicyStore.Mode {
         // Demo fixtures always demonstrate Smart mode (the real policy's pinned ids can never match
-        // demo accounts, which would leave every marketing card badge-less).
-        DemoUsage.isActive ? .auto : LaunchPolicyStore.shared.mode(usage.providerID)
+        // demo accounts, which would leave every marketing card badge-less), except the one
+        // `-TallyDemoPinnedAccount` pins.
+        guard DemoUsage.isActive else { return LaunchPolicyStore.shared.mode(usage.providerID) }
+        return DemoUsage.pinnedAccount?.providerID == usage.providerID ? .manual : .auto
     }
 
     var isPinnedActive: Bool {
-        LaunchPolicyStore.shared.isPinned(usage.id, providerID: usage.providerID)
+        if DemoUsage.isActive { return DemoUsage.pinnedAccount?.id == usage.id }
+        return LaunchPolicyStore.shared.isPinned(usage.id, providerID: usage.providerID)
     }
 
     /// Whether auto mode would launch THIS account right now (the panel predicts the CLI).

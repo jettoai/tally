@@ -94,6 +94,29 @@ extension DemoUsage {
         #endif
     }
 
+    /// `-TallyDemoPinnedAccount <n>` (Debug builds only): the n-th fixture account (0-based, store
+    /// order) is the one manually pinned for its provider, so a capture can show a pinned row. Nil
+    /// without it, and always nil outside demo, where the real policy's pins can never match a fixture.
+    @MainActor
+    static var pinnedAccount: AccountUsage? { fixtureAccount(forKey: "TallyDemoPinnedAccount") }
+
+    /// `-TallyDemoHoverAccount <n>` (Debug builds only): the n-th fixture account's row draws as
+    /// hovered (drag handle, pin circle), which otherwise needs a real pointer over it.
+    @MainActor
+    static var hoveredAccountID: String? { fixtureAccount(forKey: "TallyDemoHoverAccount")?.id }
+
+    @MainActor
+    private static func fixtureAccount(forKey key: String) -> AccountUsage? {
+        #if DEBUG
+        guard isActive, UserDefaults.standard.object(forKey: key) != nil else { return nil }
+        let accounts = UsageStore.shared.accounts
+        let index = UserDefaults.standard.integer(forKey: key)
+        return accounts.indices.contains(index) ? accounts[index] : nil
+        #else
+        return nil
+        #endif
+    }
+
     /// `-TallyDemoLaunchModel sonnet` (Debug builds only): the launch model the gauge focuses on,
     /// in place of this Mac's own launch policy, so a capture can put a given model pool on screen
     /// whatever the machine running it has declared. Nil without it, and always nil outside demo.

@@ -35,7 +35,8 @@ struct AccountListRowView: View {
     /// nothing above the rows says whose they are.
     var showsProviderIcon: Bool = false
 
-    @State private var isHovering = false
+    @State private var pointerInside = false
+    private var isHovering: Bool { pointerInside || DemoUsage.hoveredAccountID == usage.id }
     @State private var redeemBusy = false
     @State private var redeemOutcome: CodexAppServerClient.RedeemOutcome?
 
@@ -123,7 +124,7 @@ struct AccountListRowView: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { if showsDragHandle || hasLaunchSlot { isHovering = $0 } }
+        .onHover { if showsDragHandle || hasLaunchSlot { pointerInside = $0 } }
         // Same menu the card right-clicks to, from the same values: the row is a density, not a
         // reduced feature set.
         .contextMenu {

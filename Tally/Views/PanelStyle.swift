@@ -85,11 +85,10 @@ enum PanelStyle {
     static let segText = skinHex { $0.segText }
     static let segOnText = skinHex { $0.segOnText }
     static let tabDot = skinHex { $0.tabDot }
-    /// The round buttons, the wordmark, a figure under 20% left, a card head's off-pace line.
+    /// The round buttons, a figure under 20% left, a card head's off-pace line.
     static let chipFill = skinTone { $0.chip }
     static let chipEdge = skinTone { $0.chipEdge }
     static let chipInk = skinHex { $0.chipInk }
-    static let logo = skinHex { $0.logo }
     static let lowInk = skinHex { $0.lowInk }
     static let paceWarn = skinHex { $0.paceWarn }
     /// The card over a glass panel (a fill of the skin, so the glass shows through it), its 1pt edge,

@@ -660,8 +660,20 @@ func runAccountRowChecks() {
     // The list row's height and its meter columns (B-3445): a row is about 20pt tall, and each window
     // stands in the column of its kind rather than the leading window spanning a missing one.
     let listRow = readSource("Tally/Views/AccountListRowView.swift")
-    check("the list row is a fixed 40pt line (PanelStyle.rowHeight), never padded taller",
+    check("the list row is a fixed 32pt line (PanelStyle.rowHeight), never padded taller",
           listRow.contains(".frame(height: PanelStyle.rowHeight)") && !listRow.contains(".padding(.vertical, 5)"))
+    // THE IDENTITY NEVER OVERLAPS ITSELF (B-4334): the pin circle used to be laid OVER the end of the
+    // identity on hover, on top of the plan pill. Now the name, the pill and the launch slot are
+    // siblings of one stack, the slot has a fixed width on every row of a card, and the name is the
+    // only part that truncates. (The widths are asserted in tests/panelcontrast.)
+    check("the pin circle is a reserved slot of the identity, not an overlay on it",
+          !listRow.contains("hoverPin") && !listRow.contains(".overlay(alignment: .trailing)")
+              && listRow.contains("launchSlot\n        }") && listRow.contains("var launchSlot: some View")
+              && listRow.contains(".frame(width: Self.launchSlotWidth, alignment: .trailing)"))
+    check("the plan pill keeps its size and the name truncates at its tail",
+          listRow.contains("PlanBadge(text: plan, providerID: usage.providerID)\n                    .fixedSize()")
+              && listRow.contains("TruncatingName(floor: Self.nameFloor)")
+              && listRow.contains(".truncationMode(.tail)") && !listRow.contains(".fixedSize(horizontal: fixesName"))
     check("the list row places each meter in its kind's column",
           listRow.contains("MeterSlots(columns: columnKeys.count, gap: Self.meterGap)")
               && listRow.contains(".layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))")

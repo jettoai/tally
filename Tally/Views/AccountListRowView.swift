@@ -51,16 +51,23 @@ struct AccountListRowView: View {
     nonisolated static let barWidth: CGFloat = 14
     static let barHeight: CGFloat = PanelStyle.barHeight
     /// The gap between a cell's figure line and its track.
-    nonisolated static let clusterGap: CGFloat = 5
-    /// The percentage: "100%" at 13.5pt 650 with tabular digits (40.7pt). It may scale to 0.8 when a
+    nonisolated static let clusterGap: CGFloat = 4
+    /// The percentage: "100%" at 12pt 650 with tabular digits (36.2pt). It may scale to 0.8 when a
     /// fourth window squeezes the cell.
-    nonisolated static let valueWidth: CGFloat = 41
-    /// The reset countdown column: one unit ("29d", "23h", "59m") at 11pt (24.6pt at the widest,
+    nonisolated static let valueWidth: CGFloat = 37
+    /// The reset countdown column: one unit ("29d", "23h", "59m") at 9.5pt (21pt at the widest,
     /// semibold), a fixed width so a minute tick never moves the figure beside it.
-    nonisolated static let resetWidth: CGFloat = 26
+    nonisolated static let resetWidth: CGFloat = 22
     /// The badge slot, reserved whether or not this row has a badge, so the pin circles stay in one
     /// column instead of stepping left and right with the smart pick.
     static let badgeWidth: CGFloat = 11
+    /// The pin circle's cell, the gap between the badge and it, and so the launch slot: badge cell
+    /// (its 3pt lead included), gap, circle.
+    nonisolated static let launchSlotGap: CGFloat = 2
+    nonisolated static let launchSlotWidth: CGFloat = PanelMetrics.launchSlotWidth
+    static let pinWidth: CGFloat = launchSlotWidth - 3 - badgeWidth - launchSlotGap
+    /// The least a name keeps before the plan pill is given up.
+    nonisolated static let nameFloor: CGFloat = PanelMetrics.nameFloor
 
     /// Each of this row's windows by the column it belongs in, and the columns it lays them on.
     private var ownKeys: [MeterColumnKey] { facts.meterKeys }
@@ -116,7 +123,7 @@ struct AccountListRowView: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { if showsDragHandle { isHovering = $0 } }
+        .onHover { if showsDragHandle || hasLaunchSlot { isHovering = $0 } }
         // Same menu the card right-clicks to, from the same values: the row is a density, not a
         // reduced feature set.
         .contextMenu {
@@ -134,7 +141,7 @@ struct AccountListRowView: View {
     /// The identity and the marks that travel with it. The marks stay on the identity side (not the
     /// meters') so a row that happens to carry a warning triangle never pushes its own figures.
     private var identityColumn: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             identity
             // The usage marks are drawn on every row, the one that never loaded included: the
             // stale mark needs `isStale`, which a never-loaded row does not have
@@ -147,40 +154,45 @@ struct AccountListRowView: View {
             Group {
                 usageMarks
                 loginMarks
-                trailingControls
             }
+            .padding(.leading, 4)
             .layoutPriority(1)
+            Spacer(minLength: 4)
+            launchSlot
         }
-        .overlay(alignment: .trailing) { hoverPin }
     }
 
     /// Name and plan pill, carrying the same identity callout (signed-in address over plan and
     /// config home), because two accounts that answer with one address are exactly as
     /// indistinguishable here as they are on a card.
     private var identity: some View {
-        // The room beside the meters is about 110pt: the plan pill is the first thing to give it up
-        // when the whole name and the pill do not fit together, the name truncating only after that.
+        // The name truncates first (down to `nameFloor`); the plan pill is given up only when even
+        // that floor and the pill do not fit side by side, as with a fourth meter column.
         ViewThatFits(in: .horizontal) {
-            identityLine(showsPlan: usage.planName != nil, fixesName: true)
-            identityLine(showsPlan: false, fixesName: false)
+            identityLine(showsPlan: usage.planName != nil)
+            identityLine(showsPlan: false)
         }
         .accessibilityElement(children: .combine)
         .tallyTooltip(facts.identityEmail, detail: facts.identityDetail,
                       forced: facts.forcesIdentityTooltip)
     }
 
-    private func identityLine(showsPlan: Bool, fixesName: Bool) -> some View {
-        HStack(spacing: 6) {
+    private func identityLine(showsPlan: Bool) -> some View {
+        HStack(spacing: 5) {
             if showsProviderIcon {
                 ProviderIconView(providerID: usage.providerID, size: 12)
             }
-            Text(facts.label)
-                .font(PanelStyle.font(13.5, 600))
-                .foregroundStyle(PanelStyle.text)
-                .lineLimit(1)
-                .fixedSize(horizontal: fixesName, vertical: false)
+            TruncatingName(floor: Self.nameFloor) {
+                Text(facts.label)
+                    .font(PanelStyle.font(12.5, 600))
+                    .foregroundStyle(PanelStyle.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             if showsPlan, let plan = usage.planName {
                 PlanBadge(text: plan, providerID: usage.providerID)
+                    .fixedSize()
+                    .layoutPriority(2)
             }
         }
     }
@@ -213,7 +225,7 @@ struct AccountListRowView: View {
     private var usageMarks: some View {
         if facts.showsStaleMark {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .font(.system(size: 9))
                 .foregroundStyle(TallyColor.warning)
                 // Both halves of the callout, the card's rule at this width: the short line and
                 // the reason under it are one answer, and the callout splits an embedded newline
@@ -264,7 +276,7 @@ struct AccountListRowView: View {
             // the thing that fixes it.
             Button { RenewLoginStore.shared.renew(accountID: usage.id) } label: {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 9))
                     .foregroundStyle(TallyColor.critical)
                     .contentShape(Rectangle())
             }
@@ -286,7 +298,7 @@ struct AccountListRowView: View {
         }
         if let notice = facts.sharedLoginNotice {
             Image(systemName: "person.2.fill")
-                .font(.system(size: 11))
+                .font(.system(size: 9))
                 .foregroundStyle(TallyColor.warning)
                 .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail,
                               forced: DemoUsage.isActive && TallyTooltip.previewForced(.sharedlogin))
@@ -336,32 +348,28 @@ struct AccountListRowView: View {
             .compactMap { $0 }.joined(separator: " · ")
     }
 
+    /// Whether this row reserves the launch slot at the end of its identity: the same for every row
+    /// of a card, so the smart-pick glyph and the pin circle each stand in one column.
+    private var hasLaunchSlot: Bool { facts.hasSiblings && facts.launchMode != .off }
+
     /// The launch affordances, in the card's order and with the card's rules: the mode badge as a
     /// bare glyph (its words move to the tooltip), then the one circle that pins and unpins.
     ///
-    /// The badge is there only on the row that carries one (the smart pick, the pinned account), and
-    /// the pin circle only while the row is pinned or hovered: 110pt is all the room a name and its
-    /// plan pill have beside the meter cells, and a circle on every row at rest took it from them.
-    /// On hover the circle is laid OVER the end of the identity (`identityColumn`) rather than into
-    /// it, so a pointer crossing the rows never reflows a name or drops a plan pill.
+    /// Both cells are always laid out, at a fixed width (`launchSlotWidth`): the circle is only drawn
+    /// while the row is pinned or hovered, but its room is reserved, so a pointer crossing the rows
+    /// never reflows a name, and the circle can never be laid over the plan pill it stands beside.
     @ViewBuilder
-    private var trailingControls: some View {
-        if facts.hasSiblings, facts.launchMode != .off {
-            if facts.isPinnedActive || carriesBadge { badgeSlot }
-            if facts.isPinnedActive { pinToggle }
-        }
-    }
-
-    private var carriesBadge: Bool {
-        facts.launchMode == .auto && (isAutoPick ?? facts.isAutoPick)
-    }
-
-    @ViewBuilder
-    private var hoverPin: some View {
-        if isHovering, facts.hasSiblings, facts.launchMode != .off, !facts.isPinnedActive {
-            pinToggle
-                .padding(.horizontal, 3)
-                .background(Capsule().fill(PanelStyle.cardSolid))
+    var launchSlot: some View {
+        if hasLaunchSlot {
+            let showsPin = facts.isPinnedActive || isHovering
+            HStack(spacing: Self.launchSlotGap) {
+                badgeSlot
+                pinToggle
+                    .frame(width: Self.pinWidth)
+                    .opacity(showsPin ? 1 : 0)
+                    .allowsHitTesting(showsPin)
+            }
+            .frame(width: Self.launchSlotWidth, alignment: .trailing)
         }
     }
 

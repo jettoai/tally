@@ -29,7 +29,7 @@ extension AccountListRowView {
         return VStack(spacing: Self.clusterGap) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(figure)
-                    .font(PanelStyle.font(13.5, 650).monospacedDigit())
+                    .font(PanelStyle.font(12, 650).monospacedDigit())
                 // The figure carries the warning here, unlike on a card. A track this short is too small
                 // for its colour alone to be the alarm, and the row has no space for the card's
                 // "Limit reached" line. Not while a redeemed reset settles, though: the number is

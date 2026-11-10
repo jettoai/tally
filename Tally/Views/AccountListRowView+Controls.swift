@@ -42,3 +42,24 @@ extension AccountListRowView {
         .accessibilityLabel(L("Set as launch account"))
     }
 }
+
+/// A name that truncates before anything beside it does. Its ideal width is `floor` (or the text,
+/// if shorter), so a `ViewThatFits` asking "does the name plus the plan pill fit" is answering for
+/// the shortest the name may get; handed a real width it takes the text's own width up to that.
+struct TruncatingName: Layout {
+    var floor: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let view = subviews.first else { return .zero }
+        let natural = view.sizeThatFits(.unspecified)
+        guard let width = proposal.width, width.isFinite else {
+            return CGSize(width: min(floor, natural.width), height: natural.height)
+        }
+        return CGSize(width: min(natural.width, max(width, 0)), height: natural.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}

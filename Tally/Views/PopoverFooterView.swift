@@ -72,7 +72,7 @@ extension PopoverRootView {
             jettoCredit.hidden().background { widthProbe { footerWidths.credit = $0 } }
         }
         .padding(.horizontal, bar ? 8 : 12)
-        .padding(.vertical, bar ? 8 : 4)
+        .padding(.vertical, 4)
         // The Detailed panel sets the footer on a rounded bar of its own, and the Compact one keeps
         // the plain strip under a divider. The modifiers stay on the same row either way, only their
         // values change: a branch here would rebuild the row when the density flips, and the View
@@ -86,7 +86,7 @@ extension PopoverRootView {
         }
         .padding(.horizontal, bar ? PanelMetrics.bodyPadH : 0)
         .padding(.top, bar ? PanelMetrics.cardGap : 0)
-        .padding(.bottom, bar ? 12 : 0)
+        .padding(.bottom, bar ? 8 : 0)
     }
 
     /// Whether the footer is the Detailed panel's rounded bar.

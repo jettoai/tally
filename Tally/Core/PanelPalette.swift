@@ -107,7 +107,6 @@ enum PanelPalette {
         var chip: Tone
         var chipEdge: Tone
         var chipInk: UInt32
-        var logo: UInt32
         /// The tile behind a machine group's icon (140 degrees).
         var tile: Gradient
 
@@ -138,7 +137,7 @@ enum PanelPalette {
             segOn: Tone(hex: 0xFFFFFF, alpha: 0.16), segOnTop: Tone(hex: 0xFFFFFF, alpha: 0.16),
             segText: 0xD2CDDF, segOnText: 0xFFFFFF, tabDot: 0xFF7A6E,
             chip: Tone(hex: 0xFFFFFF, alpha: 0.08), chipEdge: Tone(hex: 0xFFFFFF, alpha: 0.08),
-            chipInk: 0xE4DFF0, logo: 0x4BE08C,
+            chipInk: 0xE4DFF0,
             tile: Gradient(from: 0x8E7BFF, to: 0x5B45D6))
 
         static let light = Skin(
@@ -168,7 +167,7 @@ enum PanelPalette {
             segOn: Tone(hex: 0xFFFFFF), segOnTop: Tone(hex: 0xFFFFFF, alpha: 0),
             segText: 0x504C61, segOnText: 0x1C1828, tabDot: 0xC42B20,
             chip: Tone(hex: 0xFFFFFF, alpha: 0.70), chipEdge: Tone(hex: 0x3C286E, alpha: 0.08),
-            chipInk: 0x3E3A4E, logo: 0x17803F,
+            chipInk: 0x3E3A4E,
             tile: Gradient(from: 0x7B63F2, to: 0x4B33C2))
     }
 

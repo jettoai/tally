@@ -68,7 +68,7 @@ extension PopoverRootView {
             }
         }
         .padding(.horizontal, PanelStyle.cardPadH)
-        .padding(.bottom, 10)
+        .padding(.bottom, 6)
     }
 
     /// What each meter column is called: the label of the first window of that kind any row reports.
@@ -94,13 +94,13 @@ extension PopoverRootView {
                     }
                 }
             }
-            .font(PanelStyle.font(10, 700))
-            .tracking(0.8)
+            .font(PanelStyle.font(9, 650))
+            .tracking(0.7)
             .textCase(.uppercase)
             .foregroundStyle(PanelStyle.text2)
             .lineLimit(1)
             .padding(.horizontal, PanelStyle.rowInsetH)
-            .padding(.top, 6)
+            .padding(.top, 4)
             .frame(height: PanelStyle.colHeadHeight - PanelStyle.hairline, alignment: .center)
         }
     }

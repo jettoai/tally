@@ -117,9 +117,9 @@ let rowSource = try String(contentsOf: URL(fileURLWithPath: CommandLine.argument
 let resetWidth = rowSource.components(separatedBy: "static let resetWidth: CGFloat = ").dropFirst().first
     .flatMap { Double($0.prefix(while: { $0.isNumber })) } ?? 0
 check("the reset column width is readable from the view", resetWidth > 0)
-// The Detailed row draws the caption at 11pt (`ResetCaption`, `PanelStyle.font(11, ...)`), no longer
+// The Detailed row draws the caption at 9.5pt (`ResetCaption`, `PanelStyle.font(9.5, ...)`), no longer
 // at the caption2 text style, so the column is measured at the size it is really drawn in.
-let captionSize: CGFloat = 11
+let captionSize: CGFloat = 9.5
 let captionFont = NSFont.monospacedDigitSystemFont(ofSize: captionSize, weight: .regular)
 // B-3511: the soonest-reset emphasis is semibold, so the column must hold the semibold widths too.
 let boldFont = NSFont.monospacedDigitSystemFont(ofSize: captionSize, weight: .semibold)

@@ -87,6 +87,13 @@ final class StatusItemController: NSObject {
         // Show instantly instead of playing NSPopover's expand/scale animation - that animation (not
         // the content) is the "laggy on expand" feel; other menu-bar apps just appear.
         popover.animates = false
+        // No arrow: the panel hangs straight under the menu bar. `shouldHideAnchor` is a private
+        // NSPopover key (no public API hides the arrow), so it is set only when the popover
+        // answers its setter. If a future macOS drops it, this is skipped and the popover keeps
+        // its arrow rather than raising an undefined-key exception.
+        if popover.responds(to: Selector(("setShouldHideAnchor:"))) {
+            popover.setValue(true, forKey: "shouldHideAnchor")
+        }
         // `sizingOptions = []` (not `.preferredContentSize`, not the default `.standardBounds`) so the
         // host installs NO Auto Layout constraints - we set the popover's contentSize manually via
         // `sizeThatFits`. Two size authorities (SwiftUI constraints + manual sizing) recurse the layout
@@ -348,7 +355,8 @@ final class StatusItemController: NSObject {
     /// over the menu bar and must never eat a click meant for the item underneath; the status bar
     /// level and `canJoinAllSpaces` so it is where the item is, on whichever Space the user is on.
     private func decoyAnchorViewForShow(button: NSStatusBarButton) -> NSView? {
-        guard let anchorRect = anchorScreenRect(button: button) else { return nil }
+        guard let itemRect = anchorScreenRect(button: button) else { return nil }
+        let anchorRect = StatusAnchor.decoyRect(for: itemRect)
         if decoyAnchor == nil {
             let window = NSWindow(contentRect: anchorRect, styleMask: [.borderless],
                                   backing: .buffered, defer: false)
@@ -390,9 +398,10 @@ final class StatusItemController: NSObject {
     /// display by the system, is not somewhere this surface may follow it to.
     private func feedDecoyAnchor() {
         guard popover.isShown, let button = statusItem?.button else { return }
-        guard anchorMayBeFollowed, let anchorRect = anchorScreenRect(button: button) else {
+        guard anchorMayBeFollowed, let itemRect = anchorScreenRect(button: button) else {
             return
         }
+        let anchorRect = StatusAnchor.decoyRect(for: itemRect)
         guard decoyAnchor?.frame != anchorRect else { return }
         decoyAnchor?.setFrame(anchorRect, display: false)
     }

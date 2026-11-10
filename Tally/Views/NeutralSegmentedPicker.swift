@@ -9,11 +9,11 @@ import Combine
 enum NeutralSegmentedSize {
     case mini, small
 
-    var height: CGFloat { self == .mini ? 24 : 22 }
-    var font: Font { .system(size: self == .mini ? 12.5 : 12, weight: .semibold) }
+    var height: CGFloat { self == .mini ? 22 : 20 }
+    var font: Font { .system(size: self == .mini ? 12 : 11, weight: .semibold) }
     var sidePadding: CGFloat { self == .mini ? 12 : 10 }
     /// The track's inner margin around the segments, and the gap between two segments.
-    static let trackInset: CGFloat = 3
+    static let trackInset: CGFloat = 2
     static let segmentGap: CGFloat = 2
     /// The attention dot's diameter (see `badged`), set in the segment's top trailing corner.
     var badgeDot: CGFloat { 6 }

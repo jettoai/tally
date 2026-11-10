@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // The Detailed panel's text levels on the worst desktop (B-4169 correction batch). The glass panel
@@ -91,7 +92,6 @@ func gradientEnds(_ name: String, _ get: @escaping (PanelPalette.Skin) -> PanelP
 }
 
 let elements: [Element] = [
-    Element(name: "Logo Tally", ink: { $0.skin.logo }, backgrounds: [onPanel], minimum: marks),
     Element(name: "Violet pill", ink: { $0.skin.violetPill.ink }, backgrounds: [pillOnPanel { $0.violetPill }], minimum: words),
     Element(name: "Tab, selected", ink: { $0.skin.segOnText }, backgrounds: [thumb], minimum: words),
     Element(name: "Tab, not selected", ink: { $0.skin.segText }, backgrounds: [laid(onPanel) { $0.seg }], minimum: words),
@@ -283,6 +283,28 @@ check(!header.isEmpty && header.contains(".foregroundStyle(PanelStyle.text2)") &
 // THE NUMBERS THE DELIVERY TEXT QUOTES, one per line as "name=value", every one read from the constant or
 // the arithmetic the views are laid out by (never typed here), so a sentence in a hand-off can be checked
 // against this output line for line.
+// THE PLAN PILL, THE LAUNCH SLOT AND A NAME'S FLOOR FIT ONE IDENTITY COLUMN (B-4334): the widest pill
+// text, "MAX 20X" (the plan's old name) or "ULTRA" (its new one) in the badge's type (8.5pt heavy,
+// 0.06em tracking, 5pt either side; the source lock below ties these to PanelSkin), the launch slot,
+// the 5pt gap before the pill, the 4pt one before the slot and 40pt of name must fit the three-window identity column, so the pin circle,
+// the pill and the name never need the room of one another. Four windows squeeze the column and the
+// pill is given up instead (the row's second `ViewThatFits` candidate); that is asserted to be the
+// case, so this stays a test of the choice and not of a number.
+print("the identity column holds a name, the pill and the launch slot")
+let skinSource = read("Tally/Views/PanelSkin.swift")
+check(skinSource.contains("case .badge: return (8.5, 700, 0.06 * 8.5, 5, 1.5)"), "the pill's type and padding are the ones measured here")
+func pillWidth(_ text: String) -> CGFloat {
+    let font = NSFont.systemFont(ofSize: 8.5, weight: NSFont.Weight(rawValue: 0.47))
+    let measured = (text as NSString).size(withAttributes: [.font: font, .kern: 0.06 * 8.5]).width
+    return ceil(measured) + 2 * 5
+}
+let widestPill = max(pillWidth("MAX 20X"), pillWidth("ULTRA"))
+let neededWithPill = PanelMetrics.nameFloor + 5 + widestPill + 4 + PanelMetrics.launchSlotWidth
+print("  widest pill=\(widestPill) needed=\(neededWithPill) three windows=\(PanelMetrics.identityColumnWidth(columns: 3)) four windows=\(PanelMetrics.identityColumnWidth(columns: 4))")
+check(neededWithPill <= PanelMetrics.identityColumnWidth(columns: 3), "name floor, pill and launch slot fit the three-window identity column")
+check(neededWithPill > PanelMetrics.identityColumnWidth(columns: 4), "four windows leave no room for the pill, so the row drops it rather than overflow")
+check(PanelMetrics.identityColumnWidth(columns: 2) >= neededWithPill, "two windows fit the pill, the slot and a name as well")
+
 print("measures (read from PanelMetrics, PanelGeometry and PanelPalette)")
 let columns = 3
 let measures: [(String, String)] = [

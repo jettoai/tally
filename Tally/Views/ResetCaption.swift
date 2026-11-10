@@ -36,7 +36,7 @@ struct ResetCaption: View {
                 Text(verbatim: UsageFormat.resetCompact(state))
             }
         }
-        .font(PanelStyle.font(11, emphasized && isCountdown ? 600 : 400).monospacedDigit())
+        .font(PanelStyle.font(9.5, emphasized && isCountdown ? 600 : 400).monospacedDigit())
         .foregroundStyle(tint ?? (emphasized && isCountdown ? PanelStyle.text : PanelStyle.text2))
         .lineLimit(1)
         .minimumScaleFactor(0.8)

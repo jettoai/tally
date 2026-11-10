@@ -14,6 +14,19 @@ import CoreGraphics
 /// Pure geometry in its own file so a test can compile it without AppKit (tests/windowanchor), and
 /// because the question is about rectangles and displays, not about windows.
 enum StatusAnchor {
+    /// The room an NSPopover keeps between its anchor and its visible panel: the 13pt its window
+    /// reserves for the arrow, which stays reserved when the arrow is hidden (measured 2026-11-10:
+    /// the popover window's top edge sits on the anchor's bottom edge and the panel starts 13pt
+    /// below it), and the gap that is left between the menu bar and the panel.
+    static let arrowRoom: CGFloat = 13
+    static let panelGap: CGFloat = 3
+
+    /// Where the decoy anchor goes for a status item at `item`: raised by the arrow's room less
+    /// the gap, so the arrowless panel hangs `panelGap` under the menu bar rather than 13pt.
+    static func decoyRect(for item: CGRect) -> CGRect {
+        item.offsetBy(dx: 0, dy: arrowRoom - panelGap)
+    }
+
     /// True when the status button's window is really on `screen` - measured at its centre, so a
     /// point of rounding at the top edge cannot read as hidden while a bar mid-reveal (half in the
     /// strip, half on the display) reads as whichever half it is mostly in.

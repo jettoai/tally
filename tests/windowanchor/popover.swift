@@ -225,6 +225,25 @@ func checkPopoverAnchor() {
           feed.contains("return") && !feed.contains("setFrameOrigin"))
     check("…with no write at all when the item has not actually moved",
           feed.contains("guard decoyAnchor?.frame != anchorRect else { return }"))
+    // NO ARROW, THE PANEL HUNG UNDER THE MENU BAR (B-4334). The arrow is hidden through a private
+    // NSPopover key, set only when the popover answers its setter (a macOS that drops the key keeps
+    // the arrow instead of throwing), and the room the window keeps for the arrow is taken back by
+    // raising the decoy, in the one function both writes of its frame go through.
+    check("the arrow is hidden only when the popover answers the private setter",
+          precedes("popover.responds(to: Selector((\"setShouldHideAnchor:\")))",
+                   "popover.setValue(true, forKey: \"shouldHideAnchor\")", in: statusSource))
+    check("…and the decoy's frame is written from the raised rectangle in both places",
+          statusSource.components(separatedBy: "StatusAnchor.decoyRect(for: itemRect)").count == 3
+              && feed.contains("StatusAnchor.decoyRect(for: itemRect)")
+              && decoy.contains("StatusAnchor.decoyRect(for: itemRect)"))
+    let item = CGRect(x: 1700, y: 1128, width: 44, height: 24)
+    let raised = StatusAnchor.decoyRect(for: item)
+    check("the decoy is raised by the arrow's room less the gap that stays, nothing else moves",
+          raised.origin.y == item.origin.y + StatusAnchor.arrowRoom - StatusAnchor.panelGap
+              && raised.origin.x == item.origin.x && raised.size == item.size)
+    check("…and the panel is left a gap between 1 and 4pt under the menu bar",
+          StatusAnchor.panelGap >= 1 && StatusAnchor.panelGap <= 4)
+
     guard let followStart = statusSource.range(of: "private var anchorMayBeFollowed: Bool"),
           let followEnd = statusSource.range(of: "\n    }\n",
                                              range: followStart.upperBound ..< statusSource.endIndex)

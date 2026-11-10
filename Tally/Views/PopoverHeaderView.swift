@@ -46,7 +46,7 @@ extension PopoverRootView {
                 // The version sits on the wordmark's baseline, like a subscript to the name; the
                 // badges after it stay centred on the row.
                 HStack(alignment: .lastTextBaseline, spacing: 6) {
-                TallyWordmarkView(glyphHeight: 17, tint: PanelStyle.logo)
+                TallyWordmarkView(glyphHeight: 13)
                 // Against the wordmark, which is the whole point of it being here rather than in
                 // the footer: trailing the jetto byline it read as the BYLINE's version, and no
                 // amount of reordering that line fixed whose number it was. Beside the product's

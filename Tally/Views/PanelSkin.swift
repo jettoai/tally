@@ -192,7 +192,7 @@ struct PanelPill: View {
 
     private var spec: (font: CGFloat, weight: CGFloat, tracking: CGFloat, h: CGFloat, v: CGFloat) {
         switch size {
-        case .badge: return (9.5, 700, 0.06 * 9.5, 6, 2)
+        case .badge: return (8.5, 700, 0.06 * 8.5, 5, 1.5)
         case .small: return (10.5, 700, 0.06 * 10.5, 8, 3)
         case .large: return (11.5, 600, 0.01 * 11.5, 10, 4)
         }

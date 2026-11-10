@@ -23,12 +23,12 @@ struct PoolRingView: View {
                 .trim(from: 0, to: max(0.001, min(1, fraction)))
                 .stroke(arc, style: StrokeStyle(lineWidth: width, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 figureText
                     .foregroundStyle(PanelStyle.text)
                 if let caption {
                     Text(caption)
-                        .font(PanelStyle.font(10, 600))
+                        .font(PanelStyle.font(9, 600))
                         .tracking(0.4)
                         .foregroundStyle(PanelStyle.text2)
                 }
@@ -42,11 +42,11 @@ struct PoolRingView: View {
         .accessibilityLabel([figure, caption].compactMap { $0 }.joined(separator: " "))
     }
 
-    /// "58" at 23pt with a 11pt "%" raised beside it.
+    /// "58" at 17pt with a 9pt "%" raised beside it.
     private var figureText: Text {
         let number = figure.hasSuffix("%") ? String(figure.dropLast()) : figure
-        let digits = Text(verbatim: number).font(PanelStyle.font(23, 650).monospacedDigit())
+        let digits = Text(verbatim: number).font(PanelStyle.font(17, 650).monospacedDigit())
         guard figure.hasSuffix("%") else { return digits }
-        return digits + Text(verbatim: "%").font(PanelStyle.font(11, 600)).baselineOffset(9)
+        return digits + Text(verbatim: "%").font(PanelStyle.font(9, 600)).baselineOffset(6)
     }
 }

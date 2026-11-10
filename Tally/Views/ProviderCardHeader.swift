@@ -44,7 +44,7 @@ extension PopoverRootView {
         // verdict; when the tag has it, the pace verdict drops to the second line in its own colour.
         let advisor = hasAdvisorTag(providerID)
         let hasExtras = (advisor && chip != nil) || hasLaunchChip(providerID)
-        return HStack(alignment: .center, spacing: 14) {
+        return HStack(alignment: .center, spacing: 12) {
             if let summary, let pool {
                 poolRing(providerID, pool)
                     .contentShape(Rectangle())
@@ -55,17 +55,17 @@ extension PopoverRootView {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
                     HStack(spacing: 7) {
-                        ProviderIconView(providerID: providerID, size: 18,
+                        ProviderIconView(providerID: providerID, size: 14,
                                          tintOverride: PanelStyle.brand(providerID))
                         Text(ProviderCatalog.displayName(for: providerID))
-                            .font(PanelStyle.font(17, 650))
+                            .font(PanelStyle.font(14.5, 650))
                             .foregroundStyle(PanelStyle.text)
                             .lineLimit(1)
                             // A long pill beside it takes the room from the count, never from the name.
                             .fixedSize(horizontal: true, vertical: false)
                             .tallyTooltip(lazyBlocks: { advisorHeadingTooltip(providerID) })
                         Text(accountCountText(count))
-                            .font(PanelStyle.font(12.5, 500))
+                            .font(PanelStyle.font(12, 500))
                             .foregroundStyle(PanelStyle.text2)
                             .lineLimit(1)
                     }
@@ -98,14 +98,14 @@ extension PopoverRootView {
                 if hasExtras {
                     HStack(spacing: 6) {
                         if advisor, let chip {
-                            Text(chip.text).font(PanelStyle.font(12.5, 600)).foregroundStyle(paceInk(chip.state)).lineLimit(1)
+                            Text(chip.text).font(PanelStyle.font(11.5, 600)).foregroundStyle(paceInk(chip.state)).lineLimit(1)
                         }
                         launchChip(providerID)
                     }
                 }
             }
         }
-        .padding(EdgeInsets(top: 12, leading: PanelStyle.cardPadH, bottom: 10, trailing: PanelStyle.cardPadH))
+        .padding(EdgeInsets(top: 10, leading: PanelStyle.cardPadH, bottom: 8, trailing: PanelStyle.cardPadH))
     }
 
     /// The pace verdict's word when it drops to the second line: the skin's own warning, low and
@@ -136,7 +136,7 @@ extension PopoverRootView {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let refill = pool.refills.first.map { " · " + refillText($0, now: context.date, compact: true) } ?? ""
             Text(poolDisplayName(pool) + refill)
-                .font(PanelStyle.font(12.5, 400))
+                .font(PanelStyle.font(11.5, 400))
                 .foregroundStyle(PanelStyle.text2)
                 .lineLimit(1)
         }

@@ -334,8 +334,12 @@ struct PopoverRootView: View {
     /// anchors - so a page with a layout of its own spends its count on its CARDS instead, held to
     /// the card ladder's width against the leading edge (`sessionsBoardWidth`).
     var popoverWidth: CGFloat {
-        if settings.panelDensity == .list { return PanelGeometry.detailedPanelWidth }
-        return PanelGeometry.cardPanelWidth(columns: columnCount)
+        // Never narrower than the header needs: a badge beside the wordmark is width the layout
+        // below was not sized for (see `headerMinWidth`).
+        let layout = settings.panelDensity == .list
+            ? PanelGeometry.detailedPanelWidth
+            : PanelGeometry.cardPanelWidth(columns: columnCount)
+        return max(layout, headerMinWidth)
     }
 
     /// What the scrolling regions lay their content out at: the surface, less what a permanently

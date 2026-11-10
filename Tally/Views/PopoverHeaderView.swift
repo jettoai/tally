@@ -338,6 +338,18 @@ extension PopoverRootView {
         5 * Self.gap + (countdownForm == nil ? Self.clockLead : Self.gap)
     }
 
+    /// The narrowest the surface may be for the header to hold what it never gives up: the end
+    /// clusters (wordmark with its badges, the refresh), the switch and the row's fixed spacing. The
+    /// countdown is the only part that trims, so a surface narrower than this cannot be saved by it
+    /// and the row overflows, which the stack centring it shows as both ends cut off (the wordmark
+    /// under the traffic lights, the refresh button half outside the window). Every part is
+    /// measured at its ideal width, so this never reads the width it raises.
+    var headerMinWidth: CGFloat {
+        let parts = headerWidths
+        guard parts.brand > 0, parts.picker > 0, parts.refresh > 0 else { return 0 }
+        return ceil(parts.brand + parts.picker + parts.refresh + 5 * Self.gap + Self.clockLead)
+    }
+
     /// How much of the row the countdown cluster is occupying right now, which is what the trimming
     /// below has already decided. Read by the centring above so it measures the row as drawn.
     private var clockZoneWidth: CGFloat {

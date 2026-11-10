@@ -21,9 +21,9 @@ func runQueueChecks() {
     expect(report(load: 32, cores: 16).queueLevel == .green, "queue: exactly 2 per core is still green")
     expect(report(load: 33, cores: 16).queueLevel == .yellow, "queue: over 2 per core is yellow")
     expect(report(load: 64, cores: 16).queueLevel == .yellow, "queue: exactly 4 per core is still yellow")
-    expect(HostHealthLogic.queuePerCore(load1: 10, cores: 0) == nil
-            && HostHealthLogic.queuePerCore(load1: 10, cores: -4) == nil
-            && HostHealthLogic.queuePerCore(load1: -1, cores: 16) == nil,
+    expect(HostQueue.perCore(load1: 10, cores: 0) == nil
+            && HostQueue.perCore(load1: 10, cores: -4) == nil
+            && HostQueue.perCore(load1: -1, cores: 16) == nil,
            "queue: zero or negative cores, negative load give nil (no division by zero)")
     let noCores = report(load: 10, cores: 0)
     expect(noCores.queuePerCore == nil && noCores.queueLevel == nil, "queue: the report leaves both fields out")

@@ -91,12 +91,12 @@ extension StatusItemController {
         if let note { tooltip = [tooltip, note].compactMap { $0 }.joined(separator: "\n") }
         let showSession = SettingsStore.shared.menuBarShowSession
         let face = StatusItemFace(segments: segments, blocked: blocked, tooltip: tooltip, note: note,
-                                  showSession: showSession)
+                                  noteSymbol: OverlayApp.statusItemNoteSymbol, showSession: showSession)
         guard face != lastAppliedFace else { return }
         lastAppliedFace = face
         let title = NSMutableAttributedString()
         if blocked > 0 && !dotInStrip { title.append(Self.blockedDot) }
-        if let note { title.append(Self.noteMark(note)) }
+        if let note { title.append(Self.noteMark(note, symbol: OverlayApp.statusItemNoteSymbol)) }
         button.attributedTitle = title
         button.toolTip = tooltip
         if segments.isEmpty {
@@ -159,8 +159,8 @@ extension StatusItemController {
     }
 
     /// A private build's mark: a small template symbol, so it follows the menu bar's tint.
-    private static func noteMark(_ note: String) -> NSAttributedString {
-        let image = NSImage(systemSymbolName: "cup.and.saucer.fill", accessibilityDescription: note)?
+    private static func noteMark(_ note: String, symbol: String) -> NSAttributedString {
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: note)?
             .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
         image?.isTemplate = true
         let attachment = NSTextAttachment()

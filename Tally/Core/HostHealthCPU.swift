@@ -155,27 +155,3 @@ extension HostHealthLogic {
 func hostHealthCPUUnreadLine(reason: String, now: Date) -> String {
     "\(ISO8601DateFormatter().string(from: now)) host-health=cpu-unread reason=\(reason)\n"
 }
-
-/// How crowded the run queue is per core. Display only (B-4171).
-enum HostHealthQueueLevel: String, Codable, Equatable, Sendable {
-    case green, yellow, red
-}
-
-extension HostHealthLogic {
-    /// Over this many threads per core the queue reads yellow, over `queueRedPerCore` red. B-4171:
-    /// pending alignment with the card's thresholds.
-    static let queueYellowPerCore = 2.0
-    static let queueRedPerCore = 4.0
-
-    /// The one-minute load average per core: runnable plus uninterruptible threads smoothed over one
-    /// minute, so it lags a spike by up to a minute. Nil when the cores or the load cannot be used.
-    /// No new syscall: both numbers are already in the reading (B-4171).
-    static func queuePerCore(load1: Double, cores: Int) -> Double? {
-        guard cores > 0, load1 >= 0, load1.isFinite else { return nil }
-        return load1 / Double(cores)
-    }
-
-    static func queueLevel(_ perCore: Double) -> HostHealthQueueLevel {
-        perCore > queueRedPerCore ? .red : perCore > queueYellowPerCore ? .yellow : .green
-    }
-}

@@ -24,7 +24,7 @@ func showSessionChecks() {
            && stripSource.contains("ring.innerSeverity.rawValue"),
            "the strip image's cache key carries the inner ring switch and both inner figures")
     let buttonSource = readSource("Tally/MenuBar/StatusItemButton.swift")
-    expect(buttonSource.contains("note: note,\n                                  showSession: showSession)")
+    expect(buttonSource.contains("note: note,\n                                  noteSymbol: OverlayApp.statusItemNoteSymbol, showSession: showSession)")
            && buttonSource.contains("stripImage(segments, waiting: blocked > 0,\n                                                              showSession: showSession)")
            && buttonSource.contains("SettingsStore.shared.menuBarShowSession"),
            "the status item feeds the setting to the renderer and to the face it compares")

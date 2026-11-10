@@ -14,6 +14,8 @@ enum OverlayApp {
     /// A line a private build adds to the menu-bar item's hover; non-nil also puts a small mark
     /// beside the strip.
     @MainActor static var statusItemNote: String? { nil }
+    /// The SF Symbol name of that mark; a private build can swap it when the note changes meaning.
+    @MainActor static var statusItemNoteSymbol: String { "cup.and.saucer.fill" }
     /// Set by the status item; a private build calls it when its note changes.
     @MainActor static var statusItemChanged: (() -> Void)?
     /// Small text a private build adds after the menu-bar strip's DEV tag (drawn as the same outlined

@@ -159,6 +159,7 @@ targets:
       - path: Tally/Core/ProjectStatusLine.swift
       - path: Tally/Core/HostHealthLogic.swift
       - path: Tally/Core/HostHealthCPU.swift
+      - path: Tally/Core/HostQueue.swift
       - path: Tally/Core/HostHealthStatus.swift
       # The minute-by-minute load history: the app WRITES one line a minute and `tally status
       # --history` READS it back, so both targets compile the one line format and the one rate

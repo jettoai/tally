@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 swiftc -parse-as-library -o "$work/run" \
   tests/hosthealthnotifications/main.swift Tally/Core/HostHealthMonitor.swift \
-  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostHealthNaming.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostQueue.swift Tally/Core/HostHealthNaming.swift \
   Tally/Core/HostHealthSessions.swift Tally/Core/KeystrokeText.swift \
   Tally/Core/HostLoadHistory.swift Tally/Core/HostLoadHistoryWriter.swift Tally/Core/BuildVariant.swift
 # Isolated Foundation homes: the harness never mutates user data.

@@ -68,7 +68,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/GitRepoRoot.swift \
   TallyCLI/HookKnock.swift \
   TallyCLI/HostHealthKnockLogic.swift \
-  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostQueue.swift \
   Tally/Core/KeystrokeText.swift \
   TallyCLI/KeyboardIdle.swift \
   TallyCLI/LaunchFlags.swift TallyCLI/LaunchDecision.swift \

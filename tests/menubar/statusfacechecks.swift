@@ -10,7 +10,7 @@ func statusFaceChecks() {
         { $0.segments = [] }, { $0.blocked = 1 }, { $0.tooltip = nil }, { $0.tooltip = "other" },
         { $0.segments[0].providerID = "codex" }, { $0.segments[0].lines = ["13%", "40%"] },
         { $0.segments[0].dimmed = true }, { $0.segments[0].badge = 2 }, { $0.segments[0].tag = "P" },
-        { $0.showSession = true }, { $0.segments[0].sessionRemaining = 10 },
+        { $0.showSession = true }, { $0.noteSymbol = "gauge" }, { $0.segments[0].sessionRemaining = 10 },
         { $0.segments[0].sessionSeverity = .critical },
     ] { var f = face; edit(&f); changed.append(f) }
     expect(changed.allSatisfy { $0 != face },

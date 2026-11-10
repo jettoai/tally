@@ -383,6 +383,8 @@ struct StatusItemFace: Equatable {
     var blocked: Int
     var tooltip: String?
     var note: String? = nil
+    /// The note mark's SF Symbol: a changed mark must repaint even when the note text is the same.
+    var noteSymbol: String? = nil
     /// The inner 5-hour ring switch: flipping it must repaint even when no segment changed.
     var showSession: Bool = false
 }

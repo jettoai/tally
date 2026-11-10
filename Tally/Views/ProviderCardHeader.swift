@@ -44,7 +44,7 @@ extension PopoverRootView {
         // verdict; when the tag has it, the pace verdict drops to the second line in its own colour.
         let advisor = hasAdvisorTag(providerID)
         let hasExtras = (advisor && chip != nil) || hasLaunchChip(providerID)
-        return HStack(alignment: .center, spacing: 12) {
+        return HStack(alignment: .center, spacing: 14) {
             if let summary, let pool {
                 poolRing(providerID, pool)
                     .contentShape(Rectangle())
@@ -55,15 +55,17 @@ extension PopoverRootView {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
                     HStack(spacing: 7) {
-                        ProviderIconView(providerID: providerID, size: 13,
+                        ProviderIconView(providerID: providerID, size: 18,
                                          tintOverride: PanelStyle.brand(providerID))
                         Text(ProviderCatalog.displayName(for: providerID))
-                            .font(PanelStyle.font(14, 650))
+                            .font(PanelStyle.font(17, 650))
                             .foregroundStyle(PanelStyle.text)
                             .lineLimit(1)
+                            // A long pill beside it takes the room from the count, never from the name.
+                            .fixedSize(horizontal: true, vertical: false)
                             .tallyTooltip(lazyBlocks: { advisorHeadingTooltip(providerID) })
                         Text(accountCountText(count))
-                            .font(PanelStyle.font(12, 500))
+                            .font(PanelStyle.font(12.5, 500))
                             .foregroundStyle(PanelStyle.text2)
                             .lineLimit(1)
                     }
@@ -76,10 +78,10 @@ extension PopoverRootView {
                         .contentShape(Rectangle())
                         .windowDragOrTap(toggle)
                         .onTapGesture(perform: toggle)
-                    if advisor { advisorTag(providerID) } else if let chip { StatusChip(text: chip.text, state: chip.state) }
+                    if advisor { advisorTag(providerID, large: true) } else if let chip { StatusChip(text: chip.text, state: chip.state) }
                     if foldable {
                         // foldChevron is a bare image: each caller wraps it in its own hit area.
-                        foldChevron(providerID)
+                        foldChevron(providerID, tint: PanelStyle.text2)
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
                             .windowDragOrTap(toggle)
@@ -94,14 +96,24 @@ extension PopoverRootView {
                 if hasExtras {
                     HStack(spacing: 6) {
                         if advisor, let chip {
-                            Text(chip.text).font(PanelStyle.font(11.5, 400)).foregroundStyle(chip.state.color).lineLimit(1)
+                            Text(chip.text).font(PanelStyle.font(12.5, 600)).foregroundStyle(paceInk(chip.state)).lineLimit(1)
                         }
                         launchChip(providerID)
                     }
                 }
             }
         }
-        .padding(EdgeInsets(top: 12, leading: 12, bottom: 10, trailing: 12))
+        .padding(EdgeInsets(top: 12, leading: PanelStyle.cardPadH, bottom: 10, trailing: PanelStyle.cardPadH))
+    }
+
+    /// The pace verdict's word when it drops to the second line: the skin's own warning, low and
+    /// green inks (the same ones the contrast test measures on the card).
+    private func paceInk(_ state: PanelChipState) -> Color {
+        switch state {
+        case .green: return PanelStyle.skinHex { $0.greenPill.ink }
+        case .amber: return PanelStyle.paceWarn
+        case .red: return PanelStyle.lowInk
+        }
     }
 
     /// The ring: the weekly pool's share, in the Used/Left mode the rest of the panel is in, wearing
@@ -111,7 +123,7 @@ extension PopoverRootView {
         let shown = used ? 100 - pool.averageRemaining : pool.averageRemaining
         let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
         return PoolRingView(fraction: shown / 100,
-                            tint: severity == .normal ? PanelStyle.brand(providerID) : PanelStyle.tint(severity),
+                            gradient: PanelStyle.brandGradient(providerID, severity: severity),
                             figure: "\(Int(shown.rounded()))%",
                             caption: (used ? L("Used") : L("Left")).uppercased())
     }
@@ -122,7 +134,7 @@ extension PopoverRootView {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let refill = pool.refills.first.map { " · " + refillText($0, now: context.date, compact: true) } ?? ""
             Text(poolDisplayName(pool) + refill)
-                .font(PanelStyle.font(11.5, 400))
+                .font(PanelStyle.font(12.5, 400))
                 .foregroundStyle(PanelStyle.text2)
                 .lineLimit(1)
         }

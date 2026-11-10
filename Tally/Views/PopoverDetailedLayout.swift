@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The account region of the Detailed panel (`PanelDensity.list`): one card per provider, its head
 /// (`providerCardHeader`) over a column-title line and one row per account, all inside the one
-/// card surface with hairlines between. The rows are the same `AccountListRowView` the list always
+/// card surface with one hairline over the column titles. The rows are the same `AccountListRowView` the list always
 /// used, so every control, mark and tooltip on a row is still there; what changed is the grid they
 /// stand on: an identity column that takes what is left and a fixed block of meter cells, the
 /// same on the title line and on every row, so a window keeps one x down the whole card.
@@ -63,13 +63,12 @@ extension PopoverRootView {
         return VStack(spacing: 0) {
             columnHead(meterColumns, titles: titles)
             ForEach(accounts) { usage in
-                VStack(spacing: 0) {
-                    PanelHairline()
-                    listRow(usage, meterColumns: meterColumns, isAutoPick: autoPicks.contains(usage.id),
-                            soonestResets: soonest[usage.id] ?? [], showsProviderIcon: flat)
-                }
+                listRow(usage, meterColumns: meterColumns, isAutoPick: autoPicks.contains(usage.id),
+                        soonestResets: soonest[usage.id] ?? [], showsProviderIcon: flat)
             }
         }
+        .padding(.horizontal, PanelStyle.cardPadH)
+        .padding(.bottom, 10)
     }
 
     /// What each meter column is called: the label of the first window of that kind any row reports.
@@ -95,13 +94,13 @@ extension PopoverRootView {
                     }
                 }
             }
-            .font(PanelStyle.font(9, 650))
-            .tracking(0.7)
+            .font(PanelStyle.font(10, 700))
+            .tracking(0.8)
             .textCase(.uppercase)
             .foregroundStyle(PanelStyle.text2)
             .lineLimit(1)
-            .padding(.horizontal, PanelStyle.rowPadH)
-            .padding(.top, 4)
+            .padding(.horizontal, PanelStyle.rowInsetH)
+            .padding(.top, 6)
             .frame(height: PanelStyle.colHeadHeight - PanelStyle.hairline, alignment: .center)
         }
     }

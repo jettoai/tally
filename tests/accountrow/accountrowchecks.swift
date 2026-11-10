@@ -660,7 +660,7 @@ func runAccountRowChecks() {
     // The list row's height and its meter columns (B-3445): a row is about 20pt tall, and each window
     // stands in the column of its kind rather than the leading window spanning a missing one.
     let listRow = readSource("Tally/Views/AccountListRowView.swift")
-    check("the list row is a fixed 31pt line (PanelStyle.rowHeight), never padded taller",
+    check("the list row is a fixed 40pt line (PanelStyle.rowHeight), never padded taller",
           listRow.contains(".frame(height: PanelStyle.rowHeight)") && !listRow.contains(".padding(.vertical, 5)"))
     check("the list row places each meter in its kind's column",
           listRow.contains("MeterSlots(columns: columnKeys.count, gap: Self.meterGap)")
@@ -680,7 +680,7 @@ func runAccountRowChecks() {
           !cardMeter.contains("5h starts on first use") && !cardMeter.contains("resetLabel(")
               && !cardMeter.contains("sessionNotStarted"))
     check("the caption's column is fixed and sits outside its timeline",
-          caption.contains(".frame(width: AccountListRowView.resetWidth, alignment: .leading)"))
+          caption.contains(".frame(width: AccountListRowView.resetWidth, alignment: .trailing)"))
     // THE SOONEST RESET IS EMPHASISED (B-3511): decided once per block and per provider by the grid,
     // handed to each row, drawn by the caption only while it is a countdown; the drag preview is a
     // single row with nothing to compare, so it never lights.

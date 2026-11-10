@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One account as a single 31pt line, for the Detailed density (`PanelDensity.list`): the identity
+/// One account as a single 40pt line, for the Detailed density (`PanelDensity.list`): the identity
 /// on the left (name, plan pill, and the marks and launch controls a card carries, shrunk to icons),
 /// every usage window as a small bar plus its percentage and reset on a fixed block of meter cells
 /// on the right. Roughly a fifth of a card's height, which is the whole point: past half a dozen
@@ -45,18 +45,19 @@ struct AccountListRowView: View {
     /// The gap between the meter columns.
     static let meterGap: CGFloat = PanelStyle.meterGap
 
-    /// The SHORTEST a meter track gets. The track stretches with the cell it is in (92pt for up to
-    /// three windows, `PanelStyle.meterCellWidth`); this floor is what a fourth window squeezes the
-    /// cells to.
+    /// The SHORTEST a meter track gets. The track takes the full width of the cell it is in (72pt
+    /// for up to three windows, `PanelStyle.meterCellWidth`); this floor is what a fourth window
+    /// squeezes the cells to.
     nonisolated static let barWidth: CGFloat = 14
     static let barHeight: CGFloat = PanelStyle.barHeight
-    /// The gap between a cell's track, figure and reset.
+    /// The gap between a cell's figure line and its track.
     nonisolated static let clusterGap: CGFloat = 5
-    /// The percentage column: "100%" at 12pt semibold with tabular digits.
-    nonisolated static let valueWidth: CGFloat = 33
-    /// The reset countdown column: one unit ("29d", "23h", "59m") at 9.5pt (21.5pt at the widest, semibold), a fixed width so a
-    /// minute tick never moves the figures beside it.
-    nonisolated static let resetWidth: CGFloat = 22
+    /// The percentage: "100%" at 13.5pt 650 with tabular digits (40.7pt). It may scale to 0.8 when a
+    /// fourth window squeezes the cell.
+    nonisolated static let valueWidth: CGFloat = 41
+    /// The reset countdown column: one unit ("29d", "23h", "59m") at 11pt (24.6pt at the widest,
+    /// semibold), a fixed width so a minute tick never moves the figure beside it.
+    nonisolated static let resetWidth: CGFloat = 26
     /// The badge slot, reserved whether or not this row has a badge, so the pin circles stay in one
     /// column instead of stepping left and right with the smart pick.
     static let badgeWidth: CGFloat = 11
@@ -86,17 +87,23 @@ struct AccountListRowView: View {
                 .anchorPreference(key: PanelHintTargetKey.self, value: .bounds) { [usage.id: $0] }
             }
         }
-        .padding(.horizontal, PanelStyle.rowPadH)
+        .padding(.horizontal, PanelStyle.rowInsetH)
         .frame(height: PanelStyle.rowHeight)
         .font(.caption2)
         .lineLimit(1)
-        .background(isAtLimit ? PanelStyle.red.opacity(0.07) : Color.clear)
+        .background {
+            if isAtLimit {
+                RoundedRectangle(cornerRadius: PanelStyle.rowRadius, style: .continuous).fill(PanelStyle.hotRow)
+            }
+        }
         .overlay(alignment: .leading) {
             if isAtLimit {
+                // Inside the wash's rounded end rather than on its edge.
                 UnevenRoundedRectangle(bottomTrailingRadius: 3, topTrailingRadius: 3, style: .continuous)
                     .fill(PanelStyle.red)
                     .frame(width: PanelStyle.wallBarWidth)
                     .padding(.vertical, 7)
+                    .padding(.leading, 2)
                     .allowsHitTesting(false)
             }
         }
@@ -168,7 +175,7 @@ struct AccountListRowView: View {
                 ProviderIconView(providerID: usage.providerID, size: 12)
             }
             Text(facts.label)
-                .font(PanelStyle.font(12.5, 600))
+                .font(PanelStyle.font(13.5, 600))
                 .foregroundStyle(PanelStyle.text)
                 .lineLimit(1)
                 .fixedSize(horizontal: fixesName, vertical: false)
@@ -206,7 +213,7 @@ struct AccountListRowView: View {
     private var usageMarks: some View {
         if facts.showsStaleMark {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(TallyColor.warning)
                 // Both halves of the callout, the card's rule at this width: the short line and
                 // the reason under it are one answer, and the callout splits an embedded newline
@@ -257,7 +264,7 @@ struct AccountListRowView: View {
             // the thing that fixes it.
             Button { RenewLoginStore.shared.renew(accountID: usage.id) } label: {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(TallyColor.critical)
                     .contentShape(Rectangle())
             }
@@ -279,7 +286,7 @@ struct AccountListRowView: View {
         }
         if let notice = facts.sharedLoginNotice {
             Image(systemName: "person.2.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(TallyColor.warning)
                 .tallyTooltip(notice, detail: UsageStore.sharedLoginDetail,
                               forced: DemoUsage.isActive && TallyTooltip.previewForced(.sharedlogin))

@@ -114,11 +114,11 @@ extension PopoverRootView {
     /// The disclosure affordance, shared by both gauge layouts and by the grouped cards' section
     /// headings: click folds this provider's cards away (the pools stay - they ARE the summary),
     /// click again brings them back.
-    func foldChevron(_ providerID: String) -> some View {
+    func foldChevron(_ providerID: String, tint: Color? = nil) -> some View {
         let collapsed = settings.collapsedProviders.contains(providerID)
         return Image(systemName: collapsed ? "chevron.right" : "chevron.down")
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(tint.map(AnyShapeStyle.init) ?? AnyShapeStyle(.tertiary))
             .frame(width: Self.fleetChevronWidth)
             .tallyTooltip(L("Show or hide this provider's account cards"))
     }

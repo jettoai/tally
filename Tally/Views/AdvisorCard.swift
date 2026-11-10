@@ -12,15 +12,15 @@ struct AdvisorCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: "\u{2726}").foregroundStyle(TallyColor.ai)
                     (Text(ProviderCatalog.displayName(for: line.providerID))
-                        .font(PanelStyle.font(11.5, 600)).foregroundColor(PanelStyle.text)
+                        .font(PanelStyle.font(12.5, 600)).foregroundColor(PanelStyle.text)
                      + Text(verbatim: " \u{00B7} " + line.sentence)
-                        .font(PanelStyle.font(11.5, 400)).foregroundColor(PanelStyle.text2))
+                        .font(PanelStyle.font(12.5, 400)).foregroundColor(PanelStyle.text2))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .font(PanelStyle.font(11.5, 400))
-        .padding(.horizontal, PanelStyle.rowPadH)
+        .font(PanelStyle.font(12.5, 400))
+        .padding(.horizontal, PanelStyle.cardPadH)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelCard()

@@ -15,10 +15,10 @@ struct MeterSlots: Layout {
     var columns: Int
     var gap: CGFloat
 
-    /// A cluster at its shortest: minimum track, the figure column, the reset column, and the gap
-    /// between each of the three.
-    static let minimumCluster: CGFloat = AccountListRowView.barWidth + AccountListRowView.clusterGap
-        + AccountListRowView.valueWidth + AccountListRowView.clusterGap + AccountListRowView.resetWidth
+    /// A cluster at its shortest: the figure (scaled to its 0.8 minimum) and the reset on one line,
+    /// over a track of at least `barWidth`.
+    static let minimumCluster: CGFloat = max(AccountListRowView.barWidth,
+                                             AccountListRowView.valueWidth * 0.8 + AccountListRowView.resetWidth)
 
     /// The least `columns` clusters and the `gap`s between them take; a row's width floor.
     static func minimumWidth(columns: Int, gap: CGFloat) -> CGFloat {

@@ -43,7 +43,7 @@ check(PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth), 1736, "t
 // view's own constants, pinned to the app-target lines this harness does not compile. The panel is one
 // 452pt column; `listPanelWidth` and the 564pt fixture above stay as the multi-column arithmetic.
 let listRowSource = (try? String(contentsOfFile: "Tally/Views/AccountListRowView.swift", encoding: .utf8)) ?? ""
-let rowConstants = ["resetWidth: CGFloat = 22", "barWidth: CGFloat = 14", "valueWidth: CGFloat = 33",
+let rowConstants = ["resetWidth: CGFloat = 26", "barWidth: CGFloat = 14", "valueWidth: CGFloat = 41",
                     "clusterGap: CGFloat = 5", "meterGap: CGFloat = PanelStyle.meterGap"]
 check(rowConstants.allSatisfy { listRowSource.contains("static let " + $0) }, "the row's width constants are the view's own")
 check(PanelGeometry.detailedPanelWidth, 452, "the Detailed panel is one 452pt column")

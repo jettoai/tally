@@ -26,18 +26,25 @@ extension PopoverRootView {
 
     /// The provider's advice as a heading tag, or nothing when there is no advice to give.
     @ViewBuilder
-    func advisorTag(_ providerID: String) -> some View {
+    func advisorTag(_ providerID: String, large: Bool = false) -> some View {
         if let state = advisorState(providerID), let tag = state.tag {
             let tint = conclusionTint(state.conclusion)
-            Text(tag)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(tint == TallyColor.warning ? Self.amberTagInk : tint)
-                .lineLimit(1)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(Capsule().fill(tint.opacity(0.15)))
-                .tallyTooltip(lazyBlocks: { advisorTooltip(state) })
-                .accessibilityLabel(state.sentence)
+            Group {
+                if large {
+                    // The Detailed card head's pill (the skin's amber, or the quiet one).
+                    PanelPill(text: tag, tone: tint == TallyColor.warning ? .amber : .idle, size: .large)
+                } else {
+                    Text(tag)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(tint == TallyColor.warning ? Self.amberTagInk : tint)
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(tint.opacity(0.15)))
+                }
+            }
+            .tallyTooltip(lazyBlocks: { advisorTooltip(state) })
+            .accessibilityLabel(state.sentence)
         }
     }
 

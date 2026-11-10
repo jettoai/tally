@@ -224,6 +224,9 @@ struct PopoverRootView: View {
             sessionLiftPreview
         }
         .coordinateSpace(name: Self.reorderSpace)
+        // The colour haloes behind the Detailed cards (PanelSkin.swift): over the host's glass, under
+        // every control, and blind to the pointer.
+        .background { skinHalos }
         // Hover callouts for the whole surface, above every card and outside the cards' scroll clip
         // (see TallyTooltip). Held back while a card is being dragged: the anchors are moving.
         .tallyTooltipLayer(suppressed: cardLift != nil || sessionLift != nil)

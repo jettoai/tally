@@ -102,7 +102,7 @@ final class StatusItemController: NSObject {
                                       tabState: popoverTab, host: .popover)
                 // The same backdrop as the pinned panel: behind-window glass on, solid off.
                 // Square, because NSPopover clips the content to its own rounded shape.
-                .background(PanelBackdrop(settings: SettingsStore.shared, cornerRadius: nil))))
+                .background(PanelBackdrop(settings: SettingsStore.shared, cornerRadius: nil, skin: true))))
         host.sizingOptions = []
         popoverHost = host
         popover.contentViewController = host

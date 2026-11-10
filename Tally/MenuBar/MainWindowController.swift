@@ -160,7 +160,7 @@ final class MainWindowController {
                                 // pushing the window up from under the pointer.
                                 hostTopEdge: sizer.topEdge,
                                 tokens: .shared, tabState: surfaceTab, host: sizer.host)
-                    .background(PanelBackdrop(settings: .shared, cornerRadius: nil))
+                    .background(PanelBackdrop(settings: .shared, cornerRadius: nil, skin: true))
             }
             ActivationPolicy.track(window)
             // A title-bar drag is a carry like the pinned panel's: without this, every frame of it

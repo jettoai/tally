@@ -19,6 +19,13 @@ enum PanelStyle {
     static let barHeight = PanelMetrics.barHeight
     static let wallBarWidth = PanelMetrics.wallBarWidth
     static let hairline = PanelMetrics.hairline
+    static let panelRadius = PanelMetrics.panelRadius
+    static let cardPadH = PanelMetrics.cardPadH
+    static let rowInsetH = PanelMetrics.rowInsetH
+    static let rowRadius = PanelMetrics.rowRadius
+    static let ringStroke = PanelMetrics.ringStroke
+    static let chipSize = PanelMetrics.chipSize
+    static let headerHeight = PanelMetrics.headerHeight
 
     static func meterCellWidth(columns: Int) -> CGFloat { PanelMetrics.meterCellWidth(columns: columns) }
     static func meterBlockWidth(columns: Int) -> CGFloat { PanelMetrics.meterBlockWidth(columns: columns) }
@@ -35,6 +42,18 @@ enum PanelStyle {
                 blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
     }
 
+    /// A skin colour in both appearances, read from the same `PanelPalette.Skin` numbers the contrast
+    /// test asserts (B-4169).
+    static func skinTone(_ get: @escaping (PanelPalette.Skin) -> PanelPalette.Tone) -> Color {
+        dynamic(dark: toneColor(get(PanelPalette.dark.skin)), light: toneColor(get(PanelPalette.light.skin)))
+    }
+
+    static func skinHex(_ get: @escaping (PanelPalette.Skin) -> UInt32) -> Color {
+        dynamic(dark: rgb(get(PanelPalette.dark.skin)), light: rgb(get(PanelPalette.light.skin)))
+    }
+
+    private static func toneColor(_ tone: PanelPalette.Tone) -> NSColor { rgb(tone.hex, CGFloat(tone.alpha)) }
+
     private static func white(_ alpha: CGFloat) -> NSColor { NSColor(white: 1, alpha: alpha) }
     private static func black(_ alpha: CGFloat) -> NSColor { NSColor(white: 0, alpha: alpha) }
 
@@ -50,27 +69,78 @@ enum PanelStyle {
     static let glassTint = dynamic(
         dark: rgb(PanelPalette.dark.panelSolid, CGFloat(PanelPalette.dark.glassAlpha)),
         light: rgb(PanelPalette.light.panelSolid, CGFloat(PanelPalette.light.glassAlpha)))
-    static let track = dynamic(dark: white(0.10), light: black(0.08))
     static let ink = dynamic(dark: white(0.78), light: black(0.62))
     static let green = dynamic(dark: rgb(0x41D37A), light: rgb(0x1F9D54))
     static let amber = dynamic(dark: rgb(0xF5AE42), light: rgb(0xC97A0C))
     static let red = dynamic(dark: rgb(0xFF6A5F), light: rgb(0xE0443A))
-    static let line = dynamic(dark: white(0.08), light: black(0.07))
-    static let cardEdge = dynamic(dark: white(0.09), light: black(0.06))
-    static let seg = dynamic(dark: white(0.07), light: black(0.06))
-    static let segOn = dynamic(dark: white(0.16), light: rgb(0xFFFFFF))
-    /// The card over a glass panel, and over an opaque one (the panel's own solid colour with 4% of
-    /// the text colour mixed in).
-    static let cardGlass = dynamic(
-        dark: rgb(PanelPalette.dark.cardFill, CGFloat(PanelPalette.dark.cardAlpha)),
-        light: rgb(PanelPalette.light.cardFill, CGFloat(PanelPalette.light.cardAlpha)))
+    /// The groove under a bar or a ring, the line over the column titles, the hot row's wash.
+    static let track = skinTone { $0.track }
+    static let line = skinTone { $0.colHeadLine }
+    static let hotRow = skinTone { $0.hotRow }
+    /// The segmented switch (track, edge, selected thumb, the thumb's top light, words) and its dot.
+    static let seg = skinTone { $0.seg }
+    static let segEdge = skinTone { $0.segEdge }
+    static let segOn = skinTone { $0.segOn }
+    static let segOnTop = skinTone { $0.segOnTop }
+    static let segText = skinHex { $0.segText }
+    static let segOnText = skinHex { $0.segOnText }
+    static let tabDot = skinHex { $0.tabDot }
+    /// The round buttons, the wordmark, a figure under 20% left, a card head's off-pace line.
+    static let chipFill = skinTone { $0.chip }
+    static let chipEdge = skinTone { $0.chipEdge }
+    static let chipInk = skinHex { $0.chipInk }
+    static let logo = skinHex { $0.logo }
+    static let lowInk = skinHex { $0.lowInk }
+    static let paceWarn = skinHex { $0.paceWarn }
+    /// The card over a glass panel (a fill of the skin, so the glass shows through it), its 1pt edge,
+    /// the highlight along its top edge, and over an opaque panel the solid fill below.
+    static let cardGlass = skinTone { $0.card }
+    static let cardEdge = skinTone { $0.cardEdge }
+    static let cardTop = skinTone { $0.cardTop }
+    static let cardShadow = skinTone { $0.cardShadow }
+    static let footerFill = skinTone { $0.footer }
+    static let footerEdge = skinTone { $0.footerEdge }
+    static let rimOuter = skinTone { $0.rimOuter }
+    static let rimInner = skinTone { $0.rimInner }
+    static let rimTop = skinTone { $0.rimTop }
     /// The panel's own opaque colour, under the cards when glass is off.
     static let panelSolid = dynamic(dark: rgb(PanelPalette.dark.panelSolid), light: rgb(PanelPalette.light.panelSolid))
     static let cardSolid = dynamic(dark: rgb(0x272729), light: rgb(0xEBEBED))
 
-    /// A provider's colour on the panel, or the neutral ink for one without its own.
+    /// The skin's three glass stops, each at the glass opacity (or opaque, for the solid panel).
+    static func glassStops(opaque: Bool) -> [Color] {
+        (0..<3).map { i in
+            dynamic(dark: rgb(PanelPalette.dark.skin.stops[i], opaque ? 1 : CGFloat(PanelPalette.dark.skin.alpha)),
+                    light: rgb(PanelPalette.light.skin.stops[i], opaque ? 1 : CGFloat(PanelPalette.light.skin.alpha)))
+        }
+    }
+
+    /// A provider's colour on the panel (its mark, its plan pill's word), or the neutral ink for one
+    /// without its own.
     static func brand(_ providerID: String) -> Color {
-        ProviderBrand.panelHex(for: providerID).map { Color(nsColor: rgb($0)) } ?? ink
+        switch providerID {
+        case "claude": return skinHex { $0.inkClaude }
+        case "codex": return skinHex { $0.inkCodex }
+        default: return ProviderBrand.panelHex(for: providerID).map { Color(nsColor: rgb($0)) } ?? ink
+        }
+    }
+
+    /// The two ends of a bar or ring in a provider's colour while healthy, amber under half left and
+    /// red under a fifth (`MetricSeverity.fromUsedPercent`, the same cut the draft's `level()` has).
+    static func brandGradient(_ providerID: String, severity: MetricSeverity) -> [Color] {
+        func pair(_ get: @escaping (PanelPalette.Skin) -> PanelPalette.Gradient) -> [Color] {
+            [skinHex { get($0).from }, skinHex { get($0).to }]
+        }
+        switch severity {
+        case .warning: return pair { $0.amber }
+        case .critical: return pair { $0.red }
+        case .normal, .unknown:
+            switch providerID {
+            case "claude": return pair { $0.claude }
+            case "codex": return pair { $0.codex }
+            default: return pair { $0.violet }
+            }
+        }
     }
 
     /// The severity ramp as the panel draws it: ink while healthy, then amber, then red.
@@ -118,13 +188,7 @@ struct StatusChip: View {
     let state: PanelChipState
 
     var body: some View {
-        Text(text)
-            .font(PanelStyle.font(10.5, 600))
-            .foregroundStyle(state.color)
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(state.color.opacity(0.15)))
+        PanelPill(text: text, tone: state.pillTone, size: .large)
     }
 }
 
@@ -134,21 +198,13 @@ struct PlanBadge: View {
     let providerID: String
 
     var body: some View {
-        let brand = PanelStyle.brand(providerID)
-        Text(text.uppercased())
-            .font(PanelStyle.font(8.5, 750))
-            .tracking(0.5)
-            .foregroundStyle(brand)
-            .lineLimit(1)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1.5)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(brand.opacity(0.15)))
-            .fixedSize()
+        PanelPill(text: text.uppercased(), tone: .plan(providerID), size: .badge)
     }
 }
 
 /// The card surface of the Detailed panel: a fill that follows the glass/solid choice the surface
-/// already made (`tallyCardStyle`), a 0.5pt inner edge and the continuous 12pt corner.
+/// already made (`tallyCardStyle`), a 1pt inner edge, the highlight along its top edge (dark), the
+/// soft shadow under it (light) and the continuous 18pt corner.
 private struct PanelCard: ViewModifier {
     @Environment(\.tallyCardStyle) private var style
 
@@ -157,7 +213,9 @@ private struct PanelCard: ViewModifier {
         content
             .background(shape.fill(style == .solid ? PanelStyle.cardSolid : PanelStyle.cardGlass))
             .clipShape(shape)
-            .overlay(shape.strokeBorder(PanelStyle.cardEdge, lineWidth: PanelStyle.hairline))
+            .overlay(PanelEdge(cornerRadius: PanelStyle.cardRadius, outer: .clear,
+                               inner: PanelStyle.cardEdge, top: PanelStyle.cardTop))
+            .background(PanelCardShadow(cornerRadius: PanelStyle.cardRadius))
     }
 }
 

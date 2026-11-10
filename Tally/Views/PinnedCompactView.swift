@@ -30,8 +30,9 @@ struct PinnedPanelRoot: View {
                                   hostScreen: hostScreen, hostTopEdge: hostTopEdge)
             }
         }
-        .background(PanelBackdrop(settings: .shared))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(PanelBackdrop(settings: .shared, cornerRadius: PanelMetrics.panelRadius, skin: true))
+        .clipShape(RoundedRectangle(cornerRadius: PanelMetrics.panelRadius, style: .continuous))
+        .overlay(PanelRim(cornerRadius: PanelMetrics.panelRadius))
     }
 }
 

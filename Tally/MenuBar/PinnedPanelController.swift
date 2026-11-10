@@ -196,6 +196,9 @@ struct PanelBackdrop: View {
     /// The surface's own corner radius; nil for a host whose window shape already clips it (the
     /// dashboard window), which then needs no mask of ours.
     var cornerRadius: CGFloat? = 12
+    /// The usage panel's gradient glass (`PanelTintLayer`) instead of the flat tint. Off for the
+    /// surfaces that keep the flat one (the pick panel, the view-options card).
+    var skin = false
 
     var body: some View {
         if settings.isPanelTranslucent,
@@ -204,12 +207,16 @@ struct PanelBackdrop: View {
             // desktop, but a grey word no longer sits on whatever the desktop happens to be.
             GlassBackdrop(cornerRadius: cornerRadius)
                 .overlay {
-                    if let cornerRadius {
+                    if skin {
+                        PanelTintLayer(cornerRadius: cornerRadius)
+                    } else if let cornerRadius {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).fill(PanelStyle.glassTint)
                     } else {
                         PanelStyle.glassTint
                     }
                 }
+        } else if skin {
+            PanelTintLayer(cornerRadius: cornerRadius, opaque: true)
         } else if let cornerRadius {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(PanelStyle.panelSolid)

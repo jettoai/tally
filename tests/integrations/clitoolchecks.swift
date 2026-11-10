@@ -149,6 +149,24 @@ func runCLIToolChecks(tmp: URL) throws {
     catch { notADirError = error as NSError }
     check("anything else (a regular file where the folder should be) keeps the plain error",
           notADirError != nil && Store.linkNeedsElevation(notADirError!) == nil)
+    // A writable /usr/local/bin: the plain link must not delete another program's file there.
+    let foreignDir = fresh.appendingPathComponent("foreign-bin")
+    try fm.createDirectory(at: foreignDir, withIntermediateDirectories: true)
+    let foreignLink = foreignDir.appendingPathComponent("tally")
+    try "someone else's tally\n".write(to: foreignLink, atomically: true, encoding: .utf8)
+    var foreignError: Error?
+    do { try Store.linkCLIDirectly(at: foreignLink, to: bundled) } catch { foreignError = error }
+    check("the plain link leaves a regular file of somebody else's in place",
+          (try? String(contentsOf: foreignLink, encoding: .utf8)) == "someone else's tally\n"
+              && (try? fm.destinationOfSymbolicLink(atPath: foreignLink.path)) == nil)
+    check("…and says what the administrator path says about it",
+          foreignError?.localizedDescription
+              == Store.cliInstallMessage(.foreignFile, target: bundled, link: foreignLink))
+    let ourLink = foreignDir.appendingPathComponent("ours")
+    try fm.createSymbolicLink(at: ourLink, withDestinationURL: fresh.appendingPathComponent("old-app"))
+    try Store.linkCLIDirectly(at: ourLink, to: bundled)
+    check("a symlink at the path is still replaced, wherever it pointed",
+          (try? fm.destinationOfSymbolicLink(atPath: ourLink.path)) == bundled.path)
 
     // (b) After the fix: the administrator step makes the folder and the link.
     let calls = Calls()

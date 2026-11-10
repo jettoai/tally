@@ -238,9 +238,20 @@ extension IntegrationsStore {
         static let administratorPrompt = CLIElevator { IntegrationsStore.runOsascript($0, $1) }
     }
 
+    /// Thrown by the plain link for a file that is not ours; the banner is the elevated path's own.
+    struct CLIForeignFileError: LocalizedError, Equatable {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     /// The plain way, exactly as the install always did it.
     nonisolated static func linkCLIDirectly(at link: URL = cliSymlinkURL, to target: URL) throws {
         let fm = FileManager.default
+        // Same refusal as `linkScript` and `linkCLIElevated`: a regular file at the path is another
+        // program's, and a writable /usr/local/bin must not let this path delete it.
+        if fm.fileExists(atPath: link.path), (try? fm.destinationOfSymbolicLink(atPath: link.path)) == nil {
+            throw CLIForeignFileError(message: cliInstallMessage(.foreignFile, target: target, link: link) ?? "")
+        }
         try? fm.removeItem(at: link)
         try fm.createSymbolicLink(at: link, withDestinationURL: target)
     }

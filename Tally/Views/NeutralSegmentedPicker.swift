@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// The two sizes the panel uses: the header's tab switch (24pt segments on 12.5pt type) and the
-/// footer's and view options' segments (22pt on 12pt), inside a 3pt capsule track. The header's fit
+/// The two sizes the panel uses: the header's tab switch (22pt segments on 12pt type) and the
+/// footer's and view options' segments (20pt on 11pt), inside a capsule track 2pt around them. The header's fit
 /// test decides whether the clock still fits from this control's measured width, so a size change
 /// here is picked up there without a number to keep in step.
 enum NeutralSegmentedSize {

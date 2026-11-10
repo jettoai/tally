@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One account as a single 40pt line, for the Detailed density (`PanelDensity.list`): the identity
+/// One account as a single 32pt line, for the Detailed density (`PanelDensity.list`): the identity
 /// on the left (name, plan pill, and the marks and launch controls a card carries, shrunk to icons),
 /// every usage window as a small bar plus its percentage and reset on a fixed block of meter cells
 /// on the right. Roughly a fifth of a card's height, which is the whole point: past half a dozen
@@ -45,9 +45,9 @@ struct AccountListRowView: View {
     /// The gap between the meter columns.
     static let meterGap: CGFloat = PanelStyle.meterGap
 
-    /// The SHORTEST a meter track gets. The track takes the full width of the cell it is in (72pt
-    /// for up to three windows, `PanelStyle.meterCellWidth`); this floor is what a fourth window
-    /// squeezes the cells to.
+    /// The SHORTEST a meter track gets. The track takes the full width of the cell it is in
+    /// (`PanelMetrics.meterCellWidth`: 104pt for one or two windows, 68pt for three, 60pt for four);
+    /// this is the floor under that (`MeterSlots.minimumCluster`).
     nonisolated static let barWidth: CGFloat = 14
     static let barHeight: CGFloat = PanelStyle.barHeight
     /// The gap between a cell's figure line and its track.

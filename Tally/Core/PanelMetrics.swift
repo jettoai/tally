@@ -33,7 +33,13 @@ enum PanelMetrics {
     /// gives each 104pt, so two columns fill the room three would have (the name column does not
     /// inherit a stretch of empty row); three windows take 68pt, and a fourth squeezes all of them
     /// to 60pt so the identity column keeps room for a name.
-    static func meterCellWidth(columns: Int) -> CGFloat { columns <= 2 ? 104 : (columns == 3 ? 68 : 60) }
+    static func meterCellWidth(columns: Int) -> CGFloat {
+        switch columns {
+        case ...2: return 104
+        case 3: return 68
+        default: return 60
+        }
+    }
 
     /// The width of the whole meter block of one row.
     static func meterBlockWidth(columns: Int) -> CGFloat {

@@ -44,9 +44,9 @@ struct PoolRingView: View {
 
     /// "58" at 17pt with a 9pt "%" raised beside it.
     private var figureText: Text {
-        let number = figure.hasSuffix("%") ? String(figure.dropLast()) : figure
-        let digits = Text(verbatim: number).font(PanelStyle.font(17, 650).monospacedDigit())
-        guard figure.hasSuffix("%") else { return digits }
-        return digits + Text(verbatim: "%").font(PanelStyle.font(9, 600)).baselineOffset(6)
+        let digitsFont = PanelStyle.font(17, 650).monospacedDigit()
+        guard figure.hasSuffix("%") else { return Text(verbatim: figure).font(digitsFont) }
+        return Text(verbatim: String(figure.dropLast())).font(digitsFont)
+            + Text(verbatim: "%").font(PanelStyle.font(9, 600)).baselineOffset(6)
     }
 }

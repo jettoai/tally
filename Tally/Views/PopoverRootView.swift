@@ -350,9 +350,7 @@ struct PopoverRootView: View {
     @State private var scrollerGutter = ScreenFitStack.scrollerGutter
 
     /// The invite shows with accounts on screen, never over the forced empty-state capture.
-    private var showsPanelHints: Bool {
-        !UserDefaults.standard.bool(forKey: "TallyEmptyStatePreview") && store.contentState == .hasAccounts
-    }
+    private var showsPanelHints: Bool { !showsEmptyState }
 
     /// The cap actually in force. A surface can change screens without anything the layout reads
     /// changing - dragged to another display, or one unplugged out from under it - and then it

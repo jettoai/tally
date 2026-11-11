@@ -3,7 +3,7 @@ import Observation
 import OSLog
 
 /// Each Claude account's limit-reset inventory (`ClaudeResetInventory`), for the card and the
-/// snapshot. Read-only: nothing here spends a reset.
+/// snapshot. A reset claim is only entered by the card after its explicit confirmation.
 ///
 /// ON ITS OWN CADENCE, NOT THE USAGE ROUND'S. The usage endpoint rate-limits, and the inventory
 /// changes when Anthropic grants or the user spends, not by the minute, so each account is asked at
@@ -22,6 +22,9 @@ final class ClaudeResetInventoryStore {
     /// Readings, cadence and which answers still count (ClaudeResetInventoryLedger: a reading
     /// belongs to the login it was taken under, not to the home).
     private var ledger = ClaudeResetInventoryLedger()
+    private var pendingClaimIDs: [String: String] = [:]
+    private var claimGate = ClaudeResetClaimGate()
+    var isClaiming: Bool { claimGate.isBusy }
     var entries: [String: Entry] { ledger.entries }
 
     static let interval: TimeInterval = 600
@@ -49,18 +52,76 @@ final class ClaudeResetInventoryStore {
             Task { [weak self] in
                 // Whose login this asks under, read beside the token so the answer is filed to it.
                 let identity = await Task.detached(priority: .utility) {
-                    ClaudeAccounts.profile(configDir: home).accountUUID
+                    ClaudeResetClaim.identity(configHome: home)
                 }.value
                 let outcome = await ClaudeResetInventoryFetch.fetch(home: home,
                                                                     clientVersion: { Self.claudeVersion })
-                self?.land(id, generation: generation, outcome: outcome, identity: identity)
+                self?.land(id, generation: generation, outcome: outcome, identity: identity?.accountID,
+                           organizationID: identity?.organizationID)
             }
         }
+    }
+
+    /// Spend one grant only after the card's confirmation has returned true. No automatic or
+    /// refresh path calls this method; a credential is read only at this explicit boundary.
+    func claim(accountID: String, grantID: String, approvedEntry: Entry,
+               confirmed: Bool) async -> ClaudeResetClaim.Outcome {
+        guard let account = UsageStore.shared.discoveredAccounts.first(where: { $0.id == accountID }),
+              let home = account.launchHome,
+              let grant = approvedEntry.inventory.grants.first(where: { $0.id.raw == grantID }),
+              grant.kind != .other,
+              !grant.useRequiresLimit || approvedEntry.inventory.atLimit,
+              let consent = Self.consent(accountID, grantID: grant.id, entry: approvedEntry),
+              let ticket = claimGate.begin(consent,
+                    current: Self.consent(accountID, grantID: grant.id, entry: ledger.entries[accountID]),
+                    grant: grant, stale: approvedEntry.isStale, confirmed: confirmed, now: Date())
+        else { return .cancelled }
+        defer { claimGate.finish(ticket) }
+        let (identity, credential) = await Task.detached(priority: .utility) {
+            (ClaudeResetClaim.identity(configHome: home),
+             ClaudeResetInventoryFetch.readCredential(
+                home: home,
+                defaultHome: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path,
+                now: Date(), keychainRead: ClaudeLoginExpiryKeychain.read,
+                fileRead: { try? Data(contentsOf: $0) }))
+        }.value
+        // A login, refresh, removed account or expired grant during the credential read cancels
+        // the consent. Never silently spend on whichever user now owns the same config folder.
+        guard !Task.isCancelled,
+              UsageStore.shared.discoveredAccounts.contains(where: { $0.id == accountID && $0.launchHome == home }),
+              claimGate.isCurrent(ticket, consent: consent,
+                  current: Self.consent(accountID, grantID: grant.id, entry: ledger.entries[accountID])),
+              identity?.accountID == consent.identity, identity?.organizationID == consent.organizationID,
+              grant.endsAt > Date(), let credential else { return .cancelled }
+        let key = "\(accountID):\(consent.identity):\(consent.organizationID):\(grantID)"
+        var claim = ClaudeResetClaim(organizationID: consent.organizationID, credential: credential,
+                                     version: Self.claudeVersion, pendingRequestID: pendingClaimIDs[key])
+        let outcome = await claim.perform(grantID: grantID, confirmed: confirmed)
+        // Only retain this login's idempotency key while its inventory still belongs to it.
+        if claimGate.isCurrent(ticket, consent: consent,
+                current: Self.consent(accountID, grantID: grant.id, entry: ledger.entries[accountID])) {
+            pendingClaimIDs[key] = claim.pendingRequestID
+            ledger.invalidate(accountID)
+        }
+        let accounts = UsageStore.shared.discoveredAccounts
+        evaluate(accounts: accounts, known: Set(accounts.map(\.id)), userInitiated: true)
+        await UsageStore.shared.refresh(userInitiated: true)
+        return outcome
+    }
+
+    private static func consent(_ id: String, grantID: ClaudeResetInventory.GrantID,
+                                entry: Entry?) -> ClaudeResetClaimGate.Consent? {
+        guard let entry, !entry.isStale, entry.inventory.eligible,
+              let identity = entry.identity, let organization = entry.organizationID,
+              entry.inventory.grants.contains(where: { $0.id == grantID }) else { return nil }
+        return .init(accountID: id, identity: identity, organizationID: organization,
+                     grantID: grantID, checkedAt: entry.checkedAt)
     }
 
     /// A login landed or was renewed in this account's home, which may be another login than the
     /// one the reading belongs to: the reading goes now and the next round asks again.
     func invalidate(_ accountID: String) {
+        pendingClaimIDs = pendingClaimIDs.filter { !$0.key.hasPrefix("\(accountID):") }
         if ledger.invalidate(accountID) { UsageStore.shared.republishSnapshot() }
     }
 
@@ -68,14 +129,18 @@ final class ClaudeResetInventoryStore {
     /// another login than its reading was taken under loses the reading. In memory only.
     func note(identities: [String: String?]) {
         var dropped = false
-        for (id, identity) in identities where ledger.note(id, identity: identity) { dropped = true }
+        for (id, identity) in identities where ledger.note(id, identity: identity) {
+            dropped = true
+            pendingClaimIDs = pendingClaimIDs.filter { !$0.key.hasPrefix("\(id):") }
+        }
         if dropped { UsageStore.shared.republishSnapshot() }
     }
 
     private func land(_ id: String, generation: Int, outcome: ClaudeResetInventoryFetch.Outcome,
-                      identity: String?) {
+                      identity: String?, organizationID: String?) {
         let before = ledger.entries[id]
-        guard ledger.land(id, generation: generation, outcome: outcome, identity: identity, now: Date()) else {
+        guard ledger.land(id, generation: generation, outcome: outcome, identity: identity, now: Date(),
+                          organizationID: organizationID) else {
             Self.log.info("state=superseded account=\(id, privacy: .private(mask: .hash))")
             return
         }

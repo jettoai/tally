@@ -8,7 +8,8 @@ trap 'rm -rf "$build_dir"' EXIT
 swiftc -warnings-as-errors -o "$build_dir/run" \
     tests/resetinventory/main.swift \
     Tally/Core/ClaudeResetInventory.swift Tally/Core/ClaudeResetInventoryFetch.swift \
-    Tally/Core/ClaudeResetInventoryLedger.swift \
+    Tally/Core/ClaudeResetInventoryLedger.swift Tally/Core/ClaudeResetClaim.swift Tally/Core/ClaudeResetClaimGate.swift \
+    Tally/Core/ClaudeStatePath.swift \
     Tally/Core/ClaudeLoginExpiry.swift Tally/Core/ClaudeLoginExpiryKeychain.swift \
     Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/Keychain/KeychainReader.swift
 "$build_dir/run"

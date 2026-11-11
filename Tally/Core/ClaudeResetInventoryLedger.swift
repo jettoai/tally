@@ -20,6 +20,7 @@ struct ClaudeResetInventoryLedger {
         var isStale: Bool
         /// The `oauthAccount.accountUuid` the home named when this was read; nil when it named nobody.
         fileprivate(set) var identity: String?
+        var organizationID: String? = nil
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -70,13 +71,13 @@ struct ClaudeResetInventoryLedger {
     /// Takes an answer in. False when it is not this generation's (the home changed hands while it
     /// was out) or the account is gone, and then nothing changed.
     mutating func land(_ id: String, generation: Int, outcome: ClaudeResetInventoryFetch.Outcome,
-                       identity: String?, now: Date) -> Bool {
+                       identity: String?, now: Date, organizationID: String? = nil) -> Bool {
         guard generations[id, default: 0] == generation else { return false }
         inFlight[id] = nil
         guard known.contains(id) else { return false }
         switch outcome {
         case .read(let inventory):
-            entries[id] = Entry(inventory: inventory, checkedAt: now, isStale: false, identity: identity)
+            entries[id] = Entry(inventory: inventory, checkedAt: now, isStale: false, identity: identity, organizationID: organizationID)
         case .noCredential, .failed:
             // A failed read under another login does not keep the last one's reading on show.
             if let held = entries[id]?.identity, let identity, held != identity {

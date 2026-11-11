@@ -4,8 +4,9 @@ import Foundation
 /// `cedar_ember` block of Anthropic's OAuth usage response. Foundation only, so the inventory suite
 /// compiles it standalone.
 ///
-/// READ-ONLY. Nothing here spends a reset; the `/limit-reset` press stays where it was
-/// (LimitResetStore). Grant ids never leave the parser: a summary carries a kind, counts and an end.
+/// READ-ONLY. Nothing here spends a reset: the one claim is ClaudeResetClaim, behind the card's
+/// confirmation. A grant's id is kept for that claim only, inside `GrantID`, which prints as
+/// redacted, so no log, snapshot or description carries it.
 struct ClaudeResetInventory: Equatable, Sendable {
     /// What a grant gives back, named the way Claude Code names it. `other` is a `type` this build
     /// does not know: the card calls it a plain reset, the snapshot keeps the type as sent.
@@ -13,13 +14,31 @@ struct ClaudeResetInventory: Equatable, Sendable {
         case session, weekly, fable, full, other
     }
 
+    /// The server's id for one grant, which the claim names. Prints as redacted.
+    struct GrantID: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible,
+                    CustomReflectable {
+        let raw: String
+        var description: String { "GrantID(<redacted>)" }
+        var debugDescription: String { description }
+        var customMirror: Mirror { Mirror(self, children: [:]) }
+    }
+
     struct Grant: Equatable, Sendable {
+        var id: GrantID
         var kind: Kind
         /// The snapshot's name for it: the kind, or for `other` the `type` the response sent.
         var name: String
         var left: Int
         var total: Int
         var endsAt: Date
+        /// `usable_now`: absent or malformed metadata never enables spending.
+        var usableNow: Bool = false
+        /// `use_requires_limit`: only usable while the login is at a limit (`at_limit`).
+        var useRequiresLimit: Bool = false
+        /// `percent_used` per window ("five_hour", "seven_day", ...), when the server sent it.
+        var percentUsed: [String: Double] = [:]
+        /// The windows it clears, as sent.
+        var clears: [String] = []
     }
 
     /// False when the response says the login is not in the program (`eligible` not true, or no
@@ -27,6 +46,12 @@ struct ClaudeResetInventory: Equatable, Sendable {
     var eligible: Bool
     /// The grants in force at `now` of the parse: started, not ended, not paused. Soonest end first.
     var grants: [Grant]
+    /// `at_limit`: the login is at one of its limits now.
+    var atLimit: Bool = false
+    /// `weekly_resets_at`: when the weekly limit refills on its own.
+    var weeklyResetsAt: Date?
+    /// `next_grant_id`, kept only when it names a grant in force: the one the server expects next.
+    var nextGrantID: GrantID?
 
     var left: Int { grants.reduce(0) { $0 + $1.left } }
 
@@ -40,6 +65,14 @@ struct ClaudeResetInventory: Equatable, Sendable {
             return (kind, mine.reduce(0) { $0 + $1.left }, end)
         }
         .sorted { $0.endsAt < $1.endsAt }
+    }
+
+    /// The grant a press on this kind's row claims: the server's next grant when it is of this
+    /// kind, otherwise the soonest-ending one that still has a reset. Nil when none has.
+    func claimable(_ kind: Kind) -> Grant? {
+        let mine = grants.filter { $0.kind == kind && $0.left > 0 }
+        if let next = nextGrantID, let grant = mine.first(where: { $0.id == next }) { return grant }
+        return mine.min { $0.endsAt < $1.endsAt }
     }
 
     /// Claude Code 2.1.311's own rule: a grant that gives back weekly spend is a Fable reset even
@@ -81,7 +114,12 @@ struct ClaudeResetInventory: Equatable, Sendable {
             case .unreadable: return nil
             }
         }
-        return ClaudeResetInventory(eligible: true, grants: grants.sorted { $0.endsAt < $1.endsAt })
+        // Advisory fields: an odd one is dropped rather than failing the read.
+        let next = (block["next_grant_id"] as? String).map(GrantID.init(raw:))
+        return ClaudeResetInventory(eligible: true, grants: grants.sorted { $0.endsAt < $1.endsAt },
+                                    atLimit: flag(block["at_limit"]) ?? false,
+                                    weeklyResetsAt: (block["weekly_resets_at"] as? String).flatMap(date),
+                                    nextGrantID: grants.contains { $0.id == next } ? next : nil)
     }
 
     /// For the fetch's log, so an ineligible answer says why: whether `cedar_ember` came back
@@ -117,7 +155,8 @@ struct ClaudeResetInventory: Equatable, Sendable {
               let ends = (object["ends_at"] as? String).flatMap(date),
               let paused = flag(object["paused"]) else { return .unreadable }
         if paused || starts > now || ends <= now { return .outOfScope }
-        guard let left = integer(object["resets_left"]), left >= 0,
+        guard let id = object["id"] as? String, !id.isEmpty,
+              let left = integer(object["resets_left"]), left >= 0,
               let total = integer(object["resets_total"]), total >= 0,
               let givesBack = flag(object["gives_back_weekly"]) else { return .unreadable }
         let type: String?
@@ -135,8 +174,23 @@ struct ClaudeResetInventory: Equatable, Sendable {
         // With neither a type nor a weekly give-back, the windows are the only thing naming it.
         if !givesBack && type == nil && clears.isEmpty { return .unreadable }
         let kind = kind(givesBackWeekly: givesBack, type: type, clears: clears)
-        return .inForce(Grant(kind: kind, name: kind == .other ? (type ?? kind.rawValue) : kind.rawValue,
-                              left: left, total: total, endsAt: ends))
+        // The claim's gates and the confirmation's numbers: an odd value closes the gate or drops
+        // the number, never the read.
+        let usableNow: Bool
+        switch object["usable_now"] {
+        case nil, is NSNull: usableNow = false
+        default: usableNow = flag(object["usable_now"]) ?? false
+        }
+        var percentUsed: [String: Double] = [:]
+        for (window, value) in object["percent_used"] as? [String: Any] ?? [:] {
+            if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+               number.doubleValue.isFinite { percentUsed[window] = number.doubleValue }
+        }
+        return .inForce(Grant(id: GrantID(raw: id), kind: kind,
+                              name: kind == .other ? (type ?? kind.rawValue) : kind.rawValue,
+                              left: left, total: total, endsAt: ends, usableNow: usableNow,
+                              useRequiresLimit: flag(object["use_requires_limit"]) ?? true,
+                              percentUsed: percentUsed, clears: clears))
     }
 
     /// A JSON integer; a boolean (which `JSONSerialization` also hands over as NSNumber) is not one.

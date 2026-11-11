@@ -57,6 +57,18 @@ enum CentredAlert {
         return run(alert) == .alertFirstButtonReturn
     }
 
+    /// Destructive confirmation with Cancel as the Return-key default. The destructive action is
+    /// deliberately second so dismissing the dialog cannot consume a reset.
+    static func confirmWithCancelDefault(title: String, body: String, confirmTitle: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L("Cancel")).keyEquivalent = "\r"
+        alert.addButton(withTitle: confirmTitle).hasDestructiveAction = true
+        return run(alert) == .alertSecondButtonReturn
+    }
+
     /// One button and a dismissal, in the same centred window.
     static func notice(title: String, body: String) {
         let alert = NSAlert()

@@ -4,7 +4,8 @@ import OSLog
 /// Reads one Claude login's limit-reset inventory from Anthropic's OAuth usage endpoint, the same
 /// request Claude Code 2.1.311 makes for its own `/usage` (`cedar_ember=1&skip_spend=1`).
 ///
-/// THE ONE PLACE TALLY SENDS A CLAUDE TOKEN ANYWHERE, so its rules are spelled out here:
+/// THE ONE PLACE TALLY SENDS A CLAUDE TOKEN ANYWHERE (the reset claim, ClaudeResetClaim, sends it
+/// through `authorize` and `liveTransport` below), so its rules are spelled out here:
 /// - The token comes from the credential Claude Code keeps, through the prompt-free read the
 ///   login-expiry check already uses (`ClaudeLoginExpiryKeychain.read`, gated by
 ///   `permitsSecurityRead`). A Keychain that would ask is skipped, never prompted.
@@ -82,17 +83,30 @@ enum ClaudeResetInventoryFetch {
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData,
                                  timeoutInterval: 15)
         request.httpMethod = "GET"
+        authorize(&request, credential, version: version)
+        return request
+    }
+
+    /// The headers every request to Anthropic carries: Claude Code's client name, the token, the
+    /// OAuth beta. The only place the token is read out of a `Credential`.
+    static func authorize(_ request: inout URLRequest, _ credential: Credential, version: String) {
         request.setValue(userAgent(version: version), forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        return request
+    }
+
+    /// How a request leaves: the ephemeral, redirect-refusing session below. Tests pass their own.
+    typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    static let liveTransport: Transport = { request in
+        try await session.data(for: request, delegate: NoRedirects())
     }
 
     /// One account's inventory. The credential read (a `security` child process) and
     /// `clientVersion` (a PATH search and a symlink read, `version(executable:)`) run detached, so
     /// no caller's thread waits on them.
-    static func fetch(home: String, clientVersion: @escaping @Sendable () -> String) async -> Outcome {
+    static func fetch(home: String, clientVersion: @escaping @Sendable () -> String,
+                      transport: Transport = liveTransport) async -> Outcome {
         let (credential, version) = await Task.detached(priority: .utility) {
             (readCredential(home: home,
                             defaultHome: FileManager.default.homeDirectoryForCurrentUser
@@ -103,8 +117,13 @@ enum ClaudeResetInventoryFetch {
              clientVersion())
         }.value
         guard let credential else { return .noCredential }
-        let response = try? await session.data(for: request(credential, version: version),
-                                               delegate: NoRedirects())
+        return await fetch(credential, version: version, transport: transport)
+    }
+
+    /// The read itself, with the credential in hand. A GET, always.
+    static func fetch(_ credential: Credential, version: String,
+                      transport: Transport = liveTransport) async -> Outcome {
+        let response = try? await transport(request(credential, version: version))
         guard let (body, reply) = response else { return .failed(status: nil) }
         let status = (reply as? HTTPURLResponse)?.statusCode
         if status == 200 {

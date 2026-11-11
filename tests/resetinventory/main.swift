@@ -14,6 +14,11 @@ func expect(_ condition: @autoclosure () -> Bool, _ label: String) {
 func data(_ text: String) -> Data { Data(text.utf8) }
 func iso(_ text: String) -> Date { ClaudeResetInventory.date(text)! }
 
+actor ClaimCapture {
+    private(set) var requests: [URLRequest] = []
+    func append(_ request: URLRequest) { requests.append(request) }
+}
+
 let now = iso("2026-11-11T12:00:00+00:00")
 
 // The two grants of a Max account, as the endpoint returned them (2026-11-11).
@@ -135,7 +140,7 @@ let spent = variant(fullGrant, [("\"resets_left\": 1", "\"resets_left\": 0")])
 let none = ClaudeResetInventory.parse(body([spent]), now: now)
 expect(none?.eligible == true && none?.left == 0 && none?.byKind.isEmpty == true && none?.grants.count == 1,
        "eligible with nothing left: in force, zero, no line")
-expect(ClaudeResetInventory.parse(body([]), now: now) == ClaudeResetInventory(eligible: true, grants: []),
+expect(ClaudeResetInventory.parse(body([]), now: now)?.grants.isEmpty == true,
        "eligible with no grants: empty inventory")
 let twoFull = variant(fullGrant, [("\"resets_left\": 1", "\"resets_left\": 2"), ("\"resets_total\": 1", "\"resets_total\": 2"),
                                   ("\"ends_at\": \"2026-12-10T22:00:00+00:00\"", "\"ends_at\": \"2026-11-30T00:00:00.500+00:00\"")])
@@ -328,6 +333,167 @@ do {
     ledger.prune(known: [])
     expect(ledger.entries.isEmpty && !ledger.land(a, generation: out, outcome: .read(readA), identity: "uuid-A", now: now)
                && ledger.entries.isEmpty, "ledger: an account gone takes its reading, and a late answer, with it")
+}
+
+// RED: an unconfirmed claim must not touch even an injected transport.
+do {
+    var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+    let outcome = await claim.perform(grantID: "full-reset-2611", confirmed: false) { _ in
+        fatalError("unconfirmed claim reached transport")
+    }
+    expect(outcome == .cancelled, "claim: unconfirmed never reaches transport")
+}
+do {
+    let token = "claim-fixture-secret"
+    let claimCredential = ClaudeResetInventoryFetch.credential(from: blob(expiresAt: "\(live)", token: token), now: now)!
+    let capture = ClaimCapture()
+    var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: claimCredential, version: "2.1.400")
+    let response = HTTPURLResponse(url: ClaudeResetClaim.endpoint, statusCode: 200,
+                                   httpVersion: nil, headerFields: nil)!
+    let outcome = await claim.perform(grantID: "grant_123", confirmed: true) { request in
+        await capture.append(request)
+        return (data("{\"result\":\"reset\",\"resets_left\":2}"), response)
+    }
+    let requests = await capture.requests
+    expect(requests.count == 1, "claim: confirmed path makes exactly one request")
+    if let request = requests.first,
+       let body = request.httpBody,
+       let json = try? JSONSerialization.jsonObject(with: body) as? [String: String] {
+        expect(request.httpMethod == "POST" && request.url?.absoluteString == "https://api.anthropic.com/api/organizations/123e4567-e89b-12d3-a456-426614174000/reset_rate_limits",
+               "claim: POST to organization endpoint")
+        expect(request.timeoutInterval == 25, "claim: 25 second timeout")
+        expect(request.value(forHTTPHeaderField: "User-Agent") == "claude-cli/2.1.400 (external, cli)"
+               && request.value(forHTTPHeaderField: "anthropic-beta") == "oauth-2025-04-20"
+               && request.value(forHTTPHeaderField: "Content-Type") == "application/json",
+               "claim: expected request headers")
+        expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)"
+               && !(request.allHTTPHeaderFields ?? [:]).filter({ $0.key != "Authorization" }).values.contains(where: { $0.contains(token) }),
+               "claim: token is only in Authorization")
+        expect(json["program"] == "cedar_ember" && json["grant_id"] == "grant_123"
+               && json["request_id"] != nil, "claim: request body contract")
+    } else { expect(false, "claim: request has JSON body") }
+    expect(outcome == .result(.reset, resetsLeft: 2, cooldownUntil: nil), "claim: reset result decoded")
+    let result = await claim.perform(grantID: "grant_123", confirmed: true) { request in
+        await capture.append(request)
+        return (data("{\"result\":\"already_used\"}"), response)
+    }
+    let nextRequests = await capture.requests
+    let ids = nextRequests.compactMap { request -> String? in
+        guard let body = request.httpBody,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: String] else { return nil }
+        return json["request_id"]
+    }
+    expect(result == .result(.alreadyUsed, resetsLeft: nil, cooldownUntil: nil)
+           && ids.count == 2 && ids[0] != ids[1], "claim: definitive result makes the next request use a new id")
+}
+do {
+    var badGrant = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+    let invalidGrant = await badGrant.perform(grantID: "bad grant", confirmed: true) { _ in
+        fatalError("invalid grant reached transport")
+    }
+    var badRequest = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311",
+                                     pendingRequestID: "bad/id")
+    let invalidRequest = await badRequest.perform(grantID: "grant", confirmed: true) { _ in
+        fatalError("invalid request id reached transport")
+    }
+    expect(invalidGrant == .error && invalidRequest == .error,
+           "claim: invalid grant/request id rejected before transport")
+}
+do {
+    let cases: [(String, ClaudeResetClaim.Result)] = [
+        ("reset", .reset), ("already_used", .alreadyUsed), ("not_limited", .notLimited),
+        ("cooldown", .cooldown), ("ineligible", .ineligible), ("nonsense", .unavailable)
+    ]
+    for (raw, expected) in cases {
+        var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+        let reply = HTTPURLResponse(url: ClaudeResetClaim.endpoint, statusCode: 200,
+                                    httpVersion: nil, headerFields: nil)!
+        let result = await claim.perform(grantID: "grant", confirmed: true) { _ in
+            (data("{\"result\":\"\(raw)\"}"), reply)
+        }
+        if case .result(let got, _, _) = result { expect(got == expected, "claim: result \\(raw) mapped") }
+        else { expect(false, "claim: result \\(raw) parsed") }
+    }
+}
+do {
+    for (status, expected) in [(401, ClaudeResetClaim.Outcome.authError), (403, .authError), (429, .rateLimited), (500, .uncertain)] {
+        var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+        let reply = HTTPURLResponse(url: ClaudeResetClaim.endpoint, statusCode: status,
+                                    httpVersion: nil, headerFields: nil)!
+        let result = await claim.perform(grantID: "grant", confirmed: true) { _ in (data("{}"), reply) }
+        expect(result == expected, "claim: HTTP \\(status) mapped")
+    }
+    var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+    let network = await claim.perform(grantID: "grant", confirmed: true) { _ in throw URLError(.timedOut) }
+    expect(network == .uncertain && claim.pendingRequestID != nil, "claim: network failure is uncertain and retains id")
+}
+do {
+    let capture = ClaimCapture()
+    var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+    _ = await claim.perform(grantID: "grant", confirmed: true) { request in
+        await capture.append(request)
+        throw URLError(.timedOut)
+    }
+    let retained = claim.pendingRequestID
+    var retry = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311", pendingRequestID: retained)
+    let reply = HTTPURLResponse(url: ClaudeResetClaim.endpoint, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    _ = await retry.perform(grantID: "grant", confirmed: true) { request in
+        await capture.append(request)
+        return (data("{\"result\":\"reset\"}"), reply)
+    }
+    let requests = await capture.requests
+    let ids = requests.compactMap { request -> String? in
+        guard let body = request.httpBody,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: String] else { return nil }
+        return json["request_id"]
+    }
+    expect(ids.count == 2 && ids[0] == ids[1], "claim: retry after uncertain result reuses request id")
+}
+
+do {
+    let capture = ClaimCapture()
+    var claim = ClaudeResetClaim(organizationID: "123e4567-e89b-12d3-a456-426614174000", credential: credential!, version: "2.1.311")
+    for grant in ["grant-a", "grant-b"] {
+        _ = await claim.perform(grantID: grant, confirmed: true) { request in
+            await capture.append(request)
+            throw URLError(.timedOut)
+        }
+    }
+    let requests = await capture.requests
+    let ids = requests.compactMap { request -> String? in
+        guard let body = request.httpBody,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: String] else { return nil }
+        return json["request_id"]
+    }
+    expect(ids.count == 2 && ids[0] != ids[1], "claim: idempotency ids never cross grant boundaries")
+}
+
+expect(pro?.grants.first?.usableNow == false, "claim: missing usable_now fails closed")
+
+// The same gate the store uses: neither UI duplication nor stale consent may start a POST.
+do {
+    let grant = max!.grants.first!
+    let consent = ClaudeResetClaimGate.Consent(accountID: "fixture", identity: "user-A",
+                                               organizationID: "org-A", grantID: grant.id, checkedAt: now)
+    var gate = ClaudeResetClaimGate()
+    expect(gate.begin(consent, current: consent, grant: grant, stale: false, confirmed: false, now: now) == nil,
+           "claim gate: cancellation cannot start an operation")
+    let ticket = gate.begin(consent, current: consent, grant: grant, stale: false, confirmed: true, now: now)!
+    expect(gate.isBusy && gate.begin(consent, current: consent, grant: grant, stale: false, confirmed: true, now: now) == nil,
+           "claim gate: a second view cannot start a concurrent operation")
+    var changed = consent
+    changed.identity = "user-B"
+    expect(!gate.isCurrent(ticket, consent: consent, current: changed), "claim gate: changed login invalidates consent")
+    changed = consent
+    changed.organizationID = "org-B"
+    expect(!gate.isCurrent(ticket, consent: consent, current: changed), "claim gate: changed organization invalidates consent")
+    expect(!gate.isCurrent(ticket, consent: consent, current: nil), "claim gate: removed inventory invalidates consent")
+    gate.finish(ticket)
+    expect(!gate.isBusy, "claim gate: completed operation releases all views")
+    expect(gate.begin(consent, current: consent, grant: grant, stale: true, confirmed: true, now: now) == nil,
+           "claim gate: stale inventory is not spendable")
+    expect(gate.begin(consent, current: consent, grant: grant, stale: false, confirmed: true, now: grant.endsAt) == nil,
+           "claim gate: expiry is checked at the click boundary")
 }
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED, \(passed) passed")

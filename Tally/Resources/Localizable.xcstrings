@@ -29136,6 +29136,295 @@
           }
         }
       }
+    },
+    "Use this reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this reset"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu reseti kullan"
+          }
+        }
+      }
+    },
+    "use this reset?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "use this reset?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reset kullanılsın mı?"
+          }
+        }
+      }
+    },
+    "Resets remaining: %d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resets remaining: %d"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalan reset: %d"
+          }
+        }
+      }
+    },
+    "This reset restores the account's limits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This reset restores the account's limits"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu reset hesabın limitlerini yeniler"
+          }
+        }
+      }
+    },
+    "Your limits are not close to full; using this now may waste the reset.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your limits are not close to full; using this now may waste the reset."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limitlerin henüz dolmadı; şimdi kullanırsan hak boşa gidebilir."
+          }
+        }
+      }
+    },
+    "Your weekly limit resets on its own at %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your weekly limit resets on its own at %@."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haftalık limitin %@ saatinde kendiliğinden yenileniyor."
+          }
+        }
+      }
+    },
+    "Reset used. Remaining: %d.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset used. Remaining: %d."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset kullanıldı. Kalan: %d."
+          }
+        }
+      }
+    },
+    "No reset was applied because you are not at a limit; your reset may still be available. Refreshing the list.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reset was applied because you are not at a limit; your reset may still be available. Refreshing the list."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limitte olmadığın için reset uygulanmadı; hakkın duruyor olabilir. Liste yenileniyor."
+          }
+        }
+      }
+    },
+    "This reset was already used.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This reset was already used."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu reset zaten kullanılmış."
+          }
+        }
+      }
+    },
+    "Unavailable during cooldown until %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable during cooldown until %@."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bekleme süresi nedeniyle %@ saatine kadar kullanılamaz."
+          }
+        }
+      }
+    },
+    "Unavailable during cooldown.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable during cooldown."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bekleme süresi nedeniyle şu an kullanılamaz."
+          }
+        }
+      }
+    },
+    "This reset is not eligible. Check again in a few minutes if the status is unclear.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This reset is not eligible. Check again in a few minutes if the status is unclear."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu reset uygun değil. Durum belirsizse birkaç dakika sonra tekrar kontrol et."
+          }
+        }
+      }
+    },
+    "Reset status is unclear. Check again in a few minutes; it may have been used.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset status is unclear. Check again in a few minutes; it may have been used."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resetin durumu belirsiz; kullanılmış olabilir. Birkaç dakika sonra tekrar kontrol et."
+          }
+        }
+      }
+    },
+    "Reset result": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset result"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset sonucu"
+          }
+        }
+      }
+    },
+    "Cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelled"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İptal edildi"
+          }
+        }
+      }
+    },
+    "Reset used.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset used."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset kullanıldı."
+          }
+        }
+      }
+    },
+    "Weekly limit: only Fable usage was restored.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weekly limit: only Fable usage was restored."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haftalık limitten yalnızca Fable harcaması geri yüklendi."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

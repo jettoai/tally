@@ -292,5 +292,23 @@ for root in userFacing {
 }
 expect(configHomeLiterals.isEmpty, "no user-facing string says 'config home' (it is 'account folder')")
 
+expect(WelcomeFlow.previewScreen(named: "signing-in-waiting") == .signingIn(providerID: "claude")
+        && WelcomeFlow.previewBrowserWaiting(named: "signing-in-waiting")
+        && WelcomeFlow.previewBrowserWaiting(named: "SIGNING-IN-WAITING")
+        && !WelcomeFlow.previewBrowserWaiting(named: "signing-in")
+        && !WelcomeFlow.previewBrowserWaiting(named: nil),
+       "signing-in-waiting holds the sign-in page in its waiting state; signing-in stays ticked")
+let welcomeStoreSource = source("Tally/Stores/WelcomeStore.swift")
+expect(welcomeStoreSource.contains("preview != nil ? !previewBrowserWaiting : flow.browserOpened")
+        && welcomeStoreSource.contains("previewBrowserWaiting = WelcomeFlow.previewBrowserWaiting(named: previewName)"),
+       "the store reads the preview's waiting flag, set from the preview name on every begin")
+
+// The sign-in page ticks "Browser opened" only on the CLI's own signal, never unconditionally (B-4392).
+expect(welcomeView.contains("store.browserOpened ? .done : .active")
+        && !welcomeView.contains("(.done, L(\"Browser opened\"))"),
+       "the first sign-in step is drawn done only once the browser-up signal arrived")
+expect(store.contains("onBrowserUp:") && store.contains("browserOpened = plan.progressMarkers.isEmpty"),
+       "an add resets the signal per run, and wires the runner's browser-up callback to it")
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

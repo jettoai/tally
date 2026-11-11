@@ -54,6 +54,8 @@ final class WelcomeStore {
     private(set) var recheckedMissing: String?
     /// Which path-guidance fixture a held preview shows (WelcomeFlow.previewPathState).
     private var previewPath = (offPath: false, notFound: false)
+    /// A held preview of the sign-in page that is still waiting for the browser (WelcomeFlow.previewBrowserWaiting).
+    private var previewBrowserWaiting = false
 
     /// Whether a provider's CLI is on this Mac. A property so the suite can stand in for the disk.
     var cliInstalled: (String) -> Bool = {
@@ -66,6 +68,9 @@ final class WelcomeStore {
     private var detectEpoch = 0
 
     // MARK: The screen
+
+    /// The sign-in page's first step: the browser is up (a preview stands for a finished step unless it asks to wait).
+    var browserOpened: Bool { preview != nil ? !previewBrowserWaiting : flow.browserOpened }
 
     var screen: WelcomeScreen {
         if let preview { return preview }
@@ -176,6 +181,7 @@ final class WelcomeStore {
         detectEpoch += 1
         chosenProvider = nil
         previewPath = WelcomeFlow.previewPathState(named: previewName)
+        previewBrowserWaiting = WelcomeFlow.previewBrowserWaiting(named: previewName)
         recheckedMissing = previewPath.notFound ? "claude" : nil
         if let held = WelcomeFlow.previewScreen(named: previewName) {
             preview = held

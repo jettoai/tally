@@ -60,13 +60,14 @@ enum RenewLoginRunner {
                     environment: [String: String?],
                     handshakeIdleLimit: TimeInterval = handshakeIdleLimit,
                     overallLimit: TimeInterval = overallLimit,
-                    cancel: LoginCancel? = nil) async -> Outcome {
+                    cancel: LoginCancel? = nil,
+                    onBrowserUp: (@Sendable () -> Void)? = nil) async -> Outcome {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: runSync(
                     executable: executable, plan: plan, environment: environment,
                     handshakeIdleLimit: handshakeIdleLimit, overallLimit: overallLimit,
-                    cancel: cancel))
+                    cancel: cancel, onBrowserUp: onBrowserUp))
             }
         }
     }
@@ -75,7 +76,8 @@ enum RenewLoginRunner {
                                 environment: [String: String?],
                                 handshakeIdleLimit: TimeInterval,
                                 overallLimit: TimeInterval,
-                                cancel: LoginCancel?) -> Outcome {
+                                cancel: LoginCancel?,
+                                onBrowserUp: (@Sendable () -> Void)?) -> Outcome {
         let process = Process()
         let path = claudeStableExecutable(executable)
         // Before a pty is spent: a path that is not an executable file (a bare name is never one)
@@ -181,6 +183,7 @@ enum RenewLoginRunner {
             } else if !browserIsUp,
                       RenewLoginCommand.contains(anyOf: plan.progressMarkers, in: text) {
                 browserIsUp = true
+                onBrowserUp?()
             }
         }
 

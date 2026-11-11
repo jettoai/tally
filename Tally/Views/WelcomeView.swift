@@ -121,8 +121,10 @@ struct WelcomeView: View {
             .padding(.top, 26)
             if let advice { pathCard(advice).padding(.top, 12) }
         case .signingIn:
-            steps([(.done, L("Browser opened")),
-                   (.active, L("Waiting for you to approve")),
+            // The tick is the CLI's own word that the browser opened, not the click that asked for it.
+            steps([(store.browserOpened ? .done : .active,
+                    L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
+                   (store.browserOpened ? .active : .todo, L("Waiting for you to approve")),
                    (.todo, L("Your usage appears here"))])
         case .success:
             rowsCard.padding(.top, 26)

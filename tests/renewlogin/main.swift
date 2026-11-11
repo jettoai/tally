@@ -259,6 +259,20 @@ expect(await RenewLoginRunner.run(executable: strandedStub, plan: terminalPlan()
                                   handshakeIdleLimit: 1, overallLimit: 3) == .failed(.timedOut),
        "once the browser is up the short guard stops applying, and the renewal window ends it")
 
+// The browser-up callback fires once, only when the progress marker was printed (B-4392).
+final class SignalCount: @unchecked Sendable {
+    private let lock = NSLock(); private var n = 0
+    func bump() { lock.lock(); n += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return n }
+}
+let upSignals = SignalCount(), silentSignals = SignalCount()
+_ = await RenewLoginRunner.run(executable: strandedStub, plan: terminalPlan(), environment: [:],
+                               handshakeIdleLimit: 1, overallLimit: 3, onBrowserUp: { upSignals.bump() })
+_ = await RenewLoginRunner.run(executable: silentStub, plan: terminalPlan(), environment: [:],
+                               handshakeIdleLimit: 1, overallLimit: 30, onBrowserUp: { silentSignals.bump() })
+expect(upSignals.value == 1, "the browser-up callback fires exactly once when the marker is printed")
+expect(silentSignals.value == 0, "no marker, no signal: a CLI stuck before the browser never ticks the step")
+
 // A killed stub must not outlive its runner: a login process left running would sit on the
 // account's config home against a challenge nobody can complete.
 expect(capture("/bin/sh", ["-c", "pgrep -f \(stubs.path)/stranded | wc -l"])?

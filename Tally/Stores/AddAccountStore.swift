@@ -36,6 +36,11 @@ final class AddAccountStore {
     /// How the last login ended, for the surfaces that tell a timeout from a refusal from a
     /// cancel (the welcome window). Cleared when a new run starts.
     private(set) var lastFailure: RenewLoginRunner.Failure?
+    /// The CLI has printed that it opened the browser (the runner's progress marker). The first
+    /// launch of a CLI on a fresh Mac can sit for most of a minute on the system's own security
+    /// scan before it does, so a screen must not claim the browser is open before this is true.
+    /// A provider with no progress marker never gets the signal, so it counts as open from the start.
+    private(set) var browserOpened = false
     /// Raised by `cancelSignIn()`, read by the runner's own loop.
     private var loginCancel: RenewLoginRunner.LoginCancel?
     /// The 3-second look for a CLI that is being installed (see the CLI extension at the end of this file).
@@ -156,6 +161,7 @@ final class AddAccountStore {
         // Before anything asynchronous: the click has to change the sheet in the same frame.
         phase = .preparing
         lastFailure = nil
+        browserOpened = plan.progressMarkers.isEmpty
         let cancel = RenewLoginRunner.LoginCancel()
         loginCancel = cancel
         Task {
@@ -178,7 +184,14 @@ final class AddAccountStore {
                 title: L("Adding an account") + " · ~/\(prepared.name)",
                 body: L("Finish the sign-in in your browser; Tally will say when it lands.")) }
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,
-                                                     environment: environment, cancel: cancel)
+                                                     environment: environment, cancel: cancel,
+                                                     onBrowserUp: { [weak self] in
+                // Identity check: a signal from a login that was cancelled and replaced must not
+                // mark the new one's browser as open.
+                Task { @MainActor in
+                    if self?.loginCancel === cancel { self?.browserOpened = true }
+                }
+            })
             switch outcome {
             case .renewed:
                 await land(prepared, providerID: providerID)

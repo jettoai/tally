@@ -117,11 +117,17 @@ enum WelcomeFlow {
         case "waiting-stalled": return .waitingStalled(providerID: "claude")
         case "signin", "signin-offpath": return .signIn(providerID: "claude")
         case "needs-claude-notfound": return .needsCLI(providerID: "claude")
-        case "signing-in": return .signingIn(providerID: "claude")
+        case "signing-in", "signing-in-waiting": return .signingIn(providerID: "claude")
         case "success": return .success
         case "failed": return .failed(providerID: "claude", reason: .timedOut)
         default: return nil
         }
+    }
+
+    /// `signing-in-waiting` holds the sign-in page before the CLI has said the browser is up (B-4392);
+    /// every other name, `signing-in` included, shows that step as done.
+    static func previewBrowserWaiting(named name: String?) -> Bool {
+        name?.lowercased() == "signing-in-waiting"
     }
 
     /// The path guidance a held preview adds to its screen (B-3745): `signin-offpath` shows the

@@ -327,5 +327,12 @@ expect(signingInFooter.contains("plain(L(\"Cancel\"))") && signingInFooter.conta
 expect(failedFooter.contains("plain(L(\"Cancel\"))") && failedFooter.contains(".keyboardShortcut(.cancelAction)"),
        "the failed page's Cancel answers Escape")
 
+// Albert chose to keep (B-3747): closing the window does not cancel an in-flight sign-in, because
+// people close it to approve in the browser. windowClosed() stops only the CLI watch.
+let windowClosedBody = welcomeStore.components(separatedBy: "func windowClosed() {").dropFirst().first?
+    .components(separatedBy: "\n    }").first ?? ""
+expect(windowClosedBody.contains("flow.stopWatchingForCLI()") && !windowClosedBody.contains("cancelSignIn"),
+       "closing the welcome window leaves an in-flight sign-in running (no cancelSignIn in windowClosed)")
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

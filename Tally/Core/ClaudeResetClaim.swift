@@ -44,6 +44,24 @@ struct ClaudeResetClaim {
         return Identity(accountID: user, organizationID: id)
     }
 
+    struct Context {
+        let identity: Identity
+        let credential: ClaudeResetInventoryFetch.Credential
+    }
+
+    /// A credential read may suspend while another process replaces the login. Bind the secret to
+    /// stable metadata on both sides of the read; a changing or incomplete profile is a refusal.
+    static func readContext(home: String, defaultHome: String, now: Date,
+                            identityRead: (String) -> Identity?,
+                            keychainRead: (String) -> ClaudeLoginExpiry.Source,
+                            fileRead: (URL) -> Data?) -> Context? {
+        guard let before = identityRead(home),
+              let credential = ClaudeResetInventoryFetch.readCredential(home: home, defaultHome: defaultHome,
+                  now: now, keychainRead: keychainRead, fileRead: fileRead),
+              identityRead(home) == before else { return nil }
+        return Context(identity: before, credential: credential)
+    }
+
     init(organizationID: String, credential: ClaudeResetInventoryFetch.Credential, version: String,
          pendingRequestID: String? = nil) {
         self.organizationID = organizationID

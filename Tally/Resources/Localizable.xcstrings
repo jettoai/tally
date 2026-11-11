@@ -29154,23 +29154,6 @@
         }
       }
     },
-    "use this reset?": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "use this reset?"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "reset kullanılsın mı?"
-          }
-        }
-      }
-    },
     "Resets remaining: %d": {
       "extractionState": "manual",
       "localizations": {
@@ -29527,6 +29510,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sabitlenen panel, menü çubuğu açılır paneli ve ana pencere mor tonu ve renkli haleleri bırakıp nötr griye döner. Sağlayıcı ve uyarı renkleri aynı kalır."
+          }
+        }
+      }
+    },
+    "Use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullan"
+          }
+        }
+      }
+    },
+    "Use %@?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use %@?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kullanılsın mı?"
+          }
+        }
+      }
+    },
+    "Clears the 5-hour, weekly and Fable limits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clears the 5-hour, weekly and Fable limits"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 saatlik, haftalık ve Fable limitlerini doldurur"
           }
         }
       }

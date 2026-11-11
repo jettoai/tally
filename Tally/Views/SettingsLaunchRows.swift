@@ -102,7 +102,7 @@ struct StagedModelEffortRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ModelEffortRow(title: title, subtitle: subtitle, icon: "sparkles", info: info,
+            ModelEffortRow(title: title, subtitle: subtitle, icon: "arrow.triangle.branch", info: info,
                            modelOptions: modelOptions, effortLevels: effortLevels,
                            model: $stagedModel, effort: $stagedEffort)
             if dirty {

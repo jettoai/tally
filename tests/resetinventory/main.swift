@@ -470,6 +470,23 @@ do {
 
 expect(pro?.grants.first?.usableNow == false, "claim: missing usable_now fails closed")
 
+do {
+    let stable = ClaudeResetClaim.Identity(accountID: "user-A", organizationID: "org-A")
+    var reads = 0
+    let changed = ClaudeResetClaim.readContext(home: "/fixture", defaultHome: "/fixture", now: now,
+        identityRead: { _ in
+            reads += 1
+            return reads == 1 ? stable : .init(accountID: "user-B", organizationID: "org-B")
+        }, keychainRead: { _ in .init(data: blob(expiresAt: "\(live)"), modifiedAt: now, isAbsent: false) },
+        fileRead: { _ in fatalError("fixture keychain exists") })
+    expect(changed == nil, "claim context: identity changed across credential read cancels")
+    let unchanged = ClaudeResetClaim.readContext(home: "/fixture", defaultHome: "/fixture", now: now,
+        identityRead: { _ in stable },
+        keychainRead: { _ in .init(data: blob(expiresAt: "\(live)"), modifiedAt: now, isAbsent: false) },
+        fileRead: { _ in fatalError("fixture keychain exists") })
+    expect(unchanged?.identity == stable, "claim context: unchanged profile binds credential")
+}
+
 // The same gate the store uses: neither UI duplication nor stale consent may start a POST.
 do {
     let grant = max!.grants.first!

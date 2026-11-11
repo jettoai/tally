@@ -68,7 +68,7 @@ struct ClaudeResetInventoryRows: View {
             percentUsed = Dictionary(usage.metrics.map { ($0.id, $0.usedPercent) }, uniquingKeysWith: { first, _ in first })
         }
         let percentages = percentUsed.sorted { $0.key < $1.key }
-            .map { "\($0.key): \(Int($0.value.rounded()))%" }
+            .map { "\(Self.windowName($0.key)): \(Int($0.value.rounded()))%" }
         if !percentages.isEmpty { parts.append(percentages.joined(separator: " · ")) }
         if !percentUsed.isEmpty && percentUsed.values.allSatisfy({ $0 < 50 }) {
             parts.append(L("Your limits are not close to full; using this now may waste the reset."))
@@ -77,7 +77,7 @@ struct ClaudeResetInventoryRows: View {
            weekly.timeIntervalSinceNow >= 0, weekly.timeIntervalSinceNow < 24 * 60 * 60 {
             parts.append(String(format: L("Your weekly limit resets on its own at %@."), UsageFormat.absoluteBody(weekly)))
         }
-        guard CentredAlert.confirmWithCancelDefault(title: "\(Self.name(grant.kind)) \(L("use this reset?"))",
+        guard CentredAlert.confirmWithCancelDefault(title: String(format: L("Use %@?"), Self.name(grant.kind)),
                                                     body: parts.joined(separator: "\n\n"),
                                                     confirmTitle: L("Use")) else { return }
         busyGrant = grant.id
@@ -93,6 +93,15 @@ struct ClaudeResetInventoryRows: View {
                 CentredAlert.notice(title: L("Reset result"), body: message)
             }
             busyGrant = nil
+        }
+    }
+
+    private static func windowName(_ id: String) -> String {
+        switch id {
+        case "five_hour", "session": return L("Session")
+        case "seven_day", "weekly": return L("Weekly")
+        case "seven_day_overage_included", "model": return "Fable"
+        default: return id
         }
     }
 
@@ -142,7 +151,7 @@ struct ClaudeResetInventoryRows: View {
     static func explanation(_ kind: ClaudeResetInventory.Kind) -> String? {
         switch kind {
         case .fable: return L("Gives back only the Fable spend of the weekly limit and refills the 5-hour limit")
-        case .full: return L("Clears the 5-hour and weekly limits")
+        case .full: return L("Clears the 5-hour, weekly and Fable limits")
         case .session, .weekly, .other: return nil
         }
     }

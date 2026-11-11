@@ -222,16 +222,16 @@ struct AccountCardView: View {
     /// reset - so the pick never looks arbitrary.
     private var autoBadge: some View {
         HStack(spacing: 3) {
-            Image(systemName: "sparkles").font(.system(size: 8))
+            Image(systemName: "arrow.triangle.branch").font(.system(size: 8))
             // The short mode word, not "Smart pick": the longer badge squeezed "Claude 2"
             // into a wrapped two-line title at demo widths (2026-07-19 screenshot round).
             Text(L("Smart")).lineLimit(1)
         }
         .fixedSize()
         .font(.caption2.weight(.semibold))
-        .foregroundStyle(TallyColor.ai)
+        .foregroundStyle(settings.classicPanelSkin ? PanelStyle.text2 : TallyColor.ai)
         .padding(.horizontal, 5).padding(.vertical, 1)
-        .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
+        .background(Capsule().fill((settings.classicPanelSkin ? PanelStyle.text2 : TallyColor.ai).opacity(0.15)))
         .tallyTooltip(facts.smartPickTooltip, forced: facts.forcesSmartTooltip)
     }
 

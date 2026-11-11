@@ -77,13 +77,12 @@ final class ClaudeResetInventoryStore {
                     grant: grant, stale: approvedEntry.isStale, confirmed: confirmed, now: Date())
         else { return .cancelled }
         defer { claimGate.finish(ticket) }
-        let (identity, credential) = await Task.detached(priority: .utility) {
-            (ClaudeResetClaim.identity(configHome: home),
-             ClaudeResetInventoryFetch.readCredential(
-                home: home,
+        let context = await Task.detached(priority: .utility) {
+            ClaudeResetClaim.readContext(home: home,
                 defaultHome: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path,
-                now: Date(), keychainRead: ClaudeLoginExpiryKeychain.read,
-                fileRead: { try? Data(contentsOf: $0) }))
+                now: Date(), identityRead: ClaudeResetClaim.identity,
+                keychainRead: ClaudeLoginExpiryKeychain.read,
+                fileRead: { try? Data(contentsOf: $0) })
         }.value
         // A login, refresh, removed account or expired grant during the credential read cancels
         // the consent. Never silently spend on whichever user now owns the same config folder.
@@ -91,10 +90,11 @@ final class ClaudeResetInventoryStore {
               UsageStore.shared.discoveredAccounts.contains(where: { $0.id == accountID && $0.launchHome == home }),
               claimGate.isCurrent(ticket, consent: consent,
                   current: Self.consent(accountID, grantID: grant.id, entry: ledger.entries[accountID])),
-              identity?.accountID == consent.identity, identity?.organizationID == consent.organizationID,
-              grant.endsAt > Date(), let credential else { return .cancelled }
+              let context, context.identity.accountID == consent.identity,
+              context.identity.organizationID == consent.organizationID,
+              grant.endsAt > Date() else { return .cancelled }
         let key = "\(accountID):\(consent.identity):\(consent.organizationID):\(grantID)"
-        var claim = ClaudeResetClaim(organizationID: consent.organizationID, credential: credential,
+        var claim = ClaudeResetClaim(organizationID: consent.organizationID, credential: context.credential,
                                      version: Self.claudeVersion, pendingRequestID: pendingClaimIDs[key])
         let outcome = await claim.perform(grantID: grantID, confirmed: confirmed)
         // Only retain this login's idempotency key while its inventory still belongs to it.

@@ -209,7 +209,7 @@ struct LedgerAccountRow: View {
     private func badge(_ facts: AccountFacts) -> some View {
         Group {
             if isSmartPick, facts.hasSiblings, facts.launchMode == .auto {
-                Image(systemName: "sparkles").font(.system(size: 10)).foregroundStyle(TallyColor.ai)
+                Image(systemName: "arrow.triangle.branch").font(.system(size: 10)).foregroundStyle(TallyColor.ai)
                     .tallyTooltip(facts.smartPickTooltip)
             } else if facts.isPinnedActive {
                 Circle().fill(Color.secondary).frame(width: 5, height: 5)

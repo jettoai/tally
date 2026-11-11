@@ -956,6 +956,18 @@ check("the app delegates the same preparation", appFlowSource.contains("prepareA
 check("and keeps no second copy either",
       !appFlowSource.contains("nextFreeSlot(") && !appFlowSource.contains("linkSharedHarness(")
           && !appFlowSource.contains("seedFolderTrust("))
+// A fresh Mac has not decided on notifications, and `SystemAlert.post` waits on that prompt: the
+// login process must start without anyone answering it (B-3745).
+if let begin = appFlowSource.range(of: "func start()"),
+   let spawn = appFlowSource.range(of: "RenewLoginRunner.run(", range: begin.upperBound ..< appFlowSource.endIndex) {
+    // Every await on the post before the spawn must sit inside its own detached `Task { _ = ... }`.
+    let before = String(appFlowSource[begin.upperBound ..< spawn.lowerBound])
+    check("the login starts without awaiting the notification",
+          before.components(separatedBy: "await SystemAlert.post").count
+              == before.components(separatedBy: "Task { _ = await SystemAlert.post").count)
+} else {
+    check("start() spawns the login through RenewLoginRunner.run(", false)
+}
 check("the CLI's login message still promises no wait",
       addSource.contains("as soon as the login completes") && !addSource.contains("within a minute"))
 

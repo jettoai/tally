@@ -170,13 +170,13 @@ final class AddAccountStore {
             run = Run(providerID: providerID, prepared: prepared)
             let environment = RenewLoginCommand.environment(envKey: envKey, home: prepared.dir.path,
                                                             providerID: providerID)
-            // Best-effort, unlike the renewal's: there the notification was the only signal a
-            // closed menu left behind, so a refused one had to divert the whole login into a
-            // visible Terminal window. Here the sheet is on screen saying the same thing, so a
-            // machine with notifications switched off simply reads the sheet.
-            _ = await SystemAlert.post(
+            // Best-effort and never in the login's way: the post can wait on the system's
+            // notification-permission prompt (a fresh Mac has not decided yet), and the browser
+            // must open without the user answering it. Unlike the renewal's, a refused one needs
+            // no fallback either: the sheet is on screen saying the same thing.
+            Task { _ = await SystemAlert.post(
                 title: L("Adding an account") + " · ~/\(prepared.name)",
-                body: L("Finish the sign-in in your browser; Tally will say when it lands."))
+                body: L("Finish the sign-in in your browser; Tally will say when it lands.")) }
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,
                                                      environment: environment, cancel: cancel)
             switch outcome {

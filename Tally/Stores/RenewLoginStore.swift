@@ -96,8 +96,10 @@ final class RenewLoginStore {
         // or an old deadline would still be running against a renewal that has since been retried.
         endSettling(accountID)
         Task {
-            let announced = await SystemAlert.post(
-                title: "\(named) · " + L("Renewing login"),
+            // Bounded wait: with notification permission still undecided the post sits on the
+            // system's permission banner, and the login must start within seconds regardless.
+            let announced = await SystemAlert.postWithin(
+                1.5, title: "\(named) · " + L("Renewing login"),
                 body: L("Finish the sign-in in your browser; Tally will say when it lands."))
             // The card's own line is the other signal, but it is only a signal where a card is on
             // screen - the popover closes along with the menu that was clicked in it. With

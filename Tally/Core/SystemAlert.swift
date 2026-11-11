@@ -41,6 +41,28 @@ enum SystemAlert {
         }
     }
 
+    /// `post`, but never waits longer than `seconds` for the answer: on a Mac that has not yet
+    /// decided on notifications `post` blocks until the user clicks the system's permission banner,
+    /// and the caller's next step (a login process) must not hang on that. The banner is on screen
+    /// by then, which is itself the signal, so an unanswered post counts as delivered; an answer
+    /// that arrives in time (a denial included) is passed on as it is.
+    @MainActor
+    static func postWithin(_ seconds: Double, title: String, body: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            var settled = false
+            func settle(_ delivered: Bool) {
+                guard !settled else { return }
+                settled = true
+                continuation.resume(returning: delivered)
+            }
+            Task { settle(await post(title: title, body: body)) }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                settle(true)
+            }
+        }
+    }
+
     /// The body as delivered: the event's clock time first, in the app's language like every other
     /// time Tally shows, then the words.
     static func stampedBody(_ body: String, at: Date) -> String {

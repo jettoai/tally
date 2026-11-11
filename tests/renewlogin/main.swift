@@ -357,6 +357,8 @@ if let body = functionBody(storeSource, from: "func renew(accountID: String,"),
            "the card is marked BEFORE any async work, so the menu closes onto a changed card")
     expect(announced.lowerBound < spawned.lowerBound,
            "the 'it started' notification goes out BEFORE the login process is spawned")
+    expect(body.contains("SystemAlert.postWithin(") && !body.contains("announced = await SystemAlert.post("),
+           "the 'it started' notification is awaited for a bounded time only, so an undecided permission banner cannot hold the login back (B-4392)")
     expect(body.contains("guard announced else"),
            "a notification that could not be delivered is not treated as a signal")
     expect(body.range(of: "openTerminal", range: announced.upperBound ..< spawned.lowerBound) != nil,

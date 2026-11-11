@@ -276,7 +276,9 @@ struct PopoverRootView: View {
         // panel's card.
         .onDisappear { ViewOptionsCard.shared.dismiss(host: host) }
         .environment(\.tallyCardStyle, cardStyle)
-        .id(settings.languageOverride ?? "system")
+        // The classic skin switch rebuilds the tree for the same reason: a static colour's view is
+        // diffed as unchanged and would keep the skin it was drawn in.
+        .id("\(settings.languageOverride ?? "system")|\(settings.classicPanelSkin)")
         // Outermost, because it is about this view's relationship with the window it is in and
         // nothing inside it: the surface stays against the corner the host is about to hold while
         // the host catches up with the height the surface just reported (see `HostAnchored`).

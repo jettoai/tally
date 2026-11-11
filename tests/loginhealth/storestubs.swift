@@ -14,6 +14,13 @@ final class LoginHealthStore {
 }
 
 @MainActor
+final class ClaudeResetInventoryStore {
+    static let shared = ClaudeResetInventoryStore()
+    func evaluate(accounts: [ProviderAccount], known: Set<String>, userInitiated: Bool) {}
+    func invalidate(_ accountID: String) {}
+}
+
+@MainActor
 final class SettingsStore {
     static let shared = SettingsStore()
     func displayLabel(accountID: String, fallback: String) -> String { fallback }

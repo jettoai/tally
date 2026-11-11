@@ -110,7 +110,7 @@ struct UsageDetailCard: View {
             if isSmartPick,
                let reason = LaunchPolicyStore.smartReason(
                    facts.usage, primaryModel: LaunchPolicyStore.shared.policy(facts.usage.providerID).model) {
-                Label(reason, systemImage: "sparkles")
+                Label(reason, systemImage: "arrow.triangle.branch")
                     .font(.system(size: 11)).foregroundStyle(TallyColor.ai)
             }
         }

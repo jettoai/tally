@@ -16,7 +16,18 @@ func read(_ path: String) -> String {
     (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
 }
 
-let appearances: [(String, PanelPalette.Appearance)] = [("dark", PanelPalette.dark), ("light", PanelPalette.light)]
+let appearances: [(String, PanelPalette.Appearance)] = [("dark", PanelPalette.dark), ("light", PanelPalette.light),
+                                                         ("dark classic", PanelPalette.darkClassic),
+                                                         ("light classic", PanelPalette.lightClassic)]
+
+print("classic skin has no violet accents and the new skin remains default")
+for (name, skin) in [("dark classic", PanelPalette.darkClassic.skin), ("light classic", PanelPalette.lightClassic.skin)] {
+    let from = PanelPalette.rgb(skin.violet.from), to = PanelPalette.rgb(skin.violet.to)
+    check(from.r == from.g && from.g == from.b && to.r == to.g && to.g == to.b,
+          "\(name) unknown-provider bars use a neutral gradient")
+    check(skin.halos.allSatisfy { $0.alpha == 0 }, "\(name) provider and colour halos are off")
+}
+check(!PanelPalette.classic, "the new skin remains the default")
 
 print("every level on every desktop")
 for (name, mode) in appearances {
@@ -245,7 +256,10 @@ func skinReport(_ modes: [(String, PanelPalette.Appearance)], draft: Bool) -> In
 }
 
 print("the skin: every element x every desktop x every stop x every halo")
-let skinModes: [(String, PanelPalette.Appearance)] = [("dark", PanelPalette.dark), ("light", PanelPalette.light)]
+// The classic skin (Settings > Classic panel) is held to the same battery.
+let skinModes: [(String, PanelPalette.Appearance)] = [("dark", PanelPalette.dark), ("light", PanelPalette.light),
+                                                      ("dark classic", PanelPalette.darkClassic),
+                                                      ("light classic", PanelPalette.lightClassic)]
 _ = skinReport(skinModes, draft: true)
 
 // THE SKIN'S TEST CAN GO RED too. The draft's colours under a glass of 0.40 / 0.36 (the opacity the

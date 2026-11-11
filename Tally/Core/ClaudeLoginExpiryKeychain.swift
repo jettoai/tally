@@ -1,7 +1,9 @@
 import Foundation
 import Security
 
-/// A read-only adapter. No credential data is returned outside ClaudeLoginExpiry's read operation.
+/// A read-only adapter. Its two callers keep the credential inside their own read: the login
+/// deadline (`ClaudeLoginExpiry`) keeps only a date, and the reset inventory
+/// (`ClaudeResetInventoryFetch`) keeps the access token in memory for one request.
 enum ClaudeLoginExpiryKeychain {
     static func read(service: String) -> ClaudeLoginExpiry.Source {
         let account = NSUserName()

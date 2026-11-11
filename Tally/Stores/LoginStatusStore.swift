@@ -147,6 +147,7 @@ final class LoginStatusStore {
     func loginRenewed(_ accountID: String) {
         usageHealth.record(accountID: accountID, authenticated: true)
         LoginHealthStore.shared.invalidate(accountID)
+        ClaudeResetInventoryStore.shared.invalidate(accountID)
         verdicts[accountID] = nil
         landings.land([accountID])
         gate.forced[accountID] = LoginProbeGate.renewed
@@ -178,6 +179,7 @@ final class LoginStatusStore {
             usageHealth.record(accountID: id, authenticated: true)
             verdicts[id] = nil
             LoginHealthStore.shared.invalidate(id)
+            ClaudeResetInventoryStore.shared.invalidate(id)
         }
         landings.land(accountIDs)
     }
@@ -192,6 +194,8 @@ final class LoginStatusStore {
     func evaluate(accounts: [ProviderAccount], known: Set<String>, userInitiated: Bool) async {
         guard !DemoUsage.isActive else { return }
         await LoginHealthStore.shared.evaluate(accounts: accounts, known: known, userInitiated: userInitiated)
+        // The reset inventory reads the same credential and keeps its own ten-minute cadence.
+        ClaudeResetInventoryStore.shared.evaluate(accounts: accounts, known: known, userInitiated: userInitiated)
         let now = Date()
         switch LoginProbeGate.decide(state: gate, isProbing: isProbing, userInitiated: userInitiated,
                                      lastProbeAt: lastProbeAt, now: now,

@@ -67,6 +67,23 @@ struct Snapshot: Decodable {
         /// `error` there, and accepts that such an app leaves the first failure unannounced.
         var lastRefreshFailed: Bool?
         var sameAccountAs: String?  // #6: kept account's id on a home sharing its Claude login
+        /// Claude limit resets this login holds, per grant in force (no grant ids), with whether the
+        /// login is in the program at all, where and when the list was read, and whether it is
+        /// held over from a failed attempt. All absent until read once and from older apps.
+        var limitResets: [LimitReset]?
+        var limitResetsEligible: Bool?
+        var limitResetsSource: String?
+        var limitResetsCheckedAt: Date?
+        var limitResetsStale: Bool?
+    }
+
+    /// One Claude limit-reset grant: kind ("session", "weekly", "fable", "full", or a newer type as
+    /// sent), counts, end.
+    struct LimitReset: Codable, Equatable {
+        var kind: String
+        var left: Int
+        var total: Int
+        var endsAt: Date
     }
 
     var version: Int

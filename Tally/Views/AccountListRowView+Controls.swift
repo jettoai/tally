@@ -18,7 +18,7 @@ extension AccountListRowView {
                     .tallyTooltip(L("Manual: every new session uses this account."))
                     .accessibilityLabel(L("Pinned"))
             } else if facts.launchMode == .auto, isAutoPick ?? facts.isAutoPick {
-                Image(systemName: "sparkles")
+                Image(systemName: "arrow.triangle.branch")
                     .font(.system(size: 9))
                     .foregroundStyle(TallyColor.ai)
                     .tallyTooltip(facts.smartPickTooltip, forced: facts.forcesSmartTooltip)

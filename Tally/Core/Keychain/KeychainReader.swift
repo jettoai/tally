@@ -8,9 +8,9 @@ import Security
 /// queries below return no secret data, so they never raise a macOS consent prompt either, and that
 /// property is load-bearing for both callers (discovery runs every minute).
 ///
-/// Secret reads live separately: CLI MCP seeding merges grants, while the app's
-/// `ClaudeLoginExpiry` reads only login expiry metadata from a credential blob. Neither caller
-/// exposes token values to this discovery helper.
+/// Secret reads live separately: CLI MCP seeding merges grants, the app's `ClaudeLoginExpiry`
+/// reads only login expiry metadata from a credential blob, and `ClaudeResetInventoryFetch` holds
+/// the access token for one usage request. None of them exposes token values to this helper.
 enum KeychainReader {
     /// Existence probe by attributes only (no secret returned). Used for account discovery.
     static func exists(service: String, account: String? = nil) -> Bool {

@@ -71,6 +71,36 @@ struct UsageSnapshot: Codable {
         /// The account this home's Claude login is already counted under (jettoai/tally#6): an
         /// account id, never the login's identity. Absent on every other row and from older apps.
         var sameAccountAs: String?
+        /// Claude limit resets this login holds (`ClaudeResetInventory`): kind, counts and end per
+        /// grant in force, never a grant id. Absent until the inventory has been read once, on
+        /// every non-Claude row, and from older apps. `limitResets: []` with eligible true is "none
+        /// left"; eligible false is a login outside the program.
+        var limitResets: [LimitReset]?
+        var limitResetsEligible: Bool?
+        /// Where the inventory came from ("oauth"), when it was read, and whether the latest
+        /// attempt failed so the list is held over from `limitResetsCheckedAt`.
+        var limitResetsSource: String?
+        var limitResetsCheckedAt: Date?
+        var limitResetsStale: Bool?
+    }
+
+    struct LimitReset: Codable, Equatable {
+        /// "session", "weekly", "fable" or "full" (`ClaudeResetInventory.Kind`), or the `type` the
+        /// response sent when this build does not know it.
+        var kind: String
+        var left: Int
+        var total: Int
+        var endsAt: Date
+    }
+
+    /// One account's inventory as the snapshot carries it, handed in by the caller
+    /// (ClaudeResetInventoryStore is main-actor and this file is Foundation-only).
+    struct LimitResets: Equatable {
+        var eligible: Bool
+        var resets: [LimitReset]
+        var source: String
+        var checkedAt: Date
+        var isStale: Bool
     }
 
     var version = 2
@@ -145,6 +175,7 @@ struct UsageSnapshot: Codable {
                      fleet: [String: Fleet]? = nil, fleetPools: [String: [Fleet]]? = nil,
                      fleetWeighted: [String: Weighted]? = nil,
                      accountOrder: [String]? = nil, resetStates: [String: String] = [:],
+                     limitResets: [String: LimitResets] = [:],
                      now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
@@ -171,7 +202,12 @@ struct UsageSnapshot: Codable {
                     resetCreditsExpiryUnknown: usage.resetCredits == nil && usage.resetCreditsAvailable == nil
                         ? nil : usage.resetCreditsExpiryUnknown,
                     resetState: resetStates[usage.id],
-                    sameAccountAs: usage.sameAccountAs
+                    sameAccountAs: usage.sameAccountAs,
+                    limitResets: limitResets[usage.id]?.resets,
+                    limitResetsEligible: limitResets[usage.id]?.eligible,
+                    limitResetsSource: limitResets[usage.id]?.source,
+                    limitResetsCheckedAt: limitResets[usage.id]?.checkedAt,
+                    limitResetsStale: limitResets[usage.id]?.isStale
                 )
             },
             statuslineFullQuota: statuslineFullQuota,

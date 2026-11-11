@@ -37,6 +37,14 @@ enum PanelStyle {
         })
     }
 
+    /// A colour read from the appearance the panel draws now (`PanelPalette.current`), so the classic
+    /// skin switch repaints a panel that is already open as a light/dark switch does.
+    private static func palette(_ make: @escaping (PanelPalette.Appearance) -> NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            make(PanelPalette.current(dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua))
+        })
+    }
+
     private static func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> NSColor {
         NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
                 blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
@@ -45,11 +53,11 @@ enum PanelStyle {
     /// A skin colour in both appearances, read from the same `PanelPalette.Skin` numbers the contrast
     /// test asserts (B-4169).
     static func skinTone(_ get: @escaping (PanelPalette.Skin) -> PanelPalette.Tone) -> Color {
-        dynamic(dark: toneColor(get(PanelPalette.dark.skin)), light: toneColor(get(PanelPalette.light.skin)))
+        palette { toneColor(get($0.skin)) }
     }
 
     static func skinHex(_ get: @escaping (PanelPalette.Skin) -> UInt32) -> Color {
-        dynamic(dark: rgb(get(PanelPalette.dark.skin)), light: rgb(get(PanelPalette.light.skin)))
+        palette { rgb(get($0.skin)) }
     }
 
     private static func toneColor(_ tone: PanelPalette.Tone) -> NSColor { rgb(tone.hex, CGFloat(tone.alpha)) }
@@ -61,14 +69,12 @@ enum PanelStyle {
     /// behind the glass), and not the design draft's values: see `PanelPalette`. The tertiary level is
     /// for words nobody has to read (the grip, the version, the credit); anything a person reads
     /// takes `text2`. `tests/panelcontrast` holds both the numbers and that rule.
-    static let text = dynamic(dark: rgb(PanelPalette.dark.text), light: rgb(PanelPalette.light.text))
-    static let text2 = dynamic(dark: rgb(PanelPalette.dark.text2), light: rgb(PanelPalette.light.text2))
-    static let text3 = dynamic(dark: rgb(PanelPalette.dark.text3), light: rgb(PanelPalette.light.text3))
+    static let text = palette { rgb($0.text) }
+    static let text2 = palette { rgb($0.text2) }
+    static let text3 = palette { rgb($0.text3) }
     /// The panel's own colour laid over the glass, which is what keeps a word's background from
     /// following the desktop (`PanelBackdrop`).
-    static let glassTint = dynamic(
-        dark: rgb(PanelPalette.dark.panelSolid, CGFloat(PanelPalette.dark.glassAlpha)),
-        light: rgb(PanelPalette.light.panelSolid, CGFloat(PanelPalette.light.glassAlpha)))
+    static let glassTint = palette { rgb($0.panelSolid, CGFloat($0.glassAlpha)) }
     static let ink = dynamic(dark: white(0.78), light: black(0.62))
     static let green = dynamic(dark: rgb(0x41D37A), light: rgb(0x1F9D54))
     static let amber = dynamic(dark: rgb(0xF5AE42), light: rgb(0xC97A0C))
@@ -103,14 +109,13 @@ enum PanelStyle {
     static let rimInner = skinTone { $0.rimInner }
     static let rimTop = skinTone { $0.rimTop }
     /// The panel's own opaque colour, under the cards when glass is off.
-    static let panelSolid = dynamic(dark: rgb(PanelPalette.dark.panelSolid), light: rgb(PanelPalette.light.panelSolid))
+    static let panelSolid = palette { rgb($0.panelSolid) }
     static let cardSolid = dynamic(dark: rgb(0x272729), light: rgb(0xEBEBED))
 
     /// The skin's three glass stops, each at the glass opacity (or opaque, for the solid panel).
     static func glassStops(opaque: Bool) -> [Color] {
         (0..<3).map { i in
-            dynamic(dark: rgb(PanelPalette.dark.skin.stops[i], opaque ? 1 : CGFloat(PanelPalette.dark.skin.alpha)),
-                    light: rgb(PanelPalette.light.skin.stops[i], opaque ? 1 : CGFloat(PanelPalette.light.skin.alpha)))
+            palette { rgb($0.skin.stops[i], opaque ? 1 : CGFloat($0.skin.alpha)) }
         }
     }
 

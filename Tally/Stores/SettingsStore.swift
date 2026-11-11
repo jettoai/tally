@@ -272,6 +272,15 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
     }
 
+    /// The panel's classic neutral skin instead of the violet one B-4169 brought (`PanelPalette.current`).
+    /// Off by default, so nobody's panel changes until they ask for it.
+    var classicPanelSkin: Bool {
+        didSet {
+            UserDefaults.standard.set(classicPanelSkin, forKey: "classicPanelSkin")
+            PanelPalette.classic = classicPanelSkin
+        }
+    }
+
     /// Cards in one continuous grid or split into a section per provider. Defaults to on: an install
     /// that never chose sees its providers apart (2026-09-28). With a single provider the grouped
     /// layout draws no headings (`PanelSections`), so the default costs that install nothing.
@@ -361,6 +370,8 @@ final class SettingsStore {
         sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),
                                                       max: SettingsStore.maxSessionsColumns)
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
+        classicPanelSkin = defaults.bool(forKey: "classicPanelSkin")
+        PanelPalette.classic = defaults.bool(forKey: "classicPanelSkin")
         groupByProvider = defaults.object(forKey: "groupByProvider") as? Bool ?? true
         gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all
     }

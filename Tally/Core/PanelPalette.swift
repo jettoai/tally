@@ -169,6 +169,46 @@ enum PanelPalette {
             chip: Tone(hex: 0xFFFFFF, alpha: 0.70), chipEdge: Tone(hex: 0x3C286E, alpha: 0.08),
             chipInk: 0x3E3A4E,
             tile: Gradient(from: 0x7B63F2, to: 0x4B33C2))
+
+        /// The classic skin: the same glass, rims, cards and brand colours, with the violet taken out.
+        /// The glass is the neutral grey the panel had before B-4169, no halo is drawn, and the
+        /// switch, the round buttons, the idle and violet pills and the machine tile are greys.
+        static let darkClassic: Skin = {
+            var skin = Skin.dark
+            skin.stops = [0x242428, 0x1E1E22, 0x1A1A1D]
+            skin.halos = skin.halos.map { Tone(hex: $0.hex, alpha: 0) }
+            skin.card = Tone(hex: 0xFFFFFF, alpha: 0.055)
+            skin.violetPill = Pill(fill: Tone(hex: 0xFFFFFF, alpha: 0.10), ink: 0xE4E4E8)
+            skin.idlePill = Pill(fill: Tone(hex: 0xFFFFFF, alpha: 0.08), ink: 0xE4E4E8, dot: 0xA8A8B0)
+            skin.seg = Tone(hex: 0x000000, alpha: 0.30)
+            skin.segText = 0xD0D0D6
+            skin.chipInk = 0xE4E4E8
+            skin.inkSpark = 0xC4C4CC
+            skin.tile = Gradient(from: 0x6E6E76, to: 0x48484E)
+            skin.violet = Gradient(from: 0xB8B8B8, to: 0x929292)
+            return skin
+        }()
+
+        static let lightClassic: Skin = {
+            var skin = Skin.light
+            skin.stops = [0xF8F8F9, 0xF4F4F6, 0xEFEFF2]
+            skin.halos = skin.halos.map { Tone(hex: $0.hex, alpha: 0) }
+            skin.rimOuter = Tone(hex: 0x000000, alpha: 0.10)
+            skin.cardShadow = Tone(hex: 0x000000, alpha: 0.06)
+            skin.colHeadLine = Tone(hex: 0x000000, alpha: 0.08)
+            skin.track = Tone(hex: 0x000000, alpha: 0.09)
+            skin.violetPill = Pill(fill: Tone(hex: 0x000000, alpha: 0.07), ink: 0x3E3E44)
+            skin.idlePill = Pill(fill: Tone(hex: 0x000000, alpha: 0.07), ink: 0x4F4F57, dot: 0x6E6E76)
+            skin.seg = Tone(hex: 0x000000, alpha: 0.07)
+            skin.segText = 0x505058
+            skin.segOnText = 0x1B1B1E
+            skin.chipEdge = Tone(hex: 0x000000, alpha: 0.08)
+            skin.chipInk = 0x3E3E44
+            skin.inkSpark = 0x55555C
+            skin.tile = Gradient(from: 0x6E6E76, to: 0x48484E)
+            skin.violet = Gradient(from: 0x666666, to: 0x4C4C4C)
+            return skin
+        }()
     }
 
     /// The text levels are the skin's own (B-4169 Opus draft): a violet-leaning white and ink, not the
@@ -183,6 +223,37 @@ enum PanelPalette {
     static let light = Appearance(text: 0x1C1828, text2: 0x575269, text3: 0x6E6880,
                                   panelSolid: 0xF4F4F6, glassAlpha: 0.92,
                                   cardFill: 0xFFFFFF, cardAlpha: 0.60, skin: .light)
+
+    /// The classic panel (Settings > General > Classic panel): the neutral greys and text levels the
+    /// panel had before B-4169 (0.85.84), on the classic skin. Off by default.
+    static let darkClassic = Appearance(text: 0xF4F4F6, text2: 0xB8B8C0, text3: 0x93939B,
+                                        panelSolid: 0x1E1E22, glassAlpha: 0.92,
+                                        cardFill: 0xFFFFFF, cardAlpha: 0.055, skin: .darkClassic)
+    static let lightClassic = Appearance(text: 0x1B1B1E, text2: 0x5C5C64, text3: 0x72727A,
+                                         panelSolid: 0xF4F4F6, glassAlpha: 0.92,
+                                         cardFill: 0xFFFFFF, cardAlpha: 0.60, skin: .lightClassic)
+
+    /// Whether the panel draws the classic skin. Set from `SettingsStore.classicPanelSkin` on the main
+    /// thread; read by `PanelStyle`'s dynamic colours whenever they resolve.
+    private static let classicLock = NSLock()
+    nonisolated(unsafe) private static var classicValue = false
+    static var classic: Bool {
+        get {
+            classicLock.lock()
+            defer { classicLock.unlock() }
+            return classicValue
+        }
+        set {
+            classicLock.lock()
+            defer { classicLock.unlock() }
+            classicValue = newValue
+        }
+    }
+
+    /// The appearance the panel draws now.
+    static func current(dark isDark: Bool) -> Appearance {
+        isDark ? (classic ? darkClassic : dark) : (classic ? lightClassic : light)
+    }
 
     /// Desktops the panel can sit on: dark, middle grey, pale, and the two extremes (the worst a flat
     /// colour can be; a blurred pattern only lands between them).

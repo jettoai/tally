@@ -59,6 +59,14 @@ struct StatusReport: Encodable {
         var resetCreditsNextExpiry: Date?
         var resetCreditsExpiryUnknown: Bool?
         var resetState: String?
+        /// Claude limit resets (`Snapshot.Account.limitResets`), passed through as the app
+        /// published them. Absent rather than empty when nothing was read, so a script tests for
+        /// the key; `[]` with `limitResetsEligible: true` means none left.
+        var limitResets: [Snapshot.LimitReset]?
+        var limitResetsEligible: Bool?
+        var limitResetsSource: String?
+        var limitResetsCheckedAt: Date?
+        var limitResetsStale: Bool?
         /// The size of the largest conversation a supervisor is running on this account right now,
         /// measured at its newest turn and including that turn's own answer: what a resume there
         /// would reload before doing anything at all (SessionContext.swift). Absent when no
@@ -390,6 +398,11 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                 resetCreditsNextExpiry: account.resetCreditsNextExpiry,
                 resetCreditsExpiryUnknown: account.resetCreditsExpiryUnknown,
                 resetState: account.resetState,
+                limitResets: account.limitResets,
+                limitResetsEligible: account.limitResetsEligible,
+                limitResetsSource: account.limitResetsSource,
+                limitResetsCheckedAt: account.limitResetsCheckedAt,
+                limitResetsStale: account.limitResetsStale,
                 sessionContextTokens: accountSessions[account.id]?.contextTokens,
                 sessionModel: accountSessions[account.id]?.model,
                 sessionEffort: accountSessions[account.id]?.effort))

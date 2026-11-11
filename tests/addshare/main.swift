@@ -965,6 +965,9 @@ if let begin = appFlowSource.range(of: "func start()"),
     check("the login starts without awaiting the notification",
           before.components(separatedBy: "await SystemAlert.post").count
               == before.components(separatedBy: "Task { _ = await SystemAlert.post").count)
+    // The "Adding an account" alert must not raise the permission banner mid-approval (B-3747).
+    check("the 'Adding an account' alert only posts where the user already decided",
+          before.contains("Task { _ = await SystemAlert.postIfAllowed(") && !before.contains("SystemAlert.post("))
 } else {
     check("start() spawns the login through RenewLoginRunner.run(", false)
 }
@@ -984,5 +987,13 @@ runShareCommandChecks()
 runTrustRelaunchChecks(root: tmp)
 
 try? fm.removeItem(at: tmp)
+// postIfAllowed reads the settings and answers false before anything can ask for permission (B-3747).
+let alertSource = (try? String(contentsOfFile: "Tally/Core/SystemAlert.swift", encoding: .utf8)) ?? ""
+let allowedBody = alertSource.components(separatedBy: "static func postIfAllowed(").dropFirst().first?
+    .components(separatedBy: "return await post(").first ?? ""
+check("postIfAllowed reads the notification settings and never asks for authorization itself",
+      allowedBody.contains("notificationSettings()") && allowedBody.contains(".notDetermined")
+          && allowedBody.contains("return false") && !allowedBody.contains("requestAuthorization"))
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

@@ -310,5 +310,22 @@ expect(welcomeView.contains("store.browserOpened ? .done : .active")
 expect(store.contains("onBrowserUp:") && store.contains("browserOpened = plan.progressMarkers.isEmpty"),
        "an add resets the signal per run, and wires the runner's browser-up callback to it")
 
+// The sign-in page shows the green card and nothing yellow under it, and the two Cancel buttons
+// answer Escape (B-3747).
+let signInBlock = welcomeView.components(separatedBy: "let advice = store.pathAdvice(p)").dropFirst().first?
+    .components(separatedBy: "case .signingIn:").first ?? ""
+expect(!signInBlock.isEmpty && signInBlock.contains("checkmark.circle.fill") && !signInBlock.contains("pathCard("),
+       "the sign-in page's body carries no path card under the green check")
+expect(!welcomeView.contains("pathCard(") && !signInBlock.contains("is installed"),
+       "no path card is left in the view, and the sign-in title is always 'is ready'")
+let signingInFooter = welcomeView.components(separatedBy: "Browser didn't open? Open it again").dropFirst().first?
+    .components(separatedBy: "case .success:").first ?? ""
+let failedFooter = welcomeView.components(separatedBy: "case .failed:\n                Spacer()").dropFirst().first?
+    .components(separatedBy: "prominent(L(\"Try Again\"))").first ?? ""
+expect(signingInFooter.contains("plain(L(\"Cancel\"))") && signingInFooter.contains(".keyboardShortcut(.cancelAction)"),
+       "the signing-in page's Cancel answers Escape")
+expect(failedFooter.contains("plain(L(\"Cancel\"))") && failedFooter.contains(".keyboardShortcut(.cancelAction)"),
+       "the failed page's Cancel answers Escape")
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

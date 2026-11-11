@@ -179,8 +179,10 @@ final class AddAccountStore {
             // Best-effort and never in the login's way: the post can wait on the system's
             // notification-permission prompt (a fresh Mac has not decided yet), and the browser
             // must open without the user answering it. Unlike the renewal's, a refused one needs
-            // no fallback either: the sheet is on screen saying the same thing.
-            Task { _ = await SystemAlert.post(
+            // no fallback either: the sheet is on screen saying the same thing. It does not ask
+            // permission either (B-4392): that banner would land on the user mid-approval, and
+            // the "added" and "not added" alerts that follow are the ones that ask.
+            Task { _ = await SystemAlert.postIfAllowed(
                 title: L("Adding an account") + " · ~/\(prepared.name)",
                 body: L("Finish the sign-in in your browser; Tally will say when it lands.")) }
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,

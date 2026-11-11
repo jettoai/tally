@@ -15,7 +15,7 @@ symlinks = {"Applications": "/Applications"}
 hide_extensions = ["Tally.app"]
 
 default_view = "icon-view"
-window_rect = ((400, 280), (660, 432))
+window_rect = ((120, 120), (660, 432))
 show_toolbar = False
 show_status_bar = False
 show_tab_view = False

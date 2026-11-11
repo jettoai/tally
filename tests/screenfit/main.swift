@@ -358,6 +358,11 @@ check(scrollOpen != nil && openToStrip.contains("accountPoolTitle") && openToStr
 let noticesPart = beforeStrip.components(separatedBy: "ScrollView(.vertical) {").dropLast().last ?? ""
 check(noticesPart.contains("ErrorReportingNoticeStrip()") && noticesPart.contains(".fixedSize(horizontal: false, vertical: true)"),
       "the panel holds its notices at their own height, above the scroll view")
+// No crash-report question over the empty state; it asks once the first account is on screen (B-3747).
+check(noticesPart.contains("if !showsEmptyState { ErrorReportingNoticeStrip() }")
+        && rootSource.contains("private var showsEmptyState: Bool")
+        && rootSource.contains("|| store.contentState != .hasAccounts"),
+      "the crash-report question is held back while the panel shows its empty state")
 
 print(failures == 0 ? "\nAll screen-fit cap tests passed." : "\n\(failures) screen-fit cap test(s) failed.")
 exit(failures == 0 ? 0 : 1)

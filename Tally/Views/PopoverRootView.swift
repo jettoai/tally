@@ -126,8 +126,9 @@ struct PopoverRootView: View {
                                 // first morning message (EarlyStartNoticeStrip.swift).
                                 earlyStartNotice
                                 // Below it when both are due: the one-time crash-report question
-                                // (ErrorReportingNoticeStrip.swift). Both stay visible.
-                                ErrorReportingNoticeStrip()
+                                // (ErrorReportingNoticeStrip.swift). Both stay visible. Not over
+                                // the empty state: a new user's first job is "Add an Account".
+                                if !showsEmptyState { ErrorReportingNoticeStrip() }
                             }
                             .fixedSize(horizontal: false, vertical: true)
                             // The machine strip, this region's title and the cards share one scroll
@@ -386,6 +387,11 @@ struct PopoverRootView: View {
         if screenCap != height { screenCap = height }
         let width = ScreenFitStack.maxWidth(on: hostScreen())
         if screenWidth != width { screenWidth = width }
+    }
+
+    /// The empty state is what the panel shows: no accounts, or the volatile launch flag below.
+    private var showsEmptyState: Bool {
+        UserDefaults.standard.bool(forKey: "TallyEmptyStatePreview") || store.contentState != .hasAccounts
     }
 
     @ViewBuilder

@@ -247,5 +247,12 @@ let argumentsLine = read("Tally/MenuBar/MoveToApplicationsWindowController.swift
     .components(separatedBy: "\n").first { $0.contains("config.arguments =") } ?? ""
 check("E10 the relaunch forwards no preview flag", !argumentsLine.isEmpty && !argumentsLine.contains("MoveToApplications"))
 
+// The disk-image window must fit the smallest supported display, 1024 x 768 points (B-3747).
+let windowRectLine = read("scripts/dmg/settings.py").components(separatedBy: "\n")
+    .first { $0.hasPrefix("window_rect") } ?? ""
+let rect = windowRectLine.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+check("F1 the disk image's window fits a 1024 x 768 display",
+      rect.count == 4 && rect[0] + rect[2] <= 1024 && rect[1] + rect[3] <= 768)
+
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

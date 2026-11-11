@@ -111,7 +111,7 @@ struct WelcomeView: View {
             statusCard {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(TallyColor.normal)
             } title: {
-                String(format: advice == nil ? L("%@ is installed") : L("%@ is ready"), WelcomeCopy.cliName(p))
+                String(format: L("%@ is ready"), WelcomeCopy.cliName(p))
             } detail: {
                 if case .foundIn(let location) = CLIPathAdvice.installedDetail(
                     location: store.installedLocation(p), terminalFinds: advice == nil) {
@@ -119,7 +119,6 @@ struct WelcomeView: View {
                 } else { "" }
             }
             .padding(.top, 26)
-            if let advice { pathCard(advice).padding(.top, 12) }
         case .signingIn:
             // The tick is the CLI's own word that the browser opened, not the click that asked for it.
             steps([(store.browserOpened ? .done : .active,
@@ -162,14 +161,14 @@ struct WelcomeView: View {
             case .signingIn:
                 link(L("Browser didn't open? Open it again")) { store.openBrowserAgain() }
                 Spacer()
-                plain(L("Cancel")) { store.secondary() }
+                plain(L("Cancel")) { store.secondary() }.keyboardShortcut(.cancelAction)
             case .success:
                 Spacer()
                 plain(L("Add Another Account")) { store.secondary() }
                 prominent(L("Show My Usage")) { store.primary() }
             case .failed:
                 Spacer()
-                plain(L("Cancel")) { store.secondary() }
+                plain(L("Cancel")) { store.secondary() }.keyboardShortcut(.cancelAction)
                 prominent(L("Try Again")) { store.primary() }
             }
         }
@@ -233,36 +232,6 @@ struct WelcomeView: View {
         .padding(.horizontal, 16).padding(.vertical, 14)
         .background(RoundedRectangle(cornerRadius: 12).fill(TallyColor.warning.opacity(0.10)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(TallyColor.warning.opacity(0.35), lineWidth: 1))
-    }
-
-    /// signIn, when Tally found the CLI but the user's Terminal would not: nothing is wrong with
-    /// Tally, and the one line offered is the user's to paste (Tally never edits a shell file).
-    private func pathCard(_ advice: PathAdvice) -> some View {
-        warningCard {
-            Text(String(format: L("Terminal can't find %@ yet."), advice.cliName))
-                .font(.system(size: 14, weight: .semibold))
-            Text(String(format: L("It's in %@, which your Terminal doesn't look in. Tally works fine without it."),
-                        advice.directory))
-                .font(.system(size: 13)).foregroundStyle(.secondary)
-            Text(String(format: advice.fixCommand == nil ? L("To run %@ yourself, type its full path:")
-                                                         : L("To run %@ yourself, add that folder once:"),
-                        advice.cliName))
-                .font(.system(size: 13)).foregroundStyle(.secondary)
-            let line = advice.fixCommand ?? advice.fullPath
-            HStack(spacing: 10) {
-                Text(verbatim: line).font(.system(size: 12.5, design: .monospaced)).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
-                Spacer(minLength: 0)
-                Button(L("Copy")) { store.copyText(line) }.controlSize(.small).fixedSize().layoutPriority(2)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
-            if advice.fixCommand != nil {
-                Text(L("Then open a new Terminal window. Tally never edits your shell files."))
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// needsCLI after "Check again" found nothing: where Tally looked.

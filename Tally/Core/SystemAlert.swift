@@ -63,6 +63,16 @@ enum SystemAlert {
         }
     }
 
+    /// `post`, but only when the user has already decided on notifications: a Mac that has not
+    /// decided gets no alert and no permission banner from this call (answers false). For an
+    /// announcement the open window already makes, whose banner would land on the user mid-step.
+    @MainActor
+    static func postIfAllowed(title: String, body: String) async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus != .notDetermined else { return false }
+        return await post(title: title, body: body)
+    }
+
     /// The body as delivered: the event's clock time first, in the app's language like every other
     /// time Tally shows, then the words.
     static func stampedBody(_ body: String, at: Date) -> String {

@@ -33,7 +33,8 @@ extension UsageStore {
                                .orderedAccountIDs(lastPublishedAccounts.map(\.id)),
                            resetStates: Dictionary(lastPublishedAccounts.map {
                                ($0.id, RedeemAction.offer(for: $0).stateName)
-                           }, uniquingKeysWith: { first, _ in first })).write()
+                           }, uniquingKeysWith: { first, _ in first }),
+                           limitResets: ClaudeResetInventoryStore.shared.snapshotFields).write()
     }
 
     /// Feed the claude flagship weekly pool to the dry-pool notifier. The flagship window is chosen

@@ -40,6 +40,9 @@ extension UsageStore {
                     ?? ClaudeAccounts.Profile())
             }
         }.value
+        // A home signed into another login than its reset inventory was read under drops it now.
+        ClaudeResetInventoryStore.shared.note(identities: Dictionary(
+            profiles.map { ($0.0.id, $0.1.accountUUID) }, uniquingKeysWith: { first, _ in first }))
         let identities = LoginStatusStore.shared
         let kept = SharedLogin.duplicates(profiles.map { account, profile in
             SharedLogin.Home(id: account.id, identity: profile.accountUUID,

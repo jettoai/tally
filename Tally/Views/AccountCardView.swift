@@ -288,6 +288,7 @@ struct AccountCardView: View {
                 .compactMap { $0 }.joined(separator: " · "))
         }
         codexResetStatusRow
+        if usage.providerID == "claude" { ClaudeResetInventoryRows(accountID: usage.id) }
         if let redeemOutcome {
             Text(RedeemAction.outcomeMessage(redeemOutcome))
                 .font(.caption2)

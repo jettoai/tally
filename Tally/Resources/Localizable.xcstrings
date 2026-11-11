@@ -29425,6 +29425,111 @@
           }
         }
       }
+    },
+    "Classic panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典面板"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典面板"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックパネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 패널"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasik panel"
+          }
+        }
+      }
+    },
+    "Neutral grey panel without the colour glow.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無彩色光暈的中性灰面板。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无彩色光晕的中性灰面板。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色の光彩がないニュートラルグレーのパネル。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색 번짐 없는 중립 회색 패널."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renkli parıltı olmadan nötr gri panel."
+          }
+        }
+      }
+    },
+    "The pinned panel, the menu bar popover and the main window drop the violet tint and the colour haloes and use neutral greys. Provider and warning colours stay.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定面板、選單列彈出視窗與主視窗會去掉紫色色調與彩色光暈，改用中性灰。服務商與警示顏色保持不變。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定面板、菜单栏弹出窗口与主窗口会去掉紫色色调与彩色光晕，改用中性灰。服务商与警示颜色保持不变。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定パネル、メニューバーのポップオーバー、メインウインドウから紫の色味と色の光彩を外し、ニュートラルグレーで表示します。プロバイダと警告の色はそのままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 패널, 메뉴 막대 팝오버, 메인 창에서 보라색 색조와 색 번짐을 없애고 중립 회색을 씁니다. 제공자 색과 경고 색은 그대로입니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabitlenen panel, menü çubuğu açılır paneli ve ana pencere mor tonu ve renkli haleleri bırakıp nötr griye döner. Sağlayıcı ve uyarı renkleri aynı kalır."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

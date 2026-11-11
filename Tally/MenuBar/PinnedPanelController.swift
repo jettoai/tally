@@ -201,6 +201,11 @@ struct PanelBackdrop: View {
     var skin = false
 
     var body: some View {
+        // Rebuilt when the classic skin is switched, so the tint repaints with the panel.
+        surface.id(settings.classicPanelSkin)
+    }
+
+    @ViewBuilder private var surface: some View {
         if settings.isPanelTranslucent,
            !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
             // The panel's own colour over the glass (`PanelStyle.glassTint`): the blur still shows the

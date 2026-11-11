@@ -190,6 +190,12 @@ extension SettingsView {
                               icon: "square.on.square.dashed",
                               info: L("The pinned panel, the menu bar popover and the main window show the desktop through frosted glass. Off makes all three solid."),
                               isOn: $settings.isPanelTranslucent)
+            SettingsDivider()
+            SettingsToggleRow(title: L("Classic panel"),
+                              subtitle: L("Neutral grey panel without the colour glow."),
+                              icon: "circle.lefthalf.filled",
+                              info: L("The pinned panel, the menu bar popover and the main window drop the violet tint and the colour haloes and use neutral greys. Provider and warning colours stay."),
+                              isOn: $settings.classicPanelSkin)
         }
     }
 

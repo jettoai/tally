@@ -9,7 +9,8 @@ import QuartzCore
 /// line, then quits. The window is a fixed size on every pane, so the question per switch is
 /// whether anything moved: the window's size and the right-hand content column's size before the
 /// switch, after it, and on every display-link tick in between (`resizedFrames`), whether the new
-/// pane opened at its top although the column was left scrolled down (`scrolledFromTop`), plus how long
+/// pane opened at its top although the column was left scrolled down (`scrolledFromTop`), the window
+/// size on every tick (`samples`), plus how long
 /// until the pane on screen stopped changing and how many ticks arrived late (a stand-in for main
 /// thread stalls, not for what the compositor presented).
 @MainActor
@@ -60,6 +61,9 @@ private final class Run: NSObject {
     private var lastShown = SettingsTabBench.Shown(section: "", sections: [])
     private var windowBefore = CGSize.zero, columnBefore = CGSize.zero
     private var frames = 0, dropped = 0, resized = 0
+    /// Every tick's window size, `[ms since the switch, width, height]`: the whole sequence rather
+    /// than only the verdict, so a reader can see that no sampled frame was any other size.
+    private var samples: [[Double]] = []
     private var maxGap: CFTimeInterval = 0
 
     /// File IO off the main thread: the numbers are taken there, the lines are written here.
@@ -138,7 +142,7 @@ private final class Run: NSObject {
         column = findColumn(in: view)
         // `lastTick` carries over: the interval the click lands in is part of this switch, and a
         // switch that does its layout on that first frame would otherwise hide it.
-        frames = 0; dropped = 0; resized = 0; maxGap = 0
+        frames = 0; dropped = 0; resized = 0; maxGap = 0; samples = []
         start = CACurrentMediaTime()
         lastChange = start
         lastShown = SettingsTabBench.shown
@@ -171,6 +175,8 @@ private final class Run: NSObject {
             lastShown = shown
         }
         if Self.moved(window.frame.size, windowBefore) || Self.moved(columnSize, columnBefore) { resized += 1 }
+        samples.append([Double(max(0, Int(((now - start) * 1000).rounded()))),
+                        Double(window.frame.width), Double(window.frame.height)])
     }
 
     private func record(to: String) {
@@ -184,6 +190,7 @@ private final class Run: NSObject {
             "settleMs": max(0, Int(((lastChange - start) * 1000).rounded())),   // a tick stamped before `start` reads negative
             "frames": frames, "droppedFrames": dropped,
             "maxGapMs": Int((maxGap * 1000).rounded()),
+            "samples": samples,
         ])
     }
 

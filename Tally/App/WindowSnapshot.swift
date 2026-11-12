@@ -23,6 +23,12 @@ import Foundation
 /// write, and no state that outlives the launch.
 enum WindowSnapshot {
     static let flagKey = "TallyWindowSnapshot"
+    /// `-TallyWindowSnapshotNoGrow YES`: photograph each window at the size it really has. By
+    /// default a window with a scroll view is first grown to its whole page (`growToContent`),
+    /// which is right for a picture of a page and wrong for a picture of a window: a window that is
+    /// one fixed size on every pane comes out as five different sizes, and a before/after pair of
+    /// long panes comes out identical. Same gate as the flag it modifies (demo or dev only).
+    static let noGrowKey = "TallyWindowSnapshotNoGrow"
 
     /// How long the windows are given to finish laying out before the shutter.
     ///
@@ -47,7 +53,7 @@ enum WindowSnapshot {
             for _ in 0..<240 where TokenStatsStore.shared.isScanning {
                 try? await Task.sleep(for: .milliseconds(500))
             }
-            growToContent()
+            if !UserDefaults.standard.bool(forKey: noGrowKey) { growToContent() }
             // And until no window is still changing size (bounded): a height report that lands
             // late resizes the window after the delay above.
             var frames = NSApp.windows.map(\.frame)

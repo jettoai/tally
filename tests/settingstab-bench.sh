@@ -38,7 +38,7 @@ done
 command grep -q '"done"' "$out" || { echo "bench did not finish in 120s ($out)" >&2; exit 3; }
 
 python3 - "$out" <<'EOF'
-import json, sys
+import json, os, sys
 lines = [json.loads(l) for l in open(sys.argv[1])]
 rows = [r for r in lines if "done" not in r]
 done = [r for r in lines if "done" in r][0]
@@ -63,6 +63,30 @@ for r in rows:
     print(f"{r['from']:>12} {r['to']:>12} {dim(r['windowAfter']):>9} {dim(r['contentAfter']):>9} "
           f"{r['resizedFrames']:>7} {r['settleMs']:>6} {r['scrolledFromTop']:>5.0f} {r['droppedFrames']:>7} {r['maxGapMs']:>6}"
           f"{'  FAIL' if fail else ''}")
+# The window size on every tick of every switch, for a reader: one line per switch, then the verdict.
+def uniq(samples):
+    seen = []
+    for _, w, h in samples:
+        if (round(w, 1), round(h, 1)) not in seen:
+            seen.append((round(w, 1), round(h, 1)))
+    return seen
+
+sequence = os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "換頁視窗尺寸取樣序列.md")
+with open(sequence, "w") as md:
+    md.write("# Settings window size sampled on every frame of every pane switch\n\n")
+    md.write("One line per switch: from to to, number of samples, number of distinct window sizes, the sizes.\n\n")
+    every = set()
+    total = 0
+    for r in rows:
+        values = uniq(r["samples"])
+        every.update(values)
+        total += len(r["samples"])
+        shown = ", ".join(f"{w:g}x{h:g}" for w, h in values)
+        md.write(f"- {r['from']} to {r['to']}: {len(r['samples'])} samples, {len(values)} distinct, {shown}\n")
+    md.write(f"\n{len(rows)} switches, {total} samples, {len(every)} distinct window sizes in all: "
+             + ", ".join(f"{w:g}x{h:g}" for w, h in sorted(every)) + "\n")
+print(f"sample sequence: {sequence}")
+
 print(f"{len(rows)} switches, {bad} over threshold "
       "(window or content changed, not at top, or settle>320ms)")
 sys.exit(1 if bad else 0)

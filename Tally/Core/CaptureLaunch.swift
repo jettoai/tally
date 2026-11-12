@@ -219,7 +219,10 @@ enum CaptureLaunch {
                                "TallyMoveToApplicationsAutoMove",
                                // Qualifies the welcome window (Dev build or demo data): opens it on a
                                // Mac that has already seen it, with real detection, no fixtures.
-                               welcomeForce]
+                               welcomeForce,
+                               // Qualifies TallyWindowSnapshot (Dev build or demo data): photographs
+                               // each window at the size it really has, not grown to its whole page.
+                               "TallyWindowSnapshotNoGrow"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

@@ -467,5 +467,24 @@ expect(welcomeStoreSource.contains("flow.installAndSignIn()") && settingsInstall
         && welcomeStoreSource.contains("case .installing: flow.cancelInstall()"),
        "both surfaces start the in-app install, and Cancel on the installing page ends it")
 
+// The store needs AppKit, so it is not compiled here: lock the order as source text.
+// First run shows .needsCLI from the base screen while the flow is idle; flow.installInTerminal()
+// guards on .needsCLI, so "Install in Terminal instead" did nothing until showNeedsCLI ran first (B-3747).
+if let fn = welcomeStoreSource.range(of: "func installInTerminal() {"),
+   let show = welcomeStoreSource.range(of: "flow.showNeedsCLI(providerID: p)", range: fn.upperBound..<welcomeStoreSource.endIndex),
+   let open = welcomeStoreSource.range(of: "flow.installInTerminal()", range: fn.upperBound..<welcomeStoreSource.endIndex) {
+    let body = welcomeStoreSource[fn.upperBound..<open.lowerBound]
+    // Entry 1: flow idle, page .needsCLI: showNeedsCLI runs first, taking the page's providerID.
+    expect(show.lowerBound < open.lowerBound && body.contains("if case .needsCLI(let p) = screen"),
+           "Install in Terminal moves an idle flow to .needsCLI BEFORE it opens Terminal")
+    // Entries 2 and 3 (Open Terminal Again, after a failed install): flow already at .needsCLI, so no showNeedsCLI.
+    expect(body.contains("if case .needsCLI = flow.phase {} else { flow.showNeedsCLI(providerID: p) }"),
+           "Install in Terminal never re-runs showNeedsCLI on a flow already at .needsCLI (it would end the wait)")
+    // Those two pages come from a flow at .needsCLI: waiting -> .waiting, failed report -> .installFailed.
+    expect(welcomeStoreSource.contains("flow.installReport != nil ? .installFailed(providerID: p) : .needsCLI(providerID: p)")
+            && welcomeStoreSource.contains("flow.cliWaitStalled ? .waitingStalled(providerID: p) : .waiting(providerID: p)"),
+           "the waiting and failed pages are derived from phase .needsCLI, so the guard above covers them")
+} else { expect(false, "Install in Terminal moves an idle flow to .needsCLI BEFORE it opens Terminal") }
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

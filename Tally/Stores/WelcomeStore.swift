@@ -330,6 +330,12 @@ final class WelcomeStore {
     /// (the same script, opened once more): the Terminal route, one click.
     func installInTerminal() {
         guard preview == nil else { return }
+        // First run: the page is the base .needsCLI while the flow is still idle, and the flow's
+        // installInTerminal() only acts from .needsCLI. Move it there first, as primary() does, but never
+        // from a flow already at .needsCLI (waiting / failed pages): showNeedsCLI would drop the watch and the wait.
+        if case .needsCLI(let p) = screen {
+            if case .needsCLI = flow.phase {} else { flow.showNeedsCLI(providerID: p) }
+        }
         flow.installInTerminal()
     }
 

@@ -302,6 +302,43 @@ expect((try? String(contentsOf: t14Dir.appendingPathComponent("seq"), encoding: 
        "T14: seq advanced exactly once per event")
 try? FileManager.default.removeItem(at: t14Dir)
 
+// MARK: - T14b: a cursor far behind loses nothing under the hard cap, and is cut back past it
+
+// Nobody consuming (cursor 0): under the 32 MB hard cap an append must not drop undelivered lines;
+// past it the oldest lines go regardless of the cursor, and the new event survives.
+func t14bSpool(prefill: Int) -> URL {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-waitevents-t14b-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    var request = t6Request
+    request.summary = String(repeating: "x", count: 3500)
+    var body = ""
+    for seq in 1...prefill {
+        var event = SessionWaitEvent(at: now, kind: SessionWaitEventKind.opened.rawValue, provider: "claude",
+                                     session: identity, request: request, resolution: nil)
+        event.seq = seq
+        body += String(data: try! sessionWaitEventEncoder().encode(event), encoding: .utf8)! + "\n"
+    }
+    try! body.write(to: dir.appendingPathComponent("spool.jsonl"), atomically: true, encoding: .utf8)
+    try! "\(prefill + 1)".write(to: dir.appendingPathComponent("seq"), atomically: true, encoding: .utf8)
+    try! "0".write(to: dir.appendingPathComponent("cursor"), atomically: true, encoding: .utf8)
+    return dir
+}
+func t14bLines(_ dir: URL) -> Int {
+    (try? String(contentsOf: dir.appendingPathComponent("spool.jsonl"), encoding: .utf8))?
+        .split(separator: "\n").count ?? 0
+}
+let t14bSmall = t14bSpool(prefill: 2200)
+appendSessionWaitEvent(t10Base, dir: t14bSmall)
+expect(t14bLines(t14bSmall) == 2201, "T14b: past the trim size but under the hard cap, a lagging cursor drops nothing")
+try? FileManager.default.removeItem(at: t14bSmall)
+let t14bBig = t14bSpool(prefill: 9500)
+appendSessionWaitEvent(t10Base, dir: t14bBig)
+expect(t14bLines(t14bBig) < 6000, "T14b: past the hard cap the spool is cut back even with the cursor behind")
+expect(readSessionWaitEvents(since: 9500, limit: 10, dir: t14bBig).map { $0.seq } == [9501],
+       "T14b: the event appended at the cut survives it")
+try? FileManager.default.removeItem(at: t14bBig)
+
 // MARK: - T15 (judge Critical 2): the end-of-session spawn is not throttled, the overdue check stays
 
 let t15Dir = FileManager.default.temporaryDirectory

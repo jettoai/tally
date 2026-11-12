@@ -21,7 +21,9 @@ final class AddAccountStore {
     /// Where the flow is, and what the sheet may offer there (AddAccountFlow.swift). The two ending
     /// states are deliberately different: `added` is an account the user now has, `pending` is a
     /// config home that exists with no login in it.
-    private(set) var phase: AddAccountPhase = .idle
+    private(set) var phase: AddAccountPhase = .idle {
+        didSet { WelcomeTrace.note("phase=" + String(String(describing: phase).prefix { $0 != "(" })) }
+    }
 
     /// The run that is already out there, kept because the sheet's provider picker is the NEXT
     /// run's choice: a Terminal handoff and a re-check both have to act on the home this flow
@@ -49,11 +51,28 @@ final class AddAccountStore {
     /// watch keeps looking, this only lets the screens stop promising it will move on by itself.
     private(set) var cliWaitStalled = false
     /// How far "Install in Terminal" got, for the waiting page's first step.
-    private(set) var terminalInstall: TerminalInstallStart = .opening
+    private(set) var terminalInstall: TerminalInstallStart = .opening {
+        didSet { WelcomeTrace.note("terminal=\(terminalInstall)") }
+    }
     /// The running script's receipt; read by the CLI watch, removed once seen or abandoned.
     private var installReceipt: URL?
     /// "Opening Terminal…" has shown for `terminalOpenNudgeSeconds` with no receipt.
     private(set) var terminalOpenSlow = false
+    /// What the in-app install ("Install and Sign In") is doing, and the script's own output for the
+    /// details box. The page's progress line comes from the stage; the text is the install's only.
+    private(set) var installStage: ClaudeInstall.Stage = .fetching {
+        didSet { WelcomeTrace.note("stage=" + String(String(describing: installStage).prefix { $0 != "(" })) }
+    }
+    private(set) var installLines: [String] = []
+    /// Why the last in-app install ended without the CLI; nil = it did not fail (or none ran).
+    private(set) var installReport: ClaudeInstall.Report? {
+        didSet { if let installReport { WelcomeTrace.note("installFailure=\(installReport.failure)") } }
+    }
+    /// The welcome window or the sheet that asked for this install is still open, so a login follows it.
+    var signInAfterInstall = false
+    /// The login running now was started by an install that just finished (the sign-in page ticks "Claude Code installed").
+    private(set) var installedThisRun = false
+    private var installCancel: ClaudeInstallRunner.Cancel?
 
     /// The sheet's two choices, kept on the store so reopening it after a run remembers them.
     var providerID = "claude"
@@ -129,6 +148,8 @@ final class AddAccountStore {
         guard phase.allowsNewRun else { return }
         phase = .idle
         run = nil
+        installReport = nil
+        installedThisRun = false
     }
 
     /// Opening the sheet from an entry point that names a provider (Settings has one row per
@@ -197,7 +218,10 @@ final class AddAccountStore {
                 // Identity check: a signal from a login that was cancelled and replaced must not
                 // mark the new one's browser as open.
                 Task { @MainActor in
-                    if self?.loginCancel === cancel { self?.browserOpened = true }
+                    if self?.loginCancel === cancel {
+                        self?.browserOpened = true
+                        WelcomeTrace.note("browser=up")
+                    }
                 }
             })
             switch outcome {
@@ -310,7 +334,8 @@ final class AddAccountStore {
 
 /// The "no CLI yet" half of adding an account, shared by Settings' sheet and the welcome window:
 /// open Terminal on the vendor's own install command, already running, then look for the CLI every
-/// few seconds until it appears.
+/// few seconds until it appears. Claude Code can also be installed in the app ("Install and Sign In",
+/// ClaudeInstallRunner).
 extension AddAccountStore {
     /// How often the CLI is looked for while an install is awaited. A stat over a handful of
     /// directories, only while a waiting screen is up.
@@ -322,6 +347,7 @@ extension AddAccountStore {
         // `self.` on purpose: tests/addshare counts the literal gate in the start/reset/switch paths.
         guard self.phase.allowsNewRun else { return }
         stopWatchingForCLI()
+        installReport = nil
         self.providerID = providerID
         phase = .needsCLI(providerID: providerID, waiting: false)
     }
@@ -331,6 +357,7 @@ extension AddAccountStore {
     /// cannot be written or opened, the old way: the command on the clipboard and Terminal in front.
     func installInTerminal() {
         guard case .needsCLI(let providerID, _) = phase else { return }
+        installReport = nil
         // The click changes the page in the same frame; the file and the open happen behind it.
         stopWatchingForCLI()
         terminalInstall = .opening
@@ -352,6 +379,56 @@ extension AddAccountStore {
             NSWorkspace.shared.open(terminal)
             terminalInstall = .copied
         }
+    }
+
+    /// "Install and Sign In": run the official install script in the app, then hand straight to the
+    /// provider's login if the surface that asked is still open. Success is the exit code AND the CLI
+    /// being findable; the script's words only drive the progress line.
+    func installAndSignIn() {
+        guard case .needsCLI(let providerID, _) = phase, ClaudeInstall.supports(providerID) else { return }
+        stopWatchingForCLI()
+        installReport = nil
+        installLines = []
+        installStage = .fetching
+        installedThisRun = false
+        signInAfterInstall = true
+        let cancel = ClaudeInstallRunner.Cancel()
+        installCancel = cancel
+        phase = .installing(providerID: providerID)
+        Task {
+            let outcome = await ClaudeInstallRunner.run(
+                command: WelcomeFlow.installCommand(providerID: providerID), cancel: cancel,
+                onUpdate: { update in
+                    Task { @MainActor in
+                        guard self.installCancel === cancel else { return }
+                        self.installStage = update.stage
+                        self.installLines = update.lines
+                    }
+                },
+                cliFound: { ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI") != nil })
+            guard installCancel === cancel else { return }
+            installCancel = nil
+            switch outcome {
+            case .installed:
+                phase = .idle
+                guard signInAfterInstall else { return }
+                // beginEntry resets, and reset clears the flag below: set it after.
+                beginEntry(providerID: providerID)
+                installedThisRun = true
+                start()
+            case .cancelled:
+                phase = .needsCLI(providerID: providerID, waiting: false)
+            case .failed(let report):
+                installReport = report
+                phase = .needsCLI(providerID: providerID, waiting: false)
+            }
+        }
+    }
+
+    /// The installing page's Cancel: ends the whole process group (bash, curl, the installer).
+    func cancelInstall() {
+        guard case .installing = phase else { return }
+        installCancel?.raise()
     }
 
     /// The provider's install command, on the clipboard and nothing else.

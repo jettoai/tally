@@ -29311,6 +29311,951 @@
           }
         }
       }
+    },
+    "Set up Claude Code": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置 Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code をセットアップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 설정"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code'u Kur"
+          }
+        }
+      }
+    },
+    "Install and Sign In": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝並登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装并登录"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールしてサインイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 후 로그인"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükle ve Oturum Aç"
+          }
+        }
+      }
+    },
+    "Install Claude Code": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝 Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code をインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 설치"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code'u Yükle"
+          }
+        }
+      }
+    },
+    "Installing Claude Code": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在安裝 Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在安装 Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code をインストール中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 설치 중"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code yükleniyor"
+          }
+        }
+      }
+    },
+    "Install didn't finish": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝未完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装未完成"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールが完了しませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치가 완료되지 않았습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme tamamlanmadı"
+          }
+        }
+      }
+    },
+    "Install in Terminal instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改用終端機安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改用终端安装"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりにターミナルでインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대신 터미널에서 설치"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bunun yerine Terminal'de yükle"
+          }
+        }
+      }
+    },
+    "Anthropic's install guide": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic 的安裝指南"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic 的安装指南"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic のインストールガイド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic 설치 가이드"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic'in kurulum rehberi"
+          }
+        }
+      }
+    },
+    "Show Details": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示詳細資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示详细信息"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 정보 보기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntıları Göster"
+          }
+        }
+      }
+    },
+    "Hide Details": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏詳細資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏详细信息"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を隠す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 정보 숨기기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntıları Gizle"
+          }
+        }
+      }
+    },
+    "Claude Code installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝 Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装 Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code をインストールしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 설치됨"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code yüklendi"
+          }
+        }
+      }
+    },
+    "About a minute. When it's done, your browser opens claude.ai so you can sign in.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約需一分鐘。完成後，瀏覽器會開啟 claude.ai 讓你登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大约需要一分钟。完成后，浏览器会打开 claude.ai 供你登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約1分かかります。完了するとブラウザで claude.ai が開くので、サインインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 1분 걸립니다. 완료되면 브라우저에서 claude.ai가 열려 로그인할 수 있습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yaklaşık bir dakika sürer. Bittiğinde tarayıcınız claude.ai'yi açar, oradan oturum açabilirsiniz."
+          }
+        }
+      }
+    },
+    "Tally runs Anthropic's official install script from claude.ai, the same line their docs give. It never asks for your password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 會執行 Anthropic 在 claude.ai 提供的官方安裝腳本，與他們文件上的指令相同。過程不會要求你輸入密碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 会运行 Anthropic 在 claude.ai 提供的官方安装脚本，与其文档中的命令相同。过程中不会要求你输入密码。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は claude.ai にある Anthropic 公式のインストールスクリプトを実行します。ドキュメントと同じコマンドです。パスワードを求められることはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 claude.ai의 Anthropic 공식 설치 스크립트를 실행합니다. 문서에 나온 명령과 같습니다. 비밀번호를 묻지 않습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally, Anthropic'in claude.ai üzerindeki resmî kurulum betiğini çalıştırır; belgelerindeki komutla aynıdır. Hiçbir zaman parolanızı istemez."
+          }
+        }
+      }
+    },
+    "Getting the official script from claude.ai": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在從 claude.ai 取得官方腳本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在从 claude.ai 获取官方脚本"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude.ai から公式スクリプトを取得中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude.ai에서 공식 스크립트를 가져오는 중"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resmî betik claude.ai'den alınıyor"
+          }
+        }
+      }
+    },
+    "Downloading, %lld MB so far. The script checks it against Anthropic's published checksum.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載中，目前 %lld MB。腳本會用 Anthropic 公布的檢查碼驗證。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载中，目前 %lld MB。脚本会用 Anthropic 公布的校验和进行验证。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード中（現在 %lld MB）。スクリプトは Anthropic が公開しているチェックサムで検証します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드 중, 현재 %lld MB. 스크립트가 Anthropic이 공개한 체크섬으로 검증합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İndiriliyor, şu ana kadar %lld MB. Betik, Anthropic'in yayımladığı sağlama toplamıyla doğrular."
+          }
+        }
+      }
+    },
+    "Downloading. The script checks it against Anthropic's published checksum.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載中。腳本會用 Anthropic 公布的檢查碼驗證。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载中。脚本会用 Anthropic 公布的校验和进行验证。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード中。スクリプトは Anthropic が公開しているチェックサムで検証します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드 중. 스크립트가 Anthropic이 공개한 체크섬으로 검증합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İndiriliyor. Betik, Anthropic'in yayımladığı sağlama toplamıyla doğrular."
+          }
+        }
+      }
+    },
+    "Setting up the claude command. The first run can take up to a minute while macOS checks it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在設定 claude 指令。第一次執行時，macOS 會先檢查，最多可能需要一分鐘。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在设置 claude 命令。第一次运行时，macOS 会先检查，最多可能需要一分钟。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude コマンドをセットアップ中です。初回は macOS の確認のため、最大1分ほどかかることがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude 명령을 설정하는 중입니다. 처음 실행할 때는 macOS가 확인하느라 최대 1분 정도 걸릴 수 있습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude komutu kuruluyor. İlk çalıştırmada macOS kontrol ederken bir dakikaya kadar sürebilir."
+          }
+        }
+      }
+    },
+    "Tally couldn't reach downloads.claude.ai. Check your internet connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 連不上 downloads.claude.ai。請檢查網路連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 无法连接 downloads.claude.ai。请检查网络连接。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は downloads.claude.ai に接続できませんでした。インターネット接続を確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 downloads.claude.ai에 연결하지 못했습니다. 인터넷 연결을 확인하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally downloads.claude.ai adresine ulaşamadı. İnternet bağlantınızı kontrol edin."
+          }
+        }
+      }
+    },
+    "The download didn't match Anthropic's published checksum, so the script stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載內容與 Anthropic 公布的檢查碼不符，腳本已停止。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载内容与 Anthropic 公布的校验和不符，脚本已停止。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードした内容が Anthropic の公開チェックサムと一致しなかったため、スクリプトは停止しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 파일이 Anthropic이 공개한 체크섬과 일치하지 않아 스크립트가 중단되었습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İndirilen dosya Anthropic'in yayımladığı sağlama toplamıyla eşleşmedi, bu yüzden betik durdu."
+          }
+        }
+      }
+    },
+    "The install made no progress for %lld seconds.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝已有 %lld 秒沒有進展。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装已有 %lld 秒没有进展。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールが %lld 秒間進んでいません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치가 %lld초 동안 진행되지 않았습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme %lld saniyedir ilerlemedi."
+          }
+        }
+      }
+    },
+    "The install was still running after %lld minutes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝在 %lld 分鐘後仍在執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装在 %lld 分钟后仍在运行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールは %lld 分後も実行中でした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치가 %lld분이 지나도 계속 실행 중이었습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme %lld dakika sonra hâlâ çalışıyordu."
+          }
+        }
+      }
+    },
+    "The script finished, but Tally can't find the claude command.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本已結束，但 Tally 找不到 claude 指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脚本已结束，但 Tally 找不到 claude 命令。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトは終了しましたが、Tally は claude コマンドを見つけられません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트는 끝났지만 Tally가 claude 명령을 찾지 못했습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betik tamamlandı ancak Tally claude komutunu bulamıyor."
+          }
+        }
+      }
+    },
+    "The install script stopped with an error.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝腳本因錯誤而停止。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装脚本因错误而停止。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールスクリプトがエラーで停止しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 스크립트가 오류로 중단되었습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum betiği bir hatayla durdu."
+          }
+        }
+      }
+    },
+    "Trying again is safe.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次是安全的。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再试一次是安全的。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試しても問題ありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도해도 안전합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden denemek güvenlidir."
+          }
+        }
+      }
+    },
+    "The install script said:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝腳本的訊息："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装脚本的消息："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールスクリプトのメッセージ:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치 스크립트의 메시지:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum betiğinin mesajı:"
+          }
+        }
+      }
+    },
+    "Rather use Terminal?": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想改用終端機？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想改用终端？"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを使いますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 사용하시겠어요?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal'i kullanmayı mı tercih edersiniz?"
+          }
+        }
+      }
+    },
+    "Tally can open it with the same line already running. Nothing to paste.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 可以幫你開啟終端機，指令已在執行，不用貼上任何東西。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 可以为你打开终端，命令已在运行，无需粘贴任何内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally が同じコマンドを実行済みの状態でターミナルを開きます。貼り付けは不要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 같은 명령이 이미 실행 중인 상태로 터미널을 엽니다. 붙여넣을 필요가 없습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally, aynı komut zaten çalışır durumdayken Terminal'i açabilir. Yapıştırılacak bir şey yok."
+          }
+        }
+      }
+    },
+    "You can close this window. The install keeps going, and Tally finds Claude Code when it's done.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以關閉這個視窗。安裝會繼續進行，完成後 Tally 會找到 Claude Code。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以关闭此窗口。安装会继续进行，完成后 Tally 会找到 Claude Code。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウィンドウは閉じてかまいません。インストールは続行され、完了すると Tally が Claude Code を見つけます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창을 닫아도 됩니다. 설치는 계속되며, 끝나면 Tally가 Claude Code를 찾습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu pencereyi kapatabilirsiniz. Yükleme devam eder ve bittiğinde Tally Claude Code'u bulur."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

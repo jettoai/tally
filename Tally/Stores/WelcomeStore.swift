@@ -58,6 +58,9 @@ final class WelcomeStore {
     private var previewBrowserWaiting = false
     /// The waiting page's Terminal fixture (WelcomeFlow.previewTerminalStart).
     private var previewTerminalStart: TerminalInstallStart = .running
+    /// The install pages' output box: open in the `installing-details` preview, toggled by "Show Details".
+    private(set) var showInstallDetails = false
+    private var previewInstalledThisRun = false
 
     /// Whether a provider's CLI is on this Mac. A property so the suite can stand in for the disk.
     var cliInstalled: (String) -> Bool = {
@@ -65,6 +68,9 @@ final class WelcomeStore {
     }
     /// Set by the window controller: close the window.
     var closeWindow: () -> Void = {}
+
+    /// `-TallyWelcomeAutoInstall` (Dev only): press the install button once, when detection lands on it.
+    private var autoInstallPending = false
 
     private let flow = AddAccountStore.shared
     private var detectEpoch = 0
@@ -78,12 +84,19 @@ final class WelcomeStore {
     var terminalInstall: TerminalInstallStart { preview != nil ? previewTerminalStart : flow.terminalInstall }
     var terminalOpenSlow: Bool { preview == nil && flow.terminalOpenSlow }
 
+    /// The in-app install's state; a preview holds its fixtures.
+    var installStage: ClaudeInstall.Stage { preview != nil ? WelcomeFlow.previewInstallStage : flow.installStage }
+    var installLines: [String] { preview != nil ? WelcomeFlow.previewInstallLines : flow.installLines }
+    var installReport: ClaudeInstall.Report? { preview != nil ? WelcomeFlow.previewInstallReport : flow.installReport }
+    var installedThisRun: Bool { preview != nil ? previewInstalledThisRun : flow.installedThisRun }
+
     var screen: WelcomeScreen {
         if let preview { return preview }
         switch flow.phase {
         case .needsCLI(let p, let waiting):
-            if !waiting { return .needsCLI(providerID: p) }
+            if !waiting { return flow.installReport != nil ? .installFailed(providerID: p) : .needsCLI(providerID: p) }
             return flow.cliWaitStalled ? .waitingStalled(providerID: p) : .waiting(providerID: p)
+        case .installing(let p): return .installing(providerID: p)
         case .preparing, .signingIn: return .signingIn(providerID: flow.runProviderID)
         case .added: return .success
         case .pending(_, let reason, _):
@@ -183,12 +196,15 @@ final class WelcomeStore {
     // MARK: Opening and closing
 
     /// The window is about to be shown. `previewName` is the dev flag's value, already gated.
-    func begin(previewName: String?) {
+    func begin(previewName: String?, autoInstall: Bool = false) {
         detectEpoch += 1
+        autoInstallPending = autoInstall && previewName == nil
         chosenProvider = nil
         previewPath = WelcomeFlow.previewPathState(named: previewName)
         previewBrowserWaiting = WelcomeFlow.previewBrowserWaiting(named: previewName)
         previewTerminalStart = WelcomeFlow.previewTerminalStart(named: previewName)
+        showInstallDetails = WelcomeFlow.previewInstallDetailsOpen(named: previewName)
+        previewInstalledThisRun = WelcomeFlow.previewInstalledThisRun(named: previewName)
         recheckedMissing = previewPath.notFound ? "claude" : nil
         if let held = WelcomeFlow.previewScreen(named: previewName) {
             preview = held
@@ -197,6 +213,9 @@ final class WelcomeStore {
         preview = nil
         flow.stopWatchingForCLI()
         flow.reset()   // a success or a stale failure from an earlier visit is not this visit's
+        // An install that kept going while the window was closed: seeing its page again restores the
+        // promise that the browser opens when it is done.
+        if case .installing = flow.phase { flow.signInAfterInstall = true }
         detected = nil
         let epoch = detectEpoch
         Task { await detect(epoch: epoch) }
@@ -206,6 +225,8 @@ final class WelcomeStore {
         detectEpoch += 1
         recheckedMissing = nil
         flow.stopWatchingForCLI()
+        // The install itself goes on (never cancelled here), but a closed window gets no browser.
+        flow.signInAfterInstall = false
     }
 
     private func detect(epoch: Int) async {
@@ -221,6 +242,10 @@ final class WelcomeStore {
         guard epoch == detectEpoch else { return }
         signedIn = accounts
         detected = WelcomeFlow.verdict(signedInAccounts: accounts.count, installed: cliInstalled)
+        if autoInstallPending, preview == nil, case .needsCLI = screen {
+            autoInstallPending = false
+            primary()
+        }
     }
 
     private nonisolated static func readLoginPATH() async {
@@ -259,11 +284,14 @@ final class WelcomeStore {
             return
         }
         switch screen {
-        case .detecting, .waiting, .waitingStalled, .signingIn: break
+        case .detecting, .waiting, .waitingStalled, .signingIn, .installing: break
         case .found, .success: showUsage()
         case .needsCLI(let p):
             flow.showNeedsCLI(providerID: p)
-            flow.installInTerminal()
+            if ClaudeInstall.supports(p) { flow.installAndSignIn() } else { flow.installInTerminal() }
+        case .installFailed(let p):
+            flow.showNeedsCLI(providerID: p)
+            flow.installAndSignIn()
         case .signIn(let p):
             flow.beginEntry(providerID: p)
             flow.start()
@@ -277,6 +305,7 @@ final class WelcomeStore {
         if let held = preview {
             switch held {
             case .needsCLI(let p), .signIn(let p): preview = .needsCLI(providerID: WelcomeFlow.otherProvider(p))
+            case .installing(let p), .installFailed(let p): preview = .needsCLI(providerID: p)
             case .waiting(let p), .waitingStalled(let p): preview = .needsCLI(providerID: p)
             case .signingIn(let p), .failed(let p, _): preview = .signIn(providerID: p)
             default: break
@@ -290,6 +319,8 @@ final class WelcomeStore {
             chosenProvider = WelcomeFlow.otherProvider(p)
         case .waiting, .waitingStalled: flow.showInstallCommandAgain()
         case .signingIn: flow.cancelSignIn()
+        case .installing: flow.cancelInstall()
+        case .installFailed: break
         case .failed: flow.reset()
         case .detecting: break
         }
@@ -299,6 +330,20 @@ final class WelcomeStore {
     func openTerminalAgain() {
         guard preview == nil else { return }
         flow.installInTerminal()
+    }
+
+    /// "Install in Terminal" on the install pages: the Terminal route, one click.
+    func installInTerminal() {
+        guard preview == nil else { return }
+        flow.installInTerminal()
+    }
+
+    func toggleInstallDetails() { showInstallDetails.toggle() }
+
+    /// "Anthropic's install guide": the page that prints the same install line.
+    func openInstallGuide() {
+        guard preview == nil else { return }
+        NSWorkspace.shared.open(URL(string: "https://code.claude.com/docs/en/setup")!)
     }
 
     /// "Browser didn't open? Open it again": end this run and start the same account's login anew,

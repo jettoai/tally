@@ -40,6 +40,11 @@ enum CaptureLaunch {
     /// `settingsCapture` is: the window controller reads them, and this file must compile alone.
     static let welcomePreview = "TallyWelcomePreview"
     static let welcomeForce = "TallyWelcomeForce"
+    /// Dev only: press the first page's install button once by itself, and write the flow's stage
+    /// changes to a file (`WelcomeTrace`). For a run on a clean Mac nobody can click; neither flag is
+    /// a capture, so both are interactive: the launch has to do real work.
+    static let welcomeAutoInstall = "TallyWelcomeAutoInstall"
+    static let welcomeTrace = "TallyWelcomeTrace"
 
     /// The panel's two one-time nudges (`PanelHintsSection`) and the small "Add the tally command"
     /// window (`TallyCommandWindowController`), each held for a look. Spelled here for the same
@@ -262,7 +267,8 @@ enum CaptureLaunch {
     /// `TallyClaudeUsageCLI` points the Claude usage read at a scratch `claude` (Debug only).
     static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI",
                                   pickClaimOverride, "TallyRenewLoginTest", "TallyPingURL",
-                                  "TallyCodexUpdateCLI", "TallyClaudeUsageCLI"]
+                                  "TallyCodexUpdateCLI", "TallyClaudeUsageCLI",
+                                  welcomeAutoInstall, welcomeTrace]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without

@@ -9,7 +9,8 @@ enum WelcomeCopy {
     static func site(_ providerID: String) -> String { providerID == "codex" ? "chatgpt.com" : "claude.ai" }
 
     static func installTitle(_ providerID: String) -> String {
-        String(format: L("Install %@ to get started"), cliName(providerID))
+        if ClaudeInstall.supports(providerID) { return L("Set up Claude Code") }
+        return String(format: L("Install %@ to get started"), cliName(providerID))
     }
 
     static func installBlurb(_ providerID: String) -> String {
@@ -99,6 +100,40 @@ enum WelcomeCopy {
     /// The success page's line: the account is in the menu bar, and how to reach it from Terminal.
     static var successBody: String {
         L("This account is in your menu bar now. To start sessions from Terminal, install the command line tool in Settings > Integrations, then type tally claude or tally codex.")
+    }
+
+    // MARK: The in-app install
+
+    /// The ready page's first step: what runs and what it does not need. Only claims that were
+    /// checked: the script refuses sudo (install.sh:14-36), so it never asks for a password. A
+    /// "nothing outside your home folder" half-sentence was not verified on a clean Mac and is left out.
+    static var officialScript: String {
+        L("Tally runs Anthropic's official install script from claude.ai, the same line their docs give. It never asks for your password.")
+    }
+
+    static var installingBody: String { L("About a minute. When it's done, your browser opens claude.ai so you can sign in.") }
+
+    static func installProgress(_ stage: ClaudeInstall.Stage) -> String {
+        switch stage {
+        case .fetching: return L("Getting the official script from claude.ai")
+        case .downloading(let bytes?):
+            return String(format: L("Downloading, %lld MB so far. The script checks it against Anthropic's published checksum."), bytes / 1_000_000)
+        case .downloading(nil): return L("Downloading. The script checks it against Anthropic's published checksum.")
+        case .settingUp: return L("Setting up the claude command. The first run can take up to a minute while macOS checks it.")
+        }
+    }
+
+    static func installFailureBody(_ failure: ClaudeInstall.Failure) -> String {
+        let reason: String
+        switch failure {
+        case .unreachable: reason = L("Tally couldn't reach downloads.claude.ai. Check your internet connection.")
+        case .checksum: reason = L("The download didn't match Anthropic's published checksum, so the script stopped.")
+        case .stalled: reason = String(format: L("The install made no progress for %lld seconds."), Int64(ClaudeInstall.stallSeconds))
+        case .tooLong: reason = String(format: L("The install was still running after %lld minutes."), Int64(ClaudeInstall.overallSeconds / 60))
+        case .notFound: reason = L("The script finished, but Tally can't find the claude command.")
+        case .other: reason = L("The install script stopped with an error.")
+        }
+        return reason + " " + L("Trying again is safe.")
     }
 
     /// "Claude Code", "Codex" or "Claude Code and Codex", for the line under "Found N accounts".

@@ -22,6 +22,10 @@ final class WelcomeWindowController {
     private static var previewFlagCarried: Bool {
         flagsHonoured && CaptureLaunch.carries(CaptureLaunch.welcomePreview)
     }
+    /// `-TallyWelcomeAutoInstall YES`: Dev builds only, never demo data (a demo must not install anything).
+    private static var autoInstall: Bool {
+        BuildVariant.isDev && CaptureLaunch.carries(CaptureLaunch.welcomeAutoInstall)
+    }
     private static var forced: Bool {
         flagsHonoured && CaptureLaunch.carries(CaptureLaunch.welcomeForce)
     }
@@ -51,7 +55,7 @@ final class WelcomeWindowController {
     func show(activating: Bool = true) {
         StatusItemController.shared?.closePopover()
         if window == nil { makeWindow() }
-        store.begin(previewName: Self.previewName)
+        store.begin(previewName: Self.previewName, autoInstall: Self.autoInstall)
         if window?.summonShouldFollowPointer == true {
             window?.centerOnPointerScreen()
             window?.clampOnScreen()

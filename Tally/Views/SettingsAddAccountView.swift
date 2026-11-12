@@ -30,6 +30,8 @@ struct SettingsAddAccountView: View {
                 unfinished(name, reason, handoff)
             case .needsCLI(let providerID, let waiting):
                 installNeeded(providerID, waiting: waiting)
+            case .installing:
+                installing
             }
         }
         .padding(20)
@@ -201,6 +203,13 @@ struct SettingsAddAccountView: View {
                 Text(WelcomeCopy.waitingTitle(providerID)).font(.subheadline)
             }
             caption(L("Keep this window open. It moves on by itself when the install finishes."))
+        } else if let report = flow.installReport {
+            problem(L("Install didn't finish"))
+            caption(WelcomeCopy.installFailureBody(report.failure))
+            if !report.lastLine.isEmpty {
+                Text(verbatim: report.lastLine).font(.caption.monospaced())
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } else {
             problem(WelcomeCopy.installTitle(providerID))
             caption(WelcomeCopy.installBlurb(providerID))
@@ -214,10 +223,31 @@ struct SettingsAddAccountView: View {
             if waiting {
                 Button(L("Show the Command Again")) { flow.showInstallCommandAgain() }
                 Button(L("Open Terminal Again")) { flow.installInTerminal() }
+            } else if ClaudeInstall.supports(providerID) {
+                Button(L("Install in Terminal")) { flow.installInTerminal() }
+                Button(L("Install and Sign In")) { flow.installAndSignIn() }
+                    .keyboardShortcut(.defaultAction)
             } else {
                 Button(L("Install in Terminal")) { flow.installInTerminal() }
                     .keyboardShortcut(.defaultAction)
             }
+        }
+    }
+
+    /// The in-app install is running: progress, and the way out (it keeps going if the sheet closes).
+    @ViewBuilder
+    private var installing: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(L("Installing Claude Code")).font(.subheadline)
+        }
+        caption(WelcomeCopy.installProgress(flow.installStage))
+        caption(L("You can close this window. The install keeps going, and Tally finds Claude Code when it's done."))
+        HStack {
+            Spacer()
+            Button(L("Cancel")) { flow.cancelInstall() }
+            Button(L("Close")) { flow.signInAfterInstall = false; dismiss() }
+                .keyboardShortcut(.cancelAction)
         }
     }
 

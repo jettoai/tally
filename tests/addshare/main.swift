@@ -868,6 +868,7 @@ check("a Terminal that refused leaves nothing running, so the retry is back",
 check("while Tally's own attempt is running, nothing else may start",
       !AddAccountPhase.preparing.allowsNewRun
           && !AddAccountPhase.signingIn(name: ".claude2").allowsNewRun
+          && !AddAccountPhase.installing(providerID: "claude").allowsNewRun
           && AddAccountPhase.preparing.isRunning
           && AddAccountPhase.signingIn(name: ".claude2").isRunning)
 check("a finished or never-started flow is neither running nor holding a login",
@@ -878,7 +879,7 @@ check("a finished or never-started flow is neither running nor holding a login",
 // Only a pending phase can hand off or be re-checked - the buttons exist nowhere else.
 check("no other phase offers a Terminal handoff or a re-check",
       ![AddAccountPhase.idle, .preparing, .signingIn(name: ".claude2"), .added(prepared),
-        .failed(reason: "r")]
+        .failed(reason: "r"), .installing(providerID: "claude")]
         .contains { $0.allowsTerminalHandoff || $0.allowsRecheck })
 
 // A finished add carries the preparation REPORT, not just a directory name. The share is

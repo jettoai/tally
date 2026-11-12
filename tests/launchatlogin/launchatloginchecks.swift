@@ -522,8 +522,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to eighty-nine, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 89 && scanned.count == 89)
+    check("which comes to ninety-one, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 91 && scanned.count == 91)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",
@@ -542,10 +542,11 @@ func runLaunchAtLoginChecks() {
     check("the interactive CLI overrides are not members, they exist to be driven",
           CaptureLaunch.interactiveKeys.allSatisfy {
               CaptureLaunch.mayTakeForeground(activeKeys: [$0]) })
-    check("and there are eight of them: the five stand-in chains, the pick claim override, the renewal trigger and the usage ping's stand-in URL",
+    check("and there are ten of them: the five stand-in chains, the pick claim override, the renewal trigger, the usage ping's stand-in URL and the welcome window's two Dev run flags",
           Set(CaptureLaunch.interactiveKeys)
             == ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyEarlyStartCLI", "TallyPickClaim",
-                "TallyRenewLoginTest", "TallyPingURL", "TallyCodexUpdateCLI", "TallyClaudeUsageCLI"])
+                "TallyRenewLoginTest", "TallyPingURL", "TallyCodexUpdateCLI", "TallyClaudeUsageCLI",
+                "TallyWelcomeAutoInstall", "TallyWelcomeTrace"])
     // The newest stand-in is the one that does not merely REDIRECT a spawn: without it an unshipped
     // build refuses to send a morning message at all (`EarlyStartStore.mayRun`), because what it would
     // otherwise spend is a real subscription's 5-hour window rather than a stub's exit code. Classified

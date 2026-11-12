@@ -242,6 +242,12 @@ for waiting in [false, true] {
            "the install-needed phase (waiting: \(waiting)) holds no login and allows a new run")
 }
 
+// The in-app install is Tally's own work: no new run, no reset, no provider switch while it goes.
+let installing = AddAccountPhase.installing(providerID: "claude")
+expect(installing.isRunning && !installing.allowsNewRun && !installing.holdsTerminalLogin
+        && !installing.isListed(among: listedHomes),
+       "an in-app install is running: no new run, no reset, no provider switch")
+
 // A login landing while the app runs is an ARRIVAL; a dormant account signing back in is not (B-1702).
 func account(_ id: String, dormant: Bool = false) -> ProviderAccount {
     var a = ProviderAccount(id: id, providerID: "claude", label: id, locator: [:], launchHome: "/h/" + id)

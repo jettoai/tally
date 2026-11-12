@@ -48,6 +48,8 @@ struct WelcomeView: View {
             let n = store.rows.count
             return n == 1 ? L("Found 1 account") : String(format: L("Found %lld accounts"), n)
         case .needsCLI(let p): return WelcomeCopy.installTitle(p)
+        case .installing: return L("Installing Claude Code")
+        case .installFailed: return L("Install didn't finish")
         case .waiting(let p): return WelcomeCopy.waitingTitle(p)
         case .waitingStalled(let p): return WelcomeCopy.stalledTitle(p)
         case .signIn(let p): return WelcomeCopy.signInTitle(p)
@@ -67,6 +69,8 @@ struct WelcomeView: View {
                 ? String(format: L("Tally reads its usage from %@. Nothing to set up."), from)
                 : String(format: L("Tally reads their usage from %@. Nothing to set up."), from)
         case .needsCLI(let p): return WelcomeCopy.installBlurb(p)
+        case .installing: return WelcomeCopy.installingBody
+        case .installFailed: return store.installReport.map { WelcomeCopy.installFailureBody($0.failure) }
         case .waiting: return L("Keep this window open. It moves on by itself when the install finishes.")
         case .waitingStalled: return WelcomeCopy.stalledBody
         case .signIn(let p): return WelcomeCopy.signInBlurb(p)
@@ -97,8 +101,41 @@ struct WelcomeView: View {
         case .needsCLI(let p):
             let rechecked = store.recheckedMissing == p
             if rechecked { notFoundCard(p).padding(.top, 26) }
-            commandBox(p).padding(.top, rechecked ? 18 : 26)
-            note(L("Tally opens Terminal with this line already running. Nothing to copy or paste. When Terminal says it's installed, come back here."))
+            if ClaudeInstall.supports(p) {
+                // The sign-in step carries no line of its own: the subtitle of the next page says the browser opens.
+                steps([(.todo, L("Install Claude Code")), (.todo, WelcomeCopy.signInTitle(p))],
+                      details: [0: WelcomeCopy.officialScript])
+                commandBox(p).padding(.top, 18)
+                HStack(spacing: 18) {
+                    link(L("Anthropic's install guide")) { store.openInstallGuide() }
+                    link(L("Install in Terminal instead")) { store.installInTerminal() }
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 12)
+            } else {
+                commandBox(p).padding(.top, rechecked ? 18 : 26)
+                note(L("Tally opens Terminal with this line already running. Nothing to copy or paste. When Terminal says it's installed, come back here."))
+            }
+        case .installing(let p):
+            steps([(.active, L("Installing Claude Code")), (.todo, WelcomeCopy.signInTitle(p))],
+                  details: [0: WelcomeCopy.installProgress(store.installStage)])
+            link(store.showInstallDetails ? L("Hide Details") : L("Show Details")) { store.toggleInstallDetails() }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
+            if store.showInstallDetails { detailsBox.padding(.top, 8) }
+        case .installFailed:
+            if let line = store.installReport?.lastLine, !line.isEmpty {
+                warningCard {
+                    Text(L("The install script said:")).font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text(verbatim: line).font(.system(size: 12.5, design: .monospaced)).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 22)
+            }
+            statusCard {
+                Image(systemName: "terminal").font(.system(size: 17)).foregroundStyle(.secondary)
+            } title: { L("Rather use Terminal?") } detail: { L("Tally can open it with the same line already running. Nothing to paste.") }
+            .padding(.top, 12)
+            if store.showInstallDetails { detailsBox.padding(.top, 12) }
         case .waiting(let p):
             let start = store.terminalInstall
             steps([(start == .opening ? .active : .done, WelcomeCopy.terminalFirstStep(start)),
@@ -124,10 +161,17 @@ struct WelcomeView: View {
             .padding(.top, 26)
         case .signingIn:
             // The tick is the CLI's own word that the browser opened, not the click that asked for it.
-            steps([(store.browserOpened ? .done : .active,
-                    L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
-                   (store.browserOpened ? .active : .todo, L("Waiting for you to approve")),
-                   (.todo, L("Your usage appears here"))])
+            if store.installedThisRun {
+                steps([(.done, L("Claude Code installed")),
+                       (store.browserOpened ? .done : .active,
+                        L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
+                       (store.browserOpened ? .active : .todo, L("Waiting for you to approve"))])
+            } else {
+                steps([(store.browserOpened ? .done : .active,
+                        L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
+                       (store.browserOpened ? .active : .todo, L("Waiting for you to approve")),
+                       (.todo, L("Your usage appears here"))])
+            }
         case .success:
             rowsCard.padding(.top, 26)
             if let email = store.rows.first?.email { note(email) }
@@ -153,7 +197,16 @@ struct WelcomeView: View {
                     .padding(.trailing, 6)
                 link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
-                prominent(L("Install in Terminal")) { store.primary() }
+                prominent(ClaudeInstall.supports(p) ? L("Install and Sign In") : L("Install in Terminal")) { store.primary() }
+            case .installing:
+                link(L("Anthropic's install guide")) { store.openInstallGuide() }
+                Spacer()
+                plain(L("Cancel")) { store.secondary() }.keyboardShortcut(.cancelAction)
+            case .installFailed:
+                link(store.showInstallDetails ? L("Hide Details") : L("Show Details")) { store.toggleInstallDetails() }
+                Spacer()
+                plain(L("Install in Terminal")) { store.installInTerminal() }
+                prominent(L("Try Again")) { store.primary() }
             case .waiting, .waitingStalled:
                 link(L("Back")) { store.secondary() }
                 Spacer()
@@ -260,6 +313,18 @@ struct WelcomeView: View {
                 .controlSize(.regular)
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
+        .modifier(CardStyle())
+    }
+
+    /// The install's own output, control codes removed (the same text the log file holds).
+    private var detailsBox: some View {
+        ScrollView {
+            Text(verbatim: store.installLines.joined(separator: "\n"))
+                .font(.system(size: 11.5, design: .monospaced)).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+        }
+        .frame(height: 110)
         .modifier(CardStyle())
     }
 

@@ -12,6 +12,10 @@ enum WelcomeScreen: Equatable {
     case found
     /// The provider's CLI is not on this Mac: show its official install command.
     case needsCLI(providerID: String)
+    /// Tally is installing the CLI in the app.
+    case installing(providerID: String)
+    /// The in-app install ended without the CLI; the report is the store's.
+    case installFailed(providerID: String)
     /// "Install in Terminal" opened Terminal on the install command: wait for the CLI to appear.
     case waiting(providerID: String)
     /// The wait has run past `WelcomeFlow.installStallSeconds` with no CLI in sight: say so, with
@@ -67,7 +71,7 @@ enum WelcomeFlow {
 
     /// The official one-line installers (the vendors' own docs): Claude Code's install page and the
     /// Codex README. Shown verbatim, and run verbatim by the script "Install in Terminal" opens
-    /// (TerminalInstallScript).
+    /// (TerminalInstallScript). Claude Code's is also run in the app by ClaudeInstallRunner.
     static func installCommand(providerID: String) -> String {
         providerID == "codex"
             ? "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
@@ -131,7 +135,9 @@ enum WelcomeFlow {
         case "waiting-stalled": return .waitingStalled(providerID: "claude")
         case "signin", "signin-offpath": return .signIn(providerID: "claude")
         case "needs-claude-notfound": return .needsCLI(providerID: "claude")
-        case "signing-in", "signing-in-waiting": return .signingIn(providerID: "claude")
+        case "installing", "installing-details": return .installing(providerID: "claude")
+        case "install-failed": return .installFailed(providerID: "claude")
+        case "signing-in", "signing-in-waiting", "signing-in-installed": return .signingIn(providerID: "claude")
         case "success": return .success
         case "failed": return .failed(providerID: "claude", reason: .timedOut)
         default: return nil
@@ -154,6 +160,23 @@ enum WelcomeFlow {
         }
     }
 
+    /// `installing-details` holds the installing page with its output box open.
+    static func previewInstallDetailsOpen(named name: String?) -> Bool {
+        name?.lowercased() == "installing-details"
+    }
+
+    /// `signing-in-installed` holds the sign-in page as it looks right after an in-app install.
+    static func previewInstalledThisRun(named name: String?) -> Bool {
+        name?.lowercased() == "signing-in-installed"
+    }
+
+    /// Fixtures for the held install pages: no script runs behind them.
+    static let previewInstallStage = ClaudeInstall.Stage.downloading(bytes: 52_000_000)
+    static let previewInstallLines = ["$ curl -fsSL https://claude.ai/install.sh | bash", "Setting up Claude Code..."]
+    static let previewInstallReport = ClaudeInstall.Report(
+        failure: .unreachable,
+        lastLine: "Failed to get a valid version from downloads.claude.ai (got unexpected content).")
+
     /// The path guidance a held preview adds to its screen (B-3745): `signin-offpath` shows the
     /// card for a CLI Terminal cannot find, `needs-claude-notfound` the card after "Check again"
     /// found nothing. Every other name shows neither.
@@ -171,7 +194,9 @@ enum WelcomeFlow {
         switch screen {
         case .detecting: return .found
         case .found, .success: return nil
-        case .needsCLI(let p): return .waiting(providerID: p)
+        case .needsCLI(let p): return ClaudeInstall.supports(p) ? .installing(providerID: p) : .waiting(providerID: p)
+        case .installing(let p): return .signingIn(providerID: p)
+        case .installFailed(let p): return .installing(providerID: p)
         case .waiting(let p), .waitingStalled(let p): return .signIn(providerID: p)
         case .signIn(let p): return .signingIn(providerID: p)
         case .signingIn: return .success

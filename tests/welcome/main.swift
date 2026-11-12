@@ -105,8 +105,9 @@ expect([WelcomeFailure.timedOut, .reported, .couldNotStart, .other("x")]
 // MARK: the dev preview
 
 let names = ["detecting", "found", "needs-claude", "waiting", "waiting-stalled", "signin", "signing-in", "success", "failed",
-             "signin-offpath", "needs-claude-notfound", "waiting-opening", "waiting-copied"]
-expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all thirteen held screens can be held")
+             "signin-offpath", "needs-claude-notfound", "waiting-opening", "waiting-copied",
+             "installing", "installing-details", "install-failed", "signing-in-installed"]
+expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all seventeen held screens can be held")
 expect(WelcomeFlow.previewScreen(named: "NEEDS-CODEX") == .needsCLI(providerID: "codex"),
        "the Codex install screen can be held, and names are not case sensitive")
 expect(WelcomeFlow.previewScreen(named: nil) == nil && WelcomeFlow.previewScreen(named: "YES") == nil
@@ -114,9 +115,14 @@ expect(WelcomeFlow.previewScreen(named: nil) == nil && WelcomeFlow.previewScreen
        "no value, or one that names no screen, means a real detection from the start")
 var walked: [WelcomeScreen] = [.needsCLI(providerID: "claude")]
 while let next = WelcomeFlow.previewNext(after: walked.last!), walked.count < 12 { walked.append(next) }
-expect(walked == [.needsCLI(providerID: "claude"), .waiting(providerID: "claude"),
-                  .signIn(providerID: "claude"), .signingIn(providerID: "claude"), .success],
-       "a held install screen walks install, wait, sign in, signing in, success and stops")
+expect(walked == [.needsCLI(providerID: "claude"), .installing(providerID: "claude"),
+                  .signingIn(providerID: "claude"), .success],
+       "a held Claude install screen walks install, signing in, success and stops")
+var walkedCodex: [WelcomeScreen] = [.needsCLI(providerID: "codex")]
+while let next = WelcomeFlow.previewNext(after: walkedCodex.last!), walkedCodex.count < 12 { walkedCodex.append(next) }
+expect(walkedCodex == [.needsCLI(providerID: "codex"), .waiting(providerID: "codex"),
+                       .signIn(providerID: "codex"), .signingIn(providerID: "codex"), .success],
+       "a held Codex install screen walks install, wait, sign in, signing in, success and stops")
 expect(WelcomeFlow.previewNext(after: .failed(providerID: "claude", reason: .timedOut))
         == .signingIn(providerID: "claude"),
        "Try Again on a held failure runs the sign-in again")
@@ -333,6 +339,8 @@ let windowClosedBody = welcomeStore.components(separatedBy: "func windowClosed()
     .components(separatedBy: "\n    }").first ?? ""
 expect(windowClosedBody.contains("flow.stopWatchingForCLI()") && !windowClosedBody.contains("cancelSignIn"),
        "closing the welcome window leaves an in-flight sign-in running (no cancelSignIn in windowClosed)")
+expect(windowClosedBody.contains("flow.signInAfterInstall = false") && !windowClosedBody.contains("cancelInstall"),
+       "closing the welcome window lets an install finish but drops the sign-in after it")
 
 // MARK: install in Terminal (B-3747)
 
@@ -417,6 +425,47 @@ expect(welcomeView.contains("start == .opening ? .active : .done") && !welcomeVi
        "the waiting step is ticked from the store's Terminal state, never unconditionally")
 expect(!welcomeStore.contains("copyInstallCommandAndWait") && !source("Tally/Views/SettingsAddAccountView.swift").contains("copyInstallCommandAndWait"),
        "no surface still calls the copy-and-open install")
+
+// MARK: install in the app (B-3747 C)
+
+let installSource = source("Tally/Core/ClaudeInstall.swift")
+let failureBody = installSource.components(separatedBy: "static func failure(").dropFirst().first?
+    .components(separatedBy: "\n    }").first ?? ""
+expect(failureBody.contains("exitCode == 0 && cliFound"),
+       "success is the exit code and a findable CLI, never the script's words")
+let runnerSource = source("Tally/Core/ClaudeInstallRunner.swift")
+expect(runnerSource.contains("\"-o\", \"pipefail\", \"-c\"") && runnerSource.contains("POSIX_SPAWN_SETPGROUP")
+        && runnerSource.contains("kill(-pid"),
+       "the install runs the vendor line under pipefail in its own process group")
+if let guardAt = store.range(of: "guard signInAfterInstall else { return }"),
+   let beginAt = store.range(of: "beginEntry(providerID: providerID)", range: guardAt.upperBound ..< store.endIndex) {
+    expect(guardAt.lowerBound < beginAt.lowerBound, "an install hands to the login only while its window is open")
+} else {
+    expect(false, "an install hands to the login only while its window is open")
+}
+expect(ClaudeInstall.supports("claude") && !ClaudeInstall.supports("codex"),
+       "the in-app install is Claude only; Codex keeps Install in Terminal")
+expect(WelcomeFlow.installCommand(providerID: "claude") == "curl -fsSL https://claude.ai/install.sh | bash"
+        && WelcomeCopy.officialScript.contains("the same line their docs give")
+        && WelcomeCopy.officialScript.contains("never asks for your password")
+        && !WelcomeCopy.officialScript.contains("home folder"),
+       "the ready page claims only what was checked: the vendor's own line, no password, no unverified scope")
+expect(welcomeView.contains("store.openInstallGuide()") && welcomeStoreSource.contains("https://code.claude.com/docs/en/setup")
+        && !welcomeStoreSource.contains("claude.ai/install.sh"),
+       "the guide link opens the docs page, never the script URL a browser would download")
+expect(WelcomeCopy.installFailureBody(.stalled).contains("90 seconds")
+        && WelcomeCopy.installFailureBody(.tooLong).contains("10 minutes")
+        && WelcomeCopy.installFailureBody(.unreachable).hasSuffix("Trying again is safe.")
+        && !WelcomeCopy.installFailureBody(.other).contains("Nothing was installed"),
+       "failure pages say why in plain words and only that trying again is safe")
+expect(WelcomeCopy.installProgress(.downloading(bytes: 52_000_000)).contains("52 MB")
+        && WelcomeCopy.installProgress(.downloading(bytes: nil)).hasPrefix("Downloading.")
+        && WelcomeCopy.installTitle("claude") == "Set up Claude Code",
+       "the progress line shows the download size when it is readable")
+let settingsInstall = source("Tally/Views/SettingsAddAccountView.swift")
+expect(welcomeStoreSource.contains("flow.installAndSignIn()") && settingsInstall.contains("flow.installAndSignIn()")
+        && welcomeStoreSource.contains("case .installing: flow.cancelInstall()"),
+       "both surfaces start the in-app install, and Cancel on the installing page ends it")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

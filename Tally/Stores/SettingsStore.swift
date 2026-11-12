@@ -165,6 +165,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(cpuAlertEnabled, forKey: CPUAlertLogic.enabledKey) }
     }
 
+    /// Notify when any one process holds 80% of a core for 15 minutes, and again when it calms
+    /// down (ProcessCPUWatchLogic.swift, which reads the same key). On by default.
+    var processCPUAlertEnabled: Bool {
+        didSet { UserDefaults.standard.set(processCPUAlertEnabled, forKey: ProcessCPUWatchLogic.enabledKey) }
+    }
+
     /// Banners for sustained system load or low free memory; health reporting stays active.
     var hostHealthAlertEnabled: Bool {
         didSet { UserDefaults.standard.set(hostHealthAlertEnabled, forKey: HostHealthLogic.alertEnabledKey) }
@@ -340,6 +346,7 @@ final class SettingsStore {
         advisorWindowDays = UsageAdvisor.displayWindows.contains(storedWindow)
             ? storedWindow : UsageAdvisor.lookbackDays
         cpuAlertEnabled = CPUAlertLogic.isEnabled(defaults)
+        processCPUAlertEnabled = ProcessCPUWatchLogic.isEnabled(defaults)
         let hostAlerts = HostHealthLogic.alertsEnabled(defaults)
         hostHealthAlertEnabled = hostAlerts
         // Property observers do not run in init. Seed once, preserving earlier CPU-alert opt-outs.

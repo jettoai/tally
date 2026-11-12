@@ -138,6 +138,11 @@ extension SettingsView {
                               subtitle: L("Notify about sustained high system load or low free memory, naming the busiest processes."),
                               icon: "exclamationmark.triangle",
                               isOn: $settings.hostHealthAlertEnabled)
+            SettingsDivider()
+            SettingsToggleRow(title: L("Process CPU alert"),
+                              subtitle: L("Notify when any one process stays above 80% of a core for 15 minutes, and again when it calms down."),
+                              icon: "gauge.with.dots.needle.67percent",
+                              isOn: $settings.processCPUAlertEnabled)
         }
     }
 

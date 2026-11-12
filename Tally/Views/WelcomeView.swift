@@ -119,8 +119,7 @@ struct WelcomeView: View {
         case .installing(let p):
             steps([(.active, L("Installing Claude Code")), (.todo, WelcomeCopy.signInTitle(p))],
                   details: [0: WelcomeCopy.installProgress(store.installStage)])
-            link(store.showInstallDetails ? L("Hide Details") : L("Show Details")) { store.toggleInstallDetails() }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
+            detailsToggle.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 14)
             if store.showInstallDetails { detailsBox.padding(.top, 8) }
         case .installFailed:
             if let line = store.installReport?.lastLine, !line.isEmpty {
@@ -161,16 +160,14 @@ struct WelcomeView: View {
             .padding(.top, 26)
         case .signingIn:
             // The tick is the CLI's own word that the browser opened, not the click that asked for it.
+            let login: [(StepState, String)] = [
+                (store.browserOpened ? .done : .active, L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
+                (store.browserOpened ? .active : .todo, L("Waiting for you to approve")),
+            ]
             if store.installedThisRun {
-                steps([(.done, L("Claude Code installed")),
-                       (store.browserOpened ? .done : .active,
-                        L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
-                       (store.browserOpened ? .active : .todo, L("Waiting for you to approve"))])
+                steps([(.done, L("Claude Code installed"))] + login)
             } else {
-                steps([(store.browserOpened ? .done : .active,
-                        L(store.browserOpened ? "Browser opened" : "Opening your browser…")),
-                       (store.browserOpened ? .active : .todo, L("Waiting for you to approve")),
-                       (.todo, L("Your usage appears here"))])
+                steps(login + [(.todo, L("Your usage appears here"))])
             }
         case .success:
             rowsCard.padding(.top, 26)
@@ -203,14 +200,14 @@ struct WelcomeView: View {
                 Spacer()
                 plain(L("Cancel")) { store.secondary() }.keyboardShortcut(.cancelAction)
             case .installFailed:
-                link(store.showInstallDetails ? L("Hide Details") : L("Show Details")) { store.toggleInstallDetails() }
+                detailsToggle
                 Spacer()
                 plain(L("Install in Terminal")) { store.installInTerminal() }
                 prominent(L("Try Again")) { store.primary() }
             case .waiting, .waitingStalled:
                 link(L("Back")) { store.secondary() }
                 Spacer()
-                plain(L("Open Terminal Again")) { store.openTerminalAgain() }
+                plain(L("Open Terminal Again")) { store.installInTerminal() }
             case .signIn(let p):
                 link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
@@ -314,6 +311,10 @@ struct WelcomeView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
         .modifier(CardStyle())
+    }
+
+    private var detailsToggle: some View {
+        link(store.showInstallDetails ? L("Hide Details") : L("Show Details")) { store.toggleInstallDetails() }
     }
 
     /// The install's own output, control codes removed (the same text the log file holds).

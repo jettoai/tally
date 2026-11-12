@@ -326,13 +326,8 @@ final class WelcomeStore {
         }
     }
 
-    /// "Open Terminal Again" on the waiting pages: the same script, opened once more.
-    func openTerminalAgain() {
-        guard preview == nil else { return }
-        flow.installInTerminal()
-    }
-
-    /// "Install in Terminal" on the install pages: the Terminal route, one click.
+    /// "Install in Terminal" on the install pages, and "Open Terminal Again" on the waiting pages
+    /// (the same script, opened once more): the Terminal route, one click.
     func installInTerminal() {
         guard preview == nil else { return }
         flow.installInTerminal()

@@ -191,9 +191,10 @@ enum ClaudeInstallRunner {
             if waitpid(pid, &status, WNOHANG) == pid {
                 drain(); send(force: true)
                 let code: Int32 = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
-                guard let failure = ClaudeInstall.failure(lastLine: ClaudeInstall.lastLine(plain()),
-                                                          exitCode: code, cliFound: cliFound()) else { return .installed }
-                return report(failure, ClaudeInstall.lastLine(plain()))
+                let last = ClaudeInstall.lastLine(plain())
+                guard let failure = ClaudeInstall.failure(lastLine: last, exitCode: code, cliFound: cliFound())
+                else { return .installed }
+                return report(failure, last)
             }
         }
     }

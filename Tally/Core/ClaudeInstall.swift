@@ -50,10 +50,7 @@ enum ClaudeInstall {
 
     /// The last non-empty line, trimmed and capped, so the failure page can quote the script.
     static func lastLine(_ plain: String) -> String {
-        let line = plain.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .last { !$0.isEmpty } ?? ""
-        return String(line.prefix(300))
+        String((tail(plain, lines: 1).first ?? "").prefix(300))
     }
 
     /// The last `lines` non-empty lines, for the details box.

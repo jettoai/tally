@@ -230,7 +230,7 @@ check("E2 after the older Dev instances are closed",
       (pos("closeOlderDevInstances()", in: launchBody).map { $0 < gate } ?? false) && gate >= 0)
 check("E3 before the focus recorder", before("FocusEventRecorder.shared.install()"))
 check("E4 before the first-launch read and write",
-      before("LaunchAtLoginDefault.appliedKey") && before("LaunchAtLoginDefault.applyIfNeeded()"))
+      before("LaunchAtLoginDefault.hasLaunchedBefore()") && before("LaunchAtLoginDefault.recordLaunch()"))
 check("E5 before the welcome window", before("WelcomeWindowController.shared.showAtLaunchIfNeeded("))
 check("E6 before the status item and the updater",
       before("statusItemController.install()") && before("UpdaterController.shared.start()"))

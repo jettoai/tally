@@ -58,6 +58,9 @@ final class WelcomeStore {
     private var previewBrowserWaiting = false
     /// The waiting page's Terminal fixture (WelcomeFlow.previewTerminalStart).
     private var previewTerminalStart: TerminalInstallStart = .running
+    /// The finishing pages' "Open Tally when you log in" box, ticked by default. It decides nothing
+    /// until a finishing button is pressed (`commitLoginChoice`); closing the window drops it.
+    var openAtLogin = true
     /// The install pages' output box: open in the `installing-details` preview, toggled by "Show Details".
     private(set) var showInstallDetails = false
     private var previewInstalledThisRun = false
@@ -200,6 +203,7 @@ final class WelcomeStore {
         detectEpoch += 1
         autoInstallPending = autoInstall && previewName == nil
         chosenProvider = nil
+        openAtLogin = true
         previewPath = WelcomeFlow.previewPathState(named: previewName)
         previewBrowserWaiting = WelcomeFlow.previewBrowserWaiting(named: previewName)
         previewTerminalStart = WelcomeFlow.previewTerminalStart(named: previewName)
@@ -285,7 +289,9 @@ final class WelcomeStore {
         }
         switch screen {
         case .detecting, .waiting, .waitingStalled, .signingIn, .installing: break
-        case .found, .success: showUsage()
+        case .found, .success:
+            commitLoginChoice()
+            showUsage()
         case .needsCLI(let p):
             flow.showNeedsCLI(providerID: p)
             if ClaudeInstall.supports(p) { flow.installAndSignIn() } else { flow.installInTerminal() }
@@ -313,7 +319,9 @@ final class WelcomeStore {
             return
         }
         switch screen {
-        case .found, .success: addAnotherAccount()
+        case .found, .success:
+            commitLoginChoice()
+            addAnotherAccount()
         case .needsCLI(let p), .signIn(let p):
             flow.reset()
             chosenProvider = WelcomeFlow.otherProvider(p)
@@ -359,6 +367,14 @@ final class WelcomeStore {
             flow.providerID = flow.runProviderID
             flow.start()
         }
+    }
+
+    /// A finishing button was pressed (either one counts as saying yes to what the page showed):
+    /// register the login item if the box is still ticked. Before the Settings window opens, so the
+    /// row can collect a failure. A held preview registers nothing.
+    private func commitLoginChoice() {
+        guard preview == nil else { return }
+        LaunchAtLoginDefault.registerFromWelcome(wanted: openAtLogin)
     }
 
     /// The panel the menu bar item opens, or the main window when the item is not on screen

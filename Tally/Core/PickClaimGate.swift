@@ -17,8 +17,8 @@ import Foundation
 /// nothing about WHICH, and a stale build is the likelier winner precisely because it does less
 /// before it claims.
 ///
-/// So a build nobody installed stands down. Same predicate and same reason as the login item's one
-/// uninvited registration (`LaunchAtLoginDefault.plan`), one axis over: answering a pick IS acting
+/// So a build nobody installed stands down. Same predicate and same reason as the login item's
+/// registration gate (`LaunchAtLoginDefault.plan`), one axis over: answering a pick IS acting
 /// for the machine, because the reply pins somebody's conversation to an account, and a build that
 /// is about to stop existing must not be the one that answers.
 ///

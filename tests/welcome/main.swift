@@ -198,11 +198,14 @@ expect(WelcomeFlow.previewPathState(named: "signin-offpath") == (true, false)
 
 func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
 let delegate = source("Tally/App/AppDelegate.swift")
-if let read = delegate.range(of: "UserDefaults.standard.bool(forKey: LaunchAtLoginDefault.appliedKey)"),
-   let apply = delegate.range(of: "LaunchAtLoginDefault.applyIfNeeded()") {
-    expect(read.lowerBound < apply.lowerBound,
-           "the launch reads whether this app ran before BEFORE the login-item default records this launch")
-} else { expect(false, "the launch reads whether this app ran before BEFORE the login-item default records this launch") }
+if let read = delegate.range(of: "LaunchAtLoginDefault.hasLaunchedBefore()"),
+   let record = delegate.range(of: "LaunchAtLoginDefault.recordLaunch()") {
+    expect(read.lowerBound < record.lowerBound,
+           "the launch reads whether this app ran before BEFORE it records this launch")
+} else { expect(false, "the launch reads whether this app ran before BEFORE it records this launch") }
+expect(!delegate.contains("applyIfNeeded") && !delegate.contains("setRegistered")
+        && !delegate.contains("registerFromWelcome") && !delegate.contains("SMAppService"),
+       "launch registers no login item (B-3747: the welcome window's box is the only way in)")
 
 let store = source("Tally/Stores/AddAccountStore.swift")
 if let resolve = store.range(of: "guard let executable = ProviderCLI.resolved("),
@@ -341,6 +344,53 @@ expect(windowClosedBody.contains("flow.stopWatchingForCLI()") && !windowClosedBo
        "closing the welcome window leaves an in-flight sign-in running (no cancelSignIn in windowClosed)")
 expect(windowClosedBody.contains("flow.signInAfterInstall = false") && !windowClosedBody.contains("cancelInstall"),
        "closing the welcome window lets an install finish but drops the sign-in after it")
+
+// MARK: "Open Tally when you log in" (B-3747, option A)
+
+/// The text of one `case` branch of a switch, up to the next `case` at the same indent or a `}`.
+func branch(_ header: String, in text: String, after marker: String) -> String {
+    let tail = text.components(separatedBy: marker).dropFirst().first ?? ""
+    return tail.components(separatedBy: header).dropFirst().first?
+        .components(separatedBy: "\n        case ").first ?? ""
+}
+let primaryFound = branch("case .found, .success:", in: welcomeStore, after: "func primary() {")
+let secondaryFound = branch("case .found, .success:", in: welcomeStore, after: "func secondary() {")
+expect(primaryFound.contains("commitLoginChoice()") && primaryFound.contains("showUsage()")
+        && primaryFound.range(of: "commitLoginChoice()")!.lowerBound < primaryFound.range(of: "showUsage()")!.lowerBound,
+       "Show My Usage registers (when ticked) before it closes the window")
+expect(secondaryFound.contains("commitLoginChoice()") && secondaryFound.contains("addAnotherAccount()")
+        && secondaryFound.range(of: "commitLoginChoice()")!.lowerBound < secondaryFound.range(of: "addAnotherAccount()")!.lowerBound,
+       "Add Another Account registers (when ticked) before it opens Settings")
+expect(!windowClosedBody.contains("commitLoginChoice") && !windowClosedBody.contains("LaunchAtLoginDefault"),
+       "closing the welcome window registers nothing")
+let showUsageBody = welcomeStore.components(separatedBy: "func showUsage() {").dropFirst().first?
+    .components(separatedBy: "\n    }").first ?? ""
+expect(!showUsageBody.isEmpty && !showUsageBody.contains("LaunchAtLoginDefault")
+        && !showUsageBody.contains("commitLoginChoice"),
+       "showUsage() itself registers nothing: only the two finishing buttons do")
+let commitBody = welcomeStore.components(separatedBy: "private func commitLoginChoice() {").dropFirst().first?
+    .components(separatedBy: "\n    }").first ?? ""
+expect(commitBody.contains("guard preview == nil")
+        && commitBody.contains("LaunchAtLoginDefault.registerFromWelcome(wanted: openAtLogin)"),
+       "a held preview registers nothing; otherwise the box decides")
+expect(welcomeStore.components(separatedBy: "commitLoginChoice()").count - 1 == 3,
+       "commitLoginChoice is called from exactly the two finishing buttons (plus its definition)")
+expect(welcomeStore.contains("var openAtLogin = true")
+        && (welcomeStore.components(separatedBy: "func begin(").dropFirst().first?
+            .components(separatedBy: "\n    }").first ?? "").contains("openAtLogin = true"),
+       "the box starts ticked, and every visit to the window starts it ticked again")
+let found2 = welcomeView.components(separatedBy: "case .found:\n            rowsCard").dropFirst().first?
+    .components(separatedBy: "case .needsCLI").first ?? ""
+let success2 = welcomeView.components(separatedBy: "case .success:\n            rowsCard").dropFirst().first?
+    .components(separatedBy: "case .failed:").first ?? ""
+expect(found2.contains("loginRow") && success2.contains("loginRow"),
+       "the box is on the found page and on the success page")
+expect(welcomeView.components(separatedBy: "loginRow").count - 1 == 3,
+       "and on no other page (two uses plus the definition)")
+expect(welcomeView.contains("Toggle(isOn: $store.openAtLogin)") && welcomeView.contains(".toggleStyle(.checkbox)")
+        && welcomeView.contains("L(\"Open Tally when you log in\")")
+        && welcomeView.contains("L(\"macOS will let you know once. You can turn this off in Settings.\")"),
+       "the row is a checkbox bound to the store, with the designed words")
 
 // MARK: install in Terminal (B-3747)
 

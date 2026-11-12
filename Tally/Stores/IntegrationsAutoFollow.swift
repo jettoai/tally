@@ -20,9 +20,9 @@ import Foundation
 //     user made, in this file (`settingsWriteAuthorized`).
 //   - A REMOVAL LEAVES NO TRACE, so it has to be written down. Removing a row takes the hooks out of
 //     settings.json AND the entry out of the manifest, which means a later launch cannot tell
-//     "removed on purpose" from "never installed" - the same distinction `LaunchAtLoginDefault` had
-//     to store for the login item, for the same reason and with the same rule: the record says the
-//     one uninvited action has been SPENT, not that it worked. Anything this pass settles, in either
+//     "removed on purpose" from "never installed" - the same distinction the login item's launch-time
+//     registration (retired, B-3747) had to store, for the same reason and with the same rule: the
+//     record says the one uninvited action has been SPENT, not that it worked. Anything this pass settles, in either
 //     direction, is never touched again (`autoFollowHandledKey`).
 //   - AN ENTRY IS NOT A DELIVERY. The knock hooks name `/usr/local/bin/tally`, and hooks that cannot
 //     run are worse than absent (`quotaKnockCLIDeliverable` argues it in full): they take the

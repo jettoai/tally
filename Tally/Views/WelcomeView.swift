@@ -98,6 +98,7 @@ struct WelcomeView: View {
         case .found:
             rowsCard.padding(.top, 26)
             note(L("Tally only reads usage. It never sees your password or sign-in token."))
+            loginRow
         case .needsCLI(let p):
             let rechecked = store.recheckedMissing == p
             if rechecked { notFoundCard(p).padding(.top, 26) }
@@ -172,6 +173,7 @@ struct WelcomeView: View {
         case .success:
             rowsCard.padding(.top, 26)
             if let email = store.rows.first?.email { note(email) }
+            loginRow
         case .failed:
             EmptyView()
         }
@@ -362,6 +364,22 @@ struct WelcomeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 28)
+    }
+
+    /// The box a finishing button reads (WelcomeStore.commitLoginChoice): no card around it, so it
+    /// reads as a setting rather than as information.
+    private var loginRow: some View {
+        Toggle(isOn: $store.openAtLogin) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Open Tally when you log in")).font(.system(size: 13.5))
+                Text(L("macOS will let you know once. You can turn this off in Settings."))
+                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .toggleStyle(.checkbox)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 18)
     }
 
     private func note(_ text: String) -> some View {

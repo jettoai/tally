@@ -187,6 +187,8 @@ extension ProcessFootprintStore {
                 // The CPU watch rides the same heartbeat and throttles itself to one reading every
                 // ten seconds by the clock (CPUAlertLogic.sampleInterval).
                 CPUAlertMonitor.shared.tick()
+                // And any one process stuck at a core's worth of CPU (B-4496), one `ps` a minute by the clock.
+                ProcessCPUWatchMonitor.shared.tick()
                 // And the tmux priority guard (B-4266), one scan a minute by the clock.
                 TmuxPriorityMonitor.shared.tick()
             }

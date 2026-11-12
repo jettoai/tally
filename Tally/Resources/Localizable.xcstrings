@@ -30326,6 +30326,321 @@
           }
         }
       }
+    },
+    "Process running hot: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行程持續高 CPU：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程持续高 CPU：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスの CPU 使用率が高い状態が続いています: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스가 CPU를 계속 많이 사용 중: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşlem CPU'yu yoğun kullanıyor: %@"
+          }
+        }
+      }
+    },
+    "Processes running hot: %1$@ and %2$@ more": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行程持續高 CPU：%1$@ 與另外 %2$@ 個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程持续高 CPU：%1$@ 及另外 %2$@ 个"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高 CPU のプロセス: %1$@ ほか %2$@ 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스 CPU 고사용 지속: %1$@ 외 %2$@개"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşlemler CPU'yu yoğun kullanıyor: %1$@ ve %2$@ tane daha"
+          }
+        }
+      }
+    },
+    "%1$@ at %2$@%% of one core for %3$@ min": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 佔用單核 %2$@%%，已持續 %3$@ 分鐘"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 占用单核 %2$@%%，已持续 %3$@ 分钟"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が 1 コアの %2$@%% を %3$@ 分間使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: 코어 1개의 %2$@%% 사용, %3$@분째 지속"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, tek çekirdeğin %%%2$@ düzeyinde, %3$@ dakikadır"
+          }
+        }
+      }
+    },
+    "Process calmed down: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行程 CPU 已回落：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程 CPU 已回落：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスの CPU 使用率が下がりました: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스 CPU 사용량이 내려갔습니다: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşlem sakinleşti: %@"
+          }
+        }
+      }
+    },
+    "Processes calmed down: %1$@ and %2$@ more": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行程 CPU 已回落：%1$@ 與另外 %2$@ 個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程 CPU 已回落：%1$@ 及另外 %2$@ 个"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスの CPU 使用率が下がりました: %1$@ ほか %2$@ 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스 CPU 사용량이 내려갔습니다: %1$@ 외 %2$@개"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşlemler sakinleşti: %1$@ ve %2$@ tane daha"
+          }
+        }
+      }
+    },
+    "%1$@ is down to %2$@%% after %3$@ min over the line": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已降到 %2$@%%，先前高於門檻 %3$@ 分鐘"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已降到 %2$@%%，此前高于阈值 %3$@ 分钟"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は %2$@%% に下がりました（しきい値超過は %3$@ 分間）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%%로 내려감, 기준 초과는 %3$@분간 지속"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %%%2$@ düzeyine indi; eşiğin üzerinde %3$@ dakika kaldı"
+          }
+        }
+      }
+    },
+    "%1$@ exited after %2$@ min over the line": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已結束，結束前高於門檻 %2$@ 分鐘"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已退出，退出前高于阈值 %2$@ 分钟"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は終了しました（終了までしきい値超過は %2$@ 分間）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 종료됨, 종료 전 기준 초과 %2$@분간 지속"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ sonlandı; eşiğin üzerinde %2$@ dakika kalmıştı"
+          }
+        }
+      }
+    },
+    "Process CPU alert": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單一行程 CPU 通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单个进程 CPU 通知"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単一プロセスの CPU 通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단일 프로세스 CPU 알림"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek işlem CPU uyarısı"
+          }
+        }
+      }
+    },
+    "Notify when any one process stays above 80% of a core for 15 minutes, and again when it calms down.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任一行程佔用單核超過 80% 達 15 分鐘時通知，回落時再通知一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任一进程占用单核超过 80% 达 15 分钟时通知，回落时再通知一次。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いずれかのプロセスが 1 コアの 80% 超を 15 分間続けたときに通知し、下がったときにもう一度通知します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "어떤 프로세스든 코어 1개의 80%를 넘는 상태가 15분 이어지면 알리고, 내려가면 다시 알립니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herhangi bir işlem 15 dakika boyunca bir çekirdeğin %80'inin üzerinde kalırsa ve sakinleştiğinde bildirim gönderir."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

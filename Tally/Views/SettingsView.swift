@@ -30,6 +30,8 @@ struct SettingsView: View {
     @State private var paneHeights: [Section: CGFloat] = [:]
     /// The sidebar row under the pointer, for its hover wash.
     @State private var hoveredSection: Section?
+    /// The same wash for the quit row under the list.
+    @State private var hoveredQuit = false
     /// The pane's vertical inset inside the scroll view (`paneInsetTop` + `paneInsetBottom`), counted
     /// into every reported height; the horizontal one is `SettingsChrome.paneInsetH`.
     private static let paneInsetV = SettingsChrome.paneInsetTop + SettingsChrome.paneInsetBottom
@@ -149,9 +151,40 @@ struct SettingsView: View {
                 .padding(SettingsChrome.sidebarInset)
                 .background(heightProbe { sidebarHeight = $0 })
             Spacer(minLength: 0)   // outside the probe: it fills the window being measured for
-            overlaySidebarFooter
-                .background(heightProbe { sidebarFooterHeight = $0 })
+            // The quit row sits above the private build's footer, inside the same probe so its
+            // height is counted into the window fit and the footer's anchor is untouched.
+            VStack(spacing: 0) {
+                quitRow
+                overlaySidebarFooter
+            }
+            .background(heightProbe { sidebarFooterHeight = $0 })
         }
+    }
+
+    /// The one way out of the app from this window, same as the status item menu's Quit Tally.
+    private var quitRow: some View {
+        Button {
+            NSApp.terminate(nil)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "power")
+                    .font(.system(size: SettingsType.sidebar))
+                    .frame(width: SettingsChrome.sidebarIconSlot)
+                Text(L("Quit Tally")).font(.system(size: SettingsType.sidebar))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, SettingsChrome.sidebarRowPadH)
+            .padding(.vertical, SettingsChrome.sidebarRowPadV)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(hoveredQuit ? 0.06 : 0))
+            )
+            .foregroundStyle(Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .onHover { hoveredQuit = $0 }
+        .padding(SettingsChrome.sidebarInset)
     }
 
     private var rows: some View {

@@ -38,6 +38,16 @@ private let spoolLineByteLimit = 4096
 /// never restarts its supervisors.
 private let spoolTrimBytes: UInt64 = 8 * 1024 * 1024
 private let spoolTrimKeepBack = 1000
+/// The one case a trim drops lines the cursor has not reached: a spool past this size with nobody
+/// consuming it (cursor far behind, no delivery target). Only then are the oldest lines dropped, down
+/// to the last `spoolHardCapKeepLines` (at most 4096 bytes each, so well under the cap). A slow
+/// consumer on a spool under this size loses nothing.
+private let spoolHardCapBytes: UInt64 = 32 * 1024 * 1024
+private let spoolHardCapKeepLines = 5000
+/// Per-directory spool size at the last check that decided not to trim. The decision needs a full
+/// read, so `trimSpoolIfNeeded` skips it until the spool has grown 1/8 past that size; without this a
+/// spool the cursor never catches up with was re-read on every single append.
+nonisolated(unsafe) private var spoolLastCheckedSize: [String: UInt64] = [:]
 
 private func spoolFile(dir: URL) -> URL { dir.appendingPathComponent(spoolFileName) }
 private func seqFile(dir: URL) -> URL { dir.appendingPathComponent(seqFileName) }
@@ -148,17 +158,32 @@ func readSessionWaitEvents(since: Int, limit: Int = 500, dir: URL = tallyEventsD
 
 /// §5.2's spool trim, run only by `appendSessionWaitEvent` while it holds `spool.lock`. Only fires past `spoolTrimBytes` AND once delivery (`cursor`) has caught up
 /// with at least half of what is on disk, so a spool that is growing faster than it is being
-/// delivered is never trimmed out from under a consumer that has not seen those lines yet. Rewrites
+/// delivered is never trimmed out from under a consumer that has not seen those lines yet. The one
+/// exception is `spoolHardCapBytes`: past it the oldest lines go regardless of the cursor. Rewrites
 /// to a temp file and `rename`s it into place (POSIX atomic on the same volume), the same "tmp then
 /// rename" shape every other atomic write on this track uses, so a reader mid-scan sees either the
 /// old file or the new one, never a half-written one.
 func trimSpoolIfNeeded(dir: URL = tallyEventsDir) {
     let target = spoolFile(dir: dir)
     guard let size = try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? UInt64,
-          size > spoolTrimBytes,
-          let raw = try? String(contentsOf: target, encoding: .utf8) else { return }
+          size > spoolTrimBytes else { return }
+    let hardCapped = size > spoolHardCapBytes
+    if !hardCapped, let last = spoolLastCheckedSize[dir.path], size >= last, size < last + last / 8 { return }
+    guard let raw = try? String(contentsOf: target, encoding: .utf8) else { return }
     let lines = raw.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
     guard !lines.isEmpty else { return }
+
+    func replaceSpool(with kept: [String]) {
+        spoolLastCheckedSize[dir.path] = nil
+        let body = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
+        let tmp = dir.appendingPathComponent("\(spoolFileName).tmp-\(UUID().uuidString)")
+        guard (try? body.write(to: tmp, atomically: true, encoding: .utf8)) != nil else { return }
+        let renamed = tmp.path.withCString { tmpC in
+            target.path.withCString { targetC in rename(tmpC, targetC) }
+        }
+        if renamed != 0 { try? FileManager.default.removeItem(at: tmp) }
+    }
+    if hardCapped { return replaceSpool(with: Array(lines.suffix(spoolHardCapKeepLines))) }
 
     let decoder = sessionWaitEventDecoder()
     func seq(of line: String) -> Int? {
@@ -166,20 +191,21 @@ func trimSpoolIfNeeded(dir: URL = tallyEventsDir) {
         return try? decoder.decode(SessionWaitEvent.self, from: data).seq
     }
 
+    let cursor = readCounter(cursorFile(dir: dir)) ?? 0
+    // Seqs rise down the file, so if the line at the half-way mark is not delivered yet the "at least
+    // half delivered" test below must fail; one decode answers it instead of decoding every line.
+    if let mid = seq(of: lines[(lines.count - 1) / 2]), mid > cursor {
+        spoolLastCheckedSize[dir.path] = size
+        return
+    }
     // An undecodable line reads as `Int.max`: never counted as delivered, always kept.
     let seqs = lines.map { seq(of: $0) ?? Int.max }
-    let cursor = readCounter(cursorFile(dir: dir)) ?? 0
     let deliveredCount = seqs.filter { $0 <= cursor }.count
-    guard deliveredCount * 2 >= lines.count else { return }
+    guard deliveredCount * 2 >= lines.count else {
+        spoolLastCheckedSize[dir.path] = size
+        return
+    }
 
     let keepAfter = cursor - spoolTrimKeepBack
-    let kept = zip(lines, seqs).filter { $0.1 > keepAfter }.map(\.0)
-    let body = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
-
-    let tmp = dir.appendingPathComponent("\(spoolFileName).tmp-\(UUID().uuidString)")
-    guard (try? body.write(to: tmp, atomically: true, encoding: .utf8)) != nil else { return }
-    let renamed = tmp.path.withCString { tmpC in
-        target.path.withCString { targetC in rename(tmpC, targetC) }
-    }
-    if renamed != 0 { try? FileManager.default.removeItem(at: tmp) }
+    replaceSpool(with: zip(lines, seqs).filter { $0.1 > keepAfter }.map(\.0))
 }

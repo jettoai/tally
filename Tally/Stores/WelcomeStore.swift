@@ -56,6 +56,8 @@ final class WelcomeStore {
     private var previewPath = (offPath: false, notFound: false)
     /// A held preview of the sign-in page that is still waiting for the browser (WelcomeFlow.previewBrowserWaiting).
     private var previewBrowserWaiting = false
+    /// The waiting page's Terminal fixture (WelcomeFlow.previewTerminalStart).
+    private var previewTerminalStart: TerminalInstallStart = .running
 
     /// Whether a provider's CLI is on this Mac. A property so the suite can stand in for the disk.
     var cliInstalled: (String) -> Bool = {
@@ -71,6 +73,10 @@ final class WelcomeStore {
 
     /// The sign-in page's first step: the browser is up (a preview stands for a finished step unless it asks to wait).
     var browserOpened: Bool { preview != nil ? !previewBrowserWaiting : flow.browserOpened }
+
+    /// How far the Terminal install got; a preview holds its fixture.
+    var terminalInstall: TerminalInstallStart { preview != nil ? previewTerminalStart : flow.terminalInstall }
+    var terminalOpenSlow: Bool { preview == nil && flow.terminalOpenSlow }
 
     var screen: WelcomeScreen {
         if let preview { return preview }
@@ -182,6 +188,7 @@ final class WelcomeStore {
         chosenProvider = nil
         previewPath = WelcomeFlow.previewPathState(named: previewName)
         previewBrowserWaiting = WelcomeFlow.previewBrowserWaiting(named: previewName)
+        previewTerminalStart = WelcomeFlow.previewTerminalStart(named: previewName)
         recheckedMissing = previewPath.notFound ? "claude" : nil
         if let held = WelcomeFlow.previewScreen(named: previewName) {
             preview = held
@@ -256,7 +263,7 @@ final class WelcomeStore {
         case .found, .success: showUsage()
         case .needsCLI(let p):
             flow.showNeedsCLI(providerID: p)
-            flow.copyInstallCommandAndWait()
+            flow.installInTerminal()
         case .signIn(let p):
             flow.beginEntry(providerID: p)
             flow.start()
@@ -286,6 +293,12 @@ final class WelcomeStore {
         case .failed: flow.reset()
         case .detecting: break
         }
+    }
+
+    /// "Open Terminal Again" on the waiting pages: the same script, opened once more.
+    func openTerminalAgain() {
+        guard preview == nil else { return }
+        flow.installInTerminal()
     }
 
     /// "Browser didn't open? Open it again": end this run and start the same account's login anew,

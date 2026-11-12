@@ -82,8 +82,8 @@ expect(WelcomeFlow.previewScreen(named: "waiting-stalled") == .waitingStalled(pr
 expect(WelcomeFlow.previewNext(after: .waitingStalled(providerID: "claude")) == .signIn(providerID: "claude"),
        "a held stalled wait walks on to sign-in like the plain wait")
 expect(WelcomeCopy.stalledBody.contains("Terminal") && WelcomeCopy.stalledBody.contains("online")
-        && WelcomeCopy.stalledBody.contains("paste the command again"),
-       "the stalled screen names the Terminal window, the network and pasting again")
+        && WelcomeCopy.stalledBody.contains("Open Terminal Again") && !WelcomeCopy.stalledBody.contains("paste"),
+       "the stalled screen names the Terminal window, the network and opening Terminal again, never pasting")
 
 // MARK: success copy (G3)
 
@@ -105,8 +105,8 @@ expect([WelcomeFailure.timedOut, .reported, .couldNotStart, .other("x")]
 // MARK: the dev preview
 
 let names = ["detecting", "found", "needs-claude", "waiting", "waiting-stalled", "signin", "signing-in", "success", "failed",
-             "signin-offpath", "needs-claude-notfound"]
-expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all eleven held screens can be held")
+             "signin-offpath", "needs-claude-notfound", "waiting-opening", "waiting-copied"]
+expect(names.allSatisfy { WelcomeFlow.previewScreen(named: $0) != nil }, "all thirteen held screens can be held")
 expect(WelcomeFlow.previewScreen(named: "NEEDS-CODEX") == .needsCLI(providerID: "codex"),
        "the Codex install screen can be held, and names are not case sensitive")
 expect(WelcomeFlow.previewScreen(named: nil) == nil && WelcomeFlow.previewScreen(named: "YES") == nil
@@ -333,6 +333,90 @@ let windowClosedBody = welcomeStore.components(separatedBy: "func windowClosed()
     .components(separatedBy: "\n    }").first ?? ""
 expect(windowClosedBody.contains("flow.stopWatchingForCLI()") && !windowClosedBody.contains("cancelSignIn"),
        "closing the welcome window leaves an in-flight sign-in running (no cancelSignIn in windowClosed)")
+
+// MARK: install in Terminal (B-3747)
+
+/// Runs a script file with /bin/bash and returns its stdout.
+func runScript(_ file: URL) -> (out: String, rc: Int32) {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/bash")
+    task.arguments = [file.path]
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = pipe
+    try? task.run()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    task.waitUntilExit()
+    return (String(decoding: data, as: UTF8.self), task.terminationStatus)
+}
+
+let scriptDir = FileManager.default.temporaryDirectory.appendingPathComponent("tally-welcome-test-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: scriptDir, withIntermediateDirectories: true)
+let words = TerminalInstallScript.Words(intro: "Installing:", done: "DONE-LINE", failed: "FAILED-LINE", pathNote: "PATH-NOTE")
+func scriptFile(_ command: String, _ w: TerminalInstallScript.Words = words, name: String = "s.sh") -> URL {
+    let url = scriptDir.appendingPathComponent(name)
+    let text = TerminalInstallScript.text(command: command, receipt: scriptDir.appendingPathComponent("r").path, words: w)
+    try? text.write(to: url, atomically: true, encoding: .utf8)
+    return url
+}
+
+let okRun = runScript(scriptFile("true", name: "ok.sh"))
+expect(okRun.out.contains("DONE-LINE") && okRun.out.contains("PATH-NOTE") && !okRun.out.contains("FAILED-LINE"),
+       "a script whose command succeeds prints the done line and the PATH note")
+let failRun = runScript(scriptFile("false | true", name: "fail.sh"))
+expect(failRun.out.contains("FAILED-LINE") && !failRun.out.contains("DONE-LINE"),
+       "a failed download is a failed install, not an empty success (pipefail)")
+let receiptRun = runScript(scriptFile("test -e '\(scriptDir.path)/r'", name: "receipt.sh"))
+expect(receiptRun.out.contains("DONE-LINE"), "the script touches its receipt before the install command runs")
+expect(!FileManager.default.fileExists(atPath: scriptDir.appendingPathComponent("ok.sh").path),
+       "the script deletes itself")
+var odd = words
+odd.intro = "Terminal'i açar"
+let oddFile = scriptFile("true", odd, name: "odd.sh")
+let syntax = Process()
+syntax.executableURL = URL(fileURLWithPath: "/bin/bash")
+syntax.arguments = ["-n", oddFile.path]
+try? syntax.run()
+syntax.waitUntilExit()
+expect(syntax.terminationStatus == 0 && runScript(oddFile).out.contains("Terminal'i açar"),
+       "a translation with an apostrophe keeps the script valid")
+expect(TerminalInstallScript.text(command: WelcomeFlow.installCommand(providerID: "claude"), receipt: "/r", words: words)
+        .contains("\nif curl -fsSL https://claude.ai/install.sh | bash; then\n"),
+       "the vendor command appears verbatim as the line that runs")
+expect(WelcomeCopy.terminalScriptWords("codex").pathNote == nil && WelcomeCopy.terminalScriptWords("claude").pathNote != nil,
+       "a Codex script carries no PATH note")
+if let written = try? TerminalInstallScript.write(command: "true", words: words, in: scriptDir) {
+    let mode = (try? FileManager.default.attributesOfItem(atPath: written.script.path))?[.posixPermissions] as? Int
+    expect(mode == 0o755 && getxattr(written.script.path, "com.apple.quarantine", nil, 0, 0, 0) == -1,
+           "the written script is executable and carries no quarantine mark")
+    expect(!TerminalInstallScript.hasStarted(written.receipt), "a receipt does not exist before the script runs")
+} else {
+    expect(false, "the written script is executable and carries no quarantine mark")
+}
+try? FileManager.default.removeItem(at: scriptDir)
+
+expect(WelcomeCopy.terminalFirstStep(.opening) == "Opening Terminal…"
+        && WelcomeCopy.terminalFirstStep(.running) == "Terminal opened and started the install"
+        && WelcomeCopy.terminalFirstStep(.copied) == "Install command copied"
+        && WelcomeCopy.terminalSecondStep(.copied) == "Paste it in Terminal and press Return"
+        && WelcomeCopy.terminalSecondStep(.opening) == "Installing in Terminal"
+        && WelcomeCopy.terminalSecondStep(.running) == "Installing in Terminal",
+       "the waiting page's first step ticks only once the script is running")
+expect(WelcomeFlow.previewTerminalStart(named: "WAITING-OPENING") == .opening
+        && WelcomeFlow.previewTerminalStart(named: "waiting-copied") == .copied
+        && WelcomeFlow.previewTerminalStart(named: "waiting") == .running
+        && WelcomeFlow.previewTerminalStart(named: nil) == .running,
+       "the Terminal fixtures map from their preview names")
+
+let installBody = store.components(separatedBy: "func installInTerminal()").dropFirst().first?
+    .components(separatedBy: "\n    func ").first ?? ""
+expect(store.contains("withApplicationAt: terminal") && !installBody.isEmpty
+        && !installBody.contains("osascript") && !installBody.contains("do script"),
+       "Install in Terminal opens the script with Terminal, not by driving it")
+expect(welcomeView.contains("start == .opening ? .active : .done") && !welcomeView.contains("(.done, L(\"Install command copied\"))"),
+       "the waiting step is ticked from the store's Terminal state, never unconditionally")
+expect(!welcomeStore.contains("copyInstallCommandAndWait") && !source("Tally/Views/SettingsAddAccountView.swift").contains("copyInstallCommandAndWait"),
+       "no surface still calls the copy-and-open install")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

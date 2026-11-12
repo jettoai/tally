@@ -48,6 +48,12 @@ final class AddAccountStore {
     /// The CLI has not shown up within `WelcomeFlow.installStallSeconds` of the watch starting; the
     /// watch keeps looking, this only lets the screens stop promising it will move on by itself.
     private(set) var cliWaitStalled = false
+    /// How far "Install in Terminal" got, for the waiting page's first step.
+    private(set) var terminalInstall: TerminalInstallStart = .opening
+    /// The running script's receipt; read by the CLI watch, removed once seen or abandoned.
+    private var installReceipt: URL?
+    /// "Opening Terminal…" has shown for `terminalOpenNudgeSeconds` with no receipt.
+    private(set) var terminalOpenSlow = false
 
     /// The sheet's two choices, kept on the store so reopening it after a run remembers them.
     var providerID = "claude"
@@ -303,8 +309,8 @@ final class AddAccountStore {
 }
 
 /// The "no CLI yet" half of adding an account, shared by Settings' sheet and the welcome window:
-/// hand the user the vendor's own install command, then look for the CLI every few seconds until it
-/// appears. Tally never runs the installer itself; the user pastes it into Terminal.
+/// open Terminal on the vendor's own install command, already running, then look for the CLI every
+/// few seconds until it appears.
 extension AddAccountStore {
     /// How often the CLI is looked for while an install is awaited. A stat over a handful of
     /// directories, only while a waiting screen is up.
@@ -320,14 +326,32 @@ extension AddAccountStore {
         phase = .needsCLI(providerID: providerID, waiting: false)
     }
 
-    /// "Copy and Open Terminal": the command on the clipboard, Terminal in front, and the watch on.
-    func copyInstallCommandAndWait() {
+    /// "Install in Terminal": a script that runs the install command opens in Terminal, already
+    /// running, and the watch goes on. Opening a document needs no Automation permission. If the script
+    /// cannot be written or opened, the old way: the command on the clipboard and Terminal in front.
+    func installInTerminal() {
         guard case .needsCLI(let providerID, _) = phase else { return }
-        Self.copyInstallCommand(providerID: providerID)
-        // A plain open: no Automation permission, unlike typing into a Terminal window.
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
+        // The click changes the page in the same frame; the file and the open happen behind it.
+        stopWatchingForCLI()
+        terminalInstall = .opening
         phase = .needsCLI(providerID: providerID, waiting: true)
         watchForCLI(providerID: providerID)
+        let command = WelcomeFlow.installCommand(providerID: providerID)
+        let words = WelcomeCopy.terminalScriptWords(providerID)
+        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        Task {
+            let written = await Task.detached { try? TerminalInstallScript.write(command: command, words: words) }.value
+            var opened = false
+            if let written {
+                installReceipt = written.receipt
+                opened = (try? await NSWorkspace.shared.open([written.script], withApplicationAt: terminal,
+                                                             configuration: NSWorkspace.OpenConfiguration())) != nil
+            }
+            guard !opened, case .needsCLI(providerID, true) = phase else { return }
+            Self.copyInstallCommand(providerID: providerID)
+            NSWorkspace.shared.open(terminal)
+            terminalInstall = .copied
+        }
     }
 
     /// The provider's install command, on the clipboard and nothing else.
@@ -348,6 +372,11 @@ extension AddAccountStore {
         cliWatch?.cancel()
         cliWatch = nil
         cliWaitStalled = false
+        terminalOpenSlow = false
+        if let receipt = installReceipt {
+            installReceipt = nil
+            Task.detached { TerminalInstallScript.discard(receipt) }
+        }
         if case .needsCLI(let providerID, true) = phase {
             phase = .needsCLI(providerID: providerID, waiting: false)
         }
@@ -362,6 +391,15 @@ extension AddAccountStore {
                 try? await Task.sleep(for: Self.cliWatchInterval)
                 guard !Task.isCancelled, let self else { return }
                 guard case .needsCLI(providerID, true) = self.phase else { return }
+                if self.terminalInstall == .opening, let receipt = self.installReceipt {
+                    if await Task.detached(operation: { TerminalInstallScript.hasStarted(receipt) }).value {
+                        self.terminalInstall = .running
+                        self.installReceipt = nil
+                        Task.detached { TerminalInstallScript.discard(receipt) }
+                    } else if Date().timeIntervalSince(started) >= WelcomeFlow.terminalOpenNudgeSeconds {
+                        self.terminalOpenSlow = true
+                    }
+                }
                 let installed = ProviderCLI.resolved(providerID, devOverrideKey: "TallyRenewLoginCLI") != nil
                 if installed {
                     self.cliWatch = nil

@@ -25637,41 +25637,6 @@
         }
       }
     },
-    "Never used Terminal? Tally opens it for you. Paste with ⌘V, press Return, then come back here.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒用過終端機？Tally 會幫你打開。按 ⌘V 貼上、按 Return，再回到這裡。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没用过终端？Tally 会帮你打开。按 ⌘V 粘贴、按 Return，然后回到这里。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルを使ったことがなくても大丈夫です。Tally が開きます。⌘V で貼り付けて Return を押し、ここに戻ってください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널을 처음 쓰시나요? Tally가 대신 열어 줍니다. ⌘V로 붙여넣고 Return을 누른 뒤 여기로 돌아오세요."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal'i hiç kullanmadınız mı? Tally sizin için açar. ⌘V ile yapıştırın, Return'e basın, sonra buraya dönün."
-          }
-        }
-      }
-    },
     "Copy and Open Terminal": {
       "extractionState": "manual",
       "localizations": {
@@ -28437,41 +28402,6 @@
         }
       }
     },
-    "Look in the Terminal window for an error message, and check that this Mac is online. If nothing ran, paste the command again and press Return.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請看看終端機視窗有沒有錯誤訊息，並確認這台 Mac 已連上網路。如果指令沒有執行，請再貼上一次並按 Return。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请看看终端窗口里有没有错误信息，并确认这台 Mac 已联网。如果命令没有运行，请再粘贴一次并按 Return。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのウィンドウにエラーメッセージが出ていないか、この Mac がネットワークに接続されているかを確認してください。コマンドが実行されていなければ、もう一度貼り付けて Return キーを押してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널 창에 오류 메시지가 없는지, 이 Mac이 인터넷에 연결되어 있는지 확인하세요. 명령이 실행되지 않았다면 다시 붙여넣고 Return을 누르세요."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal penceresinde bir hata mesajı olup olmadığına bakın ve bu Mac’in çevrimiçi olduğundan emin olun. Hiçbir şey çalışmadıysa komutu yeniden yapıştırıp Return’e basın."
-          }
-        }
-      }
-    },
     "Tally keeps looking and moves on by itself once %@ is installed.": {
       "extractionState": "manual",
       "localizations": {
@@ -28853,6 +28783,531 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ghostty yüklü olmadığı için Tally bu oturumun terminalini açamadı. Ghostty'yi ghostty.org adresinden yükleyin, ardından oturuma yeniden tıklayın."
+          }
+        }
+      }
+    },
+    "Install in Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中安装"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルでインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 설치"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal'de Yükle"
+          }
+        }
+      }
+    },
+    "Tally opens Terminal with this line already running. Nothing to copy or paste. When Terminal says it's installed, come back here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 會打開終端機，並直接執行這行指令，不用拷貝也不用貼上。終端機顯示安裝完成後，再回到這裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 会打开终端并直接运行这行命令，不用拷贝也不用粘贴。终端显示安装完成后，再回到这里。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally がターミナルを開き、この行をそのまま実行します。コピーも貼り付けも不要です。インストール完了と表示されたら、ここに戻ってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 터미널을 열고 이 명령을 바로 실행합니다. 복사하거나 붙여넣을 필요가 없습니다. 터미널에 설치가 끝났다고 표시되면 여기로 돌아오세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally, Terminal'i bu satır zaten çalışır durumda açar. Kopyalamanız veya yapıştırmanız gerekmez. Terminal yüklemenin bittiğini söylediğinde buraya dönün."
+          }
+        }
+      }
+    },
+    "Opening Terminal…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在打開終端機…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在打开终端…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開いています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 여는 중…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal açılıyor…"
+          }
+        }
+      }
+    },
+    "Terminal opened and started the install": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機已打開並開始安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端已打开并开始安装"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルが開き、インストールを開始しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 열리고 설치가 시작되었습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal açıldı ve yükleme başladı"
+          }
+        }
+      }
+    },
+    "Installing in Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在終端機安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在终端中安装"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルでインストール中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 설치 중"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal'de yükleniyor"
+          }
+        }
+      }
+    },
+    "About a minute.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約需一分鐘。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约需一分钟。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 分ほどかかります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 1분 걸립니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yaklaşık bir dakika sürer."
+          }
+        }
+      }
+    },
+    "About a minute. A note about PATH at the end is fine to skip: Tally finds %@ anyway.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約需一分鐘。結尾若出現 PATH 提示可以略過，Tally 照樣找得到 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约需一分钟。结尾若出现 PATH 提示可以略过，Tally 照样找得到 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 分ほどかかります。最後に表示される PATH の注意は読み飛ばして構いません。Tally は %@ を自動で見つけます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 1분 걸립니다. 끝에 나오는 PATH 안내는 건너뛰어도 됩니다. Tally가 %@을(를) 알아서 찾습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yaklaşık bir dakika sürer. Sonda çıkan PATH notunu atlayabilirsiniz; Tally %@ aracını yine de bulur."
+          }
+        }
+      }
+    },
+    "If macOS asks whether to open it, choose Open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果 macOS 詢問是否要打開，請選「打開」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果 macOS 询问是否要打开，请选“打开”。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が開いてよいか尋ねてきたら「開く」を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS에서 열지 묻는 경우 ‘열기’를 선택하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS açmak isteyip istemediğinizi sorarsa Aç'ı seçin."
+          }
+        }
+      }
+    },
+    "Back": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "뒤로"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geri"
+          }
+        }
+      }
+    },
+    "Open Terminal Again": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次打開終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次打开终端"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルをもう一度開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 다시 열기"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal'i Yeniden Aç"
+          }
+        }
+      }
+    },
+    "Look in the Terminal window for an error message, and check that this Mac is online. If nothing ran, choose Open Terminal Again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請看看終端機視窗有沒有錯誤訊息，並確認這台 Mac 已連上網路。如果指令沒有執行，請選「再次打開終端機」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请看看终端窗口里有没有错误信息，并确认这台 Mac 已联网。如果命令没有运行，请选“再次打开终端”。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのウィンドウにエラーメッセージが出ていないか、この Mac がネットワークに接続されているかを確認してください。コマンドが実行されていなければ、「ターミナルをもう一度開く」を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 창에 오류 메시지가 없는지, 이 Mac이 인터넷에 연결되어 있는지 확인하세요. 명령이 실행되지 않았다면 ‘터미널 다시 열기’를 선택하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal penceresinde bir hata mesajı olup olmadığına bakın ve bu Mac’in çevrimiçi olduğundan emin olun. Hiçbir şey çalışmadıysa Terminal'i Yeniden Aç'ı seçin."
+          }
+        }
+      }
+    },
+    "Tally is installing %1$@ with %2$@'s official install script:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 正在用 %2$@ 官方的安裝腳本安裝 %1$@："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 正在用 %2$@ 官方的安装脚本安装 %1$@："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は %2$@ 公式のインストールスクリプトで %1$@ をインストールしています："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 %2$@의 공식 설치 스크립트로 %1$@을(를) 설치하고 있습니다:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally, %2$@ resmi yükleme betiğiyle %1$@ aracını yüklüyor:"
+          }
+        }
+      }
+    },
+    "Done. Go back to Tally, it finds %@ by itself.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成了。回到 Tally，它會自己找到 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成了。回到 Tally，它会自己找到 %@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了しました。Tally に戻ってください。%@ は自動で見つかります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료되었습니다. Tally로 돌아가세요. %@을(를) 알아서 찾습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitti. Tally'ye dönün, %@ aracını kendisi bulur."
+          }
+        }
+      }
+    },
+    "The install did not finish. The lines above say why. Tally can open this window again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝沒有完成，原因寫在上面幾行。Tally 可以再開一次這個視窗。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装没有完成，原因写在上面几行。Tally 可以再打开一次这个窗口。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールは完了しませんでした。理由は上の行に表示されています。Tally からこのウィンドウをもう一度開けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치가 끝나지 않았습니다. 이유는 위의 줄에 나와 있습니다. Tally에서 이 창을 다시 열 수 있습니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme tamamlanmadı. Nedeni yukarıdaki satırlarda yazıyor. Tally bu pencereyi yeniden açabilir."
+          }
+        }
+      }
+    },
+    "A note about PATH above is fine to skip.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上面關於 PATH 的提示可以略過。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上面关于 PATH 的提示可以略过。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上の PATH に関する注意は読み飛ばして構いません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위의 PATH 안내는 건너뛰어도 됩니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yukarıdaki PATH notunu atlayabilirsiniz."
           }
         }
       }

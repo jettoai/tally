@@ -98,11 +98,14 @@ struct WelcomeView: View {
             let rechecked = store.recheckedMissing == p
             if rechecked { notFoundCard(p).padding(.top, 26) }
             commandBox(p).padding(.top, rechecked ? 18 : 26)
-            note(L("Never used Terminal? Tally opens it for you. Paste with ⌘V, press Return, then come back here."))
+            note(L("Tally opens Terminal with this line already running. Nothing to copy or paste. When Terminal says it's installed, come back here."))
         case .waiting(let p):
-            steps([(.done, L("Install command copied")),
-                   (.active, L("Paste it in Terminal and press Return")),
-                   (.todo, String(format: L("Tally finds %@"), WelcomeCopy.cliName(p)))])
+            let start = store.terminalInstall
+            steps([(start == .opening ? .active : .done, WelcomeCopy.terminalFirstStep(start)),
+                   (start == .opening ? .todo : .active, WelcomeCopy.terminalSecondStep(start)),
+                   (.todo, String(format: L("Tally finds %@"), WelcomeCopy.cliName(p)))],
+                  details: [0: store.terminalOpenSlow ? L("If macOS asks whether to open it, choose Open.") : nil,
+                            1: start == .copied ? nil : WelcomeCopy.terminalSecondDetail(p)].compactMapValues { $0 })
         case .waitingStalled(let p):
             note(WelcomeCopy.stalledNote(p)).padding(.top, 14)
         case .signIn(let p):
@@ -150,10 +153,11 @@ struct WelcomeView: View {
                     .padding(.trailing, 6)
                 link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
-                prominent(L("Copy and Open Terminal")) { store.primary() }
+                prominent(L("Install in Terminal")) { store.primary() }
             case .waiting, .waitingStalled:
+                link(L("Back")) { store.secondary() }
                 Spacer()
-                plain(L("Show the Command Again")) { store.secondary() }
+                plain(L("Open Terminal Again")) { store.openTerminalAgain() }
             case .signIn(let p):
                 link(WelcomeCopy.useOtherProvider(p)) { store.secondary() }
                 Spacer()
@@ -261,10 +265,10 @@ struct WelcomeView: View {
 
     private enum StepState { case done, active, todo }
 
-    private func steps(_ items: [(StepState, String)]) -> some View {
+    private func steps(_ items: [(StepState, String)], details: [Int: String] = [:]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                HStack(spacing: 12) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                HStack(alignment: .top, spacing: 12) {
                     Group {
                         switch item.0 {
                         case .done:
@@ -276,9 +280,16 @@ struct WelcomeView: View {
                         }
                     }
                     .frame(width: 22, height: 22)
-                    Text(item.1)
-                        .font(.system(size: 14, weight: item.0 == .active ? .semibold : .regular))
-                        .foregroundStyle(item.0 == .todo ? Color.secondary : Color.primary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.1)
+                            .font(.system(size: 14, weight: item.0 == .active ? .semibold : .regular))
+                            .foregroundStyle(item.0 == .todo ? Color.secondary : Color.primary)
+                        if let detail = details[index] {
+                            Text(detail).font(.system(size: 12.5)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.top, 2)
                     Spacer(minLength: 0)
                 }
             }

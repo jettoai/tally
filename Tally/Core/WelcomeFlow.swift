@@ -12,7 +12,7 @@ enum WelcomeScreen: Equatable {
     case found
     /// The provider's CLI is not on this Mac: show its official install command.
     case needsCLI(providerID: String)
-    /// The install command was copied and Terminal opened: wait for the CLI to appear.
+    /// "Install in Terminal" opened Terminal on the install command: wait for the CLI to appear.
     case waiting(providerID: String)
     /// The wait has run past `WelcomeFlow.installStallSeconds` with no CLI in sight: say so, with
     /// the usual causes, and keep looking.
@@ -43,6 +43,16 @@ enum WelcomeVerdict: Equatable {
     case needsCLI(providerID: String)
 }
 
+/// How far "Install in Terminal" got, for the waiting page's first step.
+enum TerminalInstallStart: Equatable {
+    /// Terminal was asked to open the script; its receipt has not appeared yet.
+    case opening
+    /// The receipt appeared: the script is running.
+    case running
+    /// The script could not be written or opened: the command was copied and Terminal opened instead.
+    case copied
+}
+
 enum WelcomeFlow {
     /// The providers the welcome window knows how to install, in the order it offers them.
     static let providers = ["claude", "codex"]
@@ -55,8 +65,9 @@ enum WelcomeFlow {
         return .needsCLI(providerID: providers[0])
     }
 
-    /// The official one-line installers (the vendors' own docs): Claude Code's install page and
-    /// the Codex README. Shown to the user and copied verbatim; Tally never runs them itself.
+    /// The official one-line installers (the vendors' own docs): Claude Code's install page and the
+    /// Codex README. Shown verbatim, and run verbatim by the script "Install in Terminal" opens
+    /// (TerminalInstallScript).
     static func installCommand(providerID: String) -> String {
         providerID == "codex"
             ? "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
@@ -81,6 +92,9 @@ enum WelcomeFlow {
     static func isInstallStalled(waited: TimeInterval, installed: Bool) -> Bool {
         !installed && waited >= installStallSeconds
     }
+
+    /// How long "Opening Terminal…" may show before the step says macOS may be asking first.
+    static let terminalOpenNudgeSeconds: TimeInterval = 15
 
     // MARK: When the window opens by itself
 
@@ -113,7 +127,7 @@ enum WelcomeFlow {
         case "found": return .found
         case "needs-claude": return .needsCLI(providerID: "claude")
         case "needs-codex": return .needsCLI(providerID: "codex")
-        case "waiting": return .waiting(providerID: "claude")
+        case "waiting", "waiting-opening", "waiting-copied": return .waiting(providerID: "claude")
         case "waiting-stalled": return .waitingStalled(providerID: "claude")
         case "signin", "signin-offpath": return .signIn(providerID: "claude")
         case "needs-claude-notfound": return .needsCLI(providerID: "claude")
@@ -128,6 +142,16 @@ enum WelcomeFlow {
     /// every other name, `signing-in` included, shows that step as done.
     static func previewBrowserWaiting(named name: String?) -> Bool {
         name?.lowercased() == "signing-in-waiting"
+    }
+
+    /// The Terminal fixture a held waiting page shows: `waiting-opening` and `waiting-copied` hold the
+    /// other two states of the first step; every other name shows it running.
+    static func previewTerminalStart(named name: String?) -> TerminalInstallStart {
+        switch name?.lowercased() {
+        case "waiting-opening": return .opening
+        case "waiting-copied": return .copied
+        default: return .running
+        }
     }
 
     /// The path guidance a held preview adds to its screen (B-3745): `signin-offpath` shows the

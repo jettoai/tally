@@ -187,8 +187,8 @@ struct SettingsAddAccountView: View {
         }
     }
 
-    /// The provider's CLI is not installed: its own install command, one click to copy it and open
-    /// Terminal, and the store looks for the CLI by itself afterwards (see AddAccountStore.swift).
+    /// The provider's CLI is not installed: its own install command, one click to open Terminal with it
+    /// already running, and the store looks for the CLI by itself afterwards (see AddAccountStore.swift).
     @ViewBuilder
     private func installNeeded(_ providerID: String, waiting: Bool) -> some View {
         if waiting && flow.cliWaitStalled {
@@ -205,6 +205,7 @@ struct SettingsAddAccountView: View {
             problem(WelcomeCopy.installTitle(providerID))
             caption(WelcomeCopy.installBlurb(providerID))
             CopyCommandChip(command: WelcomeFlow.installCommand(providerID: providerID))
+            caption(L("Tally opens Terminal with this line already running. Nothing to copy or paste. When Terminal says it's installed, come back here."))
         }
         HStack {
             Spacer()
@@ -212,8 +213,9 @@ struct SettingsAddAccountView: View {
                 .keyboardShortcut(.cancelAction)
             if waiting {
                 Button(L("Show the Command Again")) { flow.showInstallCommandAgain() }
+                Button(L("Open Terminal Again")) { flow.installInTerminal() }
             } else {
-                Button(L("Copy and Open Terminal")) { flow.copyInstallCommandAndWait() }
+                Button(L("Install in Terminal")) { flow.installInTerminal() }
                     .keyboardShortcut(.defaultAction)
             }
         }

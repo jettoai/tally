@@ -31,10 +31,41 @@ enum WelcomeCopy {
         String(format: L("Tally can't see %@ yet"), cliName(providerID))
     }
 
-    static var stalledBody: String { L("Look in the Terminal window for an error message, and check that this Mac is online. If nothing ran, paste the command again and press Return.") }
+    static var stalledBody: String { L("Look in the Terminal window for an error message, and check that this Mac is online. If nothing ran, choose Open Terminal Again.") }
 
     static func stalledNote(_ providerID: String) -> String {
         String(format: L("Tally keeps looking and moves on by itself once %@ is installed."), cliName(providerID))
+    }
+
+    /// The waiting page's first step, by how far the Terminal install got.
+    static func terminalFirstStep(_ start: TerminalInstallStart) -> String {
+        switch start {
+        case .opening: return L("Opening Terminal…")
+        case .running: return L("Terminal opened and started the install")
+        case .copied: return L("Install command copied")
+        }
+    }
+
+    /// Its second step: the install running, or (after a fallback) the paste the user still has to do.
+    static func terminalSecondStep(_ start: TerminalInstallStart) -> String {
+        start == .copied ? L("Paste it in Terminal and press Return") : L("Installing in Terminal")
+    }
+
+    /// The line under the second step. Only Claude Code's installer is known to end on a PATH note.
+    static func terminalSecondDetail(_ providerID: String) -> String {
+        providerID == "codex"
+            ? L("About a minute.")
+            : String(format: L("About a minute. A note about PATH at the end is fine to skip: Tally finds %@ anyway."), cliName(providerID))
+    }
+
+    /// What the script prints in Terminal around the vendor's command.
+    static func terminalScriptWords(_ providerID: String) -> TerminalInstallScript.Words {
+        TerminalInstallScript.Words(
+            intro: String(format: L("Tally is installing %1$@ with %2$@'s official install script:"),
+                          cliName(providerID), providerID == "codex" ? "OpenAI" : "Anthropic"),
+            done: String(format: L("Done. Go back to Tally, it finds %@ by itself."), cliName(providerID)),
+            failed: L("The install did not finish. The lines above say why. Tally can open this window again."),
+            pathNote: providerID == "codex" ? nil : L("A note about PATH above is fine to skip."))
     }
 
     static func signInTitle(_ providerID: String) -> String {

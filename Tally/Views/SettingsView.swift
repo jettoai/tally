@@ -1,38 +1,19 @@
 import SwiftUI
 
 /// Preferences as a System Settings-style split: a fixed section sidebar on the left, one
-/// section's grouped card on the right, window height fitting the pane in front.
+/// section's grouped card on the right.
 ///
-/// Both columns are hand-built over NON-LAZY stacks - deliberately not SwiftUI's `Form`/`List`:
-/// those are lazy, expose no intrinsic height, and made "open the window exactly content-fit"
-/// unsolvable (a short window keeps rows unbuilt, so the measured height stays short - a
-/// self-locking loop). Plain stacks lay out everything at once, so the measured height below IS
-/// the true content height, reported to the window controller the way the pinned panel sizes
-/// itself (`onContentSize` pattern).
+/// THE WINDOW IS ONE SIZE ON EVERY PANE (`SettingsChrome.windowWidth` by `windowHeight`, written by
+/// `SettingsWindowController.applyFixedSize`). This view reports no size to the window: a short
+/// pane sits at the top of the column with the page colour below it, a long one scrolls in the
+/// column. The window used to follow the pane in front, so it grew and shrank under the click on
+/// every sidebar switch (Albert, 2026-08-23, 2026-10-10, 2026-11-12).
 struct SettingsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
-    /// Reports the content's full natural height so the host window can fit itself exactly.
-    var onContentHeight: (CGFloat) -> Void = { _ in }
-    /// Called on a pane switch, in the click's own turn, with the new pane's height: the host
-    /// resizes at once so the pane and the window arrive on screen together.
-    var onPaneSwitch: (_ height: CGFloat) -> Void = { _ in }
 
-    /// THE TWO NATURAL HEIGHTS THE WINDOW HAS TO COVER, reported as their maximum. The sidebar is
-    /// measured, not guessed at: a constant would go stale on a new section, and go stale silently.
-    @State private var sidebarHeight: CGFloat = 0
-    /// The footer a private build pins under the sidebar list (`overlaySidebarFooter`); 0 while
-    /// there is none. Counted into every reported height, or a short pane would clip it.
-    @State private var sidebarFooterHeight: CGFloat = 0
-
-    /// Every pane's own natural height, measured while collapsed too, so a switch knows the height
-    /// it is going to BEFORE the pane is on screen.
-    @State private var paneHeights: [Section: CGFloat] = [:]
     /// The sidebar row under the pointer, for its hover wash.
     @State private var hoveredSection: Section?
-    /// The pane's vertical inset inside the scroll view (`paneInsetTop` + `paneInsetBottom`), counted
-    /// into every reported height; the horizontal one is `SettingsChrome.paneInsetH`.
-    private static let paneInsetV = SettingsChrome.paneInsetTop + SettingsChrome.paneInsetBottom
     /// A request to scroll the pane in front to the group tagged with this id (`.id(...)` on the
     /// group); consumed on arrival. Set it together with `select(_:)` to land on a group of another
     /// pane. Not private: the panes live in other files, and `@State` cannot be added by extension.
@@ -80,14 +61,16 @@ struct SettingsView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 // Up behind the transparent titlebar too, so the sidebar runs to the top edge.
                 .background(SettingsChrome.sidebar.ignoresSafeArea())
-            // The ScrollView is inert at the natural size; it only actually scrolls when the
-            // content outgrows the screen cap applied by the controller.
+            // Long panes scroll here, the whole column at once. A short pane stays at the top.
             ScrollViewReader { proxy in
                 ScrollView {
-                    pane
-                        .padding(.horizontal, SettingsChrome.paneInsetH)
-                        .padding(.top, SettingsChrome.paneInsetTop)
-                        .padding(.bottom, SettingsChrome.paneInsetBottom)
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 0).id(Self.paneTopAnchor)
+                        pane
+                            .padding(.horizontal, SettingsChrome.paneInsetH)
+                            .padding(.top, SettingsChrome.paneInsetTop)
+                            .padding(.bottom, SettingsChrome.paneInsetBottom)
+                    }
                 }
                 .onChange(of: scrollTarget) { _, target in
                     guard let target else { return }
@@ -139,18 +122,16 @@ struct SettingsView: View {
     }
 
     private var benchShown: SettingsTabBench.Shown {
-        SettingsTabBench.Shown(section: section.rawValue,
-                               height: (paneHeights[section] ?? 0) + Self.paneInsetV)
+        SettingsTabBench.Shown(section: section.rawValue, sections: shownSections.map(\.rawValue))
     }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             rows
                 .padding(SettingsChrome.sidebarInset)
-                .background(heightProbe { sidebarHeight = $0 })
-            Spacer(minLength: 0)   // outside the probe: it fills the window being measured for
+            // Pushes a private build's footer to the foot of the window; nothing here is measured.
+            Spacer(minLength: 0)
             overlaySidebarFooter
-                .background(heightProbe { sidebarFooterHeight = $0 })
         }
     }
 
@@ -185,51 +166,30 @@ struct SettingsView: View {
         }
     }
 
-    /// The natural height of whatever it is put behind, taken once and then only when it changes.
-    private func heightProbe(_ take: @escaping (CGFloat) -> Void) -> some View {
-        GeometryReader { proxy in
-            Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
-                take(height)
-                onContentHeight(reportedHeight(for: section))
-            }
-        }
-    }
-
-    /// The height the window has to cover for `item`: its pane plus inset, or the sidebar when taller.
-    private func reportedHeight(for item: Section) -> CGFloat {
-        max((paneHeights[item] ?? 0) + Self.paneInsetV, sidebarHeight + sidebarFooterHeight)
-    }
-
     /// THE ONE WAY A PANE CHANGES (sidebar click and the Launch pane's link to Integrations).
-    /// The pane and the window's height change in this one turn, so neither is ever on screen
-    /// without the other: no pane in a window the wrong size, and nothing animating between them.
+    /// A new pane starts at its top: every pane shares the one scroll view, so without the scroll
+    /// request the new pane would open at whatever offset the last one was left at. The Launch
+    /// link sets `scrollTarget` again right after this, and only the last value is acted on.
     private func select(_ item: Section) {
         guard item != section else { return }
         section = item
-        onPaneSwitch(reportedHeight(for: item))
+        scrollTarget = Self.paneTopAnchor
     }
 
-    /// ONLY THE SELECTED PANE HAS A HEIGHT, which is what lets the window follow the sidebar. All
-    /// five used to lay out at full height, so every pane stood in the TALLEST one's window
-    /// (Albert, 2026-08-23). The objection on record against fitting each pane was that the window
-    /// jumped under the cursor mid-click; what answers it is WHERE the change happens - the top
-    /// edge is held (`SettingsWindowController.fitHeight`), so only the bottom edge moves.
+    /// ONLY THE SELECTED PANE HAS A HEIGHT, which keeps the scroll length equal to the pane in front:
+    /// laid out together, About would scroll through as much blank page as Integrations is tall.
     ///
-    /// COLLAPSED RATHER THAN REMOVED. Building only the selected pane measures just as well and
-    /// destroys every pane the user leaves - and a pane here can be holding work: the launch
-    /// defaults are STAGED against an explicit Apply (`StagedModelEffortRow`), so a model picked,
-    /// a glance at another pane and a click back put the committed model on screen with nothing
-    /// said (found by review of 5e9e03d). A waiting pane keeps its state and adds no height; the
-    /// three lines above the frame keep it unseen, unhittable and unread.
-    ///
-    /// EACH PANE IS MEASURED WHILE COLLAPSED TOO (its natural height, before the frame folds it),
-    /// so a switch knows the height it is going to in the same turn it shows the pane (`select`).
+    /// COLLAPSED RATHER THAN REMOVED. Building only the selected pane would destroy every pane the
+    /// user leaves - and a pane here can be holding work: the launch defaults are STAGED against an
+    /// explicit Apply (`StagedModelEffortRow`), so a model picked, a glance at another pane and a
+    /// click back put the committed model on screen with nothing said (found by review of
+    /// 5e9e03d). A waiting pane keeps its state and adds no height; the three lines above the
+    /// frame keep it unseen, unhittable and unread.
     private var pane: some View {
         ZStack(alignment: .top) {
             ForEach(Section.allCases, id: \.self) { item in
                 paneContent(item)
                     .fixedSize(horizontal: false, vertical: true)
-                    .background(heightProbe { paneHeights[item] = $0 })
                     .opacity(section == item ? 1 : 0)
                     .allowsHitTesting(section == item)
                     .accessibilityHidden(section != item)
@@ -274,4 +234,8 @@ struct SettingsView: View {
     /// The `.id` the Integrations pane tags its Shared harness group with (the Launch pane's link
     /// scrolls there through `scrollTarget`).
     static let sharedHarnessAnchor = "integrations.sharedHarness"
+
+    /// The `.id` of the zero-height row above the pane in the scroll view: scrolling to it is
+    /// "back to the top" (`select`).
+    static let paneTopAnchor = "settings.paneTop"
 }

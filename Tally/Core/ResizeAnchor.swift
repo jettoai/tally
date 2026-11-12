@@ -69,12 +69,13 @@ enum ResizeAnchor {
 
     /// THE HEIGHT A REPORTED CONTENT HEIGHT LANDS ON, ON A NAMED DISPLAY.
     ///
-    /// The settings window fits the pane in front of it whole - a pane must never need a scrollbar
-    /// for want of window (Albert, 2026-08-23) - and the display is the only thing that overrules
-    /// that. Which display therefore has to be an ARGUMENT rather than something read at the moment
-    /// a report happens to arrive: the same content is a different window height on a 1440pt display
-    /// than on a 1152pt one, and a window summoned from the first to the second has to be told the
-    /// new answer without any report arriving at all (the content did not change, so none will).
+    /// The settings window calls this with its one fixed content height
+    /// (`SettingsChrome.windowHeight` minus the title bar), so what it decides there is only the
+    /// display's cap. Which display therefore has to be an ARGUMENT rather than something read at the
+    /// moment a window happens to be resized: the same content is a different window height on a
+    /// 1440pt display than on a 1152pt one, and a window summoned from the first to the second has
+    /// to be told the new answer although the content did not change. The floor below is kept for
+    /// other callers and the arithmetic tests.
     ///
     /// Pure so the enumeration can be asserted: fits / capped / floored / unchanged.
     ///
@@ -90,11 +91,10 @@ enum ResizeAnchor {
 
     /// THE SMALLEST CONTENT A SETTINGS WINDOW IS WORTH DRAWING, title bar excluded.
     ///
-    /// A window fitted to its content alone has no size of its own, and the shortest pane made
-    /// that visible: About measured a hair over its sidebar and came out a 200pt sliver, which
-    /// reads as a window that failed to open rather than as a short pane (Albert, 2026-08-23).
-    /// The sidebar is a floor of its own, measured by the view and arriving here inside `reported`;
-    /// this is the one under both of them.
+    /// A window fitted to its content alone has no size of its own: the settings window did that
+    /// once and About came out a 200pt sliver, which reads as a window that failed to open
+    /// (Albert, 2026-08-23). Kept as the floor under any content-fitted caller; the settings window
+    /// itself is one fixed size now and never gets near it.
     static let minimumContentHeight: CGFloat = 320
 
     /// The breathing room left under a window that had to be capped, so a capped window still reads

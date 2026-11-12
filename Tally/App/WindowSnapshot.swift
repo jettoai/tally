@@ -115,7 +115,7 @@ enum WindowSnapshot {
         for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) {
             guard let scroll = firstScrollView(in: window.contentView),
                   let content = scroll.documentView else { continue }
-            // The titlebar strip as `SettingsWindowController.fitHeight` measures it: with a
+            // The titlebar strip as `SettingsWindowController.applyFixedSize` measures it: with a
             // full-size content view the scroll view spans the whole frame, so frame minus scroll
             // read 0 and the shot came out one titlebar short.
             let chrome = window.frame.height - window.contentLayoutRect.height

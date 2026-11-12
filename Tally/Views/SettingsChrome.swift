@@ -6,9 +6,13 @@ import SwiftUI
 /// follow Jetto Voice's settings so the two apps read as one family.
 enum SettingsChrome {
     static let sidebarWidth: CGFloat = 200
-    /// The tallest the window grows, title bar included (macOS System Settings is 625 on the same
-    /// Mac). A pane taller than this scrolls inside the window.
-    static let maxWindowHeight: CGFloat = 700
+    /// The window's height on EVERY pane, title bar included (macOS System Settings is 625 on the
+    /// same Mac; CleanShot X, Aqua Voice and Typeless also keep one size across their sidebars). A
+    /// pane taller than this scrolls inside the window; a display too short for it caps it
+    /// (`ResizeAnchor.fittedWindowHeight`).
+    static let windowHeight: CGFloat = 700
+    /// The window's width: the sidebar plus the content column, so it follows the account table's width.
+    static var windowWidth: CGFloat { sidebarWidth + contentWidth }
     /// The pages' rhythm (B-2526, Voice's values): the gap between sections, a section title to its
     /// card, a row's insets and floor, and the identity card's inset.
     static let sectionGap: CGFloat = 18

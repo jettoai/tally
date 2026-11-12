@@ -223,12 +223,12 @@ func checkPanelSummon() {
     }
 
     // 9b. AND A SUMMONED WINDOW HAS TO BE THE HEIGHT THE NEW DISPLAY ALLOWS, which is the half the
-    //     first round of this fix missed (found by review of 8cdafad). The settings window fits the
-    //     pane in front of it whole and lets only the display overrule it, and that answer is a
-    //     different number on a different display - while the CONTENT is the same, so the report
-    //     that would recompute it never arrives. Moving such a window without re-fitting leaves it
-    //     at the tall display's height on a short one, where a clamp can only save the title bar:
-    //     everything below the screen's bottom edge, the buttons included, stays unreachable.
+    //     first round of this fix missed (found by review of 8cdafad). The settings window is one
+    //     fixed size and lets only the display overrule its height, and that answer is a different
+    //     number on a different display - while the content is the same. Moving such a window
+    //     without re-sizing leaves it at the tall display's height on a short one, where a clamp can
+    //     only save the title bar: everything below the screen's bottom edge, the buttons included,
+    //     stays unreachable.
     //
     //     Enumerated on the arithmetic, which is why it is arithmetic: fits / capped / floored /
     //     unchanged are the whole set of things a display can do to a reported height.
@@ -294,31 +294,48 @@ func checkPanelSummon() {
               && near(stuck.y, shortScreen.maxY))
 
     let settingsSource = code(of: "Tally/MenuBar/SettingsWindowController.swift")
-    check("the settings window fits its height to the display it is going to, before it is placed there",
-          precedes("fitHeight(on: NSScreen.pointerScreen)", "window?.centerOnPointerScreen()",
+    check("the settings window sizes itself for the display it is going to, before it is placed there",
+          precedes("applyFixedSize(on: NSScreen.pointerScreen)", "window?.centerOnPointerScreen()",
                    in: settingsSource)
               && precedes("window?.centerOnPointerScreen()", "window?.clampOnScreen()",
                           in: settingsSource))
-    check("…keeping the reported height rather than only the applied one, since no new report is coming",
-          settingsSource.contains("private var reportedHeight: CGFloat = 0")
-              && settingsSource.contains("reportedHeight = height"))
-    check("…through the one function that writes this window's height, not a second frame write",
+    // THE SIZE COMES FROM THE CHROME CONSTANTS AND NOTHING ELSE. A view that reports a height, or a
+    // controller that keeps one, is a second size authority and the pane-fitted window is back.
+    check("…from the fixed window constants, with no height reported by the view",
+          settingsSource.contains("SettingsChrome.windowHeight - chrome")
+              && settingsSource.contains("SettingsChrome.windowWidth")
+              && !settingsSource.contains("reportedHeight")
+              && !settingsSource.contains("onContentHeight")
+              && !settingsSource.contains("onPaneSwitch")
+              && !settingsSource.contains("applyContentHeight")
+              && !settingsSource.contains("applyPaneSwitch"))
+    check("…through the one function that writes this window's frame, not a second frame write",
           settingsSource.components(separatedBy: "setFrame(").count == 2
-              && settingsSource.contains("private func fitHeight(on screen: NSScreen?) {"))
+              && settingsSource.contains("private func applyFixedSize(on screen: NSScreen?) {")
+              && settingsSource.components(separatedBy: "setContentSize(").count == 2
+              && settingsSource.contains(
+                  "setContentSize(NSSize(width: SettingsChrome.windowWidth, height: SettingsChrome.windowHeight))"))
     check("…and the cap itself is the shared arithmetic rather than numbers inline here",
-          settingsSource.contains("ResizeAnchor.fittedWindowHeight(reported: reportedHeight,")
+          settingsSource.contains("ResizeAnchor.fittedWindowHeight(reported: SettingsChrome.windowHeight - chrome,")
               && !settingsSource.contains("- 40") && !settingsSource.contains("max(200,"))
-    // Same-screen summons must not resize either, and the guard that decides that is a comparison
-    // against the height the window already has: without it, every summon writes a frame.
-    check("…with no write at all when the fitted height is the height it already is",
-          settingsSource.contains("guard abs(target - window.frame.height) > 1 else { return }"))
+    // Same-screen summons must not rewrite the frame either: the guard is a comparison against the
+    // size the window already has, and without it every summon writes one.
+    check("…with no write at all when the size is the size it already is",
+          settingsSource.contains(
+              "guard ResizeAnchor.needsResize(from: window.frame.size, to: size) else { return }"))
+    // A RESTORE KEEPS THE SAVED POSITION BUT NOT THE SAVED SIZE. The frame autosave brings back the
+    // size the window last had, and with no content report any more nothing else would correct an
+    // older build's pane-fitted height.
+    check("…including a launch-time restore, which has no summon to size it",
+          settingsSource.contains("if restoring {\n            applyFixedSize(on: window?.screen)")
+              && settingsSource.components(separatedBy: "applyFixedSize(on:").count >= 3)
 
-    // 9bb. AND THE HEIGHT IT FITS IS THE PANE IN FRONT, not the tallest of the five. All five used
-    //      to lay out together so a tab switch never resized the window, which stood every pane in
-    //      the Launch pane's window and left About mostly empty (Albert, 2026-08-23). Asserted on
-    //      both sides - the shape that fits one pane, and the absence of the shape that laid out
-    //      all of them - because the old one is invisible once it works: a ZStack of five panes
-    //      still SHOWS the right pane, it only sizes the window to the wrong one.
+    // 9bb. AND THE SCROLL LENGTH IS THE PANE IN FRONT, not the tallest of the five. The window is
+    //      one fixed size, so what a pane's own height decides is how far the column scrolls: all
+    //      five laid out together would scroll About through as much blank page as Integrations is
+    //      tall. Asserted on both sides - the shape that gives a height to one pane, and the absence
+    //      of the shape that laid out all of them - because the old one is invisible once it works:
+    //      a ZStack of five panes still SHOWS the right pane, it only scrolls the wrong length.
     let settingsView = code(of: "Tally/Views/SettingsView.swift")
     check("the settings view gives a height to the selected pane and none to the rest",
           settingsView.contains(".frame(height: section == item ? nil : 0, alignment: .top)")
@@ -342,20 +359,20 @@ func checkPanelSummon() {
         && launchRows.contains("@State private var stagedEffort: String?")
     check("staged, unapplied launch defaults are not thrown away by a visit to another pane",
           !stagedIsViewState || settingsView.contains("paneContent(item)"))
-    // The floor under a short pane is the sidebar, MEASURED. A constant here is only ever wrong on
-    // the shortest pane, which is exactly where nobody looks - and it goes stale on a new section.
-    check("…with the sidebar measured as the floor rather than allowed for with a number",
-          settingsView.contains("max((paneHeights[item] ?? 0) + Self.paneInsetV, sidebarHeight + sidebarFooterHeight)")
-              && !settingsView.contains("max(height, 250)"))
-    // And the sidebar's measurement stops before the spacer that fills the window: measuring that
-    // one would be measuring the window's height and reporting it back as the content's.
-    // Adjacency rather than order, because `Spacer(minLength: 0)` is written twice in this file
-    // with two meanings - the one inside a sidebar ROW pushes its label left, and the one being
-    // asserted here fills the column. An assertion that matched whichever came first matched the
-    // wrong one the moment the rows were inlined into the sidebar.
-    check("…measuring the sidebar's rows, never the spacer that fills whatever the window becomes",
-          settingsView.contains(".background(heightProbe { sidebarHeight = $0 })\n"
-              + "            Spacer(minLength: 0)"))
+    // THE VIEW REPORTS NO SIZE, so there is nothing for the window to follow. A probe, a measured
+    // height or a callback in the view is the pane-fitted window coming back through the front door.
+    check("the settings view reports no height to the window",
+          !settingsView.contains("onContentHeight")
+              && !settingsView.contains("onPaneSwitch")
+              && !settingsView.contains("paneHeights")
+              && !settingsView.contains("heightProbe")
+              && !settingsView.contains("GeometryReader"))
+    // The sidebar's footer (a private build's account chip) is pushed to the foot of the window by
+    // the spacer, not measured. Adjacency rather than order, because `Spacer(minLength: 0)` is
+    // written twice in this file with two meanings - the one inside a sidebar ROW pushes its label
+    // left, and the one being asserted here fills the column.
+    check("…and the sidebar's footer is pushed to the foot of the window by a spacer, not measured",
+          settingsView.contains("Spacer(minLength: 0)\n            overlaySidebarFooter"))
 
     // 9bc. THE CHANGE IS NEVER ANIMATED (Albert, 2026-10-10: the growing window read as the pane
     //      "unrolling" under the click). Asserted as an absence of every way AppKit animates a
@@ -366,10 +383,10 @@ func checkPanelSummon() {
               && !settingsSource.contains("animate:")
               && settingsSource.contains("window.setFrame(frame, display: true)"))
     check("…and the resize holds the top edge, so the sidebar row under the cursor does not move",
-          settingsSource.contains("frame.origin.y = top - target"))
-    // The autosaved frames of the previous name are tallest-pane heights. Restoring one would open
-    // the window too tall and leave it there until the first tab switch re-fitted it.
-    check("…and the autosave name moved past the heights the old rule saved",
+          settingsSource.contains("frame.origin.y = top - height"))
+    // The autosave name stays v6: the size it saves is rewritten on every show (above), so an old
+    // saved size cannot win, and a new name would only throw away every user's saved position.
+    check("…and the autosave name is v6, not v5 (whose saved heights were the tallest pane's)",
           settingsSource.contains("TallySettingsWindow.v6")
               && !settingsSource.contains("TallySettingsWindow.v5"))
 
@@ -408,17 +425,24 @@ func checkPanelSummon() {
     }
 }
 
-// A PANE SWITCH NEVER PUTS A PANE IN A WINDOW THE WRONG SIZE FOR IT (Albert, 2026-09-28: the window
-// "unrolled" under a pane that was already there and cut off; 2026-10-10: and not by animating
-// between them either). The pane and the window's height change in the same turn as the click.
+// A PANE SWITCH NEVER CHANGES THE WINDOW (Albert, 2026-09-28: the window "unrolled" under a pane
+// that was already there; 2026-10-10: and not by animating between them either; 2026-11-12: it
+// still grew and shrank on every sidebar click). The window is one size on every pane, and a switch
+// only changes the pane and scrolls it to its top.
 func checkPaneSwitchOrder() {
-    // Two panes both over the display's cap land on one window height, so the switch writes no
-    // frame (fitHeight's no-op guard) and only the pane changes.
-    check("two panes both past the display's cap are one window height, so there is nothing to resize",
-          near(ResizeAnchor.fittedWindowHeight(reported: 1200, chrome: 28, visibleHeight: 900),
-               ResizeAnchor.fittedWindowHeight(reported: 1400, chrome: 28, visibleHeight: 900)))
+    // The fixed content height is the only thing the window asks the display about: 700 in total on
+    // a display with room, and the display's cap on one without.
+    check("the fixed height is the window's height on a tall display and the display's cap on a short one",
+          near(ResizeAnchor.fittedWindowHeight(reported: 700 - 28, chrome: 28, visibleHeight: 1400), 700)
+              && near(ResizeAnchor.fittedWindowHeight(reported: 700 - 28, chrome: 28, visibleHeight: 700),
+                      700 - ResizeAnchor.screenMargin))
+    let chromeSource = code(of: "Tally/Views/SettingsChrome.swift")
+    check("…and that height and the width come from one place, the chrome constants",
+          chromeSource.contains("static let windowHeight: CGFloat = 700")
+              && chromeSource.contains("static var windowWidth: CGFloat { sidebarWidth + contentWidth }")
+              && !chromeSource.contains("maxWindowHeight"))
 
-    // Every way a pane changes goes through the one function that changes both halves together.
+    // Every way a pane changes goes through the one function.
     let view = code(of: "Tally/Views/SettingsView.swift")
     let assignments = view.split(separator: "\n").filter {
         $0.trimmingCharacters(in: .whitespaces).hasPrefix("section = ")
@@ -428,23 +452,19 @@ func checkPaneSwitchOrder() {
     check("…and the sidebar and the Launch pane's link both go through it",
           view.contains("Button {\n                    select(item)\n                }")
               && view.contains("select(.integrations)"))
-    check("…which hands the window the new height in the same turn, with nothing waiting on it",
-          view.contains("        section = item\n        onPaneSwitch(reportedHeight(for: item))")
+    check("…which changes the pane and scrolls it to the top, with nothing waiting on it",
+          view.contains("        section = item\n        scrollTarget = Self.paneTopAnchor")
+              && view.contains("Color.clear.frame(height: 0).id(Self.paneTopAnchor)")
               && !view.contains("pendingSection"))
+    // The Launch link scrolls to a group of the pane it lands on, after the switch has asked for the
+    // top; the scroll request is consumed on its last value, so the link still wins.
+    check("…and the Launch pane's link asks for its group after the switch asked for the top",
+          precedes("select(.integrations)", "scrollTarget = Self.sharedHarnessAnchor", in: view))
     let controller = code(of: "Tally/MenuBar/SettingsWindowController.swift")
-    check("…and the window applies it at once rather than a runloop turn later",
-          controller.contains("""
-                  private func applyPaneSwitch(_ height: CGFloat) {
-                      guard height.isFinite, height > 1 else { return }
-                      reportedHeight = height
-                      fitHeight(on: window?.screen)
-                  }
-              """))
-    // A report (an Integrations page, an account added) lands in the same commit too: deferring it a
-    // runloop turn left one frame of a taller page cut by the old height (measured 2026-10-10). Safe
-    // only because this write is the ONE size authority, so both halves are asserted together.
-    check("…and so does a reported height, with the frame write the window's only size authority",
-          controller.contains("abs(height - reportedHeight) > 1 else { return }\n        reportedHeight = height\n        fitHeight(on: window?.screen)\n    }")
-              && !controller.contains("DispatchQueue.main.async { [weak self] in\n            self?.fitHeight")
+    check("…and the window is not asked to do anything about it",
+          !controller.contains("applyPaneSwitch")
+              && !view.contains("onPaneSwitch")
               && controller.contains("hosting.sizingOptions = []"))
+    check("…the view handed to the window carries only its two stores",
+          controller.contains("NSHostingController(rootView: SettingsView(store: .shared, settings: .shared))"))
 }

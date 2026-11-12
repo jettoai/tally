@@ -100,7 +100,7 @@ struct ProcessCPUEvent: Equatable, Sendable {
     var app: String? = nil
 }
 
-enum ProcessCPUOwner: Equatable, Sendable { case tally, system, none }
+enum ProcessCPUOwner: String, Equatable, Sendable { case tally, system, none }
 
 enum ProcessCPUWatchLogic {
     /// The Settings switch (`SettingsStore.processCPUAlertEnabled` writes it); on unless turned off.
@@ -221,22 +221,7 @@ enum ProcessCPUWatchLogic {
             }
             let percent = delta / gap * 100
             track.lastPercent = percent
-            if track.alarmedSince == nil {
-                if percent >= limits.percent {
-                    let since = track.overSince ?? windowStart
-                    track.overSince = since
-                    if now.timeIntervalSince(since) >= limits.sustain {
-                        track.alarmedSince = since
-                        track.announced = announcing
-                        track.overSince = nil
-                        events.append(ProcessCPUEvent(kind: .alarm, pid: row.pid, path: row.path,
-                                                      percent: percent, since: since, until: now,
-                                                      announced: announcing))
-                    }
-                } else {
-                    track.overSince = nil
-                }
-            } else if let alarmedSince = track.alarmedSince {
+            if let alarmedSince = track.alarmedSince {
                 if percent < limits.percent {
                     let under = track.underSince ?? windowStart
                     track.underSince = under
@@ -251,6 +236,19 @@ enum ProcessCPUWatchLogic {
                 } else {
                     track.underSince = nil
                 }
+            } else if percent >= limits.percent {
+                let since = track.overSince ?? windowStart
+                track.overSince = since
+                if now.timeIntervalSince(since) >= limits.sustain {
+                    track.alarmedSince = since
+                    track.announced = announcing
+                    track.overSince = nil
+                    events.append(ProcessCPUEvent(kind: .alarm, pid: row.pid, path: row.path,
+                                                  percent: percent, since: since, until: now,
+                                                  announced: announcing))
+                }
+            } else {
+                track.overSince = nil
             }
             next.tracks[row.pid] = track
         }
@@ -283,6 +281,10 @@ enum ProcessCPUWatchLogic {
         return clean.isEmpty ? "unknown" : clean
     }
 
+    private static func appName(_ event: ProcessCPUEvent) -> String? {
+        event.app.map(keystrokeStripped).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     /// The process's name with its owner tag: `tally (Tally)`, `fseventsd (system)`, `com.docker (Docker)`.
     static func label(_ event: ProcessCPUEvent, localized: (String) -> String,
                       displayName: (String) -> String?) -> String {
@@ -290,7 +292,7 @@ enum ProcessCPUWatchLogic {
         switch owner(path: event.path) {
         case .tally: return base + " (Tally)"
         case .system:
-            let who = event.app.map(keystrokeStripped).flatMap { $0.isEmpty ? nil : $0 } ?? localized("system")
+            let who = appName(event) ?? localized("system")
             return base + String(format: localized(" (%@)"), who)
         case .none: return base
         }
@@ -298,7 +300,10 @@ enum ProcessCPUWatchLogic {
 
     /// Hottest first, ties by pid, so the title names the one worth looking at.
     private static func ranked(_ events: [ProcessCPUEvent]) -> [ProcessCPUEvent] {
-        events.sorted { ($0.percent ?? 0) == ($1.percent ?? 0) ? $0.pid < $1.pid : ($0.percent ?? 0) > ($1.percent ?? 0) }
+        events.sorted {
+            let (a, b) = ($0.percent ?? 0, $1.percent ?? 0)
+            return a == b ? $0.pid < $1.pid : a > b
+        }
     }
 
     private static func title(_ events: [ProcessCPUEvent], one: String, many: String,
@@ -362,11 +367,8 @@ enum ProcessCPUWatchLogic {
         } else {
             line += " held_min=\(minutes(event.until.timeIntervalSince(event.since)))"
         }
-        let owner = owner(path: event.path)
-        let ownerText = owner == .tally ? "tally" : owner == .system ? "system" : "none"
-        line += " announced=\(event.announced ? "yes" : "no") owner=\(ownerText)"
-        let app = event.app.map(keystrokeStripped).flatMap { $0.isEmpty ? nil : $0 }
-        if let app { line += " app=\(app.replacingOccurrences(of: " ", with: "_"))" }
+        line += " announced=\(event.announced ? "yes" : "no") owner=\(owner(path: event.path).rawValue)"
+        if let app = appName(event) { line += " app=\(app.replacingOccurrences(of: " ", with: "_"))" }
         return line + " name=\(name(event.path, displayName: displayName))\n"
     }
 

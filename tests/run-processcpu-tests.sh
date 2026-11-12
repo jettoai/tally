@@ -9,6 +9,6 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/processcpu/main.swift \
   Tally/Core/ProcessCPUWatchLogic.swift Tally/Core/ProcessCPUWatchReaders.swift \
-  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostQueue.swift Tally/Core/HostHealthStatus.swift Tally/Core/HostHealthNaming.swift Tally/Core/HostHealthSessions.swift \
+  Tally/Core/HostHealthLogic.swift Tally/Core/HostHealthCPU.swift Tally/Core/HostHealthStatus.swift Tally/Core/HostHealthNaming.swift Tally/Core/HostHealthSessions.swift \
   Tally/Core/KeystrokeText.swift TallyCLI/HostHealthKnockLogic.swift
 "$out"

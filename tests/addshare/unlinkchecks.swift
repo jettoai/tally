@@ -502,9 +502,10 @@ func runUnlinkChecks(root: URL) {
           handOff.contains("select(.integrations)"))
     check("…and scrolled to the group the sharing control is in, not left at the top of a long page",
           handOff.contains("scrollTarget = Self.sharedHarnessAnchor"))
-    // The window's way out: a sidebar row that terminates the app, labelled from the catalogue.
-    let quitBody = String(flat.components(separatedBy: "private var quitRow").dropFirst().first?
-        .prefix(400) ?? "")
-    check("the settings sidebar has a Quit Tally row that terminates the app",
-          quitBody.contains("NSApp.terminate(nil)") && quitBody.contains("L(\"Quit Tally\")"))
+    // The window's way out: a Quit button at the foot of the About page, labelled from the catalogue.
+    let aboutSource = (try? String(contentsOfFile: "Tally/Views/SettingsAboutPane.swift", encoding: .utf8)) ?? ""
+    check("the About page has a Quit Tally button that terminates the app",
+          aboutSource.contains("NSApp.terminate(nil)") && aboutSource.contains("L(\"Quit Tally\")"))
+    check("…and the sidebar no longer carries a Quit row",
+          !flat.contains("private var quitRow"))
 }

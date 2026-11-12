@@ -26,6 +26,10 @@ extension SettingsView {
                 SettingsDivider()
                 SettingsUsagePingRow()
             }
+
+            // The window's way out: the status item's secondary-click menu was the only Quit.
+            Button { NSApp.terminate(nil) } label: { Text(L("Quit Tally")) }
+                .buttonStyle(.bordered)
         }
     }
 }

@@ -197,12 +197,18 @@ expect(WelcomeFlow.previewPathState(named: "signin-offpath") == (true, false)
 // MARK: orderings a type check cannot see
 
 func source(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
+/// Both texts are present and `first` comes before `second`.
+func precedes(_ first: String, _ second: String, in text: String) -> Bool {
+    guard let a = text.range(of: first), let b = text.range(of: second) else { return false }
+    return a.lowerBound < b.lowerBound
+}
+/// The body of the four-space-indented member that starts with `header`, up to its closing brace.
+func memberBody(_ header: String, in text: String) -> String {
+    text.components(separatedBy: header).dropFirst().first?.components(separatedBy: "\n    }").first ?? ""
+}
 let delegate = source("Tally/App/AppDelegate.swift")
-if let read = delegate.range(of: "LaunchAtLoginDefault.hasLaunchedBefore()"),
-   let record = delegate.range(of: "LaunchAtLoginDefault.recordLaunch()") {
-    expect(read.lowerBound < record.lowerBound,
-           "the launch reads whether this app ran before BEFORE it records this launch")
-} else { expect(false, "the launch reads whether this app ran before BEFORE it records this launch") }
+expect(precedes("LaunchAtLoginDefault.hasLaunchedBefore()", "LaunchAtLoginDefault.recordLaunch()", in: delegate),
+       "the launch reads whether this app ran before BEFORE it records this launch")
 expect(!delegate.contains("applyIfNeeded") && !delegate.contains("setRegistered")
         && !delegate.contains("registerFromWelcome") && !delegate.contains("SMAppService"),
        "launch registers no login item (B-3747: the welcome window's box is the only way in)")
@@ -355,29 +361,24 @@ func branch(_ header: String, in text: String, after marker: String) -> String {
 }
 let primaryFound = branch("case .found, .success:", in: welcomeStore, after: "func primary() {")
 let secondaryFound = branch("case .found, .success:", in: welcomeStore, after: "func secondary() {")
-expect(primaryFound.contains("commitLoginChoice()") && primaryFound.contains("showUsage()")
-        && primaryFound.range(of: "commitLoginChoice()")!.lowerBound < primaryFound.range(of: "showUsage()")!.lowerBound,
+expect(precedes("commitLoginChoice()", "showUsage()", in: primaryFound),
        "Show My Usage registers (when ticked) before it closes the window")
-expect(secondaryFound.contains("commitLoginChoice()") && secondaryFound.contains("addAnotherAccount()")
-        && secondaryFound.range(of: "commitLoginChoice()")!.lowerBound < secondaryFound.range(of: "addAnotherAccount()")!.lowerBound,
+expect(precedes("commitLoginChoice()", "addAnotherAccount()", in: secondaryFound),
        "Add Another Account registers (when ticked) before it opens Settings")
 expect(!windowClosedBody.contains("commitLoginChoice") && !windowClosedBody.contains("LaunchAtLoginDefault"),
        "closing the welcome window registers nothing")
-let showUsageBody = welcomeStore.components(separatedBy: "func showUsage() {").dropFirst().first?
-    .components(separatedBy: "\n    }").first ?? ""
+let showUsageBody = memberBody("func showUsage() {", in: welcomeStore)
 expect(!showUsageBody.isEmpty && !showUsageBody.contains("LaunchAtLoginDefault")
         && !showUsageBody.contains("commitLoginChoice"),
        "showUsage() itself registers nothing: only the two finishing buttons do")
-let commitBody = welcomeStore.components(separatedBy: "private func commitLoginChoice() {").dropFirst().first?
-    .components(separatedBy: "\n    }").first ?? ""
+let commitBody = memberBody("private func commitLoginChoice() {", in: welcomeStore)
 expect(commitBody.contains("guard preview == nil")
         && commitBody.contains("LaunchAtLoginDefault.registerFromWelcome(wanted: openAtLogin)"),
        "a held preview registers nothing; otherwise the box decides")
 expect(welcomeStore.components(separatedBy: "commitLoginChoice()").count - 1 == 3,
        "commitLoginChoice is called from exactly the two finishing buttons (plus its definition)")
 expect(welcomeStore.contains("var openAtLogin = true")
-        && (welcomeStore.components(separatedBy: "func begin(").dropFirst().first?
-            .components(separatedBy: "\n    }").first ?? "").contains("openAtLogin = true"),
+        && memberBody("func begin(", in: welcomeStore).contains("openAtLogin = true"),
        "the box starts ticked, and every visit to the window starts it ticked again")
 let found2 = welcomeView.components(separatedBy: "case .found:\n            rowsCard").dropFirst().first?
     .components(separatedBy: "case .needsCLI").first ?? ""

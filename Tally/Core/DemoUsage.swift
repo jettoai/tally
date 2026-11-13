@@ -53,6 +53,12 @@ enum DemoUsage {
         BuildVariant.isDev && isActive && UserDefaults.standard.bool(forKey: "TallyLoginHealthPreview")
     }
 
+    /// `-TallyLoginHealthPreviewRenewed YES` (with the preview above): the fixture session marks
+    /// start out retired, as after a renewal landed. A simulation for captures, not a real login.
+    static var loginHealthPreviewRenewed: Bool {
+        loginHealthPreview && UserDefaults.standard.bool(forKey: "TallyLoginHealthPreviewRenewed")
+    }
+
     /// The fixture whose identity callout `-TallyTooltipPreview identity` holds open: the Team
     /// account that shares its address with the Pro one, which is the whole point that callout's
     /// second line exists to make.

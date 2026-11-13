@@ -61,6 +61,29 @@ expect(health.advance(sessions: [], deadlines: [account: newDeadline], known: kn
        "accepted submissions remain deduplicated after relaunch")
 _ = health.advance(sessions: [], deadlines: [:], known: [], now: now)
 expect(health.deadlines.isEmpty && health.expiryKeys.isEmpty, "removed accounts release deadline state")
+// B-4530: a renewal retires the account's session failures up to the moment it landed.
+let landed = now.addingTimeInterval(60)
+let other = LoginHealthSession(id: "200:201:claude:other", accountID: "claude:other",
+                               childPid: 201, directory: "/other", failedAt: now)
+let later = LoginHealthSession(id: incident.id, accountID: account, childPid: 101,
+                               directory: "/fixture", failedAt: landed.addingTimeInterval(5))
+var retiring = LoginHealthAlerts()
+expect(retiring.isRetired(incident) == false, "nothing is retired before a renewal")
+retiring.retire(account, at: landed)
+expect(retiring.isRetired(incident), "a failure before the renewal is retired")
+expect(retiring.isRetired(LoginHealthSession(id: "x", accountID: account, childPid: nil, directory: nil,
+                                             failedAt: landed)),
+       "a failure at the very moment of the renewal is retired too")
+expect(retiring.isRetired(later) == false, "a NEW failure after the renewal shows again")
+expect(retiring.isRetired(other) == false, "another account's session is not retired")
+let savedRetired = try JSONEncoder().encode(retiring)
+let reloaded = try JSONDecoder().decode(LoginHealthAlerts.self, from: savedRetired)
+expect(reloaded.isRetired(incident) && reloaded.isRetired(later) == false,
+       "the retirement survives a relaunch (reloaded from the persisted state)")
+let legacy = try JSONDecoder().decode(LoginHealthAlerts.self,
+                                      from: Data(#"{"sessions":["a"],"deadlines":{},"expiryKeys":[]}"#.utf8))
+expect(legacy.sessions == ["a"] && legacy.retiredAt.isEmpty,
+       "state saved before the retirement existed still loads")
 let oldSignedOut = LoginAlertLogic.advance(state: local, verdicts: [account: .signedOut], known: known)
 expect(oldSignedOut.1 == [account], "the original signed-out alert remains independent")
 

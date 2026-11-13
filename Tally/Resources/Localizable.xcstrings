@@ -18478,37 +18478,37 @@
         }
       }
     },
-    "A session that already got a sign-in error needs a message sent in it, or /login, to pick up the new sign-in.": {
+    "Sessions that failed earlier (%d): send a message in each, or run /login, to confirm they recovered.": {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已收到登入錯誤的工作階段，需要在該工作階段送出一則訊息或執行 /login，才會套用新的登入。"
+            "value" : "先前出錯的工作階段（%d 個）：請在各個工作階段裡送出一則訊息或執行 /login，確認已恢復。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已收到登录错误的会话，需要在该会话发送一条消息或运行 /login，才会使用新的登录。"
+            "value" : "之前出错的会话（%d 个）：请在每个会话里发送一条消息或运行 /login，确认已恢复。"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ログインエラーを受け取ったセッションは、そのセッションでメッセージを送るか /login を実行すると新しいログインが反映されます。"
+            "value" : "以前エラーになったセッション（%d 件）：それぞれのセッションでメッセージを送るか /login を実行して、復旧を確認してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "로그인 오류를 받은 세션은 해당 세션에서 메시지를 보내거나 /login을 실행해야 새 로그인이 적용됩니다."
+            "value" : "이전에 오류가 난 세션(%d개): 각 세션에서 메시지를 보내거나 /login을 실행해 복구되었는지 확인하세요."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Giriş hatası almış bir oturumda yeni girişin geçerli olması için o oturumda bir mesaj gönderin veya /login çalıştırın."
+            "value" : "Daha önce hata veren oturumlar (%d): Düzeldiğini doğrulamak için her birinde bir mesaj gönderin veya /login çalıştırın."
           }
         }
       }

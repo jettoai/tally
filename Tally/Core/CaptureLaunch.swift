@@ -116,6 +116,8 @@ enum CaptureLaunch {
     static let modifierKeys = ["TallyUpdateChipReady", "TallyUpdateChipBusy", "TallyTokenGraphHover",
                                // Login incident fixtures only qualify TallyDemoData in a dev build.
                                "TallyLoginHealthPreview",
+                               // Qualifies the preview above: its session marks start retired (B-4530).
+                               "TallyLoginHealthPreviewRenewed",
                                // Qualifies TallyDemoData: two fixtures read as failed first polls.
                                "TallyDemoHardError",
                                // Qualifies TallyDemoData: Claude 4 held over past its 5h reset.

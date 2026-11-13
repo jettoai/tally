@@ -34,6 +34,8 @@ final class LoginHealthStore {
 
     func problems(_ accountID: String) -> [LoginHealthSession] {
         if DemoUsage.loginHealthPreview && ["claude:demo-Claude 2", "claude:demo-Claude 3"].contains(accountID) {
+            // The fixture sessions after a (simulated) renewal landed: nothing left to show.
+            if DemoUsage.loginHealthPreviewRenewed { return [] }
             return [LoginHealthSession(id: "demo", accountID: accountID, childPid: nil,
                                        directory: nil, failedAt: Date())]
         }
@@ -59,7 +61,7 @@ final class LoginHealthStore {
             return LoginHealthSession(id: row.id + ":" + String(row.childPid ?? 0) + ":" + accountID,
                                       accountID: accountID, childPid: row.childPid,
                                       directory: row.directory, failedAt: failedAt)
-        }
+        }.filter { !alerts.isRetired($0) }
         announce()
     }
 
@@ -95,7 +97,23 @@ final class LoginHealthStore {
         announce()
     }
 
-    /// Retire metadata read before a credential change without clearing live session incidents.
+    /// A renewal landed for this account: every session failure up to `at` is retired, and the count
+    /// of marks that went is returned so the caller can say so. This is a deliberate inference
+    /// (B-4530): Tally cannot read what credential each running session holds, so a session that
+    /// is idle and genuinely still failing stops showing red until it is used again and fails anew
+    /// (a later `failedAt` is not retired). The "renewed" notice carries the sentence that covers
+    /// that gap. Persisted, so a relaunch keeps it retired.
+    @discardableResult
+    func retireSessions(_ accountID: String, at: Date) -> Int {
+        let count = sessions.filter { $0.accountID == accountID && $0.failedAt <= at }.count
+        alerts.retire(accountID, at: at)
+        sessions.removeAll { alerts.isRetired($0) }
+        save()
+        return count
+    }
+
+    /// Retire the credential-deadline metadata read before a credential change. Session incidents
+    /// are retired separately, by `retireSessions`.
     func invalidate(_ accountID: String) {
         deadlines[accountID] = nil
         generations[accountID, default: 0] += 1

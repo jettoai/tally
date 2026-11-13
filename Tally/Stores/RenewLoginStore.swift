@@ -147,11 +147,14 @@ final class RenewLoginStore {
                 // The verdict goes out FIRST. The refresh below re-reads every account through
                 // their CLIs and takes seconds, and a user who just finished a sign-in should not
                 // wait on unrelated network calls to hear whether it worked.
-                // A session of this account that already got its 401 keeps its own mark: say so.
+                // The account's session marks go with the renewal (B-4530). That is an inference:
+                // Tally cannot see what credential each running session holds, so the notice asks
+                // for a message in each one that was cleared to confirm it recovered.
+                let retired = LoginHealthStore.shared.retireSessions(accountID, at: Date())
                 let body = AccountSignIn.renewedBody(
                     L("This account is signed in again."),
-                    sessionNote: L("A session that already got a sign-in error needs a message sent in it, or /login, to pick up the new sign-in."),
-                    hasSessionIncident: !LoginHealthStore.shared.problems(accountID).isEmpty)
+                    sessionNote: String(format: L("Sessions that failed earlier (%d): send a message in each, or run /login, to confirm they recovered."), retired),
+                    retiredCount: retired)
                 _ = await SystemAlert.post(title: "\(named) · " + L("Login renewed"), body: body)
                 // The reason to renew is usually that this account stopped reading, so ask again
                 // now rather than leaving a recovered account looking broken until the next tick.

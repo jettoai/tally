@@ -24,6 +24,15 @@ struct LoginHealthAlerts: Codable, Equatable {
     var sessions: Set<String> = []
     var deadlines: [String: Date] = [:]
     var expiryKeys: Set<String> = []
+    /// Per account, when a renewal landed: every session failure at or before it is retired (B-4530).
+    /// Persisted with the rest, so a relaunch does not bring the same red mark back.
+    var retiredAt: [String: Date] = [:]
+
+    func isRetired(_ session: LoginHealthSession) -> Bool {
+        retiredAt[session.accountID].map { session.failedAt <= $0 } ?? false
+    }
+
+    mutating func retire(_ accountID: String, at: Date) { retiredAt[accountID] = at }
 
     mutating func advance(sessions active: [LoginHealthSession], deadlines observed: [String: Date],
                           known: Set<String>, now: Date) -> [LoginHealthAlert] {
@@ -70,5 +79,16 @@ struct LoginHealthAlerts: Codable, Equatable {
 
     private func expiryKey(_ id: String, _ date: Date, _ kind: LoginHealthAlert.Kind) -> String {
         id + ":" + String(date.timeIntervalSince1970) + ":" + kind.rawValue
+    }
+}
+
+extension LoginHealthAlerts {
+    /// State saved before `retiredAt` existed has no such key; it must still load.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try values.decodeIfPresent(Set<String>.self, forKey: .sessions) ?? []
+        deadlines = try values.decodeIfPresent([String: Date].self, forKey: .deadlines) ?? [:]
+        expiryKeys = try values.decodeIfPresent(Set<String>.self, forKey: .expiryKeys) ?? []
+        retiredAt = try values.decodeIfPresent([String: Date].self, forKey: .retiredAt) ?? [:]
     }
 }

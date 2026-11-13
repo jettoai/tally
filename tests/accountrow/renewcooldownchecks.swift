@@ -1,7 +1,7 @@
 import Foundation
 
-/// B-4530: the cooldown that refuses a repeat "Renew login" and the notice sentence about a session
-/// that keeps its own mark. Its own file because the account-row checks sit at the test-file size cap.
+/// B-4530: the cooldown that refuses a repeat "Renew login" and the notice sentence about the session
+/// marks a renewal retired. Its own file because the account-row checks sit at the test-file size cap.
 func runRenewCooldownChecks() {
     var failed = 0
     func check(_ name: String, _ condition: Bool) {
@@ -31,11 +31,11 @@ func runRenewCooldownChecks() {
 
     // MARK: - The "renewed" notice says what it did not fix (B-4530)
 
-    check("with a session incident on the account the notice carries the extra sentence",
-          AccountSignIn.renewedBody("Signed in.", sessionNote: "Session note.", hasSessionIncident: true)
+    check("when marks were retired the notice carries the extra sentence",
+          AccountSignIn.renewedBody("Signed in.", sessionNote: "Session note.", retiredCount: 2)
               == "Signed in. Session note.")
-    check("without one the notice is unchanged",
-          AccountSignIn.renewedBody("Signed in.", sessionNote: "Session note.", hasSessionIncident: false)
+    check("when none were it is unchanged",
+          AccountSignIn.renewedBody("Signed in.", sessionNote: "Session note.", retiredCount: 0)
               == "Signed in.")
 
     if failed > 0 { print("\(failed) FAILURES"); exit(1) }

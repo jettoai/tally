@@ -394,8 +394,18 @@ expect(sessionMark.contains("session.failedAt") && sessionMark.contains("lastPat
 expect(renewSource.contains("!cooldown.isCoolingDown(accountID, now: Date())")
         && renewSource.contains("cooldown.succeeded(accountID, at: Date())"),
        "a success is recorded and a repeat inside the window is refused inside renew itself")
-expect(renewSource.contains("hasSessionIncident: !LoginHealthStore.shared.problems(accountID).isEmpty"),
-       "the 'login renewed' notice asks whether a session of this account still has its mark")
+if let retire = renewSource.range(of: "LoginHealthStore.shared.retireSessions(accountID, at: Date())"),
+   let post = renewSource.range(of: "SystemAlert.post(title: \"\\(named) · \" + L(\"Login renewed\")") {
+    expect(retire.lowerBound < post.lowerBound
+            && renewSource.contains("retiredCount: retired)"),
+           "a success retires the account's session marks first, and the notice is told how many")
+} else {
+    expect(false, "the success path retires the session marks before it posts the verdict")
+}
+let healthStoreSource = readSource("Tally/Stores/LoginHealthStore.swift")
+expect(healthStoreSource.contains(".filter { !alerts.isRetired($0) }")
+        && healthStoreSource.contains("sessions.removeAll { alerts.isRetired($0) }"),
+       "the store drops retired sessions when it reads the roster and the moment it retires them")
 
 expect(factsSource.contains("LoginStatusStore.shared.isExpired(usage.id)"),
        "the surfaces read the verdict for ITS account, not a global flag")

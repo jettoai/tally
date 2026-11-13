@@ -38,11 +38,11 @@ enum AccountSignIn {
         isDormant ? "Not signed in. Click to sign in." : "Signed out. Click to sign in again."
     }
 
-    /// A renewal that landed fixes the ACCOUNT's login and nothing inside a session that already got
-    /// its 401: that session keeps its mark until it answers once more (B-4530). Say so while the
-    /// "login renewed" notice is still on screen, or the mark reads as a renewal that did not work.
-    static func renewedBody(_ body: String, sessionNote: String, hasSessionIncident: Bool) -> String {
-        hasSessionIncident ? body + " " + sessionNote : body
+    /// A renewal clears the account's session marks by inference, not by having seen those sessions
+    /// recover (B-4530), so the "login renewed" notice says how many it cleared and what confirms
+    /// them. Nothing cleared, nothing to add.
+    static func renewedBody(_ body: String, sessionNote: String, retiredCount: Int) -> String {
+        retiredCount > 0 ? body + " " + sessionNote : body
     }
 }
 

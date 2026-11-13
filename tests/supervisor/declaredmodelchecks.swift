@@ -47,12 +47,28 @@ func runDeclaredModelChecks() {
     /// typed flag and the policy; executing from the args the current child was spawned with.
     func tick(_ state: inout SessionModelState, args: [String], serving: String?, spawned: TimeInterval,
               typed: String? = nil) -> ModelGapAttribution {
-        tickModelGap(state: &state, handledCapacityKeys: [], reasserted: false,
+        tickModelGap(state: &state, handledCapacityKeys: [], reasserted: false, followLive: true,
                      watcher: watcher(serving: serving), driftActive: false, typedModel: typed,
                      policyModel: "sonnet", projectDeclares: false,
                      executing: launchPrimaryModel(args, providerID: "claude"),
                      spawnedAt: launch.addingTimeInterval(spawned), quotaEvidence: { false },
                      writeLog: false, now: launch.addingTimeInterval(spawned + 5))
+    }
+    /// A tick with the project profile restated, the way the supervisor calls it: the follow is live
+    /// only for what `follow.gated(by: !isPinned).any` says, the same expression the loop passes.
+    func restatedTick(pin: SessionModelPin = SessionModelPin(), following: FollowAxes = .both,
+                      serving: String?, state suppliedState: SessionModelState? = nil,
+                      spawned: TimeInterval = 0) -> (ModelGapAttribution, SessionModelState) {
+        var state = suppliedState ?? SessionModelState(sessionKey: "s3-restate", dir: dir)
+        state.pin = pin
+        let live = following.gated(by: !state.isPinned).any
+        let gap = tickModelGap(state: &state, handledCapacityKeys: [], reasserted: true, followLive: live,
+                               watcher: watcher(serving: serving), driftActive: false, typedModel: nil,
+                               policyModel: "sonnet", projectDeclares: true,
+                               executing: nil, spawnedAt: launch.addingTimeInterval(spawned),
+                               quotaEvidence: { false }, writeLog: false,
+                               now: launch.addingTimeInterval(spawned + 5))
+        return (gap, state)
     }
     /// What the supervisor hands the movers for this tick, and whether either plans anything.
     func moversPlan(_ gap: ModelGapAttribution, serving: String?) -> Bool {
@@ -151,6 +167,32 @@ func runDeclaredModelChecks() {
               return ledger.rewrite == nil
           }())
 
+    // MARK: a restatement only the follow can spend is not mirrored when the follow is off
+
+    // The project profile written again (`FollowState.reasserted`) is spent by the follow alone.
+    // Mirrored for a session whose follow is off, it read as `declarationMoved` for the rest of the
+    // session and the movers stood down on a real quota gap (1b1f96b).
+    let offSessions: [(String, SessionModelPin, FollowAxes, String?)] = [
+        ("a model pin", SessionModelPin(model: "opus", effort: nil), .both, sonnet),
+        ("a pin on the depth only", SessionModelPin(model: nil, effort: "high"), .both, opus),
+        ("a session whose follow axes are both off", SessionModelPin(), .none, opus),
+    ]
+    for (name, pin, following, serving) in offSessions {
+        let (gap, afterTick) = restatedTick(pin: pin, following: following, serving: serving)
+        check("a restated profile does not park \(name): the gap stays unexplained and the movers may act",
+              gap.cause == .unexplained(quotaEvidence: false) && gap.owner == .degradationMovers
+                  && degradationMoversMayAct(gap) && afterTick.gap.restatedAt == nil
+                  && moversPlan(gap, serving: serving))
+    }
+    let (live, liveState) = restatedTick(serving: opus)
+    check("control: a session that follows still reads the restatement as the follow's, that tick",
+          live.cause == .declarationMoved(source: .project) && live.owner == .follow
+              && !degradationMoversMayAct(live) && liveState.gap.restatedAt != nil)
+    let (again, _) = restatedTick(pin: SessionModelPin(model: "opus", effort: nil), serving: sonnet,
+                                  state: liveState, spawned: 30)
+    check("the next step: once the follow is off, a restatement already mirrored is dropped and the movers act",
+          again.cause == .unexplained(quotaEvidence: false) && degradationMoversMayAct(again))
+
     // MARK: I8 and the two readings, as source
 
     let attribution = (try? String(contentsOfFile: "TallyCLI/ModelGapAttribution.swift", encoding: .utf8)) ?? ""
@@ -181,6 +223,9 @@ func runDeclaredModelChecks() {
     let pair = "sessionPin: sessionModelState.pin)\n"
         + String(repeating: " ", count: 16)
         + "sessionModelState.gap.noteRelaunch(reason: plan.reason, model: plan.model, at: Date())"
+    check("the loop gates the restatement on the very expression the follow is run with",
+          supervisor.contains("followLive: follow.gated(by: !sessionModelState.isPinned).any,")
+              && supervisor.contains("following: follow.gated(by: !sessionModelState.isPinned),"))
     check("the relaunch execution point writes the args and then the record, once",
           supervisor.components(separatedBy: "sessionModelState.gap.noteRelaunch(").count == 2
               && supervisor.contains(pair))

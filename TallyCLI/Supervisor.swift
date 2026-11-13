@@ -768,7 +768,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // (ModelGapAttribution.swift). The degradation movers read it; nothing else yet.
             let gap = tickModelGap(state: &sessionModelState,
                                    handledCapacityKeys: overloadRevert.brake.handled,
-                                   reasserted: followState.reasserted, watcher: watcher,
+                                   reasserted: followState.reasserted,
+                                   followLive: follow.gated(by: !sessionModelState.isPinned).any,
+                                   watcher: watcher,
                                    driftActive: drift.isActive, typedModel: typedModel,
                                    policyModel: fleetPolicy.model, projectDeclares: project.model != nil,
                                    executing: launchPrimaryModel(launchArgs, providerID: provider.id),

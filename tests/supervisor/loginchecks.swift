@@ -73,11 +73,12 @@ func runLoginSignalChecks() {
         check("non-service event \(index) preserves login failure",
               watcherAfterScanning([error, event(fields)]).loginRequiredAt != nil)
     }
-    var auth = try! JSONSerialization.jsonObject(with: Data(error.utf8)) as! [String: Any]
+    var auth = authFields
+    let repeated = watcherAfterScanning([error, event(auth, at: 120)])
     check("repeated authentication errors preserve the unresolved episode timestamp",
-          watcherAfterScanning([error, event(auth, at: 120)]).loginRequiredAt == launch.addingTimeInterval(60))
+          repeated.loginRequiredAt == launch.addingTimeInterval(60))
     check("lastFailedAt follows the newest failure while loginRequiredAt keeps the first",
-          watcherAfterScanning([error, event(authFields, at: 120)]).loginLastFailedAt == launch.addingTimeInterval(120))
+          repeated.loginLastFailedAt == launch.addingTimeInterval(120))
     for (name, extra) in [("a sidechain", ["isSidechain": true]), ("another session's", ["sessionId": "another-session"])] as [(String, [String: Any])] {
         check("\(name) later authentication error does not advance lastFailedAt",
               watcherAfterScanning([error, event(authFields.merging(extra) { $1 }, at: 120)]).loginLastFailedAt == launch.addingTimeInterval(60))

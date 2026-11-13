@@ -29,9 +29,13 @@ enum TallyColor {
             ? NSColor(TallyColor.warning)
             : NSColor(srgbRed: 0.55, green: 0.33, blue: 0.0, alpha: 1)
     })
-    /// Electric purple, the industry's AI accent (Copilot / Gemini / Notion AI vocabulary) -
-    /// marks the smart pick as "the machine chose this", distinct from the human's orange pin.
-    static let ai = Color(red: 0.55, green: 0.36, blue: 0.96)
+    /// The smart pick's mark ("the machine chose this", distinct from the human's orange pin): a
+    /// neutral ink, light on a dark panel and near black on a light one (B-4059, no colour accent).
+    static let ai = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0xD4 / 255, green: 0xD4 / 255, blue: 0xD8 / 255, alpha: 1)
+            : NSColor(srgbRed: 0x3A / 255, green: 0x3A / 255, blue: 0x3C / 255, alpha: 1)
+    })
     static let critical = Color(red: 0.86, green: 0.31, blue: 0.29)  // softened red, not alarm-siren
     /// THE STATE AXIS'S GREEN: something is alive and running, and nobody has to do anything about
     /// it. Bright and saturated on purpose, so it cannot be taken for `normal`'s calm sage. The two

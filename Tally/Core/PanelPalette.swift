@@ -111,9 +111,8 @@ enum PanelPalette {
         var tile: Gradient
 
         static let dark = Skin(
-            stops: [0x302848, 0x201C32, 0x181626], alpha: 0.93,
-            halos: [Tone(hex: 0xEC7C54, alpha: 0.22), Tone(hex: 0x20C8A0, alpha: 0.15),
-                    Tone(hex: 0x8C78FF, alpha: 0.22)],
+            stops: [0x0B0B0C, 0x0B0B0C, 0x0B0B0C], alpha: 1,
+            halos: [Tone(hex: 0x000000, alpha: 0), Tone(hex: 0x000000, alpha: 0), Tone(hex: 0x000000, alpha: 0)],
             rimOuter: Tone(hex: 0xFFFFFF, alpha: 0), rimInner: Tone(hex: 0xFFFFFF, alpha: 0.13),
             rimTop: Tone(hex: 0xFFFFFF, alpha: 0.22),
             card: Tone(hex: 0xFFFFFF, alpha: 0.045), cardEdge: Tone(hex: 0xFFFFFF, alpha: 0.08),
@@ -121,66 +120,64 @@ enum PanelPalette {
             footer: Tone(hex: 0xFFFFFF, alpha: 0.045), footerEdge: Tone(hex: 0xFFFFFF, alpha: 0.07),
             colHeadLine: Tone(hex: 0xFFFFFF, alpha: 0.08), track: Tone(hex: 0x000000, alpha: 0.30),
             hotRow: Tone(hex: 0xFF6E60, alpha: 0.07),
-            claude: Gradient(from: 0xF8946A, to: 0xFFBA96), codex: Gradient(from: 0x22C9A0, to: 0x74EAC6),
-            violet: Gradient(from: 0xA99BFF, to: 0xB8A9FF), amber: Gradient(from: 0xF0A23A, to: 0xFFC870),
-            red: Gradient(from: 0xFF8378, to: 0xFF948A),
-            inkClaude: 0xF18F66, inkCodex: 0x3FD6AE, inkSpark: 0xB9A6FF, inkWarn: 0xFFB45C,
+            claude: Gradient(from: 0xD4D4D8, to: 0xD4D4D8), codex: Gradient(from: 0xD4D4D8, to: 0xD4D4D8),
+            violet: Gradient(from: 0xD4D4D8, to: 0xD4D4D8), amber: Gradient(from: 0xF0A23A, to: 0xF0A23A),
+            red: Gradient(from: 0xFF8378, to: 0xFF8378),
+            inkClaude: 0xF18F66, inkCodex: 0x3FD6AE, inkSpark: 0xD4D4D8, inkWarn: 0xFFB45C,
             lowInk: 0xFFC6C0, paceWarn: 0xFFC56B,
-            violetPill: Pill(fill: Tone(hex: 0x9680FF, alpha: 0.20), ink: 0xD9D0FF),
+            violetPill: Pill(fill: Tone(hex: 0xFFFFFF, alpha: 0.10), ink: 0xE6E6EA),
             planClaude: Pill(fill: Tone(hex: 0xEC7C54, alpha: 0.16), ink: 0xFFD4C2),
             planCodex: Pill(fill: Tone(hex: 0x22C9A0, alpha: 0.16), ink: 0xA6F0DA),
             amberPill: Pill(fill: Tone(hex: 0xF7B446, alpha: 0.17), ink: 0xFFE5BC, dot: 0xFFC15C),
             greenPill: Pill(fill: Tone(hex: 0x46D682, alpha: 0.16), ink: 0xAFF1C8, dot: 0x5BE095),
             redPill: Pill(fill: Tone(hex: 0xFF6E60, alpha: 0.16), ink: 0xFFD2CD, dot: 0xFF8A7E),
-            idlePill: Pill(fill: Tone(hex: 0xFFFFFF, alpha: 0.08), ink: 0xE3E0EB, dot: 0xA8A2B8),
-            seg: Tone(hex: 0x0A0814, alpha: 0.30), segEdge: Tone(hex: 0xFFFFFF, alpha: 0.07),
+            idlePill: Pill(fill: Tone(hex: 0xFFFFFF, alpha: 0.08), ink: 0xE3E3E8, dot: 0xA8A8AE),
+            seg: Tone(hex: 0x000000, alpha: 0.30), segEdge: Tone(hex: 0xFFFFFF, alpha: 0.07),
             segOn: Tone(hex: 0xFFFFFF, alpha: 0.16), segOnTop: Tone(hex: 0xFFFFFF, alpha: 0.16),
-            segText: 0xD2CDDF, segOnText: 0xFFFFFF, tabDot: 0xFF7A6E,
+            segText: 0xD2D2D6, segOnText: 0xFFFFFF, tabDot: 0xFF7A6E,
             chip: Tone(hex: 0xFFFFFF, alpha: 0.08), chipEdge: Tone(hex: 0xFFFFFF, alpha: 0.08),
-            chipInk: 0xE4DFF0,
+            chipInk: 0xE4E4E8,
             tile: Gradient(from: 0x8E7BFF, to: 0x5B45D6))
 
         static let light = Skin(
-            stops: [0xFCF9FD, 0xF4F3FB, 0xEEF0FA], alpha: 0.91,
-            halos: [Tone(hex: 0xFFA880, alpha: 0.30), Tone(hex: 0x50D6B2, alpha: 0.20),
-                    Tone(hex: 0xA08CFF, alpha: 0.24)],
-            rimOuter: Tone(hex: 0x3C286E, alpha: 0.10), rimInner: Tone(hex: 0xFFFFFF, alpha: 0.75),
+            stops: [0xFFFFFF, 0xFFFFFF, 0xFFFFFF], alpha: 1,
+            halos: [Tone(hex: 0x000000, alpha: 0), Tone(hex: 0x000000, alpha: 0), Tone(hex: 0x000000, alpha: 0)],
+            rimOuter: Tone(hex: 0x000000, alpha: 0.10), rimInner: Tone(hex: 0xFFFFFF, alpha: 0.75),
             rimTop: Tone(hex: 0xFFFFFF, alpha: 0),
-            card: Tone(hex: 0xFFFFFF, alpha: 0.60), cardEdge: Tone(hex: 0xFFFFFF, alpha: 0.90),
-            cardTop: Tone(hex: 0xFFFFFF, alpha: 0), cardShadow: Tone(hex: 0x281E50, alpha: 0.06),
-            footer: Tone(hex: 0xFFFFFF, alpha: 0.50), footerEdge: Tone(hex: 0xFFFFFF, alpha: 0.90),
-            colHeadLine: Tone(hex: 0x3C286E, alpha: 0.08), track: Tone(hex: 0x3C286E, alpha: 0.09),
+            card: Tone(hex: 0xFFFFFF, alpha: 0.60), cardEdge: Tone(hex: 0x000000, alpha: 0.08),
+            cardTop: Tone(hex: 0xFFFFFF, alpha: 0), cardShadow: Tone(hex: 0x000000, alpha: 0.06),
+            footer: Tone(hex: 0xFFFFFF, alpha: 0.50), footerEdge: Tone(hex: 0x000000, alpha: 0.08),
+            colHeadLine: Tone(hex: 0x000000, alpha: 0.08), track: Tone(hex: 0x000000, alpha: 0.09),
             hotRow: Tone(hex: 0xDC3C28, alpha: 0.07),
-            claude: Gradient(from: 0xA8441F, to: 0xBC5430), codex: Gradient(from: 0x096A52, to: 0x0B785D),
-            violet: Gradient(from: 0x5234C2, to: 0x6649D6), amber: Gradient(from: 0x8A5000, to: 0x9C5C00),
-            red: Gradient(from: 0xA21F14, to: 0xB92A1E),
-            inkClaude: 0xA8441F, inkCodex: 0x096A52, inkSpark: 0x5E3FD0, inkWarn: 0x985600,
+            claude: Gradient(from: 0x2C2C30, to: 0x2C2C30), codex: Gradient(from: 0x2C2C30, to: 0x2C2C30),
+            violet: Gradient(from: 0x2C2C30, to: 0x2C2C30), amber: Gradient(from: 0x8A5000, to: 0x8A5000),
+            red: Gradient(from: 0xA21F14, to: 0xA21F14),
+            inkClaude: 0xA8441F, inkCodex: 0x096A52, inkSpark: 0x2C2C30, inkWarn: 0x985600,
             lowInk: 0xB4271C, paceWarn: 0x8A4E00,
-            violetPill: Pill(fill: Tone(hex: 0x6E50E6, alpha: 0.12), ink: 0x5032B6),
+            violetPill: Pill(fill: Tone(hex: 0x000000, alpha: 0.06), ink: 0x3A3A3E),
             planClaude: Pill(fill: Tone(hex: 0xC85A32, alpha: 0.12), ink: 0x9A3F1C),
             planCodex: Pill(fill: Tone(hex: 0x0B785D, alpha: 0.12), ink: 0x0A5440),
             amberPill: Pill(fill: Tone(hex: 0xDC8C14, alpha: 0.15), ink: 0x7E4600, dot: 0xB86E00),
             greenPill: Pill(fill: Tone(hex: 0x1E9650, alpha: 0.12), ink: 0x11643A, dot: 0x1E9150),
             redPill: Pill(fill: Tone(hex: 0xDC3C28, alpha: 0.12), ink: 0x9E1F14, dot: 0xC42B20),
-            idlePill: Pill(fill: Tone(hex: 0x3C286E, alpha: 0.07), ink: 0x4F4A60, dot: 0x6E6880),
-            seg: Tone(hex: 0x3C286E, alpha: 0.07), segEdge: Tone(hex: 0x3C286E, alpha: 0),
+            idlePill: Pill(fill: Tone(hex: 0x000000, alpha: 0.07), ink: 0x4F4F54, dot: 0x6E6E74),
+            seg: Tone(hex: 0x000000, alpha: 0.07), segEdge: Tone(hex: 0x000000, alpha: 0),
             segOn: Tone(hex: 0xFFFFFF), segOnTop: Tone(hex: 0xFFFFFF, alpha: 0),
-            segText: 0x504C61, segOnText: 0x1C1828, tabDot: 0xC42B20,
-            chip: Tone(hex: 0xFFFFFF, alpha: 0.70), chipEdge: Tone(hex: 0x3C286E, alpha: 0.08),
-            chipInk: 0x3E3A4E,
+            segText: 0x505054, segOnText: 0x1C1C1E, tabDot: 0xC42B20,
+            chip: Tone(hex: 0xFFFFFF, alpha: 0.70), chipEdge: Tone(hex: 0x000000, alpha: 0.08),
+            chipInk: 0x3E3E42,
             tile: Gradient(from: 0x7B63F2, to: 0x4B33C2))
     }
 
-    /// The text levels are the skin's own (B-4169 Opus draft): a violet-leaning white and ink, not the
-    /// neutral greys the first design draft used. The levels stay opaque on purpose (a translucent
+    /// The text levels are neutral greys (B-4059; the B-4169 draft's violet lean is gone). The levels stay opaque on purpose (a translucent
     /// grey follows the desktop behind the glass), the secondary one is the draft's muted colour and
     /// the tertiary level (words nobody has to read) is derived to clear 3:1 (tests/panelcontrast).
     /// `panelSolid` and `glassAlpha` describe the FLAT tint that the pick panel and the view-options
     /// card still lay over their glass; the skin's gradient glass is `Skin.stops` / `Skin.alpha`.
-    static let dark = Appearance(text: 0xF6F4FB, text2: 0xD6D1E2, text3: 0xAAA5B9,
+    static let dark = Appearance(text: 0xF5F5F7, text2: 0xD4D4D8, text3: 0xA8A8AE,
                                  panelSolid: 0x1E1E22, glassAlpha: 0.92,
                                  cardFill: 0xFFFFFF, cardAlpha: 0.045, skin: .dark)
-    static let light = Appearance(text: 0x1C1828, text2: 0x575269, text3: 0x6E6880,
+    static let light = Appearance(text: 0x1C1C1E, text2: 0x55555A, text3: 0x6C6C72,
                                   panelSolid: 0xF4F4F6, glassAlpha: 0.92,
                                   cardFill: 0xFFFFFF, cardAlpha: 0.60, skin: .light)
 

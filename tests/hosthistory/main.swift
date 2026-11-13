@@ -61,6 +61,14 @@ do {
     let edgeBack = parseHostLoadLine(hostLoadLine(edge, timeZone: taipei.timeZone).trimmingCharacters(in: .newlines),
                                      formatter: hostLoadDateFormatter())
     expect(edgeBack?.load1 == 47.999 && edgeBack!.load1 < 48, "a load just under a gate stays under it after the write and read back")
+    // The grid getloadavg returns is k/2048; the point just under a gate must survive the round trip for any gate.
+    for gate in [48.0, 47.3, 12.34] {
+        let under = (gate * 2048).rounded(.down) / 2048 - (gate * 2048 == (gate * 2048).rounded(.down) ? 1.0 / 2048 : 0)
+        let grid = HostLoadSample(at: s.at, load1: under, freeGB: 40, memPct: nil, cpuPct: nil, cores: 16)
+        let gridBack = parseHostLoadLine(hostLoadLine(grid, timeZone: taipei.timeZone).trimmingCharacters(in: .newlines),
+                                         formatter: hostLoadDateFormatter())
+        expect(under < gate && gridBack?.load1 == under && gridBack!.load1 < gate, "the grid point just under gate \(gate) reads back under it")
+    }
 }
 
 do {

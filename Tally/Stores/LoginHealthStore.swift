@@ -105,11 +105,11 @@ final class LoginHealthStore {
     /// that gap. Persisted, so a relaunch keeps it retired.
     @discardableResult
     func retireSessions(_ accountID: String, at: Date) -> Int {
-        let count = sessions.filter { $0.accountID == accountID && $0.failedAt <= at }.count
+        let before = sessions.count
         alerts.retire(accountID, at: at)
         sessions.removeAll { alerts.isRetired($0) }
         save()
-        return count
+        return before - sessions.count
     }
 
     /// Retire the credential-deadline metadata read before a credential change. Session incidents
